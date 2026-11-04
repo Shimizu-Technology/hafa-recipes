@@ -1,4 +1,4 @@
-import type { Child, Kind, RecordData } from "./models";
+import { kindName, type Child, type Kind, type RecordData } from "./models";
 import { addDays, clockIn, keyDate, recordDay } from "./tracker";
 
 const minute = 60_000;
@@ -55,6 +55,14 @@ export const diaperWords = { wet: "Pee", dirty: "Poo", both: "Pee and poo", dry:
 export const colorWords = { black: "Black", green: "Green", yellow: "Yellow", brown: "Brown", red: "Red", white: "White" } as const;
 export const contentWords = { breast_milk: "Breast milk", formula: "Formula" } as const;
 
+export const methodWords = { armpit: "Armpit", rectal: "Rectal", oral: "Oral", ear: "Ear", forehead: "Forehead", other: "Other" } as const;
+/** "7 lb 8 oz", as a doctor says it, or "3.4 kg". */
+export function weightText(value: number, unit: unknown) {
+  if (unit !== "lb") return `${value} kg`;
+  const ounces = Math.round(value * 160) / 10, pounds = Math.floor(ounces / 16);
+  return `${pounds} lb ${Math.round((ounces - pounds * 16) * 10) / 10} oz`;
+}
+
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
@@ -90,6 +98,12 @@ export function careSummary(kind: Kind, data: RecordData, occurredAt: string, no
     if (data.color && colorWords[data.color]) parts.push(colorWords[data.color]);
     return parts.join(" · ");
   }
+  const d = data as Record<string, any>;
+  if (kind === "pumping") return [kindName.pumping, sides[d.side as "left"], finite(d.amount) && `${d.amount} ${d.unit === "oz" ? "oz" : "mL"}`, finite(d.duration_minutes) && duration(d.duration_minutes)].filter(Boolean).join(" · ");
+  if (kind === "medicine") return [kindName.medicine, d.name, d.dose].filter(Boolean).join(" · ");
+  if (kind === "temperature") return [kindName.temperature, finite(d.value) && `${d.value} °${d.unit === "c" ? "C" : "F"}`, methodWords[d.method as "armpit"]].filter(Boolean).join(" · ");
+  if (kind === "growth") return [kindName.growth, finite(d.weight) && weightText(d.weight, d.weight_unit), finite(d.length) && `${d.length} ${d.length_unit}`, finite(d.head) && `Head ${d.head} ${d.head_unit}`].filter(Boolean).join(" · ");
+  if (kind === "custom" && finite(d.value)) return [d.label ?? kindName.custom, `${d.value}${d.unit ? ` ${d.unit}` : ""}`].join(" · ");
   return "";
 }
 

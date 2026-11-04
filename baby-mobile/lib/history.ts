@@ -9,7 +9,7 @@ export interface HistoryView {
 }
 export function historyKinds(filter: string): Kind[] {
   if (filter === "writing") return ["journal", "question"];
-  if (filter === "care") return [...careKinds];
+  if (filter === "care") return [...careKinds, "pumping", "medicine", "temperature", "growth", "custom"];
   if (filter === "journal" || filter === "question") return [filter];
   return ["journal", "question", ...careKinds];
 }

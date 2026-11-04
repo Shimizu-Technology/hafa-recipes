@@ -1,7 +1,7 @@
 import { importFinished } from "./import-status";
 import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
 import { withSessionAction } from "./session-actions";
-import type { BabyRecord, Child, DeviceState, EditorDraft, ImportJob, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
+import type { BabyRecord, Child, DeviceState, EditorDraft, ImportJob, Kind, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
     b.occurred_at.localeCompare(a.occurred_at)
@@ -243,8 +243,9 @@ export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
 }
 /** Kinds the API can refuse for now with a 503 until its flag is on, so a build shipped first keeps them queued. */
+const retriedKinds: readonly Kind[] = ["contraction", "kick_session", "pumping", "medicine", "temperature", "growth", "milestone", "custom"];
 export function retriedSave(change: Mutation): change is Extract<Mutation, { type: "save" }> {
-  return change.type === "save" && (change.record.kind === "contraction" || change.record.kind === "kick_session" || change.record.kind === "milestone" || change.record.kind === "custom");
+  return change.type === "save" && retriedKinds.includes(change.record.kind);
 }
 /** How many rejected reads of a timed feed to try before asking her. */
 export const unresolvedAttempts = 5;

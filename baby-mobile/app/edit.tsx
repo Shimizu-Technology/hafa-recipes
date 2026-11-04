@@ -24,6 +24,9 @@ import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
 import { ensureAiConsent } from "../lib/ai-consent";
 import { staysWithBaby } from "../lib/well-visits";
+import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
+import { trackerFor } from "../lib/trackers";
+import { LogFields } from "../components/log-fields";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -69,6 +72,7 @@ export default function Edit() {
     [showDetails, setShowDetails] = useState(!!params.id);
   const latest = useRef<EditorDraft | null>(null),
     loaded = useRef(false),
+    logFormProblem = useRef(""),
     retired = useRef(false),
     working = useRef(false),
     changed = useRef(false);
@@ -225,6 +229,7 @@ export default function Edit() {
       !d.data.url
     )
       throw Error("Add a title, a note, or a source to keep.");
+    if (logFormProblem.current) throw Error(logFormProblem.current);
     if (isCare(d.kind) && !d.existing && !d.child_id && b.state.bootstrap!.children.length)
       throw Error("Choose which baby this is for.");
     if (d.kind === "feeding" && d.data.amount != null && (!Number.isFinite(d.data.amount) || d.data.amount <= 0))
@@ -374,6 +379,15 @@ export default function Edit() {
   }
   // Journal entries and doctor questions open on the writing area; other kinds keep notes after their details.
   const writing = !!draft && (draft.kind === "journal" || draft.kind === "question" || draft.kind === "source");
+  /** Its fields hold what she's typed, and the draft holds the last that made sense, so typing "37." doesn't lose the dot. */
+  function logForm(form: LogForm, base: Record<string, unknown>) {
+    try {
+      const id = trackerFor(draft!)!.id, made = dataFrom(id, form, base);
+      logFormProblem.current = "";
+      change({ data: made, title: logTitle(id, form) });
+    } catch (e) { logFormProblem.current = messageFor(e); }
+  }
+  const log = draft ? trackerFor(draft) : undefined, isLog = log?.opens === "panel";
   const notesField = draft && ((!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
         <Field
           label={
@@ -444,7 +458,8 @@ export default function Edit() {
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}
       {writing && <Button variant="ghost" title={showDetails ? "Hide optional details" : "Add photo, title or details"} onPress={() => setShowDetails(!showDetails)} />}
-      {((!["feeding", "sleep", "diaper", "journal", "question", "source"].includes(draft.kind)) || showDetails) && (
+      {isLog && log!.id !== "note" && <LogFields id={log!.id} start={formFrom(log!.id, draft.data, draft.title)} onChange={(form) => logForm(form, draft.data)} />}
+      {!isLog && ((!["feeding", "sleep", "diaper", "journal", "question", "source"].includes(draft.kind)) || showDetails) && (
         <Field
           label={["feeding", "sleep", "diaper"].includes(draft.kind) ? "Label (optional)" : writing ? "Title (optional)" : "Title"}
           value={draft.title}
@@ -575,7 +590,7 @@ export default function Edit() {
       {draft.kind !== "collection" && (!writing || showDetails) && <DateField
         label={draft.kind === "sleep" ? "Sleep started" : "Date and time"}
         value={draft.occurred_at}
-        timeZone={isCare(draft.kind) ? b.state.bootstrap!.profile.timezone : undefined}
+        timeZone={isCare(draft.kind) || moreKinds.includes(draft.kind) ? b.state.bootstrap!.profile.timezone : undefined}
         onChange={(occurred_at) => change({ occurred_at })}
       />}
       {draft.kind === "sleep" && (

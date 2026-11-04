@@ -53,6 +53,7 @@ vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/history", () => import("./history"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
+vi.mock("@/components/more-logs", () => ({ MoreLogs: () => null }));
 vi.mock("@/lib/chat-citations", () => import("./chat-citations"));
 vi.mock("@/components/header-search", () => import("../components/header-search"));
 vi.mock("@/components/tab-stack", () => import("../components/tab-stack"));
@@ -379,7 +380,7 @@ it.each([false, true])("refreshes the scoped timeline from page zero after sync,
   expect(visible()).toEqual(expect.arrayContaining([old.id, older.id]));
   await act(async () => { await renderer!.root.findByType(Screen).props.onRefresh(); });
   expect(mock.baby.sync).toHaveBeenCalledOnce();
-  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? ["feeding", "sleep", "diaper"] : ["question"] });
+  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? ["feeding", "sleep", "diaper", "pumping", "medicine", "temperature", "growth", "custom"] : ["question"] });
   expect(visible()).toEqual(expect.arrayContaining([fresh.id, old.id, older.id]));
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("matching");
 });

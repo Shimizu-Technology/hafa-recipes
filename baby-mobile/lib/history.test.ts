@@ -175,7 +175,7 @@ describe("journal history recovery", () => {
     await expect(pager.next()).rejects.toThrow("offline");
     expect(pager.snapshot()).toMatchObject({ offset: 0, busy: false, more: true });
     await pager.next();
-    expect(fetch.mock.calls[2][0]).toMatchObject({ kinds: ["feeding", "sleep", "diaper"], offset: 0 });
+    expect(fetch.mock.calls[2][0]).toMatchObject({ kinds: ["feeding", "sleep", "diaper", "pumping", "medicine", "temperature", "growth", "custom"], offset: 0 });
   });
 
   it("prevents overlapping loads and stops a contradictory empty-page loop", async () => {
@@ -251,7 +251,7 @@ it.each(["empty","total"])("drops stale retained IDs at a completed %s boundary"
 
 it("keeps the Journal's written timeline separate from the pushed care history", () => {
   expect(historyKinds("writing")).toEqual(["journal", "question"]);
-  expect(historyKinds("care")).toEqual(["feeding", "sleep", "diaper"]);
+  expect(historyKinds("care")).toEqual(["feeding", "sleep", "diaper", "pumping", "medicine", "temperature", "growth", "custom"]);
   const state = { ...emptyState(), records: [row("note"), row("question", "question"), row("feed", "feeding")] };
   expect(historyRows(state, { ...view, filter: "writing" }, null).map(r => r.id)).toEqual(["note", "question"]);
 });

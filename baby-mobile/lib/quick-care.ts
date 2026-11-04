@@ -130,6 +130,13 @@ export function bottleStart(rows: BabyRecord[], childId: string | null): BottleC
     : { amount: firstAmount[unit], unit, contents: last?.data.contents ?? undefined, fromLast: false };
 }
 
+/** The same for pumping: what came out last time, in the same unit. */
+export function pumpStart(rows: BabyRecord[], childId: string | null): BottleChoice {
+  const last = rows.filter((row) => row.kind === "pumping" && row.child_id === childId).sort(newestFirst)[0],
+    unit = last?.data.unit ?? "oz", amount = last?.data.amount;
+  return typeof amount === "number" && amount > 0 ? { amount, unit, fromLast: true } : { amount: firstAmount[unit], unit, fromLast: false };
+}
+
 export function stepAmount(choice: Pick<BottleChoice, "amount" | "unit">, direction: 1 | -1) {
   const step = bottleStep[choice.unit];
   return Math.max(step, Math.round((choice.amount + direction * step) / step) * step);

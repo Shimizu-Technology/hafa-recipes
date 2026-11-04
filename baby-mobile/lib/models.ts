@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "milestone" | "custom" | "event";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "pumping" | "medicine" | "temperature" | "growth" | "milestone" | "custom" | "event";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -421,6 +421,10 @@ export const kindName: Record<Kind, string> = {
   collection: "Collection",
   contraction: "Contraction",
   kick_session: "Kick count",
+  pumping: "Pumping",
+  medicine: "Medicine",
+  temperature: "Temperature",
+  growth: "Growth",
   milestone: "Milestone",
   custom: "Entry",
   event: "Event",

@@ -3,6 +3,9 @@ import { canPreview } from "./weekly-content";
 import type { BabyRecord } from "./models";
 import { midnight } from "./events";
 import { dayKey } from "./tracker";
+import { shotLabel } from "./trackers";
+
+export { shotLabel };
 
 /**
  * AWAITING CLINICIAN REVIEW (MEDICAL_REVIEW_2 Q1). AAP's visit ages, gated like the weekly batches: `approved` in the
@@ -36,9 +39,10 @@ export const visitEvent = (visit: Pick<WellVisit, "title">, childId: string, day
 export const visitOnCalendar = (rows: readonly BabyRecord[], visit: Pick<WellVisit, "title">, childId: string | null) =>
   rows.some((row) => row.kind === "event" && row.child_id === childId && row.title === visit.title);
 
-export const shotLabel = "Shot";
 /** A milestone or a shot only means something for its baby: as "general" it would drop off that baby's lists and look lost. */
 export const staysWithBaby = ({ kind, data }: Pick<BabyRecord, "kind" | "data">) => kind === "milestone" || (kind === "custom" && data.label === shotLabel);
+/** A milestone or a shot is kept by its date, and its noon is only how the date is stored. A log has a real time. */
+export const datedOnly = ({ kind, data }: Pick<BabyRecord, "kind" | "data">) => kind === "milestone" || (kind === "custom" && data.label === shotLabel);
 /** Shots she recorded for this child, newest first. A custom entry labelled "Shot" is all a shot is. */
 export const recordedShots = (rows: readonly BabyRecord[], childId: string | null) =>
   rows.filter((row) => row.kind === "custom" && row.data.label === shotLabel && row.child_id === childId).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));

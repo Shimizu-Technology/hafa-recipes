@@ -1,6 +1,6 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type Mutation } from "./models";
 
 const mock = vi.hoisted(() => ({ upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
@@ -207,4 +207,41 @@ it("Book next opens a form already filled in, and saves a new visit through the 
   expect(change.record.revision).toBeFalsy();
   expect(change.record.data.recurrence).toBeUndefined();
   expect(mock.back).toHaveBeenCalled();
+});
+
+describe("editing one of the extra logs", () => {
+  const log = (kind: BabyRecord["kind"], title: string, data: Record<string, unknown>, id = "log") => ({ ...optimisticRecord({ id, kind, title, body: "", child_id: "baby", occurred_at: "2026-11-04T02:00:00.000Z", data: data as never }), revision: 1 });
+  const field = (label: string) => found("Field", (p) => p.label === label);
+  const saved = (account: any) => account.state.outbox.find((m: Mutation) => m.type === "save")?.record;
+  it("won't save a reading on the wrong scale, then saves the fixed one in place of the old", async () => {
+    const account = setup([log("temperature", "Temperature", { value: 99.1, unit: "f", method: "armpit" })]);
+    mock.params = { id: "log", kind: "temperature" };
+    await mount(Edit);
+    expect(field("Title")).toBeUndefined();
+    await act(async () => field("Temperature").props.onChange("37"));
+    await press("Button", "Save changes");
+    expect(saved(account)).toBeUndefined();
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Check the number");
+    await act(async () => field("Temperature").props.onChange("100.2"));
+    await press("Button", "Save changes");
+    expect(saved(account)).toMatchObject({ kind: "temperature", title: "Temperature", child_id: "baby", data: { value: 100.2, unit: "f", method: "armpit" } });
+  });
+  it("keeps a medicine's title to its name", async () => {
+    const account = setup([log("medicine", "Vitamin D", { name: "Vitamin D" })]);
+    mock.params = { id: "log", kind: "medicine" };
+    await mount(Edit);
+    await act(async () => field("Name").props.onChange("Gas drops"));
+    await act(async () => field("Dose (optional)").props.onChange("0.3 mL"));
+    await press("Button", "Save changes");
+    expect(saved(account)).toMatchObject({ title: "Gas drops", data: { name: "Gas drops", dose: "0.3 mL" } });
+  });
+  it("leaves a shot as it was: its name in the title, its label untouched", async () => {
+    const account = setup([log("custom", "Hep B", { label: "Shot" })]);
+    mock.params = { id: "log", kind: "custom" };
+    await mount(Edit);
+    expect(field("What is it?")).toBeUndefined();
+    await act(async () => field("Title").props.onChange("Hep B dose 2"));
+    await press("Button", "Save changes");
+    expect(saved(account)).toMatchObject({ title: "Hep B dose 2", child_id: "baby", data: { label: "Shot" } });
+  });
 });

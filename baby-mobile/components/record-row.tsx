@@ -1,7 +1,8 @@
 import { router } from "expo-router";
 import type { BabyRecord, Kind } from "@/lib/models";
 import { kindName } from "@/lib/models";
-import { careSummary, friendlyTime, isCare } from "@/lib/care-format";
+import { careSummary, friendlyTime } from "@/lib/care-format";
+import { trackerFor } from "../lib/trackers";
 import { useBaby } from "@/lib/context";
 import { Text, View } from "react-native";
 import { Row, fonts, useColors, type IconName } from "./ui";
@@ -17,10 +18,16 @@ export const kindIcon: Record<Kind, IconName> = {
   collection: "folder-outline",
   contraction: "pulse-outline",
   kick_session: "footsteps-outline",
+  pumping: "water-outline",
+  medicine: "bandage-outline",
+  temperature: "thermometer-outline",
+  growth: "trending-up-outline",
   milestone: "ribbon-outline",
   custom: "medkit-outline",
   event: "calendar-outline",
 };
+/** Its tracker's icon. A shot has none, and keeps the medical cross. */
+export const recordIcon = (record: Pick<BabyRecord, "kind" | "data">): IconName => (record.kind === "custom" && trackerFor(record)?.icon) || kindIcon[record.kind];
 /** Journal entries and doctor questions lead with their date, not the same glyph on every row. Decorative: the row says the time. */
 export function DateBlock({ iso }: { iso: string }) {
   const c = useColors(), date = new Date(iso);
@@ -36,7 +43,8 @@ export function DateBlock({ iso }: { iso: string }) {
 /** `now` lets a screen share one clock between rows and its summary so durations agree. */
 export function RecordRow({ record, pending = false, now }: { record: BabyRecord; pending?: boolean; now?: Date }) {
   const children = useBaby().state.bootstrap?.children ?? [],
-    care = isCare(record.kind),
+    summary = careSummary(record.kind, record.data, record.occurred_at, now),
+    care = !!summary,
     label = record.title && record.title !== kindName[record.kind] ? record.title : "",
     child = children.length > 1 ? children.find((c) => c.id === record.child_id)?.name : undefined;
   const details = [
@@ -50,11 +58,11 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
   if (record.kind === "source") return <SavedPostRow record={record} pending={pending} />;
   return (
     <Row
-      title={care ? careSummary(record.kind, record.data, record.occurred_at, now) : label || kindName[record.kind]}
+      title={summary || record.data.label || label || kindName[record.kind]}
       detail={details}
       numericTitle={care}
       numericDetail
-      icon={kindIcon[record.kind]}
+      icon={recordIcon(record)}
       leading={record.kind === "journal" || record.kind === "question" ? <DateBlock iso={record.occurred_at} /> : undefined}
       onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     />

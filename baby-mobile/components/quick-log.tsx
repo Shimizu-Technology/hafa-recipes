@@ -20,7 +20,7 @@ const other = (side: FeedSide): FeedSide => (side === "left" ? "right" : "left")
 /** Every night target is at least this tall. */
 export const quickTarget = 56;
 
-type Saved = { key: number; label: string; undo?: () => Promise<unknown>; recordId?: string; at?: string; follow?: "note" | "color";
+export type Saved = { key: number; label: string; undo?: () => Promise<unknown>; recordId?: string; at?: string; follow?: "note" | "color";
   /** A held tap: Undo goes at this moment, whatever else happens on screen, so it never outlasts the hold. */
   until?: number };
 type PoopColor = NonNullable<BabyRecord["data"]["color"]>;
@@ -32,7 +32,7 @@ const diaperChoices = [{ label: "Pee", type: "wet" }, { label: "Poo", type: "dir
 type DiaperType = (typeof diaperChoices)[number]["type"];
 
 /** One big choice inside a panel or running card. `strong` marks the suggested one. */
-function Option({ label, detail, hint, strong, height = 76, onPress }: { label: string; detail?: string; hint?: string; strong?: boolean; height?: number; onPress: () => void }) {
+export function Option({ label, detail, hint, strong, height = 76, onPress }: { label: string; detail?: string; hint?: string; strong?: boolean; height?: number; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={detail ? `${label}, ${detail}` : label} accessibilityHint={hint} onPress={onPress}
     style={{ flexGrow: 1, flexBasis: fontScale >= 1.5 ? "100%" : 0, minWidth: 0, minHeight: Math.max(quickTarget, height), borderRadius: 20, paddingVertical: 8, paddingHorizontal: 6,
@@ -120,7 +120,7 @@ function Follow({ colors, color, undone, onColor, onNote, onFocusChange }: { col
 }
 
 /** What just saved, with Undo. It fades on its own; nothing here needs an answer. */
-function SavedRow({ saved, compact, color, now, day, timeZone, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved;
+export function SavedRow({ saved, compact, color, now, day, timeZone, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved;
   /** Another log is open: one line with Undo, so the dock never buries the page. */
   compact?: boolean;
   color?: PoopColor; now: Date; day?: PastDay; timeZone?: string | null; onUndo: () => void; onGone: () => void;
@@ -168,7 +168,7 @@ function SavedRow({ saved, compact, color, now, day, timeZone, onUndo, onGone, o
 }
 
 /** A panel above the tiles: what it's for, and when it happened. */
-function Panel({ title, detail, at, now, day, timeZone, needTime, onTime, children }: { title: string; detail?: string; at: string | null; now: Date; day?: PastDay; timeZone?: string | null;
+export function Panel({ title, detail, at, now, day, timeZone, needTime, onTime, children }: { title: string; detail?: string; at: string | null; now: Date; day?: PastDay; timeZone?: string | null;
   /** She tried to save on another day before saying when. */
   needTime?: boolean; onTime: (iso: string | null) => void; children: React.ReactNode }) {
   // On another day "now" would be wrong, so the times are already open, and asking. Nothing saves until she answers.
@@ -187,25 +187,31 @@ function Panel({ title, detail, at, now, day, timeZone, needTime, onTime, childr
   </View>;
 }
 
-/** The amount, the unit, and the two milks. Choosing a milk saves it. */
-function BottlePanel({ start, at, now, day, timeZone, needTime, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; day?: PastDay; timeZone?: string | null; needTime?: boolean; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
-    same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit,
-    unitWord = bottle.unit === "oz" ? "oz" : "mL",
-    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); setBottle({ ...bottle, amount: stepAmount(bottle, direction) }); }}
+/** An amount to step up or down, whose middle changes the unit. */
+export function AmountStepper({ amount, onChange, note }: { amount: Pick<BottleChoice, "amount" | "unit">; onChange: (next: Pick<BottleChoice, "amount" | "unit">) => void; note?: string }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(),
+    unitWord = amount.unit === "oz" ? "oz" : "mL",
+    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); onChange({ ...amount, amount: stepAmount(amount, direction) }); }}
       style={{ width: 64, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
       <Icon name={direction > 0 ? "add" : "remove"} size={24} color={c.text} />
     </PressTarget>;
+  return <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: c.tile }}>
+    {step(-1, "Less")}
+    <PressTarget accessibilityRole="button" accessibilityLabel={`${amount.amount} ${unitWord}`} accessibilityHint={`Changes to ${amount.unit === "oz" ? "milliliters" : "ounces"}`}
+      onPress={() => { tap(); onChange(changeUnit(amount)); }} style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{`${amount.amount} ${unitWord}`}</Text>
+      <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{note ?? "Tap to change unit"}</Text>
+    </PressTarget>
+    {step(1, "More")}
+  </View>;
+}
+
+/** The amount, the unit, and the two milks. Choosing a milk saves it. */
+function BottlePanel({ start, at, now, day, timeZone, needTime, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; day?: PastDay; timeZone?: string | null; needTime?: boolean; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
+  const [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
+    same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit;
   return <Panel title="Bottle" at={at} now={now} day={day} timeZone={timeZone} needTime={needTime} onTime={onTime}>
-    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: c.tile }}>
-      {step(-1, "Less")}
-      <PressTarget accessibilityRole="button" accessibilityLabel={`${bottle.amount} ${unitWord}`} accessibilityHint={`Changes to ${bottle.unit === "oz" ? "milliliters" : "ounces"}`}
-        onPress={() => { tap(); setBottle(changeUnit(bottle)); }} style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
-        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{`${bottle.amount} ${unitWord}`}</Text>
-        <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{same ? "Same as last time" : "Tap to change unit"}</Text>
-      </PressTarget>
-      {step(1, "More")}
-    </View>
+    <AmountStepper amount={bottle} onChange={setBottle} note={same ? "Same as last time" : undefined} />
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {(["breast_milk", "formula"] as const).map((contents) => <Option key={contents} label={contentWords[contents]} strong={start.contents === contents} height={64}
         onPress={() => onSave({ ...bottle, contents })} />)}
@@ -213,29 +219,16 @@ function BottlePanel({ start, at, now, day, timeZone, needTime, onTime, onSave }
   </Panel>;
 }
 
-export function QuickLog({ child, rows, now, pastDay }: {
-  child: Child;
-  rows: BabyRecord[];
-  now: Date;
-  /** Logging a day that isn't today: entries get that day's time, and nothing runs. */
-  pastDay?: PastDay;
-}) {
-  const b = useBaby(), c = useColors(), toast = useToast(),
-    [panel, setPanel] = useState<"breast" | "bottle" | "diaper" | "sleep" | null>(null),
+/** What a log's buttons share: its open panel, when it happened, and the row that says it saved. */
+export function useLogFlow<P extends string>(pastDay?: PastDay) {
+  const b = useBaby(), toast = useToast(),
+    [panel, setPanel] = useState<P | null>(null),
     [at, setAt] = useState<string | null>(null),
     [saved, setSaved] = useState<Saved | null>(null),
     [needTime, setNeedTime] = useState(false),
-    timeZone = b.state.bootstrap!.profile.timezone,
-    // A timer started on an older build is still running; it finishes on its own card first.
-    legacyTimer = activeTimer(b.state)?.child_id === child.id,
     // A ref, not state, so two taps in the same frame cannot both start a write.
     writing = useRef(false),
     keys = useRef(0),
-    running = pastDay ? undefined : runningFeed(rows, child.id, now),
-    next = running ? undefined : nextSide(rows, child.id),
-    openSleep = pastDay ? undefined : careGlance(rows, child.id, now, timeZone).openSleep,
-    last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
-    savedRow = saved?.recordId ? b.records.find((row) => row.id === saved.recordId) : undefined,
     /** When this entry happened. On another day only she can say, so until she has, nothing saves. */
     when = () => {
       if (at) return new Date(at);
@@ -269,12 +262,37 @@ export function QuickLog({ child, rows, now, pastDay }: {
     tap();
     try { await action(); } catch (e) { toast(messageFor(e)); }
   }
-  function toggle(name: NonNullable<typeof panel>) {
-    if (name === "breast" && legacyTimer && !pastDay) return toast("A feeding timer is running. Finish it from the timer above.");
+  function toggle(name: P) {
     tap();
     setAt(null);
     setNeedTime(false);
     setPanel(panel === name ? null : name);
+  }
+  return { panel, at, saved, setSaved, needTime, when, change, save, amend, undo, toggle };
+}
+
+export function QuickLog({ child, rows, now, pastDay, tilesAside }: {
+  child: Child;
+  rows: BabyRecord[];
+  now: Date;
+  /** Another log on the page is open, and may need the keyboard: the tiles step out of its way. A running feed stays. */
+  tilesAside?: boolean;
+  /** Logging a day that isn't today: entries get that day's time, and nothing runs. */
+  pastDay?: PastDay;
+}) {
+  const b = useBaby(), toast = useToast(),
+    { panel, at, saved, setSaved, needTime, when, change, save, amend, undo, toggle: open } = useLogFlow<"breast" | "bottle" | "diaper" | "sleep">(pastDay),
+    timeZone = b.state.bootstrap!.profile.timezone,
+    // A timer started on an older build is still running; it finishes on its own card first.
+    legacyTimer = activeTimer(b.state)?.child_id === child.id,
+    running = pastDay ? undefined : runningFeed(rows, child.id, now),
+    next = running ? undefined : nextSide(rows, child.id),
+    openSleep = pastDay ? undefined : careGlance(rows, child.id, now, timeZone).openSleep,
+    last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
+    savedRow = saved?.recordId ? b.records.find((row) => row.id === saved.recordId) : undefined;
+  function toggle(name: NonNullable<typeof panel>) {
+    if (name === "breast" && legacyTimer && !pastDay) return toast("A feeding timer is running. Finish it from the timer above.");
+    open(name);
   }
   function side(choice: FeedSide | "both") {
     const time = when();
@@ -368,12 +386,12 @@ export function QuickLog({ child, rows, now, pastDay }: {
           : <Option label={openSleep ? "End" : "Start"} strong onPress={() => void sleep()} />}
       </View>
     </Panel>}
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+    {!tilesAside && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       <Tile primary icon="care:mother-nurse" label={(running || legacyTimer) && !pastDay ? "Feeding" : "Breastfeed"} open={panel === "breast"}
         hint="Choose left, right or both. A tap saves it." onPress={() => toggle("breast")} />
       <Tile icon="care:baby-bottle-outline" label="Bottle" open={panel === "bottle"} hint="Choose an amount and breast milk or formula. A tap saves it." onPress={() => toggle("bottle")} />
       <Tile icon="care:human-baby-changing-table" label="Diaper" open={panel === "diaper"} hint="Choose pee, poo, both or dry. A tap saves it." onPress={() => toggle("diaper")} />
       <Tile icon={openSleep ? "moon" : "moon-outline"} label={openSleep ? "Sleeping" : "Sleep"} open={panel === "sleep"} hint={openSleep ? "Ends the current sleep" : "Starts a sleep"} onPress={() => toggle("sleep")} />
-    </View>
+    </View>}
   </View>;
 }

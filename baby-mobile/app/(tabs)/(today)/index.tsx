@@ -1,5 +1,6 @@
+import { useRef } from "react";
 import { Stack, router } from "expo-router";
-import { Text, View, useWindowDimensions } from "react-native";
+import { ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { useTodayCare } from "@/lib/today-care";
 import { sleepGlanceDetail, babyAge, careGlance } from "@/lib/care-glance";
@@ -18,6 +19,7 @@ import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
 import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
+import { MoreLogs } from "@/components/more-logs";
 import { BabyAgeCard, PregnancyHero, TipSection } from "@/components/tips";
 import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
@@ -57,6 +59,7 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
 }
 
 export default function Today() {
+  const scroller = useRef<ScrollView>(null);
   const b = useBaby(), c = useColors(),
     toast = useToast(),
     now = useMinuteClock(),
@@ -102,7 +105,7 @@ export default function Today() {
     } catch (e) { toast(messageFor(e)); }
   }
   if (expecting && child) return (
-    <Screen title={titleText}>
+    <Screen scrollRef={scroller} title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
@@ -121,6 +124,7 @@ export default function Today() {
         <Tile icon="pulse-outline" label="Contraction timer" hint="Start, stop, and the last hour" onPress={() => router.push("/contractions")} />
         <Tile icon="footsteps-outline" label="Kick counter" hint="A tap for each movement, and your history" onPress={() => router.push("/kicks")} />
       </View>
+      <MoreLogs child={child} now={now} stage="expecting" onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} />
       <View style={{ gap: 8 }}>
         <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
           <Tile icon="link-outline" label="Save a link" hint="Paste a link, or share from TikTok, Instagram or Safari"
