@@ -74,3 +74,39 @@ export async function updateCare(b: Account, record: BabyRecord, data: RecordDat
       files: [],
     }), undone);
 }
+
+/** Change a saved entry's time, note or details. Built from the newest local copy, so changes made seconds apart all land. */
+export async function amendCare(b: Account & Pick<ReturnType<typeof useBaby>, "records">, id: string, change: (record: BabyRecord) => Partial<Pick<BabyRecord, "body" | "occurred_at" | "data">>) {
+  const record = b.records.find((row) => row.id === id);
+  if (!record) return;
+  await b.queue({ id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "save", record: { ...record, ...change(record) }, files: [] });
+}
+
+const ozToMl = 30;
+const bottleStep = { oz: 0.5, ml: 10 } as const;
+/** Where a first bottle starts, before there is a last time to copy. */
+const firstAmount = { oz: 3, ml: 90 } as const;
+
+export interface BottleChoice { amount: number; unit: "oz" | "ml"; contents?: NonNullable<RecordData["contents"]>; fromLast: boolean }
+
+/** A bottle starts from the last one: same amount, same unit, same milk. Ounces until she uses something else. */
+export function bottleStart(rows: BabyRecord[], childId: string | null): BottleChoice {
+  const last = rows.filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "bottle")
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  const unit = last?.data.unit ?? "oz", amount = last?.data.amount;
+  return typeof amount === "number" && amount > 0
+    ? { amount, unit, contents: last!.data.contents ?? undefined, fromLast: true }
+    : { amount: firstAmount[unit], unit, contents: last?.data.contents ?? undefined, fromLast: false };
+}
+
+export function stepAmount(choice: Pick<BottleChoice, "amount" | "unit">, direction: 1 | -1) {
+  const step = bottleStep[choice.unit];
+  return Math.max(step, Math.round((choice.amount + direction * step) / step) * step);
+}
+
+/** The same bottle in the other unit, on the nearest step. */
+export function changeUnit(choice: Pick<BottleChoice, "amount" | "unit">): Pick<BottleChoice, "amount" | "unit"> {
+  const unit = choice.unit === "oz" ? "ml" : "oz", step = bottleStep[unit],
+    converted = choice.unit === "oz" ? choice.amount * ozToMl : choice.amount / ozToMl;
+  return { unit, amount: Math.max(step, Math.round(converted / step) * step) };
+}

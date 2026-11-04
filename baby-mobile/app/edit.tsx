@@ -11,7 +11,8 @@ import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
-import { careSummary, defaultChild, friendlyTime, isCare } from "@/lib/care-format";
+import { sendsCareDetails } from "../lib/api";
+import { careSummary, colorWords, contentWords, defaultChild, diaperWords, friendlyTime, isCare } from "@/lib/care-format";
 import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
@@ -465,9 +466,27 @@ export default function Edit() {
           label="Diaper"
           options={["wet", "dirty", "both", "dry"].map((value) => ({
             value,
-            label: value === "both" ? "Wet + dirty" : value[0].toUpperCase() + value.slice(1),
+            label: value === "both" ? "Pee and poo" : diaperWords[value as "wet"],
           }))}
           onChange={(type) => data({ type: type as RecordData["type"] })}
+        />
+      )}
+      {sendsCareDetails && draft.kind === "diaper" && (draft.data.type === "dirty" || draft.data.type === "both") && (
+        <Chips
+          value={draft.data.color ?? ""}
+          label="Colour"
+          options={[{ value: "", label: "Not set" }, ...Object.entries(colorWords)
+            .filter(([value]) => ["black", "green", "yellow", "brown"].includes(value) || value === draft.data.color)
+            .map(([value, label]) => ({ value, label }))]}
+          onChange={(color) => data({ color: (color || null) as RecordData["color"] })}
+        />
+      )}
+      {sendsCareDetails && draft.kind === "feeding" && draft.data.method === "bottle" && (
+        <Chips
+          value={draft.data.contents ?? ""}
+          label="What’s in it"
+          options={[{ value: "", label: "Not set" }, ...Object.entries(contentWords).map(([value, label]) => ({ value, label }))]}
+          onChange={(contents) => data({ contents: (contents || null) as RecordData["contents"] })}
         />
       )}
       {draft.kind !== "collection" && (!writing || showDetails) && <DateField

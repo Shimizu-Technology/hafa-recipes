@@ -55,7 +55,10 @@ export function friendlyDate(value: string) {
 }
 
 const sides = { left: "Left side", right: "Right side", both: "Both sides" } as const;
-const diapers = { wet: "Wet", dirty: "Dirty", both: "Wet and dirty", dry: "Dry" } as const;
+/** Kami's words on screen; the stored values stay wet, dirty, both and dry so older entries still count. */
+export const diaperWords = { wet: "Pee", dirty: "Poo", both: "Pee and poo", dry: "Dry" } as const;
+export const colorWords = { black: "Black", green: "Green", yellow: "Yellow", brown: "Brown", red: "Red", white: "White" } as const;
+export const contentWords = { breast_milk: "Breast milk", formula: "Formula" } as const;
 
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
@@ -66,6 +69,7 @@ export function careSummary(kind: Kind, data: RecordData, occurredAt: string, no
   if (kind === "feeding") {
     const parts = [data.method === "breast" ? "Breastfeeding" : data.method === "bottle" ? "Bottle" : "Feeding"];
     if (data.method === "breast" && data.side && sides[data.side]) parts.push(sides[data.side]);
+    if (data.method === "bottle" && data.contents && contentWords[data.contents]) parts.push(contentWords[data.contents]);
     if (finite(data.amount)) parts.push(`${data.amount} ${data.unit === "oz" ? "oz" : "mL"}`);
     if (finite(data.duration_minutes)) parts.push(duration(data.duration_minutes));
     return parts.join(" · ");
@@ -85,7 +89,12 @@ export function careSummary(kind: Kind, data: RecordData, occurredAt: string, no
     const slept = duration((new Date(data.end_at).getTime() - start) / minute);
     return slept ? `Slept ${slept}` : "Sleep recorded";
   }
-  if (kind === "diaper") return `${data.type && diapers[data.type] ? diapers[data.type] : "Recorded"} diaper`;
+  if (kind === "diaper") {
+    const parts = ["Diaper"];
+    if (data.type && diaperWords[data.type]) parts.push(diaperWords[data.type]);
+    if (data.color && colorWords[data.color]) parts.push(colorWords[data.color]);
+    return parts.join(" · ");
+  }
   return "";
 }
 

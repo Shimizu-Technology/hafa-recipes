@@ -14,6 +14,13 @@ import type {
   Scope,
 } from "./models";
 import { dailyAiLimitMessage } from "./import-status";
+/**
+ * What this build tells the API it understands, as `X-Baby-Client`; null sends no header and reads as build 32.
+ * The one switch for the Build A API contract: turn it to 2 only once that API is deployed. The new care fields
+ * (`contents`, `color`) follow it, because they don't exist on the API before then and it rejects unknown fields.
+ */
+export const babyClient = null as 2 | null;
+export const sendsCareDetails = babyClient === 2;
 /** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
 const knownDetails = new Set([
   "Add the birth date to see what is relevant now",
@@ -92,6 +99,7 @@ export function createBabyApi(
           headers: {
             Authorization: `Bearer ${token}`,
             ...(body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+            ...(babyClient ? { "X-Baby-Client": String(babyClient) } : {}),
             ...(generation === undefined ? {} : { "X-Baby-Generation": String(generation) }),
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },

@@ -345,3 +345,14 @@ it("distinguishes server upload failure from offline without reflecting private 
   transport.mockRejectedValueOnce(new TypeError("Network request failed"));
   await expect(api.save(row, 1)).rejects.toMatchObject({ status: 0, message: expect.stringContaining("offline") });
 });
+
+it("sends X-Baby-Client from one constant, and only when it is set", async () => {
+  const { babyClient, createBabyApi: create } = await import("./api");
+  const seen: Record<string, string>[] = [];
+  const api = create("https://api.test", async () => "token", () => true, async (_url, init) => {
+    seen.push(init!.headers as Record<string, string>);
+    return new Response(JSON.stringify({ items: [], total: 0, has_more: false }), { status: 200 });
+  });
+  await api.records({});
+  expect(seen[0]["X-Baby-Client"]).toBe(babyClient ? String(babyClient) : undefined);
+});

@@ -1,22 +1,31 @@
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, Text, View, useWindowDimensions } from "react-native";
-import { router } from "expo-router";
+import { AccessibilityInfo, Animated, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord, type Child, type FeedTimer } from "@/lib/models";
-import { nextSide } from "@/lib/care-glance";
-import { careSummary, friendlyTime } from "@/lib/care-format";
+import { careGlance, nextSide } from "@/lib/care-glance";
+import { sendsCareDetails } from "@/lib/api";
+import { amendCare, bottleStart, careWrite, changeUnit, logCare, stepAmount, updateCare, type BottleChoice } from "@/lib/quick-care";
+import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
 import { clockText, currentSide, feedRecordData, type FeedSide } from "@/lib/feed-timer";
-import { finishFeed, logBothSides, runningFeed, startFeed, switchFeed } from "@/lib/running-feed";
+import { finishFeed, runningFeed, startFeed, switchFeed } from "@/lib/running-feed";
 import { Icon, PressTarget, easeOut, fonts, radii, tap, typeScale, useColors, useToast, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
+import { TimeChip, TimeChoices } from "./quick-time";
 
 const word = { left: "Left", right: "Right", both: "Both" } as const;
 const other = (side: FeedSide): FeedSide => (side === "left" ? "right" : "left");
 /** Every night target is at least this tall. */
 export const quickTarget = 56;
 
-type Saved = { key: number; label: string; undo?: () => Promise<unknown> };
+type Saved = { key: number; label: string; undo?: () => Promise<unknown>; recordId?: string; at?: string; follow?: "note" | "color" };
+type PoopColor = "black" | "green" | "yellow" | "brown";
+const swatches: { label: string; value?: PoopColor; fill?: string }[] = [
+  { label: "Black", value: "black", fill: "#1A1512" }, { label: "Green", value: "green", fill: "#5E6B38" }, { label: "Yellow", value: "yellow", fill: "#D8AE3F" },
+  { label: "Brown", value: "brown", fill: "#7A5230" }, { label: "Other" },
+];
+const diaperChoices = [{ label: "Pee", type: "wet" }, { label: "Poo", type: "dirty" }, { label: "Both", type: "both" }, { label: "Dry", type: "dry" }] as const;
+type DiaperType = (typeof diaperChoices)[number]["type"];
 
 /** One big choice inside a panel or running card. `strong` marks the suggested one. */
 function Option({ label, detail, hint, strong, height = 76, onPress }: { label: string; detail?: string; hint?: string; strong?: boolean; height?: number; onPress: () => void }) {
@@ -67,67 +76,154 @@ function RunningCard({ timer, onSwitch, onDone }: { timer: FeedTimer; onSwitch: 
   </View>;
 }
 
+/** The optional row after a diaper: colour for a poo, and a note. Skipping it costs nothing. */
+function Follow({ colors, color, onColor, onNote, onFocusChange }: { colors: boolean; color?: PoopColor; onColor: (value?: PoopColor) => void; onNote: (note: string) => void; onFocusChange: (holding: boolean) => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), input = useRef<TextInput>(null), [note, setNote] = useState(""), [other, setOther] = useState(false);
+  return <View style={{ gap: 8, paddingHorizontal: 12, paddingBottom: 12 }}>
+    {colors && <View accessibilityRole="radiogroup" accessibilityLabel="Colour" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+      {swatches.map((swatch) => {
+        const on = swatch.value ? color === swatch.value : other;
+        return <PressTarget key={swatch.label} accessibilityRole="radio" accessibilityLabel={swatch.label} accessibilityState={{ selected: on }}
+          onPress={() => {
+            tap();
+            // Other has no stored colour: she says what it was in the note.
+            if (!swatch.value) { setOther(!other); if (color) onColor(undefined); if (!other) input.current?.focus(); return; }
+            setOther(false);
+            onColor(on ? undefined : swatch.value);
+          }}
+          style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? "30%" : 0, minWidth: 0, minHeight: quickTarget, borderRadius: 16, paddingVertical: 6, alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: on ? c.action : c.tile }}>
+          <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: swatch.fill ?? "transparent", borderWidth: 1, borderColor: c.outline }} />
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 12, lineHeight: 15, color: on ? c.onAction : c.text }}>{swatch.label}</Text>
+        </PressTarget>;
+      })}
+    </View>}
+    <TextInput key={fontScale} ref={input} accessibilityLabel="Add a note" value={note} onChangeText={setNote} placeholder={other ? "What colour? (optional)" : "Add a note (optional)"} placeholderTextColor={c.muted}
+      returnKeyType="done" maxLength={1000} maxFontSizeMultiplier={0} onFocus={() => onFocusChange(true)}
+      onBlur={() => { onNote(note.trim()); onFocusChange(false); }}
+      style={{ minHeight: 52, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16, backgroundColor: c.tile, color: c.text, fontFamily: fonts.regular, fontSize: 16, lineHeight: 21 }} />
+  </View>;
+}
+
 /** What just saved, with Undo. It fades on its own; nothing here needs an answer. */
-function SavedRow({ saved, onUndo, onGone }: { saved: Saved; onUndo: () => void; onGone: () => void }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), reduced = useReducedMotion(), fade = useRef(new Animated.Value(1)).current;
+function SavedRow({ saved, color, now, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved; color?: PoopColor; now: Date; onUndo: () => void; onGone: () => void;
+  onMove: (iso: string | null) => void; onColor: (value?: PoopColor) => void; onNote: (note: string) => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), reduced = useReducedMotion(), fade = useRef(new Animated.Value(1)).current,
+    [choosing, setChoosing] = useState(false), [holding, setHolding] = useState(false), [touched, setTouched] = useState(0),
+    touch = () => setTouched((value) => value + 1);
   useEffect(() => {
     let active = true, timer: ReturnType<typeof setTimeout> | undefined;
     fade.setValue(1);
     void AccessibilityInfo.isScreenReaderEnabled().then((reader) => {
       if (!active) return;
-      if (reader) AccessibilityInfo.announceForAccessibility(`${saved.label} saved.${saved.undo ? " Undo available." : ""}`);
+      if (reader && !touched) AccessibilityInfo.announceForAccessibility(`${saved.label} saved.${saved.undo ? " Undo available." : ""}`);
+      // Never fade while she is choosing a time or writing a note.
+      if (holding || choosing) return;
       timer = setTimeout(() => {
         if (reduced) return onGone();
         Animated.timing(fade, { toValue: 0, duration: 240, easing: easeOut, useNativeDriver: true }).start(({ finished }) => { if (finished) onGone(); });
-      }, reader ? 20000 : 6000);
+      }, reader ? 20000 : saved.follow ? 9000 : 6000);
     });
     return () => { active = false; if (timer) clearTimeout(timer); fade.stopAnimation(); };
-  }, [saved.key]);
-  return <Animated.View style={{ opacity: fade, flexDirection: "row", alignItems: "center", gap: 10, minHeight: quickTarget, paddingLeft: 12, borderRadius: radii.toast, backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline }}>
-    <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: c.accent }}>
-      <Icon name="checkmark" size={17} color={c.onAdd} />
+  }, [saved.key, holding, choosing, touched]);
+  return <Animated.View style={{ opacity: fade, borderRadius: radii.toast, backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: quickTarget, paddingLeft: 12 }}>
+      <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: c.accent }}>
+        <Icon name="checkmark" size={17} color={c.onAdd} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text key={`l:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 19, color: c.text }}>{saved.label}</Text>
+        <Text key={`s:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>Saved</Text>
+      </View>
+      {!!saved.at && <TimeChip label={friendlyTime(saved.at, now)} open={choosing} onPress={() => { tap(); setChoosing(!choosing); }} />}
+      {!!saved.undo && <PressTarget accessibilityRole="button" accessibilityLabel={`Undo ${saved.label}`} onPress={onUndo}
+        style={{ minHeight: quickTarget, minWidth: quickTarget, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}>
+        <Text key={`u:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.bold, fontSize: 16, lineHeight: 20, color: c.accentText }}>Undo</Text>
+      </PressTarget>}
     </View>
-    <View style={{ flex: 1, minWidth: 0 }}>
-      <Text key={`l:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 19, color: c.text }}>{saved.label}</Text>
-      <Text key={`s:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>Saved</Text>
-    </View>
-    {!!saved.undo && <PressTarget accessibilityRole="button" accessibilityLabel={`Undo ${saved.label}`} onPress={onUndo}
-      style={{ minHeight: quickTarget, minWidth: quickTarget, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}>
-      <Text key={`u:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.bold, fontSize: 16, lineHeight: 20, color: c.accentText }}>Undo</Text>
-    </PressTarget>}
+    {choosing && !!saved.at && <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+      <TimeChoices value={saved.at} now={now} onChange={(iso) => { setChoosing(false); onMove(iso); touch(); }} />
+    </View>}
+    {!!saved.follow && <Follow colors={saved.follow === "color"} color={color} onFocusChange={setHolding}
+      onColor={(value) => { onColor(value); touch(); }} onNote={(note) => { onNote(note); touch(); }} />}
   </Animated.View>;
 }
 
-export function QuickLog({ child, rows, now, legacyTimer, onBottle, onDiaper, sleeping, onSleep }: {
+/** A panel above the tiles: what it's for, and when it happened. */
+function Panel({ title, detail, at, now, onTime, children }: { title: string; detail?: string; at: string | null; now: Date; onTime: (iso: string | null) => void; children: React.ReactNode }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), [open, setOpen] = useState(false);
+  return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ flexShrink: 1, fontFamily: fonts.semibold, fontSize: 15, lineHeight: 19, color: c.text, paddingHorizontal: 2 }}>
+        {title}{detail ? <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: c.muted }}>{`  ${detail}`}</Text> : null}
+      </Text>
+      <TimeChip label={at ? friendlyTime(at, now) : "Now"} open={open} onPress={() => { tap(); setOpen(!open); }} />
+    </View>
+    {open && <TimeChoices value={at ?? now.toISOString()} now={now} onChange={(iso) => { onTime(iso); setOpen(false); }} />}
+    {children}
+  </View>;
+}
+
+/** The amount, the unit, and the two milks. Choosing a milk saves it. */
+function BottlePanel({ start, at, now, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
+    same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit,
+    unitWord = bottle.unit === "oz" ? "oz" : "mL",
+    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); setBottle({ ...bottle, amount: stepAmount(bottle, direction) }); }}
+      style={{ width: 64, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
+      <Icon name={direction > 0 ? "add" : "remove"} size={24} color={c.text} />
+    </PressTarget>;
+  return <Panel title="Bottle" at={at} now={now} onTime={onTime}>
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: c.tile }}>
+      {step(-1, "Less")}
+      <PressTarget accessibilityRole="button" accessibilityLabel={`${bottle.amount} ${unitWord}`} accessibilityHint={`Changes to ${bottle.unit === "oz" ? "milliliters" : "ounces"}`}
+        onPress={() => { tap(); setBottle(changeUnit(bottle)); }} style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
+        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{`${bottle.amount} ${unitWord}`}</Text>
+        <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{same ? "Same as last time" : "Tap to change unit"}</Text>
+      </PressTarget>
+      {step(1, "More")}
+    </View>
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {(["breast_milk", "formula"] as const).map((contents) => <Option key={contents} label={contentWords[contents]} strong={start.contents === contents} height={64}
+        onPress={() => onSave({ ...bottle, contents })} />)}
+    </View>
+  </Panel>;
+}
+
+export function QuickLog({ child, rows, now, legacyTimer }: {
   child: Child;
   rows: BabyRecord[];
   now: Date;
   /** A timer started on an older build is still running; it finishes on its own card first. */
   legacyTimer?: boolean;
-  onBottle: () => void;
-  onDiaper: () => void;
-  sleeping: boolean;
-  onSleep: () => void;
 }) {
   const b = useBaby(), c = useColors(), toast = useToast(),
-    [panel, setPanel] = useState<"breast" | null>(null),
+    [panel, setPanel] = useState<"breast" | "bottle" | "diaper" | "sleep" | null>(null),
+    [at, setAt] = useState<string | null>(null),
     [saved, setSaved] = useState<Saved | null>(null),
     // A ref, not state, so two taps in the same frame cannot both start a write.
     writing = useRef(false),
     keys = useRef(0),
     running = runningFeed(b.state, child.id, now),
     next = nextSide(rows, child.id),
-    last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast");
-  async function save(label: string, action: () => Promise<() => Promise<unknown>>) {
+    openSleep = careGlance(rows, child.id, now).openSleep,
+    last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
+    savedRow = saved?.recordId ? b.records.find((row) => row.id === saved.recordId) : undefined,
+    when = () => (at ? new Date(at) : new Date());
+  async function save(label: string, action: () => Promise<() => Promise<unknown>>, details: Pick<Saved, "recordId" | "at" | "follow"> = {}) {
     if (writing.current) return;
     writing.current = true;
     try {
       const undo = await action();
       tap("success");
       setPanel(null);
-      setSaved({ key: ++keys.current, label, undo });
+      setAt(null);
+      setSaved({ key: ++keys.current, label, undo, ...details });
     } catch (e) { toast(messageFor(e)); }
     finally { writing.current = false; }
+  }
+  /** A follow-up to what just saved. It is its own queued change, so it works offline and Undo still removes the entry. */
+  function amend(change: Parameters<typeof amendCare>[2]) {
+    if (saved?.recordId) void amendCare(b, saved.recordId, change).catch((e) => toast(messageFor(e)));
   }
   async function undo() {
     if (!saved?.undo) return;
@@ -136,35 +232,80 @@ export function QuickLog({ child, rows, now, legacyTimer, onBottle, onDiaper, sl
     tap();
     try { await action(); } catch (e) { toast(messageFor(e)); }
   }
-  function openBreast() {
-    if (legacyTimer) return toast("A feeding timer is running. Finish it from the timer above.");
+  function toggle(name: NonNullable<typeof panel>) {
+    if (name === "breast" && legacyTimer) return toast("A feeding timer is running. Finish it from the timer above.");
     tap();
-    setPanel(panel === "breast" ? null : "breast");
+    setAt(null);
+    setPanel(panel === name ? null : name);
   }
   function side(choice: FeedSide | "both") {
-    if (choice === "both") return save("Both sides", () => logBothSides(b, child.id));
-    return save(word[choice], () => startFeed(b, child.id, choice));
+    const time = when();
+    if (choice === "both") {
+      const record = careWrite("feeding", child.id, { method: "breast", side: "both" }, time);
+      return save("Both sides", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
+    }
+    return save(word[choice], () => startFeed(b, child.id, choice, time));
+  }
+  function bottle(choice: Pick<BottleChoice, "amount" | "unit" | "contents">) {
+    const record = careWrite("feeding", child.id, { method: "bottle", amount: choice.amount, unit: choice.unit,
+      ...(sendsCareDetails && choice.contents ? { contents: choice.contents } : {}) }, when());
+    return save(`${choice.contents ? contentWords[choice.contents] : "Bottle"}, ${choice.amount} ${choice.unit === "oz" ? "oz" : "mL"}`,
+      () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
+  }
+  function diaper(label: string, type: DiaperType) {
+    const record = careWrite("diaper", child.id, { type }, when());
+    return save(label, () => logCare(b, record), { recordId: record.id, at: record.occurred_at,
+      // Colour goes to the API only once it can store it.
+      follow: sendsCareDetails && (type === "dirty" || type === "both") ? "color" : "note" });
+  }
+  function sleep() {
+    if (openSleep) {
+      const started = new Date(openSleep.occurred_at).getTime(),
+        // A sleep can't end before it began, even if the chosen time says so.
+        end_at = new Date(Math.max(when().getTime(), started)).toISOString(),
+        data = { ...openSleep.data, end_at };
+      return save(careSummary("sleep", data, openSleep.occurred_at), () => updateCare(b, openSleep, data));
+    }
+    const record = careWrite("sleep", child.id, {}, when());
+    return save("Sleep started", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
   }
   return <View style={{ gap: 8 }}>
-    {!!saved && <SavedRow saved={saved} onUndo={() => void undo()} onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))} />}
+    {!!saved && <SavedRow saved={saved} now={now} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
+      onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
+      onMove={(iso) => {
+        const moved = iso ?? new Date().toISOString();
+        setSaved({ ...saved, at: moved });
+        amend(() => ({ occurred_at: moved }));
+      }}
+      // An explicit null clears it: the API keeps a field a PATCH leaves out.
+      onColor={(color) => amend((row) => ({ data: { ...row.data, color: color ?? null } }))}
+      onNote={(note) => amend((row) => (row.body === note ? {} : { body: note }))} />}
     {running && <RunningCard timer={running}
       onSwitch={() => void save(`Switched to ${word[other(currentSide(running))]}`, () => switchFeed(b, running))}
       onDone={() => void save(careSummary("feeding", feedRecordData(running), running.started_at), () => finishFeed(b, running))} />}
-    {panel === "breast" && <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
-      <Text maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 19, color: c.text, paddingHorizontal: 2 }}>
-        Which side?{last?.data.side ? <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: c.muted }}>{`  Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now)}`}</Text> : null}
-      </Text>
+    {panel === "breast" && <Panel title="Which side?" detail={last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now)}` : undefined} at={at} now={now} onTime={setAt}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {(["left", "right", "both"] as const).map((choice) => <Option key={choice} label={word[choice]} strong={choice === next} detail={choice === next ? "Next" : undefined}
           onPress={() => void side(choice)} />)}
       </View>
-    </View>}
+    </Panel>}
+    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} at={at} now={now} onTime={setAt} onSave={(choice) => void bottle(choice)} />}
+    {panel === "diaper" && <Panel title="Diaper" at={at} now={now} onTime={setAt}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {diaperChoices.map((choice) => <Option key={choice.type} label={choice.label} onPress={() => void diaper(choice.label, choice.type)} />)}
+      </View>
+    </Panel>}
+    {panel === "sleep" && <Panel title={openSleep ? `Sleeping since ${friendlyTime(openSleep.occurred_at, now)}` : "Sleep"} at={at} now={now} onTime={setAt}>
+      <View style={{ flexDirection: "row" }}>
+        <Option label={openSleep ? "End" : "Start"} strong onPress={() => void sleep()} />
+      </View>
+    </Panel>}
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       <Tile primary icon="care:mother-nurse" label={running || legacyTimer ? "Feeding" : "Breastfeed"} open={panel === "breast"}
-        hint="Choose left, right or both. A tap saves it." onPress={openBreast} />
-      <Tile icon="care:baby-bottle-outline" label="Bottle" hint="Log a bottle" onPress={onBottle} />
-      <Tile icon="care:human-baby-changing-table" label="Diaper" hint="Choose wet, dirty or both" onPress={onDiaper} />
-      <Tile icon={sleeping ? "moon" : "moon-outline"} label={sleeping ? "Wake up" : "Sleep"} hint={sleeping ? "Ends the current sleep now" : "Starts a sleep now"} onPress={onSleep} />
+        hint="Choose left, right or both. A tap saves it." onPress={() => toggle("breast")} />
+      <Tile icon="care:baby-bottle-outline" label="Bottle" open={panel === "bottle"} hint="Choose an amount and breast milk or formula. A tap saves it." onPress={() => toggle("bottle")} />
+      <Tile icon="care:human-baby-changing-table" label="Diaper" open={panel === "diaper"} hint="Choose pee, poo, both or dry. A tap saves it." onPress={() => toggle("diaper")} />
+      <Tile icon={openSleep ? "moon" : "moon-outline"} label={openSleep ? "Sleeping" : "Sleep"} open={panel === "sleep"} hint={openSleep ? "Ends the current sleep" : "Starts a sleep"} onPress={() => toggle("sleep")} />
     </View>
   </View>;
 }

@@ -86,8 +86,12 @@ export interface RecordData {
   unit?: "ml" | "oz";
   side?: "left" | "right" | "both";
   duration_minutes?: number | null;
+  /** What's in a bottle. Stored in the API's words; shown as Breast milk or Formula. */
+  contents?: "breast_milk" | "formula" | null;
   end_at?: string;
   type?: "wet" | "dirty" | "both" | "dry";
+  /** A poo's colour, as the API stores it. */
+  color?: "black" | "green" | "yellow" | "brown" | "red" | "white" | null;
   routine_type?: "checklist" | "schedule";
   items?: RoutineItem[];
   reminder_at?: string;

@@ -36,11 +36,6 @@ export async function startFeed(b: Account, childId: string, side: FeedSide, now
   }), restoring(record.id, before?.record_id ? before : undefined));
 }
 
-/** Both is for logging afterwards or not thinking about it: saved finished, with no duration and no timer. */
-export function logBothSides(b: Account, childId: string, now = new Date()) {
-  return logCare(b, careWrite("feeding", childId, { method: "breast", side: "both" }, now));
-}
-
 export async function switchFeed(b: Account, timer: FeedTimer, now = new Date()) {
   await b.commit((state) => (state.feedTimer?.record_id === timer.record_id ? { ...state, feedTimer: switchSide(timer, now) } : state));
   return () => b.commit(restoring(timer.record_id, timer));

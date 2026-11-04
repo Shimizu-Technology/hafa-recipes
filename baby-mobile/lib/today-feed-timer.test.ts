@@ -7,7 +7,6 @@ const scope = vi.hoisted(() => ({
   account: null as unknown,
   care: [] as unknown[],
   tint: "#59453B",
-  sheets: [] as { tintColor?: string; options: string[]; pick: (index: number) => void }[],
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
   toast: vi.fn(),
   push: vi.fn(),
@@ -19,8 +18,7 @@ vi.mock("react-native", () => ({
   AccessibilityInfo: { isScreenReaderEnabled: async () => false, announceForAccessibility() {} },
   Animated: { View: "AnimatedView", Value: class { setValue() {} stopAnimation() {} }, timing: () => ({ start() {} }) },
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
-  ActionSheetIOS: { showActionSheetWithOptions: (config: { options: string[]; tintColor?: string }, pick: (index: number) => void) =>
-    scope.sheets.push({ ...config, pick }) },
+  TextInput: "TextInput", ScrollView: "ScrollView",
   Alert: { alert: (title: string, _message: string, buttons = []) => scope.alerts.push({ title, buttons }) },
 }));
 vi.mock("expo-router", async () => {
@@ -59,6 +57,8 @@ vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", FirstStep
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
 vi.mock("@/components/quick-log", () => import("../components/quick-log"));
 vi.mock("@/lib/running-feed", () => import("./running-feed"));
+vi.mock("@/lib/api", () => ({ sendsCareDetails: false }));
+vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 vi.mock("@/components/tips", () => ({ PregnancyHero: "PregnancyHero", TipSection: "TipSection" }));
 vi.mock("@/lib/timing", () => import("./timing"));
@@ -104,17 +104,13 @@ async function press(title: string) {
   await act(async () => { (button.props.onPress as () => void)(); });
   await render();
 }
-async function pick(index: number) {
-  await act(async () => scope.sheets[scope.sheets.length - 1].pick(index));
-  await render();
-}
 const elapsed = async (ms: number) => { await act(async () => { vi.advanceTimersByTime(ms); }); };
 const clock = () => find("Text", () => true).map((node) => node.props.children).find((text) => /^\d/.test(String(text)));
 
 beforeEach(() => {
   vi.useFakeTimers({ now: start });
   vi.clearAllMocks();
-  scope.sheets = []; scope.alerts = []; scope.care = []; scope.fontScale = 1;
+  scope.alerts = []; scope.care = []; scope.fontScale = 1;
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
     if (!String(args[0]).includes("react-test-renderer is deprecated")) throw Error(String(args[0]));
@@ -187,13 +183,6 @@ it("restores a persisted timer after restart and hides one from an older space",
   await render();
   expect(find("Button", (p) => p.title === "Stop")).toHaveLength(0);
   expect(find("Pressable", (p) => p.accessibilityLabel === "Breastfeed")).toHaveLength(1);
-});
-
-it("opens the full form for a bottle", async () => {
-  setup();
-  await render();
-  await tapFeedTile("Bottle");
-  expect(scope.push).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: "feeding" } });
 });
 
 it("renders the initial empty care state without raw text in the screen layout", async () => {
@@ -301,11 +290,3 @@ it("keeps the pregnancy layout with a sibling's running feed timer on top", asyn
   expect(find("Pressable", p => p.accessibilityLabel === "Feeding")).toHaveLength(1);
 });
 
-it.each(["#59453B", "#EBD8C9"])("tints the iOS diaper sheet with the current Soft action colour (%s)", async tint => {
-  setup(); scope.tint = tint;
-  await render();
-  for (const label of ["Diaper"]) {
-    await act(async () => find("Pressable", p => p.accessibilityLabel === label)[0].props.onPress());
-    expect(scope.sheets.at(-1)?.tintColor).toBe(tint);
-  }
-});

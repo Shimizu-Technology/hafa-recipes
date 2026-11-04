@@ -1,14 +1,14 @@
 import { useRef } from "react";
 import { Stack, router } from "expo-router";
-import { ActionSheetIOS, Alert, Platform, Text, View, useWindowDimensions } from "react-native";
+import { Text, View, useWindowDimensions } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useBaby } from "@/lib/context";
-import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
+import { messageFor, type FeedTimer } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
 import { sleepGlanceDetail, babyAge, careGlance } from "@/lib/care-glance";
-import { careSummary, friendlyTime } from "@/lib/care-format";
+import { careSummary } from "@/lib/care-format";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
-import { careWrite, logCare, updateCare } from "@/lib/quick-care";
+import { careWrite, logCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData } from "@/lib/feed-timer";
 import { runningFeed } from "@/lib/running-feed";
 import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, useToast, type IconName } from "@/components/ui";
@@ -24,13 +24,6 @@ import { useTimingTips } from "@/lib/use-timing-tips";
 
 /** The docked log covers too much of the screen at the largest text sizes, so it scrolls with the page there. */
 const dockBelow = 1.5;
-
-const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] = [
-  { label: "Wet", type: "wet" },
-  { label: "Dirty", type: "dirty" },
-  { label: "Wet + dirty", type: "both" },
-  { label: "Dry", type: "dry" },
-];
 
 function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: string; hint: string; onPress: () => void; primary?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
@@ -119,43 +112,6 @@ export default function Today() {
       `${careSummary("feeding", data, record.occurred_at)} · logged`
     );
   }
-  function sleep() {
-    if (!child) return router.push({ pathname: "/edit", params: { kind: "sleep" } });
-    const open = glance.openSleep;
-    if (open) {
-      const data = { ...open.data, end_at: new Date().toISOString() };
-      return void quick(() => updateCare(b, open, data), `${careSummary("sleep", data, open.occurred_at)} · logged`);
-    }
-    void quick(() => logCare(b, careWrite("sleep", child.id, {})), `Sleep started at ${friendlyTime(new Date().toISOString())}`);
-  }
-  function diaper() {
-    if (!child) return router.push({ pathname: "/edit", params: { kind: "diaper" } });
-    const save = (type: NonNullable<RecordData["type"]>) =>
-      void quick(
-        () => logCare(b, careWrite("diaper", child.id, { type })),
-        `${careSummary("diaper", { type }, "")} logged at ${friendlyTime(new Date().toISOString())}`
-      );
-    const details = () => router.push({ pathname: "/edit", params: { kind: "diaper" } });
-    if (Platform.OS === "ios")
-      return ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: `Diaper for ${child.name}`,
-          options: [...diaperChoices.map((choice) => choice.label), "Add time or note…", "Cancel"],
-          cancelButtonIndex: diaperChoices.length + 1,
-          tintColor: c.action,
-        },
-        (index) => (index < diaperChoices.length ? save(diaperChoices[index].type) : index === diaperChoices.length && details())
-      );
-    Alert.alert(
-      `Diaper for ${child.name}`,
-      undefined,
-      [
-        ...diaperChoices.slice(0, 2).map((choice) => ({ text: choice.label, onPress: () => save(choice.type) })),
-        { text: "More…", onPress: details },
-      ],
-      { cancelable: true }
-    );
-  }
   const sleepEntry = glance.openSleep ?? glance.lastSleep,
     sleepTitle = glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
     sleepDetail = sleepGlanceDetail(glance, now),
@@ -203,9 +159,7 @@ export default function Today() {
         onPress={addBirth} />}
     </Screen>
   );
-  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} legacyTimer={!!timer}
-    onBottle={() => router.push({ pathname: "/edit", params: { kind: "feeding" } })} onDiaper={diaper}
-    sleeping={!!glance.openSleep} onSleep={sleep} /> : null;
+  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} legacyTimer={!!timer} /> : null;
   return (
     <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}
       footer={fontScale < dockBelow ? quickLog : undefined}>
@@ -224,7 +178,7 @@ export default function Today() {
         {showCare && <Row title={sleepTitle} detail={sleepDetail} numericDetail icon={kindIcon.sleep}
           onPress={() => router.push(sleepEntry ? { pathname: "/record/[id]", params: { id: sleepEntry.id } } : "/care-history")} />}
         {showCare && <Row title={`${glance.diapers.total} diaper${glance.diapers.total === 1 ? "" : "s"} today`} numericTitle numericDetail
-          detail={`${glance.diapers.wet} wet · ${glance.diapers.dirty} dirty`} icon={kindIcon.diaper}
+          detail={`${glance.diapers.wet} pee · ${glance.diapers.dirty} poo`} icon={kindIcon.diaper}
           onPress={() => router.push("/care-history")} />}
         <Row numericDetail title={routine?.title || "Lists & routines"}
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}

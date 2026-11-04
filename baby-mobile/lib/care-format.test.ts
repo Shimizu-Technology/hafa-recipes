@@ -24,8 +24,11 @@ it("shows open sleep as happening now and finished sleep as a duration", () => {
   expect(careSummary("sleep", {}, "not a date", now)).toBe("Sleep in progress");
   expect(careSummary("sleep", { end_at: "bad" }, at(20, 14), now)).toBe("Sleep recorded");
   expect(duration(Number.NaN)).toBe("");
-  expect(careSummary("diaper", { type: "both" }, at(20, 18))).toBe("Wet and dirty diaper");
-  expect(careSummary("diaper", {}, at(20, 18))).toBe("Recorded diaper");
+  expect(careSummary("diaper", { type: "both" }, at(20, 18))).toBe("Diaper · Pee and poo");
+  expect(careSummary("diaper", { type: "dirty", color: "green" }, at(20, 18))).toBe("Diaper · Poo · Green");
+  expect(careSummary("diaper", { type: "dirty", color: null }, at(20, 18))).toBe("Diaper · Poo");
+  expect(careSummary("feeding", { method: "bottle", contents: "formula", amount: 3, unit: "oz" }, at(20, 18))).toBe("Bottle · Formula · 3 oz");
+  expect(careSummary("diaper", {}, at(20, 18))).toBe("Diaper");
 });
 
 it("formats durations, relative and calendar times for quick scanning", () => {
