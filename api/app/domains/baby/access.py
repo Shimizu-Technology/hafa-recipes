@@ -89,7 +89,15 @@ class BabyAccess:
                        "generation": row.generation, "revision": getattr(row, "revision", None)}
             details["record"] = jsonable_encoder({key: getattr(row, key) for key in (
                 "id", "kind", "title", "body", "child_id", "occurred_at", "data", "revision",
-                "created_at", "updated_at", "space_id", "generation") if hasattr(row, key)})
+                "created_at", "updated_at", "space_id", "generation", "name", "birth_date", "due_date") if hasattr(row, key)})
+            if getattr(row, "kind", None) == "journal" and row.child_id:
+                from app.domains.baby.models import BabyChild
+
+                readable = await db.scalar(select(BabyChild.id).where(
+                    BabyChild.id == row.child_id, self.condition(BabyChild),
+                    BabyChild.deleted_at.is_(None)))
+                if readable is None:
+                    details["record"]["child_id"] = None
             raise HTTPException(409, details)
         return row
 

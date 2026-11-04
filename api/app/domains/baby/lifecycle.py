@@ -72,7 +72,9 @@ async def owned(db, model, owner, generation, identifier):
     return row
 
 
-async def validate_relations(db, owner, generation, child_id, data, *, record_id=None):
+async def validate_relations(db, owner, generation, child_id, data, *, record_id=None, kind=None):
+    if getattr(owner, "enabled", False):
+        return await space_relations(db, owner, child_id, data, record_id=record_id, kind=kind)
     if child_id:
         await owned(db, BabyChild, owner, generation, child_id)
     for identifier in data.get("attachment_ids", []):
@@ -92,6 +94,53 @@ async def validate_relations(db, owner, generation, child_id, data, *, record_id
         if str(identifier) == str(record_id):
             raise HTTPException(422, "A collection cannot contain itself")
         await owned(db, BabyRecord, owner, generation, UUID(str(identifier)))
+
+
+async def space_relations(db, access, child_id, data, *, record_id, kind):
+    from uuid import UUID
+
+    target = access.target
+
+    async def same_space(model, identifier):
+        row = await access.row(db, model, UUID(str(identifier)))
+        if row.space_id != target.id:
+            raise HTTPException(422, "Related items must be in the same Baby space")
+        return row
+
+    if child_id:
+        child = await access.row(db, BabyChild, child_id)
+        personal_journal = kind == "journal" and target.space.kind == "personal"
+        if child.space_id != target.id and not personal_journal:
+            if kind in {"feeding", "sleep", "diaper", "contraction", "kick_session", "pumping",
+                        "medicine", "temperature", "growth", "milestone", "custom", "routine", "event"}:
+                # Reuse the moved-row protocol so queued care can retarget to its child.
+                await access.row(db, BabyChild, child_id, write=True)
+            raise HTTPException(422, "Related items must be in the same Baby space")
+    for identifier in data.get("attachment_ids", []):
+        row = await same_space(BabyAttachment, identifier)
+        if row.state != "ready":
+            raise HTTPException(409, "Attachment is not ready")
+    for identifier in data.get("record_ids", []):
+        if str(identifier) == str(record_id):
+            raise HTTPException(422, "A collection cannot contain itself")
+        await same_space(BabyRecord, identifier)
+    if data.get("event_id"):
+        row = await same_space(BabyRecord, data["event_id"])
+        if row.kind != "event":
+            raise HTTPException(422, "Choose an event from your calendar")
+    suggestion = data.get("suggested_category") or {}
+    if suggestion.get("collection_id"):
+        row = await same_space(BabyRecord, suggestion["collection_id"])
+        if row.kind != "collection":
+            raise HTTPException(422, "Choose a category")
+
+
+async def readable_journal_children(db, rows, access):
+    ids = {row.child_id for row in rows if row.kind == "journal" and row.child_id}
+    if not ids or not getattr(access, "enabled", False):
+        return ids
+    return set(await db.scalars(select(BabyChild.id).where(
+        BabyChild.id.in_(ids), access.condition(BabyChild), BabyChild.deleted_at.is_(None))))
 
 
 # A phone's clock can run a little ahead. Further ahead is a plan or a typo, not a feed under way.

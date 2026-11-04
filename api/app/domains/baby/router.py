@@ -27,6 +27,7 @@ from app.domains.baby.lifecycle import (
     membership_for,
     now,
     owned,
+    readable_journal_children,
     settle_running_feeds,
     validate_relations,
 )
@@ -87,7 +88,7 @@ def child_response(row, access=None):
     return result
 
 
-def record_response(row, access=None):
+def record_response(row, access=None, child_ids=None):
     result = {
         key: getattr(row, key)
         for key in (
@@ -105,7 +106,14 @@ def record_response(row, access=None):
     }
     if getattr(access, "enabled", False) and access.client == "3":
         result.update(space_id=str(row.space_id), generation=row.generation)
+    if child_ids is not None and row.kind == "journal" and row.child_id not in child_ids:
+        result["child_id"] = None
     return result
+
+
+async def record_reply(db, row, access):
+    readable = await readable_journal_children(db, [row], access)
+    return record_response(row, access, readable)
 
 
 # Clients that predate these fields omit them; only an explicit null clears one.
@@ -627,8 +635,10 @@ async def record_list(
         .limit(limit)
         .offset(offset)
     )
+    rows = list(rows)
+    readable = await readable_journal_children(db, rows, owner)
     return {
-        "items": [record_response(row, owner) for row in rows],
+        "items": [record_response(row, owner, readable) for row in rows],
         "total": total,
         "has_more": offset + limit < total,
         **(extra or {}),
@@ -824,7 +834,7 @@ async def get_record(
 ):
     member = access.member
     row = await owned(db, BabyRecord, access, member.generation, identifier)
-    return record_response(visible_to(row, client), access)
+    return await record_reply(db, visible_to(row, client), access)
 
 
 @router.post("/records")
@@ -854,9 +864,9 @@ async def create_record(
             raise HTTPException(409, "This save identity was already used with different content")
         if prior.deleted_at:
             raise HTTPException(410, "This entry was removed; create a new entry")
-        return record_response(prior, access)
+        return await record_reply(db, prior, access)
     access.check_generation(generation)
-    await validate_relations(db, access, generation, body.child_id, body.data, record_id=body.id)
+    await validate_relations(db, access, generation, body.child_id, body.data, record_id=body.id, kind=body.kind)
     if body.kind == "event":
         await check_series_cap(db, access, generation, body.data, record_id=body.id)
     row = BabyRecord(
@@ -874,7 +884,7 @@ async def create_record(
     if row.kind == "feeding":
         await settle_running_feeds(db, access, generation, row.child_id, changed=row.id)
     await db.commit()
-    return record_response(row, access)
+    return await record_reply(db, row, access)
 
 
 @router.patch("/records/{identifier}")
@@ -917,9 +927,13 @@ async def patch_record(
         valid = RecordCreate.model_validate(values)
     except ValidationError:
         raise HTTPException(422, "Enter valid details for this entry") from None
+    if access.enabled and row.kind == "journal" and valid.child_id == row.child_id:
+        if row.child_id not in await readable_journal_children(db, [row], access):
+            valid.child_id = None
+    await validate_relations(db, access, generation, valid.child_id, valid.data,
+                             record_id=row.id, kind=row.kind)
     if row.kind == "event":
         await check_series_cap(db, access, generation, valid.data, record_id=row.id)
-    await validate_relations(db, access, generation, valid.child_id, valid.data, record_id=row.id)
     removed_attachments = set(row.data.get("attachment_ids", [])) - set(
         valid.data.get("attachment_ids", [])
     )
@@ -934,7 +948,7 @@ async def patch_record(
         for child_id in {previous_child, row.child_id}:
             await settle_running_feeds(db, access, generation, child_id, changed=row.id)
     await db.commit()
-    return record_response(row, access)
+    return await record_reply(db, row, access)
 
 
 @router.post("/records/{identifier}/feed-action")
@@ -961,7 +975,7 @@ async def feed_action(
     if prior:
         if not same_action(prior, action):
             raise HTTPException(409, "This save identity was already used with different content")
-        return record_response(row, access)
+        return await record_reply(db, row, access)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values["data"]["actions"] = [*stored, {**action, "revision": row.revision + 1}]
     try:
@@ -973,7 +987,7 @@ async def feed_action(
     await touch(row, access.target)
     await settle_running_feeds(db, access, generation, row.child_id, changed=row.id)
     await db.commit()
-    return record_response(row, access)
+    return await record_reply(db, row, access)
 
 
 @router.post("/records/{identifier}/session-action")
