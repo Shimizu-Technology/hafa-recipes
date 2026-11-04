@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BabyRecord } from "./models";
-import { addVisitToCalendar, recordedShots, visitDay, visitEvent, visitsFrom, visitsVisible, wellVisits } from "./well-visits";
+import { addVisitToCalendar, recordedShots, staysWithBaby, visitDay, visitEvent, visitsFrom, visitsVisible, wellVisits } from "./well-visits";
 
 afterEach(() => vi.unstubAllGlobals());
 const shot = (id: string, at: string, over: Partial<BabyRecord> = {}): BabyRecord =>
@@ -55,4 +55,11 @@ describe("suggested days", () => {
 it("finds this child's shots, newest first, and nothing else custom", () => {
   const rows = [shot("old", "2027-01-01T02:00:00Z"), shot("new", "2027-02-01T02:00:00Z"), shot("sib", "2027-03-01T02:00:00Z", { child_id: "other" }), shot("else", "2027-03-01T02:00:00Z", { data: { label: "Other" } })];
   expect(recordedShots(rows, "kid").map((row) => row.id)).toEqual(["new", "old"]);
+});
+
+it("keeps a milestone and a shot with their baby, and leaves other custom entries free to move", () => {
+  expect(staysWithBaby({ kind: "milestone", data: {} })).toBe(true);
+  expect(staysWithBaby({ kind: "custom", data: { label: "Shot" } })).toBe(true);
+  expect(staysWithBaby({ kind: "custom", data: { label: "Bath" } })).toBe(false);
+  expect(staysWithBaby({ kind: "journal", data: {} })).toBe(false);
 });
