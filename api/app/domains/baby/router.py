@@ -59,10 +59,12 @@ from app.domains.baby.schemas import (
     ProfilePatch,
     RecordCreate,
     RecordPatch,
+    SessionActionRequest,
     SourceRelevance,
     Stage,
 )
 from app.domains.baby.security import BabyRoute, new_kinds_enabled
+from app.domains.baby.sessions import SESSION_KINDS
 from app.domains.baby.stats import MAX_CUSTOM_DAYS, care_summary, number_in
 from app.domains.baby.suggestions import router as suggestions_router
 
@@ -145,6 +147,15 @@ def feed_patch_data(current, patch):
         "side": current.get("side"),
         "duration_minutes": current.get("duration_minutes"),
     }
+
+
+def session_patch_data(current, patch):
+    """Taps and stops only change through session-action, and their results follow from them."""
+    data = {key: value for key, value in patch.items() if key != "session_actions"}
+    if not current.get("session_actions"):
+        return data
+    kept = ("session_actions", "count", "end_at")
+    return {**data, **{key: deepcopy(current[key]) for key in kept if key in current}}
 
 
 def visible_to(row, client):
@@ -814,6 +825,8 @@ async def patch_record(
         values["data"] = kept_additions(row.data, body.data, PATCH_ADDITIONS[row.kind])
     elif row.kind == "feeding" and isinstance(body.data, dict):
         values["data"] = feed_patch_data(row.data, body.data)
+    elif row.kind in SESSION_KINDS and isinstance(body.data, dict):
+        values["data"] = session_patch_data(row.data, body.data)
     if (
         row.kind == "feeding"
         and body.occurred_at
@@ -870,7 +883,7 @@ async def feed_action(
             raise HTTPException(409, "This save identity was already used with different content")
         return record_response(row)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
-    values["data"]["actions"] = [*stored, action]
+    values["data"]["actions"] = [*stored, {**action, "revision": row.revision + 1}]
     try:
         valid = RecordCreate.model_validate(values)
     except ValidationError:
@@ -878,6 +891,40 @@ async def feed_action(
     row.data, row.occurred_at = valid.data, valid.occurred_at
     row.revision, row.updated_at = row.revision + 1, now()
     await settle_running_feeds(db, user.id, generation, row.child_id, changed=row.id)
+    await db.commit()
+    return record_response(row)
+
+
+@router.post("/records/{identifier}/session-action")
+async def session_action(
+    identifier: UUID,
+    body: SessionActionRequest,
+    user: User,
+    db: Database,
+    generation: Generation,
+    client: Client = None,
+):
+    """A kick session's tap or a contraction's stop. Idempotent by its ID, and needs no revision."""
+    await membership_for(db, user.id, generation=generation, write=True)
+    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
+    stored = row.data.get("session_actions", [])
+    # A count from before taps had identities has nothing an action could add to.
+    if row.kind not in SESSION_KINDS or (row.data.get("count") and not stored):
+        raise HTTPException(409, "This entry isn't being timed")
+    action = body.model_dump(mode="json")
+    prior = next((item for item in stored if item["id"] == action["id"]), None)
+    if prior:
+        if not same_action(prior, action):
+            raise HTTPException(409, "This save identity was already used with different content")
+        return record_response(row)
+    values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
+    values["data"]["session_actions"] = [*stored, {**action, "revision": row.revision + 1}]
+    try:
+        valid = RecordCreate.model_validate(values)
+    except ValidationError:
+        raise HTTPException(422, "Enter valid details for this entry") from None
+    row.data = valid.data
+    row.revision, row.updated_at = row.revision + 1, now()
     await db.commit()
     return record_response(row)
 

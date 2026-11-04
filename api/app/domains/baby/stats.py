@@ -99,8 +99,8 @@ def kind_query(owner, generation, kinds, *columns):
     )
 
 
-async def care_stats(db, owner, generation, child_id, zone, stats_range):
-    rows = list(
+async def care_rows(db, owner, generation, child_id, stats_range):
+    return list(
         await db.execute(
             care_query(
                 owner, generation, child_id,
@@ -120,6 +120,10 @@ async def care_stats(db, owner, generation, child_id, zone, stats_range):
             .limit(ROW_LIMIT + 1)
         )
     )
+
+
+async def care_stats(db, owner, generation, child_id, zone, stats_range):
+    rows = await care_rows(db, owner, generation, child_id, stats_range)
     return summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
 
 
@@ -143,11 +147,13 @@ async def care_summary(db, owner, generation, child_id, zone, first, last, at, m
     check_custom_span(first, last)
     if first > at.astimezone(zone).date():
         start = day_start(first, zone)
-        result = summarize([], StatsRange("custom", start, start, []), zone)
+        stats_range = StatsRange("custom", start, start, [])
+        rows = []
     else:
-        result = await care_stats(
-            db, owner, generation, child_id, zone, calendar_range("custom", first, last, zone, at)
-        )
+        stats_range = calendar_range("custom", first, last, zone, at)
+        rows = await care_rows(db, owner, generation, child_id, stats_range)
+    result = summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
+    add_sleep_spans(result["days"], rows[:ROW_LIMIT], stats_range, zone)
     # A sleep still going has no minutes yet, but the day it began has a sleep on it.
     sleeping = {
         datetime.fromisoformat(item["started_at"]).date().isoformat()
@@ -380,17 +386,41 @@ def merged_spans(spans):
     return merged
 
 
-def add_sleep(days, start, end, zone):
-    """Split one sleep by overlap across the calendar days it touches."""
+def day_pieces(start, end, zone):
+    """One span cut at each midnight it crosses."""
     day = start.astimezone(zone).date()
     while start < end:
         next_day = day + timedelta(days=1)
         stop = min(end, day_start(next_day, zone))
-        minutes = minutes_between(start, stop)
+        yield day, start, stop
+        start, day = stop, next_day
+
+
+def add_sleep(days, start, end, zone):
+    """Split one sleep by overlap across the calendar days it touches."""
+    for day, piece_start, piece_end in day_pieces(start, end, zone):
+        minutes = minutes_between(piece_start, piece_end)
         totals = days[day]["sleep"]
         totals["total_minutes"] += minutes
         totals["longest_minutes"] = max(totals["longest_minutes"], minutes)
-        start, day = stop, next_day
+
+
+def add_sleep_spans(days, rows, stats_range, zone):
+    """Each finished sleep inside each day, by record, unmerged. Totals merge overlaps, so these
+    are what lets a phone swap one queued sleep into a day without guessing at the rest."""
+    by_date = {day["date"]: day for day in days}
+    for day in days:
+        day["sleep"]["spans"] = []
+    for row in rows:
+        stop = sleep_end(row.data) if row.kind == "sleep" and isinstance(row.data, dict) else None
+        if not stop:
+            continue
+        start, end = max(row.occurred_at.astimezone(UTC), stats_range.start), min(stop.astimezone(UTC), stats_range.end)
+        for day, piece_start, piece_end in day_pieces(start, end, zone):
+            if day.isoformat() in by_date:
+                by_date[day.isoformat()]["sleep"]["spans"].append(
+                    {"record_id": str(row.id), "from": piece_start.isoformat(), "to": piece_end.isoformat()}
+                )
 
 
 def average_gap(times, zone):

@@ -42,6 +42,20 @@ def by_date(result):
 
 
 @needs_database
+async def test_each_day_names_its_sleeps_so_a_phone_can_swap_one(baby_api, frozen):
+    night = await log(baby_api, "sleep", "2026-11-01T22:00:00+10:00", end_at="2026-11-02T02:00:00+10:00")
+    nap = await log(baby_api, "sleep", "2026-11-02T01:00:00+10:00", end_at="2026-11-02T03:00:00+10:00")
+    await log(baby_api, "sleep", "2026-11-02T10:00:00+10:00")  # Still going: no span yet.
+    days = by_date(await summary(baby_api, "2026-11-01", "2026-11-02"))
+    assert days["2026-11-01"]["sleep"]["spans"] == [
+        {"record_id": night["id"], "from": "2026-11-01T12:00:00+00:00", "to": "2026-11-01T14:00:00+00:00"}
+    ]
+    # Overlaps stay apart here, though the total counts the time once.
+    assert sorted(span["record_id"] for span in days["2026-11-02"]["sleep"]["spans"]) == sorted([night["id"], nap["id"]])
+    assert days["2026-11-02"]["sleep"]["total_minutes"] == 180
+
+
+@needs_database
 async def test_totals_and_dots_per_day(baby_api, frozen):
     await log(baby_api, "feeding", "2026-11-01T08:00:00+10:00", method="breast", side="left", duration_minutes=20)
     await log(baby_api, "feeding", "2026-11-01T12:00:00+10:00", method="bottle", amount=4, unit="oz")

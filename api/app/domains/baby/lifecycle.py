@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
@@ -87,17 +87,25 @@ async def validate_relations(db, owner, generation, child_id, data, *, record_id
         await owned(db, BabyRecord, owner, generation, UUID(str(identifier)))
 
 
+# A phone's clock can run a little ahead. Further ahead is a plan or a typo, not a feed under way.
+FEED_START_TOLERANCE = timedelta(minutes=5)
+
+
 async def settle_running_feeds(db, owner, generation, child_id, *, changed=None):
     """Per child, only the newest breastfeed can be running; ties go to the higher record ID.
 
     Worked out from the live feeds each time, so arrival order cannot matter and undoing the
     newest feed restores the one before it. A finish still wins: it can arrive after this.
+    A feed dated ahead neither runs nor ends one that does, and is left alone until its time.
     ``changed`` is the row the caller has already counted as a new revision.
     """
     await db.flush()
+    latest = now() + FEED_START_TOLERANCE
     feeds = care_query(owner, generation, child_id, BabyRecord).where(BabyRecord.kind == "feeding")
     newest = await db.scalar(
-        feeds.where(BabyRecord.data["method"].as_string() == "breast")
+        feeds.where(
+            BabyRecord.data["method"].as_string() == "breast", BabyRecord.occurred_at <= latest
+        )
         .order_by(BabyRecord.occurred_at.desc(), BabyRecord.id.desc())
         .limit(1)
     )
@@ -105,6 +113,8 @@ async def settle_running_feeds(db, owner, generation, child_id, *, changed=None)
         return
     running = await db.scalars(feeds.where(BabyRecord.data["state"].as_string() == "running"))
     for row in {item.id: item for item in (*running, newest)}.values():
+        if row.occurred_at > latest:
+            continue
         wanted = "running" if row.id == newest.id else "unknown_end"
         if row.data.get("state") in {"running", "unknown_end"} and row.data["state"] != wanted:
             row.data = {**row.data, "state": wanted}
