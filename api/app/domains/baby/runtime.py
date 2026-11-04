@@ -7,7 +7,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import CheckConstraint, or_, select, text
+from sqlalchemy import or_, select, text
 
 from app.ai_governance import ai_request_context
 from app.config import get_settings
@@ -21,80 +21,17 @@ from app.domains.baby.models import (
 )
 from app.domains.baby.processing import process_capture
 from app.domains.baby.provider import BabyProvider
+from app.domains.baby.schema import ALLOWED_FORMS
+from app.domains.baby.schema import schema_complete as check_schema
 from app.domains.baby.schemas import DEFAULT_SOURCE_TITLE
 
 logger = logging.getLogger("hafa.baby.worker")
 WORKER_LOCK = 7340050
 
 
-async def schema_complete(connection):
-    """Verify columns, types, nullability, PKs and owner foreign keys."""
-    for table in BABY_TABLES:
-        columns = {
-            row[0]: (row[1], row[2])
-            for row in (
-                await connection.execute(
-                    text("""SELECT column_name,udt_name,is_nullable FROM information_schema.columns
-            WHERE table_schema='public' AND table_name=:name"""),
-                    {"name": table.name},
-                )
-            ).all()
-        }
-        for column in table.columns:
-            expected = {
-                "VARCHAR": "varchar",
-                "TEXT": "text",
-                "INTEGER": "int4",
-                "UUID": "uuid",
-                "JSONB": "jsonb",
-                "DATE": "date",
-            }.get(str(column.type))
-            if expected is None:
-                if str(column.type).startswith("VARCHAR"):
-                    expected = "varchar"
-                elif str(column.type) == "DATETIME":
-                    expected = "timestamptz"
-            if columns.get(column.name) != (expected, "YES" if column.nullable else "NO"):
-                return False
-        for constraint in table.constraints:
-            if isinstance(constraint, CheckConstraint) and constraint.name:
-                if not await connection.scalar(
-                    text("""SELECT EXISTS(SELECT 1 FROM pg_constraint
-                    WHERE conrelid=to_regclass(:table) AND conname=:name AND contype='c' AND convalidated)"""),
-                    {"table": "public." + table.name, "name": constraint.name},
-                ):
-                    return False
-        for index in table.indexes:
-            if not await connection.scalar(
-                text("""SELECT EXISTS(SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
-                WHERE i.indrelid=to_regclass(:table) AND c.relname=:name AND i.indisvalid)"""),
-                {"table": "public." + table.name, "name": index.name},
-            ):
-                return False
-        primary = [column.name for column in table.primary_key.columns]
-        if not await connection.scalar(
-            text("""SELECT EXISTS(SELECT 1 FROM pg_constraint
-            WHERE conrelid=to_regclass(:table) AND contype='p'
-            AND pg_get_constraintdef(oid)=:definition)"""),
-            {
-                "table": "public." + table.name,
-                "definition": "PRIMARY KEY (" + ", ".join(primary) + ")",
-            },
-        ):
-            return False
-        owner_delete_action = next(iter(table.c.app_user_id.foreign_keys)).ondelete
-        if not await connection.scalar(
-            text("""SELECT EXISTS(SELECT 1 FROM pg_constraint
-            WHERE conrelid=to_regclass(:table) AND contype='f' AND convalidated
-            AND pg_get_constraintdef(oid)=:definition)"""),
-            {
-                "table": "public." + table.name,
-                "definition": "FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE "
-                + owner_delete_action,
-            },
-        ):
-            return False
-    return True
+async def schema_complete(connection, *, tables=BABY_TABLES, allowed_forms=ALLOWED_FORMS):
+    """Check the running models against the explicit pre-F11 compatibility contract."""
+    return await check_schema(connection, tables=tables, allowed_forms=allowed_forms)
 
 
 async def verify_baby_schema(session_factory=None):
