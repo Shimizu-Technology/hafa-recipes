@@ -1,13 +1,15 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
-import type { Proposal, Scope } from "@/lib/models";
-import { Button, HeaderAction, Card, FilterChips, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
+import type { Proposal } from "@/lib/models";
+import { Button, Card, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
+/** Where an older conversation from History searches; new chats always search everything. */
+const scopeLine = { all: "All your entries", library: "Saved posts only", journal: "Journal only", care: "Care logs only" } as const;
 /** Questions she might ask before the birth, matched to what Kami saves (hospital bag, labour prep, the weeks ahead). */
 const suggestions = [
   "Which of my saved videos mention the hospital bag?",
@@ -51,7 +53,27 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
   }
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
     canSend = available && !busy && !chat.resolving && !!question.trim(),
-    c = useColors();
+    c = useColors(),
+    answered = messages.some((m) => m.role === "assistant"),
+    seen = !!b.state.askNoticeSeen,
+    // New chat and History stay in the header from every state. Neither can interrupt an answer on its way.
+    locked = chat.resolving || busy,
+    large = fontScale >= 1.5,
+    historyTitle = showHistory ? "Done" : "History",
+    actions = <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+      {large ? <HeaderIconButton icon="add" label="New chat" disabled={locked} onPress={chat.startNew} />
+        : <HeaderPill title="New chat" disabled={locked} onPress={chat.startNew} />}
+      {large ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={historyTitle} disabled={chat.resolving} onPress={() => void openHistory()} />
+        : <HeaderPill title={historyTitle} disabled={chat.resolving} onPress={() => void openHistory()} />}
+    </View>;
+  // The reminder about sources appears under her first answer, and stays out of every chat after that.
+  const [showNotice, setShowNotice] = useState(false);
+  useEffect(() => {
+    if (!answered) return setShowNotice(false);
+    if (seen) return;
+    setShowNotice(true);
+    void b.commit((state) => ({ ...state, askNoticeSeen: true })).catch(() => undefined);
+  }, [answered, seen]);
   return (
     <Screen
       key={showHistory ? "history" : "conversation"}
@@ -59,7 +81,6 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       back={back}
       title={focused ? "Ask about this" : "Ask"}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
-      action={back ? fontScale >= 1.5 ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : <HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={<View style={{ gap: 10 }}>
         {!available && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
@@ -96,20 +117,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </View>
       </View>}
     >
-      {!back && <Stack.Screen options={headerActions(<TabActions action={fontScale >= 1.5 ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : <HeaderPill title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} />)} />}
-      {!focused && (
-        <FilterChips
-          value={chat.context.scope}
-          label="Search in"
-          options={[
-            { label: "Everything", value: "all" },
-            { label: "Saved", value: "library" },
-            { label: "Journal", value: "journal" },
-            { label: "Care", value: "care" },
-          ]}
-          onChange={(v) => chat.selectScope(v as Scope)}
-        />
-      )}
+      <Stack.Screen options={headerActions(back ? actions : <TabActions action={actions} />)} />
       {focused && (
         <>
           <Notice>Questions use this saved entry and its own child profile, including general entries.</Notice>
@@ -119,7 +127,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       <Copy kind="small" tone="muted">
         {chat.context.child_id
           ? "For " + (b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id)?.name ?? "the conversation’s child profile")
-          : focused ? "General / personal entry" : "All your entries"}
+          : focused ? "General / personal entry" : scopeLine[chat.context.scope]}
       </Copy>
       {chat.resolving && !busy && (
         <Button secondary title="Try opening this entry again" onPress={chat.retryFocus} />
@@ -206,14 +214,11 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       )}
       {!!error && <Notice error>{error}</Notice>}
       {busy && <Loading label="Looking through your saved entries…" />}
-      {!showHistory && messages.length > 0 && (
-        <>
-          <Copy kind="small" tone="muted">
-            Saved advice, your own observations and clinician instructions are different sources. Check the original and
-            bring health decisions to your clinician.
-          </Copy>
-          <Button variant="ghost" title="Start a new conversation" onPress={chat.startNew} />
-        </>
+      {!showHistory && showNotice && (
+        <Copy kind="small" tone="muted">
+          Saved advice, your own observations and clinician instructions are different sources. Check the original and
+          bring health decisions to your clinician.
+        </Copy>
       )}
     </Screen>
   );

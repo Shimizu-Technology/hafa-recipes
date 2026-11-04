@@ -201,10 +201,61 @@ it("keeps the focused entry notice at the top while its context is resolving", a
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t =>
     t.props.children === "Questions use this saved entry and its own child profile, including general entries.")).toBe(true);
 });
-it("names Ask's scope chips after the tabs, so Saved means the same thing everywhere", async () => {
+it("has no scope chips, and keeps New chat beside History in every state", async () => {
+  const startNew = vi.fn();
+  for (const ask of [{}, { messages: [{ role: "user", content: "Earlier" }] }, { showHistory: true }, { context: { scope: "all", record_id: "entry", child_id: null } }]) {
+    mock.ask = { startNew, ...ask };
+    await mount(<AskEntry />);
+    const targets = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+    expect(targets.filter(n => n.props.accessibilityRole === "radio")).toEqual([]);
+    expect(targets.some(n => n.props.accessibilityLabel === "New chat")).toBe(true);
+    expect(targets.some(n => n.props.accessibilityLabel === ("showHistory" in ask ? "Done" : "History"))).toBe(true);
+    act(() => renderer!.unmount());
+  }
+  mock.ask = { startNew };
   await mount(<AskEntry />);
-  const radios = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).filter(n => n.props.accessibilityRole === "radio");
-  expect(radios.map(n => n.props.accessibilityLabel)).toEqual(["Everything", "Saved", "Journal", "Care"]);
+  await press("New chat");
+  expect(startNew).toHaveBeenCalledOnce();
+});
+it("keeps New chat from interrupting an answer on its way", async () => {
+  mock.ask = { busy: true, startNew: vi.fn() };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).find(n => n.props.accessibilityLabel === "New chat")!.props.disabled).toBe(true);
+});
+it("still asks about one entry from a focused screen", async () => {
+  mock.ask = { context: { scope: "all", record_id: "entry", child_id: null }, focusedTitle: "Packing video" };
+  await mount(<AskEntry />);
+  const text = () => renderer!.root.findAllByType("Text" as React.ElementType).map(t => t.props.children);
+  expect(text()).toContain("Ask about this");
+  expect(text()).toContain("Packing video");
+});
+it("shows the reminder about sources under the first answer only, and remembers it", async () => {
+  const notice = /are different sources/;
+  const shown = () => renderer!.root.findAllByType("Text" as React.ElementType).some(t => notice.test(String([t.props.children].flat().join(" "))));
+  const commit = vi.fn(async (change: (state: any) => any) => { mock.baby.state = change(mock.baby.state); });
+  mock.baby = { ...mock.baby, commit };
+  const answer = [{ role: "user", content: "Q" }, { role: "assistant", content: "A", citations: [] }];
+  mock.ask = { messages: [{ role: "user", content: "Q" }] };
+  await mount(<AskEntry />);
+  expect(shown()).toBe(false);
+  mock.ask = { messages: answer };
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(shown()).toBe(true);
+  expect(commit).toHaveBeenCalledOnce();
+  expect(mock.baby.state.askNoticeSeen).toBe(true);
+  // New chat, then another answer: not again.
+  mock.ask = { messages: [] };
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(shown()).toBe(false);
+  mock.ask = { messages: answer };
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(shown()).toBe(false);
+  expect(commit).toHaveBeenCalledOnce();
+});
+it("says when an older conversation from History searches only part of the app", async () => {
+  mock.ask = { context: { scope: "care", record_id: null, child_id: null }, messages: [{ role: "user", content: "Q" }] };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === "Care logs only")).toBe(true);
 });
 it("opens history separately from a long conversation and returns without losing its draft", async () => {
   const openHistory = vi.fn();
