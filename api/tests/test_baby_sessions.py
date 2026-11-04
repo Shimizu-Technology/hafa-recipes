@@ -78,6 +78,17 @@ async def test_two_phones_tapping_both_count_and_a_retry_changes_nothing(baby_ap
 
 
 @needs_database
+async def test_a_session_create_replays_after_taps_have_landed(baby_api):
+    await allow_new_kinds(baby_api)
+    body = shared.payload("kick_session", occurred_at=at(0), data={"count": 1, "session_actions": [item("tap", 0)]})
+    first = await baby_api.client.post(f"{API}/records", headers=GEN, json=body)
+    assert first.json()["revision"] == 1
+    assert (await send(baby_api, body["id"], item("tap", 1))).json()["data"]["count"] == 2
+    replay = await baby_api.client.post(f"{API}/records", headers=GEN, json=body)
+    assert replay.status_code == 200 and replay.json()["revision"] == 2 and replay.json()["data"]["count"] == 2
+
+
+@needs_database
 async def test_take_back_and_finish_are_order_free(baby_api):
     first = item("tap", 0)
     row = await create(baby_api, count=1, session_actions=[first])
