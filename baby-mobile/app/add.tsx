@@ -7,6 +7,7 @@ import { kindIcon } from "@/components/record-row";
 const items: { kind: Kind; title: string; detail: string }[] = [
   { kind: "source", title: "Save a video or link", detail: "Video, link, screenshot, or document" },
   { kind: "journal", title: "Write in your journal", detail: "A thought, a memory, or a photo" },
+  { kind: "event", title: "Add to the calendar", detail: "An appointment, baptism or family visit" },
   { kind: "question", title: "Keep a doctor question", detail: "Bring your questions to the next visit" },
   { kind: "routine", title: "Make a list", detail: "A checklist or a routine you review first" },
 ];
