@@ -55,6 +55,13 @@ async def membership_for(db, owner, *, generation=None, write=False, active=True
 
 
 async def owned(db, model, owner, generation, identifier):
+    if hasattr(owner, "condition"):
+        return await owner.row(
+            db,
+            model,
+            identifier,
+            write=owner.target is not None and owner.target.transaction is not None,
+        )
     row = await db.scalar(
         select(model)
         .where(model.id == identifier, model.app_user_id == owner, model.generation == generation)
@@ -102,6 +109,8 @@ async def settle_running_feeds(db, owner, generation, child_id, *, changed=None)
     await db.flush()
     latest = now() + FEED_START_TOLERANCE
     feeds = care_query(owner, generation, child_id, BabyRecord).where(BabyRecord.kind == "feeding")
+    if getattr(owner, "enabled", False):
+        feeds = feeds.where(BabyRecord.space_id == owner.target.id)
     newest = await db.scalar(
         feeds.where(
             BabyRecord.data["method"].as_string() == "breast", BabyRecord.occurred_at <= latest
@@ -120,6 +129,10 @@ async def settle_running_feeds(db, owner, generation, child_id, *, changed=None)
             row.data = {**row.data, "state": wanted}
             if row.id != changed:
                 row.revision, row.updated_at = row.revision + 1, now()
+            if getattr(owner, "enabled", False):
+                from app.domains.baby.access import touch
+
+                await touch(row, owner.grant(row))
 
 
 async def owned_cleanup_prefixes(db, owner):

@@ -10,10 +10,11 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import AwareDatetime, ValidationError
 from sqlalchemy import func, or_, select
 
+from app.domains.baby.access import touch
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
-from app.domains.baby.dependencies import Client, Database, Generation, Limit, Offset, User
+from app.domains.baby.dependencies import Access, Client, Database, Generation, Limit, Offset, User
 from app.domains.baby.events import check_series_cap, day_marks
 from app.domains.baby.events import router as events_router
 from app.domains.baby.feeds import retimed, same_action
@@ -82,8 +83,8 @@ def child_response(row):
     }
 
 
-def record_response(row):
-    return {
+def record_response(row, access=None):
+    result = {
         key: getattr(row, key)
         for key in (
             "id",
@@ -98,6 +99,9 @@ def record_response(row):
             "updated_at",
         )
     }
+    if getattr(access, "enabled", False) and access.client == "3":
+        result.update(space_id=str(row.space_id), generation=row.generation)
+    return result
 
 
 # Clients that predate these fields omit them; only an explicit null clears one.
@@ -567,7 +571,7 @@ async def record_list(
         .offset(offset)
     )
     return {
-        "items": [record_response(row) for row in rows],
+        "items": [record_response(row, owner) for row in rows],
         "total": total,
         "has_more": offset + limit < total,
         **(extra or {}),
@@ -649,8 +653,9 @@ async def records(
     occurred_to: AwareDatetime | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
+    access: Access = None,
 ):
-    member = await membership_for(db, user.id)
+    member = access.member
     conditions, order, extra = occurred_between(occurred_from, occurred_to), None, None
     if stage is not None:
         conditions.append(stage_filter(stage))
@@ -661,9 +666,7 @@ async def records(
             db, user.id, member, timing_child_id, pregnancy_week, baby_age_weeks
         )
         value = context.get("pregnancy_week", context.get("baby_age_weeks"))
-        conditions.append(
-            timing_filter(timing, context["stage"], value, within_weeks=within_weeks)
-        )
+        conditions.append(timing_filter(timing, context["stage"], value, within_weeks=within_weeks))
         if timing == "upcoming":
             order = [timing_bounds(context["stage"])[1].asc()]
         extra = {"timing": {"mode": timing, **context}}
@@ -674,7 +677,7 @@ async def records(
         raise HTTPException(422, "Choose timing=now or timing=upcoming")
     return await record_list(
         db,
-        user.id,
+        access,
         member.generation,
         kind,
         child_id,
@@ -710,12 +713,13 @@ async def search(
     occurred_to: AwareDatetime | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
+    access: Access = None,
 ):
-    member = await membership_for(db, user.id)
+    member = access.member
     conditions = occurred_between(occurred_from, occurred_to)
     return await record_list(
         db,
-        user.id,
+        access,
         member.generation,
         kind,
         child_id,
@@ -740,57 +744,68 @@ async def care_days(
     last: Annotated[date, Query(alias="to")],
     child_id: UUID | None = None,
     client: Client = None,
+    access: Access = None,
 ):
     """Tracker's days and calendar dots. Without a child, the logs that have no child."""
-    member = await membership_for(db, user.id)
+    member = access.member
     if child_id:
-        await owned(db, BabyChild, user.id, member.generation, child_id)
+        await owned(db, BabyChild, access, member.generation, child_id)
     zone = ZoneInfo(Profile.model_validate(member.profile).timezone)
     # Build 32 knows no events, contractions or kicks, so it gets no dots for them.
     marks = None
     if not legacy_client(client) and first <= last and (last - first).days < MAX_CUSTOM_DAYS:
-        marks = await day_marks(db, user.id, member.generation, child_id, zone, first, last)
+        marks = await day_marks(db, access, member.generation, child_id, zone, first, last)
     try:
-        return await care_summary(db, user.id, member.generation, child_id, zone, first, last, now(), marks)
+        return await care_summary(db, access, member.generation, child_id, zone, first, last, now(), marks)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
 
 
 @router.get("/records/{identifier}")
-async def get_record(identifier: UUID, user: User, db: Database, client: Client = None):
-    member = await membership_for(db, user.id)
-    row = await owned(db, BabyRecord, user.id, member.generation, identifier)
-    return record_response(visible_to(row, client))
+async def get_record(
+    identifier: UUID, user: User, db: Database, client: Client = None, access: Access = None
+):
+    member = access.member
+    row = await owned(db, BabyRecord, access, member.generation, identifier)
+    return record_response(visible_to(row, client), access)
 
 
 @router.post("/records")
 async def create_record(
-    body: RecordCreate, user: User, db: Database, generation: Generation, client: Client = None
+    body: RecordCreate,
+    user: User,
+    db: Database,
+    generation: Generation,
+    client: Client = None,
+    access: Access = None,
 ):
     can_create(body.kind, client)
     no_event_link_from_legacy(client, body.data)
-    member = await membership_for(db, user.id, generation=generation, write=True)
+    member = access.member
     if body.kind == "source" and body.data.get("relevance") is not None:
         body.data["relevance"] = user_timing(body.data["relevance"])
     fingerprint = digest(body.model_dump(mode="json"))
+    if not access.enabled:
+        access.check_generation(generation)
     prior = await db.get(BabyRecord, body.id)
     if prior:
+        if access.enabled:
+            access.grant(prior)
         if (
-            prior.app_user_id != user.id
-            or prior.generation != generation
-            or prior.creation_hash != fingerprint
-        ):
+            not access.enabled and (prior.app_user_id != user.id or prior.generation != generation)
+        ) or prior.creation_hash != fingerprint:
             raise HTTPException(409, "This save identity was already used with different content")
         if prior.deleted_at:
             raise HTTPException(410, "This entry was removed; create a new entry")
-        return record_response(prior)
-    await validate_relations(db, user.id, generation, body.child_id, body.data, record_id=body.id)
+        return record_response(prior, access)
+    access.check_generation(generation)
+    await validate_relations(db, access, generation, body.child_id, body.data, record_id=body.id)
     if body.kind == "event":
-        await check_series_cap(db, user.id, generation, body.data, record_id=body.id)
+        await check_series_cap(db, access, generation, body.data, record_id=body.id)
     row = BabyRecord(
         **body.model_dump(),
         app_user_id=user.id,
-        space_id=member.personal_space_id,
+        space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,
         revision=1,
         creation_hash=fingerprint,
@@ -798,10 +813,11 @@ async def create_record(
         updated_at=now(),
     )
     db.add(row)
+    await touch(row, access.target)
     if row.kind == "feeding":
-        await settle_running_feeds(db, user.id, generation, row.child_id, changed=row.id)
+        await settle_running_feeds(db, access, generation, row.child_id, changed=row.id)
     await db.commit()
-    return record_response(row)
+    return record_response(row, access)
 
 
 @router.patch("/records/{identifier}")
@@ -812,9 +828,10 @@ async def patch_record(
     db: Database,
     generation: Generation,
     client: Client = None,
+    access: Access = None,
 ):
-    await membership_for(db, user.id, generation=generation, write=True)
-    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
+    access.check_generation(generation)
+    row = visible_to(await owned(db, BabyRecord, access, generation, identifier), client)
     revision_matches(row, body.revision)
     no_event_link_from_legacy(client, body.data)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
@@ -843,9 +860,9 @@ async def patch_record(
         valid = RecordCreate.model_validate(values)
     except ValidationError:
         raise HTTPException(422, "Enter valid details for this entry") from None
-    await validate_relations(db, user.id, generation, valid.child_id, valid.data, record_id=row.id)
     if row.kind == "event":
-        await check_series_cap(db, user.id, generation, valid.data, record_id=row.id)
+        await check_series_cap(db, access, generation, valid.data, record_id=row.id)
+    await validate_relations(db, access, generation, valid.child_id, valid.data, record_id=row.id)
     removed_attachments = set(row.data.get("attachment_ids", [])) - set(
         valid.data.get("attachment_ids", [])
     )
@@ -853,22 +870,28 @@ async def patch_record(
     for key in ("title", "body", "child_id", "occurred_at", "data"):
         setattr(row, key, getattr(valid, key))
     row.revision, row.updated_at = row.revision + 1, now()
+    await touch(row, access.target)
     if removed_attachments:
         await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
     if row.kind == "feeding":
         for child_id in {previous_child, row.child_id}:
-            await settle_running_feeds(db, user.id, generation, child_id, changed=row.id)
+            await settle_running_feeds(db, access, generation, child_id, changed=row.id)
     await db.commit()
-    return record_response(row)
+    return record_response(row, access)
 
 
 @router.post("/records/{identifier}/feed-action")
 async def feed_action(
-    identifier: UUID, body: FeedActionRequest, user: User, db: Database, generation: Generation
+    identifier: UUID,
+    body: FeedActionRequest,
+    user: User,
+    db: Database,
+    generation: Generation,
+    access: Access = None,
 ):
     """A running feed's tap. Idempotent by its ID, and needs no revision: taps never conflict."""
-    await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    access.check_generation(generation)
+    row = await owned(db, BabyRecord, access, generation, identifier)
     stored = row.data.get("actions", [])
     if (
         row.kind != "feeding"
@@ -881,7 +904,7 @@ async def feed_action(
     if prior:
         if not same_action(prior, action):
             raise HTTPException(409, "This save identity was already used with different content")
-        return record_response(row)
+        return record_response(row, access)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values["data"]["actions"] = [*stored, {**action, "revision": row.revision + 1}]
     try:
@@ -890,9 +913,10 @@ async def feed_action(
         raise HTTPException(422, "Enter valid details for this entry") from None
     row.data, row.occurred_at = valid.data, valid.occurred_at
     row.revision, row.updated_at = row.revision + 1, now()
-    await settle_running_feeds(db, user.id, generation, row.child_id, changed=row.id)
+    await touch(row, access.target)
+    await settle_running_feeds(db, access, generation, row.child_id, changed=row.id)
     await db.commit()
-    return record_response(row)
+    return record_response(row, access)
 
 
 @router.post("/records/{identifier}/session-action")
@@ -903,10 +927,11 @@ async def session_action(
     db: Database,
     generation: Generation,
     client: Client = None,
+    access: Access = None,
 ):
     """A kick session's tap or a contraction's stop. Idempotent by its ID, and needs no revision."""
-    await membership_for(db, user.id, generation=generation, write=True)
-    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
+    access.check_generation(generation)
+    row = visible_to(await owned(db, BabyRecord, access, generation, identifier), client)
     stored = row.data.get("session_actions", [])
     # A count from before taps had identities has nothing an action could add to.
     if row.kind not in SESSION_KINDS or (row.data.get("count") and not stored):
@@ -916,7 +941,7 @@ async def session_action(
     if prior:
         if not same_action(prior, action):
             raise HTTPException(409, "This save identity was already used with different content")
-        return record_response(row)
+        return record_response(row, access)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values["data"]["session_actions"] = [*stored, {**action, "revision": row.revision + 1}]
     try:
@@ -925,8 +950,9 @@ async def session_action(
         raise HTTPException(422, "Enter valid details for this entry") from None
     row.data = valid.data
     row.revision, row.updated_at = row.revision + 1, now()
+    await touch(row, access.target)
     await db.commit()
-    return record_response(row)
+    return record_response(row, access)
 
 
 @router.delete("/records/{identifier}", status_code=204)
@@ -937,23 +963,24 @@ async def delete_record(
     generation: Generation,
     revision: Annotated[int, Query(ge=1)],
     client: Client = None,
+    access: Access = None,
 ):
-    await membership_for(db, user.id, generation=generation, write=True)
-    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
+    access.check_generation(generation)
+    row = visible_to(await owned(db, BabyRecord, access, generation, identifier), client)
     revision_matches(row, revision)
     # Cancel processing before deleting the source, so completion cannot recreate it.
     for job in await db.scalars(
         select(BabyImport).where(
-            BabyImport.app_user_id == user.id,
-            BabyImport.generation == generation,
+            access.condition(BabyImport),
             BabyImport.record_id == identifier,
         )
     ):
         job.status, job.lease_token, job.lease_until = "cancelled", None, None
+        await touch(job, access.grant(job) if access.enabled else None)
     for collection in await db.scalars(
         select(BabyRecord).where(
-            BabyRecord.app_user_id == user.id,
-            BabyRecord.generation == generation,
+            access.condition(BabyRecord),
+            (BabyRecord.space_id == row.space_id) if access.enabled else True,
             BabyRecord.kind == "collection",
         )
     ):
@@ -965,26 +992,30 @@ async def delete_record(
                 ],
             }
             collection.revision, collection.updated_at = collection.revision + 1, now()
+            await touch(collection, access.grant(collection) if access.enabled else None)
     if row.kind == "event":
         # A question or note about a visit stays; only its link to the removed event goes.
         for linked in await db.scalars(
             select(BabyRecord).where(
-                BabyRecord.app_user_id == user.id,
-                BabyRecord.generation == generation,
+                (BabyRecord.space_id == row.space_id) if access.enabled else (
+                    (BabyRecord.app_user_id == user.id) & (BabyRecord.generation == generation)
+                ),
                 BabyRecord.deleted_at.is_(None),
-                BabyRecord.kind.in_(("question", "journal")),
                 BabyRecord.data["event_id"].as_string() == str(identifier),
             )
         ):
             linked.data = {key: value for key, value in linked.data.items() if key != "event_id"}
             linked.revision, linked.updated_at = linked.revision + 1, now()
+            await touch(linked, access.grant(linked, kinds=False) if access.enabled else None)
     removed_attachments = row.data.get("attachment_ids", [])
     child_id = row.child_id
     row.deleted_at, row.title, row.body, row.data, row.child_id = now(), "", "", {}, None
     row.revision, row.updated_at = row.revision + 1, now()
-    await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
+    await touch(row, access.target)
+    if removed_attachments:
+        await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
     if row.kind == "feeding":
-        await settle_running_feeds(db, user.id, generation, child_id)
+        await settle_running_feeds(db, access, generation, child_id)
     await db.commit()
     return Response(status_code=204)
 
@@ -1021,7 +1052,9 @@ async def export(user: User, db: Database, client: Client = None):
             metadata(row) for row in await rows(BabyAttachment) if row.state == "ready"
         ],
         "conversations": [conversation_response(row) for row in await rows(BabyConversation)],
-        "messages": [message_response(row, legacy=legacy_client(client)) for row in await rows(BabyMessage)],
+        "messages": [
+            message_response(row, legacy=legacy_client(client)) for row in await rows(BabyMessage)
+        ],
     }
 
 

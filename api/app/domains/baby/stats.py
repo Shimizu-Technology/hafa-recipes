@@ -13,6 +13,7 @@ from sqlalchemy import and_, or_, select
 
 from app.domains.baby.feeds import reduce_feed
 from app.domains.baby.models import BabyRecord
+from app.domains.baby.queries import row_scope
 
 CARE_KINDS = ("feeding", "sleep", "diaper")
 MAX_CUSTOM_DAYS = 92
@@ -77,8 +78,7 @@ def custom_days(first, last, zone, at):
 def care_query(owner, generation, child_id, *columns):
     """Who can see which care rows. ``child_id=None`` means logs with no child, as Today does."""
     return select(*columns).where(
-        BabyRecord.app_user_id == owner,
-        BabyRecord.generation == generation,
+        row_scope(BabyRecord, owner, generation),
         BabyRecord.deleted_at.is_(None),
         BabyRecord.kind.in_(CARE_KINDS),
         BabyRecord.child_id == child_id if child_id else BabyRecord.child_id.is_(None),
@@ -92,8 +92,7 @@ def kind_query(owner, generation, kinds, *columns):
     totals above never count them.
     """
     return select(*columns).where(
-        BabyRecord.app_user_id == owner,
-        BabyRecord.generation == generation,
+        row_scope(BabyRecord, owner, generation),
         BabyRecord.deleted_at.is_(None),
         BabyRecord.kind.in_(kinds),
     )

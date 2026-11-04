@@ -51,6 +51,11 @@ class BabyAccess:
     def personal_space_id(self):
         return self.member.personal_space_id
 
+    def check_generation(self, generation):
+        expected = self.target.generation if self.enabled else self.member.generation
+        if generation != expected:
+            raise HTTPException(409, "Baby data changed; refresh before saving")
+
     def condition(self, model):
         if not self.enabled:
             return and_(model.app_user_id == self.actor, model.generation == self.member.generation)
@@ -76,6 +81,15 @@ class BabyAccess:
         row = await db.scalar(query.execution_options(populate_existing=True))
         if row is None or getattr(row, "deleted_at", None) is not None:
             raise HTTPException(404, "Item unavailable")
+        if write and self.enabled and row.space_id != self.target.id:
+            from fastapi.encoders import jsonable_encoder
+
+            details = {"code": "moved", "space_id": str(row.space_id),
+                       "generation": row.generation, "revision": getattr(row, "revision", None)}
+            details["record"] = jsonable_encoder({key: getattr(row, key) for key in (
+                "id", "kind", "title", "body", "child_id", "occurred_at", "data", "revision",
+                "created_at", "updated_at", "space_id", "generation") if hasattr(row, key)})
+            raise HTTPException(409, details)
         return row
 
 
@@ -109,7 +123,9 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
     discovered = await _spaces(db, actor)
     if write:
         # All writers in this domain use this order, including short worker claims.
-        for identifier in sorted({actor, *actor_ids}):
+        affected = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
+            BabySpaceMember.space_id.in_([space.id for space, _, _ in discovered]))))
+        for identifier in sorted({actor, *actor_ids, *affected}):
             if await db.scalar(select(AppUser.id).where(AppUser.id == identifier).with_for_update()) is None:
                 raise HTTPException(404, "Account unavailable")
         for space, _, _ in discovered:
@@ -159,6 +175,8 @@ async def touch(row, space):
     """
     if space is None:
         return
+    if space.role == "caregiver" and hasattr(row, "kind") and row.kind not in CAREGIVER_KINDS:
+        raise HTTPException(403, "This role cannot save this kind of item")
     db = space.db
     if space.transaction is None or db.get_transaction() is not space.transaction:
         raise RuntimeError("touch requires the current access_for write transaction")

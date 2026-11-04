@@ -249,7 +249,8 @@ async def check_series_cap(db, owner, generation, data, *, record_id):
         return
     count = await db.scalar(
         kind_query(owner, generation, ("event",), func.count()).where(
-            BabyRecord.data["recurrence"].as_string().is_not(None), BabyRecord.id != record_id
+            BabyRecord.data["recurrence"].as_string().is_not(None), BabyRecord.id != record_id,
+            (BabyRecord.space_id == owner.target.id) if getattr(owner, "enabled", False) else True
         )
     )
     if count >= MAX_SERIES:

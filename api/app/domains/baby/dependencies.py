@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import Depends, Header, Query
+from fastapi import Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import ClerkUser
@@ -16,3 +16,18 @@ Client = Annotated[str | None, Header(alias="X-Baby-Client")]
 Generation = Annotated[int, Header(alias="X-Baby-Generation", ge=1, le=2_147_483_647)]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=1000000)]
+
+
+async def request_access(request: Request, user: User, db: Database):
+    from app.domains.baby.access import access_for
+
+    return await access_for(
+        db,
+        user.id,
+        client=request.headers.get("X-Baby-Client"),
+        space_id=request.headers.get("X-Baby-Space"),
+        write=request.method in {"POST", "PATCH", "PUT", "DELETE"},
+    )
+
+
+Access = Annotated[object, Depends(request_access)]
