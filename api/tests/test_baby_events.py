@@ -236,3 +236,114 @@ async def test_deleting_an_event_keeps_its_questions_and_notes_but_not_the_link(
     assert (await c.get(f"{API}/records/{note['id']}", headers=V2)).json()["data"]["provenance"] == "clinician_instruction"
     async with baby_api.sessions() as db:
         assert await db.scalar(select(BabyRecord.deleted_at).where(BabyRecord.id == event_id)) is not None
+
+
+WEEKLY = {"frequency": "weekly"}
+NOV_8 = "2026-11-08T09:00:00+10:00"  # Sundays, like the series' first day, Nov 1.
+NOV_15 = "2026-11-15T09:00:00+10:00"
+NOV_22 = "2026-11-22T09:00:00+10:00"
+NOV_9 = "2026-11-09T09:00:00+10:00"
+
+
+async def weekly_with_cancelled(baby_api, *dates):
+    """A weekly series from Sunday Nov 1 with the given occurrences cancelled."""
+    exceptions = [{"original_start": day, "cancelled": True} for day in dates]
+    saved, _ = await save(
+        baby_api, "event", occurred_at="2026-11-01T09:00:00+10:00",
+        data={**GUAM, "recurrence": WEEKLY, "exceptions": exceptions},
+    )
+    assert saved.status_code == 200, saved.text
+    return saved.json()
+
+
+@needs_database
+async def test_a_series_can_start_later_than_a_change_it_already_has(baby_api):
+    await allow_events(baby_api)
+    c = baby_api.client
+    series = await weekly_with_cancelled(baby_api, NOV_8, NOV_22)
+    url = f"{API}/records/{series['id']}"
+    later = await c.patch(url, headers=V2, json={"revision": 1, "occurred_at": NOV_15, "data": series["data"]})
+    assert later.status_code == 200, later.text
+    # Nov 8 is before the new start and goes; Nov 22 is still one of its dates and stays.
+    assert [item["original_start"] for item in later.json()["data"]["exceptions"]] == [NOV_22]
+    assert later.json()["revision"] == 2
+    # Starting on Monday the 9th gives it different weekdays, so no old change belongs to it.
+    monday = await c.patch(url, headers=V2, json={"revision": 2, "occurred_at": NOV_9, "data": series["data"]})
+    assert monday.status_code == 200, monday.text
+    assert monday.json()["data"]["exceptions"] == []
+
+
+@needs_database
+async def test_changing_the_repeat_drops_only_the_changes_it_leaves_behind(baby_api):
+    await allow_events(baby_api)
+    c = baby_api.client
+    series = await weekly_with_cancelled(baby_api, NOV_8, NOV_15, NOV_22)
+    url = f"{API}/records/{series['id']}"
+    revision = 0
+
+    async def edit(**changes):
+        nonlocal revision
+        revision += 1
+        data = {**series["data"], **changes.pop("data", {})}
+        response = await c.patch(url, headers=V2, json={"revision": revision, "data": data, **changes})
+        assert response.status_code == 200, response.text
+        return [item["original_start"] for item in response.json()["data"]["exceptions"]]
+
+    assert await edit(data={"recurrence": {**WEEKLY, "until": "2026-11-15"}}) == [NOV_8, NOV_15]
+    assert await edit(data={"recurrence": {"frequency": "weekly", "interval": 2}}) == [NOV_15]
+    assert await edit(data={"exceptions": [{"original_start": NOV_8, "cancelled": True}]}) == [NOV_8]
+    # A different time of day gives every date a new start.
+    assert await edit(occurred_at="2026-11-01T10:00:00+10:00") == []
+    # No longer repeating: nothing is left to change.
+    assert await edit(data={"recurrence": None}) == []
+
+
+@needs_database
+async def test_a_patch_that_fails_leaves_the_changes_in_place(baby_api):
+    await allow_events(baby_api)
+    c = baby_api.client
+    series = await weekly_with_cancelled(baby_api, NOV_8)
+    url = f"{API}/records/{series['id']}"
+    refused = await c.patch(url, headers=V2, json={
+        "revision": 1, "occurred_at": NOV_15, "data": {**series["data"], "end": "2026-11-15T08:00:00+10:00"},
+    })
+    assert refused.status_code == 422
+    stored = (await c.get(url, headers=V2)).json()
+    assert stored["revision"] == 1 and len(stored["data"]["exceptions"]) == 1
+
+
+def overrides(**fields):
+    return {"recurrence": {"frequency": "daily"}, "exceptions": [
+        {"original_start": "2026-11-11T09:00:00+10:00", "overrides": fields}]}
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"all_day": None, "title": "x"},
+        {"title": None, "location": "Home"},
+        {"attendees": None, "location": "Home"},
+        {"start": None, "location": "Home"},
+        {"all_day": None},
+        {"title": "   "},
+    ],
+)
+def test_an_explicit_null_is_refused_where_a_value_is_required(fields):
+    with pytest.raises(ValidationError):
+        valid(overrides(**fields))
+
+
+def test_an_explicit_null_clears_what_can_be_empty_and_is_remembered_as_such():
+    data = valid(overrides(end=None, category=None, location=None)).data
+    assert data["exceptions"][0]["overrides"] == {"end": None, "category": None, "location": None}
+    # Leaving a field out is not clearing it, and is stored that way: only what was said is kept.
+    data = valid(overrides(title="Moved", attendees=[])).data
+    assert data["exceptions"][0]["overrides"] == {"title": "Moved", "attendees": []}
+    again = valid(data).data
+    assert again == data
+
+
+def test_a_change_that_only_clears_something_is_still_a_change():
+    assert valid(overrides(location=None))
+    with pytest.raises(ValidationError):
+        valid(overrides())

@@ -50,6 +50,7 @@ from app.domains.baby.schemas import (
     ChildCreate,
     ChildPatch,
     CollectionData,
+    EventData,
     FeedActionRequest,
     Kind,
     Profile,
@@ -98,6 +99,14 @@ def record_response(row):
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category")
 PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id",), "question": ("event_id",)}
+
+
+def reconciled_event(data, start):
+    """An edited series' data without the changes to dates it no longer has; bad data is left to be refused."""
+    try:
+        return EventData.model_validate(data).without_orphans(start).model_dump(mode="json")
+    except ValidationError:
+        return data
 
 
 def kept_additions(current, patch, keys):
@@ -806,6 +815,8 @@ async def patch_record(
             **values["data"],
             "actions": retimed(values["data"]["actions"], body.occurred_at.isoformat()),
         }
+    if row.kind == "event":
+        values["data"] = reconciled_event(values["data"], values["occurred_at"])
     try:
         valid = RecordCreate.model_validate(values)
     except ValidationError:

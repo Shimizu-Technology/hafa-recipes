@@ -11,12 +11,15 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     StrictBool,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
 from app.domains.baby.feeds import instant, reduce_feed, with_derived
+from app.domains.baby.recurrence import is_start
 
 # Matches the mobile source kind label; keep API capture and processing defaults together.
 DEFAULT_SOURCE_TITLE = "Saved source"
@@ -380,7 +383,11 @@ class EventRecurrence(DomainModel):
 
 
 class EventOverrides(DomainModel):
-    """What one occurrence changes. A new ``all_day`` needs a new ``start``."""
+    """What one occurrence changes. A new ``all_day`` needs a new ``start``.
+
+    A field left out keeps the series' value. Null clears an ``end``, ``category`` or ``location``;
+    the others always have a value, so null is refused (clear ``attendees`` with an empty list).
+    """
 
     start: AwareDatetime | None = None
     end: AwareDatetime | None = None
@@ -390,12 +397,19 @@ class EventOverrides(DomainModel):
     location: str | None = Field(default=None, max_length=240)
     attendees: list[Label] | None = Field(default=None, max_length=30)
 
+    @field_validator("start", "all_day", "title", "attendees", mode="before")
+    @classmethod
+    def not_cleared(cls, value):
+        if value is None:
+            raise ValueError("Give a value, or leave this out to keep the series' own")
+        return value
+
     @field_validator("title")
     @classmethod
     def meaningful_title(cls, value):
-        if value is not None and not value.strip():
+        if not value.strip():
             raise ValueError("Enter a title")
-        return value and value.strip()
+        return value.strip()
 
     @field_validator("location")
     @classmethod
@@ -414,6 +428,11 @@ class EventOverrides(DomainModel):
         if self.all_day is not None and self.start is None:
             raise ValueError("Choose a new start when changing all-day")
         return self
+
+    @model_serializer(mode="wrap")
+    def only_what_was_said(self, handler: SerializerFunctionWrapHandler):
+        # Stored as given: a field left out and a field set to null mean different things.
+        return {key: value for key, value in handler(self).items() if key in self.model_fields_set}
 
 
 class EventException(DomainModel):
@@ -461,12 +480,27 @@ class EventData(DomainModel):
         starts = [item.original_start for item in self.exceptions]
         if len(set(starts)) != len(starts):
             raise ValueError("Each occurrence can have one change")
-        if self.exceptions and self.recurrence is None:
-            raise ValueError("Only a repeating event has occurrences to change")
+        return self
+
+    @property
+    def rule(self):
+        """(frequency, interval, until) for the repeat maths, or None."""
+        repeat = self.recurrence
+        return repeat and (repeat.frequency, repeat.interval, repeat.until)
+
+    def without_orphans(self, start):
+        """Drop the changes to dates this event no longer has, as when its start or repeat moves."""
+        zone = ZoneInfo(self.timezone)
+        self.exceptions = [
+            item for item in self.exceptions
+            if self.rule and is_start(start, zone, self.rule, item.original_start)
+        ]
         return self
 
     def check_times(self, start):
         """The rules that need the start, which lives on the record."""
+        if self.exceptions and self.recurrence is None:
+            raise ValueError("Only a repeating event has occurrences to change")
         zone = ZoneInfo(self.timezone)
         check_span(start, self.end, self.all_day, zone)
         if self.recurrence and self.recurrence.until:
