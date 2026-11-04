@@ -81,7 +81,7 @@ def test_creation_site_inventory_requires_explicit_space():
         "Record", "Child", "Attachment", "Import", "Conversation", "Message", "ShareCapture", "ShareCredential"
     )}
     sites = []
-    for path in Path("api/app").rglob("*.py"):
+    for path in (Path(__file__).resolve().parents[1] / "app").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names:
                 assert "space_id" in {kw.arg for kw in node.keywords}, (path, node.lineno)
