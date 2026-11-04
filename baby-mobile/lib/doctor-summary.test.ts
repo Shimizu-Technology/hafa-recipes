@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord, type Mutation } from "./models";
-import { lastSummaryLevel, summaryEntries, summaryFileName, summaryHtml, type SummaryPage } from "./doctor-summary";
+import { lastSummaryLevel, localEntries, summaryEntries, summaryFileName, summaryHtml, type SummaryPage } from "./doctor-summary";
 
 const row = (id: string, kind: BabyRecord["kind"], occurred_at: string, body = "", changes: Partial<BabyRecord> = {}) =>
   ({ ...optimisticRecord({ id, kind, title: kind === "journal" ? `Entry ${id}` : "", body, child_id: "baby", occurred_at, data: {} }), revision: 1, ...changes });
@@ -72,6 +72,30 @@ describe("the page", () => {
   });
   it("names the file with dates and no person", () => {
     expect(summaryFileName("2026-11-01", "2026-11-05")).toBe("care-summary-2026-11-01-to-2026-11-05.pdf");
+    expect(summaryFileName("2026-11-01", "2026-11-05", "questions-and-notes")).toBe("questions-and-notes-2026-11-01-to-2026-11-05.pdf");
+  });
+  it("with no numbers from the API, makes a page of what she chose and says the totals aren't there", () => {
+    const html = summaryHtml(page({ stats: null, questions: [row("q", "question", "2026-11-03T00:00:00Z", "After feeds.", { title: "Is this rash fine?" })] }));
+    expect(html).toContain("Mia: questions and notes");
+    expect(html).toContain("Is this rash fine? After feeds.");
+    expect(html).toContain("Care totals aren’t on this page.");
+    expect(html).not.toContain("<h2>Totals</h2>");
+    expect(html).not.toContain("Day by day");
+    expect(html).not.toContain("<p>.");
+  });
+});
+
+describe("gathering it with no network", () => {
+  const held = [row("old-q", "question", "2026-01-01T00:00:00.000Z", "Kept"), row("gone", "question", "2026-11-03T00:00:00.000Z", "Deleted"), row("in", "journal", "2026-11-03T04:00:00.000Z", "Inside"),
+    row("out", "journal", "2026-10-01T04:00:00.000Z", "Outside"), row("sister", "question", "2026-11-03T04:00:00.000Z", "Hers", { child_id: "sister" })];
+  const outbox: Mutation[] = [
+    { id: "1", generation: 1, type: "save", files: [], record: row("new", "question", "2026-11-04T00:00:00.000Z", "Queued") },
+    { id: "2", generation: 1, type: "delete", record: held[1] },
+  ];
+  it("takes what this phone holds with its queued changes applied, for this baby, in these dates", () => {
+    const found = localEntries({ ...emptyState(), records: held, outbox }, "baby", "2026-11-01", "2026-11-05", "Pacific/Guam");
+    expect(found.questions.map((item) => item.id)).toEqual(["new", "old-q"]);
+    expect(found.journal.map((item) => item.id)).toEqual(["in"]);
   });
 });
 

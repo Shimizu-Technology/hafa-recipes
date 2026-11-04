@@ -26,9 +26,27 @@ describe("sharing a one-page PDF", () => {
     expect(native.share.mock.calls[0][1]).toEqual({ mimeType: "application/pdf", UTI: "com.adobe.pdf" });
     expect(native.print.mock.calls[0][0]).toMatchObject({ width: 612, height: 792 });
   });
-  it("says so when even the last level runs over", async () => {
-    native.print.mockResolvedValue({ uri: "file:///cache/a.pdf", numberOfPages: 2 });
+  it("shares nothing when even the last level runs over, and keeps none of the tries", async () => {
+    native.print.mockResolvedValueOnce({ uri: "file:///cache/a.pdf", numberOfPages: 2 }).mockResolvedValueOnce({ uri: "file:///cache/b.pdf", numberOfPages: 2 });
     await expect(exportOnePagePdf(() => "x", 1, "owner", "s.pdf")).resolves.toEqual({ level: 1, fits: false });
+    expect(native.share).not.toHaveBeenCalled();
+    expect(native.move).not.toHaveBeenCalled();
+    for (const uri of ["file:///cache/a.pdf", "file:///cache/b.pdf"]) expect(native.remove).toHaveBeenCalledWith(uri, { idempotent: true });
+  });
+  it("leaves nothing in the print cache when the move fails", async () => {
+    native.print.mockResolvedValue({ uri: "file:///cache/a.pdf", numberOfPages: 1 });
+    native.move.mockRejectedValue(Error("disk full"));
+    await expect(exportOnePagePdf(() => "x", 0, "owner", "s.pdf")).rejects.toThrow("disk full");
+    expect(native.remove).toHaveBeenCalledWith("file:///cache/a.pdf", { idempotent: true });
+    expect(native.remove.mock.calls.some(([uri]) => String(uri).endsWith("s.pdf"))).toBe(true);
+    expect(native.share).not.toHaveBeenCalled();
+  });
+  it("still clears the rest, and reports the real failure, when one delete fails", async () => {
+    native.print.mockResolvedValue({ uri: "file:///cache/a.pdf", numberOfPages: 1 });
+    native.share.mockRejectedValue(Error("cancelled"));
+    native.remove.mockImplementation(async (uri: string) => { if (uri.endsWith("a.pdf")) throw Error("locked"); });
+    await expect(exportOnePagePdf(() => "x", 0, "owner", "s.pdf")).rejects.toThrow("cancelled");
+    expect(native.remove.mock.calls.some(([uri]) => String(uri).endsWith("s.pdf"))).toBe(true);
   });
   it("keeps no private copy, even when sharing fails", async () => {
     native.print.mockResolvedValue({ uri: "file:///cache/a.pdf", numberOfPages: 1 });

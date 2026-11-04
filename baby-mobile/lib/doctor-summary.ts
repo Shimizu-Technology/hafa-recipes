@@ -14,7 +14,24 @@ const careKinds: readonly Kind[] = ["feeding", "sleep", "diaper", "contraction",
 const time = (iso: string) => new Date(iso).getTime();
 const newest = (x: BabyRecord, y: BabyRecord) => time(y.occurred_at) - time(x.occurred_at);
 
-/** Questions, however old, and in these dates: notes on care logs and journal entries. Queued changes count, as they do on the Day view. */
+/** Questions, however old, and in these dates: notes on care logs and journal entries. */
+function entriesIn(all: BabyRecord[], childId: string | null, first: string, last: string, timezone?: string | null) {
+  const { from } = dayRange(first, timezone), { to } = dayRange(last, timezone),
+    inRange = (row: BabyRecord) => time(row.occurred_at) >= time(from) && time(row.occurred_at) < time(to),
+    forBaby = (row: BabyRecord) => !childId ? !row.child_id : row.child_id === childId || !row.child_id;
+  return {
+    questions: all.filter((row) => row.kind === "question" && forBaby(row)).sort(newest),
+    // A log with no baby isn't this baby's, unlike a general note.
+    logNotes: all.filter((row) => careKinds.includes(row.kind) && row.child_id === childId && inRange(row) && !!row.body.trim()).sort(newest),
+    journal: all.filter((row) => row.kind === "journal" && forBaby(row) && inRange(row)).sort(newest),
+  };
+}
+
+/** The same, from only what this phone holds and has queued. It needs no network, and may not be everything. */
+export const localEntries = (state: DeviceState, childId: string | null, first: string, last: string, timezone?: string | null) =>
+  entriesIn(pendingRecords(state), childId, first, last, timezone);
+
+/** All of it, from the API. Queued changes count, as they do on the Day view. */
 export async function summaryEntries(api: Pick<BabyApi, "records">, state: DeviceState, childId: string | null, first: string, last: string, timezone?: string | null) {
   const { from } = dayRange(first, timezone), { to } = dayRange(last, timezone), rows: BabyRecord[] = [];
   const read = async (filters: Parameters<BabyApi["records"]>[0]) => {
@@ -27,16 +44,8 @@ export async function summaryEntries(api: Pick<BabyApi, "records">, state: Devic
   await read({ kinds: ["question"], child_id: childId, include_general: true });
   await read({ kinds: [...careKinds, "journal"], child_id: childId, include_general: true, occurred_from: from, occurred_to: to });
   const changed = new Set(state.outbox.map(mutationRecordId)),
-    queued = pendingRecords(state).filter((row) => changed.has(row.id)),
-    all = [...rows.filter((row) => !changed.has(row.id)), ...queued],
-    inRange = (row: BabyRecord) => time(row.occurred_at) >= time(from) && time(row.occurred_at) < time(to),
-    forBaby = (row: BabyRecord) => !childId ? !row.child_id : row.child_id === childId || !row.child_id;
-  return {
-    questions: all.filter((row) => row.kind === "question" && forBaby(row)).sort(newest),
-    // A log with no baby isn't this baby's, unlike a general note.
-    logNotes: all.filter((row) => careKinds.includes(row.kind) && row.child_id === childId && inRange(row) && !!row.body.trim()).sort(newest),
-    journal: all.filter((row) => row.kind === "journal" && forBaby(row) && inRange(row)).sort(newest),
-  };
+    queued = pendingRecords(state).filter((row) => changed.has(row.id));
+  return entriesIn([...rows.filter((row) => !changed.has(row.id)), ...queued], childId, first, last, timezone);
 }
 
 const escape = (text: string) => text.replace(/[&<>"']/g, (mark) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[mark]!);
@@ -90,7 +99,8 @@ function totals(stats: CareStats) {
 }
 
 export interface SummaryPage {
-  stats: CareStats;
+  /** None means a page of only her questions and notes, which needs no network. */
+  stats: CareStats | null;
   child: Pick<Child, "name" | "birth_date" | "due_date"> | null;
   timezone: string;
   prepared: Date;
@@ -128,9 +138,9 @@ function listSection(title: string, rows: BabyRecord[], limit: number, line: (ro
 
 /** One page, in black on white so it survives a photocopier. No colour, no images, no links out, and every word escaped. */
 export function summaryHtml({ stats, child, timezone, prepared, questions, notes }: SummaryPage, level = 0) {
-  const limit = levels[Math.min(level, lastSummaryLevel)], first = stats.days[0]?.date, last = stats.days[stats.days.length - 1]?.date,
+  const limit = levels[Math.min(level, lastSummaryLevel)], first = stats?.days[0]?.date, last = stats?.days[stats.days.length - 1]?.date,
     // A month of rows takes the space notes would, so its table gets tighter before any note is cut short.
-    tight = stats.days.filter(logged).length > 14;
+    tight = !!stats && stats.days.filter(logged).length > 14, what = stats ? "care summary" : "questions and notes";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 body{margin:0;font:10pt/1.32 Helvetica,Arial,sans-serif;color:#000;background:#fff}
 h1{font-size:15pt;margin:0}h2{font-size:10.5pt;margin:10pt 0 3pt;padding-bottom:2pt;border-bottom:1pt solid #000}
@@ -141,11 +151,11 @@ td{text-align:right;border-bottom:.5pt solid #777;padding:${tight ? ".5pt" : "1p
 .day{text-align:left;padding-left:0}ul{margin:0;padding-left:12pt}li{margin:0 0 2.5pt}
 .foot{margin-top:9pt;font-size:8pt;border-top:.5pt solid #000;padding-top:3pt}
 </style></head><body>
-<div class="head"><h1>${child?.name ? `${escape(child.name)}: care summary` : "Care summary"}</h1>
+<div class="head"><h1>${child?.name ? `${escape(child.name)}: ${what}` : `${what[0].toUpperCase()}${what.slice(1)}`}</h1>
 <p>${[child?.birth_date && `Born ${longDay(child.birth_date)}`, !child?.birth_date && child?.due_date && `Due ${longDay(child.due_date)}`].filter(Boolean).map((text) => escape(text as string)).join("")}</p>
-<p>${first ? `${escape(longDay(first))} to ${escape(longDay(last!))}` : ""}. Prepared ${escape(prepared.toLocaleDateString(undefined, { timeZone: timezone, month: "long", day: "numeric", year: "numeric" }))}. Times are ${escape(timezone)}.</p></div>
-<h2>Totals</h2>${totals(stats) || "<p>Nothing logged in these days.</p>"}
-<h2>Day by day</h2>${dayTable(stats.days)}
+<p>${first ? `${escape(longDay(first))} to ${escape(longDay(last!))}. ` : ""}Prepared ${escape(prepared.toLocaleDateString(undefined, { timeZone: timezone, month: "long", day: "numeric", year: "numeric" }))}. Times are ${escape(timezone)}.</p></div>
+${stats ? `<h2>Totals</h2>${totals(stats) || "<p>Nothing logged in these days.</p>"}
+<h2>Day by day</h2>${dayTable(stats.days)}` : `<p class="small">Care totals aren’t on this page.</p>`}
 ${listSection("Questions for the doctor", questions, limit.questions, (row) => `<li>${escape(questionLine(row, limit.letters))}</li>`)}
 ${listSection("Notes", notes, limit.notes, (row) => noteLine(row, timezone, limit.letters))}
 <p class="foot">Kept by the family in Håfa Baby. Personal records selected by the account owner. This is not a medical assessment.</p>
@@ -153,4 +163,4 @@ ${listSection("Notes", notes, limit.notes, (row) => noteLine(row, timezone, limi
 }
 
 /** A file name with the dates and no name of a person, since it can end up anywhere. */
-export const summaryFileName = (first: string, last: string) => `care-summary-${first}-to-${last}.pdf`;
+export const summaryFileName = (first: string, last: string, what = "care-summary") => `${what}-${first}-to-${last}.pdf`;

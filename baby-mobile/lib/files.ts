@@ -98,24 +98,28 @@ export async function exportFile(value: unknown, owner: string) {
     await removeLocal(owner, target);
   }
 }
-/** Prints each level in turn until it fits one page, shares that, and keeps no copy. Returns the level used and whether it fit. */
+/** Prints each level in turn until it fits one page and shares that. One that never fits isn't shared. Keeps no copy of any try. */
 export async function exportOnePagePdf(html: (level: number) => string, lastLevel: number, owner: string, name: string) {
   if (Platform.OS === "web") throw Error("Share your summary from the installed app.");
   await FileSystem.makeDirectoryAsync(directory(owner), { intermediates: true });
-  const target = directory(owner) + name;
+  const target = directory(owner) + name, printed: string[] = [];
   let level = 0;
   try {
     for (;;) {
       const page = await Print.printToFileAsync({ html: html(level), width: 612, height: 792, margins: { top: 36, bottom: 36, left: 36, right: 36 } });
+      printed.push(page.uri);
+      if (page.numberOfPages > 1) {
+        if (level === lastLevel) return { level, fits: false };
+        level++;
+        continue;
+      }
       await FileSystem.deleteAsync(target, { idempotent: true });
       await FileSystem.moveAsync({ from: page.uri, to: target });
-      if (page.numberOfPages <= 1 || level === lastLevel) {
-        await Sharing.shareAsync(target, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
-        return { level, fits: page.numberOfPages <= 1 };
-      }
-      level++;
+      await Sharing.shareAsync(target, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
+      return { level, fits: true };
     }
   } finally {
-    await removeLocal(owner, target);
+    // Each on its own, so one that fails can't keep another or hide why the export stopped.
+    await Promise.allSettled([...printed, target].map((uri) => FileSystem.deleteAsync(uri, { idempotent: true })));
   }
 }
