@@ -70,6 +70,10 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
         assert response.status_code == expected, (method, path, response.text)
         return response.json() if response.content else None
 
+    for method, path in (("POST", f"/api/v1/baby/family/{family}/leave"),
+                         ("DELETE", f"/api/v1/baby/family/{family}/members/other"),
+                         ("DELETE", f"/api/v1/baby/family/{family}")):
+        await call(method, path, expected=403 if enabled else 404)
     await call("POST", "/api/v1/baby/family", expected=403 if enabled else 404)
     await call("POST", f"/api/v1/baby/records/{uuid4()}/move", expected=403 if enabled else 404,
                json={"space_id": str(personal), "revision": 1})

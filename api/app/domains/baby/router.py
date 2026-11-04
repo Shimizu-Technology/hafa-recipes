@@ -1132,6 +1132,7 @@ async def export(user: User, db: Database, client: Client = None):
 
 @router.delete("/data")
 async def delete_data(
+    request: Request,
     user: User,
     db: Database,
     generation: Generation,
@@ -1139,8 +1140,32 @@ async def delete_data(
 ):
     if expected != generation:
         raise HTTPException(409, "Deletion generation does not match")
+    from app.domains.baby.lifecycle import erase_baby_account, lock_family_data
+
+    grants = await lock_family_data(db, user.id)
     member = await membership_for(db, user.id, write=True, active=False)
-    await erase_product_data(db, member, generation)
+    if family_enabled() and request.headers.get("X-Baby-Client") == "3":
+        raw_space = request.headers.get("X-Baby-Space")
+        try:
+            requested = UUID(raw_space) if raw_space else None
+        except ValueError:
+            raise HTTPException(422, "Choose a valid Baby space") from None
+        if requested is None:
+            raise HTTPException(422, "X-Baby-Space is required")
+        if requested != member.personal_space_id:
+            raise HTTPException(422, "Use Delete family to erase a family; data erasure targets your personal space")
+    if member.status == "deleted" and member.generation == generation + 1:
+        return {"deleted": True, "generation": member.generation}
+    if member.status != "active" or member.generation != generation:
+        raise HTTPException(409, "Baby data changed; refresh before deleting")
+    if grants is not None:
+        member.personal_space_id = None
+        prefixes = await erase_baby_account(db, user.id, grants)
+        if prefixes:
+            from app.domains.baby.attachments import cleanup_job
+
+            db.add(cleanup_job(user.id, prefixes))
+    await erase_product_data(db, member, generation, erased=grants is not None)
     await db.commit()
     return {"deleted": True, "generation": member.generation}
 

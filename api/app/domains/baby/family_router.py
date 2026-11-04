@@ -69,3 +69,57 @@ async def move(identifier: UUID, body: MoveRequest, user: User, db: Database,
     from app.domains.baby.router import record_reply
 
     return await record_reply(db, row, access)
+
+
+async def erasure_access(request, db, actor, space_id, generation):
+    from app.domains.baby.access import family_enabled
+    from app.domains.baby.lifecycle import lock_family_data
+
+    if not family_enabled():
+        raise HTTPException(404, "Not found")
+    if request.headers.get("X-Baby-Client") != "3":
+        raise HTTPException(403, "Update Baby before using family features")
+    grants = await lock_family_data(db, actor, space_id=space_id)
+    access = await access_for(db, actor, client="3", space_id=request.headers.get("X-Baby-Space"),
+        stored_space_id=space_id, generation=generation, write=True, extra_space_ids=[g.id for g in grants])
+    if access.target.space.kind != "family":
+        raise HTTPException(422, "Choose a family space")
+    return access, grants
+
+
+@router.post("/family/{space_id}/leave")
+async def leave(space_id: UUID, request: Request, user: User, db: Database, generation: Generation):
+    from app.domains.baby.lifecycle import end_family_membership
+
+    access, grants = await erasure_access(request, db, user.id, space_id, generation)
+    await end_family_membership(db, user.id, access.target, grants)
+    await db.commit()
+    return {"left": True}
+
+
+@router.delete("/family/{space_id}/members/{actor}")
+async def remove_member(space_id: UUID, actor: str, request: Request, user: User, db: Database,
+                        generation: Generation):
+    from app.domains.baby.lifecycle import end_family_membership
+
+    access, grants = await erasure_access(request, db, user.id, space_id, generation)
+    if access.target.role != "parent":
+        raise HTTPException(403, "Only parents can remove a family member")
+    await end_family_membership(db, actor, access.target, grants, removed=True)
+    await db.commit()
+    return {"removed": True}
+
+
+@router.delete("/family/{space_id}")
+async def delete_family(space_id: UUID, request: Request, user: User, db: Database, generation: Generation):
+    from app.domains.baby.attachments import cleanup_job
+    from app.domains.baby.lifecycle import erase_space
+
+    access, grants = await erasure_access(request, db, user.id, space_id, generation)
+    if access.target.role != "parent":
+        raise HTTPException(403, "Only parents can delete the family")
+    prefixes = await erase_space(db, access.target.space, grants)
+    if prefixes:
+        db.add(cleanup_job(user.id, prefixes))
+    await db.commit()
+    return {"deleted": True}

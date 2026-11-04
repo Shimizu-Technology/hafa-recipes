@@ -128,6 +128,9 @@ async def delete_account(
     user_id = user.id
 
     try:
+        from app.domains.baby.lifecycle import lock_family_data
+
+        baby_spaces = await lock_family_data(db, user_id)
         app_user_result = await db.execute(
             select(AppUser).where(AppUser.id == user_id).with_for_update()
         )
@@ -226,9 +229,9 @@ async def delete_account(
         from app.domains.workouts.coach_attachments import owned_prefixes
 
         storage_prefixes.extend(await owned_prefixes(db, user_id))
-        from app.domains.baby.lifecycle import owned_cleanup_prefixes as baby_cleanup_prefixes
+        from app.domains.baby.lifecycle import erase_baby_account
 
-        storage_prefixes.extend(await baby_cleanup_prefixes(db, user_id))
+        storage_prefixes.extend(await erase_baby_account(db, user_id, baby_spaces))
 
         cleanup_job = DeletionCleanupJob(
             kind="account",
