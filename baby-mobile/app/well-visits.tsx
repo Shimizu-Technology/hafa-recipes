@@ -9,7 +9,8 @@ import { profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
 import { dayKey, keyDate } from "@/lib/tracker";
 import { canPreview } from "@/lib/weekly-content";
-import { addVisitToCalendar, recordedShots, shotLabel, visitEvent, visitsFrom, visitsVisible, wellVisits, type WellVisit } from "@/lib/well-visits";
+import { pendingRecords } from "@/lib/outbox";
+import { recordedShots, shotLabel, visitEvent, visitOnCalendar, visitsFrom, visitsVisible, wellVisits, type WellVisit } from "@/lib/well-visits";
 import { Button, Card, Copy, Empty, Field, Grouped, Notice, PressTarget, Row, Screen, Section, tap, useColors, useToast } from "@/components/ui";
 import { ChildFilter } from "@/components/child-filter";
 import { DateField } from "@/components/date-field";
@@ -47,11 +48,14 @@ export default function WellVisits() {
     } catch (e) { toast(messageFor(e)); }
   }
   async function addVisit(visit: WellVisit, visitDay: string) {
-    if (!addVisitToCalendar || !childId) return;
+    if (!childId) return;
+    const { title, child_id, occurred_at, data } = visitEvent(visit, childId, visitDay, timeZone);
     try {
-      await addVisitToCalendar(visitEvent(visit, childId, visitDay, timeZone));
+      const undo = await logCare(b, { ...careWrite("event", child_id, data, occurred_at), title });
       tap("success");
-      toast("Added to your calendar.");
+      toast("Added to your calendar.", { label: "Undo", onPress: async () => {
+        try { await undo(); } catch (e) { toast(messageFor(e)); }
+      } });
     } catch (e) { toast(messageFor(e)); }
   }
   const notBorn = !child || todayStage(child, today) !== "baby",
@@ -59,7 +63,9 @@ export default function WellVisits() {
   const visitRow = ({ visit, day: visitDay }: { visit: WellVisit; day: string }) => <View key={visit.id} style={{ backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}>
     <Copy kind="label">{visit.title}</Copy>
     <Copy numeric kind="small" tone="muted">{`Around ${dayName(visitDay)}`}</Copy>
-    {!!addVisitToCalendar && <Button secondary title="Add to calendar" onPress={() => void addVisit(visit, visitDay)} />}
+    {visitOnCalendar(pendingRecords(b.state), visit, childId)
+      ? <Copy kind="small" tone="muted">On your calendar</Copy>
+      : <Button secondary title="Add to calendar" onPress={() => void addVisit(visit, visitDay)} />}
   </View>;
   return <Screen title="Well visits & shots" subtitle={child?.name} back>
     <ChildFilter only={childId ?? undefined} />

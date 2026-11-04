@@ -67,6 +67,11 @@ vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 vi.mock("@/components/tips", () => ({ BabyAgeCard: "BabyAgeCard", PregnancyHero: "PregnancyHero", TipSection: "TipSection" }));
 vi.mock("@/lib/timing", () => import("./timing"));
+vi.mock("@/components/event-row", () => ({ NextEvent: "NextEvent" }));
+vi.mock("@/components/visit-sections", async () => {
+  const { useState } = await import("react");
+  return { useVisitDrafts: () => { const [typed, setTyped] = useState<Record<string, string>>({}); return { typed, write: (target: string, text: string) => setTyped((held) => ({ ...held, [target]: text })) }; } };
+});
 vi.mock("@/lib/use-timing-tips", () => ({ useTimingTips: () => ({ rows: [], total: 0 }) }));
 import Today from "../app/(tabs)/(today)/index";
 
@@ -359,5 +364,21 @@ it("keeps the pregnancy layout with a sibling's running feed timer on top", asyn
   expect(find("PregnancyHero", () => true)).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0); // the timer replaces the care hero
   expect(find("Pressable", p => p.accessibilityLabel === "Feeding")).toHaveLength(1);
+});
+
+it("keeps a half-typed question across a due baby's layout and a born baby's, which are different screens", async () => {
+  const account = setup(), bootstrap = account.state.bootstrap!, due = { id: "noa", name: "Noa", revision: 1, due_date: "2026-12-10" }, born = { id: "kai", name: "Kai", revision: 1, birth_date: "2026-01-15" };
+  account.state = { ...account.state, selectedChild: "noa", bootstrap: { ...bootstrap, children: [due, born] } };
+  await render();
+  const drafts = () => find("NextEvent", () => true)[0].props.drafts as { typed: Record<string, string>; write: (target: string, text: string) => void };
+  expect(find("NextEvent", () => true)[0].props.childId).toBe("noa");
+  await act(async () => drafts().write("visit:noa", "Half typed"));
+  account.state = { ...account.state, selectedChild: "kai" };
+  await render();
+  expect(find("NextEvent", () => true)[0].props.childId).toBe("kai");
+  expect(drafts().typed["visit:noa"]).toBe("Half typed");
+  account.state = { ...account.state, selectedChild: "noa" };
+  await render();
+  expect(drafts().typed["visit:noa"]).toBe("Half typed");
 });
 

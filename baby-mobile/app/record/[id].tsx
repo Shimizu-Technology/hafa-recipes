@@ -2,7 +2,7 @@ import { sourceTitle } from "@/lib/source-title";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { Image } from "expo-image";
-import { router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime, isCare } from "@/lib/care-format";
@@ -18,6 +18,7 @@ import { tipTopic } from "@/lib/timing";
 import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
+import { RecordVisit } from "@/components/visit-sections";
 import { ensureAiConsent } from "../../lib/ai-consent";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
@@ -81,6 +82,7 @@ export default function RecordDetail() {
         />
       </Screen>
     );
+  if (record.kind === "event") return <Redirect href={{ pathname: "/event/[id]", params: { id: record.id } }} />;
   const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
     title = record.kind === "source" ? sourceTitle(record) : record.title,
     data = record.data,
@@ -219,6 +221,7 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
+      {(record.kind === "question" || !!data.event_id) && <RecordVisit record={record} />}
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
         onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
       <Grouped>

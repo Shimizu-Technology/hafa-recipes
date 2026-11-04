@@ -1,6 +1,7 @@
 import schedule from "../content/aap_well_visits.json";
 import { canPreview } from "./weekly-content";
 import type { BabyRecord } from "./models";
+import { midnight } from "./events";
 import { dayKey } from "./tracker";
 
 /**
@@ -30,13 +31,10 @@ export function visitsFrom(birthDate: string, todayKey: string, visits: readonly
 
 /** The event a suggestion becomes: all day on that date, for this child, as an appointment she can move. */
 export const visitEvent = (visit: Pick<WellVisit, "title">, childId: string, day: string, timeZone: string) =>
-  ({ title: visit.title, child_id: childId, day, data: { all_day: true, timezone: timeZone, category: "appointment" as const } });
-
-/**
- * HOOK for C2 (#521), not yet merged: the event add path doesn't exist on main. When it does, return a function here that
- * saves `visitEvent(...)` through it, and the screen's one-tap "Add to calendar" appears. Until then the button stays away.
- */
-export const addVisitToCalendar: ((event: ReturnType<typeof visitEvent>) => Promise<void>) | null = null;
+  ({ title: visit.title, child_id: childId, occurred_at: new Date(midnight(day, timeZone)), data: { all_day: true, timezone: timeZone, category: "appointment" as const, attendees: [] } });
+/** Whether this visit is on this child's calendar already, so a second tap can't add it twice. */
+export const visitOnCalendar = (rows: readonly BabyRecord[], visit: Pick<WellVisit, "title">, childId: string | null) =>
+  rows.some((row) => row.kind === "event" && row.child_id === childId && row.title === visit.title);
 
 export const shotLabel = "Shot";
 /** A milestone or a shot only means something for its baby: as "general" it would drop off that baby's lists and look lost. */

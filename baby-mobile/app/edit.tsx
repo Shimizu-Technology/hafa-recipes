@@ -11,14 +11,19 @@ import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
-import { sendsCareDetails } from "../lib/api";
+import { EventFields } from "@/components/event-fields";
+import { eventWrite, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, startsBeforeSplit, dayName } from "@/lib/events";
+import { nextVisitDraft, withFittingVisit } from "@/lib/visits";
+import { dayKey, recordDay } from "@/lib/tracker";
+import { profileToday } from "@/lib/timing";
+import { sendsCareDetails, seriesLimitMessage } from "../lib/api";
 import { careSummary, colorWords, contentWords, defaultChild, diaperWords, friendlyTime, isCare } from "@/lib/care-format";
 import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
 import { ensureAiConsent } from "../lib/ai-consent";
-import { staysWithBaby } from "@/lib/well-visits";
+import { staysWithBaby } from "../lib/well-visits";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -52,10 +57,10 @@ function firstLine(d: EditorDraft) {
   return line.length > 60 ? line.slice(0, 59).join("").trimEnd() + "…" : line.join("");
 }
 export default function Edit() {
-  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string }>(),
+  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string }>(),
     b = useBaby(),
     toast = useToast(),
-    slot = params.draft ?? (params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
+    slot = params.draft ?? (params.from ? "book:" + params.from : params.scope ? `event:${params.id}:${params.scope}:${params.at}` : params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
   const [draft, setDraft] = useState<EditorDraft | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -75,14 +80,23 @@ export default function Edit() {
         if (!d && params.id) {
           let row = b.records.find((r) => r.id === params.id);
           if (!row || row.cache_partial) row = await b.api.record(params.id);
-          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true, base: baseOf(b.state, row.id) };
+          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true, base: baseOf(b.state, row.id),
+            ...(params.scope && params.at ? occurrenceDraft(row, params.at, params.scope) : {}) };
         }
+        // Add from a day means that day, even over a draft left from another.
+        if (d && params.kind === "event" && params.day && !d.existing) d = onNewDay(d, params.day);
         const kind = params.kind ?? "journal",
           child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
           lastFeed = b.records
             .filter((r) => r.kind === "feeding" && r.child_id === child)
             .sort((x, y) => y.occurred_at.localeCompare(x.occurred_at))[0];
-        d ??= fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
+        const timezone = b.state.bootstrap!.profile.timezone;
+        if (!d && params.from) {
+          const from = b.records.find((r) => r.id === params.from) ?? await b.api.record(params.from);
+          d = nextVisitDraft(Crypto.randomUUID(), from, occurrenceAt(from, params.at));
+        }
+        d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
+          : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
         if (active) {
           latest.current = d;
           setDraft(d);
@@ -109,6 +123,8 @@ export default function Edit() {
     }, 400);
     return () => clearTimeout(timer);
   }, [draft]);
+  // An error above a long form can be off the top of the screen when she taps Save.
+  useEffect(() => { if (error && draft?.kind === "event") toast(error); }, [error]);
   useEffect(() => {
     const app = AppState.addEventListener("change", (s) => {
       if (s !== "active" && !retired.current && latest.current)
@@ -194,6 +210,13 @@ export default function Edit() {
     });
   }
   function validate(d: EditorDraft) {
+    if (d.kind === "event") {
+      if (!d.title.trim()) throw Error("Give this event a name.");
+      if (d.data.recurrence?.until && d.data.recurrence.until < recordDay(d.occurred_at, d.data.timezone)) throw Error("A repeat can’t end before the event starts.");
+      if (startsBeforeSplit(d)) throw Error("These changes can’t start before the date you’re changing. To move only this date, edit just this one.");
+      if (seriesFull(b.records, d)) throw Error(seriesLimitMessage);
+      return;
+    }
     if (
       !d.title.trim() &&
       !d.body.trim() &&
@@ -245,8 +268,10 @@ export default function Edit() {
       const shouldProcess = d.kind === "source" && (process || automatic);
       // Keep the original in the durable outbox before its optional import.
       const id = Crypto.randomUUID();
-      const build = (from: EditorDraft): Extract<Mutation, { type: "save" }> => {
-        const { files, existing: _, revision, base, ...record } = from;
+      const splitId = Crypto.randomUUID();
+      const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
+        const from = given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records);
+        const { files, existing: _, revision, base, event_edit: __, ...record } = from;
         return {
           id, generation, type: "save",
           record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindName[from.kind]),
@@ -278,7 +303,9 @@ export default function Edit() {
             },
             files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
           };
-          const saved = addMutation(s, prepared);
+          const split = d.kind === "event" ? splitEvent(d, splitId) : undefined;
+          // One change holding both parts: this series can't end unless the next one starts.
+          const saved = addMutation(s, split ? { id: splitId, generation, type: "event_split", series: prepared.record, event: split, from_start: d.event_edit!.original_start, files: [], ...(prepared.base ? { base: prepared.base } : {}) } : prepared);
           return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });
         });
       } catch (failure) {
@@ -286,6 +313,16 @@ export default function Edit() {
         throw failure;
       }
       latest.current = null;
+      if (d.kind === "event") {
+        const timezone = b.state.bootstrap!.profile.timezone, today = dayKey(profileToday(new Date(), timezone));
+        toast(d.event_edit?.scope === "future" ? "Saved. This date and later ones changed."
+          : `${d.title.trim()} saved for ${dayName(recordDay(d.occurred_at, d.data.all_day ? d.data.timezone : timezone), today)}.`);
+        void b.sync();
+        // A split leaves the screen behind this one showing a date its series no longer has.
+        if (splitEvent(d, splitId)) router.dismissTo("/(tabs)/tracker");
+        else router.back();
+        return;
+      }
       if (mutation.type === "save" && isCare(d.kind) && !d.existing) {
         // Quick logs return to Today; the new entry can be undone from there.
         const undo = undoSaved(b, mutation.record);
@@ -314,6 +351,27 @@ export default function Edit() {
       void b.sync();
       router.dismissTo(shouldProcess ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });
   }
+  function discard() {
+    Alert.alert("Discard this draft?", "This removes the unfinished draft from this device.", [
+      { text: "Keep writing", style: "cancel" },
+      {
+        text: "Discard draft",
+        style: "destructive",
+        onPress: () =>
+          void run(async () => {
+            retired.current = true;
+            try {
+              await b.saveDraft(slot, null);
+            } catch (error) {
+              retired.current = false;
+              throw error;
+            }
+            latest.current = null;
+            router.back();
+          }),
+      },
+    ]);
+  }
   // Journal entries and doctor questions open on the writing area; other kinds keep notes after their details.
   const writing = !!draft && (draft.kind === "journal" || draft.kind === "question" || draft.kind === "source");
   const notesField = draft && ((!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
@@ -341,6 +399,14 @@ export default function Edit() {
         {error ? <Notice error>{error}</Notice> : <Loading />}
       </Screen>
     );
+  if (draft.kind === "event") return (
+    <Screen title={draft.existing ? "Edit event" : params.from ? "Book the next visit" : "Add to the calendar"} back
+      footer={<Button title={draft.existing ? "Save changes" : params.from ? "Save next visit" : "Save event"} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}>
+      {!!error && <Notice error>{error}</Notice>}
+      <EventFields draft={draft} change={change} quick={!params.from} today={dayKey(profileToday(new Date(), b.state.bootstrap!.profile.timezone))} />
+      <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
+    </Screen>
+  );
   return (
     <Screen
       title={
@@ -684,32 +750,7 @@ export default function Edit() {
           </Copy>
         </>
       )}
-      <Button
-        variant="ghost"
-        title="Discard this draft"
-        disabled={busy}
-        onPress={() =>
-          Alert.alert("Discard this draft?", "This removes the unfinished draft from this device.", [
-            { text: "Keep writing", style: "cancel" },
-            {
-              text: "Discard draft",
-              style: "destructive",
-              onPress: () =>
-                void run(async () => {
-                  retired.current = true;
-                  try {
-                    await b.saveDraft(slot, null);
-                  } catch (error) {
-                    retired.current = false;
-                    throw error;
-                  }
-                  latest.current = null;
-                  router.back();
-                }),
-            },
-          ])
-        }
-      />
+      <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
     </Screen>
   );
 }

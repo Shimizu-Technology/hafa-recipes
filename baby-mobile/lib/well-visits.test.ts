@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BabyRecord } from "./models";
-import { addVisitToCalendar, recordedShots, staysWithBaby, visitDay, visitEvent, visitsFrom, visitsVisible, wellVisits } from "./well-visits";
+import { recordedShots, staysWithBaby, visitDay, visitEvent, visitOnCalendar, visitsFrom, visitsVisible, wellVisits } from "./well-visits";
 
 afterEach(() => vi.unstubAllGlobals());
 const shot = (id: string, at: string, over: Partial<BabyRecord> = {}): BabyRecord =>
@@ -44,17 +44,15 @@ describe("suggested days", () => {
     expect(past.map((one) => one.visit.id)).toEqual(["3-5-days", "1-month"]);
     expect(upcoming[0].visit.id).toBe("2-months");
   });
-  it("becomes an all-day appointment for this child", () => {
-    expect(visitEvent(visit("2-months"), "kid", "2027-02-10", "Pacific/Guam")).toEqual({ title: "2-month well visit", child_id: "kid", day: "2027-02-10", data: { all_day: true, timezone: "Pacific/Guam", category: "appointment" } });
+  it("becomes an all-day appointment for this child, at that day's midnight", () => {
+    expect(visitEvent(visit("2-months"), "kid", "2027-02-10", "Pacific/Guam")).toEqual({ title: "2-month well visit", child_id: "kid", occurred_at: new Date("2027-02-09T14:00:00.000Z"), data: { all_day: true, timezone: "Pacific/Guam", category: "appointment", attendees: [] } });
   });
-  it("has no calendar path until C2 merges, which is the hook this screen waits on", () => {
-    expect(addVisitToCalendar).toBeNull();
+  it("knows when this child's calendar already has it, and not another child's", () => {
+    const added = { ...shot("v", "2027-02-09T14:00:00.000Z"), kind: "event" as const, title: "2-month well visit" };
+    expect(visitOnCalendar([added], visit("2-months"), "kid")).toBe(true);
+    expect(visitOnCalendar([added], visit("2-months"), "sister")).toBe(false);
+    expect(visitOnCalendar([added], visit("4-months"), "kid")).toBe(false);
   });
-});
-
-it("finds this child's shots, newest first, and nothing else custom", () => {
-  const rows = [shot("old", "2027-01-01T02:00:00Z"), shot("new", "2027-02-01T02:00:00Z"), shot("sib", "2027-03-01T02:00:00Z", { child_id: "other" }), shot("else", "2027-03-01T02:00:00Z", { data: { label: "Other" } })];
-  expect(recordedShots(rows, "kid").map((row) => row.id)).toEqual(["new", "old"]);
 });
 
 it("keeps a milestone and a shot with their baby, and leaves other custom entries free to move", () => {

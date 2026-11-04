@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "milestone" | "custom";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "milestone" | "custom" | "event";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -85,6 +85,47 @@ export interface SessionAction {
   /** As on a feed action. */
   revision?: number;
 }
+export type EventCategory = "appointment" | "family" | "celebration" | "milestone" | "reminder" | "other";
+export interface EventRecurrence {
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
+  interval?: number;
+  /** The last day an occurrence can start, on the event's own calendar. */
+  until?: string | null;
+  /** Where the count starts when that's earlier than the event, as for a series split off another: Jan 31 keeps its month ends from a Feb 28 start. */
+  anchor?: string | null;
+}
+/** What one occurrence changes. A field left out keeps the series' value, and null clears it. */
+export interface EventOverrides {
+  start?: string;
+  end?: string | null;
+  all_day?: boolean;
+  title?: string;
+  category?: EventCategory | null;
+  location?: string | null;
+  attendees?: string[];
+}
+export interface EventException {
+  original_start: string;
+  cancelled?: boolean;
+  overrides?: EventOverrides | null;
+}
+/** One dated showing of an event, as `GET /events` returns it. It's identified by its event and its original start. */
+export interface EventOccurrence {
+  event_id: string;
+  original_start: string;
+  occurrence_start: string;
+  occurrence_end: string | null;
+  all_day: boolean;
+  timezone: string;
+  title: string;
+  category: EventCategory | null;
+  location: string | null;
+  attendees: string[];
+  child_id: string | null;
+  repeats: boolean;
+  changed: boolean;
+  revision: number;
+}
 export interface RecordData {
   /** Which of CDC's milestones this records. The title keeps the words she checked, even if CDC later rewords them. */
   milestone_id?: string;
@@ -130,6 +171,14 @@ export interface RecordData {
   record_ids?: string[];
   relevance?: Relevance | null;
   suggested_category?: SuggestedCategory | null;
+  /** An event's start is its `occurred_at`, and no child means the whole family. `timezone` is its own calendar. */
+  end?: string | null;
+  all_day?: boolean;
+  category?: EventCategory | null;
+  location?: string | null;
+  attendees?: string[];
+  recurrence?: EventRecurrence | null;
+  exceptions?: EventException[];
   [key: string]: unknown;
 }
 export interface BabyRecord {
@@ -212,7 +261,13 @@ export interface ChatResult {
  */
 export interface SaveBase { after: string[] }
 /** What became of a queued change: the revision it's proven to have made, or that it was discarded. Neither means not known. */
-export interface SettledChange { made?: number; discarded?: boolean }
+export interface SettledChange { made?: number; discarded?: boolean; made_for?: Record<string, number> }
+/** How an open editor is changing a repeating event. `series` is the event as it was when she chose. */
+export interface EventEdit {
+  scope: "one" | "future";
+  original_start: string;
+  series: Pick<BabyRecord, "title" | "body" | "child_id" | "occurred_at" | "data">;
+}
 export interface EditorDraft {
   id: string;
   kind: Kind;
@@ -225,6 +280,7 @@ export interface EditorDraft {
   files: LocalFile[];
   existing?: boolean;
   base?: SaveBase;
+  event_edit?: EventEdit;
 }
 export type Mutation = { localOnly?: boolean } & (
   | {
@@ -241,6 +297,22 @@ export type Mutation = { localOnly?: boolean } & (
       conflict?: boolean;
     }
   | { id: string; generation: number; type: "delete"; record: BabyRecord; error?: string; conflict?: boolean }
+  | {
+      /** "All future" from a later date. One change, so the series can't end unless the next one starts. The id is the new event's, which makes a retry the same split. */
+      id: string;
+      generation: number;
+      type: "event_split";
+      /** The series as it'll be, for showing until this lands. The API works out its end again from what it holds. */
+      series: RecordWrite;
+      event: RecordWrite;
+      from_start: string;
+      files: LocalFile[];
+      base?: SaveBase;
+      hold_until?: string;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
   | {
       /** The action's own id, which is what makes a retry idempotent. */
       id: string;
@@ -351,6 +423,7 @@ export const kindName: Record<Kind, string> = {
   kick_session: "Kick count",
   milestone: "Milestone",
   custom: "Entry",
+  event: "Event",
 };
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {

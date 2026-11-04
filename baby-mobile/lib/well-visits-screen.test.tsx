@@ -13,6 +13,7 @@ vi.mock("@/lib/quick-care", () => ({
   careWrite: (kind: string, child_id: string, data: unknown, at: Date) => ({ id: "new", kind, title: "Entry", body: "", child_id, data, occurred_at: at.toISOString() }),
   logCare: async (_: unknown, record: never) => { m.logged.push(record); return async () => undefined; },
 }));
+vi.mock("@/lib/outbox", () => ({ pendingRecords: () => m.rows }));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: m.rows, error: "" }) }));
 vi.mock("@/lib/tracker", () => import("./tracker"));
@@ -64,11 +65,17 @@ it("a development build can preview visits, clearly labelled, and never says mis
   expect(text).not.toMatch(/missed|overdue|late\b|behind/i);
 });
 
-it("offers no calendar button until the event path exists", async () => {
+it("adds a visit to the calendar in one tap, and then says it's there", async () => {
   vi.stubGlobal("__DEV__", true);
   await mount();
   await act(async () => devButton()!.props.onPress());
-  expect(button("Add to calendar")).toBeUndefined();
+  await act(async () => { await button("Add to calendar").props.onPress(); });
+  expect(m.logged[0]).toMatchObject({ kind: "event", child_id: "kid", title: "2-month well visit", data: { all_day: true, timezone: "Pacific/Guam", category: "appointment" } });
+  m.rows = [m.logged[0]];
+  await act(async () => renderer?.unmount());
+  await mount();
+  await act(async () => devButton()!.props.onPress());
+  expect(words()).toContain("On your calendar");
 });
 
 it("records a shot as a custom entry labelled Shot, with its name, date and note", async () => {

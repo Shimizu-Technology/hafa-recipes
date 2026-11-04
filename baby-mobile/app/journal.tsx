@@ -12,6 +12,7 @@ import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
+import { LinkQuestions } from "@/components/visit-sections";
 export function JournalContent({ careHistory = false }: { careHistory?: boolean }) {
   const params = useLocalSearchParams<{ filter?: string; at?: string }>();
   const b = useBaby(),
@@ -156,6 +157,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
           onPress={() => setPreparing(true)}
         />
       ))}
+      {filter === "question" && !preparing && <LinkQuestions rows={records} />}
       {!!error && <Notice error>{error}</Notice>}
       {!!historyError && <>
         <Notice error>{historyError} Entries already on this device are shown below.</Notice>
