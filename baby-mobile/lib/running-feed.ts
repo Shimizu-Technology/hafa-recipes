@@ -3,7 +3,7 @@ import type { useBaby } from "./context";
 import type { BabyRecord, DeviceState, FeedAction, FeedTimer, Mutation } from "./models";
 import { runningFeed, withFeedAction, type RunningFeed } from "./feed-reducer";
 import { activeTimer, changeTimer, feedRecordData, type FeedSide } from "./feed-timer";
-import { addMutation } from "./outbox";
+import { addMutation, withoutPredecessor } from "./outbox";
 import { careSummary } from "./care-format";
 import { careWrite, logCare } from "./quick-care";
 
@@ -29,8 +29,9 @@ function queueAction(b: Account, recordId: string, action: Omit<FeedAction, "id"
 async function cancelAction(b: Account, id: string) {
   let cancelled = false;
   await b.commit((state) => {
-    cancelled = state.outbox.some((change) => change.id === id && !(change.type === "feed_action" && change.sent));
-    return cancelled ? { ...state, outbox: state.outbox.filter((change) => change.id !== id) } : state;
+    const queued = state.outbox.find((change) => change.id === id && !(change.type === "feed_action" && change.sent));
+    cancelled = !!queued;
+    return queued ? withoutPredecessor(state, queued) : state;
   });
   return cancelled;
 }

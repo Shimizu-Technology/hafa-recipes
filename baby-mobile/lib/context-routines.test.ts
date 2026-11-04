@@ -16,6 +16,7 @@ const mock = vi.hoisted(() => ({
   revoke: vi.fn(async () => undefined),
   cleanupOwner: null as string | null,
   readCleanup: vi.fn(),
+  failWrites: false,
 }));
 vi.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -49,6 +50,7 @@ vi.mock("./device-vault", () => ({
   createDeviceVault: () => ({
     read: async () => mock.saved,
     write: async (s: DeviceState) => {
+      if (mock.failWrites) throw Error("Device storage unavailable");
       mock.state = s;
     },
     clear: async () => {},
@@ -65,6 +67,8 @@ vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 import { BabyProvider, useBaby } from "./context";
 import { ApiError } from "./api";
 import { uploadFile } from "./files";
+import { runningFeed } from "./feed-reducer";
+import { switchFeed } from "./running-feed";
 let baby!: ReturnType<typeof useBaby>, renderer: ReactTestRenderer | undefined;
 function Probe() {
   baby = useBaby();
@@ -358,6 +362,114 @@ describe("feed actions in the sync loop", () => {
     await mount(); await flush();
     expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 5, body: "Mine" });
     expect(queued()).toEqual([]);
+  });
+  describe("when a queued change before another is discarded", () => {
+    const running = (over: object = {}) => timed({ revision: 1, data: { ...write.data, state: "running", side: "left", actions: [start] }, ...over });
+    const swap = { id: "swap", generation: 1, type: "feed_action" as const, record_id: "feed", action: { id: "swap", action: "switch" as const, at: "2026-11-04T12:05:00.000Z", side: "right" as const } };
+    /** A note saved on the copy she sees, as the editor and quick log build it. */
+    const noted = async (body: string, id = "note") => {
+      const shown = baby.records.find((r) => r.id === "feed")!;
+      await act(async () => { await baby.queue({ id, generation: 1, type: "save", files: [], record: { ...shown, body } }); await settle(); });
+    };
+    const offline = () => {
+      mock.api.feedAction = vi.fn(async () => { throw new ApiError("Offline", 0); });
+      mock.saved = { ...mock.saved!, records: [running()], outbox: [] };
+    };
+    const saved = (over: object = {}) => mock.api.save = vi.fn(async (r: any) => ({ ...optimisticRecord(r), revision: r.revision + 1, ...over }));
+    it("takes a discarded Switch back out of a later note, so the note can't finish the feed", async () => {
+      offline(); saved();
+      await mount(); await flush();
+      await act(async () => { await baby.queue({ ...swap, hold_until: "2030-01-01T00:00:00.000Z" }); await settle(); });
+      expect(baby.records.find((r) => r.id === "feed")?.data.side).toBe("both");
+      await noted("Sleepy today");
+      await act(async () => { await baby.discardQueued("swap"); await settle(); });
+      await flush();
+      const sent = mock.api.save.mock.calls[0][0];
+      expect(sent).toMatchObject({ id: "feed", revision: 1, body: "Sleepy today" });
+      expect(sent.data.side).toBe("left");
+      expect(sent.data.actions).toEqual([start]);
+      expect(queued()).toEqual([]);
+    });
+    it("keeps the edit she made to a field the discarded change also touched", async () => {
+      offline(); saved();
+      await mount(); await flush();
+      await act(async () => { await baby.queue({ ...swap, hold_until: "2030-01-01T00:00:00.000Z" }); await settle(); });
+      await noted("First", "one");
+      await noted("First, then second", "two");
+      await act(async () => { await baby.discardQueued("swap"); await settle(); });
+      await flush();
+      expect(mock.api.save.mock.calls.map(([r]: any[]) => [r.body, r.data.side])).toEqual([["First", "left"], ["First, then second", "left"]]);
+    });
+    it("rebuilds a later save without an earlier save's title, and leaves its own edit", async () => {
+      offline(); mock.api.save = vi.fn(async () => { throw new ApiError("Offline", 0); });
+      await mount(); await flush();
+      const shown = () => baby.records.find((r) => r.id === "feed")!;
+      await act(async () => { await baby.queue({ id: "first", generation: 1, type: "save", files: [], record: { ...shown(), title: "Inherited" } }); await settle(); });
+      await act(async () => { await baby.queue({ id: "second", generation: 1, type: "save", files: [], record: { ...shown(), body: "Mine" } }); await settle(); });
+      await act(async () => { await baby.discardQueued("first"); await settle(); });
+      const left = baby.state.outbox.find((m) => m.id === "second")!;
+      expect(left).toMatchObject({ record: { title: write.title, body: "Mine", revision: 1 } });
+    });
+    it("rebuilds a conflict's later change on the version she reviewed, so it doesn't conflict a second time", async () => {
+      const reviewed = running({ revision: 4, title: "From the other phone" });
+      mock.api.save = vi.fn(async (r: any) => { if (r.revision !== 4) throw new ApiError("Changed", 409); return { ...optimisticRecord(r), revision: 5 }; });
+      mock.api.feedAction = vi.fn(async () => { throw new ApiError("Offline", 0); });
+      mock.saved = { ...mock.saved!, records: [running()], outbox: [] };
+      await mount(); await flush();
+      const shown = () => baby.records.find((r) => r.id === "feed")!;
+      await act(async () => { await baby.queue({ id: "first", generation: 1, type: "save", files: [], record: { ...shown(), body: "Mine, first" } }); await settle(); });
+      await flush();
+      expect(baby.state.outbox[0]).toMatchObject({ id: "first", conflict: true });
+      await act(async () => { await baby.queue({ id: "second", generation: 1, type: "save", files: [], record: { ...shown(), data: { ...shown().data, notes: "Mine, second" } } }); await settle(); });
+      await act(async () => { await baby.discardQueued("first", reviewed); await settle(); });
+      await flush();
+      const sent = mock.api.save.mock.calls.at(-1)![0];
+      expect(sent).toMatchObject({ revision: 4, title: "From the other phone", body: "" });
+      expect(sent.data.notes).toBe("Mine, second");
+      expect(queued()).toEqual([]);
+    });
+    it("sends a later change to review when it and the other phone both changed one field", async () => {
+      const reviewed = running({ revision: 4, body: "From the other phone" });
+      mock.api.save = vi.fn(async () => { throw new ApiError("Changed", 409); });
+      mock.saved = { ...mock.saved!, records: [running()], outbox: [] };
+      await mount(); await flush();
+      const shown = () => baby.records.find((r) => r.id === "feed")!;
+      await act(async () => { await baby.queue({ id: "first", generation: 1, type: "save", files: [], record: { ...shown(), title: "Mine, first" } }); await settle(); });
+      await flush();
+      await act(async () => { await baby.queue({ id: "second", generation: 1, type: "save", files: [], record: { ...shown(), body: "Mine, second" } }); await settle(); });
+      const asked = mock.api.save.mock.calls.length;
+      await act(async () => { await baby.discardQueued("first", reviewed); await settle(); });
+      await flush();
+      expect(mock.api.save.mock.calls.length).toBe(asked);
+      expect(baby.state.outbox[0]).toMatchObject({ id: "second", conflict: true, record: { revision: 1, body: "Mine, second" } });
+    });
+    it("remembers what a landed tap made, for an editor opened before it landed", async () => {
+      mock.api.feedAction = vi.fn(async () => timed({ revision: 2, data: { ...write.data, side: "both", actions: [start, { ...swap.action, revision: 2 }] } }));
+      mock.saved = { ...mock.saved!, records: [running()], outbox: [swap] };
+      await mount(); await flush();
+      expect(baby.state.settled?.swap).toEqual({ made: 2 });
+    });
+    it("takes a tap back out of a later note when Undo cancels it too", async () => {
+      offline(); saved();
+      await mount(); await flush();
+      let undo = async () => {};
+      await act(async () => { undo = await switchFeed(baby, runningFeed(baby.records, null)!); await settle(); });
+      await noted("Sleepy today");
+      await act(async () => { await undo(); await settle(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
+      expect(mock.api.save.mock.calls[0][0]).toMatchObject({ body: "Sleepy today", data: { side: "left", actions: [start] } });
+    });
+    it("doesn't release the later change unless the rebuilt copy was written", async () => {
+      offline(); saved();
+      await mount(); await flush();
+      await act(async () => { await baby.queue({ ...swap, hold_until: "2030-01-01T00:00:00.000Z" }); await settle(); });
+      await noted("Sleepy today");
+      mock.failWrites = true;
+      await act(async () => { await baby.discardQueued("swap").catch(() => undefined); await settle(); });
+      mock.failWrites = false;
+      expect(queued()).toEqual(["swap", "note"]);
+      expect(mock.api.save).not.toHaveBeenCalled();
+    });
   });
   it("sends a session's tap by its own id, keeps it through a lost answer, and says so if the entry is gone", async () => {
     const tap = { id: "tap", generation: 1, type: "session_action" as const, record_id: "kicks", action: { id: "tap", action: "tap" as const, at: "2026-11-04T12:10:00.000Z" } };

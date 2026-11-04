@@ -46,6 +46,19 @@ it("does the same for a kick tap or contraction stop", async () => {
   expect(b.api.record).toHaveBeenCalledWith("feed");
 });
 
+it("reads the saved version before discarding a conflict, so what's queued behind it is rebuilt on that", async () => {
+  const conflict: Mutation = { id: "edit", generation: 1, type: "save", files: [], conflict: true, error: "Changed", record: { id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: null, occurred_at: "2026-11-05T02:00:00.000Z", data: {}, revision: 1 } };
+  const b = setup([conflict]);
+  await discard();
+  expect(b.api.record).toHaveBeenCalledWith("feed");
+  expect(b.discardQueued).toHaveBeenCalledWith("edit", expect.objectContaining({ id: "feed" }));
+  const offline = setup([conflict]);
+  offline.api.record = vi.fn(async () => { throw new ApiError("Offline", 0); });
+  await act(async () => renderer?.unmount());
+  await discard();
+  expect(offline.discardQueued).toHaveBeenCalledWith("edit", undefined);
+});
+
 it("keeps a sent tap when the record can't be read, and says why", async () => {
   const b = setup([action({ sent: true })]);
   b.api.record = vi.fn(async () => { throw new ApiError("Offline", 0); });

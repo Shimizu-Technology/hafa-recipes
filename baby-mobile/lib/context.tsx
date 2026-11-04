@@ -42,6 +42,7 @@ import {
   plainFeedNotice,
   rejectedAction,
   removedFeedNotice,
+  producedRevision,
   removedSessionNotice,
   retriedSave,
   retryLater,
@@ -53,7 +54,9 @@ import {
   waitingForImport,
   withNotice,
   withPendingBirths,
+  withSettled,
   withoutBirth,
+  withoutPredecessor,
 } from "./outbox";
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
@@ -364,6 +367,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                 continue;
               }
               await commit((s) => ({ ...(outcome === "applied" ? s : withNotice(s, outcome === "plain" ? plainFeedNotice : next.type === "feed_action" ? removedFeedNotice : removedSessionNotice)),
+                settled: withSettled(s, next.id, outcome === "applied" && row ? { made: producedRevision(next, row) } : {}).settled,
                 records: row ? replaceRecord(s.records, row) : s.records.filter((r) => r.id !== next.record_id),
                 outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => (row && outcome === "applied" ? advancePending(m, next, row) : m)),
               }));
@@ -426,6 +430,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           }
           await commit((s) => ({
             ...(next.type === "feed_action" && result && switchTooLate(next.action, result) ? withNotice(s, finishedFeedNotice) : s),
+            ...(result ? { settled: withSettled(s, next.id, { made: producedRevision(next, result) }).settled } : {}),
             records: result
               ? replaceRecord(s.records, result)
               : next.type === "delete"
@@ -665,13 +670,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
         discardQueued: async (id, server, child) => {
           await commit((s) => {
             if (busy.current) throw Error("Wait for the current sync to finish before discarding a queued change.");
-            const removed = s.outbox.find((m) => m.id === id), kept = { ...s, outbox: s.outbox.filter((m) => m.id !== id) };
-            if (removed?.type === "child_birth") return withoutBirth(kept, removed, child);
-            const recordId = removed && mutationRecordId(removed);
-            return queueRemovedUploads(s, {
-              ...kept,
-              ...(server ? { records: replaceRecord(s.records, server) } : server === null ? { records: s.records.filter((r) => r.id !== recordId) } : {}),
-            });
+            const removed = s.outbox.find((m) => m.id === id);
+            if (!removed) return s;
+            if (removed.type === "child_birth") return withoutBirth({ ...s, outbox: s.outbox.filter((m) => m.id !== id) }, removed, child);
+            return queueRemovedUploads(s, withoutPredecessor(s, removed, server));
           });
           void funcs.current.sync();
         },

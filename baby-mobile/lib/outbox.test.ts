@@ -21,6 +21,10 @@ import {
   birthStep,
   queueRemovedUploads,
   withPendingBirths,
+  withSettled,
+  withoutPredecessor,
+  baseOf,
+  settledDraft,
 } from "./outbox";
 import { emptyState, optimisticRecord, type Mutation } from "./models";
 const row = optimisticRecord({
@@ -361,5 +365,94 @@ describe("feed actions in the outbox", () => {
     expect(heldUntil(held, at("2026-11-04T12:09:06.500Z"))).toBe(0);
     expect(heldUntil(action("b", "finish", "2026-11-04T12:09:00.000Z"))).toBe(0);
     expect(heldUntil(create)).toBe(0);
+  });
+});
+
+describe("what a save was built on", () => {
+  const start = { id: "s", action: "start" as const, at: "2026-11-04T12:00:00.000Z", side: "left" as const },
+    swap = { id: "swap", generation: 1, type: "feed_action" as const, record_id: "feed", action: { id: "swap", action: "switch" as const, at: "2026-11-04T12:05:00.000Z", side: "right" as const } },
+    feed = { ...optimisticRecord({ id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: null, occurred_at: start.at, data: { method: "breast" as const, side: "left" as const, state: "running" as const, actions: [start] } }), revision: 1 },
+    state = { ...emptyState(), records: [feed] };
+  const queuedNote = (from: typeof state, id = "note") => {
+    const shown = pendingRecords(from).find((r) => r.id === "feed")!;
+    return addMutation(from, { id, generation: 1, type: "save", files: [], record: { ...shown, body: id } });
+  };
+  it("records the copy and the queued changes it already shows", () => {
+    const after = queuedNote(addMutation(state, swap));
+    expect(after.outbox[1]).toMatchObject({ base: { after: ["swap"], record: { body: "", data: { side: "both" } } } });
+  });
+  it("doesn't give a brand new entry a base", () => {
+    expect(addMutation(emptyState(), { id: "new", generation: 1, type: "save", files: [], record: feed }).outbox[0]).not.toHaveProperty("base");
+  });
+  it("follows only a request it saw", () => {
+    const seen = queuedNote(addMutation(state, swap)).outbox[1];
+    const unseen = { ...seen, base: { ...(seen as any).base, after: [] } };
+    const made = { ...feed, revision: 2, data: { ...feed.data, actions: [start, { ...swap.action, revision: 2 }] } };
+    expect(advancePending(seen, swap, made)).toMatchObject({ record: { revision: 2 }, base: { after: [] } });
+    expect(advancePending(unseen, swap, made)).toBe(unseen);
+  });
+  it("sends one that can't be rebuilt to review rather than guessing", () => {
+    const legacy = { id: "old", generation: 1, type: "save" as const, files: [], record: { ...feed, body: "Older build" } };
+    const left = withoutPredecessor({ ...state, outbox: [swap, legacy] }, swap);
+    expect(left.outbox).toEqual([expect.objectContaining({ id: "old", conflict: true })]);
+    const unread = withoutPredecessor({ ...queuedNote(addMutation(state, swap)), records: [] }, swap);
+    expect(unread.outbox[0]).toMatchObject({ id: "note", conflict: true });
+  });
+  it("leaves a save alone that never had the discarded change in it", () => {
+    const first = queuedNote(state), kept = addMutation(first, swap);
+    expect(withoutPredecessor(kept, swap).outbox).toEqual([first.outbox[0]]);
+  });
+  it("lets a later change become a create when the discarded one was its create", () => {
+    const create = { id: "create", generation: 1, type: "save" as const, files: [], record: { ...feed, revision: undefined } };
+    const queued = queuedNote(addMutation(emptyState(), create));
+    const left = withoutPredecessor(queued, create);
+    expect(left.outbox).toEqual([expect.objectContaining({ id: "note", record: expect.objectContaining({ body: "note" }), base: expect.objectContaining({ after: [] }) })]);
+    expect((left.outbox[0] as any).conflict).toBeUndefined();
+  });
+  it("drops the files it inherited from a discarded change, and keeps its own", () => {
+    const file = (id: string) => ({ id, uri: id, name: id, mime_type: "image/jpeg" });
+    const first = { id: "first", generation: 1, type: "save" as const, files: [file("theirs")], record: { ...feed, title: "With a photo" } };
+    const queued = addMutation(state, first), base = baseOf(queued, pendingRecords(queued).find((r) => r.id === "feed")!);
+    const second = { id: "second", generation: 1, type: "save" as const, files: [file("theirs"), file("mine")], record: { ...feed, title: "With a photo" }, base };
+    const left = withoutPredecessor(addMutation(queued, second), first);
+    expect((left.outbox[0] as any).files.map((f: { id: string }) => f.id)).toEqual(["mine"]);
+    expect((left.outbox[0] as any).record.title).toBe("Feeding");
+    expect(left.settled?.first.files).toEqual(["theirs"]);
+  });
+  it("keeps a removed record's id out of a rebuilt save, and forgets the row", () => {
+    const queued = queuedNote(addMutation(state, swap));
+    const left = withoutPredecessor(queued, swap, null);
+    expect(left.records).toEqual([]);
+    expect(left.outbox[0]).toMatchObject({ id: "note", record: { body: "note" }, base: { after: [] } });
+  });
+  it("moves a later change by the proof a landed tap gives, when a sent tap is discarded", () => {
+    const landed = { ...feed, revision: 2, data: { ...feed.data, side: "both" as const, actions: [start, { ...swap.action, revision: 2 }] } };
+    const queued = queuedNote(addMutation(state, { ...swap, sent: true }));
+    const left = withoutPredecessor(queued, queued.outbox[0], landed);
+    expect(left.outbox[0]).toMatchObject({ record: { revision: 2, body: "note", data: { side: "both" } } });
+    expect(left.settled?.swap).toEqual({ made: 2 });
+  });
+  it("keeps what's still queued in the rebuilt copy", () => {
+    const other = { ...swap, id: "other", action: { ...swap.action, id: "other", at: "2026-11-04T12:06:00.000Z", side: "left" as const } };
+    const queued = queuedNote(addMutation(addMutation(state, swap), other));
+    const left = withoutPredecessor(queued, queued.outbox[0]);
+    expect((left.outbox[1] as any).record.data.actions.map((a: { id: string }) => a.id)).toEqual(["s", "other"]);
+    expect((left.outbox[1] as any).base.after).toEqual(["other"]);
+  });
+  it("forgets old outcomes unless a kept draft still needs one, and a new space starts with none", () => {
+    let kept = { ...state, drafts: { open: { ...feed, files: [], existing: true, base: { record: feed, after: ["oldest"], files: [] } } } } as any;
+    kept = withSettled(kept, "oldest", { made: 2 });
+    for (let at = 0; at < 60; at++) kept = withSettled(kept, "change-" + at, { made: at });
+    expect(kept.settled.oldest).toEqual({ made: 2 });
+    expect(kept.settled["change-0"]).toBeUndefined();
+    expect(Object.keys(kept.settled)).toHaveLength(51);
+    expect(fencedState({ ...kept, bootstrap: { generation: 1 } }, 2)).not.toHaveProperty("settled");
+  });
+  it("leaves a draft alone until something it was built on has settled", () => {
+    const queued = addMutation(state, swap), shown = pendingRecords(queued).find((r) => r.id === "feed")!;
+    const draft = { ...shown, files: [], existing: true, base: baseOf(queued, shown), body: "Typing" };
+    expect(settledDraft(draft, queued)).toBe(draft);
+    const settled = settledDraft(draft, withSettled({ ...state, outbox: [], records: [{ ...feed, revision: 2, data: shown.data }] }, "swap", { made: 2 }));
+    expect(settled).toMatchObject({ revision: 2, body: "Typing", base: { after: [] } });
   });
 });

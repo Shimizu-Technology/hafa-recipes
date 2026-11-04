@@ -43,6 +43,10 @@ export default function Sync() {
     } else if (m.type === "child_birth" && m.sent) {
       const fresh = await b.api.bootstrap().catch(() => { throw unread; });
       await b.discardQueued(m.id, undefined, fresh.children.find((child) => child.id === m.child_id));
+    } else if (m.conflict && (m.type === "save" || m.type === "delete") && !remote[m.id]) {
+      // Anything queued behind a conflict is rebuilt on the saved version. Without a read it keeps its revision and the API decides.
+      const saved = await b.api.record(m.record.id).catch((e) => (e instanceof ApiError && !e.local && e.status === 404 ? null : undefined));
+      await b.discardQueued(m.id, saved);
     } else await b.discardQueued(m.id, remote[m.id]);
     // Other offline revisions may share these private original files. Explicit device cleanup clears them safely.
   }
@@ -197,6 +201,7 @@ export default function Sync() {
                           row.id === m.id && row.type === "save"
                             ? {
                                 ...retryMutation(row),
+                                base: undefined,
                                 record: {
                                   ...row.record,
                                   id: Crypto.randomUUID(),

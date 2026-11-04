@@ -6,7 +6,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useBaby } from "@/lib/context";
 import { kindName, messageFor, type EditorDraft, type Kind, type Mutation, type RecordData } from "@/lib/models";
-import { addMutation, inheritedFiles } from "@/lib/outbox";
+import { addMutation, baseOf, inheritedFiles, queueRemovedUploads, settledDraft } from "@/lib/outbox";
 import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
@@ -70,11 +70,11 @@ export default function Edit() {
     let active = true;
     void (async () => {
       try {
-        let d = b.state.drafts[slot];
+        let d = b.state.drafts[slot] && settledDraft(b.state.drafts[slot], b.state);
         if (!d && params.id) {
           let row = b.records.find((r) => r.id === params.id);
           if (!row || row.cache_partial) row = await b.api.record(params.id);
-          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true };
+          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true, base: baseOf(b.state, row) };
         }
         const kind = params.kind ?? "journal",
           child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
@@ -115,6 +115,15 @@ export default function Edit() {
     });
     return () => app.remove();
   }, [slot]);
+  // What she's typing stays while a change this draft was built on lands or goes away behind it.
+  useEffect(() => {
+    const open = latest.current;
+    if (!open || retired.current) return;
+    const settled = settledDraft(open, b.state);
+    if (settled === open) return;
+    latest.current = settled;
+    setDraft(settled);
+  }, [b.state.outbox, b.state.settled]);
   function change(value: Partial<EditorDraft>) {
     changed.current = true;
     setDraft((d) => {
@@ -230,17 +239,23 @@ export default function Edit() {
         throw Error(
           "Enable optional AI processing in Settings before organizing sources with AI. You can save the source without AI."
         );
-      const { files, existing: _, revision, ...record } = d;
       const automatic = !d.existing && d.kind === "source" &&
         !!b.state.bootstrap!.profile.ai_consent && !!b.state.bootstrap!.profile.auto_process_shares;
       const shouldProcess = d.kind === "source" && (process || automatic);
       // Keep the original in the durable outbox before its optional import.
-      const mutation: Mutation = {
-        id: Crypto.randomUUID(), generation, type: "save",
-        record: { ...record, title: d.title.trim() || firstLine(d) || (d.kind === "source" ? "Saved source" : kindName[d.kind]),
-          data: d.kind === "source" ? { ...d.data, source_text: d.data.source_text || d.body || undefined } : d.data,
-          ...(revision ? { revision } : {}) }, files,
+      const id = Crypto.randomUUID();
+      const build = (from: EditorDraft): Extract<Mutation, { type: "save" }> => {
+        const { files, existing: _, revision, base, ...record } = from;
+        return {
+          id, generation, type: "save",
+          record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindName[from.kind]),
+            data: from.kind === "source" ? { ...from.data, source_text: from.data.source_text || from.body || undefined } : from.data,
+            ...(revision ? { revision } : {}) }, files,
+          // A draft kept by an older build doesn't know what it saw, so it follows nothing.
+          ...(base ?? from.existing ? { base: base ?? { record, after: [], files: [] } } : {}),
+        };
       };
+      const mutation = build(d);
       const importMutation: Mutation | undefined = shouldProcess ? {
         id: Crypto.randomUUID(), generation, type: "import", record_id: d.id,
         ...(automatic && !process ? { automatic: true, automatic_epoch: b.state.bootstrap!.profile.auto_process_epoch ?? 0 } : {}), files: [],
@@ -250,21 +265,20 @@ export default function Edit() {
         await b.commit((s) => {
           const drafts = { ...s.drafts };
           delete drafts[slot];
-          const prepared: Mutation =
-            mutation.type === "save"
-              ? {
-                  ...mutation,
-                  record: {
-                    ...mutation.record,
-                    revision:
-                      mutation.record.revision ||
-                      (d.existing ? s.records.find((r) => r.id === d.id)?.revision : undefined),
-                  },
-                  files: mutation.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
-                }
-              : mutation;
+          // Built here, from what has landed by the time this write runs: the tap can land after she pressed Save.
+          const settled = build(settledDraft(d, s));
+          const prepared: Mutation = {
+            ...settled,
+            record: {
+              ...settled.record,
+              revision:
+                settled.record.revision ||
+                (d.existing && !d.base ? s.records.find((r) => r.id === d.id)?.revision : undefined),
+            },
+            files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
+          };
           const saved = addMutation(s, prepared);
-          return { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts };
+          return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });
         });
       } catch (failure) {
         retired.current = false;

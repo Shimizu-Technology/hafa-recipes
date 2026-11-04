@@ -202,6 +202,17 @@ export interface ChatResult {
   citations: Citation[];
   proposal?: Proposal;
 }
+/** What a save or draft was built on, so what it changed itself can be told from what it inherited. */
+export interface SaveBase {
+  /** The copy it started from, with the queued changes below already in it. */
+  record: Pick<RecordWrite, "title" | "body" | "child_id" | "occurred_at" | "data">;
+  /** The queued changes to this record that copy shows, oldest first. Only these can move it to a newer revision. */
+  after: string[];
+  /** The local files it took from them. */
+  files: string[];
+}
+/** What became of a queued change. A landed one has the revision it made; a discarded one has the files it took with it. */
+export interface SettledChange { made?: number; files?: string[] }
 export interface EditorDraft {
   id: string;
   kind: Kind;
@@ -213,6 +224,7 @@ export interface EditorDraft {
   revision?: number;
   files: LocalFile[];
   existing?: boolean;
+  base?: SaveBase;
 }
 export type Mutation = { localOnly?: boolean } & (
   | {
@@ -221,6 +233,7 @@ export type Mutation = { localOnly?: boolean } & (
       type: "save";
       record: RecordWrite;
       files: LocalFile[];
+      base?: SaveBase;
       /** Waiting to try again after the service said not yet. */
       hold_until?: string;
       attempts?: number;
@@ -311,6 +324,8 @@ export interface DeviceState {
   bootstrap?: Bootstrap;
   records: BabyRecord[];
   outbox: Mutation[];
+  /** Recent changes that have left the outbox, for an editor opened before they did. */
+  settled?: Record<string, SettledChange>;
   drafts: Record<string, EditorDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
