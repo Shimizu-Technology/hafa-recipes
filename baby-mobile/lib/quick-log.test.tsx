@@ -301,6 +301,12 @@ it("shows the running side on the hero while feeding, and still the next side", 
   await act(async () => renderer!.update(<CareGlance child={child} rows={pendingRecords(b.state)} now={new Date()} running={running} />));
   expect(texts()).toEqual(expect.arrayContaining(["Feeding now", "Left", "Next side", "Right"]));
 });
+it("says Just now rather than 0m ago", async () => {
+  setup();
+  await act(async () => { renderer = create(<CareGlance child={child} rows={[breast("now", "left", start.toISOString())]} now={new Date()} />); });
+  expect(texts()).toContain("Just now");
+  expect(texts().join(" ")).not.toContain("0m");
+});
 it("has no next side to show before the first feed, and says so plainly", async () => {
   setup();
   await act(async () => { renderer = create(<CareGlance child={child} rows={[]} now={new Date()} />); });
@@ -542,4 +548,17 @@ it("drops a half-written note when the entry itself is undone, and doesn't bring
   await press("Undo Poo");
   expect(pendingRecords(b.state)).toEqual([]);
   expect(b.state.outbox.map((m) => m.type)).toEqual(["save", "delete"]);
+});
+
+it("gives each tile its own row at the largest text sizes, so no word breaks in half", async () => {
+  setup();
+  scope.fontScale = 3.1;
+  await mount();
+  expect(target("Breastfeed")!.props.style.flexBasis).toBe("100%");
+  scope.fontScale = 1.4;
+  await refresh();
+  expect(target("Breastfeed")!.props.style.flexBasis).toBe("45%");
+  scope.fontScale = 1;
+  await refresh();
+  expect(target("Breastfeed")!.props.style.flexBasis).toBe(0);
 });

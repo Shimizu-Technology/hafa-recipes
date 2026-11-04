@@ -421,7 +421,7 @@ it("centres the scaled Saved search line with its magnifier at AX3", async () =>
   expect(input.props.allowFontScaling).toBe(false);
   expect(input.parent!.props.style.alignItems).toBe("center");
 });
-it.each([0, 15, 2457, 4320])("keeps the ago suffix inside the elapsed-time line (%d minutes)", async minutes => {
+it.each([15, 2457, 4320])("keeps the ago suffix inside the elapsed-time line (%d minutes)", async minutes => {
   const now = new Date("2026-10-31T06:00:00Z");
   const feed = optimisticRecord({ id: "f", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: new Date(now.getTime() - minutes * 60000).toISOString(), data: { method: "bottle", amount: 90, unit: "ml" } });
   await mount(<CareGlance child={{ id: "baby", name: "Isla", revision: 1 }} rows={[feed]} now={now} />);

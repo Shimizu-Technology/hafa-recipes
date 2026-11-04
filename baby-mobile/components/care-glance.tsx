@@ -41,7 +41,7 @@ export function CareGlance({ child, rows, now, running }: { child: Child; rows: 
       {eyebrow(side ? "Feeding now" : "Last fed")}
       {side ? <Text key={`now:${fontScale}`} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.4} style={{ ...typeScale.number, color: c.text }}>{sideWord[side]}</Text>
         : feed ? <Text key={`value:${fontScale}`} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.4} style={{ ...typeScale.number, color: c.text }}>
-          {Number.isFinite(elapsed) ? <>{value} <Text style={{ fontSize: typeScale.footnote.fontSize, color: c.muted }}>ago</Text></> : "Time not recorded"}
+          {!Number.isFinite(elapsed) ? "Time not recorded" : elapsed < 1 ? "Just now" : <>{value} <Text style={{ fontSize: typeScale.footnote.fontSize, color: c.muted }}>ago</Text></>}
         </Text> : <Copy kind="heading">No recent feed</Copy>}
       <Copy numeric kind="small" tone="muted">{side ? `Started ${friendlyTime(running!.started_at, now)}` : detail}</Copy>
     </View>
@@ -51,7 +51,7 @@ export function CareGlance({ child, rows, now, running }: { child: Child; rows: 
       <Text key={`next:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.display, fontSize: 40, lineHeight: 46, color: c.text }}>{sideWord[next]}</Text>
       <View style={{ flexDirection: "row", gap: 6 }}>
         {(["left", "right"] as const).map((s) => <View key={s} style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center",
-          borderWidth: 1.5, borderColor: s === next ? c.accent : c.outline, backgroundColor: s === next ? c.accent : "transparent" }}>
+          borderWidth: 1.5, borderColor: s === next ? c.addFill : c.outline, backgroundColor: s === next ? c.addFill : "transparent" }}>
           <Text allowFontScaling={false} style={{ fontFamily: fonts.semibold, fontSize: 12, lineHeight: 15, color: s === next ? c.onAdd : c.muted }}>{s === "left" ? "L" : "R"}</Text>
         </View>)}
       </View>

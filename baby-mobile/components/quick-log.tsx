@@ -44,7 +44,7 @@ function Option({ label, detail, hint, strong, height = 76, onPress }: { label: 
 function Tile({ icon, label, hint, primary, open, onPress }: { icon: IconName; label: string; hint: string; primary?: boolean; open?: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ expanded: !!open }} onPress={onPress}
-    style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? "45%" : 0, minWidth: 0, minHeight: 76, paddingVertical: 10, paddingHorizontal: 4, borderRadius: radii.tile,
+    style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : fontScale >= 1.3 ? "45%" : 0, minWidth: 0, minHeight: 76, paddingVertical: 10, paddingHorizontal: 4, borderRadius: radii.tile,
       alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: primary ? c.action : c.surface,
       borderWidth: 2, borderColor: open ? c.accent : "transparent" }}>
     <Icon name={icon} size={24} color={primary ? c.onAction : c.accentText} />
@@ -143,7 +143,7 @@ function SavedRow({ saved, compact, color, now, day, onUndo, onGone, onMove, onC
   }, [saved.key, holding, choosing, touched, compact]);
   return <Animated.View style={{ opacity: fade, borderRadius: radii.toast, backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: quickTarget, paddingLeft: 12 }}>
-      <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: c.accent }}>
+      <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: c.addFill }}>
         <Icon name="checkmark" size={17} color={c.onAdd} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
