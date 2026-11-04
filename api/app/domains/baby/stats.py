@@ -102,6 +102,38 @@ async def care_stats(db, owner, generation, child_id, zone, stats_range):
     return summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
 
 
+def next_side(data):
+    """Opposite of the side the feed started on; a Both or bottle feed suggests nothing.
+
+    ``side`` is the starting side only until feeds store their switches: today a feed that
+    switched is saved as Both. Read the first action here once L3a adds them.
+    """
+    if text_in(data, "method") != "breast":
+        return None
+    return {"left": "right", "right": "left"}.get(text_in(data, "side"))
+
+
+async def last_feed(db, owner, generation, child_id, zone, at):
+    row = (
+        await db.execute(
+            care_query(owner, generation, child_id, BabyRecord.occurred_at, BabyRecord.data)
+            .where(BabyRecord.kind == "feeding", BabyRecord.occurred_at <= at)
+            .order_by(BabyRecord.occurred_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None
+    data = row.data if isinstance(row.data, dict) else {}
+    details = {key: text_in(data, key) for key in ("method", "side", "unit")}
+    details |= {key: number_in(data.get(key)) for key in ("amount", "duration_minutes")}
+    return {
+        "at": row.occurred_at.astimezone(zone).isoformat(),
+        **{key: value for key, value in details.items() if value is not None},
+        "suggested_next_side": next_side(data),
+    }
+
+
 def text_in(data, key):
     """A categorical value from stored JSON; older or malformed rows may hold anything."""
     value = data.get(key)
