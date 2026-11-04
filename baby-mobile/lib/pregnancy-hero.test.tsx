@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Child } from "./models";
 
 const scope = vi.hoisted(() => ({ fontScale: 1, width: 390 }));
+vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
 vi.mock("react-native", () => ({
   Text: "Text", View: "View", useWindowDimensions: () => ({ fontScale: scope.fontScale, width: scope.width }),
 }));
