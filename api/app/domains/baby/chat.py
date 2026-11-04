@@ -21,6 +21,7 @@ from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, Ba
 from app.domains.baby.provider import (
     DAILY_LIMIT_CODE,
     BabyProvider,
+    ContextChanged,
     budget_failure_message,
 )
 from app.domains.baby.queries import child_timing, legacy_client, records_query, row_scope
@@ -560,8 +561,9 @@ def reviewed_proposal(raw):
     return {key: getattr(proposal, key) for key in ("kind", "title", "body", "data")}
 
 
-class ContextChanged(Exception):
-    pass
+def access_snapshot(access):
+    """What this person can reach. Any difference means an answer in progress started under other rules."""
+    return tuple((g.id, g.generation, g.role, g.access_version) for g in access.spaces) if access.enabled else ()
 
 
 def chat_scopes(access):
@@ -821,20 +823,28 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     personal_space_id = access.personal_space_id
     await db.commit()
 
+    question_access = access_snapshot(access)
+
+    async def checked_access(check):
+        fresh = await access_for(check, user.id, client=client,
+                                 space_id=personal_space_id if access.enabled else None,
+                                 generation=generation)
+        current = fresh.member
+        if (
+            not current.profile.get("ai_consent")
+            or current.consent_epoch != epoch
+            or (use_v2 and not ask_v2_allowed(current.profile))
+        ):
+            raise HTTPException(403, "AI processing permission changed")
+        if use_v2 and access_snapshot(fresh) != question_access:
+            raise ContextChanged()
+        return fresh
+
     async def gate():
         from app.db.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as check:
-            fresh = await access_for(check, user.id, client=client,
-                                     space_id=personal_space_id if access.enabled else None,
-                                     generation=generation)
-            current = fresh.member
-            if (
-                not current.profile.get("ai_consent")
-                or current.consent_epoch != epoch
-                or (use_v2 and not ask_v2_allowed(current.profile))
-            ):
-                raise HTTPException(403, "AI processing permission changed")
+            await checked_access(check)
 
     provider.gate = gate
     try:
@@ -848,7 +858,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                 tools = AskTools(
                     user_id=user.id, client=client, personal_space_id=personal_space_id,
                     family=access.enabled, generation=generation, zone=zone, tracked=tracked,
-                    child_id=body.child_id,
+                    child_id=body.child_id, check=checked_access,
                 )
                 result = await answer_question(
                     provider, tools=tools, message=body.message, history=history,

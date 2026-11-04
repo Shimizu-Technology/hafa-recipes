@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import httpx
+from fastapi import HTTPException
 from pydantic import Field
 
 from app.ai_governance import AIInvocationTracker
@@ -40,6 +41,10 @@ def budget_failure_message(failure):
 
 class ProviderUnavailable(Exception):
     """Content-free operational failure."""
+
+
+class ContextChanged(Exception):
+    """Who can see what changed during an answer: everything gathered so far is thrown away."""
 
 
 class ExtractionOutput(DomainModel):
@@ -163,6 +168,7 @@ class BabyProvider:
             allow_canary=False,
             rollout_variant="primary",
         ) as invocation:
+            data = None
             try:
                 async with httpx.AsyncClient(
                     timeout=75, transport=httpx.AsyncHTTPTransport(retries=0)
@@ -173,6 +179,7 @@ class BabyProvider:
                         json=body,
                     )
                 response.raise_for_status()
+                # Paid for from here on, so even a reply that's discarded keeps its usage and request ID.
                 data = response.json()
                 if data.get("status") != "completed" or data.get("error"):
                     raise ValueError("Incomplete response")
@@ -181,10 +188,13 @@ class BabyProvider:
                 invocation.succeed(data)
                 return data
             except asyncio.CancelledError:
-                invocation.fail("cancelled")
+                invocation.fail("cancelled", data)
+                raise
+            except (HTTPException, ContextChanged):
+                invocation.fail("baby_answer_discarded", data)
                 raise
             except Exception:
-                invocation.fail("baby_provider_failed")
+                invocation.fail("baby_provider_failed", data)
                 raise ProviderUnavailable(
                     "AI could not finish; your original information is saved"
                 ) from None

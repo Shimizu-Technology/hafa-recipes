@@ -29,10 +29,10 @@ def unavailable(reason):
 class AskTools:
     """One question's reads. ``tracked`` and ``citable`` are what the final recheck and citations use."""
 
-    def __init__(self, *, user_id, client, personal_space_id, family, generation, zone, tracked, child_id=None):
+    def __init__(self, *, user_id, client, personal_space_id, family, generation, zone, tracked, child_id=None, check=None):
         self.user_id, self.client, self.personal_space_id = user_id, client, personal_space_id
         self.family, self.generation, self.zone, self.tracked = family, generation, zone, tracked
-        self.child_id = child_id
+        self.child_id, self.check = child_id, check
         self.citable, self.displays = {}, {}
         self.read_chars = 0
 
@@ -51,14 +51,17 @@ class AskTools:
         }
 
     async def scope(self, db):
-        """Access as of now, so someone removed mid-answer stops reading at the next round."""
+        """Access as of now. ``check`` also stops this read if consent or access changed since the question began."""
         from app.domains.baby.access import access_for
         from app.domains.baby.chat import chat_scopes
 
-        access = await access_for(
-            db, self.user_id, client=self.client,
-            space_id=self.personal_space_id if self.family else None, generation=self.generation,
-        )
+        if self.check:
+            access = await self.check(db)
+        else:
+            access = await access_for(
+                db, self.user_id, client=self.client,
+                space_id=self.personal_space_id if self.family else None, generation=self.generation,
+            )
         return chat_scopes(access)[0] if access.enabled else self.user_id
 
     async def call(self, db, owner, call):
@@ -82,15 +85,14 @@ class AskTools:
         from app.db.database import AsyncSessionLocal
 
         outputs = []
-        async with AsyncSessionLocal() as db:
-            owner = await self.scope(db)
-            for index, call in enumerate(calls):
-                result = (
-                    unavailable("too_many_tool_calls")
-                    if index >= MAX_CALLS_PER_ROUND or self.read_chars >= QUESTION_CHARS
-                    else await self.call(db, owner, call)
-                )
-                outputs.append(self.output(call, result))
+        for index, call in enumerate(calls):
+            if index >= MAX_CALLS_PER_ROUND or self.read_chars >= QUESTION_CHARS:
+                outputs.append(self.output(call, unavailable("too_many_tool_calls")))
+                continue
+            # A fresh look for each read: what was allowed a moment ago may not be now.
+            async with AsyncSessionLocal() as db:
+                result = await self.call(db, await self.scope(db), call)
+            outputs.append(self.output(call, result))
         return outputs
 
     def output(self, call, result):

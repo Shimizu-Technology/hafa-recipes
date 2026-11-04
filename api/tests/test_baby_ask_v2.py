@@ -83,7 +83,7 @@ async def stub(baby_api, monkeypatch):
     monkeypatch.setattr("app.db.AsyncSessionLocal", baby_api.sessions)
     monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda self: True))
     monkeypatch.setattr(provider.BabyProvider, "_key", lambda self, _: "stub-key")
-    monkeypatch.setattr(httpx, "AsyncHTTPTransport", lambda retries=0: httpx.MockTransport(fake.handler))
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", lambda retries=0: httpx.MockTransport(lambda request: fake.handler(request)))
     return fake
 
 
@@ -287,3 +287,84 @@ async def test_tools_read_with_access_as_of_each_round(baby_api, stub):
                      zone=None, tracked={"records": {}, "children": {}})
     async with baby_api.sessions() as db:
         assert await tools.scope(db) == "owner"
+
+
+# Consent is checked before every read and every call, and a paid reply keeps its accounting.
+async def test_withdrawing_stops_the_tool_read_that_was_about_to_run(baby_api, stub, monkeypatch):
+    reads = stub_tool(monkeypatch)
+    await enable(baby_api)
+    real = provider.BabyProvider.responses_call
+
+    async def revoking(self, **kwargs):
+        reply = await real(self, **kwargs)
+        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        return reply
+
+    monkeypatch.setattr(provider.BabyProvider, "responses_call", revoking)
+    stub.replies = [tool_call(), answered()]
+    assert (await ask(baby_api)).status_code == 403
+    assert reads == [] and len(stub.sent) == 1
+
+
+async def test_a_second_tool_in_a_round_is_stopped_when_consent_goes_after_the_first(baby_api, stub, monkeypatch):
+    reads = []
+
+    async def read(tools, db, owner, arguments):
+        reads.append(owner)
+        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        return {"found": "stub"}
+
+    monkeypatch.setitem(ask_tools.TOOLS, "stub_tool", ask_tools.Tool(
+        {"description": "Stub", "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False}},
+        ask_tools.DomainModel, read))
+    await enable(baby_api)
+    reply = tool_call(call_id="first")
+    reply["output"].append({"type": "function_call", "id": "fc_2", "call_id": "second", "name": "stub_tool", "arguments": "{}"})
+    stub.replies = [reply]
+    assert (await ask(baby_api)).status_code == 403
+    assert len(reads) == 1 and len(stub.sent) == 1
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"id": "paid_incomplete", "status": "incomplete", "output": [], "usage": USAGE},
+        {"id": "paid_incomplete", "status": "completed", "error": {"code": "x"}, "output": [], "usage": USAGE},
+    ],
+)
+async def test_an_incomplete_reply_keeps_its_usage_and_request_id(baby_api, stub, reply):
+    await enable(baby_api)
+    stub.replies = [reply]
+    assert (await ask(baby_api)).status_code == 503
+    async with baby_api.sessions() as db:
+        row = await db.scalar(select(AIInvocation))
+        assert (row.status, row.provider_request_id) == ("failed", "paid_incomplete")
+        assert (row.input_tokens, row.output_tokens, row.reasoning_tokens) == (1000, 50, 10)
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 1
+        assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
+
+
+async def test_a_reply_discarded_because_consent_changed_keeps_its_usage(baby_api, stub):
+    await enable(baby_api)
+
+    async def withdrawing(request):
+        response = fake(request)
+        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        return response
+
+    fake, stub.handler = stub.handler, withdrawing
+    assert (await ask(baby_api)).status_code == 403
+    async with baby_api.sessions() as db:
+        row = await db.scalar(select(AIInvocation))
+        assert row.status == "failed" and row.input_tokens == 1000 and row.provider_request_id == "resp_1"
+        assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
+
+
+async def test_a_provider_failure_with_no_reply_records_no_usage(baby_api, stub):
+    await enable(baby_api)
+    stub.replies = [httpx.Response(500, text="PRIVATE_ERROR")]
+    response = await ask(baby_api)
+    assert response.status_code == 503 and "PRIVATE" not in response.text
+    async with baby_api.sessions() as db:
+        row = await db.scalar(select(AIInvocation))
+        assert row.status == "failed" and row.input_tokens is None and row.provider_request_id is None
