@@ -19,7 +19,7 @@ from pydantic import Field
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
-from app.domains.baby.budget import AskCall, reserve, reserve_ask
+from app.domains.baby.budget import SEARCH_CALL_MICROUSD, AskCall, reserve, reserve_ask
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
 
@@ -67,6 +67,7 @@ class ExtractionOutput(DomainModel):
 class AnswerOutput(DomainModel):
     message: str = Field(min_length=1, max_length=12000)
     citation_ids: list[str] = Field(default_factory=list, max_length=12)
+    source_urls: list[str] = Field(default_factory=list, max_length=12)
     proposal: dict | None = None
 
 
@@ -191,6 +192,9 @@ class BabyProvider:
                 if self.gate:
                     await self.gate()  # A revoked result never reaches the next round.
                 invocation.succeed(data)
+                invocation.extra_cost_microusd = SEARCH_CALL_MICROUSD * sum(
+                    item.get("type") == "web_search_call" for item in data.get("output", [])
+                )
                 return data
             except asyncio.CancelledError:
                 invocation.fail("cancelled", data)

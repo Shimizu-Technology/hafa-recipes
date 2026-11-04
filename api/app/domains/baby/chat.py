@@ -111,6 +111,7 @@ def message_response(row, *, legacy=False):
         if row.role == "assistant" else row.content.get("message", ""),
         "citations": citations_for(row.content.get("citations", []), legacy=legacy),
         "proposal": row.content.get("proposal"),
+        "sources": row.content.get("sources", []),
         "created_at": row.created_at,
         "status": row.content.get("status", "ready"),
     }
@@ -858,7 +859,8 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                 tools = AskTools(
                     user_id=user.id, client=client, personal_space_id=personal_space_id,
                     family=access.enabled, generation=generation, zone=zone, tracked=tracked,
-                    child_id=body.child_id, check=checked_access, question=body.message, focus_id=body.record_id,
+                    child_id=body.child_id, check=checked_access, provider=provider, question=body.message,
+                    focus_id=body.record_id,
                 )
                 result = await answer_question(
                     provider, tools=tools, message=body.message, history=history,
@@ -889,6 +891,13 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         ]
         proposal = reviewed_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
+        if use_v2:
+            from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer
+
+            message, sources = checked_answer(payload["message"], result.source_urls, tools.web_sources)
+            if tools.research_failed and not sources:
+                message = f"{message}\n\n{UNAVAILABLE_NOTICE}"
+            payload.update(message=message, sources=sources)
         access = await access_for(db, user.id, client=client,
                                   space_id=personal_space_id if access.enabled else None,
                                   generation=generation, write=True)

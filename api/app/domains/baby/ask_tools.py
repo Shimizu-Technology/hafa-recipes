@@ -10,8 +10,15 @@ from fastapi import HTTPException
 from pydantic import Field
 from sqlalchemy import or_, select
 
+from app.domains.baby.ask_research import (
+    TOOL_RULES,
+    clean_query,
+    needs_trusted_sites,
+    research_for,
+    strings_in,
+)
 from app.domains.baby.lifecycle import now, owned, readable_journal_children
-from app.domains.baby.models import BabyChild, BabyRecord
+from app.domains.baby.models import BabyChild, BabyMembership, BabyRecord, BabySpaceMember
 from app.domains.baby.queries import child_timing, records_query, row_scope
 from app.domains.baby.schemas import DomainModel
 from app.domains.baby.stats import care_stats, custom_days, day_start, last_days, rolling_24h
@@ -22,6 +29,7 @@ RESULT_CHARS = 30_000
 QUESTION_CHARS = 120_000  # Keeps every later request well inside its admission bound.
 BRIEF_EXCERPT, FULL_EXCERPT = 1500, 7000
 LIST_LIMIT, DAY_LIMIT, EVENT_LIMIT = 12, 60, 60
+QUERY_INPUT_CHARS = 600
 SAVED_KINDS = ("source", "collection", "question", "routine", "milestone", "custom")
 # Saved posts and journal entries have their own tools; a day's log is what was recorded that day.
 NOT_IN_DAY_LOG = ("source", "collection", "journal")
@@ -118,7 +126,8 @@ def permission_for_kind(kind):
 class AskTools:
     """One question's reads. ``tracked`` and ``citable`` are what the final recheck and citations use."""
 
-    def __init__(self, *, user_id, client, personal_space_id, family, generation, zone, tracked, child_id=None, check=None, question="", focus_id=None):
+    def __init__(self, *, user_id, client, personal_space_id, family, generation, zone, tracked, child_id=None,
+                 check=None, provider=None, question="", focus_id=None):
         self.user_id, self.client, self.personal_space_id = user_id, client, personal_space_id
         self.family, self.generation, self.zone, self.tracked = family, generation, zone, tracked
         self.child_id, self.check = child_id, check
@@ -126,9 +135,12 @@ class AskTools:
         self.permissions = permissions_for(question)
         self.citable, self.displays = {}, {}
         self.read_chars = 0
+        self.provider = provider
+        self.read_texts, self.names = [], set()
+        self.web_sources, self.research_failed = [], False
 
     def instructions(self, base):
-        return base + " " + TOOL_GUIDE
+        return base + " " + TOOL_GUIDE + TOOL_RULES
 
     def request_fields(self, may_use_tools):
         if not TOOLS:
@@ -188,10 +200,26 @@ class AskTools:
             # A fresh look for each read: what was allowed a moment ago may not be now.
             async with AsyncSessionLocal() as db:
                 result = await self.call(db, await self.scope(db), call)
+            # Everything read is closed by now: nothing holds a session across a paid call.
+            if isinstance(result, PendingResearch):
+                result = await self.research(result, count)
             outputs.append(self.output(call, result))
         return outputs
 
+    async def research(self, pending, count):
+        result, sources = await research_for(self.provider, count, query=pending.query, health=pending.health)
+        if result["status"] != "ok":
+            self.research_failed = True
+            return result
+        for source in sources:
+            if source["url"] not in {known["url"] for known in self.web_sources}:
+                self.web_sources.append({**source, "ref": f"S{len(self.web_sources) + 1}"})
+        by_url = {known["url"]: known for known in self.web_sources}
+        return {**result, "sources": [by_url[source["url"]] for source in sources]}
+
     def output(self, call, result):
+        if call.get("name") != "research_trusted":
+            self.read_texts.extend(strings_in(result))
         text = json.dumps({"untrusted_data": result}, ensure_ascii=False, default=str)
         if len(text) > RESULT_CHARS:
             text = json.dumps({"error": "result_too_large"})
@@ -250,6 +278,11 @@ def child_item(tools, child):
         if getattr(child, key):
             item[key] = getattr(child, key).isoformat()
     return item
+
+
+class PendingResearch(NamedTuple):
+    query: str
+    health: bool
 
 
 class ChoiceNeeded(Exception):
@@ -461,6 +494,8 @@ async def events_tool(tools, db, owner, arguments):
     )))
     # Events are read as narrow columns, so what the recheck compares comes from the rows themselves.
     await entries(tools, db, owner, rows, limit=300, total=len(rows) * 300)
+    for item in shown:
+        tools.names.update(item.changes.get("attendees", item.event.attendees) or [])
     return {
         "events": [item.item() for item in shown],
         "all_events_shown": complete and len(found) <= EVENT_LIMIT,
@@ -497,3 +532,35 @@ async def journal_tool(tools, db, owner, arguments):
         order.insert(0, ranked(matches).desc())
     rows = list(await db.scalars(query.order_by(*order).limit(LIST_LIMIT)))
     return {"entries": await entries(tools, db, owner, rows, terms=terms, limit=3000)}
+
+
+async def people_names(tools, db, owner):
+    """Everyone this question could name: the parent, those they share with, and the children."""
+    names = set(tools.names) | {child.name for child in await child_list(tools, db, owner)}
+    members = {tools.user_id}
+    if getattr(owner, "enabled", False):
+        members |= set(await db.scalars(select(BabySpaceMember.app_user_id).where(
+            BabySpaceMember.space_id.in_([grant.id for grant in owner.spaces]))))
+    for member in await db.scalars(select(BabyMembership).where(BabyMembership.app_user_id.in_(members))):
+        names.add((member.profile or {}).get("display_name"))
+    return names
+
+
+class ResearchArguments(DomainModel):
+    query: str = Field(min_length=3, max_length=QUERY_INPUT_CHARS)
+    topic: Literal["health", "general"]
+
+
+@tool(
+    "research_trusted",
+    "Search online with one short general question. Health questions search only trusted medical sites; anything "
+    "else searches the open web. Sends only the query. Never put a name, a date, or anything about this family in it.",
+    ResearchArguments,
+    {"query": {"type": "string"}, "topic": {"type": "string", "enum": ["health", "general"]}},
+)
+async def research_tool(tools, db, owner, arguments):
+    query = clean_query(arguments.query, names=await people_names(tools, db, owner),
+                        private_texts=tools.read_texts, question=tools.question)
+    if not query:
+        return unavailable("query_had_private_details")
+    return PendingResearch(query, needs_trusted_sites(arguments.topic, query, tools.question))

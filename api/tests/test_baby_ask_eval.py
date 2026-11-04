@@ -135,7 +135,8 @@ def test_the_estimate_scales_with_models_and_runs():
 
 def arguments(tmp_path, **changes):
     values = dict(dataset=Path(harness.__file__).parent / "golden" / "baby_ask_v1.json", models=["gpt-6-luna"], reasoning_effort="low",
-                  runs_per_case=1, output=tmp_path / "report.json", env_file=None, dry_run=False, confirm_cost_usd=None, categories=None)
+                  runs_per_case=1, output=tmp_path / "report.json", env_file=None, dry_run=False, confirm_cost_usd=None, categories=None,
+                  research_model=None)
     return argparse.Namespace(**{**values, **changes})
 
 

@@ -393,6 +393,7 @@ async def run_baby(args: argparse.Namespace, dataset: dict[str, Any]) -> Path | 
     reports = await run_baby_comparison(
         dataset, args.models, keys=eval_keys(environment, args.models), effort=args.reasoning_effort,
         runs_per_case=args.runs_per_case, cost_ceiling_usd=args.confirm_cost_usd, categories=categories,
+        research_model=args.research_model,
     )
     report = {
         "report_version": "hafa-baby-ask-comparison-v1",
@@ -509,6 +510,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--confirm-cost-usd", type=float, help="Baby: stop a paid run at this spend")
     parser.add_argument("--categories", nargs="+", help="Baby: only these categories, such as research")
+    parser.add_argument("--research-model", help="Baby: research with this model instead of the one under test")
     return parser.parse_args()
 
 

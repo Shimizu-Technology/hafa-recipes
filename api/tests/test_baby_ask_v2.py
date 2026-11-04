@@ -8,7 +8,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
-from app.domains.baby import ask_gate, ask_tools, ask_v2, budget, provider
+from app.domains.baby import ask_gate, ask_research, ask_tools, ask_v2, budget, provider
 from app.domains.baby.ask_gate import ASK_CONSENT_VERSION
 from app.domains.baby.ask_tools import AskTools
 from app.domains.baby.ask_v2 import effort_for, response_text
@@ -72,11 +72,12 @@ async def stub(baby_api, monkeypatch):
     settings = SimpleNamespace(
         baby_ask_v2_enabled=True, baby_ask_model="gpt-6-luna", baby_ask_reasoning_effort="low",
         baby_ai_model="gpt-5.6-luna", recipe_chat_model="gpt-5.6-luna", openai_reasoning_effort="none",
+        baby_ask_research_model="", baby_ask_research_reasoning_effort="low",
         ai_model_pricing={"gpt-5.6-luna": {"input_per_million": 0.2, "output_per_million": 1.2}},
         is_ai_capability_enabled=lambda _: True,
     )
     fake.settings = settings
-    for module in (provider, ask_gate, ask_v2):
+    for module in (provider, ask_gate, ask_v2, ask_research):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(budget, "get_settings", lambda: settings)
     monkeypatch.setattr(budget, "AsyncSessionLocal", baby_api.sessions)

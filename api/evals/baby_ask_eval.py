@@ -54,17 +54,20 @@ def validate_baby_dataset(dataset: dict[str, Any]) -> None:
 class WorldTools:
     """What `AskTools` offers the loop, answered from one synthetic person's fixtures."""
 
-    def __init__(self, actor: dict[str, Any]):
-        self.actor = actor
+    def __init__(self, actor: dict[str, Any], provider=None, *, question="", research_model=None, research_effort=None):
+        self.actor, self.provider, self.question = actor, provider, question
+        self.research_model, self.research_effort = research_model, research_effort
         self.called: list[str] = []
         self.outbound: list[str] = []
-        self.read_text = ""
+        self.research_results: list[str] = []
+        self.research_domains: list[tuple[str, bool]] = []
+        self.read_texts: list[str] = []
         self.citable: dict[str, Any] = {}
 
     def instructions(self, base: str) -> str:
-        from app.domains.baby.ask_tools import TOOL_GUIDE
+        from app.domains.baby.ask_tools import TOOL_GUIDE, TOOL_RULES
 
-        return base + " " + TOOL_GUIDE
+        return base + " " + TOOL_GUIDE + TOOL_RULES
 
     def request_fields(self, may_use_tools: bool) -> dict[str, Any]:
         from app.domains.baby.ask_tools import TOOLS
@@ -103,14 +106,38 @@ class WorldTools:
         return {"error": "unknown_tool"}
 
     async def run(self, calls, count):
+        from app.domains.baby.ask_research import strings_in
+
         outputs = []
         for call in calls:
             self.called.append(call["name"])
-            result = self.read(call["name"], json.loads(call.get("arguments") or "{}"))
+            arguments = json.loads(call.get("arguments") or "{}")
+            if call["name"] == "research_trusted":
+                result = await self.research(arguments, count)
+            else:
+                result = self.read(call["name"], arguments)
             text = json.dumps({"untrusted_data": result}, ensure_ascii=False)
-            self.read_text += text
+            if call["name"] != "research_trusted":
+                self.read_texts.extend(strings_in(result))
             outputs.append({"type": "function_call_output", "call_id": call["call_id"], "output": text})
         return outputs
+
+
+    async def research(self, arguments, count):
+        """The production cleaner and checks. A real search runs, on the model under test."""
+        from app.domains.baby.ask_research import clean_query, needs_trusted_sites, research_for
+
+        names = [self.actor["display_name"], *self.actor.get("known_names", []), *(child["name"] for child in self.actor["children"])]
+        query = clean_query(arguments.get("query", ""), names=names, private_texts=self.read_texts, question=self.question)
+        if not query:
+            return {"error": "query_had_private_details"}
+        self.outbound.append(query)
+        health = needs_trusted_sites(arguments.get("topic"), query, self.question)
+        result, sources = await research_for(self.provider, count, query=query, health=health,
+                                             model=self.research_model, effort=self.research_effort)
+        self.research_results.append(result["status"])
+        self.research_domains.extend((source["domain"], health) for source in sources)
+        return {**result, "sources": [{**source, "ref": f"S{index}"} for index, source in enumerate(sources, 1)]} if sources else result
 
 
 class OpenAIProvider:
@@ -158,6 +185,7 @@ def score_case(case: dict[str, Any], answer: Any, tools: WorldTools) -> dict[str
         "forbidden_citations": sorted(set(case.get("forbidden_citations", [])) & set(answer.citation_ids)),
         "leaked_text": any(normalize(term) in text for term in case.get("forbidden_answer_strings", [])),
         "leaked_outbound": any(term.lower() in " ".join(tools.outbound).lower() for term in case.get("forbidden_outbound", [])),
+        "research_failed": bool(required_tools) and "research_trusted" in required_tools and "ok" not in tools.research_results,
         "unwanted_proposal": bool(case.get("no_proposal") and answer.proposal),
     }
     return {
@@ -231,11 +259,11 @@ class GuardedProvider:
         return data
 
 
-async def evaluate_case(provider, case, dataset, model, effort, trial_index):
+async def evaluate_case(provider, case, dataset, model, effort, trial_index, research_model=None):
     from app.domains.baby.ask_v2 import answer_question
 
     actor = dataset["actors"][case["actor"]]
-    tools = WorldTools(actor)
+    tools = WorldTools(actor, provider, question=case["prompt"], research_model=research_model or model, research_effort=effort)
     pack = {"children": [{key: value for key, value in child.items() if key != "id"} | dataset["care_totals"] for child in actor["children"]], "today": dataset["now_local"][:10]}
     provider.responses.clear()
     started = time.perf_counter()
@@ -317,7 +345,7 @@ def provider_for(model: str, keys: dict[str, str]):
     return OpenAIProvider(keys["openai"])
 
 
-async def run_baby_comparison(dataset, models, *, keys, effort, runs_per_case, cost_ceiling_usd, categories=None):
+async def run_baby_comparison(dataset, models, *, keys, effort, runs_per_case, cost_ceiling_usd, categories=None, research_model=None):
     """A failed attempt keeps its place as a failure and stops the run, so it can't pass as a score."""
     cases = runnable_cases(dataset, categories=categories)
     guard, reports = CostGuard(cost_ceiling_usd), []
@@ -325,6 +353,6 @@ async def run_baby_comparison(dataset, models, *, keys, effort, runs_per_case, c
         provider, results = GuardedProvider(provider_for(model, keys), guard), []
         for trial_index in range(1, runs_per_case + 1):
             for case in cases:
-                results.append(await evaluate_case(provider, case, dataset, model, effort, trial_index))
+                results.append(await evaluate_case(provider, case, dataset, model, effort, trial_index, research_model))
         reports.append(summarize_model(model, results, dataset_cases=len(cases), runs_per_case=runs_per_case))
     return reports

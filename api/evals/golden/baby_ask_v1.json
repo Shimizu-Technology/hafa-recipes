@@ -253,6 +253,10 @@
           "all_day": false,
           "category": "family"
         }
+      ],
+      "known_names": [
+        "Dr. Tan",
+        "Tan"
       ]
     },
     "parent_b": {
