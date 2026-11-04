@@ -150,6 +150,9 @@ async def test_data_erasure_never_exits_family(family_case, client, other_role):
     async with api.sessions() as db:
         assert (await db.get(BabySpaceMember, (family, "owner"))).status == "active"
         assert await db.get(BabyRecord, case.capture["record_id"]) is not None
+        assert (await db.get(BabyRecord, case.entry["id"]) is not None) == (client == "3")
+        assert (await db.get(BabyConversation, case.conversation_id) is not None) == (client == "3")
+        assert (await db.get(BabySpace, personal) is not None) == (client == "3")
 
 
 @pytest.mark.parametrize("action", ["leave", "remove", "account"])
