@@ -140,9 +140,12 @@ def parent_zone(name):
 
 def local_data(data, zone):
     """Care times the model reads in the parent's own timezone, so answers quote local clock times."""
-    if zone is None or not isinstance(data, dict):
+    if not isinstance(data, dict):
         return data
-    shifted = dict(data)
+    # Each tap's identity says nothing the count and times don't.
+    shifted = {key: value for key, value in data.items() if key != "session_actions"}
+    if zone is None:
+        return shifted
     for key in ("end_at", "reminder_at"):
         moment = parsed_time(shifted.get(key))
         if moment and moment.tzinfo:

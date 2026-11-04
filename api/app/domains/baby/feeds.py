@@ -94,5 +94,6 @@ def same_action(stored, incoming):
     return (
         stored["action"] == incoming["action"]
         and stored.get("side") == incoming.get("side")
+        and stored.get("target") == incoming.get("target")
         and instant(stored["at"]) == instant(incoming["at"])
     )

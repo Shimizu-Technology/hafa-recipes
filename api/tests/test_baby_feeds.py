@@ -227,6 +227,9 @@ async def test_endpoint_gives_one_result_for_every_arrival_order(baby_api, order
         assert response.status_code == 200, response.text
     row = await stored(baby_api, body["id"])
     assert row["revision"] == 5
+    # Which revision each tap made is the one thing that does follow arrival order.
+    made = {item.pop("revision") for item in row["data"]["actions"]}
+    assert made == {2, 3, 4, 5}
     assert row["data"] == {
         "method": "breast", "amount": None, "unit": None, "side": "both", "duration_minutes": 30,
         "state": "finished", "actions": FEED, "end_at": at(30),
@@ -246,6 +249,31 @@ async def test_retried_taps_change_nothing_and_a_changed_retry_is_refused(baby_a
     for changed in ({**item, "side": "left"}, {**item, "at": at(6)}, {"id": item["id"], "action": "finish", "at": at(5)}):
         assert (await tap(baby_api, row["id"], changed)).status_code == 409
     assert (await stored(baby_api, row["id"]))["revision"] == 2
+
+
+@needs_database
+async def test_a_replay_says_which_revision_the_tap_made_not_where_the_row_is(baby_api):
+    row = await create(baby_api)
+    mine = action("switch", 5, "right")
+    first = (await tap(baby_api, row["id"], mine)).json()
+    assert first["revision"] == 2
+    # Another phone writes after it. The first phone never got its answer, and retries.
+    edit = await baby_api.client.patch(
+        f"{API}/records/{row['id']}", headers=GEN, json={"revision": 2, "body": "From the other phone"}
+    )
+    assert edit.json()["revision"] == 3
+    replay = (await tap(baby_api, row["id"], mine)).json()
+    assert replay["revision"] == 3 and replay["body"] == "From the other phone"
+    made = {item["id"]: item.get("revision") for item in replay["data"]["actions"]}
+    assert made[mine["id"]] == 2
+
+
+@needs_database
+async def test_a_tap_cannot_claim_its_own_revision(baby_api):
+    row = await create(baby_api)
+    mine = {**action("switch", 5, "right"), "revision": 99}
+    response = (await tap(baby_api, row["id"], mine)).json()
+    assert {item["id"]: item.get("revision") for item in response["data"]["actions"]}[mine["id"]] == 2
 
 
 @needs_database
@@ -324,6 +352,47 @@ async def test_undoing_the_newest_feed_restores_the_one_before(baby_api):
     assert gone.status_code == 204
     restored = await stored(baby_api, old["id"])
     assert restored["data"]["state"] == "running" and restored["revision"] == 3
+
+
+def ahead(minutes):
+    return (datetime.now(UTC) + timedelta(minutes=minutes)).isoformat()
+
+
+async def running_now(baby_api, minutes_ago=5):
+    started = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
+    body = shared.payload("feeding", occurred_at=started, data={
+        "method": "breast", "actions": [{"id": str(uuid4()), "action": "start", "at": started, "side": "left"}],
+    })
+    response = await baby_api.client.post(f"{API}/records", headers=GEN, json=body)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@needs_database
+@pytest.mark.parametrize("data", [
+    {"method": "breast", "side": "left", "duration_minutes": 10},
+    {"method": "breast", "state": "running", "side": "left"},
+], ids=["finished", "running"])
+async def test_a_feed_dated_ahead_neither_runs_nor_ends_the_one_that_does(baby_api, data):
+    running = await running_now(baby_api)
+    body = shared.payload("feeding", occurred_at=ahead(180), data=data)
+    created = await baby_api.client.post(f"{API}/records", headers=GEN, json=body)
+    assert created.status_code == 200, created.text
+    assert (await stored(baby_api, running["id"]))["data"]["state"] == "running"
+    # It's left as it was until its time comes.
+    assert (await stored(baby_api, body["id"]))["data"].get("state") == data.get("state")
+
+
+@needs_database
+async def test_a_clock_a_little_ahead_is_still_the_newest_feed(baby_api):
+    running = await running_now(baby_api)
+    start = ahead(2)
+    body = shared.payload("feeding", occurred_at=start, data={
+        "method": "breast", "actions": [{"id": str(uuid4()), "action": "start", "at": start, "side": "right"}],
+    })
+    assert (await baby_api.client.post(f"{API}/records", headers=GEN, json=body)).status_code == 200
+    assert (await stored(baby_api, running["id"]))["data"]["state"] == "unknown_end"
+    assert (await stored(baby_api, body["id"]))["data"]["state"] == "running"
 
 
 @needs_database

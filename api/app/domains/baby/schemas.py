@@ -20,6 +20,7 @@ from pydantic import (
 
 from app.domains.baby.feeds import instant, reduce_feed, with_derived
 from app.domains.baby.recurrence import is_start
+from app.domains.baby.sessions import with_session
 
 # Matches the mobile source kind label; keep API capture and processing defaults together.
 DEFAULT_SOURCE_TITLE = "Saved source"
@@ -243,6 +244,9 @@ class FeedAction(DomainModel):
     side: Literal["left", "right"] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # The revision this tap produced, set by the API. A retry after a lost response can't be told
+    # from the row alone, so this is how a phone knows which of its waiting edits to move on.
+    revision: int | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def side_matches_action(self):
@@ -529,13 +533,47 @@ def check_span(start, end, all_day, zone):
             raise ValueError("An event can last up to a year")
 
 
+class SessionAction(DomainModel):
+    id: UUID
+    action: Literal["tap", "undo", "finish"]
+    at: AwareDatetime
+    target: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+    # As on FeedAction: the revision this action produced, set by the API.
+    revision: int | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def target_matches_action(self):
+        if (self.action == "undo") != (self.target is not None):
+            raise ValueError("An undo names the action it takes back; nothing else names one")
+        if self.at > datetime.now(UTC) + timedelta(days=1):
+            raise ValueError("Check this phone's date and time")
+        return self
+
+
+class SessionActionRequest(SessionAction):
+    id: UUID = Field(validation_alias="action_id")
+
+
 class ContractionData(DomainModel):
     end_at: AwareDatetime | None = None
+    session_actions: list[SessionAction] = Field(
+        default_factory=list, max_length=20, exclude_if=lambda value: not value
+    )
+
+    @model_validator(mode="after")
+    def only_stops(self):
+        if any(item.action == "tap" for item in self.session_actions):
+            raise ValueError("A contraction has no taps")
+        return self
 
 
 class KickSessionData(DomainModel):
     end_at: AwareDatetime | None = None
     count: Annotated[int, Field(strict=True, ge=0, le=1000)] = 0
+    # Bounded by the same number as the count; omitted when empty, so creation hashes don't change.
+    session_actions: list[SessionAction] = Field(
+        default_factory=list, max_length=1000, exclude_if=lambda value: not value
+    )
 
 
 class PumpingData(DomainModel):
@@ -645,6 +683,8 @@ class RecordCreate(DomainModel):
                 self.occurred_at = instant(started)
         if self.kind == "event":
             EventData.model_validate(self.data).check_times(self.occurred_at)
+        if self.data.get("session_actions"):
+            self.data = with_session(self.kind, self.data, self.occurred_at)
         end_field = END_FIELDS.get(self.kind)
         if end_field and self.data.get(end_field):
             # The stored form is JSON; the validated form compares instants across offsets.
