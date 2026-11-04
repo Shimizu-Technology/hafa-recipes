@@ -25,3 +25,39 @@ def _reset_ai_rate_limiter():
     ai_rate_limiter.reset()
     yield
     ai_rate_limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def _require_baby_mutation_stamp():
+    """Observe real ORM writers after the family gate, including short worker transactions."""
+    from sqlalchemy import event, inspect
+    from sqlalchemy.orm import Session
+
+    def check(session, context, instances):
+        if not session.info.get("baby_family_write"):
+            return
+        for row in session.new | session.dirty:
+            table = getattr(row, "__table__", None)
+            if table is not None and table.name.startswith("baby_") and "space_id" in table.c and "change_seq" in table.c:
+                if session.is_modified(row):
+                    assert row.change_seq is not None and inspect(row).attrs.change_seq.history.has_changes(), (
+                        "Baby mutation skipped touch", table.name, getattr(row, "id", None))
+
+    event.listen(Session, "before_flush", check)
+    try:
+        yield
+    finally:
+        event.remove(Session, "before_flush", check)
+
+
+@pytest.fixture
+def baby_mutation_paths():
+    return {
+        "records": ("create", "patch", "delete", "feed_action", "feed_settlement"),
+        "profile": ("bootstrap", "enroll", "consent", "auto_process"),
+        "children": ("create", "patch", "delete", "detach_records", "detach_conversations", "detach_imports"),
+        "attachments": ("admit", "publish", "replay", "release", "delete", "quota_pending", "quota_abandoned"),
+        "imports": ("admit", "retry", "cancel", "capture_cancel"),
+        "worker": ("claim", "ready", "edit", "removed", "expired_lease", "moved", "consent", "failure", "attempts"),
+        "captures": ("submit", "defer", "permission_changed", "missing_source", "admit", "retry_later"),
+    }

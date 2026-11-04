@@ -12,18 +12,22 @@ from sqlalchemy import or_, select, text
 from app.ai_governance import ai_request_context
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
-from app.domains.baby.lifecycle import membership_for, now, owned
+from app.domains.baby.access import SpaceAccess, access_for, family_enabled, touch
+from app.domains.baby.lifecycle import now, owned, validate_relations
 from app.domains.baby.models import (
     BABY_TABLES,
     BabyAttachment,
     BabyImport,
     BabyRecord,
+    BabySpace,
+    BabySpaceMember,
 )
 from app.domains.baby.processing import process_capture
 from app.domains.baby.provider import BabyProvider
 from app.domains.baby.schema import ALLOWED_FORMS
 from app.domains.baby.schema import schema_complete as check_schema
 from app.domains.baby.schemas import DEFAULT_SOURCE_TITLE
+from app.models.identity import AppUser
 
 logger = logging.getLogger("hafa.baby.worker")
 WORKER_LOCK = 7340050
@@ -58,6 +62,54 @@ async def verify_baby_schema(session_factory=None):
             text("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=50)")
         ):
             raise RuntimeError("Baby migration050 marker is missing")
+
+
+async def job_access(db, owner, generation, space_id, *, write=False):
+    return await access_for(db, owner, stored_space_id=space_id, generation=generation, write=write)
+
+
+async def retire_unreachable(db, model, identifier, owner, generation, stored_space):
+    """Retire inaccessible queue work without borrowing the actor's current destination."""
+    await db.rollback()
+    if not family_enabled():
+        return False
+    affected = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
+        BabySpaceMember.space_id == stored_space)))
+    for actor in sorted({owner, *affected}):
+        await db.scalar(select(AppUser.id).where(AppUser.id == actor).with_for_update())
+    space = await db.scalar(select(BabySpace).where(BabySpace.id == stored_space).with_for_update())
+    after = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
+        BabySpaceMember.space_id == stored_space)))
+    if after != affected:
+        await db.rollback()
+        return True
+    row = await db.get(model, identifier, populate_existing=True, with_for_update=True)
+    if (row is None or row.app_user_id != owner or row.space_id != stored_space
+            or row.generation != generation or space is None):
+        await db.rollback()
+        return True
+    grant = SpaceAccess(space, "internal", 0, db, db.get_transaction())
+    db.info["baby_family_write"] = True
+    if model is BabyImport:
+        if row.status not in {"queued", "processing"}:
+            return True
+        row.status, row.error, row.lease_token, row.lease_until = (
+            "cancelled", "Baby access changed. Your original source is saved.", None, None)
+        row.updated_at = now()
+        await touch(row, grant)
+        source = await db.get(BabyRecord, row.record_id, populate_existing=True, with_for_update=True)
+        if (source is not None and source.space_id == stored_space and source.generation == generation
+                and source.deleted_at is None):
+            source.data = {**source.data, "status": "cancelled"}
+            source.revision, source.updated_at = source.revision + 1, now()
+            await touch(source, grant)
+    else:
+        if row.status != "deferred":
+            return True
+        row.status, row.last_attempt_at = "saved", now()
+    await touch(row, grant)
+    await db.commit()
+    return True
 
 
 class BabyWorker:
@@ -147,12 +199,14 @@ class BabyWorker:
                 candidate.app_user_id,
                 candidate.generation,
             )
+            stored_space = candidate.space_id
             try:
-                member = await membership_for(db, owner, generation=generation, write=True)
-                row = await owned(db, BabyImport, owner, generation, identifier)
+                access = await job_access(db, owner, generation, stored_space, write=True)
+                member = access.member
+                row = await owned(db, BabyImport, access, generation, identifier)
+                await owned(db, BabyRecord, access, generation, row.record_id)
             except HTTPException:
-                await db.rollback()
-                return False
+                return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
             if row.status not in {"queued", "processing"} or (
                 row.status == "processing" and row.lease_until and row.lease_until > now()
             ):
@@ -162,7 +216,7 @@ class BabyWorker:
                     "failed",
                     "Processing stopped after repeated interruptions. Your original is saved.",
                 )
-                await self.finish_source(db, row)
+                await self.finish_source(db, row, access)
                 await db.commit()
                 return True
             if row.consent_epoch != member.consent_epoch or (
@@ -175,7 +229,7 @@ class BabyWorker:
                     "cancelled",
                     "Your processing permission changed. Retry deliberately.",
                 )
-                await self.finish_source(db, row)
+                await self.finish_source(db, row, access)
                 await db.commit()
                 return True
             token = uuid4()
@@ -186,21 +240,29 @@ class BabyWorker:
             )
             row.attempts, row.updated_at = row.attempts + 1, now()
             request, epoch = dict(row.request), row.consent_epoch
-            source = await owned(db, BabyRecord, owner, generation, row.record_id)
+            await touch(row, access.target)
+            try:
+                source = await owned(db, BabyRecord, access, generation, row.record_id)
+            except HTTPException:
+                return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
             source.revision += 1
             source.updated_at = now()
             baseline_revision = source.revision
             source.data = {**source.data, "status": "processing"}
+            await touch(source, access.target)
+            await touch(row, access.target)
             await db.commit()
 
         async def gate():
             async with self.sessions() as check:
-                member = await membership_for(check, owner, generation=generation)
-                current = await owned(check, BabyImport, owner, generation, identifier)
+                access = await job_access(check, owner, generation, stored_space)
+                member = access.member
+                current = await owned(check, BabyImport, access, generation, identifier)
                 if (
                     member.consent_epoch != epoch
                     or current.status != "processing"
                     or current.lease_token != token
+                    or (access.enabled and (current.lease_until is None or current.lease_until <= now()))
                     or (
                         request.get("automatic")
                         and not (
@@ -214,20 +276,22 @@ class BabyWorker:
         async def ai_gate():
             await gate()
             async with self.sessions() as check:
-                member = await membership_for(check, owner, generation=generation)
+                access = await job_access(check, owner, generation, stored_space)
+                member = access.member
                 if not member.profile.get("ai_consent") or member.consent_epoch != epoch:
                     raise HTTPException(403, "AI processing permission is required")
 
         try:
             async with self.sessions() as db:
-                member = await membership_for(db, owner, generation=generation)
+                access = await job_access(db, owner, generation, stored_space)
+                member = access.member
                 may_use_ai = bool(member.profile.get("ai_consent"))
                 attachments = []
                 for attachment_id in request.get("attachment_ids", []):
                     from uuid import UUID
 
                     attachment = await owned(
-                        db, BabyAttachment, owner, generation, UUID(attachment_id)
+                        db, BabyAttachment, access, generation, UUID(attachment_id)
                     )
                     if attachment.state != "ready":
                         raise ValueError("Attachment unavailable")
@@ -238,8 +302,7 @@ class BabyWorker:
                     for row in await db.scalars(
                         select(BabyRecord)
                         .where(
-                            BabyRecord.app_user_id == owner,
-                            BabyRecord.generation == generation,
+                            access.condition(BabyRecord),
                             BabyRecord.kind == "collection",
                             BabyRecord.deleted_at.is_(None),
                         )
@@ -259,12 +322,15 @@ class BabyWorker:
                 )
             await gate()
             async with self.sessions() as db:
-                current = await membership_for(db, owner, generation=generation, write=True)
+                access = await job_access(db, owner, generation, stored_space, write=True)
+                current = access.member
                 if current.consent_epoch != epoch:
                     return True
-                row = await owned(db, BabyImport, owner, generation, identifier)
-                source = await owned(db, BabyRecord, owner, generation, row.record_id)
-                if row.status != "processing" or row.lease_token != token:
+                row = await owned(db, BabyImport, access, generation, identifier)
+                source = await owned(db, BabyRecord, access, generation, row.record_id)
+                if row.status != "processing" or row.lease_token != token or (
+                    access.enabled and (row.lease_until is None or row.lease_until <= now())
+                ):
                     return True
                 if source.revision == baseline_revision:
                     # Preserve the editable body, child and original attachments.
@@ -277,7 +343,11 @@ class BabyWorker:
                         )
                     ):
                         source.title = result["title"]
-                    source.data = {**source.data, **keep_user_decisions(source.data, result["data"])}
+                    merged = {**source.data, **keep_user_decisions(source.data, result["data"])}
+                    if access.enabled:
+                        await validate_relations(db, access, generation, source.child_id, merged,
+                                                 record_id=source.id, kind="source")
+                    source.data = merged
                     source.revision, source.updated_at = source.revision + 1, now()
                 else:
                     # A user edit wins; expose the conflict rather than overwrite.
@@ -286,8 +356,12 @@ class BabyWorker:
                         "You edited this source while it processed. Your edits were kept; retry to organize it again.",
                     )
                     source.data = {**source.data, "status": "incomplete"}
+                    if access.enabled:
+                        source.revision, source.updated_at = source.revision + 1, now()
                 row.status, row.error = result["status"], result.get("error")
                 row.lease_token, row.lease_until, row.updated_at = None, None, now()
+                await touch(source, access.target)
+                await touch(row, access.target)
                 await db.commit()
         except asyncio.CancelledError:
             # The durable lease makes a killed process recoverable after restart.
@@ -295,30 +369,38 @@ class BabyWorker:
         except Exception:
             async with self.sessions() as db:
                 try:
-                    await membership_for(db, owner, generation=generation, write=True)
-                    row = await owned(db, BabyImport, owner, generation, identifier)
-                    if row.status == "processing" and row.lease_token == token:
+                    access = await job_access(db, owner, generation, stored_space, write=True)
+                    row = await owned(db, BabyImport, access, generation, identifier)
+                    if row.status == "processing" and row.lease_token == token and (
+                        not access.enabled or (row.lease_until is not None and row.lease_until > now())
+                    ):
                         row.status, row.error, row.lease_token, row.lease_until = (
                             "failed",
                             "Processing could not finish. Your original source is saved; you can retry.",
                             None,
                             None,
                         )
-                        source = await owned(db, BabyRecord, owner, generation, row.record_id)
+                        await touch(row, access.target)
+                        source = await owned(db, BabyRecord, access, generation, row.record_id)
                         source.data = {**source.data, "status": "failed"}
                         source.revision, source.updated_at = source.revision + 1, now()
+                        await touch(source, access.target)
+                        await touch(row, access.target)
                         await db.commit()
                 except HTTPException:
-                    await db.rollback()
+                    await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
         return True
 
     @staticmethod
-    async def finish_source(db, row):
+    async def finish_source(db, row, access):
         """Keep the saved source consistent with terminal queue recovery."""
-        source = await owned(db, BabyRecord, row.app_user_id, row.generation, row.record_id)
+        await touch(row, access.target)
+        source = await owned(db, BabyRecord, access, row.generation, row.record_id)
         source.data = {**source.data, "status": row.status}
         source.revision, source.updated_at = source.revision + 1, now()
         row.lease_token, row.lease_until, row.updated_at = None, None, now()
+        await touch(source, access.target)
+        await touch(row, access.target)
 
 
 def keep_user_decisions(current, organized):

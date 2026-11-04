@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import func, select, text
 
+from app.domains.baby.access import access_for, touch
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.imports import admit_import
 from app.domains.baby.lifecycle import digest, membership_for, now
@@ -172,11 +173,19 @@ class CaptureRequest(DomainModel):
         )
 
 
-async def admit_capture(db, capture, member):
-    """Caller holds the stable account lock. No original is removed on refusal."""
+async def admit_capture(db, capture, member, access=None):
+    """No original is removed on refusal; admission uses the capture's stored space."""
+    if capture.status != "deferred":
+        return
+    if access is None:
+        access = await access_for(db, capture.app_user_id, stored_space_id=capture.space_id,
+                                  generation=capture.generation, write=True)
+        member = access.member
+    capture = await access.row(db, BabyShareCapture, capture.id, write=access.enabled)
     if capture.status != "deferred":
         return
     capture.last_attempt_at = now()
+    await touch(capture, access.target)
     if not (
         member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
     ) or capture.request.get("automatic_epoch", 0) != member.profile.get("auto_process_epoch", 0):
@@ -186,10 +195,14 @@ async def admit_capture(db, capture, member):
         await db.commit()
         return
     source = await db.get(BabyRecord, capture.record_id)
-    if source is None or source.deleted_at is not None:
+    if source is None or source.deleted_at is not None or (
+        access.enabled and (source.space_id != capture.space_id or source.generation != capture.generation)
+    ):
         capture.status = "saved"
         await db.commit()
         return
+    capture_id, capture_owner, capture_space, capture_generation = (
+        capture.id, capture.app_user_id, capture.space_id, capture.generation)
     body = ImportCreate(
         id=capture.id,
         record_id=capture.record_id,
@@ -197,19 +210,27 @@ async def admit_capture(db, capture, member):
     )
     try:
         await admit_import(
-            body, SimpleNamespace(id=capture.app_user_id), db, capture.generation, automatic=True
+            body, SimpleNamespace(id=capture.app_user_id), db, capture.generation, automatic=True,
+            access=access, stored_space_id=capture.space_id
         )
     except HTTPException as error:
         if error.status_code not in {409, 410, 429}:
             raise
         await db.rollback()
-        await db.refresh(capture)
+        access = await access_for(db, capture_owner, stored_space_id=capture_space,
+                                  generation=capture_generation, write=True)
+        capture = await access.row(db, BabyShareCapture, capture_id, write=access.enabled)
         capture.last_attempt_at = now()
+        await touch(capture, access.target)
         await db.commit()
         return
     # Admission commits its durable import before this optional receipt update.
     # Replay sees the same import UUID after an interrupted receipt update.
+    access = await access_for(db, capture.app_user_id, stored_space_id=capture.space_id,
+                              generation=capture.generation, write=True)
+    capture = await access.row(db, BabyShareCapture, capture_id, write=access.enabled)
     capture.status = "queued"
+    await touch(capture, access.target)
     await db.commit()
 
 
@@ -221,7 +242,7 @@ async def drain_deferred_captures(db, *, limit=20):
         (
             await db.execute(
                 select(
-                    BabyShareCapture.id, BabyShareCapture.app_user_id, BabyShareCapture.generation
+                    BabyShareCapture.id, BabyShareCapture.app_user_id, BabyShareCapture.generation, BabyShareCapture.space_id
                 )
                 .where(BabyShareCapture.status == "deferred")
                 .order_by(
@@ -232,15 +253,25 @@ async def drain_deferred_captures(db, *, limit=20):
         ).all()
     )
     admitted = 0
-    for identifier, owner, generation in candidates:
+    for identifier, owner, generation, stored_space in candidates:
         try:
-            member = await membership_for(db, owner, generation=generation, write=True)
+            access = await access_for(db, owner, stored_space_id=stored_space,
+                                      generation=generation, write=True)
+            member = access.member
         except HTTPException:
-            await db.rollback()
+            from app.domains.baby.runtime import retire_unreachable
+
+            await retire_unreachable(db, BabyShareCapture, identifier, owner, generation, stored_space)
             continue
         capture = await db.get(BabyShareCapture, identifier, populate_existing=True)
         if capture is not None:
-            await admit_capture(db, capture, member)
+            try:
+                await admit_capture(db, capture, member, access)
+            except HTTPException:
+                from app.domains.baby.runtime import retire_unreachable
+
+                await retire_unreachable(db, BabyShareCapture, identifier, owner, generation, stored_space)
+                continue
             if capture.status == "queued":
                 admitted += 1
         await db.commit()
@@ -249,9 +280,9 @@ async def drain_deferred_captures(db, *, limit=20):
 
 @router.post("/captures", status_code=202)
 async def submit(body: CaptureRequest, db: Database, credential: Credential):
-    member = await membership_for(
-        db, credential.app_user_id, generation=credential.generation, write=True
-    )
+    access = await access_for(db, credential.app_user_id, stored_space_id=credential.space_id,
+                              generation=credential.generation, write=True)
+    member = access.member
     immutable = body.model_dump(mode="json")
     if not body.automatic_epoch:
         immutable.pop("automatic_epoch", None)
@@ -259,9 +290,11 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
     capture = await db.get(BabyShareCapture, body.capture_id)
     replayed = capture is not None
     if capture:
+        if access.enabled:
+            access.grant(capture)
         if (
             capture.app_user_id != credential.app_user_id
-            or capture.generation != credential.generation
+            or (not access.enabled and capture.generation != credential.generation)
             or capture.creation_hash != fingerprint
         ):
             raise HTTPException(409, "Capture identity already used")
@@ -278,22 +311,22 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
             ):
                 raise HTTPException(409, "Source identity already used")
         else:
-            db.add(
-                BabyRecord(
+            source = BabyRecord(
                     **original.model_dump(),
                     app_user_id=credential.app_user_id,
-                    space_id=member.personal_space_id,
+                    space_id=credential.space_id if access.enabled else member.personal_space_id,
                     generation=credential.generation,
                     revision=1,
                     creation_hash=original_hash,
                     created_at=now(),
                     updated_at=now(),
                 )
-            )
+            db.add(source)
+            await touch(source, access.target)
         capture = BabyShareCapture(
             id=body.capture_id,
             app_user_id=credential.app_user_id,
-            space_id=member.personal_space_id,
+            space_id=credential.space_id if access.enabled else member.personal_space_id,
             generation=credential.generation,
             record_id=body.capture_id,
             creation_hash=fingerprint,
@@ -304,6 +337,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
             else "saved",
         )
         db.add(capture)
+        await touch(capture, access.target)
         # Original and receipt commit together, before capped processing admission.
         await db.commit()
     await admit_capture(db, capture, member)

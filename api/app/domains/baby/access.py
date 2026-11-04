@@ -174,6 +174,8 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
             raise HTTPException(422, "Choose a Baby space before checking its generation")
         if generation != target.generation:
             raise HTTPException(409, "Baby data changed; refresh before saving")
+    if write:
+        db.info["baby_family_write"] = True
     return BabyAccess(actor, member, grants, target, True, client, member_spaces)
 
 

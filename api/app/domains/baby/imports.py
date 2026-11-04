@@ -6,7 +6,8 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select
 
-from app.domains.baby.dependencies import Database, Generation, User
+from app.domains.baby.access import access_for, touch
+from app.domains.baby.dependencies import Access, Database, Generation, User
 from app.domains.baby.lifecycle import digest, membership_for, now, owned, validate_relations
 from app.domains.baby.models import BabyImport, BabyRecord
 from app.domains.baby.schemas import DEFAULT_SOURCE_TITLE, ImportCreate, SourceData
@@ -15,24 +16,30 @@ from app.domains.baby.security import BabyRoute
 router = APIRouter(tags=["baby"], route_class=BabyRoute)
 
 
-def import_response(row):
-    return {
+def import_response(row, access=None):
+    result = {
         "id": str(row.id),
         "status": row.status,
         "record_id": str(row.record_id),
         "error": row.error,
     }
+    if getattr(access, "enabled", False) and access.client == "3":
+        result.update(space_id=str(row.space_id), generation=row.generation)
+    return result
 
 
 @router.post("/imports")
-async def create_import(body: ImportCreate, user: User, db: Database, generation: Generation):
+async def create_import(body: ImportCreate, user: User, db: Database, generation: Generation,
+                        access: Access = None):
     return await admit_import(
-        body, user, db, generation, automatic=getattr(body, "automatic", False)
+        body, user, db, generation, automatic=getattr(body, "automatic", False), access=access
     )
 
 
-async def admit_import(body, user, db, generation, *, automatic=False):
-    member = await membership_for(db, user.id, generation=generation, write=True)
+async def admit_import(body, user, db, generation, *, automatic=False, access=None, stored_space_id=None):
+    if access is None:
+        access = await access_for(db, user.id, generation=None, stored_space_id=stored_space_id, write=True)
+    member = access.member
     if automatic and not (
         member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
     ):
@@ -49,19 +56,24 @@ async def admit_import(body, user, db, generation, *, automatic=False):
     if automatic:
         request["automatic"] = True
     fingerprint = digest(request)
+    if not access.enabled:
+        access.check_generation(generation)
     prior = await db.get(BabyImport, body.id)
     if prior:
+        if access.enabled:
+            access.grant(prior)
         if (
             prior.app_user_id != user.id
-            or prior.generation != generation
+            or (not access.enabled and prior.generation != generation)
             or prior.creation_hash != fingerprint
         ):
             raise HTTPException(
                 409, "This capture identity was already used with different content"
             )
-        return import_response(prior)
+        return import_response(prior, access)
+    access.check_generation(generation)
     await validate_relations(
-        db, user.id, generation, body.child_id, {"attachment_ids": body.attachment_ids}
+        db, access, generation, body.child_id, {"attachment_ids": body.attachment_ids}
     )
     count = await db.scalar(
         select(func.count())
@@ -73,7 +85,7 @@ async def admit_import(body, user, db, generation, *, automatic=False):
         .select_from(BabyImport)
         .where(
             BabyImport.app_user_id == user.id,
-            BabyImport.generation == generation,
+            (BabyImport.generation == generation) if not access.enabled else True,
             BabyImport.status.in_(["queued", "processing"]),
         )
     )
@@ -84,13 +96,13 @@ async def admit_import(body, user, db, generation, *, automatic=False):
     if count >= 30:
         raise HTTPException(429, "Daily import allowance reached; your library is still available")
     if body.record_id:
-        source = await owned(db, BabyRecord, user.id, generation, body.record_id)
+        source = await owned(db, BabyRecord, access, generation, body.record_id)
         if source.kind != "source":
             raise HTTPException(422, "Only saved sources can be processed")
         active = await db.scalar(
             select(BabyImport.id)
             .where(
-                BabyImport.app_user_id == user.id,
+                (BabyImport.space_id == access.target.id) if access.enabled else (BabyImport.app_user_id == user.id),
                 BabyImport.generation == generation,
                 BabyImport.record_id == source.id,
                 BabyImport.status.in_(["queued", "processing"]),
@@ -109,7 +121,7 @@ async def admit_import(body, user, db, generation, *, automatic=False):
             "child_id": str(source.child_id) if source.child_id else None,
         }
         await validate_relations(
-            db, user.id, generation, source.child_id, {"attachment_ids": request["attachment_ids"]}
+            db, access, generation, source.child_id, {"attachment_ids": request["attachment_ids"]}
         )
         original_text = (source.data.get("source_text") or "").strip()
         caption_title = original_text.splitlines()[0][:100] if original_text else DEFAULT_SOURCE_TITLE
@@ -130,7 +142,7 @@ async def admit_import(body, user, db, generation, *, automatic=False):
         source = BabyRecord(
             id=source_id,
             app_user_id=user.id,
-            space_id=member.personal_space_id,
+            space_id=access.target.id if access.enabled else member.personal_space_id,
             generation=generation,
             kind="source",
             title=title_text.splitlines()[0][:100] if title_text else DEFAULT_SOURCE_TITLE,
@@ -147,7 +159,7 @@ async def admit_import(body, user, db, generation, *, automatic=False):
     row = BabyImport(
         id=body.id,
         app_user_id=user.id,
-        space_id=member.personal_space_id,
+        space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,
         consent_epoch=member.consent_epoch,
         creation_hash=fingerprint,
@@ -159,11 +171,13 @@ async def admit_import(body, user, db, generation, *, automatic=False):
         updated_at=now(),
     )
     db.add(row)
+    await touch(source, access.grant(source) if access.enabled else None)
+    await touch(row, access.target)
     await db.commit()
     from app.domains.baby.runtime import baby_worker
 
     baby_worker.notify()
-    return import_response(row)
+    return import_response(row, access)
 
 
 async def pending_capture(db, owner, generation, identifier):
@@ -172,7 +186,10 @@ async def pending_capture(db, owner, generation, identifier):
 
     if await share_schema_available(db):
         capture = await db.get(BabyShareCapture, identifier)
-        if capture and capture.app_user_id == owner and capture.generation == generation:
+        if getattr(owner, "enabled", False):
+            return await owner.row(db, BabyShareCapture, identifier,
+                                   write=owner.target is not None and owner.target.transaction is not None)
+        if capture and capture.app_user_id == getattr(owner, "actor", owner) and capture.generation == generation:
             return capture
     raise HTTPException(404, "Saved processing request not found")
 
@@ -187,26 +204,31 @@ def capture_progress(capture):
 
 
 @router.get("/imports/{identifier}")
-async def get_import(identifier: UUID, user: User, db: Database):
-    # Observe admission and its optional receipt under the same owner-first lock.
-    member = await membership_for(db, user.id, write=True)
+async def get_import(identifier: UUID, user: User, db: Database, access: Access = None):
+    member = access.member
+    if not access.enabled:
+        await membership_for(db, user.id, write=True)
     if await db.get(BabyImport, identifier) is not None:
-        return import_response(await owned(db, BabyImport, user.id, member.generation, identifier))
-    return capture_progress(await pending_capture(db, user.id, member.generation, identifier))
+        return import_response(await owned(db, BabyImport, access, member.generation, identifier), access)
+    return capture_progress(await pending_capture(db, access, member.generation, identifier))
 
 
 @router.post("/imports/{identifier}/retry")
-async def retry_import(identifier: UUID, user: User, db: Database, generation: Generation):
-    member = await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyImport, user.id, generation, identifier)
+async def retry_import(identifier: UUID, user: User, db: Database, generation: Generation,
+                       access: Access = None):
+    access.check_generation(generation)
+    member = access.member
+    row = await owned(db, BabyImport, access, generation, identifier)
+    if access.enabled and row.app_user_id != user.id:
+        raise HTTPException(403, "Only the requester can retry this import; start your own import")
     if row.status in {"queued", "processing", "ready"}:
-        return import_response(row)
+        return import_response(row, access)
     if row.attempts >= 5:
         raise HTTPException(429, "This source reached the retry limit; the original remains saved")
-    source = await owned(db, BabyRecord, user.id, generation, row.record_id)
+    source = await owned(db, BabyRecord, access, generation, row.record_id)
     await validate_relations(
         db,
-        user.id,
+        access,
         generation,
         source.child_id,
         {"attachment_ids": row.request.get("attachment_ids", [])},
@@ -218,26 +240,34 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
             for key, value in row.request.items()
             if key not in {"automatic", "automatic_epoch", "automatic_title"}
         }
+    if access.enabled:
+        member = await membership_for(db, row.app_user_id)
     row.status, row.error, row.consent_epoch = "queued", None, member.consent_epoch
     row.lease_token, row.lease_until, row.updated_at = None, None, now()
     source.data = {**source.data, "status": "queued"}
     source.revision, source.updated_at = source.revision + 1, now()
+    await touch(source, access.grant(source) if access.enabled else None)
+    await touch(row, access.grant(row) if access.enabled else None)
     await db.commit()
     from app.domains.baby.runtime import baby_worker
 
     baby_worker.notify()
-    return import_response(row)
+    return import_response(row, access)
 
 
 @router.post("/imports/{identifier}/cancel")
-async def cancel_import(identifier: UUID, user: User, db: Database, generation: Generation):
-    await membership_for(db, user.id, generation=generation, write=True)
+async def cancel_import(identifier: UUID, user: User, db: Database, generation: Generation,
+                        access: Access = None):
+    access.check_generation(generation)
     if await db.get(BabyImport, identifier) is None:
-        capture = await pending_capture(db, user.id, generation, identifier)
+        capture = await pending_capture(db, access, generation, identifier)
+        if access.enabled and capture.app_user_id != user.id:
+            raise HTTPException(403, "Only the requester can cancel this capture")
         capture.status = "saved"
+        await touch(capture, access.grant(capture) if access.enabled else None)
         await db.commit()
         return capture_progress(capture)
-    row = await owned(db, BabyImport, user.id, generation, identifier)
+    row = await owned(db, BabyImport, access, generation, identifier)
     if row.status in {"queued", "processing"}:
         row.status, row.error, row.lease_token, row.lease_until, row.updated_at = (
             "cancelled",
@@ -246,8 +276,11 @@ async def cancel_import(identifier: UUID, user: User, db: Database, generation: 
             None,
             now(),
         )
-        source = await owned(db, BabyRecord, user.id, generation, row.record_id)
+        await touch(row, access.grant(row) if access.enabled else None)
+        source = await owned(db, BabyRecord, access, generation, row.record_id)
         source.data = {**source.data, "status": "cancelled"}
         source.revision, source.updated_at = source.revision + 1, now()
+        await touch(source, access.grant(source) if access.enabled else None)
+        await touch(row, access.grant(row) if access.enabled else None)
     await db.commit()
-    return import_response(row)
+    return import_response(row, access)
