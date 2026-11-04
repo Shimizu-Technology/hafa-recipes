@@ -14,6 +14,8 @@ from app.domains.baby.attachments import retire_unreferenced_attachments, upload
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
 from app.domains.baby.dependencies import Client, Database, Generation, Limit, Offset, User
+from app.domains.baby.events import check_series_cap, day_marks
+from app.domains.baby.events import router as events_router
 from app.domains.baby.feeds import retimed, same_action
 from app.domains.baby.imports import router as imports_router
 from app.domains.baby.lifecycle import (
@@ -61,7 +63,7 @@ from app.domains.baby.schemas import (
     Stage,
 )
 from app.domains.baby.security import BabyRoute, new_kinds_enabled
-from app.domains.baby.stats import care_summary, number_in
+from app.domains.baby.stats import MAX_CUSTOM_DAYS, care_summary, number_in
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
@@ -726,14 +728,19 @@ async def care_days(
     first: Annotated[date, Query(alias="from")],
     last: Annotated[date, Query(alias="to")],
     child_id: UUID | None = None,
+    client: Client = None,
 ):
     """Tracker's days and calendar dots. Without a child, the logs that have no child."""
     member = await membership_for(db, user.id)
     if child_id:
         await owned(db, BabyChild, user.id, member.generation, child_id)
     zone = ZoneInfo(Profile.model_validate(member.profile).timezone)
+    # Build 32 knows no events, contractions or kicks, so it gets no dots for them.
+    marks = None
+    if not legacy_client(client) and first <= last and (last - first).days < MAX_CUSTOM_DAYS:
+        marks = await day_marks(db, user.id, member.generation, child_id, zone, first, last)
     try:
-        return await care_summary(db, user.id, member.generation, child_id, zone, first, last, now())
+        return await care_summary(db, user.id, member.generation, child_id, zone, first, last, now(), marks)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
 
@@ -767,6 +774,8 @@ async def create_record(
             raise HTTPException(410, "This entry was removed; create a new entry")
         return record_response(prior)
     await validate_relations(db, user.id, generation, body.child_id, body.data, record_id=body.id)
+    if body.kind == "event":
+        await check_series_cap(db, user.id, generation, body.data, record_id=body.id)
     row = BabyRecord(
         **body.model_dump(),
         app_user_id=user.id,
@@ -822,6 +831,8 @@ async def patch_record(
     except ValidationError:
         raise HTTPException(422, "Enter valid details for this entry") from None
     await validate_relations(db, user.id, generation, valid.child_id, valid.data, record_id=row.id)
+    if row.kind == "event":
+        await check_series_cap(db, user.id, generation, valid.data, record_id=row.id)
     removed_attachments = set(row.data.get("attachment_ids", [])) - set(
         valid.data.get("attachment_ids", [])
     )
@@ -989,3 +1000,4 @@ router.include_router(upload_router)
 router.include_router(chat_router)
 router.include_router(imports_router)
 router.include_router(suggestions_router)
+router.include_router(events_router)
