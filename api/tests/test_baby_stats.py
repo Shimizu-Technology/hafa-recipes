@@ -72,14 +72,14 @@ def week_rows():
 
 
 def check_week(result):
-    # Six finished days, Oct 29 to Nov 3. Today, Nov 4, is partial and leaves the averages alone.
-    assert [day["date"] for day in result["days"]][0] == "2026-10-29"
-    assert len(result["days"]) == 7
-    assert [day["partial"] for day in result["days"]] == [False] * 6 + [True]
+    # Seven finished days, Oct 28 to Nov 3. Today, Nov 4, is partial and leaves the averages alone.
+    assert [day["date"] for day in result["days"]][0] == "2026-10-28"
+    assert len(result["days"]) == 8
+    assert [day["partial"] for day in result["days"]] == [False] * 7 + [True]
     feeding = result["feeding"]
     assert feeding == {
         "count": 6,
-        "average_per_day": 2.0,  # (3 + 1) over the 2 finished days with feeds, not over 6.
+        "average_per_day": 2.0,  # (3 + 1) over the 2 finished days with feeds, not over 7.
         # 180, 180, 1020 and 180 minutes; Nov 2 to Nov 4 crosses an empty day and is skipped.
         "average_gap_minutes": 390.0,
         "left": 2,
@@ -91,7 +91,7 @@ def check_week(result):
         "breast_minutes": 60,  # The untimed right-side feed adds nothing.
         "timed_breast_feeds": 3,
         "days_logged": 2,
-        "days_total": 6,
+        "days_total": 7,
     }
     assert result["diapers"] == {
         "count": 6,
@@ -100,7 +100,7 @@ def check_week(result):
         "dry": 1,
         "average_per_day": 2.5,  # (4 + 1) over 2 logged days.
         "days_logged": 2,
-        "days_total": 6,
+        "days_total": 7,
     }
     by_date = {day["date"]: day for day in result["days"]}
     assert by_date["2026-11-01"]["feeding"]["count"] == 3
@@ -115,7 +115,7 @@ def check_week(result):
     assert sleeping["average_minutes_per_day"] == 285.0  # (60 + 510) over 2 logged days.
     assert sleeping["longest_minutes"] == 480  # The whole night, not its split parts.
     assert sleeping["sleeps"] == 3
-    assert sleeping["days_logged"] == 2 and sleeping["days_total"] == 6
+    assert sleeping["days_logged"] == 2 and sleeping["days_total"] == 7
     assert [item["started_at"] for item in sleeping["open"]] == ["2026-11-04T19:00:00+10:00"]
 
 
@@ -125,7 +125,7 @@ def test_seven_days_by_hand():
     assert result["complete"] is True
     assert result["range"] == {
         "kind": "7d",
-        "start": "2026-10-29T00:00:00+10:00",
+        "start": "2026-10-28T00:00:00+10:00",
         "end": "2026-11-04T20:00:00+10:00",
     }
 
@@ -166,7 +166,7 @@ def test_rolling_window_closing_at_midnight_has_no_new_day():
 
 def test_thirty_days_and_custom_ranges():
     thirty = last_days(30, GUAM, AT)
-    assert len(thirty.days) == 30 and thirty.days[0] == date(2026, 10, 6)
+    assert len(thirty.days) == 31 and thirty.days[0] == date(2026, 10, 5)
     past = custom_days(date(2026, 11, 1), date(2026, 11, 2), GUAM, AT)
     assert past.end == guam(11, 3).astimezone(UTC)
     result = summarize(week_rows(), past, GUAM)
@@ -216,8 +216,41 @@ def test_unusable_rows_do_not_break_or_change_totals():
     assert result["feeding"]["timed_breast_feeds"] == 0 and result["feeding"]["bottle_ml"] == 0
     assert result["diapers"] == {
         "count": 2, "pee": 0, "poo": 0, "dry": 0,
-        "average_per_day": 2.0, "days_logged": 1, "days_total": 6,
+        "average_per_day": 2.0, "days_logged": 1, "days_total": 7,
     }
+
+
+def test_container_values_in_old_rows_are_unknown_not_a_crash():
+    rows = [
+        row("diaper", guam(11, 1, 8), type=[]),
+        row("feeding", guam(11, 1, 9), method=[], side={}),
+        row("feeding", guam(11, 1, 10), method="breast", side=[]),
+        row("feeding", guam(11, 1, 11), method="bottle", amount=2, unit=[]),
+    ]
+    result = summarize(rows, last_days(7, GUAM, AT), GUAM)
+    assert result["diapers"]["count"] == 1 and result["diapers"]["pee"] == 0
+    assert result["feeding"]["count"] == 3 and result["feeding"]["left"] == 0
+    assert result["feeding"]["bottle_ml"] == 2
+
+
+def test_seven_days_means_seven_finished_days_plus_today():
+    window = last_days(7, GUAM, AT)
+    assert len(window.days) == 8 and window.days[0] == date(2026, 10, 28)
+    result = summarize([], window, GUAM)
+    assert result["feeding"]["days_total"] == 7 and result["days"][-1]["partial"] is True
+
+
+def test_the_same_nap_logged_by_two_parents_counts_once():
+    rows = [sleep(guam(11, 1, 9), guam(11, 1, 11)), sleep(guam(11, 1, 10), guam(11, 1, 12))]
+    result = summarize(rows, last_days(7, GUAM, AT), GUAM)
+    assert result["sleep"]["total_minutes"] == 180
+    assert result["sleep"]["sleeps"] == 1 and result["sleep"]["longest_minutes"] == 180
+
+
+def test_rolling_24_hours_are_real_hours_across_a_clock_change():
+    york = ZoneInfo("America/New_York")
+    window = rolling_24h(york, datetime(2026, 11, 1, 12, 0, tzinfo=york))
+    assert (window.end - window.start).total_seconds() == 24 * 3600
 
 
 def test_results_never_judge():
@@ -251,11 +284,11 @@ async def test_database_rows_match_hand_numbers_and_stay_scoped(baby_api, monkey
         db.add(stored(child, "diaper", moment, wet, owner="other"))
         db.add(stored(sibling, "diaper", moment, wet))
         db.add(stored(None, "diaper", moment, wet))
-        db.add(stored(child, "diaper", guam(10, 28, 23), wet))  # Before the range.
+        db.add(stored(child, "diaper", guam(10, 27, 23), wet))  # Before the range.
         db.add(stored(child, "journal", moment, {}))
         # Looked back for, and split at the range start.
-        db.add(stored(sibling, "sleep", guam(10, 28, 22), {"end_at": guam(10, 29, 2).isoformat()}))
-        db.add(stored(sibling, "sleep", guam(10, 20, 22), {"end_at": guam(10, 29, 2).isoformat()}))
+        db.add(stored(sibling, "sleep", guam(10, 27, 22), {"end_at": guam(10, 28, 2).isoformat()}))
+        db.add(stored(sibling, "sleep", guam(10, 20, 22), {"end_at": guam(10, 28, 3).isoformat()}))
         await db.commit()
     window = last_days(7, GUAM, AT)
     async with baby_api.sessions() as db:

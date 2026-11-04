@@ -34,7 +34,9 @@ def day_start(day, zone):
 
 
 def rolling_24h(zone, at):
-    start, end = at - timedelta(hours=24), at
+    # Real elapsed hours, so a clock change cannot stretch the window.
+    end = at.astimezone(UTC)
+    start = end - timedelta(hours=24)
     last = end.astimezone(zone).date()
     # A window closing exactly at midnight does not touch the new day.
     if day_start(last, zone) == end.astimezone(UTC):
@@ -54,9 +56,9 @@ def calendar_range(kind, first, last, zone, at):
 
 
 def last_days(count, zone, at):
-    """Today and the calendar days before it, ``count`` days in all."""
+    """The last ``count`` finished days, plus today so far."""
     today = at.astimezone(zone).date()
-    return calendar_range(f"{count}d", today - timedelta(days=count - 1), today, zone, at)
+    return calendar_range(f"{count}d", today - timedelta(days=count), today, zone, at)
 
 
 def custom_days(first, last, zone, at):
@@ -98,6 +100,12 @@ async def care_stats(db, owner, generation, child_id, zone, stats_range):
         )
     )
     return summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
+
+
+def text_in(data, key):
+    """A categorical value from stored JSON; older or malformed rows may hold anything."""
+    value = data.get(key)
+    return value if isinstance(value, str) else None
 
 
 def minutes_between(start, end):
@@ -148,7 +156,7 @@ def summarize(rows, stats_range, zone, *, complete=True):
         }
         for day in stats_range.days
     }
-    feed_times, bottles, timed, sleeps, longest, unusable, open_sleeps = [], 0, 0, 0, 0, 0, []
+    feed_times, bottles, timed, unusable, open_sleeps, slept_spans = [], 0, 0, 0, [], []
     for row in rows:
         data = row.data if isinstance(row.data, dict) else {}
         at = row.occurred_at.astimezone(UTC)
@@ -161,28 +169,27 @@ def summarize(rows, stats_range, zone, *, complete=True):
             elif stop is False or stop.astimezone(UTC) <= at:
                 unusable += at >= start
             else:
-                overlap = minutes_between(max(at, start), min(stop.astimezone(UTC), end))
-                if overlap > 0:
-                    sleeps += 1
-                    longest = max(longest, overlap)
-                    add_sleep(days, max(at, start), min(stop.astimezone(UTC), end), zone)
+                span = max(at, start), min(stop.astimezone(UTC), end)
+                if span[0] < span[1]:
+                    slept_spans.append(span)
             continue
         if at < start:
             continue
         day = days[at.astimezone(zone).date()]
         if row.kind == "diaper":
-            kind = data.get("type")
+            kind = text_in(data, "type")
             day["diapers"]["count"] += 1
             day["diapers"]["pee"] += kind in {"wet", "both"}
             day["diapers"]["poo"] += kind in {"dirty", "both"}
             day["diapers"]["dry"] += kind == "dry"
             continue
         feed_times.append(at)
-        totals, method = day["feeding"], data.get("method")
+        totals, method = day["feeding"], text_in(data, "method")
         totals["count"] += 1
         if method == "breast":
-            if data.get("side") in {"left", "right", "both"}:
-                totals[data["side"]] += 1
+            side = text_in(data, "side")
+            if side in {"left", "right", "both"}:
+                totals[side] += 1
             duration = number_in(data.get("duration_minutes"))
             if duration is not None:
                 totals["breast_minutes"] += duration
@@ -192,7 +199,13 @@ def summarize(rows, stats_range, zone, *, complete=True):
             amount = number_in(data.get("amount"))
             if amount:
                 # Stored amounts with no unit are shown as mL by the app.
-                totals["bottle_oz" if data.get("unit") == "oz" else "bottle_ml"] += amount
+                totals["bottle_oz" if text_in(data, "unit") == "oz" else "bottle_ml"] += amount
+    # Two parents can log the same nap; time asleep is counted once.
+    spans = merged_spans(slept_spans)
+    for span in spans:
+        add_sleep(days, *span, zone)
+    sleeps = len(spans)
+    longest = max((minutes_between(*span) for span in spans), default=0)
     finished = [day for day in days.values() if not day["partial"]]
 
     def total(category, key, among=None):
@@ -250,6 +263,17 @@ def summarize(rows, stats_range, zone, *, complete=True):
             "days_total": len(finished),
         },
     }
+
+
+def merged_spans(spans):
+    """Overlapping or touching sleeps become one."""
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 def add_sleep(days, start, end, zone):
