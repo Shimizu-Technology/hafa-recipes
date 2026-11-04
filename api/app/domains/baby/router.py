@@ -2,12 +2,12 @@
 
 from copy import deepcopy
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from pydantic import ValidationError
+from pydantic import AwareDatetime, ValidationError
 from sqlalchemy import func, or_, select
 
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
@@ -60,6 +60,7 @@ from app.domains.baby.security import BabyRoute, new_kinds_enabled
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
+KindsFilter = Annotated[list[Kind] | None, Query(max_length=len(get_args(Kind)))]
 
 
 def child_response(row):
@@ -150,6 +151,18 @@ def same_timing(proposed, current):
 
 def timing_values(relevance):
     return SourceRelevance.model_validate(relevance).model_dump(exclude={"origin", "quote"})
+
+
+def occurred_between(occurred_from, occurred_to):
+    """Half-open, so consecutive days never share an entry. ``ix_baby_records_owner`` covers it."""
+    if occurred_from is not None and occurred_to is not None and occurred_from >= occurred_to:
+        raise HTTPException(422, "Choose a start before the end")
+    conditions = []
+    if occurred_from is not None:
+        conditions.append(BabyRecord.occurred_at >= occurred_from)
+    if occurred_to is not None:
+        conditions.append(BabyRecord.occurred_at < occurred_to)
+    return conditions
 
 
 def revision_matches(row, revision):
@@ -553,7 +566,7 @@ async def records(
     db: Database,
     client: Client = None,
     kind: Kind | None = None,
-    kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
+    kinds: KindsFilter = None,
     child_id: UUID | None = None,
     include_general: bool = False,
     collection_id: UUID | None = None,
@@ -566,11 +579,13 @@ async def records(
     baby_age_weeks: Annotated[int | None, Query(ge=0, le=520)] = None,
     within_weeks: Annotated[int | None, Query(ge=1, le=104)] = None,
     stage: Stage | None = None,
+    occurred_from: AwareDatetime | None = None,
+    occurred_to: AwareDatetime | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
     member = await membership_for(db, user.id)
-    conditions, order, extra = [], None, None
+    conditions, order, extra = occurred_between(occurred_from, occurred_to), None, None
     if stage is not None:
         conditions.append(stage_filter(stage))
     if timing == "now" and within_weeks is not None:
@@ -619,16 +634,19 @@ async def search(
     q: Annotated[str, Query(min_length=1, max_length=300)],
     client: Client = None,
     kind: Kind | None = None,
-    kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
+    kinds: KindsFilter = None,
     child_id: UUID | None = None,
     include_general: bool = False,
     collection_id: UUID | None = None,
     uncategorized: bool = False,
     topic: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    occurred_from: AwareDatetime | None = None,
+    occurred_to: AwareDatetime | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
     member = await membership_for(db, user.id)
+    conditions = occurred_between(occurred_from, occurred_to)
     return await record_list(
         db,
         user.id,
@@ -643,6 +661,7 @@ async def search(
         collection_id=collection_id,
         topic=topic,
         uncategorized=uncategorized,
+        conditions=conditions,
         client=client,
     )
 

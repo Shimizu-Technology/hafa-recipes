@@ -82,7 +82,9 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   These records remain visible without a child filter and are excluded when
   filtering for a specific child.
 - `GET /records?kind=&child_id=&q=&limit=30&offset=0`: `{items,total,has_more}`.
-  Optional repeated `kinds=journal&kinds=question` filters up to eight valid kinds
+  Optional `occurred_from` and `occurred_to` (with `/search` too) filter `occurred_at`:
+  offset-required timestamps, from inclusive and to exclusive. Encode `+` in a query.
+  Optional repeated `kinds=journal&kinds=question` filters up to every valid kind
   before pagination; do not combine `kind` and `kinds`. Child filters are exact
   by default; `include_general=true` explicitly includes unassigned records too.
   Optional `collection_id=<UUID>` validates a live same-owner/generation collection
