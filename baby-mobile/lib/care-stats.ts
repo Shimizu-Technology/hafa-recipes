@@ -1,6 +1,6 @@
-import type { DeviceState } from "./models";
-import { pendingChanges, dayOverlay } from "./care-summary";
-import { recordDay, type CareDay } from "./tracker";
+import type { BabyRecord, DeviceState, Kind } from "./models";
+import { mutationRecordId, pendingRecords } from "./outbox";
+import { clockIn, dayRange, keyDate, recordDay, type CareDay } from "./tracker";
 
 /** One range as the API works it out. Every number here comes from `GET /care/stats`. */
 export interface StatsDay extends Omit<CareDay, "dots" | "feeding" | "sleep"> {
@@ -36,35 +36,33 @@ export function customProblem(from: string, to: string, today: string) {
   return days >= maxCustomDays ? `Choose ${maxCustomDays} days or fewer` : null;
 }
 
+const statKinds: readonly Kind[] = ["feeding", "sleep", "diaper", "contraction", "kick_session"];
+const time = (iso: string) => new Date(iso).getTime();
+
 /**
- * The API's numbers with this phone's queued changes laid over them, by the Day view's rules. Only what `dayOverlay`
- * can swap moves: each day's counts, sleep and sessions, and the totals of those. Averages, sides and amounts stay the
- * API's until the change arrives, and `pending` says so.
+ * How many queued entries could move these numbers: this baby's, in these days, as they were or as they'll be. Stats
+ * never adds them in, since this phone can't tell what the API already has. One kept on this phone on purpose isn't waiting.
  */
-export function overlayStats(stats: CareStats, state: DeviceState, childId: string | null, timeZone?: string | null, now = new Date()) {
-  const since = stats.range.kind === "24h" ? stats.range.start : undefined,
-    overlay = dayOverlay(state, childId, timeZone, now, since),
-    { before, after } = pendingChanges(state, childId, since),
-    sessions = (list: typeof after, key: string, kind: "contraction" | "kick_session") => list.filter((row) => row.kind === kind && recordDay(row.occurred_at, timeZone) === key),
-    movements = (list: typeof after) => list.reduce((total, row) => total + (row.data.count ?? 0), 0);
-  let pending = false;
-  const days = stats.days.map((day): StatsDay => {
-    const next = overlay({ ...day, dots: [] }, day.date),
-      feeds = next.feeding.count, minutes = next.sleep.total_minutes,
-      contractions = Math.max(0, day.contractions.count - sessions(before, day.date, "contraction").length + sessions(after, day.date, "contraction").length),
-      kicksWere = sessions(before, day.date, "kick_session"), kicksNow = sessions(after, day.date, "kick_session"),
-      kicks = { sessions: Math.max(0, day.kicks.sessions - kicksWere.length + kicksNow.length), movements: Math.max(0, day.kicks.movements - movements(kicksWere) + movements(kicksNow)) };
-    if (feeds === day.feeding.count && minutes === day.sleep.total_minutes && contractions === day.contractions.count && kicks.sessions === day.kicks.sessions && kicks.movements === day.kicks.movements
-      && (["count", "pee", "poo", "dry"] as const).every((key) => next.diapers[key] === day.diapers[key])) return day;
-    pending = true;
-    return { ...day, feeding: { ...day.feeding, count: feeds }, diapers: next.diapers, sleep: { ...day.sleep, total_minutes: minutes }, contractions: { ...day.contractions, count: contractions }, kicks };
-  });
-  if (!pending) return { stats, pending };
-  const sum = (pick: (day: StatsDay) => number) => days.reduce((total, day) => total + pick(day), 0);
-  return { pending, stats: { ...stats, days,
-    feeding: { ...stats.feeding, count: sum((day) => day.feeding.count) },
-    diapers: { ...stats.diapers, count: sum((day) => day.diapers.count), pee: sum((day) => day.diapers.pee), poo: sum((day) => day.diapers.poo), dry: sum((day) => day.diapers.dry) },
-    sleep: { ...stats.sleep, total_minutes: sum((day) => day.sleep.total_minutes) },
-    contractions: { ...stats.contractions, count: sum((day) => day.contractions.count) },
-    kicks: { sessions: sum((day) => day.kicks.sessions), movements: sum((day) => day.kicks.movements) } } };
+export function waitingEntries(state: DeviceState, childId: string | null, stats: CareStats, timeZone?: string | null) {
+  const from = time(stats.range.start),
+    // A rolling range keeps moving, so what's been logged since it was read belongs to it too.
+    to = stats.range.kind === "24h" ? Infinity : time(dayRange(stats.days[stats.days.length - 1].date, timeZone).to),
+    inside = (row?: BabyRecord) => !!row && statKinds.includes(row.kind) && row.child_id === childId && time(row.occurred_at) < to
+      // A sleep can run into the range from before it.
+      && (row.kind === "sleep" && (!row.data.end_at || time(row.data.end_at) > from) || time(row.occurred_at) >= from),
+    shown = pendingRecords(state), ids = new Set<string>();
+  for (const change of state.outbox) {
+    if (change.localOnly || change.type === "import" || change.type === "child_birth") continue;
+    const id = mutationRecordId(change), find = (rows: BabyRecord[]) => rows.find((row) => row.id === id);
+    if (id && (inside(find(state.records) ?? (change.type === "delete" ? change.record : undefined)) || inside(find(shown)))) ids.add(id);
+  }
+  return ids.size;
+}
+
+/** The one line that says these numbers may be behind, or nothing when they aren't. */
+export function statsNote(fetchedAt: Date, behind: boolean, waiting: number, timeZone?: string | null, now = new Date()) {
+  if (!behind && !waiting) return null;
+  const day = recordDay(fetchedAt.toISOString(), timeZone),
+    on = day === recordDay(now.toISOString(), timeZone) ? "" : `${keyDate(day).toLocaleDateString(undefined, { month: "short", day: "numeric" })}, `;
+  return `Showing numbers from ${on}${clockIn(fetchedAt, timeZone)}.${waiting ? ` ${waiting} ${waiting === 1 ? "entry is" : "entries are"} still waiting to sync.` : ""}`;
 }

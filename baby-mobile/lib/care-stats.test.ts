@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
-import { basedOn, customProblem, overlayStats } from "./care-stats";
+import { basedOn, customProblem, statsNote, waitingEntries } from "./care-stats";
 import { answer, day } from "./care-stats-fixtures";
 
 const guam = "Pacific/Guam", now = new Date("2026-11-04T10:00:00Z"); // 8 PM on Nov 4 in Guam.
@@ -22,46 +22,56 @@ describe("what the app says about dates and days", () => {
   });
 });
 
-describe("laying queued changes over the API's numbers", () => {
-  it("hands back the API's numbers untouched when nothing is queued", () => {
-    const base = answer([day("2026-11-04", true)]), shown = overlayStats(base, state([]), "baby", guam, now);
-    expect(shown.stats).toBe(base);
-    expect(shown.pending).toBe(false);
+describe("which queued changes could move these numbers", () => {
+  const week = () => answer([day("2026-11-01"), day("2026-11-02"), day("2026-11-03"), day("2026-11-04", true)]);
+  const rolling = () => answer([day("2026-11-03", true), day("2026-11-04", true)], "24h");
+  const waiting = (stats: ReturnType<typeof answer>, outbox: Mutation[], records: BabyRecord[] = []) => waitingEntries(state(outbox, records), "baby", stats, guam);
+  const range = () => { const stats = week(); stats.range.start = "2026-10-31T14:00:00.000Z"; return stats; }; // Midnight on Nov 1 in Guam.
+  it("counts nothing when nothing is queued", () => {
+    expect(waiting(week(), [])).toBe(0);
   });
-  it("adds a queued feed to its day and the total, and leaves the averages to the API", () => {
-    const base = answer([day("2026-11-03", false, { feeding: { ...day("x").feeding, count: 4 } })]);
-    const shown = overlayStats(base, state([save(row("f", "feeding", "2026-11-03T02:00:00Z"))]), "baby", guam, now);
-    expect(shown.pending).toBe(true);
-    expect(shown.stats.days[0].feeding.count).toBe(5);
-    expect(shown.stats.feeding.count).toBe(5);
-    expect(shown.stats.feeding.average_per_day).toBe(4.5);
+  it("counts an entry once however many changes it has, and each kind Stats adds up", () => {
+    const feed = row("f", "feeding", "2026-11-03T02:00:00Z");
+    expect(waiting(range(), [save(feed), { ...save(feed), id: "again" }, save(row("k", "kick_session", "2026-11-03T03:00:00Z"))])).toBe(2);
   });
-  it("swaps a queued diaper change rather than counting it twice", () => {
-    const held = { ...row("d", "diaper", "2026-11-03T02:00:00Z", { type: "wet" }), revision: 1 };
-    const base = answer([day("2026-11-03", false, { diapers: { count: 1, pee: 1, poo: 0, dry: 0 } })]);
-    const shown = overlayStats(base, state([save({ ...held, data: { type: "dirty" } })], [held]), "baby", guam, now);
-    expect(shown.stats.diapers).toMatchObject({ count: 1, pee: 0, poo: 1, dry: 0 });
+  it("leaves out what isn't in these days, this baby's, or added up here", () => {
+    expect(waiting(range(), [save(row("before", "feeding", "2026-10-30T02:00:00Z"))])).toBe(0);
+    expect(waiting(range(), [save(row("after", "feeding", "2026-11-05T02:00:00Z"))])).toBe(0);
+    expect(waiting(range(), [save({ ...row("sister", "feeding", "2026-11-03T02:00:00Z"), child_id: "sister" })])).toBe(0);
+    expect(waiting(range(), [save(row("q", "question", "2026-11-03T02:00:00Z"))])).toBe(0);
   });
-  it("counts a queued kick session and its movements, and another baby's change not at all", () => {
-    const base = answer([day("2026-11-03")]);
-    const other = { ...row("o", "feeding", "2026-11-03T02:00:00Z"), child_id: "sister" };
-    const shown = overlayStats(base, state([save(row("k", "kick_session", "2026-11-03T02:00:00Z", { count: 7 })), save(row("c", "contraction", "2026-11-03T03:00:00Z")), save(other)]), "baby", guam, now);
-    expect(shown.stats.kicks).toEqual({ sessions: 1, movements: 7 });
-    expect(shown.stats.contractions.count).toBe(1);
-    expect(shown.stats.feeding.count).toBe(0);
+  it("counts an entry being moved out of these days and one being deleted, since both change them", () => {
+    const held = { ...row("d", "diaper", "2026-11-03T02:00:00Z"), revision: 1 };
+    expect(waiting(range(), [save({ ...held, occurred_at: "2026-10-01T02:00:00Z" })], [held])).toBe(1);
+    expect(waiting(range(), [{ id: "x", generation: 1, type: "delete", record: held }], [held])).toBe(1);
   });
-  it("a rolling range ignores a queued change from before its window, on a day it only partly covers", () => {
-    const base = answer([day("2026-11-03", true), day("2026-11-04", true)], "24h");
-    // 8 AM on Nov 3 in Guam: the same day as the window's start, but twelve hours before it.
-    const early = overlayStats(base, state([save(row("f", "feeding", "2026-11-02T22:00:00Z"))]), "baby", guam, now);
-    expect(early.pending).toBe(false);
-    const late = overlayStats(base, state([save(row("g", "feeding", "2026-11-03T12:00:00Z"))]), "baby", guam, now);
-    expect(late.stats.days.map((one) => one.feeding.count)).toEqual([1, 0]);
+  it("counts a sleep that runs into the range from before it, and not one that ended before", () => {
+    expect(waiting(range(), [save(row("s", "sleep", "2026-10-31T12:00:00Z", { end_at: "2026-10-31T16:00:00Z" }))])).toBe(1);
+    expect(waiting(range(), [save(row("t", "sleep", "2026-10-31T10:00:00Z", { end_at: "2026-10-31T12:00:00Z" }))])).toBe(0);
   });
-  it("re-sums a queued sleep with the API's spans, and only inside a rolling window", () => {
-    const base = answer([day("2026-11-03", true, { sleep: { total_minutes: 0, longest_minutes: 0, spans: [] } })], "24h");
-    // 7 PM to 9 PM on Nov 3: one hour inside the window.
-    const shown = overlayStats(base, state([save(row("s", "sleep", "2026-11-03T09:00:00Z", { end_at: "2026-11-03T11:00:00Z" }))]), "baby", guam, now);
-    expect(shown.stats.days[0].sleep.total_minutes).toBe(60);
+  it("a rolling range counts by its window, not by the days it touches, and takes in what's logged since it was read", () => {
+    // The fixture's window opens at 8 PM on Nov 3 in Guam: this is 8 AM that same day.
+    expect(waiting(rolling(), [save(row("early", "feeding", "2026-11-02T22:00:00Z"))])).toBe(0);
+    expect(waiting(rolling(), [save(row("since", "feeding", "2026-11-04T10:30:00Z"))])).toBe(1);
+  });
+  it("doesn't count what she chose to keep on this phone, which is never going to sync", () => {
+    expect(waiting(range(), [{ ...save(row("f", "feeding", "2026-11-03T02:00:00Z")), localOnly: true }])).toBe(0);
+  });
+});
+
+describe("the one line under the range", () => {
+  const read = new Date("2026-11-04T04:14:00Z"); // 2:14 PM on Nov 4 in Guam.
+  it("is nothing at all when the numbers are fresh and nothing is waiting", () => {
+    expect(statsNote(read, false, 0, guam, now)).toBeNull();
+  });
+  it("gives the time of the numbers and how many are waiting, in plain words", () => {
+    expect(statsNote(read, false, 3, guam, now)).toMatch(/^Showing numbers from 2:14\sPM\. 3 entries are still waiting to sync\.$/);
+    expect(statsNote(read, true, 1, guam, now)).toMatch(/^Showing numbers from 2:14\sPM\. 1 entry is still waiting to sync\.$/);
+  });
+  it("says only when, if it's just an earlier read", () => {
+    expect(statsNote(read, true, 0, guam, now)).toMatch(/^Showing numbers from 2:14\sPM\.$/);
+  });
+  it("names the day once the numbers are from another one", () => {
+    expect(statsNote(new Date("2026-11-03T04:14:00Z"), true, 0, guam, now)).toMatch(/^Showing numbers from Nov 3, 2:14\sPM\.$/);
   });
 });

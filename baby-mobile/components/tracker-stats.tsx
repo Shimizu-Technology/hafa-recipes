@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
-import { basedOn, customProblem, overlayStats, statsRanges, type CareStats, type StatsChoice, type StatsDay } from "@/lib/care-stats";
+import { basedOn, customProblem, statsNote, statsRanges, waitingEntries, type CareStats, type StatsChoice, type StatsDay } from "@/lib/care-stats";
 import { duration } from "@/lib/care-format";
 import { secondsWords } from "@/lib/contractions";
 import { addDays, clockIn, keyDate } from "@/lib/tracker";
-import { Card, Copy, Empty, FilterChips, Notice, Section, fonts, useColors } from "./ui";
+import { Button, Card, Copy, Empty, FilterChips, Notice, Section, fonts, useColors } from "./ui";
 import { DateField } from "./date-field";
 import { Legend, SplitBar, StatBars, useSeriesColors, type Bar } from "./stat-bars";
 
@@ -28,7 +28,7 @@ const Tiles = ({ children }: { children: React.ReactNode }) => <View style={{ fl
 
 /** The Tracker's Stats: what was logged, by the API's numbers, and no opinion on any of them. */
 export function TrackerStats({ answer, choice, onChoose, today, childId, expecting, now, onOpen }: {
-  answer: { stats?: CareStats; error?: string; loading: boolean };
+  answer: { stats?: CareStats; fetchedAt?: Date; error?: string; loading: boolean; refresh: () => void };
   choice: StatsChoice;
   onChoose: (choice: StatsChoice) => void;
   today: string;
@@ -40,8 +40,9 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
   const b = useBaby(), c = useColors(), colors = useSeriesColors(), timezone = b.state.bootstrap!.profile.timezone, single = [c.progressFill],
     [draft, setDraft] = useState({ from: addDays(today, -13), to: today }),
     problem = choice.range === "custom" ? customProblem(draft.from, draft.to, today) : null,
-    shown = answer.stats && overlayStats(answer.stats, b.state, childId, timezone, now),
-    stats = shown?.stats,
+    stats = answer.stats,
+    waiting = stats ? waitingEntries(b.state, childId, stats, timezone) : 0,
+    note = stats && answer.fetchedAt ? statsNote(answer.fetchedAt, !!answer.error, waiting, timezone, now) : null,
     rolling = choice.range === "24h",
     pick = (value: string) => onChoose(value === "custom" ? { range: "custom", ...draft } : { range: value as "24h" | "7d" | "30d" }),
     edit = (next: typeof draft) => { setDraft(next); if (!customProblem(next.from, next.to, today)) onChoose({ range: "custom", ...next }); },
@@ -60,13 +61,15 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
       <DateField dateOnly label="To" value={draft.to} onChange={(to) => edit({ ...draft, to })} />
       {!!problem && <Notice>{problem}</Notice>}
     </View>}
-    {!!answer.error && <Notice>{stats ? "Showing the last numbers from Håfa." : answer.error}</Notice>}
+    {!!answer.error && !stats && <Empty icon="cloud-offline-outline" title="No numbers to show yet" body={`${answer.error} Stats come from Håfa, so they’ll show here once it can be reached.`}
+      action={<Button secondary title="Try again" onPress={() => void answer.refresh()} />} />}
     {answer.loading && !stats && <Copy kind="small" tone="muted">Adding it up…</Copy>}
     {!!stats && <>
       <Copy numeric kind="small" tone="muted">{rolling ? `The last 24 hours, up to ${clockIn(new Date(stats.range.end), timezone)}` : `${labels(days[0].date)[1]} to ${labels(days[days.length - 1].date)[1]}`}</Copy>
       {!stats.complete && <Notice>There are more logs in these days than Stats can add up at once, so try fewer days.</Notice>}
-      {shown!.pending && <Notice>Some logs are still on this phone. Daily counts include them. Averages catch up once they’ve synced.</Notice>}
-      {!logged && <Empty icon="stats-chart-outline" title="Nothing logged in these days" body={expecting ? "Contractions and kicks you time will show here." : "Feeds, diapers and sleep will add up here as you log them."} />}
+      {!!note && <Notice>{note}</Notice>}
+      {!logged && (waiting ? <Empty icon="stats-chart-outline" title="Nothing has reached Håfa yet" body="What you’ve logged will add up here once it’s synced." />
+        : <Empty icon="stats-chart-outline" title="Nothing logged in these days" body={expecting ? "Contractions and kicks you time will show here." : "Feeds, diapers and sleep will add up here as you log them."} />)}
       {logged && care && !rolling && days.some((day) => day.partial) && <Copy kind="small" tone="muted">The paler bar is today so far. It isn’t in the averages.</Copy>}
       {logged && care && <>
         <Section title="Feeding">
