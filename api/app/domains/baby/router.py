@@ -1,16 +1,17 @@
 """Owner-scoped records and product lifecycle. No AI write bypass exists."""
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date, datetime
 from typing import Annotated, Literal, get_args
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import AwareDatetime, ValidationError
 from sqlalchemy import func, or_, select
 
-from app.domains.baby.access import touch
+from app.domains.baby.access import access_for, family_enabled, touch
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
@@ -231,19 +232,25 @@ def revision_matches(row, revision):
 
 
 @router.get("/bootstrap")
-async def bootstrap(user: User, db: Database):
-    return await bootstrap_state(user, db, create=False)
+async def bootstrap(user: User, db: Database, request: Request):
+    return await bootstrap_state(user, db, create=False, request=request)
 
 
 @router.post("/bootstrap")
-async def initialize(user: User, db: Database):
-    return await bootstrap_state(user, db, create=True)
+async def initialize(user: User, db: Database, request: Request):
+    return await bootstrap_state(user, db, create=True, request=request)
 
 
-async def bootstrap_state(user, db, *, create):
-    if create:
-        await lock_owner(db, user.id)
+async def bootstrap_state(user, db, *, create, request):
+    access = None
     member = await db.get(BabyMembership, user.id, populate_existing=True)
+    if family_enabled() and member is not None:
+        access = await access_for(db, user.id, client=request.headers.get("X-Baby-Client"),
+                                  write=create, bootstrap=True, active=False)
+        member = access.member
+    elif create:
+        await lock_owner(db, user.id)
+        member = await db.get(BabyMembership, user.id, populate_existing=True)
     if member is None:
         if not create:
             raise HTTPException(409, "Open Baby to initialize your private space")
@@ -261,14 +268,18 @@ async def bootstrap_state(user, db, *, create):
         from app.domains.baby.spaces import ensure_personal_space
 
         await ensure_personal_space(db, member)
+    if family_enabled() and access is None:
+        access = await access_for(db, user.id, client=request.headers.get("X-Baby-Client"),
+                                  write=create, bootstrap=True, active=False)
     from app.domains.baby.provider import BabyProvider
 
     children = (
         await db.scalars(
             select(BabyChild)
             .where(
-                BabyChild.app_user_id == user.id,
-                BabyChild.generation == member.generation,
+                access.condition(BabyChild) if access else (
+                    (BabyChild.app_user_id == user.id) & (BabyChild.generation == member.generation)
+                ),
                 BabyChild.deleted_at.is_(None),
             )
             .order_by(BabyChild.name)
@@ -283,13 +294,24 @@ async def bootstrap_state(user, db, *, create):
         "active": member.status == "active",
         "ai_available": BabyProvider().enabled,
     }
+    if access and access.client == "3":
+        result.update(personal_space_id=str(member.personal_space_id), spaces=[{
+            "id": str(g.id), "kind": g.space.kind, "role": g.role,
+            "generation": g.generation, "access_version": g.access_version,
+        } for g in access.spaces if g.space.status == "active"])
+    if create and access:
+        personal = next(g for g in access.spaces if g.id == member.personal_space_id)
+        await touch(personal.space, personal)
     await db.commit()
     return result
 
 
 @router.post("/enroll")
-async def enroll(user: User, db: Database, generation: Generation):
-    member = await membership_for(db, user.id, generation=generation, write=True, active=False)
+async def enroll(user: User, db: Database, generation: Generation, request: Request):
+    access = await access_for(db, user.id, client=request.headers.get("X-Baby-Client"),
+                              space_id=request.headers.get("X-Baby-Space"),
+                              generation=generation, write=True, active=False)
+    member = access.member
     if member.status == "deleted":
         member.status = "active"
         member.profile = Profile().model_dump()
@@ -297,13 +319,19 @@ async def enroll(user: User, db: Database, generation: Generation):
     from app.domains.baby.spaces import ensure_personal_space
 
     await ensure_personal_space(db, member)
+    if access.enabled:
+        personal = next(g for g in access.spaces if g.id == member.personal_space_id)
+        await touch(personal.space, personal)
     await db.commit()
     return {"generation": member.generation, "active": True}
 
 
 @router.patch("/profile")
-async def patch_profile(body: ProfilePatch, user: User, db: Database, generation: Generation):
-    member = await membership_for(db, user.id, generation=generation, write=True)
+async def patch_profile(body: ProfilePatch, user: User, db: Database, generation: Generation,
+                        access: Access = None):
+    access.check_generation(generation)
+    member = access.member
+    job_access = replace(access, spaces=access.member_spaces) if access.enabled else access
     values = {
         **Profile.model_validate(member.profile).model_dump(),
         **body.model_dump(exclude_unset=True),
@@ -325,7 +353,7 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
             jobs = await db.scalars(
                 select(BabyImport).where(
                     BabyImport.app_user_id == user.id,
-                    BabyImport.generation == generation,
+                    job_access.condition(BabyImport),
                     BabyImport.status.in_(["queued", "processing"]),
                 )
             )
@@ -336,15 +364,17 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
                     None,
                     None,
                 )
+                await touch(job, job_access.grant(job) if access.enabled else None)
                 source = await db.get(BabyRecord, job.record_id)
                 if (
                     source
-                    and source.app_user_id == user.id
-                    and source.generation == generation
+                    and ((source.space_id == job.space_id and source.generation == job.generation)
+                         if access.enabled else (source.app_user_id == user.id and source.generation == generation))
                     and source.deleted_at is None
                 ):
                     source.data = {**source.data, "status": "cancelled"}
                     source.revision, source.updated_at = source.revision + 1, now()
+                    await touch(source, job_access.grant(source) if access.enabled else None)
     member.profile, member.updated_at = profile.model_dump(), now()
     if not profile.auto_process_shares:
         from app.domains.baby.share_models import BabyShareCapture
@@ -354,18 +384,19 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
             deferred = await db.scalars(
                 select(BabyShareCapture).where(
                     BabyShareCapture.app_user_id == user.id,
-                    BabyShareCapture.generation == generation,
+                    job_access.condition(BabyShareCapture),
                     BabyShareCapture.status == "deferred",
                 )
             )
             for receipt in deferred:
                 receipt.status = "saved"
+                await touch(receipt, job_access.grant(receipt) if access.enabled else None)
         # Turning off automatic processing does not revoke a deliberately
         # requested manual import. Fence only automatic jobs, including leases.
         automatic_jobs = await db.scalars(
             select(BabyImport).where(
                 BabyImport.app_user_id == user.id,
-                BabyImport.generation == generation,
+                job_access.condition(BabyImport),
                 BabyImport.status.in_(["queued", "processing"]),
                 BabyImport.request["automatic"].as_boolean().is_(True),
             )
@@ -377,15 +408,20 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
                 None,
                 None,
             )
+            await touch(job, job_access.grant(job) if access.enabled else None)
             source = await db.get(BabyRecord, job.record_id)
             if (
                 source
-                and source.app_user_id == user.id
-                and source.generation == generation
+                and ((source.space_id == job.space_id and source.generation == job.generation)
+                     if access.enabled else (source.app_user_id == user.id and source.generation == generation))
                 and source.deleted_at is None
             ):
                 source.data = {**source.data, "status": "cancelled"}
                 source.revision, source.updated_at = source.revision + 1, now()
+                await touch(source, job_access.grant(source) if access.enabled else None)
+    if access.enabled:
+        personal = next(g for g in access.member_spaces if g.id == member.personal_space_id)
+        await touch(personal.space, personal)
     await db.commit()
     return member.profile
 

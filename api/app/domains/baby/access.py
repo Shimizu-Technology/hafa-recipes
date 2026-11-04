@@ -46,6 +46,7 @@ class BabyAccess:
     target: SpaceAccess | None
     enabled: bool
     client: str | None
+    member_spaces: tuple[SpaceAccess, ...] = ()
 
     @property
     def personal_space_id(self):
@@ -93,12 +94,12 @@ class BabyAccess:
         return row
 
 
-async def _spaces(db, actor):
+async def _spaces(db, actor, inactive_personal=None):
     return list((await db.execute(
         select(BabySpace, BabySpaceMember.role, BabySpaceMember.access_version)
         .join(BabySpaceMember, BabySpaceMember.space_id == BabySpace.id)
         .where(BabySpaceMember.app_user_id == actor, BabySpaceMember.status == "active",
-               BabySpace.status == "active")
+               or_(BabySpace.status == "active", BabySpace.id == inactive_personal))
         .order_by(BabySpace.id)
         .execution_options(populate_existing=True)
     )).all())
@@ -109,7 +110,7 @@ def _snapshot(rows):
 
 
 async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=None,
-                     generation=None, write=False, bootstrap=False, actor_ids=()):
+                     generation=None, write=False, bootstrap=False, actor_ids=(), active=True):
     """Discover, lock users ascending, lock spaces ascending, then recheck access.
 
     Workers and capabilities pass their stored destination; request headers cannot
@@ -117,10 +118,10 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
     before taking any lock. Record/asset discovery must also be rechecked by callers.
     """
     if not family_enabled():
-        member = await membership_for(db, actor, generation=generation, write=write)
+        member = await membership_for(db, actor, generation=generation, write=write, active=active)
         return BabyAccess(actor, member, (), None, False, client)
-    member = await membership_for(db, actor)
-    discovered = await _spaces(db, actor)
+    member = await membership_for(db, actor, active=active)
+    discovered = await _spaces(db, actor, member.personal_space_id if not active else None)
     if write:
         # All writers in this domain use this order, including short worker claims.
         affected = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
@@ -131,10 +132,10 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
         for space, _, _ in discovered:
             await db.scalar(select(BabySpace.id).where(BabySpace.id == space.id).with_for_update())
         before = _snapshot(discovered)
-        discovered = await _spaces(db, actor)
+        discovered = await _spaces(db, actor, member.personal_space_id if not active else None)
         if before != _snapshot(discovered):
             raise HTTPException(409, "Baby access changed; retry before saving")
-        member = await membership_for(db, actor)
+        member = await membership_for(db, actor, active=active)
     try:
         requested = UUID(str(space_id)) if space_id is not None else None
         stored = UUID(str(stored_space_id)) if stored_space_id is not None else None
@@ -154,6 +155,7 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
             raise HTTPException(403, "This client can only use its personal space")
     grants = tuple(SpaceAccess(space, role, version, db, db.get_transaction() if write else None)
                    for space, role, version in discovered)
+    member_spaces = grants
     if stored is not None or client != "3":
         grants = tuple(grant for grant in grants if grant.id == destination)
     target = next((grant for grant in grants if grant.id == destination), None)
@@ -164,7 +166,7 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
             raise HTTPException(422, "Choose a Baby space before checking its generation")
         if generation != target.generation:
             raise HTTPException(409, "Baby data changed; refresh before saving")
-    return BabyAccess(actor, member, grants, target, True, client)
+    return BabyAccess(actor, member, grants, target, True, client, member_spaces)
 
 
 async def touch(row, space):
@@ -180,7 +182,7 @@ async def touch(row, space):
     db = space.db
     if space.transaction is None or db.get_transaction() is not space.transaction:
         raise RuntimeError("touch requires the current access_for write transaction")
-    if row.space_id != space.id or row.generation != space.generation:
+    if (row is not space.space and row.space_id != space.id) or row.generation != space.generation:
         raise RuntimeError("touch destination does not match the row")
     with db.no_autoflush:
         row.change_seq = await db.scalar(update(BabySpace).where(BabySpace.id == space.id)
