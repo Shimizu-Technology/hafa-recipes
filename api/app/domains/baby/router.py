@@ -1,7 +1,7 @@
 """Owner-scoped records and product lifecycle. No AI write bypass exists."""
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal, get_args
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -60,7 +60,7 @@ from app.domains.baby.schemas import (
     Stage,
 )
 from app.domains.baby.security import BabyRoute, new_kinds_enabled
-from app.domains.baby.stats import number_in
+from app.domains.baby.stats import care_summary, number_in
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
@@ -694,6 +694,25 @@ async def search(
         conditions=conditions,
         client=client,
     )
+
+
+@router.get("/care/summary")
+async def care_days(
+    user: User,
+    db: Database,
+    first: Annotated[date, Query(alias="from")],
+    last: Annotated[date, Query(alias="to")],
+    child_id: UUID | None = None,
+):
+    """Tracker's days and calendar dots. Without a child, the logs that have no child."""
+    member = await membership_for(db, user.id)
+    if child_id:
+        await owned(db, BabyChild, user.id, member.generation, child_id)
+    zone = ZoneInfo(Profile.model_validate(member.profile).timezone)
+    try:
+        return await care_summary(db, user.id, member.generation, child_id, zone, first, last, now())
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
 
 
 @router.get("/records/{identifier}")

@@ -62,9 +62,15 @@ def last_days(count, zone, at):
     return calendar_range(f"{count}d", today - timedelta(days=count), today, zone, at)
 
 
-def custom_days(first, last, zone, at):
+def check_custom_span(first, last):
+    if first > last:
+        raise ValueError("Choose a start before the end")
     if (last - first).days >= MAX_CUSTOM_DAYS:
         raise ValueError(f"Choose {MAX_CUSTOM_DAYS} days or fewer")
+
+
+def custom_days(first, last, zone, at):
+    check_custom_span(first, last)
     return calendar_range("custom", first, last, zone, at)
 
 
@@ -101,6 +107,38 @@ async def care_stats(db, owner, generation, child_id, zone, stats_range):
         )
     )
     return summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
+
+
+# What puts a dot on a calendar day. To add contractions, kicks or events: add the kind to
+# CARE_KINDS, count it per day in ``summarize``, and add its dot here. ``/care/summary``, its
+# range and its time zone then need no change.
+DAY_DOTS = {
+    "feeding": lambda day: day["feeding"]["count"],
+    "diaper": lambda day: day["diapers"]["count"],
+    "sleep": lambda day: day["sleep"]["total_minutes"],
+}
+
+
+async def care_summary(db, owner, generation, child_id, zone, first, last, at):
+    """Inclusive calendar days of totals and dots. A wholly future range is simply empty."""
+    check_custom_span(first, last)
+    if first > at.astimezone(zone).date():
+        start = day_start(first, zone)
+        result = summarize([], StatsRange("custom", start, start, []), zone)
+    else:
+        result = await care_stats(
+            db, owner, generation, child_id, zone, calendar_range("custom", first, last, zone, at)
+        )
+    # A sleep still going has no minutes yet, but the day it began has a sleep on it.
+    sleeping = {
+        datetime.fromisoformat(item["started_at"]).date().isoformat()
+        for item in result["sleep"]["open"]
+    }
+    for day in result["days"]:
+        day["dots"] = [name for name, earned in DAY_DOTS.items() if earned(day)]
+        if day["date"] in sleeping and "sleep" not in day["dots"]:
+            day["dots"].append("sleep")
+    return result
 
 
 def next_side(data):
@@ -223,6 +261,8 @@ def summarize(rows, stats_range, zone, *, complete=True):
             day["diapers"]["pee"] += kind in {"wet", "both"}
             day["diapers"]["poo"] += kind in {"dirty", "both"}
             day["diapers"]["dry"] += kind == "dry"
+            continue
+        if row.kind != "feeding":
             continue
         feed_times.append(at)
         totals, method = day["feeding"], text_in(data, "method")
