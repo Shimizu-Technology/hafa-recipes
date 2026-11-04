@@ -54,7 +54,7 @@ async def matrix(privacy_api):
     async with api.sessions() as db:
         for actor in ROLES[:-1]:
             db.add(BabySpaceMember(space_id=family, app_user_id=actor,
-                role="caregiver" if actor == "caregiver" else "parent", status="removed" if actor == "removed" else "active"))
+                role="caregiver" if actor == "caregiver" else "parent", status="active"))
         for job in await db.scalars(select(BabyImport)):
             job.status = "ready"
         await db.commit()
@@ -88,6 +88,8 @@ async def matrix(privacy_api):
         imported = await api.client.post(API + "/imports", headers=h, json={"id": str(uuid4()), "text": name + " import"})
         assert imported.status_code == 200
         seeded[name] = {"space": space, "child": child.json()["id"], "asset": asset, "rows": rows, "job": imported.json()}
+    removed = await api.client.delete(f"{API}/family/{family}/members/removed", headers=records.headers(family, generation=1))
+    assert removed.status_code == 200, removed.text
     return api, owner, family, personal, seeded, png.getvalue(), at, invitation
 
 
@@ -154,7 +156,6 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     await call("POST", API + "/attachments", 200 if member else hidden,
         headers={**h, "Idempotency-Key": str(uuid4())}, files={"file": ("own.png", png, "image/png")})
     await call("DELETE", f"{API}/attachments/{asset}", 204 if parent else hidden)
-    await call("POST", API + "/family", 200 if parent else (409 if member else hidden))
     await call("POST", f"{API}/records/{rows['source']['id']}/move", 200 if parent else denied,
                json={"space_id": str(sample["space"]), "revision": 2 if parent else 1})
     await call("POST", API + "/family/invites", 201 if parent else (409 if member else hidden), json={"publish_shared": True})
@@ -334,3 +335,179 @@ async def test_choosing_existing_personal_space_keeps_post_private_in_next_famil
     assert invitation.status_code == 201
     async with api.sessions() as db:
         assert (await db.get(BabyRecord, body["id"])).space_id == own
+
+
+@pytest.mark.parametrize("client", [None, "2"])
+@pytest.mark.parametrize("actor", ROLES)
+async def test_legacy_clients_only_see_personal_space(matrix, client, actor):
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    h = {"X-Test-Owner": actor}
+    if client:
+        h["X-Baby-Client"] = client
+    denied = await api.client.post(API + "/family/invites", headers={**h, "X-Baby-Generation": "1"}, json={})
+    assert denied.status_code == 403, denied.text
+    for path in ("/records", "/export", "/search?q=FAMILY_SOURCE_SECRET"):
+        result = await api.client.get(API + path, headers=h)
+        assert result.status_code == 200, result.text
+        assert "FAMILY_SOURCE_SECRET" not in result.text
+        assert "OWNER_JOURNAL_SECRET" not in result.text
+
+
+@pytest.mark.parametrize("action", ["leave", "remove", "account"])
+async def test_real_exit_revokes_credentials_and_invites(matrix, action):
+    from app.domains.baby.models import BabySpaceInvite
+    from app.domains.baby.share_models import BabyShareCredential
+
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    issued = await api.client.post(API + "/family/invites", headers=records.headers(family, "other", 1), json={})
+    assert issued.status_code == 201, issued.text
+    session = await api.client.post(API + "/share/session", headers=records.headers(family, "other", 1),
+        json={"installation_id": str(uuid4())})
+    assert session.status_code == 201, session.text
+    if action == "leave":
+        result = await api.client.post(f"{API}/family/{family}/leave", headers=records.headers(family, "other", 1))
+    elif action == "remove":
+        result = await api.client.delete(f"{API}/family/{family}/members/other", headers=records.headers(family, generation=1))
+    else:
+        result = await api.client.delete("/api/users/me", headers={"X-Test-Owner": "other"})
+    assert result.status_code in {200, 202}, result.text
+    async with api.sessions() as db:
+        assert (await db.get(BabySpaceInvite, issued.json()["id"])).revoked_at is not None
+        credentials = list(await db.scalars(select(BabyShareCredential).where(BabyShareCredential.app_user_id == "other")))
+        assert all(row.revoked_at is not None for row in credentials)
+        assert (await db.get(BabySpaceMember, (family, "other"))) is None if action == "account" else (await db.get(BabySpaceMember, (family, "other"))).status != "active"
+    assert (await api.client.get(f"{API}/records/{seeded['family']['rows']['source']['id']}",
+        headers=records.headers(family, "other", 1))).status_code in {403, 404, 409}
+
+
+async def test_accept_rejects_actor_already_in_a_family(matrix):
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    unused = await api.client.post(API + "/family/invites", headers=records.headers(family, generation=1), json={})
+    assert unused.status_code == 201
+    assert (await invites.accept(api, unused.json())).status_code == 409
+
+
+async def test_journal_move_requires_writer(matrix):
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    result = await api.client.post(f"{API}/records/{owner.entry['id']}/move", headers=records.headers(personal, generation=1),
+        json={"space_id": str(family), "revision": 2})
+    assert result.status_code == 200, result.text
+    result = await api.client.post(f"{API}/records/{owner.entry['id']}/move", headers=records.headers(family, "other", 1),
+        json={"space_id": str(family), "revision": result.json()["revision"]})
+    assert result.status_code == 403, result.text
+
+
+async def test_move_helper_requires_parent(matrix):
+    from fastapi import HTTPException
+
+    from app.domains.baby.access import access_for
+    from app.domains.baby.moves import move_record
+
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    async with api.sessions() as db:
+        access = await access_for(db, "caregiver", client="3", space_id=family, write=True)
+        row = await db.get(BabyRecord, seeded["family"]["rows"]["care"]["id"])
+        destination = access.target
+        with pytest.raises(HTTPException) as caught:
+            await move_record(db, access, row, destination)
+        assert caught.value.status_code == 403
+
+
+async def test_caregiver_ask_excludes_family_space(matrix):
+    from app.domains.baby.access import access_for
+    from app.domains.baby.chat import chat_scopes
+
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    async with api.sessions() as db:
+        access = await access_for(db, "caregiver", client="3", bootstrap=True)
+        readable, private = chat_scopes(access)
+        assert family not in {g.id for g in readable.spaces}
+        assert {g.id for g in private.spaces} == {access.personal_space_id}
+
+
+async def test_changes_filters_capability_attachment_and_conversation_entities(matrix):
+    from app.domains.baby.access import access_for, touch
+    from app.domains.baby.models import BabyConversation
+    from tests import test_baby_changes as changes
+
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    hidden_asset = str(uuid4())
+    result = await api.client.post(API + "/attachments", headers={**records.headers(family, generation=1), "Idempotency-Key": hidden_asset},
+        files={"file": ("private.png", png, "image/png")})
+    assert result.status_code == 200
+    credential = await api.client.post(API + "/share/session", headers=records.headers(family, generation=1),
+        json={"installation_id": str(uuid4())})
+    assert credential.status_code == 201
+    own = await invites.personal(api, "other")
+    conversation = uuid4()
+    async with api.sessions() as db:
+        access = await access_for(db, "other", client="3", space_id=own, write=True)
+        row = BabyConversation(id=conversation, app_user_id="other", space_id=own, generation=1,
+            title="Unavailable context", context_space_ids=[str(personal)])
+        await touch(row, access.target)
+        await db.commit()
+    page = changes.items(await changes.fetch(api, actor="other"))
+    assert hidden_asset not in {item["id"] for item in page}
+    assert str(conversation) not in {item["id"] for item in page}
+    assert not [item for item in page if item.get("entity") in {"credential", "capture"}]
+    assert seeded["family"]["asset"] in {item["id"] for item in page if item.get("entity") == "attachment"}
+    assert seeded["family"]["rows"]["source"]["id"] in {item["id"] for item in page if item.get("entity") == "record"}
+
+
+async def test_moved_journal_payload_redacts_unreadable_child(matrix):
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    own = await invites.personal(api, "other")
+    journal = privacy.shared.payload("journal", child_id=seeded["family"]["child"])
+    result = await api.client.post(API + "/records", headers=records.headers(own, "other", 1), json=journal)
+    assert result.status_code == 200, result.text
+    assert (await api.client.post(f"{API}/family/{family}/leave", headers=records.headers(family, "other", 1))).status_code == 200
+    # An old editor still addresses the family while the row is personal. Use a
+    # second accessible destination to elicit the moved payload after leaving.
+    async with api.sessions() as db:
+        row = await db.get(BabyRecord, journal["id"])
+        from app.domains.baby.access import access_for
+        access = await access_for(db, "other", client="3", space_id=own, write=True)
+        from dataclasses import replace
+
+        from fastapi import HTTPException
+        target = replace(access.target, space=type(access.target.space)(id=uuid4(), generation=1))
+        with pytest.raises(HTTPException) as caught:
+            await replace(access, target=target).row(db, BabyRecord, row.id, write=True)
+        assert caught.value.status_code == 409
+        assert caught.value.detail["record"]["child_id"] is None
+
+
+async def test_account_deletion_revokes_historical_invite(matrix):
+    from app.domains.baby.models import BabySpaceInvite
+
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    issued = await api.client.post(API + "/family/invites", headers=records.headers(family, "other", 1), json={})
+    assert issued.status_code == 201
+    # Historical state: account deletion must also revoke invitations when an
+    # earlier release already ended membership without retiring the capability.
+    async with api.sessions() as db:
+        (await db.get(BabySpaceMember, (family, "other"))).status = "left"
+        await db.commit()
+    result = await api.client.delete("/api/users/me", headers={"X-Test-Owner": "other"})
+    assert result.status_code == 202, result.text
+    async with api.sessions() as db:
+        assert (await db.get(BabySpaceInvite, issued.json()["id"])).revoked_at is not None
+
+
+async def test_move_own_personal_destination(matrix):
+    from fastapi import HTTPException
+
+    from app.domains.baby.access import SpaceAccess, access_for
+    from app.domains.baby.models import BabySpace
+    from app.domains.baby.moves import move_record
+
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    async with api.sessions() as db:
+        access = await access_for(db, "owner", client="3", space_id=family, write=True)
+        other_personal = await invites.personal(api, "other")
+        space = await db.get(BabySpace, other_personal)
+        destination = SpaceAccess(space, "parent", 1, db, db.get_transaction())
+        row = await db.get(BabyRecord, seeded["family"]["rows"]["care"]["id"])
+        with pytest.raises(HTTPException) as caught:
+            await move_record(db, access, row, destination)
+        assert caught.value.status_code == 403
