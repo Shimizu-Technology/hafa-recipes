@@ -56,6 +56,7 @@ BABY_MIGRATIONS = (
     "migrations.056_add_baby_spaces",
     "migrations.057_add_baby_push",
     "migrations.058_contract_baby_spaces",
+    "migrations.059_add_baby_child_details",
 )
 
 
