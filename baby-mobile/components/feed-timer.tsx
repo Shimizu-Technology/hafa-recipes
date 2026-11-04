@@ -18,7 +18,7 @@ import {
 import { Button, Card, Copy, fonts, useColors, useToast } from "./ui";
 
 /** Tick once a second only while the timer runs, Today is focused, and the app is in front. */
-function useSecondClock(running: boolean) {
+export function useSecondClock(running: boolean) {
   const [now, setNow] = useState(() => new Date()),
     [focused, setFocused] = useState(true),
     [foreground, setForeground] = useState(AppState.currentState !== "background");

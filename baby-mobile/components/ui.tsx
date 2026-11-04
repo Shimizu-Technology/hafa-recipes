@@ -150,8 +150,8 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
     style={[typeof style === "function" ? style({ pressed, hovered }) : style, { opacity, transform: [{ scale }] }]} />;
 });
 
-type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table";
-/** Ionicons throughout, plus two baby-care glyphs Ionicons lacks (prefixed "care:"). */
+type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table" | "mother-nurse";
+/** Ionicons throughout, plus the baby-care glyphs Ionicons lacks (prefixed "care:"). */
 export type IconName = React.ComponentProps<typeof Ionicons>["name"] | `care:${CareGlyph}`;
 export function Icon({ name, size = 22, color }: { name: IconName; size?: number; color?: ColorValue }) {
   const c = useColors();

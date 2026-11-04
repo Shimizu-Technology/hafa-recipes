@@ -5,20 +5,25 @@ import * as Haptics from "expo-haptics";
 import { useBaby } from "@/lib/context";
 import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { sleepGlanceDetail, babyAge, careGlance, nextFeed } from "@/lib/care-glance";
+import { sleepGlanceDetail, babyAge, careGlance } from "@/lib/care-glance";
 import { careSummary, friendlyTime } from "@/lib/care-format";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
-import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
+import { activeTimer, changeTimer, feedRecordData } from "@/lib/feed-timer";
+import { runningFeed } from "@/lib/running-feed";
 import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, useToast, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
 import { FeedTimerCard } from "@/components/feed-timer";
+import { QuickLog } from "@/components/quick-log";
 import { PregnancyHero, TipSection } from "@/components/tips";
 import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
+
+/** The docked log covers too much of the screen at the largest text sizes, so it scrolls with the page there. */
+const dockBelow = 1.5;
 
 const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] = [
   { label: "Wet", type: "wet" },
@@ -75,8 +80,11 @@ export default function Today() {
     showCare = !!child && !expecting,
     tipsNow = useTimingTips(child, "now", 5, today),
     tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, today),
-    timer = activeTimer(b.state),
+    // A timer with no record is from an older build: it finishes the old way, on its own card, and is gone.
+    active = activeTimer(b.state),
+    timer = active && !active.record_id ? active : undefined,
     timerChild = timer && children.find((c) => c.id === timer.child_id),
+    running = runningFeed(b.state, child?.id ?? null, now),
     writing = useRef(false);
   async function quick(action: () => Promise<() => Promise<void>>, message: string) {
     // One write at a time: a double tap must not start two sleeps or end one twice.
@@ -101,36 +109,6 @@ export default function Today() {
     } finally {
       writing.current = false;
     }
-  }
-  function feed() {
-    if (!child) return router.push({ pathname: "/edit", params: { kind: "feeding" } });
-    if (timer) return toast("A feeding timer is running. Finish it from the timer above.");
-    const choices = sideChoices(nextFeed(glance.lastFeed).side),
-      labels = choices.map((choice) => `Start ${choice.side} side${choice.suggested ? " (next)" : ""}`);
-    const start = (side: FeedSide) =>
-      void b
-        .commit((s) => (activeTimer(s) ? s : { ...s, feedTimer: startTimer(child.id, s.bootstrap!.generation, side) }))
-        .catch((e) => toast(messageFor(e)));
-    const details = () => router.push({ pathname: "/edit", params: { kind: "feeding" } });
-    if (Platform.OS === "ios")
-      return ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: `Feed ${child.name}`,
-          options: [...labels, "Log a bottle or past feed…", "Cancel"],
-          cancelButtonIndex: 3,
-          tintColor: c.action,
-        },
-        (index) => (index < 2 ? start(choices[index].side) : index === 2 && details())
-      );
-    Alert.alert(
-      `Feed ${child.name}`,
-      undefined,
-      [
-        ...labels.map((text, i) => ({ text, onPress: () => start(choices[i].side) })),
-        { text: "Bottle or past feed…", onPress: details },
-      ],
-      { cancelable: true }
-    );
   }
   /** Save the timed feed and clear the timer in one write. Undo removes the feed only. */
   function finishFeed(running: FeedTimer) {
@@ -225,26 +203,19 @@ export default function Today() {
         onPress={addBirth} />}
     </Screen>
   );
+  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} legacyTimer={!!timer}
+    onBottle={() => router.push({ pathname: "/edit", params: { kind: "feeding" } })} onDiaper={diaper}
+    sleeping={!!glance.openSleep} onSleep={sleep} /> : null;
   return (
-    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}>
+    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}
+      footer={fontScale < dockBelow ? quickLog : undefined}>
       <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
       {timer && timerChild ? <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />
-        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} /> : <FirstStep child={child} now={now} />}
-      {showCare && <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
-        <Tile primary={!timer}
-          icon={kindIcon.feeding}
-          label={timer ? "Feeding…" : "Feed"}
-          hint={timer ? "A feeding timer is running above" : "Start a breastfeeding timer or log a feed"}
-          onPress={feed}
-        />
-        <Tile icon={glance.openSleep ? "sunny-outline" : kindIcon.sleep}
-          label={glance.openSleep ? "Wake up" : "Sleep"}
-          hint={glance.openSleep ? "Ends the current sleep now" : "Starts a sleep now"} onPress={sleep} />
-        <Tile icon={kindIcon.diaper} label="Diaper" hint="Choose wet, dirty or both" onPress={diaper} />
-      </View>}
+        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} running={running} /> : <FirstStep child={child} now={now} />}
+      {fontScale >= dockBelow && quickLog}
       {!!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />

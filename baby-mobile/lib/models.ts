@@ -223,6 +223,8 @@ export interface FeedTimer {
   started_at: string;
   segments: { side: "left" | "right"; started_at: string; ended_at?: string }[];
   paused_at?: string;
+  /** The saved record this timer belongs to. Older timers have none and save when stopped. */
+  record_id?: string;
 }
 export interface DeviceState {
   feedTimer?: FeedTimer;

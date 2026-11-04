@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { babyAge, sleepGlanceDetail, careGlance, glanceChild, nextFeed } from "./care-glance";
+import { nextSide, babyAge, sleepGlanceDetail, careGlance, glanceChild, nextFeed } from "./care-glance";
 import type { BabyRecord } from "./models";
 
 const now = new Date(2026, 9, 20, 18, 30);
@@ -72,4 +72,20 @@ it("omits missing or invalid awake facts without dangling separators", () => {
   expect(sleepGlanceDetail({ lastSleep: row("sleep", at(20, 13), { end_at: at(20, 15) }) }, now)).toBe("Woke 3 h 30 min ago · Last sleep 2 h");
   expect(sleepGlanceDetail({ openSleep: row("sleep", at(20, 17)) }, now)).toBe("1 h 30 min");
   expect(sleepGlanceDetail({}, now)).toBe("Log sleep or review your care history.");
+});
+
+const breastfeed = (id: string, occurred_at: string, data: BabyRecord["data"], child_id = "baby") =>
+  ({ id, kind: "feeding", child_id, occurred_at, data, title: "", body: "", revision: 1, created_at: occurred_at, updated_at: occurred_at }) as BabyRecord;
+it("takes the next side as the opposite of the newest one-sided breastfeed, past bottles, Both and other babies", () => {
+  expect(nextSide([
+    breastfeed("bottle", "2026-11-04T05:00:00Z", { method: "bottle", amount: 3, unit: "oz" }),
+    breastfeed("both", "2026-11-04T04:00:00Z", { method: "breast", side: "both" }),
+    breastfeed("other", "2026-11-04T03:30:00Z", { method: "breast", side: "right" }, "sibling"),
+    breastfeed("left", "2026-11-04T03:00:00Z", { method: "breast", side: "left" }),
+    breastfeed("right", "2026-11-04T01:00:00Z", { method: "breast", side: "right" }),
+  ], "baby")).toBe("right");
+});
+it("suggests no next side when there is no one-sided feed to go on", () => {
+  expect(nextSide([], "baby")).toBeUndefined();
+  expect(nextSide([breastfeed("both", "2026-11-04T04:00:00Z", { method: "breast", side: "both" })], "baby")).toBeUndefined();
 });

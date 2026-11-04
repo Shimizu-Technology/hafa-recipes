@@ -20,7 +20,7 @@ async function queueLatest(b: Account, build: (state: DeviceState) => Mutation, 
 
 /** Undo queues an ordinary delete after the save. The outbox applies them in order, so an
  * unsynced save and its undo cancel locally and a synced one is removed at its current revision. */
-export function undoSaved(b: Account, record: BabyRecord | RecordWrite) {
+export function undoSaved(b: Account, record: BabyRecord | RecordWrite, alongside?: (state: DeviceState) => DeviceState) {
   const id = Crypto.randomUUID(),
     generation = b.state.bootstrap!.generation;
   return () =>
@@ -34,7 +34,7 @@ export function undoSaved(b: Account, record: BabyRecord | RecordWrite) {
         ...record,
         revision: currentRevision(state, record.id, record.revision ?? 0),
       } as BabyRecord,
-    }));
+    }), alongside);
 }
 
 export function careWrite(kind: Kind, childId: string | null, data: RecordData, occurredAt = new Date()): RecordWrite {
@@ -50,19 +50,21 @@ export function careWrite(kind: Kind, childId: string | null, data: RecordData, 
 }
 
 /** Save a care entry in one tap and return its undo. `alongside` changes device state in the
- * same write (finishing a feeding timer), so the entry and that change land or fail together. */
-export async function logCare(b: Account, record: RecordWrite, alongside?: (state: DeviceState) => DeviceState) {
+ * same write (a feeding timer), so the entry and that change land or fail together; `undone` does the same for its undo. */
+export async function logCare(b: Account, record: RecordWrite, alongside?: (state: DeviceState) => DeviceState, undone?: (state: DeviceState) => DeviceState) {
   const mutation: Mutation = { id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "save", record, files: [] };
   if (alongside) await queueLatest(b, () => mutation, alongside);
   else await b.queue(mutation);
-  return undoSaved(b, record);
+  return undoSaved(b, record, undone);
 }
 
 /** Change a saved entry's data (for example finishing a sleep) and return the undo that restores it. */
-export async function updateCare(b: Account, record: BabyRecord, data: RecordData) {
+export async function updateCare(b: Account, record: BabyRecord, data: RecordData, alongside?: (state: DeviceState) => DeviceState, undone?: (state: DeviceState) => DeviceState) {
   const generation = b.state.bootstrap!.generation,
-    id = Crypto.randomUUID();
-  await b.queue({ id: Crypto.randomUUID(), generation, type: "save", record: { ...record, data }, files: [] });
+    id = Crypto.randomUUID(),
+    change: Mutation = { id: Crypto.randomUUID(), generation, type: "save", record: { ...record, data }, files: [] };
+  if (alongside) await queueLatest(b, () => change, alongside);
+  else await b.queue(change);
   return () =>
     queueLatest(b, (state) => ({
       id,
@@ -70,5 +72,5 @@ export async function updateCare(b: Account, record: BabyRecord, data: RecordDat
       type: "save",
       record: { ...record, data: record.data, revision: currentRevision(state, record.id, record.revision) },
       files: [],
-    }));
+    }), undone);
 }

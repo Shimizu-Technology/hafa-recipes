@@ -292,7 +292,7 @@ it.each([1, 3.1])("keeps the feed number on one line at scale %s while preservin
   expect(number.props.adjustsFontSizeToFit).toBe(true);
   expect(number.props.numberOfLines).toBe(1);
   expect(number.props.style.fontSize).toBe(44);
-  const detail = texts.find(t => t.props.children === "Left side · 15 min · Next: right")!;
+  const detail = texts.find(t => String(t.props.children).startsWith("Left · 15 min · "))!;
   expect(detail.props.maxFontSizeMultiplier).toBe(0);
   await act(async () => renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.onPress());
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "feed" } });

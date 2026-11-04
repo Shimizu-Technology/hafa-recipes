@@ -76,6 +76,14 @@ export function careGlance(rows: BabyRecord[], childId: string | null, now = new
   };
 }
 
+/** The side to offer next: the opposite of the side the newest one-sided breastfeed started on, or none yet. */
+export function nextSide(rows: BabyRecord[], childId: string | null): "left" | "right" | undefined {
+  const last = rows
+    .filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "breast" && (row.data.side === "left" || row.data.side === "right"))
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  return last ? (last.data.side === "left" ? "right" : "left") : undefined;
+}
+
 /** Prefill a new feed from the last one: same method, and the other breast after one side. */
 export function nextFeed(last?: Pick<BabyRecord, "data">): RecordData {
   const method = last?.data.method ?? "breast";
