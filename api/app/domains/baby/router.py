@@ -210,7 +210,8 @@ async def initialize(user: User, db: Database):
 
 
 async def bootstrap_state(user, db, *, create):
-    await lock_owner(db, user.id)
+    if create:
+        await lock_owner(db, user.id)
     member = await db.get(BabyMembership, user.id, populate_existing=True)
     if member is None:
         if not create:
@@ -224,9 +225,11 @@ async def bootstrap_state(user, db, *, create):
         )
         db.add(member)
         await db.flush()
-    from app.domains.baby.spaces import ensure_personal_space
+    if create:
+        # GET stays read-only. Every creation site provisions through its write path.
+        from app.domains.baby.spaces import ensure_personal_space
 
-    await ensure_personal_space(db, member)
+        await ensure_personal_space(db, member)
     from app.domains.baby.provider import BabyProvider
 
     children = (

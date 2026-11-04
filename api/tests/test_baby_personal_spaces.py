@@ -113,3 +113,22 @@ async def test_erasure_and_reenrollment_keep_personal_fence_in_step(baby_api):
             assert member.status == space.status == status
         if status == "deleted":
             assert (await c.post("/api/v1/baby/enroll", headers={"X-Baby-Generation": "2"})).status_code == 200
+
+
+async def test_get_bootstrap_stays_read_only_and_takes_no_owner_lock(baby_api):
+    async with baby_api.sessions() as db:
+        db.add(AppUser(id="legacy"))
+        await db.flush()
+        db.add(BabyMembership(app_user_id="legacy", generation=1))
+        await db.commit()
+    async with baby_api.sessions() as holder:
+        await holder.execute(text("SELECT id FROM app_users WHERE id='legacy' FOR UPDATE"))
+        response = await asyncio.wait_for(
+            baby_api.client.get("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "legacy"}), 5
+        )
+        await holder.rollback()
+    assert response.status_code == 200
+    async with baby_api.sessions() as db:
+        assert await db.scalar(
+            select(func.count()).select_from(BabySpace).where(BabySpace.created_by == "legacy")
+        ) == 0
