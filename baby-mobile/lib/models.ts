@@ -7,13 +7,57 @@ export interface Profile {
   auto_process_shares?: boolean;
   auto_process_epoch?: number;
 }
+/** Optional setup answers. Any of them may be missing, and an older API sends none. */
+export interface ChildDetails {
+  sex?: "girl" | "boy" | null;
+  weight_at_birth_g?: number | null;
+  length_at_birth_cm?: number | null;
+  weeks_at_birth?: number | null;
+  feeding?: "nursing" | "bottle" | "both" | null;
+  tracking?: Record<string, boolean> | null;
+}
+/**
+ * The setup screen's values. `grams` and `cm` are the exact value once there is one, kept through any change of unit;
+ * they're null while the text is what she's typing.
+ */
+export interface ChildForm {
+  stage: "expecting" | "here" | null;
+  name: string;
+  birth: string;
+  due: string;
+  weeks: string;
+  days: string;
+  sex: "" | "girl" | "boy";
+  unit: "imperial" | "metric";
+  grams: number | null;
+  lb: string;
+  oz: string;
+  kg: string;
+  cm: number | null;
+  length: string;
+  weeksAtBirth: string;
+  feeding: "" | "nursing" | "bottle" | "both";
+}
+export type ChildField = "stage" | "name" | "birth" | "due" | "sex" | "weight" | "length" | "weeksAtBirth" | "feeding";
+/** What she's done on the setup screen: only `touched` fields of `form` count, and they stay hers until a save succeeds. */
+export interface ChildEdits {
+  form: ChildForm;
+  touched: ChildField[];
+  /** A create was tried, and its answer may be lost. What she touched since is all it's still missing. */
+  attempted: boolean;
+  since: ChildField[];
+}
+/** Unfinished setup, kept with this account's private data until it's saved or discarded. */
+export interface ChildDraft extends ChildEdits {
+  creation_id: string;
+  generation: number;
+}
 export interface Child {
   id: string;
   name: string;
   birth_date?: string | null;
   due_date?: string | null;
-  /** Optional setup answers, from the API once J1b ships. Any of them may be missing. */
-  details?: { sex?: string | null };
+  details?: ChildDetails | null;
   revision: number;
 }
 export interface Bootstrap {
@@ -404,6 +448,8 @@ export interface DeviceState {
   /** Recent changes that have left the outbox, for an editor opened before they did. */
   settled?: Record<string, SettledChange>;
   drafts: Record<string, EditorDraft>;
+  /** By child id, or `new` for a profile not saved yet. Not in `drafts`: those are all records. */
+  childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
 }

@@ -63,6 +63,11 @@ describe("offline care and source recovery", () => {
         outbox: [{ id: "delete", generation: 1, type: "delete", record: row }],
       })
     ).toEqual([]));
+  it("retires unfinished baby setup after deletion generation changes", () => {
+    const state = { ...emptyState(), bootstrap: { generation: 1 }, childDrafts: { new: {} } } as unknown as DeviceState;
+    expect(fencedState(state, 2).childDrafts).toBeUndefined();
+    expect(fencedState(state, 1).childDrafts).toEqual({ new: {} });
+  });
   it("retires all stale offline records, drafts, imports and selected child after deletion generation changes", () => {
     const state = {
       ...emptyState(),

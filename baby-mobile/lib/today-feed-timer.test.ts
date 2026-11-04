@@ -347,7 +347,7 @@ it("asks for the birth date instead of a late pregnancy week once the due date i
   expect(find("Row", p => p.title === "Baby’s here?")).toHaveLength(0);
   expect(find("Copy", p => String(p.children).startsWith("Due Sep 1 · 49 days past due."))).toHaveLength(1);
   await press("Add the birth date");
-  expect(scope.push).toHaveBeenLastCalledWith({ pathname: "/child", params: { id: "baby" } });
+  expect(scope.push).toHaveBeenLastCalledWith({ pathname: "/child", params: { id: "baby", stage: "here" } });
 });
 it("keeps the pregnancy layout with a sibling's running feed timer on top", async () => {
   const account = setup(), state = account.state;

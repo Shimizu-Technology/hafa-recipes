@@ -100,7 +100,7 @@ export function fencedState(state: DeviceState, generation: number) {
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer: __, feedNotices: ___, settled: ____, ...rest } = state;
+    const { routine_sync: _, feedTimer: __, feedNotices: ___, settled: ____, childDrafts: _____, ...rest } = state;
     return {
       ...rest,
       records: [],

@@ -8,7 +8,7 @@ import { messageFor, pendingChanges } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
-import { friendlyDate } from "@/lib/care-format";
+import { babyDetailLine } from "@/lib/child-setup";
 export default function Settings() {
   const b = useBaby(),
     toast = useToast(),
@@ -77,13 +77,7 @@ export default function Settings() {
             key={child.id}
             title={child.name}
             numericDetail
-            detail={
-              child.birth_date
-                ? "Born " + friendlyDate(child.birth_date)
-                : child.due_date
-                  ? "Due " + friendlyDate(child.due_date)
-                  : "Name, dates, and profile"
-            }
+            detail={babyDetailLine(child)}
             icon="person-outline"
             onPress={() => router.push({ pathname: "/child", params: { id: child.id } })}
           />
