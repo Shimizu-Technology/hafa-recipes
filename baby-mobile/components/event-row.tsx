@@ -4,7 +4,7 @@ import { useBaby } from "@/lib/context";
 import { categoryName, eventClock, eventWhen, nextEvent } from "@/lib/events";
 import type { EventCategory, EventOccurrence } from "@/lib/models";
 import { useUpcomingEvents } from "@/lib/use-events";
-import { NextVisitQuestions, useVisitDrafts } from "./visit-sections";
+import { NextVisitQuestions, type useVisitDrafts } from "./visit-sections";
 import { Copy, Grouped, Icon, PressTarget, Row, fonts, typeScale, useColors, type IconName } from "./ui";
 
 const categoryIcon: Record<EventCategory, IconName> = { appointment: "medkit-outline", family: "people-outline", celebration: "gift-outline",
@@ -49,8 +49,8 @@ export function ComingUp({ childId, today }: { childId: string | null; today: st
   </View> : null;
 }
 /** The next thing on the calendar, or the way to add one. It's on Today before and after the birth. */
-export function NextEvent({ childId, today, now }: { childId: string | null; today: string; now: Date }) {
-  const b = useBaby(), timeZone = b.state.bootstrap?.profile.timezone, { items } = useUpcomingEvents(childId, today), next = nextEvent(items, now, timeZone), drafts = useVisitDrafts();
+export function NextEvent({ childId, today, now, drafts }: { childId: string | null; today: string; now: Date; drafts: ReturnType<typeof useVisitDrafts> }) {
+  const b = useBaby(), timeZone = b.state.bootstrap?.profile.timezone, { items } = useUpcomingEvents(childId, today), next = nextEvent(items, now, timeZone);
   const appointment = next?.category === "appointment";
   if (!next) return <Row title="Add to the calendar" detail="An appointment, baptism or family visit" icon="calendar-outline"
     onPress={() => router.push({ pathname: "/edit", params: { kind: "event", day: today } })} />;
