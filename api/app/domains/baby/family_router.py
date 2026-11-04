@@ -25,7 +25,10 @@ async def family_access(request: Request, user: User, db: Database):
     inviting = request.method == "POST" and request.url.path.endswith("/family/invites")
     if family_enabled() and request.headers.get("X-Baby-Client") == "3" and (moving or inviting):
         discovery = await access_for(db, user.id, client="3", bootstrap=True)
-        record_id = UUID(request.path_params["identifier"]) if moving else None
+        try:
+            record_id = UUID(str(request.path_params["identifier"])) if moving else None
+        except ValueError:
+            raise HTTPException(422, "Choose a valid Baby entry") from None
         await prepare_move_files(db, user.id, discovery, record_id)
     # Capabilities in a former space must also rotate, without late user locks.
     extra = set(await db.scalars(select(BabyShareCredential.space_id).where(

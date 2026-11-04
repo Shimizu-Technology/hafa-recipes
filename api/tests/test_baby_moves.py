@@ -269,3 +269,9 @@ async def test_attachment_copy_has_no_account_or_space_locks(baby_api, enabled, 
         return await original(*args, **kwargs)
     monkeypatch.setattr(implementation, "put_payload", checked)
     await family_for(baby_api, enabled)
+
+
+async def test_move_preparation_preserves_invalid_identifier_validation(baby_api, enabled):
+    result = await baby_api.client.post("/api/v1/baby/records/not-a-uuid/move",
+        headers=records.headers(enabled, generation=1), json={"space_id": str(enabled), "revision": 1})
+    assert result.status_code == 422, result.text
