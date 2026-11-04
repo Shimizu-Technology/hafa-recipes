@@ -1,0 +1,186 @@
+{
+ "_note": "Synthetic. Bodies as Baby build 32 (1.1.0) sends them, with hashes computed by the API before L2a. A replay after an upgrade must still match.",
+ "records": [
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "kind": "feeding",
+    "title": "Feeding",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "method": "breast",
+     "side": "left",
+     "duration_minutes": 15
+    }
+   },
+   "creation_hash": "f7d22d8711e95eb5e8f4799a33e5d31d4e31df123772af58d20c373917076d88"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000002",
+    "kind": "feeding",
+    "title": "Feeding",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "method": "breast",
+     "side": "both"
+    }
+   },
+   "creation_hash": "1ceb1ce4c5342919496a76007873bb4b4de866b29af2c14e6ddfe86a65576eb7"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000003",
+    "kind": "feeding",
+    "title": "Feeding",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "method": "bottle",
+     "amount": 4,
+     "unit": "oz"
+    }
+   },
+   "creation_hash": "1473e61edf4965599882545b4576c705eeefed2aa64f883a579d09ad167254e5"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000004",
+    "kind": "diaper",
+    "title": "Diaper",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "type": "wet"
+    }
+   },
+   "creation_hash": "ffeb44a1990a9b4165642295b3b0dc1a4814e64c1fbb16231fc05eb230cc6c7e"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000005",
+    "kind": "diaper",
+    "title": "Diaper",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "type": "dirty"
+    }
+   },
+   "creation_hash": "e6c9d4b72390a27b07690d8f00afec215bf9b5c037e4f8344f85943e9db16a1a"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000006",
+    "kind": "sleep",
+    "title": "Sleep",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "end_at": "2026-10-20T13:30:00+10:00"
+    }
+   },
+   "creation_hash": "657b1eae3d84eab97aeb00250e94fb323c1af4626c600690fef5db68cb8a3224"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000007",
+    "kind": "sleep",
+    "title": "Sleep",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {}
+   },
+   "creation_hash": "43761cc92aa5546d95d3047c367179842b4544854e23cb42a7764dda9d535dfa"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000008",
+    "kind": "journal",
+    "title": "Notes",
+    "body": "Feeling good",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "attachment_ids": [],
+     "provenance": "caregiver_observation"
+    }
+   },
+   "creation_hash": "6f6682f6633e3eec25fc18a88726736aabe53d552c7cbc71ec05d237a8ab883e"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000009",
+    "kind": "question",
+    "title": "Ask the doctor",
+    "body": "When is the next visit?",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {}
+   },
+   "creation_hash": "0cfbc608d71bcfa8f03a274dbb9651264a2d935abe75004ea93b3154be12e618"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000010",
+    "kind": "routine",
+    "title": "Bedtime",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "routine_type": "checklist",
+     "items": [
+      {
+       "id": "a",
+       "label": "Bath",
+       "done": false
+      }
+     ]
+    }
+   },
+   "creation_hash": "0d023be58ee4427da2d2766e9fa1a715afb22e12859c6692916cc4b1e6e033ba"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000011",
+    "kind": "collection",
+    "title": "Sleep tips",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "record_ids": []
+    }
+   },
+   "creation_hash": "9c253ba5516a70ac8415d08271184eef04ab08e35902de0d1bca1d670e315f3c"
+  },
+  {
+   "payload": {
+    "id": "00000000-0000-4000-8000-000000000012",
+    "kind": "source",
+    "title": "Saved source",
+    "body": "",
+    "child_id": null,
+    "occurred_at": "2026-10-20T12:00:00+10:00",
+    "data": {
+     "url": "https://example.com/tip",
+     "topics": [
+      "sleep"
+     ],
+     "status": "saved"
+    }
+   },
+   "creation_hash": "b6387b04871689c2323960741be210e4481dad69112d9fd8d3a70afe62bb43e6"
+  }
+ ]
+}

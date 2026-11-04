@@ -12,7 +12,7 @@ from sqlalchemy import String, case, cast, func, or_, select
 
 from app.ai_governance import ai_request_context
 from app.domains.baby.ask_dates import date_window, without_dates
-from app.domains.baby.dependencies import Database, Generation, User
+from app.domains.baby.dependencies import Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, membership_for, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
 from app.domains.baby.provider import (
@@ -20,8 +20,8 @@ from app.domains.baby.provider import (
     BabyProvider,
     budget_failure_message,
 )
-from app.domains.baby.queries import child_timing, records_query
-from app.domains.baby.schemas import ChatRequest, RecordCreate
+from app.domains.baby.queries import child_timing, legacy_client, records_query
+from app.domains.baby.schemas import V1_KINDS, ChatRequest, RecordCreate
 from app.domains.baby.security import BabyRoute
 from app.domains.baby.stats import care_stats, custom_days, last_feed
 
@@ -67,14 +67,21 @@ def clean_assistant_message(message):
     return re.sub(r"[ \t]{2,}", " ", message).strip()
 
 
-def message_response(row):
+def citations_for(citations, *, legacy):
+    """Build 32 cannot open what it does not know, so it is not offered as a source."""
+    if not legacy:
+        return citations
+    return [item for item in citations or [] if item.get("kind", "source") in V1_KINDS]
+
+
+def message_response(row, *, legacy=False):
     return {
         "id": row.id,
         "conversation_id": row.conversation_id,
         "role": row.role,
         "content": clean_assistant_message(row.content.get("message", ""))
         if row.role == "assistant" else row.content.get("message", ""),
-        "citations": row.content.get("citations", []),
+        "citations": citations_for(row.content.get("citations", []), legacy=legacy),
         "proposal": row.content.get("proposal"),
         "created_at": row.created_at,
         "status": row.content.get("status", "ready"),
@@ -348,17 +355,21 @@ async def dated_rows(db, query, window, terms):
     return rows[:DATED_LIMIT], len(rows) <= DATED_LIMIT, outside
 
 
-async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=()):
+async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), legacy=False):
     """Citable records, their display excerpts, and the date range they answer, if one was asked."""
     window = None if request.record_id else date_window(request.message, now().astimezone(zone))
     names = set(query_terms(" ".join(child_names)))
     terms = [term for term in query_terms(without_dates(request.message)) if term not in names]
     query = records_query(owner, generation, child_id=request.child_id)
+    if legacy:
+        query = query.where(BabyRecord.kind.in_(V1_KINDS))
     if request.scope in SCOPE_KINDS:
         query = query.where(BabyRecord.kind.in_(SCOPE_KINDS[request.scope]))
     outside, in_full, complete = [], set(), True
     if request.record_id:
         focus = await owned(db, BabyRecord, owner, generation, request.record_id)
+        if legacy and focus.kind not in V1_KINDS:
+            raise HTTPException(404, "Item unavailable")
         if request.child_id and focus.child_id != request.child_id:
             raise HTTPException(422, "The selected entry belongs to a different child")
         if request.scope in SCOPE_KINDS and focus.kind not in SCOPE_KINDS[request.scope]:
@@ -511,7 +522,7 @@ async def conversations(user: User, db: Database):
 
 
 @router.get("/conversations/{identifier}")
-async def get_conversation(identifier: UUID, user: User, db: Database):
+async def get_conversation(identifier: UUID, user: User, db: Database, client: Client = None):
     member = await membership_for(db, user.id)
     row = await owned(db, BabyConversation, user.id, member.generation, identifier)
     messages = await db.scalars(
@@ -526,12 +537,14 @@ async def get_conversation(identifier: UUID, user: User, db: Database):
     )
     return {
         **conversation_response(row),
-        "messages": [message_response(message) for message in messages],
+        "messages": [message_response(message, legacy=legacy_client(client)) for message in messages],
     }
 
 
 @router.post("/chat")
-async def chat(body: ChatRequest, user: User, db: Database, generation: Generation):
+async def chat(
+    body: ChatRequest, user: User, db: Database, generation: Generation, client: Client = None
+):
     member = await membership_for(db, user.id, generation=generation, write=True)
     if not member.profile.get("ai_consent"):
         raise HTTPException(403, "Enable AI processing in settings before asking a question")
@@ -554,6 +567,9 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         if answer:
             return {
                 "conversation_id": answer.conversation_id, **answer.content,
+                "citations": citations_for(
+                    answer.content.get("citations", []), legacy=legacy_client(client)
+                ),
                 "message": clean_assistant_message(answer.content.get("message", "")),
             }
         lease = prior.content.get("lease_until")
@@ -641,7 +657,7 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
     zone = parent_zone(member.profile.get("timezone"))
     pack = await context_pack(db, user.id, generation, body, zone)
     context, displays, requested_range = await retrieve(
-        db, user.id, generation, body, zone, child_names=[item["name"] for item in pack["children"]]
+        db, user.id, generation, body, zone, legacy=legacy_client(client), child_names=[item["name"] for item in pack["children"]]
     )
     history_rows = list(
         await db.scalars(

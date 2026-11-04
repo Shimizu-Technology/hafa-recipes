@@ -43,6 +43,11 @@ class BabyRoute(PrivateFailureRoute):
         return handler
 
 
+def new_kinds_enabled():
+    """Turned on after migration 055; until then its check constraint would refuse the row."""
+    return getattr(get_settings(), "baby_new_kinds_enabled", False)
+
+
 # Per-owner admission prevents one caller from monopolizing all process slots.
 # The process cap also bounds concurrent multipart buffers to four uploads.
 _upload_ingress = threading.Lock()

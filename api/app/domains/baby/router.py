@@ -13,7 +13,7 @@ from sqlalchemy import func, or_, select
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
-from app.domains.baby.dependencies import Database, Generation, Limit, Offset, User
+from app.domains.baby.dependencies import Client, Database, Generation, Limit, Offset, User
 from app.domains.baby.imports import router as imports_router
 from app.domains.baby.lifecycle import (
     digest,
@@ -36,12 +36,15 @@ from app.domains.baby.models import (
 from app.domains.baby.queries import (
     LATEST_PREGNANCY_DAYS,
     child_timing,
+    legacy_client,
     records_query,
     stage_filter,
     timing_bounds,
     timing_filter,
 )
 from app.domains.baby.schemas import (
+    NEW_KINDS,
+    V1_KINDS,
     ChildCreate,
     ChildPatch,
     CollectionData,
@@ -53,7 +56,7 @@ from app.domains.baby.schemas import (
     SourceRelevance,
     Stage,
 )
-from app.domains.baby.security import BabyRoute
+from app.domains.baby.security import BabyRoute, new_kinds_enabled
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
@@ -89,6 +92,34 @@ def record_response(row):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category")
+PATCH_ADDITIONS = {
+    "feeding": ("state", "actions", "end_at", "contents"),
+    "diaper": ("color",),
+}
+
+
+def kept_additions(current, patch, keys):
+    data = dict(patch)
+    for key in keys:
+        if key not in data and key in current:
+            data[key] = deepcopy(current[key])
+    return data
+
+
+def visible_to(row, client):
+    if legacy_client(client) and row.kind not in V1_KINDS:
+        raise HTTPException(404, "Item unavailable")
+    return row
+
+
+def can_create(kind, client):
+    if kind not in NEW_KINDS:
+        return
+    if legacy_client(client):
+        raise HTTPException(422, "Update Håfa Baby to save this")
+    if not new_kinds_enabled():
+        # Retryable, so a client that shipped first keeps its entry queued.
+        raise HTTPException(503, "This can't be saved yet; it will try again")
 
 
 def user_timing(relevance):
@@ -97,10 +128,7 @@ def user_timing(relevance):
 
 
 def source_patch_data(current, patch):
-    data = dict(patch)
-    for key in SOURCE_ADDITIONS:
-        if key not in data and key in current:
-            data[key] = deepcopy(current[key])
+    data = kept_additions(current, patch, SOURCE_ADDITIONS)
     stored, relevance = current.get("relevance"), data.get("relevance")
     if relevance is None and stored:
         # Clearing is a decision too: an empty user marker keeps reprocessing
@@ -408,6 +436,7 @@ async def record_list(
     conditions=(),
     order=None,
     extra=None,
+    client=None,
 ):
     if kind is not None and kinds is not None:
         raise HTTPException(422, "Choose kind or kinds, not both")
@@ -448,6 +477,8 @@ async def record_list(
         query = query.where(BabyRecord.kind.in_(kinds))
     if child_id and include_general:
         query = query.where(or_(BabyRecord.child_id == child_id, BabyRecord.child_id.is_(None)))
+    if legacy_client(client):
+        query = query.where(BabyRecord.kind.in_(V1_KINDS))
     for condition in conditions:
         query = query.where(condition)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
@@ -520,6 +551,7 @@ async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_w
 async def records(
     user: User,
     db: Database,
+    client: Client = None,
     kind: Kind | None = None,
     kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
     child_id: UUID | None = None,
@@ -576,6 +608,7 @@ async def records(
         conditions=conditions,
         order=order,
         extra=extra,
+        client=client,
     )
 
 
@@ -584,6 +617,7 @@ async def search(
     user: User,
     db: Database,
     q: Annotated[str, Query(min_length=1, max_length=300)],
+    client: Client = None,
     kind: Kind | None = None,
     kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
     child_id: UUID | None = None,
@@ -609,17 +643,22 @@ async def search(
         collection_id=collection_id,
         topic=topic,
         uncategorized=uncategorized,
+        client=client,
     )
 
 
 @router.get("/records/{identifier}")
-async def get_record(identifier: UUID, user: User, db: Database):
+async def get_record(identifier: UUID, user: User, db: Database, client: Client = None):
     member = await membership_for(db, user.id)
-    return record_response(await owned(db, BabyRecord, user.id, member.generation, identifier))
+    row = await owned(db, BabyRecord, user.id, member.generation, identifier)
+    return record_response(visible_to(row, client))
 
 
 @router.post("/records")
-async def create_record(body: RecordCreate, user: User, db: Database, generation: Generation):
+async def create_record(
+    body: RecordCreate, user: User, db: Database, generation: Generation, client: Client = None
+):
+    can_create(body.kind, client)
     await membership_for(db, user.id, generation=generation, write=True)
     if body.kind == "source" and body.data.get("relevance") is not None:
         body.data["relevance"] = user_timing(body.data["relevance"])
@@ -652,15 +691,22 @@ async def create_record(body: RecordCreate, user: User, db: Database, generation
 
 @router.patch("/records/{identifier}")
 async def patch_record(
-    identifier: UUID, body: RecordPatch, user: User, db: Database, generation: Generation
+    identifier: UUID,
+    body: RecordPatch,
+    user: User,
+    db: Database,
+    generation: Generation,
+    client: Client = None,
 ):
     await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
     revision_matches(row, body.revision)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values.update(body.model_dump(exclude_unset=True, exclude={"revision"}))
     if row.kind == "source" and isinstance(body.data, dict):
         values["data"] = source_patch_data(row.data, body.data)
+    elif row.kind in PATCH_ADDITIONS and isinstance(body.data, dict):
+        values["data"] = kept_additions(row.data, body.data, PATCH_ADDITIONS[row.kind])
     try:
         valid = RecordCreate.model_validate(values)
     except ValidationError:
@@ -685,9 +731,10 @@ async def delete_record(
     db: Database,
     generation: Generation,
     revision: Annotated[int, Query(ge=1)],
+    client: Client = None,
 ):
     await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
     revision_matches(row, revision)
     # Cancel processing before deleting the source, so completion cannot recreate it.
     for job in await db.scalars(
@@ -722,7 +769,7 @@ async def delete_record(
 
 
 @router.get("/export")
-async def export(user: User, db: Database):
+async def export(user: User, db: Database, client: Client = None):
     member = await membership_for(db, user.id, write=True)
     from app.domains.baby.attachments import metadata
     from app.domains.baby.chat import conversation_response, message_response
@@ -745,13 +792,15 @@ async def export(user: User, db: Database):
             child_response(row) for row in await rows(BabyChild) if row.deleted_at is None
         ],
         "records": [
-            record_response(row) for row in await rows(BabyRecord) if row.deleted_at is None
+            record_response(row)
+            for row in await rows(BabyRecord)
+            if row.deleted_at is None and not (legacy_client(client) and row.kind not in V1_KINDS)
         ],
         "attachments": [
             metadata(row) for row in await rows(BabyAttachment) if row.state == "ready"
         ],
         "conversations": [conversation_response(row) for row in await rows(BabyConversation)],
-        "messages": [message_response(row) for row in await rows(BabyMessage)],
+        "messages": [message_response(row, legacy=legacy_client(client)) for row in await rows(BabyMessage)],
     }
 
 
