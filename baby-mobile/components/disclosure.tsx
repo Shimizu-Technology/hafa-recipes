@@ -9,7 +9,7 @@ export function Disclosure({ title, children }: PropsWithChildren<{ title: strin
     <View style={{ gap: 12 }}>
       <Pressable accessibilityRole="button" accessibilityLabel={title}
         accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)}
-        style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center",
+        style={({ pressed }) => ({ minHeight: 48, paddingVertical: 8, flexDirection: "row", alignItems: "center",
           justifyContent: "space-between", gap: 12, borderBottomWidth: 1, borderColor: c.border,
           opacity: pressed ? 0.6 : 1 })}>
         <View style={{ flex: 1 }}><Copy kind="label">{title}</Copy></View>
