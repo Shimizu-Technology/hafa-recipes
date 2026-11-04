@@ -10,9 +10,10 @@ export function persistedCache(section: string, value: unknown) {
   if (section !== "records") return value;
   let fullSources = 0,
     recent = 0;
-  // Reminder restoration must survive an offline restart, even behind a busy journal.
+  // Reminder restoration must survive an offline restart, even behind a busy journal. So must the calendar and what's on
+  // its visits: an old repeat sits far behind a few days of newborn logs.
   return (value as BabyRecord[])
-    .filter((record) => record.kind === "routine" || recent++ < 200)
+    .filter((record) => record.kind === "routine" || record.kind === "event" || !!record.data.event_id || recent++ < 200)
     .map((record) => {
       if (record.kind !== "source") return record;
       if (

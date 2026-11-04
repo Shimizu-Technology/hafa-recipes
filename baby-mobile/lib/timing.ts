@@ -76,6 +76,23 @@ export function babyAgeWeeks(birthDate: string, now = new Date()) {
   return birth ? Math.max(0, Math.min(520, Math.floor((startOfDay(now).getTime() - birth.getTime()) / day / 7))) : 0;
 }
 
+/**
+ * Which after-birth card is today's: weeks 1 to 12 (week 1 is the first seven days), then completed calendar months from
+ * 3 to 24. The days between the end of week 12 and three full months show month 3. Past 24 months there's no card.
+ */
+export function babyAgeCard(birthDate: string, now = new Date()): { unit: "week" | "month"; age: number } | null {
+  const birth = localDay(birthDate), today = startOfDay(now);
+  if (!birth) return null;
+  const days = Math.round((today.getTime() - birth.getTime()) / day);
+  if (days < 0) return null;
+  if (days < 84) return { unit: "week", age: Math.floor(days / 7) + 1 };
+  // Born on the 31st, the month turns on the last day of a shorter month.
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate(),
+    months = (today.getFullYear() - birth.getFullYear()) * 12 + today.getMonth() - birth.getMonth()
+      - (today.getDate() < Math.min(birth.getDate(), monthEnd) ? 1 : 0);
+  return months > 24 ? null : { unit: "month", age: Math.max(3, months) };
+}
+
 export const weeksToMonths = (weeks: number) => Math.round((weeks * 12) / 52);
 export const monthsToWeeks = (months: number) => Math.round((months * 52) / 12);
 

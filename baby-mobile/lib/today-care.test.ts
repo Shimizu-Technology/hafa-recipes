@@ -3,10 +3,11 @@ import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createBabyApi } from "./api";
 import { emptyState, optimisticRecord, type DeviceState } from "./models";
-import { todayCareRows, useTodayCare } from "./today-care";
+import { carePollMs, todayCareRows, useTodayCare } from "./today-care";
 
-const scope = vi.hoisted(() => ({ account: null as unknown, focused: true }));
+const scope = vi.hoisted(() => ({ account: null as unknown, focused: true, appState: "active" }));
 vi.mock("./context", () => ({ useBaby: () => scope.account }));
+vi.mock("react-native", () => ({ AppState: { get currentState() { return scope.appState; } } }));
 vi.mock("expo-router", async () => {
   const React = await import("react");
   return { useFocusEffect: (callback: () => (() => void) | undefined) =>
@@ -85,7 +86,7 @@ it("keeps offline cached care, overlays pending saves/deletes, and limits to3in 
   await mount();
   expect(result.error).toContain("Could not connect");
   expect(result.loading).toBe(false);
-  expect(result.rows.map((row) => row.id)).toEqual(["new", "general", "old"]);
+  expect(result.rows.map((row) => row.id)).toEqual(["new", "old", "general"]);
 });
 it("keeps just-synced local care visible while excluding unrelated oldcache from a server page", async () => {
   const account = setup(async () => page([care("server")]));
@@ -172,4 +173,33 @@ it("rechecks the generation lease inside a queued durable commit before merging 
   });
   expect(account.state.records).toEqual([]);
   expect(result.rows).toEqual([]);
+});
+
+it("looks for the other phone's care every 15 seconds while focused, quietly, and only in the foreground", async () => {
+  vi.useFakeTimers();
+  try {
+    const transport = vi.fn(async (_url: string) => page([care("mine")]));
+    setup(transport);
+    await mount();
+    expect(transport).toHaveBeenCalledTimes(1);
+    transport.mockImplementation(async () => page([care("mine"), care("other-phone", null, "2026-10-20T00:00:00Z")]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(result.all.map((row) => row.id)).toEqual(["other-phone", "mine"]);
+    // A dropped signal doesn't throw away what's on screen or raise a banner.
+    transport.mockImplementation(async () => { throw new TypeError("offline"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+    expect(result.error).toBe("");
+    expect(result.loading).toBe(false);
+    expect(result.all.map((row) => row.id)).toEqual(["other-phone", "mine"]);
+    scope.appState = "background";
+    const calls = transport.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs * 2); });
+    expect(transport).toHaveBeenCalledTimes(calls);
+    scope.appState = "active";
+    await act(async () => renderer!.unmount());
+    renderer = undefined;
+    await vi.advanceTimersByTimeAsync(carePollMs * 2);
+    expect(transport).toHaveBeenCalledTimes(calls);
+  } finally { vi.useRealTimers(); scope.appState = "active"; }
 });

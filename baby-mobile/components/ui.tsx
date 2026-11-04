@@ -50,6 +50,8 @@ const light = {
   tabIndicator: "#F1DDD3", tabInk: "#5A4740", addFill: "#9A5744", onAdd: "#FFFFFF",
   // The 34-of-40 pregnancy bar, and the blush monogram tile for sources without a photo.
   progressTrack: "rgba(154,87,68,0.16)", progressFill: "#9A5744", placeholder: "#F1DDD3", placeholderInk: "#8E4F3D",
+  // Calendar events, by category. Each also has its own icon and name, so colour is never the only signal.
+  categories: { appointment: "#9A5744", family: "#557A52", celebration: "#A06F0C", milestone: "#85568A", reminder: "#44708F", other: "#725F56" },
 };
 const dark: typeof light = {
   background: "#14110F", groupedBackground: "#14110F", surface: "#221B18",
@@ -62,6 +64,7 @@ const dark: typeof light = {
   tabBar: "#1C1714", tabBarBorder: "#2E2622", headerFill: "#2A221F",
   tabIndicator: "#3A2A23", tabInk: "#F3E9E2", addFill: "#E0A894", onAdd: "#2A1B16",
   progressTrack: "rgba(224,168,148,0.2)", progressFill: "#E0A894", placeholder: "#33251F", placeholderInk: "#E0A894",
+  categories: { appointment: "#E0A894", family: "#9CC497", celebration: "#E6C069", milestone: "#CDA2D2", reminder: "#96BEDB", other: "#B5A39A" },
 };
 export const palettes = { light, dark };
 export function useColors() {
@@ -150,8 +153,8 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
     style={[typeof style === "function" ? style({ pressed, hovered }) : style, { opacity, transform: [{ scale }] }]} />;
 });
 
-type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table";
-/** Ionicons throughout, plus two baby-care glyphs Ionicons lacks (prefixed "care:"). */
+type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table" | "mother-nurse";
+/** Ionicons throughout, plus the baby-care glyphs Ionicons lacks (prefixed "care:"). */
 export type IconName = React.ComponentProps<typeof Ionicons>["name"] | `care:${CareGlyph}`;
 export function Icon({ name, size = 22, color }: { name: IconName; size?: number; color?: ColorValue }) {
   const c = useColors();
@@ -537,12 +540,14 @@ export function Button({
   );
 }
 /** A scalable text action for a screen header. */
+const headerTextLimit = 1.6;
 export function HeaderAction({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }}
     disabled={disabled} onPress={onPress}
     style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 8, justifyContent: "center", alignItems: "center" }}>
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
+    {/* The bar stays one height, so the words stop growing before it would cut them off. */}
+    <Text key={fontScale} numberOfLines={1} maxFontSizeMultiplier={headerTextLimit} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
   </PressTarget>;
 }
 let accessoryCount = 0;
@@ -712,7 +717,7 @@ export function Chips({
   label,
   scroll = false,
 }: {
-  options: { label: string; value: string }[];
+  options: { label: string; value: string; dot?: ColorValue }[];
   value: string;
   onChange: (v: string) => void;
   /** Read before each option by VoiceOver, for example "Feeding method". */
@@ -742,12 +747,15 @@ export function Chips({
               paddingHorizontal: 16,
               paddingVertical: 10,
               borderRadius: 999,
+              flexDirection: "row",
+              gap: 7,
               justifyContent: "center",
               alignItems: "center",
               backgroundColor: on ? c.action : c.soft,
 
             })}
           >
+            {!!o.dot && <View style={{ width: 9, height: 9, borderRadius: 4.5, backgroundColor: o.dot }} />}
             <Text
               key={fontScale}
               maxFontSizeMultiplier={0}
@@ -1010,7 +1018,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           }}
         >
           <PressTarget style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={2} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
               {toast.message}
             </Text>
           </PressTarget>
@@ -1033,7 +1041,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
+              <Text key={fontScale} maxFontSizeMultiplier={2} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
                 {toast.action.label}
               </Text>
             </PressTarget>

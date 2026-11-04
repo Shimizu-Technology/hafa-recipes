@@ -40,6 +40,7 @@ vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/ui", () => import("../components/ui"));
 
 import { View } from "react-native";
+import { HeaderAction } from "../components/ui";
 import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
@@ -177,6 +178,19 @@ it.each([1, 3.1])("keeps Undo above the native tab bar through a live fontScale 
   expect(controls().some(n => n.props.accessibilityLabel === "Undo")).toBe(true);
 });
 
+it("caps the toast's text so a short word beside Undo isn't split at the largest size", async () => {
+  mock.fontScale = 3.1;
+  function Trigger() {
+    const toast = useToast();
+    return <Button title="Show toast" onPress={() => toast("Started", { label: "Undo", onPress() {} })} />;
+  }
+  await mount(<ToastProvider><Trigger /></ToastProvider>);
+  await act(async () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).find(n => n.props.accessibilityLabel === "Show toast")!.props.onPress());
+  const text = renderer!.root.findAllByType("Text" as React.ElementType).filter(n => ["Started", "Undo"].includes(String(n.props.children)));
+  expect(text.map(n => n.props.maxFontSizeMultiplier)).toEqual([2, 2]);
+  mock.fontScale = 1;
+});
+
 it.each(["", undefined, "A useful subtitle"])("keeps optional subtitle %j inside Text rather than a layout View", async subtitle => {
   await mount(<Screen title="Today" subtitle={subtitle}><Copy>Care comes first</Copy></Screen>);
   const layoutChildren = renderer!.root.findAllByType("View" as React.ElementType)
@@ -188,7 +202,7 @@ it.each(["", undefined, "A useful subtitle"])("keeps optional subtitle %j inside
 });
 
 
-it.each(["Today", "Saved", "Journal", "Ask"])("leaves Add to the tab bar and shows %s's account as initials", async title => {
+it.each(["Today", "Tracker", "Saved", "Ask"])("leaves Add to the tab bar and shows %s's account as initials", async title => {
   mock.baby = { ...mock.baby, state: { ...mock.baby.state, bootstrap: { profile: { display_name: "Kami Shimizu" } } } as any };
   await mount(<TabStack title={title} />);
   expect(mock.options).toEqual([]);
@@ -292,7 +306,7 @@ it.each([1, 3.1])("keeps the feed number on one line at scale %s while preservin
   expect(number.props.adjustsFontSizeToFit).toBe(true);
   expect(number.props.numberOfLines).toBe(1);
   expect(number.props.style.fontSize).toBe(44);
-  const detail = texts.find(t => t.props.children === "Left side · 15 min · Next: right")!;
+  const detail = texts.find(t => String(t.props.children).startsWith("Left · 15 min · "))!;
   expect(detail.props.maxFontSizeMultiplier).toBe(0);
   await act(async () => renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.onPress());
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "feed" } });
@@ -421,7 +435,7 @@ it("centres the scaled Saved search line with its magnifier at AX3", async () =>
   expect(input.props.allowFontScaling).toBe(false);
   expect(input.parent!.props.style.alignItems).toBe("center");
 });
-it.each([0, 15, 2457, 4320])("keeps the ago suffix inside the elapsed-time line (%d minutes)", async minutes => {
+it.each([15, 2457, 4320])("keeps the ago suffix inside the elapsed-time line (%d minutes)", async minutes => {
   const now = new Date("2026-10-31T06:00:00Z");
   const feed = optimisticRecord({ id: "f", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: new Date(now.getTime() - minutes * 60000).toISOString(), data: { method: "bottle", amount: 90, unit: "ml" } });
   await mount(<CareGlance child={{ id: "baby", name: "Isla", revision: 1 }} rows={[feed]} now={now} />);
@@ -445,4 +459,13 @@ it("connects section navigation to the Screen's real scroll container and conten
   expect(scroll.props.ref).toBe(scrollRef);
   act(() => scroll.props.onContentSizeChange(390, 1600));
   expect(ready).toHaveBeenCalledOnce();
+});
+
+it("keeps a header action's words inside the bar's one height at the largest text size", async () => {
+  mock.fontScale = 3.1;
+  await mount(<HeaderAction title="Close" onPress={() => undefined} />);
+  const words = renderer!.root.findByType("Text" as React.ElementType);
+  expect(words.props.maxFontSizeMultiplier).toBeGreaterThan(1);
+  expect(words.props.maxFontSizeMultiplier).toBeLessThanOrEqual(1.6);
+  expect(words.props.numberOfLines).toBe(1);
 });

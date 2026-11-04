@@ -56,6 +56,7 @@ const buildToolAdvisories = [
   { packageName: 'braces', source: 1240992, parent: 'node_modules/micromatch' },
   { packageName: 'glob', source: 1244013, parent: 'node_modules/@expo/cli' },
   { packageName: 'minimatch', source: 1244012, parent: 'node_modules/glob' },
+  { packageName: 'minimatch', source: 1244623, parent: 'node_modules/glob' },
 ];
 
 describe.each(buildToolAdvisories)('$packageName temporary dependency review', (advisory) => {

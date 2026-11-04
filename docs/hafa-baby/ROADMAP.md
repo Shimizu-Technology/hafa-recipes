@@ -307,6 +307,8 @@ A running feed stores its actions, and everything else is derived by one pure re
 - Expansion starts from all recurring events in the space, not only those dated in range, so older repeats aren't lost.
 - Occurrence identity is `event_id + original start`. Exceptions are stored in `data.exceptions` as `{original_start, cancelled | overrides}`.
 - Month-end repeats clamp to the last day. Computed in the event's time zone.
+- `POST /events/{id}/split` changes a repeat from one date on: it ends the series and creates its replacement in one transaction, under a client-chosen ID, so a retry gets the same answer. `recurrence.anchor` keeps the date the count started on, so a Jan 31 series split at Feb 28 still gives Mar 31.
+- A question or note can only link to its own child's event or a whole-family one; general ones fit any. Giving an event to another child lets go of the links that no longer fit. `GET /records?event_id=` reads one event's records.
 
 ### 10 Push delivery
 

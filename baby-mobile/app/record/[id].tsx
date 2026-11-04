@@ -2,12 +2,14 @@ import { sourceTitle } from "@/lib/source-title";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { Image } from "expo-image";
-import { router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
-import { careSummary, duration, friendlyTime } from "@/lib/care-format";
+import { careSummary, duration, friendlyTime, isCare } from "@/lib/care-format";
+import { feedProgress } from "@/lib/feed-reducer";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
-import { inheritedFiles, replaceRecord } from "@/lib/outbox";
+import { keyDate, recordDay } from "@/lib/tracker";
+import { inheritedFiles, mutationRecordId, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { Button, Card, Chips, Choice, Copy, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
@@ -16,6 +18,7 @@ import { tipTopic } from "@/lib/timing";
 import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
+import { RecordVisit } from "@/components/visit-sections";
 import { ensureAiConsent } from "../../lib/ai-consent";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
@@ -26,7 +29,7 @@ export default function RecordDetail() {
     [missing, setMissing] = useState(false),
     [editingTiming, setEditingTiming] = useState(false),
     record = b.records.find((r) => r.id === id),
-    pending = b.state.outbox.some((m) => m.type !== "import" && m.record.id === id);
+    pending = b.state.outbox.some((m) => mutationRecordId(m) === id && m.type !== "import");
   useEffect(() => {
     if (record && !record.cache_partial) return;
     let active = true;
@@ -79,18 +82,24 @@ export default function RecordDetail() {
         />
       </Screen>
     );
+  if (record.kind === "event") return <Redirect href={{ pathname: "/event/[id]", params: { id: record.id } }} />;
   const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
     title = record.kind === "source" ? sourceTitle(record) : record.title,
     data = record.data,
+    // Care and the timers read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
+    clock = isCare(record.kind) || record.kind === "contraction" || record.kind === "kick_session" ? b.state.bootstrap?.profile.timezone : undefined,
+    // A milestone or a shot is kept by its date, and its noon is only how the date is stored.
+    dateOnly = record.kind === "milestone" || record.kind === "custom",
     localFiles = inheritedFiles(b.state, record.id).filter(
       (file) => !file.uploaded_id || !data.attachment_ids?.includes(file.uploaded_id)
     );
   return (
     <Screen
-      title={kindName[record.kind]}
+      title={data.label ?? kindName[record.kind]}
       back
       numericSubtitle
-      subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
+      subtitle={(dateOnly ? keyDate(recordDay(record.occurred_at, b.state.bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
+        : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + child.name : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
         : title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
@@ -106,15 +115,17 @@ export default function RecordDetail() {
       {record.kind === "feeding" && (
         <Card tone="hero">
           <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
+          {feedProgress(record, b.records) === "running" && <Copy tone="muted">Feeding now</Copy>}
+          {feedProgress(record, b.records) === "no_end" && <Copy tone="muted">No end time</Copy>}
         </Card>
       )}
       {record.kind === "sleep" && (
         <Card tone="hero">
           <Copy kind="heading">{data.end_at ? "Sleep recorded" : "Sleep in progress"}</Copy>
-          <Copy numeric>Started {friendlyTime(record.occurred_at)}</Copy>
+          <Copy numeric>Started {friendlyTime(record.occurred_at, undefined, clock)}</Copy>
           {data.end_at ? (
             <>
-              <Copy numeric>Ended {friendlyTime(data.end_at)}</Copy>
+              <Copy numeric>Ended {friendlyTime(data.end_at, undefined, clock)}</Copy>
               <Copy numeric>
                 {duration((new Date(data.end_at).getTime() - new Date(record.occurred_at).getTime()) / 60000)}
               </Copy>
@@ -210,6 +221,7 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
+      {(record.kind === "question" || !!data.event_id) && <RecordVisit record={record} />}
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
         onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
       <Grouped>

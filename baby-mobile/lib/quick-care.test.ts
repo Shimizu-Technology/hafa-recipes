@@ -25,7 +25,7 @@ it("cancels an unsynced one-tap log locally through ordered outbox changes", asy
   // When the save syncs first, the queued delete carries the revision it produced.
   const saved = b.state.outbox[0] as Extract<Mutation, { type: "save" }>;
   const server = { ...saved.record, revision: 1, created_at: "", updated_at: "" } as BabyRecord;
-  expect((advancePending(b.state.outbox[1], server) as Extract<Mutation, { type: "delete" }>).record.revision).toBe(1);
+  expect((advancePending(b.state.outbox[1], saved, server) as Extract<Mutation, { type: "delete" }>).record.revision).toBe(1);
 });
 
 it("restores an open sleep when finishing it is undone", async () => {

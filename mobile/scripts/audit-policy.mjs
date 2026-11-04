@@ -547,6 +547,33 @@ const reviewedBuildToolAdvisories = {
         }
       }
     }
+  },
+  // Same build-only consumers and bundle checks as minimatch:1244012 above.
+  "minimatch:1244623": {
+    "packages": {
+      "node_modules/minimatch": {
+        "version": "10.2.6",
+        "integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A=="
+      },
+      "node_modules/@expo/fingerprint": {
+        "version": "0.20.14",
+        "integrity": "sha512-7sihStGX1ZepJBNbYgeQY7cU2GQ+PSkSROe3g7JOQqnT6OOuX0rXKY0ZNoVnlB2Y/H5FWnnJ6QrPlK3fNg9+bQ=="
+      },
+      "node_modules/glob": {
+        "version": "13.0.0",
+        "integrity": "sha512-tvZgpqk6fz4BaNZ66ZsRaZnbHvP/jG3uKJvAZOwEVUL4RTA5nJeeLYfyN9/VA8NX/V3IBG+hkeuGpKjvELkVhA=="
+      }
+    },
+    "declarations": {
+      "minimatch": {
+        "node_modules/@expo/fingerprint": {
+          "dependencies": "^10.2.2"
+        },
+        "node_modules/glob": {
+          "dependencies": "^10.1.1"
+        }
+      }
+    }
   }
 };
 

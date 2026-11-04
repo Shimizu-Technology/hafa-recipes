@@ -1,31 +1,31 @@
-import { useRef } from "react";
 import { Stack, router } from "expo-router";
-import { ActionSheetIOS, Alert, Platform, Text, View, useWindowDimensions } from "react-native";
-import * as Haptics from "expo-haptics";
+import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
-import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { sleepGlanceDetail, babyAge, careGlance, nextFeed } from "@/lib/care-glance";
-import { careSummary, friendlyTime } from "@/lib/care-format";
+import { sleepGlanceDetail, babyAge, careGlance } from "@/lib/care-glance";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
-import { careWrite, logCare, updateCare } from "@/lib/quick-care";
-import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
-import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, useToast, type IconName } from "@/components/ui";
+import { activeTimer } from "@/lib/feed-timer";
+import { runningFeed } from "@/lib/feed-reducer";
+import { dayKey, summaryLine } from "@/lib/tracker";
+import { dayOverlay } from "@/lib/care-summary";
+import { useCareSummary } from "@/lib/use-care-summary";
+import { babyArrived } from "@/lib/quick-care";
+import { messageFor } from "@/lib/models";
+import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, tap, typeScale, useColors, useToast, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
-import { FeedTimerCard } from "@/components/feed-timer";
-import { PregnancyHero, TipSection } from "@/components/tips";
+import { LegacyTimer } from "@/components/feed-timer";
+import { QuickLog } from "@/components/quick-log";
+import { BabyAgeCard, PregnancyHero, TipSection } from "@/components/tips";
+import { NextEvent } from "@/components/event-row";
+import { useVisitDrafts } from "@/components/visit-sections";
 import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
 
-const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] = [
-  { label: "Wet", type: "wet" },
-  { label: "Dirty", type: "dirty" },
-  { label: "Wet + dirty", type: "both" },
-  { label: "Dry", type: "dry" },
-];
+/** The docked log covers too much of the screen at the largest text sizes, so it scrolls with the page there. */
+const dockBelow = 1.5;
 
 function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: string; hint: string; onPress: () => void; primary?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
@@ -60,6 +60,8 @@ export default function Today() {
   const b = useBaby(), c = useColors(),
     toast = useToast(),
     now = useMinuteClock(),
+    // Here, because a baby who's due and one who's born each get their own layout, and a half-typed question outlasts both.
+    visitDrafts = useVisitDrafts(),
     { fontScale } = useWindowDimensions(),
     children = b.state.bootstrap!.children,
     // The profile's calendar day, as the API counts pregnancy weeks and baby age.
@@ -67,7 +69,7 @@ export default function Today() {
     child = timingChild(b.state, today),
     records = b.records.filter((r) => !r.child_id || r.child_id === child?.id),
     latestCare = useTodayCare(),
-    glance = careGlance(latestCare.all, child?.id ?? null, now),
+    glance = careGlance(latestCare.all, child?.id ?? null, now, b.state.bootstrap!.profile.timezone),
     routines = records.filter((r) => routineToday(r, now)),
     stage = todayStage(child, today),
     pregnant = stage === "pregnancy",
@@ -75,109 +77,12 @@ export default function Today() {
     showCare = !!child && !expecting,
     tipsNow = useTimingTips(child, "now", 5, today),
     tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, today),
+    // A device timer is from an older build: it finishes the old way, on its own card, and is gone.
     timer = activeTimer(b.state),
-    timerChild = timer && children.find((c) => c.id === timer.child_id),
-    writing = useRef(false);
-  async function quick(action: () => Promise<() => Promise<void>>, message: string) {
-    // One write at a time: a double tap must not start two sleeps or end one twice.
-    if (writing.current) return;
-    writing.current = true;
-    try {
-      const undo = await action();
-      void Haptics.selectionAsync().catch(() => undefined);
-      toast(message, {
-        label: "Undo",
-        onPress: async () => {
-          try {
-            await undo();
-            toast("Undone.");
-          } catch (e) {
-            toast(messageFor(e));
-          }
-        },
-      });
-    } catch (e) {
-      toast(messageFor(e));
-    } finally {
-      writing.current = false;
-    }
-  }
-  function feed() {
-    if (!child) return router.push({ pathname: "/edit", params: { kind: "feeding" } });
-    if (timer) return toast("A feeding timer is running. Finish it from the timer above.");
-    const choices = sideChoices(nextFeed(glance.lastFeed).side),
-      labels = choices.map((choice) => `Start ${choice.side} side${choice.suggested ? " (next)" : ""}`);
-    const start = (side: FeedSide) =>
-      void b
-        .commit((s) => (activeTimer(s) ? s : { ...s, feedTimer: startTimer(child.id, s.bootstrap!.generation, side) }))
-        .catch((e) => toast(messageFor(e)));
-    const details = () => router.push({ pathname: "/edit", params: { kind: "feeding" } });
-    if (Platform.OS === "ios")
-      return ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: `Feed ${child.name}`,
-          options: [...labels, "Log a bottle or past feed…", "Cancel"],
-          cancelButtonIndex: 3,
-          tintColor: c.action,
-        },
-        (index) => (index < 2 ? start(choices[index].side) : index === 2 && details())
-      );
-    Alert.alert(
-      `Feed ${child.name}`,
-      undefined,
-      [
-        ...labels.map((text, i) => ({ text, onPress: () => start(choices[i].side) })),
-        { text: "Bottle or past feed…", onPress: details },
-      ],
-      { cancelable: true }
-    );
-  }
-  /** Save the timed feed and clear the timer in one write. Undo removes the feed only. */
-  function finishFeed(running: FeedTimer) {
-    const data = feedRecordData(running),
-      record = careWrite("feeding", running.child_id, data, new Date(running.started_at));
-    return quick(
-      () => logCare(b, record, (s) => changeTimer(s, running.started_at, () => undefined)),
-      `${careSummary("feeding", data, record.occurred_at)} · logged`
-    );
-  }
-  function sleep() {
-    if (!child) return router.push({ pathname: "/edit", params: { kind: "sleep" } });
-    const open = glance.openSleep;
-    if (open) {
-      const data = { ...open.data, end_at: new Date().toISOString() };
-      return void quick(() => updateCare(b, open, data), `${careSummary("sleep", data, open.occurred_at)} · logged`);
-    }
-    void quick(() => logCare(b, careWrite("sleep", child.id, {})), `Sleep started at ${friendlyTime(new Date().toISOString())}`);
-  }
-  function diaper() {
-    if (!child) return router.push({ pathname: "/edit", params: { kind: "diaper" } });
-    const save = (type: NonNullable<RecordData["type"]>) =>
-      void quick(
-        () => logCare(b, careWrite("diaper", child.id, { type })),
-        `${careSummary("diaper", { type }, "")} logged at ${friendlyTime(new Date().toISOString())}`
-      );
-    const details = () => router.push({ pathname: "/edit", params: { kind: "diaper" } });
-    if (Platform.OS === "ios")
-      return ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: `Diaper for ${child.name}`,
-          options: [...diaperChoices.map((choice) => choice.label), "Add time or note…", "Cancel"],
-          cancelButtonIndex: diaperChoices.length + 1,
-          tintColor: c.action,
-        },
-        (index) => (index < diaperChoices.length ? save(diaperChoices[index].type) : index === diaperChoices.length && details())
-      );
-    Alert.alert(
-      `Diaper for ${child.name}`,
-      undefined,
-      [
-        ...diaperChoices.slice(0, 2).map((choice) => ({ text: choice.label, onPress: () => save(choice.type) })),
-        { text: "More…", onPress: details },
-      ],
-      { cancelable: true }
-    );
-  }
+    running = runningFeed(latestCare.all, child?.id ?? null, now),
+    timezone = b.state.bootstrap!.profile.timezone,
+    todayKey = dayKey(today),
+    summary = useCareSummary(child?.id ?? null, todayKey, todayKey, { poll: true });
   const sleepEntry = glance.openSleep ?? glance.lastSleep,
     sleepTitle = glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
     sleepDetail = sleepGlanceDetail(glance, now),
@@ -185,13 +90,24 @@ export default function Today() {
     questions = records.filter((r) => r.kind === "question").length;
   const titleText = child?.name.trim() || "Today";
   const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id } });
+  /** One tap, since it may be the only hand free. Settings changes the date if it was another day. */
+  async function arrived() {
+    if (!child) return;
+    try {
+      const undo = await babyArrived(b, child, dayKey(today));
+      tap("success");
+      toast("Birth date set to today. You can change it in Settings.", { label: "Undo", onPress: async () => {
+        try { await undo(); toast("Undone."); } catch (e) { toast(messageFor(e)); }
+      } });
+    } catch (e) { toast(messageFor(e)); }
+  }
   if (expecting && child) return (
     <Screen title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
-      <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
+      <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
-      {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
+      <LegacyTimer />
       {pregnant ? <>
         <PregnancyHero child={child} now={today} tips={tipsNow.rows} />
         <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />
@@ -200,6 +116,11 @@ export default function Today() {
         <Copy numeric kind="small" tone="muted">{`${dueLine(child.due_date!, today)}. Add the birth date to start feeding, sleep and diaper logs and see tips for this age.`}</Copy>
         <Button title="Add the birth date" onPress={addBirth} />
       </Card>}
+      <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
+      <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
+        <Tile icon="pulse-outline" label="Contraction timer" hint="Start, stop, and the last hour" onPress={() => router.push("/contractions")} />
+        <Tile icon="footsteps-outline" label="Kick counter" hint="A tap for each movement, and your history" onPress={() => router.push("/kicks")} />
+      </View>
       <View style={{ gap: 8 }}>
         <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
           <Tile icon="link-outline" label="Save a link" hint="Paste a link, or share from TikTok, Instagram or Safari"
@@ -221,48 +142,49 @@ export default function Today() {
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
       </Grouped>
-      {pregnant && <Row title="Baby’s here?" detail="Add birth details to start feeding, sleep and diaper logs" icon="heart-outline"
-        onPress={addBirth} />}
+      {pregnant && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
+        hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
     </Screen>
   );
+  const todayLine = `Today: ${summaryLine(dayOverlay(b.state, child?.id ?? null, timezone, now)(summary?.[todayKey], todayKey))}`;
+  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} /> : null;
   return (
-    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}>
+    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, today) : child.name : undefined} numericSubtitle={showCare}
+      footer={fontScale < dockBelow ? quickLog : undefined}>
       <Stack.Screen options={{ title: titleText }} />
-      <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
+      <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
-      {timer && timerChild ? <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />
-        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} /> : <FirstStep child={child} now={now} />}
-      {showCare && <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
-        <Tile primary={!timer}
-          icon={kindIcon.feeding}
-          label={timer ? "Feeding…" : "Feed"}
-          hint={timer ? "A feeding timer is running above" : "Start a breastfeeding timer or log a feed"}
-          onPress={feed}
-        />
-        <Tile icon={glance.openSleep ? "sunny-outline" : kindIcon.sleep}
-          label={glance.openSleep ? "Wake up" : "Sleep"}
-          hint={glance.openSleep ? "Ends the current sleep now" : "Starts a sleep now"} onPress={sleep} />
-        <Tile icon={kindIcon.diaper} label="Diaper" hint="Choose wet, dirty or both" onPress={diaper} />
-      </View>}
+      {timer ? <LegacyTimer />
+        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} running={running} timeZone={timezone} /> : <FirstStep child={child} now={now} />}
+      {showCare && <PressTarget accessibilityRole="button" accessibilityLabel={todayLine} accessibilityHint="Opens today in Tracker"
+        onPress={() => router.navigate({ pathname: "/tracker", params: { day: dayKey(today), at: String(Date.now()) } })}
+        style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingHorizontal: 4 }}>
+        <View style={{ flexShrink: 1 }}><Copy numeric kind="small" tone="muted">{todayLine}</Copy></View>
+        <Icon name="chevron-forward" size={16} color={c.muted} />
+      </PressTarget>}
+      {fontScale >= dockBelow && quickLog}
+      <NextEvent childId={child?.id ?? null} today={todayKey} now={now} drafts={visitDrafts} />
       {!!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />
       </View>}
+      {stage === "baby" && child && <BabyAgeCard child={child} now={today} tips={tipsNow.rows} />}
       <Grouped>
         {showCare && <Row title={sleepTitle} detail={sleepDetail} numericDetail icon={kindIcon.sleep}
           onPress={() => router.push(sleepEntry ? { pathname: "/record/[id]", params: { id: sleepEntry.id } } : "/care-history")} />}
         {showCare && <Row title={`${glance.diapers.total} diaper${glance.diapers.total === 1 ? "" : "s"} today`} numericTitle numericDetail
-          detail={`${glance.diapers.wet} wet · ${glance.diapers.dirty} dirty`} icon={kindIcon.diaper}
+          detail={`${glance.diapers.wet} pee · ${glance.diapers.dirty} poo`} icon={kindIcon.diaper}
           onPress={() => router.push("/care-history")} />}
+        {showCare && <Row title="Milestones" detail="CDC’s list, and your keepsakes" icon={kindIcon.milestone} onPress={() => router.push("/milestones")} />}
+        {showCare && <Row title="Well visits & shots" detail="Suggested visits, and the shots you record" icon={kindIcon.custom} onPress={() => router.push("/well-visits")} />}
         <Row numericDetail title={routine?.title || "Lists & routines"}
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
-        <Row title="Write in your journal" icon="book-outline"
-          onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
+        <Row title="Journal" detail="Notes, photos and documents" icon="book-outline"
+          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal", at: String(Date.now()) } })} />
         <Row title="Care history" numericDetail detail={showCare ? `${glance.feeds} feed${glance.feeds === 1 ? "" : "s"} today · All care logs` : "Feeding, sleep and diaper logs"} icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
-      {stage === "baby" && <TipSection title="For this age" view="now" rows={tipsNow.rows} />}
       {!children.length && <Row title="Add a baby profile" detail="Personalize everyday care when you’re ready"
         icon="person-add-outline" onPress={() => router.push("/child")} />}
     </Screen>

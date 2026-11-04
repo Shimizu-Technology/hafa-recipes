@@ -15,12 +15,12 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import AwareDatetime, ValidationError
+from pydantic import AwareDatetime, ValidationError, model_validator
 from sqlalchemy import and_, func, literal_column, or_, tuple_
 
 from app.domains.baby.access import touch
 from app.domains.baby.dependencies import Access, Client, Database, Generation, User
-from app.domains.baby.lifecycle import now, owned
+from app.domains.baby.lifecycle import digest, now, owned, validate_relations
 from app.domains.baby.models import BabyChild, BabyRecord
 from app.domains.baby.queries import legacy_client
 from app.domains.baby.recurrence import is_start, starts_between
@@ -31,6 +31,7 @@ from app.domains.baby.schemas import (
     EventData,
     EventException,
     Profile,
+    RecordCreate,
     Revision,
 )
 from app.domains.baby.security import BabyRoute
@@ -345,6 +346,19 @@ class SeriesEnd(DomainModel):
     from_date: date
 
 
+class EventSplit(DomainModel):
+    revision: Revision
+    from_start: AwareDatetime
+    event: RecordCreate
+
+    @model_validator(mode="after")
+    def a_named_event(self):
+        # The phone chooses the id, so a retry finds the series its first try made.
+        if self.event.kind != "event" or "id" not in self.event.model_fields_set:
+            raise ValueError("Send the new event, with its id")
+        return self
+
+
 async def series_for_edit(db, access, generation, identifier, client):
     only_current_clients(client)
     access.check_generation(generation)
@@ -364,10 +378,16 @@ def repeating(row):
     return event, ZoneInfo(event.timezone)
 
 
-async def save_series(db, row, event, revision, access):
-    from app.domains.baby.router import record_response, revision_matches
+def ending_before(event, zone, last):
+    """The series with ``last`` as its final day. A change to a date it no longer has goes."""
+    event.recurrence.until = last
+    event.exceptions = [
+        item for item in event.exceptions if item.original_start.astimezone(zone).date() <= last
+    ]
+    return event
 
-    revision_matches(row, revision)
+
+def resaved(row, event):
     try:
         # Assigning to a model skips its checks, so read it back through them.
         event = EventData.model_validate(event.model_dump(mode="json"))
@@ -376,6 +396,13 @@ async def save_series(db, row, event, revision, access):
         raise HTTPException(422, "Enter valid details for this event") from None
     row.data = event.model_dump(mode="json")
     row.revision, row.updated_at = row.revision + 1, now()
+
+
+async def save_series(db, row, event, revision, access):
+    from app.domains.baby.router import record_response, revision_matches
+
+    revision_matches(row, revision)
+    resaved(row, event)
     await touch(row, access.target)
     await db.commit()
     return record_response(row, access)
@@ -437,8 +464,76 @@ async def end_series(
         raise HTTPException(422, "That would remove every date; delete the event instead")
     if event.recurrence.until is not None and event.recurrence.until <= last:
         return record_response(row, access)
-    event.recurrence.until = last
-    event.exceptions = [
-        item for item in event.exceptions if item.original_start.astimezone(zone).date() <= last
-    ]
-    return await save_series(db, row, event, body.revision, access)
+    return await save_series(db, row, ending_before(event, zone, last), body.revision, access)
+
+
+async def split_replay(db, prior, fingerprint, access, generation, identifier, user):
+    """The answer to a split that already happened: her retry, whatever has changed since."""
+    from app.domains.baby.router import record_response
+
+    if access.enabled:
+        access.grant(prior)
+    if (
+        not access.enabled and (prior.app_user_id != user.id or prior.generation != generation)
+    ) or prior.creation_hash != fingerprint:
+        raise HTTPException(409, "This save identity was already used with different content")
+    if prior.deleted_at:
+        raise HTTPException(410, "This entry was removed; create a new entry")
+    try:
+        series = record_response(await owned(db, BabyRecord, access, generation, identifier), access)
+    except HTTPException:
+        series = None  # Deleted or moved since; the new series is still what was asked for.
+    return {"series": series, "event": record_response(prior, access)}
+
+
+@router.post("/events/{identifier}/split", dependencies=[Depends(only_current_clients)])
+async def split_series(
+    identifier: UUID, body: EventSplit, user: User, db: Database, generation: Generation,
+    client: Client = None,
+    access: Access = None,
+):
+    """End a repeat before ``from_start`` and start ``event`` after it: both, or neither.
+
+    Sending it again changes nothing and gets the same answer, so a phone can retry for as long as it takes.
+    """
+    from app.domains.baby.router import can_create, record_response, revision_matches
+
+    only_current_clients(client)
+    access.check_generation(generation)
+    new = body.event
+    # Later queued changes can move the revision a retry carries, so it isn't part of what was asked.
+    fingerprint = digest({"series": str(identifier), **body.model_dump(mode="json", exclude={"revision"})})
+    # The caller holds the owner's or the spaces' write lock, so a concurrent retry waits and finds this.
+    prior = await db.get(BabyRecord, new.id)
+    if prior:
+        return await split_replay(db, prior, fingerprint, access, generation, identifier, user)
+    can_create("event", client)
+    row = await series_for_edit(db, access, generation, identifier, client)
+    event, zone = repeating(row)
+    revision_matches(row, body.revision)
+    if not is_start(row.occurred_at, zone, event.rule, body.from_start):
+        raise HTTPException(422, "That is not one of this event's dates")
+    last = body.from_start.astimezone(zone).date() - timedelta(days=1)
+    if last < row.occurred_at.astimezone(zone).date():
+        raise HTTPException(422, "That is the first date; change the whole event instead")
+    # The old series keeps every date before the split, so an earlier start would show those dates twice.
+    if new.occurred_at.astimezone(ZoneInfo(new.data["timezone"])).date() <= last:
+        raise HTTPException(422, "The new dates can't start before the date being changed")
+    await validate_relations(db, access, generation, new.child_id, new.data, record_id=new.id, kind="event")
+    await check_series_cap(db, access, generation, new.data, record_id=new.id)
+    resaved(row, ending_before(event, zone, last))
+    await touch(row, access.target)
+    added = BabyRecord(
+        **new.model_dump(),
+        app_user_id=user.id,
+        space_id=access.target.id if access.enabled else access.member.personal_space_id,
+        generation=generation,
+        revision=1,
+        creation_hash=fingerprint,
+        created_at=now(),
+        updated_at=now(),
+    )
+    db.add(added)
+    await touch(added, access.target)
+    await db.commit()
+    return {"series": record_response(row, access), "event": record_response(added, access)}

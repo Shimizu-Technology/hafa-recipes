@@ -47,12 +47,20 @@ function Routes() {
         <Stack.Screen name="add" options={{ presentation: "modal", headerShown: true, title: "What’s on your mind?" }} />
         <Stack.Screen name="edit" />
         <Stack.Screen name="record/[id]" />
+        <Stack.Screen name="event/[id]" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="child" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="sync" />
         <Stack.Screen name="routines" />
         <Stack.Screen name="care-history" />
+        <Stack.Screen name="journal" />
+        <Stack.Screen name="help" />
+        <Stack.Screen name="contractions" />
+        <Stack.Screen name="doctor-summary" />
+        <Stack.Screen name="kicks" />
+        <Stack.Screen name="milestones" />
+        <Stack.Screen name="well-visits" />
         <Stack.Screen name="ask-entry" />
         <Stack.Screen name="more" />
       </Stack.Protected>

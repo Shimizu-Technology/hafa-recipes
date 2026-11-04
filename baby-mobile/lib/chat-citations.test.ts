@@ -18,7 +18,7 @@ describe("citation previews", () => {
     expect(citationExcerpt({ id: one, title: "Feeding", excerpt:
       'Feeding\n{"side": "left", "unit": null, "amount": null, "method": "breast", "duration_minutes": 15.0}' }))
       .toBe("Breastfeeding · Left side · 15 min");
-    expect(citationExcerpt({ id: one, title: "Diaper", excerpt: 'Diaper\n{"type": "wet"}' })).toBe("Wet diaper");
+    expect(citationExcerpt({ id: one, title: "Diaper", excerpt: 'Diaper\n{"type": "wet"}' })).toBe("Diaper · Pee");
     expect(citationExcerpt({ id: one, title: "Sleep", excerpt: "Sleep\n{}", kind: "sleep" })).toBe("Sleep in progress");
     expect(citationExcerpt({ id: one, title: "Feeding", excerpt: 'Feeding\n{\n  "method": "bottle",\n  "amount": 4,\n  "unit": "oz"\n}\nAfter nap' }))
       .toBe("Bottle · 4 oz\nAfter nap");

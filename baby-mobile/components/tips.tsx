@@ -5,11 +5,12 @@ import type { BabyRecord, Child } from "@/lib/models";
 import { useBaby } from "@/lib/context";
 import { pendingSuggestion } from "@/lib/suggestions";
 import { sourceTitle } from "@/lib/source-title";
-import { dueLine, pregnancyProgress, timingLabel, tipTopic } from "@/lib/timing";
+import { babyAgeCard, dueLine, pregnancyProgress, timingLabel, tipTopic } from "@/lib/timing";
 import { Image } from "expo-image";
 import { Copy, Grouped, Icon, PressTarget, Section, fonts, radii, typeScale, useColors } from "./ui";
 import { Monogram, SavedPostRow, safeThumbnail } from "./saved-post-row";
 import { FadeUp } from "./motion";
+import { AgeFacts, WeekFacts } from "./week-facts";
 
 const weekStyle = { fontFamily: fonts.display, fontSize: 52, lineHeight: 58, fontVariant: ["tabular-nums" as const] };
 const dayStyle = { fontFamily: fonts.displayItalic, fontSize: 22, lineHeight: 28 };
@@ -69,6 +70,7 @@ export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Da
           <Copy numeric kind="small" tone="muted">{`${progress.week} of ${TOTAL_WEEKS} weeks`}</Copy>
         </View>
       </View>
+      <WeekFacts week={progress.week} />
       <View style={{ height: 1, backgroundColor: c.border }} />
       <View style={{ gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -77,6 +79,39 @@ export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Da
         </View>
         {tips.length ? tips.slice(0, 3).map((row) => <MiniTip key={row.id} row={row} topic={tipTopic(row, collections)} />)
           : <Copy kind="small" tone="muted">Tips you save for this point in your pregnancy show up here.</Copy>}
+      </View>
+    </View>
+  </FadeUp>;
+}
+
+/**
+ * Today's card after birth: "Week 3" or "5 months", what's typically happening then, and the tips she saved for this age
+ * beside it. Past 24 months there's no card for the age, so only her tips remain.
+ */
+export function BabyAgeCard({ child, now, tips = [] }: { child: Child; now: Date; tips?: BabyRecord[] }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), collections = useBaby().records.filter((row) => row.kind === "collection"),
+    age = babyAgeCard(child.birth_date!, now);
+  if (!age) return <TipSection title="For this age" view="now" rows={tips} />;
+  const title = age.unit === "week" ? `Week ${age.age}` : `${age.age} months`;
+  return <FadeUp>
+    <View style={{ backgroundColor: c.hero, borderRadius: radii.hero, padding: 22, gap: 16 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 12 }}>
+        <Text accessibilityRole="header" maxFontSizeMultiplier={1.5} style={{ ...weekStyle, fontSize: 40, lineHeight: 46, color: c.text }}>{title}</Text>
+        <PressTarget accessibilityRole="button" accessibilityLabel="Milestones" accessibilityHint="CDC’s list, and your keepsakes" hitSlop={4} onPress={() => router.push("/milestones")}
+          style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Icon name="ribbon-outline" size={18} color={c.accentText} />
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: c.accentText }}>Milestones</Text>
+        </PressTarget>
+      </View>
+      <AgeFacts age={age} />
+      <View style={{ height: 1, backgroundColor: c.border }} />
+      <View style={{ gap: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <View style={{ flex: 1 }}><Copy kind="heading">Saved for this age</Copy></View>
+          {tips.length > 0 && <SeeAll view="now" title="Saved for this age" />}
+        </View>
+        {tips.length ? tips.slice(0, 3).map((row) => <MiniTip key={row.id} row={row} topic={tipTopic(row, collections)} />)
+          : <Copy kind="small" tone="muted">Tips you save for this age show up here.</Copy>}
       </View>
     </View>
   </FadeUp>;

@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "milestone" | "custom" | "event";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -67,7 +67,70 @@ export interface SuggestedCategory {
   confidence?: number;
   status: "pending" | "accepted" | "dismissed";
 }
+export interface FeedAction {
+  id: string;
+  action: "start" | "switch" | "finish";
+  at: string;
+  side?: "left" | "right";
+  /** The revision this tap made, set by the API. A retry can't be told from the row alone, so this is the proof. */
+  revision?: number;
+}
+/** A kick session's tap or take-back, or a contraction's stop. */
+export interface SessionAction {
+  id: string;
+  action: "tap" | "undo" | "finish";
+  at: string;
+  /** What an undo takes back. */
+  target?: string;
+  /** As on a feed action. */
+  revision?: number;
+}
+export type EventCategory = "appointment" | "family" | "celebration" | "milestone" | "reminder" | "other";
+export interface EventRecurrence {
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
+  interval?: number;
+  /** The last day an occurrence can start, on the event's own calendar. */
+  until?: string | null;
+  /** Where the count starts when that's earlier than the event, as for a series split off another: Jan 31 keeps its month ends from a Feb 28 start. */
+  anchor?: string | null;
+}
+/** What one occurrence changes. A field left out keeps the series' value, and null clears it. */
+export interface EventOverrides {
+  start?: string;
+  end?: string | null;
+  all_day?: boolean;
+  title?: string;
+  category?: EventCategory | null;
+  location?: string | null;
+  attendees?: string[];
+}
+export interface EventException {
+  original_start: string;
+  cancelled?: boolean;
+  overrides?: EventOverrides | null;
+}
+/** One dated showing of an event, as `GET /events` returns it. It's identified by its event and its original start. */
+export interface EventOccurrence {
+  event_id: string;
+  original_start: string;
+  occurrence_start: string;
+  occurrence_end: string | null;
+  all_day: boolean;
+  timezone: string;
+  title: string;
+  category: EventCategory | null;
+  location: string | null;
+  attendees: string[];
+  child_id: string | null;
+  repeats: boolean;
+  changed: boolean;
+  revision: number;
+}
 export interface RecordData {
+  /** Which of CDC's milestones this records. The title keeps the words she checked, even if CDC later rewords them. */
+  milestone_id?: string;
+  /** What a custom entry is, such as "Shot". */
+  label?: string;
   provenance?: "caregiver_observation" | "clinician_instruction";
   url?: string;
   topics?: string[];
@@ -86,8 +149,18 @@ export interface RecordData {
   unit?: "ml" | "oz";
   side?: "left" | "right" | "both";
   duration_minutes?: number | null;
-  end_at?: string;
+  /** A running feed's actions; everything else about it is derived from them, here and on the server. */
+  actions?: FeedAction[];
+  state?: "running" | "finished" | "unknown_end";
+  /** What's in a bottle. Stored in the API's words; shown as Breast milk or Formula. */
+  contents?: "breast_milk" | "formula" | null;
+  end_at?: string | null;
+  /** Movements felt in a kick session, from its actions. */
+  count?: number;
+  session_actions?: SessionAction[];
   type?: "wet" | "dirty" | "both" | "dry";
+  /** A poo's colour, as the API stores it. */
+  color?: "black" | "green" | "yellow" | "brown" | "red" | "white" | null;
   routine_type?: "checklist" | "schedule";
   items?: RoutineItem[];
   reminder_at?: string;
@@ -98,6 +171,14 @@ export interface RecordData {
   record_ids?: string[];
   relevance?: Relevance | null;
   suggested_category?: SuggestedCategory | null;
+  /** An event's start is its `occurred_at`, and no child means the whole family. `timezone` is its own calendar. */
+  end?: string | null;
+  all_day?: boolean;
+  category?: EventCategory | null;
+  location?: string | null;
+  attendees?: string[];
+  recurrence?: EventRecurrence | null;
+  exceptions?: EventException[];
   [key: string]: unknown;
 }
 export interface BabyRecord {
@@ -174,6 +255,19 @@ export interface ChatResult {
   citations: Citation[];
   proposal?: Proposal;
 }
+/**
+ * What a save or draft was built on: the queued changes to this record it already showed, oldest first. Only these can
+ * move it to a newer revision. Copies kept by an earlier test build hold more here, which nothing reads.
+ */
+export interface SaveBase { after: string[] }
+/** What became of a queued change: the revision it's proven to have made, or that it was discarded. Neither means not known. */
+export interface SettledChange { made?: number; discarded?: boolean; made_for?: Record<string, number> }
+/** How an open editor is changing a repeating event. `series` is the event as it was when she chose. */
+export interface EventEdit {
+  scope: "one" | "future";
+  original_start: string;
+  series: Pick<BabyRecord, "title" | "body" | "child_id" | "occurred_at" | "data">;
+}
 export interface EditorDraft {
   id: string;
   kind: Kind;
@@ -185,6 +279,8 @@ export interface EditorDraft {
   revision?: number;
   files: LocalFile[];
   existing?: boolean;
+  base?: SaveBase;
+  event_edit?: EventEdit;
 }
 export type Mutation = { localOnly?: boolean } & (
   | {
@@ -193,10 +289,72 @@ export type Mutation = { localOnly?: boolean } & (
       type: "save";
       record: RecordWrite;
       files: LocalFile[];
+      base?: SaveBase;
+      /** Waiting to try again after the service said not yet. */
+      hold_until?: string;
+      attempts?: number;
       error?: string;
       conflict?: boolean;
     }
   | { id: string; generation: number; type: "delete"; record: BabyRecord; error?: string; conflict?: boolean }
+  | {
+      /** "All future" from a later date. One change, so the series can't end unless the next one starts. The id is the new event's, which makes a retry the same split. */
+      id: string;
+      generation: number;
+      type: "event_split";
+      /** The series as it'll be, for showing until this lands. The API works out its end again from what it holds. */
+      series: RecordWrite;
+      event: RecordWrite;
+      from_start: string;
+      files: LocalFile[];
+      base?: SaveBase;
+      hold_until?: string;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
+      /** The action's own id, which is what makes a retry idempotent. */
+      id: string;
+      generation: number;
+      type: "feed_action";
+      record_id: string;
+      action: FeedAction;
+      /** Stays on this phone until then: for Undo, or between retries. */
+      hold_until?: string;
+      /** Its request has begun, so the API may already have it. Undo can't take it back any more. */
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
+      /** The action's own id, as on a feed action. */
+      id: string;
+      generation: number;
+      type: "session_action";
+      record_id: string;
+      action: SessionAction;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
+      /** "Baby's here" with no signal: only the birth date changes, and only from the value it saw. */
+      id: string;
+      generation: number;
+      type: "child_birth";
+      child_id: string;
+      birth_date: string | null;
+      previous: string | null;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
   | {
       id: string;
       generation: number;
@@ -215,7 +373,7 @@ export type Mutation = { localOnly?: boolean } & (
       conflict?: boolean;
     }
 );
-/** A breastfeed being timed on this device. Active time is the sum of segments; a pause
+/** A breastfeed being timed by an older build, on one device. It finishes the old way, then is gone. Active time is the sum of segments; a pause
  * closes the open segment. It belongs to one Baby space generation and is never synced. */
 export interface FeedTimer {
   child_id: string;
@@ -223,9 +381,13 @@ export interface FeedTimer {
   started_at: string;
   segments: { side: "left" | "right"; started_at: string; ended_at?: string }[];
   paused_at?: string;
+  /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
+  record_id?: string;
 }
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** Taps the API couldn't apply, kept until she has seen why. */
+  feedNotices?: string[];
   /** Ask has shown its reminder about sources on this device. */
   askNoticeSeen?: boolean;
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
@@ -234,6 +396,8 @@ export interface DeviceState {
   bootstrap?: Bootstrap;
   records: BabyRecord[];
   outbox: Mutation[];
+  /** Recent changes that have left the outbox, for an editor opened before they did. */
+  settled?: Record<string, SettledChange>;
   drafts: Record<string, EditorDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
@@ -255,6 +419,11 @@ export const kindName: Record<Kind, string> = {
   routine: "Routine",
   question: "Doctor question",
   collection: "Collection",
+  contraction: "Contraction",
+  kick_session: "Kick count",
+  milestone: "Milestone",
+  custom: "Entry",
+  event: "Event",
 };
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {

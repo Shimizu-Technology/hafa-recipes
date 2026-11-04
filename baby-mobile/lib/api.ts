@@ -3,23 +3,37 @@ import type {
   Bootstrap,
   BabyRecord,
   ChatResult,
+  EventOccurrence,
   SuggestionResult,
   Child,
   Conversation,
+  FeedAction,
   ImportJob,
   Kind,
   Profile,
+  SessionAction,
   RecordPage,
   RecordWrite,
   Scope,
 } from "./models";
+import type { CareDay } from "./tracker";
+import type { CareStats, StatsChoice } from "./care-stats";
 import { dailyAiLimitMessage } from "./import-status";
+/**
+ * What this build tells the API it understands, as `X-Baby-Client`. 2 reads and writes every current kind and field, in
+ * the personal space only, with no space header. Client 3 is for builds that know about family spaces.
+ */
+export const babyClient = 2 as 2 | null;
+export const sendsCareDetails = babyClient === 2;
+const seriesLimit = "You can keep up to 200 repeating events";
+export const seriesLimitMessage = `${seriesLimit}. Delete one you no longer need, or save this one without repeating.`;
 /** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
 const knownDetails = new Set([
   "Add the birth date to see what is relevant now",
   "Add a due date or birth date to see what is relevant now",
   "Add a due date to see what is relevant now",
   "Choose which child to show timing for",
+  seriesLimit,
 ]);
 export interface RecordFilters {
   kind?: Kind;
@@ -35,6 +49,11 @@ export interface RecordFilters {
   timing?: "now" | "upcoming";
   timing_child_id?: string;
   within_weeks?: number;
+  /** Half-open, with an offset: from <= occurred_at < to. */
+  occurred_from?: string;
+  occurred_to?: string;
+  /** Questions and notes linked to this event. */
+  event_id?: string;
 }
 export class ApiError extends Error {
   constructor(
@@ -92,6 +111,7 @@ export function createBabyApi(
           headers: {
             Authorization: `Bearer ${token}`,
             ...(body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+            ...(babyClient ? { "X-Baby-Client": String(babyClient) } : {}),
             ...(generation === undefined ? {} : { "X-Baby-Generation": String(generation) }),
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },
@@ -138,7 +158,7 @@ export function createBabyApi(
                   : response.status === 413
                     ? "This file is too large. Choose a smaller file."
                     : response.status === 422
-                      ? known ? `${known}.` : "Some details need review. Check your entries and try again."
+                      ? known === seriesLimit ? seriesLimitMessage : known ? `${known}.` : "Some details need review. Check your entries and try again."
                       : response.status === 429
                         ? dailyLimit
                           ? dailyAiLimitMessage
@@ -218,6 +238,18 @@ export function createBabyApi(
       filters: Pick<RecordFilters, "kinds" | "include_general" | "offset" | "limit" | "collection_id" | "topic" | "uncategorized"> = {}) =>
       request<RecordPage>("/search?" + query({ q, kind, child_id, limit: 100, ...filters })),
     record: (id: string) => request<BabyRecord>(`/records/${encodeURIComponent(id)}`),
+    /** Totals and dots per calendar day, inclusive, on the profile's clock. No child means the logs that have none. */
+    careSummary: (from: string, to: string, child_id?: string | null) =>
+      request<{ days: CareDay[] }>("/care/summary?" + query({ from, to, child_id })),
+    /** One range's totals, averages and days. Every Stats number comes from here. */
+    careStats: (choice: StatsChoice, child_id?: string | null) => request<CareStats>("/care/stats?" + query({ ...choice, child_id })),
+    /** Dated occurrences on these calendar days, inclusive. With a child: theirs and the whole family's. */
+    events: (from: string, to: string, child_id?: string | null) =>
+      request<{ items: EventOccurrence[]; complete: boolean }>("/events?" + query({ from, to, child_id })),
+    /** Ends a repeat before this date and starts the next: both or neither. Sending it again gets the same answer. */
+    splitEvent: (series: string, { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }: { revision: number; from_start: string; event: RecordWrite }, g: number) =>
+      request<{ series: BabyRecord | null; event: BabyRecord }>(`/events/${encodeURIComponent(series)}/split`, "POST",
+        { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }, g),
     save: (value: RecordWrite, g: number) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
       // Repair optional links at the wire boundary, including durable outbox
@@ -226,6 +258,11 @@ export function createBabyApi(
       const payloadData = kind === "source" && typeof data.url === "string" && !data.url.trim()
         ? { ...data, url: null }
         : data;
+      // A feed's actions only ever change through feed-action. An edit from an older copy must not put them back.
+      if (revision && kind === "feeding") {
+        const { actions: _a, state: _s, end_at: _e, ...edit } = payloadData;
+        return request<BabyRecord>(`/records/${id}`, "PATCH", { title, body, child_id, occurred_at, data: edit, revision }, g);
+      }
       return request<BabyRecord>(
         revision ? `/records/${id}` : "/records",
         revision ? "PATCH" : "POST",
@@ -235,6 +272,12 @@ export function createBabyApi(
         g
       );
     },
+    feedAction: (recordId: string, value: FeedAction, g: number) =>
+      request<BabyRecord>(`/records/${recordId}/feed-action`, "POST",
+        { action_id: value.id, action: value.action, at: value.at, ...(value.side ? { side: value.side } : {}) }, g),
+    sessionAction: (recordId: string, value: SessionAction, g: number) =>
+      request<BabyRecord>(`/records/${recordId}/session-action`, "POST",
+        { action_id: value.id, action: value.action, at: value.at, ...(value.target ? { target: value.target } : {}) }, g),
     /** Accept or dismiss suggested categories; each item reports its own result. */
     decideSuggestions: (items: { record_id: string; revision: number }[], g: number, action: "accept" | "dismiss" = "accept") =>
       request<SuggestionResult>("/suggested-categories", "POST", { action, items }, g),

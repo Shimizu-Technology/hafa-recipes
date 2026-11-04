@@ -53,6 +53,8 @@ surface with memory-only state, not the supported release target.
 
 ## Dependency review renewal — 2026-10-24
 
+minimatch GHSA advisory 1244623 (Nov 2026, globparts amplification) has the same reachability as the earlier minimatch finding: only `@expo/fingerprint` and `glob` use it, in Expo build tooling on our own file patterns, and it's absent from the native bundle.
+
 Reviewed `baby-mobile/package-lock.json` from `fca37f99` with the audit-policy renewal.
 Acceptance requires a fresh Node 22.22.2 install, tests, typecheck, Doctor and
 runtime audit; Workouts and Baby also require all-platform export and native
@@ -266,3 +268,5 @@ dependencies, TTF assets only, no native code), next to the existing `@expo-goog
 The app imports only the six faces it uses (`lib/fonts.ts`). The reviewed lock hash above is renewed
 for this one addition. Fresh `npm audit --omit=dev`: 21 inherited findings, zero critical, and the
 same six reviewed advisory IDs; nothing new. The existing 2026-11-17 expiry is unchanged.
+
+`expo-print` 57.0.2 (Nov 2026) makes the doctor summary PDF on the device. It has no dependencies of its own and adds no advisories, but it is native code, so it needs a new binary.

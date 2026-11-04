@@ -14,6 +14,7 @@ from sqlalchemy import and_, or_, select
 from app.domains.baby.feeds import reduce_feed
 from app.domains.baby.models import BabyRecord
 from app.domains.baby.queries import row_scope
+from app.domains.baby.sessions import SESSION_KINDS
 
 CARE_KINDS = ("feeding", "sleep", "diaper")
 MAX_CUSTOM_DAYS = 92
@@ -122,12 +123,69 @@ async def care_rows(db, owner, generation, child_id, stats_range, *, tracked=Non
     )
 
 
-async def care_stats(db, owner, generation, child_id, zone, stats_range, *, tracked=None):
+async def care_stats(db, owner, generation, child_id, zone, stats_range, *, tracked=None, spans=False):
     rows = await care_rows(db, owner, generation, child_id, stats_range, tracked=tracked)
     if tracked is not None:
         for row in rows[:ROW_LIMIT]:
             tracked["records"][row.id] = (row.space_id, row.generation, row.revision)
-    return summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
+    result = summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
+    if spans:
+        add_sleep_spans(result["days"], rows[:ROW_LIMIT], stats_range, zone)
+    return result
+
+
+async def session_stats(db, owner, generation, child_id, zone, result, stats_range):
+    """Adds contractions and kicks to what ``care_stats`` returned, by the care rule for who sees them."""
+    rows = list(
+        await db.execute(
+            kind_query(owner, generation, SESSION_KINDS, BabyRecord.kind, BabyRecord.occurred_at, BabyRecord.data)
+            .where(
+                BabyRecord.occurred_at >= stats_range.start,
+                BabyRecord.occurred_at < stats_range.end,
+                BabyRecord.child_id == child_id if child_id else BabyRecord.child_id.is_(None),
+            )
+            .order_by(BabyRecord.occurred_at.desc())
+            .limit(ROW_LIMIT + 1)
+        )
+    )
+    add_sessions(result, rows[:ROW_LIMIT], zone, complete=len(rows) <= ROW_LIMIT)
+    return result
+
+
+def add_sessions(result, rows, zone, *, complete=True):
+    """Counts and lengths, and nothing that sounds like a result. One not stopped has no length yet."""
+    days = {day["date"]: day for day in result["days"]}
+    for day in days.values():
+        day["contractions"] = {"count": 0, "timed": 0, "average_seconds": None}
+        day["kicks"] = {"sessions": 0, "movements": 0}
+    timed = {key: [] for key in days}
+    for row in rows:
+        data = row.data if isinstance(row.data, dict) else {}
+        key = row.occurred_at.astimezone(zone).date().isoformat()
+        if key not in days:
+            continue
+        stop = sleep_end(data)
+        seconds = minutes_between(row.occurred_at, stop) * 60 if stop else None
+        if row.kind == "contraction":
+            days[key]["contractions"]["count"] += 1
+            if seconds is not None and seconds >= 0:
+                timed[key].append(seconds)
+        else:
+            days[key]["kicks"]["sessions"] += 1
+            days[key]["kicks"]["movements"] += int(number_in(data.get("count")) or 0)
+    for key, lengths in timed.items():
+        days[key]["contractions"] |= {"timed": len(lengths), "average_seconds": average(sum(lengths), len(lengths))}
+    every = [length for lengths in timed.values() for length in lengths]
+    result["contractions"] = {
+        "count": sum(day["contractions"]["count"] for day in days.values()),
+        "timed": len(every),
+        "average_seconds": average(sum(every), len(every)),
+    }
+    result["kicks"] = {
+        "sessions": sum(day["kicks"]["sessions"] for day in days.values()),
+        "movements": sum(day["kicks"]["movements"] for day in days.values()),
+    }
+    result["complete"] = result["complete"] and complete
 
 
 # What puts a dot on a calendar day. ``day["marks"]`` holds the kinds the caller found for that

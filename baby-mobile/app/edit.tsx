@@ -6,17 +6,24 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useBaby } from "@/lib/context";
 import { kindName, messageFor, type EditorDraft, type Kind, type Mutation, type RecordData } from "@/lib/models";
-import { addMutation, inheritedFiles } from "@/lib/outbox";
+import { addMutation, baseOf, inheritedFiles, queueRemovedUploads, settledDraft } from "@/lib/outbox";
 import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
-import { careSummary, defaultChild, friendlyTime, isCare } from "@/lib/care-format";
+import { EventFields } from "@/components/event-fields";
+import { eventWrite, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, startsBeforeSplit, dayName } from "@/lib/events";
+import { nextVisitDraft, withFittingVisit } from "@/lib/visits";
+import { dayKey, recordDay } from "@/lib/tracker";
+import { profileToday } from "@/lib/timing";
+import { sendsCareDetails, seriesLimitMessage } from "../lib/api";
+import { careSummary, colorWords, contentWords, defaultChild, diaperWords, friendlyTime, isCare } from "@/lib/care-format";
 import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
 import { ensureAiConsent } from "../lib/ai-consent";
+import { staysWithBaby } from "../lib/well-visits";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -50,10 +57,10 @@ function firstLine(d: EditorDraft) {
   return line.length > 60 ? line.slice(0, 59).join("").trimEnd() + "…" : line.join("");
 }
 export default function Edit() {
-  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string }>(),
+  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string }>(),
     b = useBaby(),
     toast = useToast(),
-    slot = params.draft ?? (params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
+    slot = params.draft ?? (params.from ? "book:" + params.from : params.scope ? `event:${params.id}:${params.scope}:${params.at}` : params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
   const [draft, setDraft] = useState<EditorDraft | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -69,18 +76,27 @@ export default function Edit() {
     let active = true;
     void (async () => {
       try {
-        let d = b.state.drafts[slot];
+        let d = b.state.drafts[slot] && settledDraft(b.state.drafts[slot], b.state);
         if (!d && params.id) {
           let row = b.records.find((r) => r.id === params.id);
           if (!row || row.cache_partial) row = await b.api.record(params.id);
-          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true };
+          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true, base: baseOf(b.state, row.id),
+            ...(params.scope && params.at ? occurrenceDraft(row, params.at, params.scope) : {}) };
         }
+        // Add from a day means that day, even over a draft left from another.
+        if (d && params.kind === "event" && params.day && !d.existing) d = onNewDay(d, params.day);
         const kind = params.kind ?? "journal",
           child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
           lastFeed = b.records
             .filter((r) => r.kind === "feeding" && r.child_id === child)
             .sort((x, y) => y.occurred_at.localeCompare(x.occurred_at))[0];
-        d ??= fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
+        const timezone = b.state.bootstrap!.profile.timezone;
+        if (!d && params.from) {
+          const from = b.records.find((r) => r.id === params.from) ?? await b.api.record(params.from);
+          d = nextVisitDraft(Crypto.randomUUID(), from, occurrenceAt(from, params.at));
+        }
+        d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
+          : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
         if (active) {
           latest.current = d;
           setDraft(d);
@@ -107,6 +123,8 @@ export default function Edit() {
     }, 400);
     return () => clearTimeout(timer);
   }, [draft]);
+  // An error above a long form can be off the top of the screen when she taps Save.
+  useEffect(() => { if (error && draft?.kind === "event") toast(error); }, [error]);
   useEffect(() => {
     const app = AppState.addEventListener("change", (s) => {
       if (s !== "active" && !retired.current && latest.current)
@@ -114,6 +132,15 @@ export default function Edit() {
     });
     return () => app.remove();
   }, [slot]);
+  // Only the revision moves while a change this draft was built on lands or goes away behind it. What she's typing stays.
+  useEffect(() => {
+    const open = latest.current;
+    if (!open || retired.current) return;
+    const settled = settledDraft(open, b.state);
+    if (settled === open) return;
+    latest.current = settled;
+    setDraft(settled);
+  }, [b.state.outbox, b.state.settled]);
   function change(value: Partial<EditorDraft>) {
     changed.current = true;
     setDraft((d) => {
@@ -183,6 +210,13 @@ export default function Edit() {
     });
   }
   function validate(d: EditorDraft) {
+    if (d.kind === "event") {
+      if (!d.title.trim()) throw Error("Give this event a name.");
+      if (d.data.recurrence?.until && d.data.recurrence.until < recordDay(d.occurred_at, d.data.timezone)) throw Error("A repeat can’t end before the event starts.");
+      if (startsBeforeSplit(d)) throw Error("These changes can’t start before the date you’re changing. To move only this date, edit just this one.");
+      if (seriesFull(b.records, d)) throw Error(seriesLimitMessage);
+      return;
+    }
     if (
       !d.title.trim() &&
       !d.body.trim() &&
@@ -195,7 +229,9 @@ export default function Edit() {
       throw Error("Choose which baby this is for.");
     if (d.kind === "feeding" && d.data.amount != null && (!Number.isFinite(d.data.amount) || d.data.amount <= 0))
       throw Error("Enter an amount greater than zero, or leave it empty.");
+    // A feed tapped Done at once really did take no time, and that can stay when she edits something else.
     if (d.kind === "feeding" && d.data.duration_minutes != null &&
+      !(d.data.duration_minutes === 0 && b.records.find((r) => r.id === d.id)?.data.duration_minutes === 0) &&
       (!Number.isFinite(d.data.duration_minutes) || d.data.duration_minutes <= 0))
       throw Error("Enter a duration greater than zero, or leave it empty.");
     if (d.kind === "sleep" && d.data.end_at && new Date(d.data.end_at) < new Date(d.occurred_at))
@@ -227,17 +263,25 @@ export default function Edit() {
         throw Error(
           "Enable optional AI processing in Settings before organizing sources with AI. You can save the source without AI."
         );
-      const { files, existing: _, revision, ...record } = d;
       const automatic = !d.existing && d.kind === "source" &&
         !!b.state.bootstrap!.profile.ai_consent && !!b.state.bootstrap!.profile.auto_process_shares;
       const shouldProcess = d.kind === "source" && (process || automatic);
       // Keep the original in the durable outbox before its optional import.
-      const mutation: Mutation = {
-        id: Crypto.randomUUID(), generation, type: "save",
-        record: { ...record, title: d.title.trim() || firstLine(d) || (d.kind === "source" ? "Saved source" : kindName[d.kind]),
-          data: d.kind === "source" ? { ...d.data, source_text: d.data.source_text || d.body || undefined } : d.data,
-          ...(revision ? { revision } : {}) }, files,
+      const id = Crypto.randomUUID();
+      const splitId = Crypto.randomUUID();
+      const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
+        const from = given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records);
+        const { files, existing: _, revision, base, event_edit: __, ...record } = from;
+        return {
+          id, generation, type: "save",
+          record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindName[from.kind]),
+            data: from.kind === "source" ? { ...from.data, source_text: from.data.source_text || from.body || undefined } : from.data,
+            ...(revision ? { revision } : {}) }, files,
+          // A draft kept by an older build doesn't know what it saw, so it follows nothing.
+          ...(base ?? from.existing ? { base: base ?? { after: [] } } : {}),
+        };
       };
+      const mutation = build(d);
       const importMutation: Mutation | undefined = shouldProcess ? {
         id: Crypto.randomUUID(), generation, type: "import", record_id: d.id,
         ...(automatic && !process ? { automatic: true, automatic_epoch: b.state.bootstrap!.profile.auto_process_epoch ?? 0 } : {}), files: [],
@@ -247,31 +291,42 @@ export default function Edit() {
         await b.commit((s) => {
           const drafts = { ...s.drafts };
           delete drafts[slot];
-          const prepared: Mutation =
-            mutation.type === "save"
-              ? {
-                  ...mutation,
-                  record: {
-                    ...mutation.record,
-                    revision:
-                      mutation.record.revision ||
-                      (d.existing ? s.records.find((r) => r.id === d.id)?.revision : undefined),
-                  },
-                  files: mutation.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
-                }
-              : mutation;
-          const saved = addMutation(s, prepared);
-          return { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts };
+          // Built here, from what has landed by the time this write runs: the tap can land after she pressed Save.
+          const settled = build(settledDraft(d, s));
+          const prepared: Mutation = {
+            ...settled,
+            record: {
+              ...settled.record,
+              revision:
+                settled.record.revision ||
+                (d.existing && !d.base ? s.records.find((r) => r.id === d.id)?.revision : undefined),
+            },
+            files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
+          };
+          const split = d.kind === "event" ? splitEvent(d, splitId) : undefined;
+          // One change holding both parts: this series can't end unless the next one starts.
+          const saved = addMutation(s, split ? { id: splitId, generation, type: "event_split", series: prepared.record, event: split, from_start: d.event_edit!.original_start, files: [], ...(prepared.base ? { base: prepared.base } : {}) } : prepared);
+          return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });
         });
       } catch (failure) {
         retired.current = false;
         throw failure;
       }
       latest.current = null;
+      if (d.kind === "event") {
+        const timezone = b.state.bootstrap!.profile.timezone, today = dayKey(profileToday(new Date(), timezone));
+        toast(d.event_edit?.scope === "future" ? "Saved. This date and later ones changed."
+          : `${d.title.trim()} saved for ${dayName(recordDay(d.occurred_at, d.data.all_day ? d.data.timezone : timezone), today)}.`);
+        void b.sync();
+        // A split leaves the screen behind this one showing a date its series no longer has.
+        if (splitEvent(d, splitId)) router.dismissTo("/(tabs)/tracker");
+        else router.back();
+        return;
+      }
       if (mutation.type === "save" && isCare(d.kind) && !d.existing) {
         // Quick logs return to Today; the new entry can be undone from there.
         const undo = undoSaved(b, mutation.record);
-        toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at)}`, {
+        toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at, undefined, b.state.bootstrap!.profile.timezone)}`, {
           label: "Undo",
           onPress: async () => {
             try {
@@ -295,6 +350,27 @@ export default function Edit() {
       );
       void b.sync();
       router.dismissTo(shouldProcess ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });
+  }
+  function discard() {
+    Alert.alert("Discard this draft?", "This removes the unfinished draft from this device.", [
+      { text: "Keep writing", style: "cancel" },
+      {
+        text: "Discard draft",
+        style: "destructive",
+        onPress: () =>
+          void run(async () => {
+            retired.current = true;
+            try {
+              await b.saveDraft(slot, null);
+            } catch (error) {
+              retired.current = false;
+              throw error;
+            }
+            latest.current = null;
+            router.back();
+          }),
+      },
+    ]);
   }
   // Journal entries and doctor questions open on the writing area; other kinds keep notes after their details.
   const writing = !!draft && (draft.kind === "journal" || draft.kind === "question" || draft.kind === "source");
@@ -323,6 +399,14 @@ export default function Edit() {
         {error ? <Notice error>{error}</Notice> : <Loading />}
       </Screen>
     );
+  if (draft.kind === "event") return (
+    <Screen title={draft.existing ? "Edit event" : params.from ? "Book the next visit" : "Add to the calendar"} back
+      footer={<Button title={draft.existing ? "Save changes" : params.from ? "Save next visit" : "Save event"} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}>
+      {!!error && <Notice error>{error}</Notice>}
+      <EventFields draft={draft} change={change} quick={!params.from} today={dayKey(profileToday(new Date(), b.state.bootstrap!.profile.timezone))} />
+      <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
+    </Screen>
+  );
   return (
     <Screen
       title={
@@ -347,7 +431,7 @@ export default function Edit() {
           label="Who is this for?"
           options={[
             // Care always belongs to a baby; older general care entries can still be reassigned.
-            ...(isCare(draft.kind) && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
+            ...((isCare(draft.kind) || staysWithBaby(draft)) && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
               ? []
               : [{ label: "For me / general", value: "" }]),
             ...b.state.bootstrap!.children.map((c) => ({ label: c.name, value: c.id })),
@@ -465,14 +549,32 @@ export default function Edit() {
           label="Diaper"
           options={["wet", "dirty", "both", "dry"].map((value) => ({
             value,
-            label: value === "both" ? "Wet + dirty" : value[0].toUpperCase() + value.slice(1),
+            label: value === "both" ? "Pee and poo" : diaperWords[value as "wet"],
           }))}
           onChange={(type) => data({ type: type as RecordData["type"] })}
+        />
+      )}
+      {sendsCareDetails && draft.kind === "diaper" && (draft.data.type === "dirty" || draft.data.type === "both") && (
+        <Chips
+          value={draft.data.color ?? ""}
+          label="Colour"
+          options={[{ value: "", label: "Not set" }, ...Object.entries(colorWords)
+            .map(([value, label]) => ({ value, label }))]}
+          onChange={(color) => data({ color: (color || null) as RecordData["color"] })}
+        />
+      )}
+      {sendsCareDetails && draft.kind === "feeding" && draft.data.method === "bottle" && (
+        <Chips
+          value={draft.data.contents ?? ""}
+          label="What’s in it"
+          options={[{ value: "", label: "Not set" }, ...Object.entries(contentWords).map(([value, label]) => ({ value, label }))]}
+          onChange={(contents) => data({ contents: (contents || null) as RecordData["contents"] })}
         />
       )}
       {draft.kind !== "collection" && (!writing || showDetails) && <DateField
         label={draft.kind === "sleep" ? "Sleep started" : "Date and time"}
         value={draft.occurred_at}
+        timeZone={isCare(draft.kind) ? b.state.bootstrap!.profile.timezone : undefined}
         onChange={(occurred_at) => change({ occurred_at })}
       />}
       {draft.kind === "sleep" && (
@@ -484,7 +586,7 @@ export default function Edit() {
             onPress={() => data({ end_at: draft.data.end_at ? undefined : new Date().toISOString() })}
           />
           {draft.data.end_at && (
-            <DateField label="Sleep ended" value={draft.data.end_at} onChange={(end_at) => data({ end_at })} />
+            <DateField label="Sleep ended" value={draft.data.end_at} timeZone={b.state.bootstrap!.profile.timezone} onChange={(end_at) => data({ end_at })} />
           )}
         </>
       )}
@@ -648,32 +750,7 @@ export default function Edit() {
           </Copy>
         </>
       )}
-      <Button
-        variant="ghost"
-        title="Discard this draft"
-        disabled={busy}
-        onPress={() =>
-          Alert.alert("Discard this draft?", "This removes the unfinished draft from this device.", [
-            { text: "Keep writing", style: "cancel" },
-            {
-              text: "Discard draft",
-              style: "destructive",
-              onPress: () =>
-                void run(async () => {
-                  retired.current = true;
-                  try {
-                    await b.saveDraft(slot, null);
-                  } catch (error) {
-                    retired.current = false;
-                    throw error;
-                  }
-                  latest.current = null;
-                  router.back();
-                }),
-            },
-          ])
-        }
-      />
+      <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
     </Screen>
   );
 }

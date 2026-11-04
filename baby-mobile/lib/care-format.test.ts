@@ -24,8 +24,11 @@ it("shows open sleep as happening now and finished sleep as a duration", () => {
   expect(careSummary("sleep", {}, "not a date", now)).toBe("Sleep in progress");
   expect(careSummary("sleep", { end_at: "bad" }, at(20, 14), now)).toBe("Sleep recorded");
   expect(duration(Number.NaN)).toBe("");
-  expect(careSummary("diaper", { type: "both" }, at(20, 18))).toBe("Wet and dirty diaper");
-  expect(careSummary("diaper", {}, at(20, 18))).toBe("Recorded diaper");
+  expect(careSummary("diaper", { type: "both" }, at(20, 18))).toBe("Diaper · Pee and poo");
+  expect(careSummary("diaper", { type: "dirty", color: "green" }, at(20, 18))).toBe("Diaper · Poo · Green");
+  expect(careSummary("diaper", { type: "dirty", color: null }, at(20, 18))).toBe("Diaper · Poo");
+  expect(careSummary("feeding", { method: "bottle", contents: "formula", amount: 3, unit: "oz" }, at(20, 18))).toBe("Bottle · Formula · 3 oz");
+  expect(careSummary("diaper", {}, at(20, 18))).toBe("Diaper");
 });
 
 it("formats durations, relative and calendar times for quick scanning", () => {
@@ -56,4 +59,13 @@ it("files care under a baby by default while general notes stay general", () => 
   expect(defaultChild("journal", null, kids)).toBeNull();
   expect(defaultChild("journal", "b", kids)).toBe("b");
   expect(defaultChild("sleep", null, [])).toBeNull();
+});
+
+it("says times and days on the family's clock when it has one", () => {
+  const moment = new Date("2026-11-04T03:00:00.000Z");
+  expect(friendlyTime("2026-11-04T02:00:00.000Z", moment, "Asia/Tokyo")).toMatch(/^11:00.AM$/);
+  // Still the 3rd in UTC and already the 4th in Tokyo.
+  expect(friendlyTime("2026-11-03T15:30:00.000Z", new Date("2026-11-03T16:00:00.000Z"), "Asia/Tokyo")).toMatch(/^12:30.AM$/);
+  expect(friendlyTime("2026-11-03T14:00:00.000Z", moment, "Asia/Tokyo")).toMatch(/^Yesterday 11:00.PM$/);
+  expect(friendlyTime("2026-11-04T02:00:00.000Z", moment, "Not/AZone")).not.toBe("");
 });

@@ -69,7 +69,16 @@ from app.domains.baby.schemas import (
 )
 from app.domains.baby.security import BabyRoute, new_kinds_enabled
 from app.domains.baby.sessions import SESSION_KINDS
-from app.domains.baby.stats import MAX_CUSTOM_DAYS, care_summary, number_in
+from app.domains.baby.stats import (
+    MAX_CUSTOM_DAYS,
+    care_stats,
+    care_summary,
+    custom_days,
+    last_days,
+    number_in,
+    rolling_24h,
+    session_stats,
+)
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
@@ -179,6 +188,23 @@ def visible_to(row, client):
     if legacy_client(client) and row.kind not in V1_KINDS:
         raise HTTPException(404, "Item unavailable")
     return row
+
+
+async def let_go_of_visit(db, access, event, generation, *also):
+    """A question or note about a visit stays; only its link to the event goes."""
+    for linked in await db.scalars(
+        select(BabyRecord).where(
+            (BabyRecord.space_id == event.space_id) if access.enabled else (
+                (BabyRecord.app_user_id == event.app_user_id) & (BabyRecord.generation == generation)
+            ),
+            BabyRecord.deleted_at.is_(None),
+            BabyRecord.data["event_id"].as_string() == str(event.id),
+            *also,
+        )
+    ):
+        linked.data = {key: value for key, value in linked.data.items() if key != "event_id"}
+        linked.revision, linked.updated_at = linked.revision + 1, now()
+        await touch(linked, access.grant(linked, kinds=False) if access.enabled else None)
 
 
 def no_event_link_from_legacy(client, data):
@@ -720,12 +746,15 @@ async def records(
     stage: Stage | None = None,
     occurred_from: AwareDatetime | None = None,
     occurred_to: AwareDatetime | None = None,
+    event_id: UUID | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
     access: Access = None,
 ):
     member = access.member
     conditions, order, extra = occurred_between(occurred_from, occurred_to), None, None
+    if event_id is not None:
+        conditions.append(BabyRecord.data["event_id"].as_string() == str(event_id))
     if stage is not None:
         conditions.append(stage_filter(stage))
     if timing == "now" and within_weeks is not None:
@@ -828,6 +857,41 @@ async def care_days(
         return await care_summary(db, access, member.generation, child_id, zone, first, last, now(), marks)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
+
+
+@router.get("/care/stats")
+async def care_range_stats(
+    user: User,
+    db: Database,
+    window: Annotated[Literal["24h", "7d", "30d", "custom"], Query(alias="range")] = "7d",
+    first: Annotated[date | None, Query(alias="from")] = None,
+    last: Annotated[date | None, Query(alias="to")] = None,
+    child_id: UUID | None = None,
+    client: Client = None,
+    access: Access = None,
+):
+    """Tracker's Stats view and the doctor summary: one range of totals, averages and days."""
+    # Build 32 has no Stats; to it this route does not exist.
+    if legacy_client(client):
+        raise HTTPException(404, "Not found")
+    member = access.member
+    if child_id:
+        await owned(db, BabyChild, access, member.generation, child_id)
+    zone = ZoneInfo(Profile.model_validate(member.profile).timezone)
+    at = now()
+    try:
+        if window == "24h":
+            stats_range = rolling_24h(zone, at)
+        elif window == "custom":
+            if not first or not last:
+                raise ValueError("Choose a start and an end")
+            stats_range = custom_days(first, last, zone, at)
+        else:
+            stats_range = last_days(int(window[:-1]), zone, at)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+    result = await care_stats(db, access, member.generation, child_id, zone, stats_range, spans=True)
+    return await session_stats(db, access, member.generation, child_id, zone, result, stats_range)
 
 
 @router.get("/records/{identifier}")
@@ -951,6 +1015,10 @@ async def patch_record(
         setattr(row, key, getattr(valid, key))
     row.revision, row.updated_at = row.revision + 1, now()
     await touch(row, access.target)
+    if row.kind == "event" and row.child_id and row.child_id != previous_child:
+        # What's about another baby no longer fits this visit.
+        await let_go_of_visit(db, access, row, generation,
+                              BabyRecord.child_id.is_not(None), BabyRecord.child_id != row.child_id)
     if removed_attachments:
         await retire_unreferenced_attachments(db, access, generation, removed_attachments)
     if row.kind == "feeding":
@@ -1074,19 +1142,7 @@ async def delete_record(
             collection.revision, collection.updated_at = collection.revision + 1, now()
             await touch(collection, access.grant(collection) if access.enabled else None)
     if row.kind == "event":
-        # A question or note about a visit stays; only its link to the removed event goes.
-        for linked in await db.scalars(
-            select(BabyRecord).where(
-                (BabyRecord.space_id == row.space_id) if access.enabled else (
-                    (BabyRecord.app_user_id == user.id) & (BabyRecord.generation == generation)
-                ),
-                BabyRecord.deleted_at.is_(None),
-                BabyRecord.data["event_id"].as_string() == str(identifier),
-            )
-        ):
-            linked.data = {key: value for key, value in linked.data.items() if key != "event_id"}
-            linked.revision, linked.updated_at = linked.revision + 1, now()
-            await touch(linked, access.grant(linked, kinds=False) if access.enabled else None)
+        await let_go_of_visit(db, access, row, generation)
     removed_attachments = row.data.get("attachment_ids", [])
     child_id = row.child_id
     row.deleted_at, row.title, row.body, row.data, row.child_id = now(), "", "", {}, None

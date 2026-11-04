@@ -11,6 +11,38 @@ const row = optimisticRecord({
   data: {},
 });
 describe("Baby wire boundaries", () => {
+  it("sends all of an event's data on an edit, because PATCH replaces it", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(row)),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport),
+      data = { timezone: "Pacific/Guam", recurrence: { frequency: "weekly" as const }, reminder_minutes: [60], exceptions: [{ original_start: "2026-11-16T00:00:00Z", cancelled: true }] };
+    await api.save({ id: "e", kind: "event", title: "Class", body: "", child_id: null, occurred_at: "2026-11-02T00:00:00Z", data, revision: 3 }, 1);
+    expect(transport.mock.calls[0][1]?.method).toBe("PATCH");
+    expect(JSON.parse(String(transport.mock.calls[0][1]?.body)).data).toEqual(data);
+  });
+  it("tells her plainly when she has too many repeating events", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ detail: "You can keep up to 200 repeating events" }, { status: 422 })),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+    await expect(api.save({ id: "e", kind: "event", title: "Class", body: "", child_id: null, occurred_at: "2026-11-02T00:00:00Z", data: {} }, 1))
+      .rejects.toThrow("You can keep up to 200 repeating events. Delete one you no longer need, or save this one without repeating.");
+  });
+  it("reads occurrences by calendar day, for one baby or everyone", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ items: [], complete: true })),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+    await api.events("2026-12-01", "2026-12-31", "baby");
+    await api.events("2026-12-01", "2026-12-31", null);
+    expect(transport.mock.calls.map(([url]) => String(url).split("/baby")[1])).toEqual(["/events?from=2026-12-01&to=2026-12-31&child_id=baby", "/events?from=2026-12-01&to=2026-12-31"]);
+  });
+  it("sends a split as one request, with only what the new event is", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ series: null, event: {} })),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+    const event = { id: "n", kind: "event" as const, title: "New", body: "", child_id: null, occurred_at: "2026-11-16T00:00:00Z", data: { timezone: "Pacific/Guam" }, revision: undefined };
+    await api.splitEvent("class", { revision: 4, from_start: "2026-11-16T00:00:00Z", event }, 1);
+    const [url, init] = transport.mock.calls[0];
+    expect(String(url)).toMatch(/\/events\/class\/split$/);
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(String(init!.body))).toEqual({ revision: 4, from_start: "2026-11-16T00:00:00Z", event: { id: "n", kind: "event", title: "New", body: "", child_id: null, occurred_at: "2026-11-16T00:00:00Z", data: { timezone: "Pacific/Guam" } } });
+    expect((init!.headers as Record<string, string>)["X-Baby-Generation"]).toBe("1");
+  });
   it("uses the shared account routes registered by the existing Håfa API", async () => {
     const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ id: "owner" }));
     const api = createBabyApi(
@@ -335,7 +367,7 @@ it("uses the explicit shared signup provisioner without a Baby generation header
   expect(url).toBe("https://service.example/api/auth/clerk-transition/onboard");
   expect(init?.method).toBe("POST");
   expect(JSON.parse(init?.body as string)).toEqual({ installation_id: "cmi_" + "a".repeat(64), intent: "create_account" });
-  expect(init?.headers).toEqual({ Authorization: "Bearer verified-token", "Content-Type": "application/json" });
+  expect(init?.headers).toEqual({ Authorization: "Bearer verified-token", "Content-Type": "application/json", "X-Baby-Client": "2" });
 });
 
 it("distinguishes server upload failure from offline without reflecting private details", async () => {
@@ -344,4 +376,49 @@ it("distinguishes server upload failure from offline without reflecting private 
   await expect(api.upload(new FormData(), 1, "photo")).rejects.toMatchObject({ status: 500, message: expect.stringContaining("could not upload this attachment") });
   transport.mockRejectedValueOnce(new TypeError("Network request failed"));
   await expect(api.save(row, 1)).rejects.toMatchObject({ status: 0, message: expect.stringContaining("offline") });
+});
+
+it("sends X-Baby-Client from one constant, and only when it is set", async () => {
+  const { babyClient, createBabyApi: create } = await import("./api");
+  const seen: Record<string, string>[] = [];
+  const api = create("https://api.test", async () => "token", () => true, async (_url, init) => {
+    seen.push(init!.headers as Record<string, string>);
+    return new Response(JSON.stringify({ items: [], total: 0, has_more: false }), { status: 200 });
+  });
+  await api.records({});
+  expect(babyClient).toBe(2);
+  expect(seen[0]["X-Baby-Client"]).toBe("2");
+  // Client 2 stays in the personal space, so it never names one.
+  expect(seen[0]["X-Baby-Space"]).toBeUndefined();
+});
+
+describe("feed actions on the wire", () => {
+  function capture() {
+    const calls: { url: string; method?: string; body?: any }[] = [];
+    const api = createBabyApi("https://api.test", async () => "token", () => true, async (url, init) => {
+      calls.push({ url, method: init?.method, body: JSON.parse(String(init?.body ?? "null")) });
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    return { api, calls };
+  }
+  it("posts the contract's body, with the action's id as its idempotency", async () => {
+    const { api, calls } = capture();
+    await api.feedAction("feed", { id: "act", action: "switch", at: "2026-11-04T12:00:00Z", side: "right" }, 2);
+    expect(calls[0]).toMatchObject({ url: "https://api.test/api/v1/baby/records/feed/feed-action", method: "POST", body: { action_id: "act", action: "switch", at: "2026-11-04T12:00:00Z", side: "right" } });
+    await api.feedAction("feed", { id: "end", action: "finish", at: "2026-11-04T12:09:00Z" }, 2);
+    expect(calls[1].body).toEqual({ action_id: "end", action: "finish", at: "2026-11-04T12:09:00Z" });
+  });
+  it("creates a feed with its start, and never sends actions back on an ordinary edit", async () => {
+    const { api, calls } = capture(), data = { method: "breast" as const, side: "left" as const, state: "running" as const, actions: [{ id: "s", action: "start" as const, at: "2026-11-04T12:00:00Z", side: "left" as const }] },
+      write = { id: "feed", kind: "feeding" as const, title: "Feeding", body: "", child_id: "baby", occurred_at: "2026-11-04T12:00:00Z", data };
+    await api.save(write, 2);
+    expect(calls[0].body.data.actions).toHaveLength(1);
+    await api.save({ ...write, revision: 3, body: "A note" }, 2);
+    expect(calls[1]).toMatchObject({ method: "PATCH", body: { body: "A note", revision: 3, data: { method: "breast", side: "left" } } });
+    expect(calls[1].body.data).not.toHaveProperty("actions");
+    expect(calls[1].body.data).not.toHaveProperty("state");
+    // A sleep's end is not a feed's.
+    await api.save({ ...write, kind: "sleep", data: { end_at: "2026-11-04T13:00:00Z" }, revision: 3 }, 2);
+    expect(calls[2].body.data.end_at).toBe("2026-11-04T13:00:00Z");
+  });
 });

@@ -1,4 +1,5 @@
 import type { Child, Kind, RecordData } from "./models";
+import { addDays, clockIn, keyDate, recordDay } from "./tracker";
 
 const minute = 60_000;
 
@@ -13,23 +14,17 @@ export function duration(minutes: number) {
   return rest ? `${hours} h ${rest} min` : `${hours} h`;
 }
 
-function sameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-/** "6:02 PM", "Yesterday 11:40 PM", "Oct 18, 9:15 AM", or with the year when it differs. */
-export function friendlyTime(iso: string, now = new Date()) {
+/** "6:02 PM", "Yesterday 11:40 PM", "Oct 18, 9:15 AM", or with the year when it differs. On the family's clock when given one. */
+export function friendlyTime(iso: string, now = new Date(), timeZone?: string | null) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  if (sameDay(date, now)) return time;
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (sameDay(date, yesterday)) return `Yesterday ${time}`;
-  const day = date.toLocaleDateString(undefined, {
+  const time = clockIn(date, timeZone), key = recordDay(iso, timeZone), today = recordDay(now.toISOString(), timeZone);
+  if (key === today) return time;
+  if (key === addDays(today, -1)) return `Yesterday ${time}`;
+  const day = keyDate(key).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+    ...(key.slice(0, 4) === today.slice(0, 4) ? {} : { year: "numeric" }),
   });
   return `${day}, ${time}`;
 }
@@ -55,17 +50,21 @@ export function friendlyDate(value: string) {
 }
 
 const sides = { left: "Left side", right: "Right side", both: "Both sides" } as const;
-const diapers = { wet: "Wet", dirty: "Dirty", both: "Wet and dirty", dry: "Dry" } as const;
+/** Kami's words on screen; the stored values stay wet, dirty, both and dry so older entries still count. */
+export const diaperWords = { wet: "Pee", dirty: "Poo", both: "Pee and poo", dry: "Dry" } as const;
+export const colorWords = { black: "Black", green: "Green", yellow: "Yellow", brown: "Brown", red: "Red", white: "White" } as const;
+export const contentWords = { breast_milk: "Breast milk", formula: "Formula" } as const;
 
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 /** One readable line for a care entry, e.g. "Breastfeeding · Left side · 15 min". */
-export function careSummary(kind: Kind, data: RecordData, occurredAt: string, now = new Date()) {
+export function careSummary(kind: Kind, data: RecordData, occurredAt: string, now = new Date(), timeZone?: string | null) {
   if (kind === "feeding") {
     const parts = [data.method === "breast" ? "Breastfeeding" : data.method === "bottle" ? "Bottle" : "Feeding"];
     if (data.method === "breast" && data.side && sides[data.side]) parts.push(sides[data.side]);
+    if (data.method === "bottle" && data.contents && contentWords[data.contents]) parts.push(contentWords[data.contents]);
     if (finite(data.amount)) parts.push(`${data.amount} ${data.unit === "oz" ? "oz" : "mL"}`);
     if (finite(data.duration_minutes)) parts.push(duration(data.duration_minutes));
     return parts.join(" · ");
@@ -77,15 +76,20 @@ export function careSummary(kind: Kind, data: RecordData, occurredAt: string, no
       // A sleep nobody ended is not still happening a day later.
       if (!Number.isFinite(open)) return "Sleep in progress";
       // A sleep entered ahead of time has not started yet.
-      if (open < -2) return `Sleep starts ${friendlyTime(occurredAt, now)}`;
-      if (open > 24 * 60) return `Sleep not ended · started ${friendlyTime(occurredAt, now)}`;
+      if (open < -2) return `Sleep starts ${friendlyTime(occurredAt, now, timeZone)}`;
+      if (open > 24 * 60) return `Sleep not ended · started ${friendlyTime(occurredAt, now, timeZone)}`;
       // A sleep that began moments ago (or a clock a beat behind its start) reads the same everywhere.
       return open < 1 ? "Sleeping now · just started" : `Sleeping now · ${duration(open)}`;
     }
     const slept = duration((new Date(data.end_at).getTime() - start) / minute);
     return slept ? `Slept ${slept}` : "Sleep recorded";
   }
-  if (kind === "diaper") return `${data.type && diapers[data.type] ? diapers[data.type] : "Recorded"} diaper`;
+  if (kind === "diaper") {
+    const parts = ["Diaper"];
+    if (data.type && diaperWords[data.type]) parts.push(diaperWords[data.type]);
+    if (data.color && colorWords[data.color]) parts.push(colorWords[data.color]);
+    return parts.join(" · ");
+  }
   return "";
 }
 

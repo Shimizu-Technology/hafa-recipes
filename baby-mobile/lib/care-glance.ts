@@ -1,6 +1,8 @@
 import type { BabyRecord, Child, DeviceState, RecordData } from "./models";
 
 import { careSummary, duration, timeAgo } from "./care-format";
+import { newestFirst, reduceFeed } from "./feed-reducer";
+import { dayRange, recordDay } from "./tracker";
 
 const day = 24 * 60 * 60_000;
 
@@ -56,12 +58,11 @@ function currentSleep(newestFirst: BabyRecord[], now: Date) {
 }
 
 /** Newest-first care rows for one baby reduced to what a parent checks at a glance. */
-export function careGlance(rows: BabyRecord[], childId: string | null, now = new Date()): CareGlance {
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(),
-    mine = rows
-      .filter((row) => row.child_id === childId)
-      .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)),
-    today = mine.filter((row) => new Date(row.occurred_at).getTime() >= start),
+export function careGlance(rows: BabyRecord[], childId: string | null, now = new Date(), timeZone?: string | null): CareGlance {
+  const { from, to } = dayRange(recordDay(now.toISOString(), timeZone), timeZone),
+    start = new Date(from).getTime(), end = new Date(to).getTime(),
+    mine = rows.filter((row) => row.child_id === childId).sort(newestFirst),
+    today = mine.filter((row) => { const at = new Date(row.occurred_at).getTime(); return at >= start && at < end; }),
     diapers = today.filter((row) => row.kind === "diaper");
   return {
     lastFeed: mine.find((row) => row.kind === "feeding"),
@@ -74,6 +75,15 @@ export function careGlance(rows: BabyRecord[], childId: string | null, now = new
     },
     feeds: today.filter((row) => row.kind === "feeding").length,
   };
+}
+
+/** The side to offer next: the opposite of the side the newest one-sided breastfeed started on, or none yet. */
+export function nextSide(rows: BabyRecord[], childId: string | null): "left" | "right" | undefined {
+  const started = (row: BabyRecord) => reduceFeed(row.data.actions)?.start_side ?? row.data.side,
+    last = rows
+      .filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "breast" && (started(row) === "left" || started(row) === "right"))
+      .sort(newestFirst)[0];
+  return last ? (started(last) === "left" ? "right" : "left") : undefined;
 }
 
 /** Prefill a new feed from the last one: same method, and the other breast after one side. */

@@ -72,6 +72,14 @@ async def owned(db, model, owner, generation, identifier):
     return row
 
 
+def check_visit_link(event, child_id):
+    """A question or note about one baby can't sit on another's visit. General ones fit any, and any fits a family one."""
+    if event.kind != "event":
+        raise HTTPException(422, "Choose an event from your calendar")
+    if child_id and event.child_id and child_id != event.child_id:
+        raise HTTPException(422, "Choose a visit for the same baby")
+
+
 async def validate_relations(db, owner, generation, child_id, data, *, record_id=None, kind=None):
     if getattr(owner, "enabled", False):
         return await space_relations(db, owner, child_id, data, record_id=record_id, kind=kind)
@@ -86,8 +94,7 @@ async def validate_relations(db, owner, generation, child_id, data, *, record_id
     if data.get("event_id"):
         from uuid import UUID
 
-        if (await owned(db, BabyRecord, owner, generation, UUID(str(data["event_id"])))).kind != "event":
-            raise HTTPException(422, "Choose an event from your calendar")
+        check_visit_link(await owned(db, BabyRecord, owner, generation, UUID(str(data["event_id"]))), child_id)
     for identifier in data.get("record_ids", []):
         from uuid import UUID
 
@@ -132,9 +139,7 @@ async def space_relations(db, access, child_id, data, *, record_id, kind):
             raise HTTPException(422, "A collection cannot contain itself")
         await same_space(BabyRecord, identifier)
     if data.get("event_id"):
-        row = await same_space(BabyRecord, data["event_id"])
-        if row.kind != "event":
-            raise HTTPException(422, "Choose an event from your calendar")
+        check_visit_link(await same_space(BabyRecord, data["event_id"]), child_id)
     suggestion = data.get("suggested_category") or {}
     if suggestion.get("collection_id"):
         row = await same_space(BabyRecord, suggestion["collection_id"])

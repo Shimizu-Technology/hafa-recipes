@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 from app.domains.baby.feeds import instant, reduce_feed, with_derived
-from app.domains.baby.recurrence import is_start
+from app.domains.baby.recurrence import falls_on, is_start
 from app.domains.baby.sessions import with_session
 
 # Matches the mobile source kind label; keep API capture and processing defaults together.
@@ -383,8 +383,10 @@ class EventRecurrence(DomainModel):
     interval: Annotated[int, Field(strict=True, ge=1, le=99)] = 1
     # The last day, on the event's own calendar, that an occurrence can start.
     until: date | None = None
+    # Where the count starts when that's earlier than this event, as for a series split off another.
+    anchor: date | None = Field(default=None, exclude_if=lambda value: value is None)
 
-    @field_validator("until")
+    @field_validator("until", "anchor")
     @classmethod
     def sensible_until(cls, value):
         if value is not None and value.year not in EVENT_YEARS:
@@ -494,9 +496,9 @@ class EventData(DomainModel):
 
     @property
     def rule(self):
-        """(frequency, interval, until) for the repeat maths, or None."""
+        """(frequency, interval, until, anchor) for the repeat maths, or None."""
         repeat = self.recurrence
-        return repeat and (repeat.frequency, repeat.interval, repeat.until)
+        return repeat and (repeat.frequency, repeat.interval, repeat.until, repeat.anchor)
 
     def without_orphans(self, start):
         """Drop the changes to dates this event no longer has, as when its start or repeat moves."""
@@ -516,6 +518,10 @@ class EventData(DomainModel):
         if self.recurrence and self.recurrence.until:
             if self.recurrence.until < start.astimezone(zone).date():
                 raise ValueError("A repeat cannot end before the event starts")
+        if self.recurrence and self.recurrence.anchor:
+            repeat = self.recurrence
+            if not falls_on(repeat.anchor, repeat.frequency, repeat.interval, start.astimezone(zone).date()):
+                raise ValueError("The repeat must give the event's own start")
         for item in self.exceptions:
             if item.original_start < start:
                 raise ValueError("An occurrence cannot come before the event starts")

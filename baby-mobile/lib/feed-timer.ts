@@ -111,12 +111,3 @@ export function changeTimer(state: DeviceState, startedAt: string, change: (time
   const { feedTimer: _, ...rest } = state;
   return rest;
 }
-
-/** The side offered first: the suggested next side after a breastfeed, otherwise left. */
-export function sideChoices(next: RecordData["side"]): { side: FeedSide; suggested: boolean }[] {
-  const first: FeedSide = next === "right" ? "right" : "left";
-  return [
-    { side: first, suggested: next === first },
-    { side: first === "left" ? "right" : "left", suggested: false },
-  ];
-}
