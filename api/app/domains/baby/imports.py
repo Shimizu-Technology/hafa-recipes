@@ -233,6 +233,8 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         source.child_id,
         {"attachment_ids": row.request.get("attachment_ids", [])},
     )
+    if access.enabled:
+        member = await membership_for(db, row.app_user_id)
     # Retry is an explicit request, independent of automatic-share permission.
     if row.request.get("automatic"):
         row.request = {
@@ -240,8 +242,6 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
             for key, value in row.request.items()
             if key not in {"automatic", "automatic_epoch", "automatic_title"}
         }
-    if access.enabled:
-        member = await membership_for(db, row.app_user_id)
     row.status, row.error, row.consent_epoch = "queued", None, member.consent_epoch
     row.lease_token, row.lease_until, row.updated_at = None, None, now()
     source.data = {**source.data, "status": "queued"}

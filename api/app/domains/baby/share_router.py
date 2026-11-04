@@ -13,7 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import func, select, text
 
-from app.domains.baby.access import access_for, family_enabled, touch
+from app.domains.baby.access import AccessChanged, access_for, family_enabled, touch
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.imports import admit_import
 from app.domains.baby.lifecycle import digest, now
@@ -306,6 +306,9 @@ async def drain_deferred_captures(db, *, limit=20):
             access = await access_for(db, owner, stored_space_id=stored_space,
                                       generation=generation, write=True)
             member = access.member
+        except AccessChanged:
+            await db.rollback()
+            continue
         except HTTPException:
             from app.domains.baby.runtime import retire_unreachable
 
@@ -315,6 +318,9 @@ async def drain_deferred_captures(db, *, limit=20):
         if capture is not None:
             try:
                 await admit_capture(db, capture, member, access)
+            except AccessChanged:
+                await db.rollback()
+                continue
             except HTTPException:
                 from app.domains.baby.runtime import retire_unreachable
 

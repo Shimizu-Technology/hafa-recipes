@@ -160,6 +160,12 @@ async def test_pre_upgrade_source_creation_replay_preserves_original_fingerprint
         db.add(BabyRecord(**RecordCreate.model_validate(request).model_dump(), app_user_id="owner",
                           generation=1, revision=1, creation_hash=digest(normalized),
                           created_at=datetime.now(UTC), updated_at=datetime.now(UTC)))
+        from app.domains.baby.models import BabyMembership
+
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     response = await baby_api.client.post("/api/v1/baby/records", headers=shared.GEN, json=request)
     assert response.status_code == 200 and response.json()["id"] == request["id"]

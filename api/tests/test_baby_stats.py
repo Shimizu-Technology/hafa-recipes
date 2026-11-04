@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.domains.baby import stats
-from app.domains.baby.models import BabyChild, BabyRecord
+from app.domains.baby.models import BabyChild, BabyMembership, BabyRecord
 from app.domains.baby.stats import care_stats, custom_days, last_days, rolling_24h, summarize
 from tests import test_baby_integration as shared
 
@@ -274,6 +274,9 @@ async def test_database_rows_match_hand_numbers_and_stay_scoped(baby_api, monkey
     async with baby_api.sessions() as db:
         for identifier, name in ((child, "Noa"), (sibling, "Kai")):
             db.add(BabyChild(id=identifier, app_user_id="owner", generation=1, name=name, creation_hash="x"))
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.flush()
         for item in week_rows():
             db.add(stored(child, item.kind, item.occurred_at, item.data))
@@ -290,6 +293,10 @@ async def test_database_rows_match_hand_numbers_and_stay_scoped(baby_api, monkey
         # Looked back for, and split at the range start.
         db.add(stored(sibling, "sleep", guam(10, 27, 22), {"end_at": guam(10, 28, 2).isoformat()}))
         db.add(stored(sibling, "sleep", guam(10, 20, 22), {"end_at": guam(10, 28, 3).isoformat()}))
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     window = last_days(7, GUAM, AT)
     async with baby_api.sessions() as db:

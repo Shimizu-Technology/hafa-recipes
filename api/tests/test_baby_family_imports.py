@@ -178,7 +178,7 @@ async def test_import_retry_and_capture_cancel_belong_to_requester(baby_api, fam
         assert (await db.get(BabyShareCapture, capture_id)).status == "deferred"
         (await db.get(BabySpaceMember, (family, "other"))).role = "caregiver"
         await db.commit()
-    assert (await c.post(f"/api/v1/baby/imports/{capture_id}/cancel", headers=other)).status_code == 403
+    assert (await c.post(f"/api/v1/baby/imports/{capture_id}/cancel", headers=other)).status_code == 404
 
 
 async def test_removed_deferred_capture_leaves_drain_window(baby_api, family):

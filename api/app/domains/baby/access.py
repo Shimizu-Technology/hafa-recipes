@@ -7,8 +7,9 @@ from fastapi import HTTPException
 from sqlalchemy import and_, or_, select, update
 
 from app.domains.baby.lifecycle import membership_for
-from app.domains.baby.models import BabyMembership, BabySpace, BabySpaceMember
+from app.domains.baby.models import BabyImport, BabyMembership, BabySpace, BabySpaceMember
 from app.domains.baby.security import get_settings
+from app.domains.baby.share_models import BabyShareCapture
 from app.models.identity import AppUser
 
 CAREGIVER_KINDS = frozenset({
@@ -19,6 +20,11 @@ CAREGIVER_KINDS = frozenset({
 
 def family_enabled():
     return getattr(get_settings(), "baby_family_enabled", False)
+
+
+class AccessChanged(HTTPException):
+    def __init__(self):
+        super().__init__(409, "Baby access changed; retry before saving")
 
 
 @dataclass(frozen=True)
@@ -66,12 +72,16 @@ class BabyAccess:
             condition = and_(model.space_id == grant.id, model.generation == grant.generation)
             if grant.role == "caregiver" and hasattr(model, "kind"):
                 condition = and_(condition, model.kind.in_(CAREGIVER_KINDS))
+            if grant.role == "caregiver" and model in (BabyImport, BabyShareCapture):
+                condition = and_(condition, model.app_user_id == self.actor)
             conditions.append(condition)
         return or_(*conditions) if conditions else False
 
     def grant(self, row, *, kinds=True):
         for grant in self.spaces:
             if row.space_id == grant.id and row.generation == grant.generation:
+                if grant.role == "caregiver" and isinstance(row, (BabyImport, BabyShareCapture)) and row.app_user_id != self.actor:
+                    continue
                 if not kinds or grant.role != "caregiver" or not hasattr(row, "kind") or row.kind in CAREGIVER_KINDS:
                     return grant
         raise HTTPException(404, "Item unavailable")
@@ -153,7 +163,7 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
         affected_after = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
             BabySpaceMember.space_id.in_(lock_ids))))
         if affected_after != affected:
-            raise HTTPException(409, "Baby access changed; retry before saving")
+            raise AccessChanged()
         before = _snapshot(discovered)
         member = await membership_for(db, actor, active=active)
         provisioned = None
@@ -169,7 +179,7 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
             before = tuple(value for value in before if value[0] != provisioned.id)
             after = tuple(value for value in after if value[0] != provisioned.id)
         if before != after:
-            raise HTTPException(409, "Baby access changed; retry before saving")
+            raise AccessChanged()
         member = await membership_for(db, actor, active=active)
     try:
         requested = UUID(str(space_id)) if space_id is not None else None
@@ -218,10 +228,19 @@ async def touch(row, space):
     """
     if space is None:
         return
+    if space.transaction is None or space.db.get_transaction() is not space.transaction:
+        raise RuntimeError("touch requires the current access_for write transaction")
+    if row.generation != space.generation:
+        raise RuntimeError("touch destination does not match the row")
+    await _stamp(row, space)
+
+
+async def _stamp(row, space):
+    """Stamp recovery rows even when their stored generation has been retired."""
     db = space.db
     if space.transaction is None or db.get_transaction() is not space.transaction:
         raise RuntimeError("touch requires the current access_for write transaction")
-    if (row is not space.space and row.space_id != space.id) or row.generation != space.generation:
+    if row is not space.space and row.space_id != space.id:
         raise RuntimeError("touch destination does not match the row")
     with db.no_autoflush:
         row.change_seq = await db.scalar(update(BabySpace).where(BabySpace.id == space.id)

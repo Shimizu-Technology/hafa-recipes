@@ -566,15 +566,20 @@ async def verify_context(db, access, tracked):
 
 @router.get("/conversations")
 async def conversations(user: User, db: Database, access: Access = None):
-    rows = await db.scalars(
+    rows = list(await db.scalars(
         select(BabyConversation)
         .where(
             conversation_scope(BabyConversation, access),
         )
         .order_by(BabyConversation.updated_at.desc())
         .limit(100)
-    )
-    return {"items": [await conversation_reply(db, row, access) for row in rows]}
+    ))
+    ids = {row.child_id for row in rows if row.child_id}
+    if access.enabled and ids:
+        ids = set(await db.scalars(select(BabyChild.id).where(
+            BabyChild.id.in_(ids), access.condition(BabyChild), BabyChild.deleted_at.is_(None))))
+    return {"items": [{**conversation_response(row), "child_id": row.child_id if row.child_id in ids else None}
+                      for row in rows]}
 
 
 @router.get("/conversations/{identifier}")

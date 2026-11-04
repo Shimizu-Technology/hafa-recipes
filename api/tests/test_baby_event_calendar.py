@@ -494,9 +494,12 @@ async def stored_events(baby_api, count, start, *, owner="owner", **data):
     """``count`` events written straight to the table, as if made over time; ids in a known order."""
     ids = sorted(uuid4() for _ in range(count))
     async with baby_api.sessions() as db:
+        from app.domains.baby.models import BabyMembership
+
+        space = (await db.get(BabyMembership, owner)).personal_space_id
         db.add_all([
             BabyRecord(
-                id=identifier, app_user_id=owner, generation=1, kind="event", title=f"Series {n}", body="",
+                id=identifier, app_user_id=owner, space_id=space, generation=1, kind="event", title=f"Series {n}", body="",
                 occurred_at=utc(start), data={"timezone": "Pacific/Guam", **data}, revision=1,
                 creation_hash="x", created_at=NOW, updated_at=NOW,
             )

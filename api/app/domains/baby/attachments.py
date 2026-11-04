@@ -9,12 +9,12 @@ from tempfile import TemporaryDirectory
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Header, HTTPException, Response, UploadFile
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
 from app.domains.baby import storage
-from app.domains.baby.access import access_for, touch
+from app.domains.baby.access import access_for, family_enabled, touch
 from app.domains.baby.dependencies import Access, Database, Generation, User
 from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyAttachment, BabyImport, BabyRecord
@@ -24,7 +24,7 @@ from app.image_validation import (
     normalize_thumbnail_image,
     validate_image_bytes,
 )
-from app.media_lifecycle import acquire_recipe_media_lock
+from app.media_lifecycle import acquire_recipe_media_lock, recipe_media_lock_key
 from app.models.deletion import DeletionCleanupJob
 from app.services.storage import storage_service
 
@@ -50,6 +50,14 @@ ALLOWED = {
 }
 router = APIRouter(tags=["baby"], route_class=BabyRoute)
 upload_router = APIRouter(tags=["baby"], route_class=BabyUploadRoute)
+
+
+async def acquire_asset_lock(db, identifier):
+    if not family_enabled():
+        return await acquire_recipe_media_lock(db, identifier)
+    if not await db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"),
+                           {"key": recipe_media_lock_key(identifier)}):
+        raise HTTPException(409, "This file is busy; retry")
 
 
 def attachment_prefix(identifier, owner, generation):
@@ -191,7 +199,7 @@ async def retire_unreferenced_attachments(db, owner, generation, identifiers):
     )
     retired = 0
     for row in rows:
-        await acquire_recipe_media_lock(db, row.id)
+        await acquire_asset_lock(db, row.id)
         if getattr(owner, "enabled", False) and owner.target.role != "parent" and row.app_user_id != owner.actor:
             continue
         db.add(cleanup_job(actor_id(owner), [stored_prefix(row)]))
@@ -243,7 +251,7 @@ async def reconcile_attachment_quota(db, owner, generation, *, retaining=None):
     )
     reclaimed = 0
     for row in pending:
-        await acquire_recipe_media_lock(db, row.id)
+        await acquire_asset_lock(db, row.id)
         stored_prefix(row)
         row.state = "deleted"
         await touch(row, owner.grant(row) if getattr(owner, "enabled", False) else None)
@@ -396,7 +404,7 @@ async def upload_attachment(
         ):
             raise HTTPException(409, "This upload identity has different content")
         if prior.state == "ready":
-            await acquire_recipe_media_lock(db, identifier)
+            await acquire_asset_lock(db, identifier)
             receipt = (
                 await db.get(DeletionCleanupJob, prior.cleanup_job_id, populate_existing=True)
                 if prior.cleanup_job_id
@@ -469,7 +477,7 @@ async def upload_attachment(
     payload, validated_mime = await validate_payload(payload, mime)
     access = await refresh_access(db, access, generation, stored_space if access.enabled else None)
     row = await attachment_for(db, access, identifier, write=True)
-    await acquire_recipe_media_lock(db, identifier)
+    await acquire_asset_lock(db, identifier)
     guard = await db.get(DeletionCleanupJob, row.cleanup_job_id, populate_existing=True)
     if (
         row.state == "deleted"
@@ -495,7 +503,7 @@ async def upload_attachment(
             await media_db.commit()
         access = await refresh_access(db, access, generation, stored_space)
         row = await attachment_for(db, access, identifier, write=True)
-        await acquire_recipe_media_lock(db, identifier)
+        await acquire_asset_lock(db, identifier)
         guard = await db.get(DeletionCleanupJob, guard_id, populate_existing=True)
         if (row.state != "pending" or row.cleanup_job_id != guard_id or row.object_key != key
                 or guard is None or guard.status != "queued" or guard.next_attempt_at <= now()):
@@ -583,7 +591,7 @@ async def delete_attachment(identifier: UUID, user: User, db: Database, generati
                             access: Access = None):
     access.check_generation(generation)
     row = await attachment_for(db, access, identifier, write=True, deleting=True)
-    await acquire_recipe_media_lock(db, identifier)
+    await acquire_asset_lock(db, identifier)
     if row.state != "deleted":
         db.add(cleanup_job(user.id, [stored_prefix(row)]))
         row.state = "deleted"

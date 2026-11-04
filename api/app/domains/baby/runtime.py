@@ -12,7 +12,14 @@ from sqlalchemy import or_, select, text
 from app.ai_governance import ai_request_context
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
-from app.domains.baby.access import SpaceAccess, access_for, family_enabled, touch
+from app.domains.baby.access import (
+    AccessChanged,
+    SpaceAccess,
+    _stamp,
+    access_for,
+    family_enabled,
+    touch,
+)
 from app.domains.baby.lifecycle import now, owned, validate_relations
 from app.domains.baby.models import (
     BABY_TABLES,
@@ -96,18 +103,18 @@ async def retire_unreachable(db, model, identifier, owner, generation, stored_sp
         row.status, row.error, row.lease_token, row.lease_until = (
             "cancelled", "Baby access changed. Your original source is saved.", None, None)
         row.updated_at = now()
-        await touch(row, grant)
+        await _stamp(row, grant)
         source = await db.get(BabyRecord, row.record_id, populate_existing=True, with_for_update=True)
         if (source is not None and source.space_id == stored_space and source.generation == generation
                 and source.deleted_at is None):
             source.data = {**source.data, "status": "cancelled"}
             source.revision, source.updated_at = source.revision + 1, now()
-            await touch(source, grant)
+            await _stamp(source, grant)
     else:
         if row.status != "deferred":
             return True
         row.status, row.last_attempt_at = "saved", now()
-    await touch(row, grant)
+    await _stamp(row, grant)
     await db.commit()
     return True
 
@@ -205,6 +212,9 @@ class BabyWorker:
                 member = access.member
                 row = await owned(db, BabyImport, access, generation, identifier)
                 await owned(db, BabyRecord, access, generation, row.record_id)
+            except AccessChanged:
+                await db.rollback()
+                return True
             except HTTPException:
                 return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
             if row.status not in {"queued", "processing"} or (
@@ -243,6 +253,9 @@ class BabyWorker:
             await touch(row, access.target)
             try:
                 source = await owned(db, BabyRecord, access, generation, row.record_id)
+            except AccessChanged:
+                await db.rollback()
+                return True
             except HTTPException:
                 return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
             source.revision += 1
@@ -334,6 +347,7 @@ class BabyWorker:
                     return True
                 if source.revision == baseline_revision:
                     # Preserve the editable body, child and original attachments.
+                    title = source.title
                     if result.get("title") and (
                         not request.get("record_id")
                         or (not request.get("automatic") and source.title == DEFAULT_SOURCE_TITLE)
@@ -342,11 +356,12 @@ class BabyWorker:
                             and source.title == request.get("automatic_title")
                         )
                     ):
-                        source.title = result["title"]
+                        title = result["title"]
                     merged = {**source.data, **keep_user_decisions(source.data, result["data"])}
                     if access.enabled:
                         await validate_relations(db, access, generation, source.child_id, merged,
                                                  record_id=source.id, kind="source")
+                    source.title = title
                     source.data = merged
                     source.revision, source.updated_at = source.revision + 1, now()
                 else:
@@ -363,6 +378,9 @@ class BabyWorker:
                 await touch(source, access.target)
                 await touch(row, access.target)
                 await db.commit()
+        except AccessChanged:
+            # Rollback/close leaves queued work or the durable lease for recovery.
+            return True
         except asyncio.CancelledError:
             # The durable lease makes a killed process recoverable after restart.
             raise
@@ -387,6 +405,8 @@ class BabyWorker:
                         await touch(source, access.target)
                         await touch(row, access.target)
                         await db.commit()
+                except AccessChanged:
+                    await db.rollback()
                 except HTTPException:
                     await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
         return True
