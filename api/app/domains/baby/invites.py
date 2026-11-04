@@ -20,7 +20,7 @@ from app.domains.baby.schemas import DomainModel
 from app.domains.baby.share_models import BabyShareCredential
 
 DISCLOSURE_VERSION = 1
-DISCLOSURE = "Shared family entries are available to every parent and to each parent's Ask when AI is enabled. Your personal journal and chats stay private."
+DISCLOSURE = "Shared family entries are available to every parent and to each parent's Ask when AI is enabled. Your personal journal and chats stay private. Update Baby on every signed-in phone before creating a family."
 
 
 class InviteRoute(security.BabyRoute):
