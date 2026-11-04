@@ -1,10 +1,11 @@
 import type { BabyApi } from "./api";
 import { basedOn, type CareStats, type StatsDay } from "./care-stats";
-import { duration } from "./care-format";
+import { duration, weightText } from "./care-format";
 import { secondsWords } from "./contractions";
-import { kindName, type BabyRecord, type Child, type DeviceState, type Kind } from "./models";
+import { kindWord, type BabyRecord, type Child, type DeviceState, type Kind } from "./models";
 import { mutationRecordId, pendingRecords } from "./outbox";
 import { clockIn, dayRange, keyDate, recordDay } from "./tracker";
+import { moreKinds, trackerFor } from "./trackers";
 
 /** A page holds a month of daily rows and still has room for the rest. */
 export const summaryMaxDays = 31;
@@ -18,12 +19,16 @@ const newest = (x: BabyRecord, y: BabyRecord) => time(y.occurred_at) - time(x.oc
 function entriesIn(all: BabyRecord[], childId: string | null, first: string, last: string, timezone?: string | null) {
   const { from } = dayRange(first, timezone), { to } = dayRange(last, timezone),
     inRange = (row: BabyRecord) => time(row.occurred_at) >= time(from) && time(row.occurred_at) < time(to),
-    forBaby = (row: BabyRecord) => !childId ? !row.child_id : row.child_id === childId || !row.child_id;
+    forBaby = (row: BabyRecord) => !childId ? !row.child_id : row.child_id === childId || !row.child_id,
+    isNote = (row: BabyRecord) => trackerFor(row)?.id === "note";
   return {
     questions: all.filter((row) => row.kind === "question" && forBaby(row)).sort(newest),
     // A log with no baby isn't this baby's, unlike a general note.
-    logNotes: all.filter((row) => careKinds.includes(row.kind) && row.child_id === childId && inRange(row) && !!row.body.trim()).sort(newest),
+    logNotes: all.filter((row) => (careKinds.includes(row.kind) || isNote(row)) && row.child_id === childId && inRange(row) && !!row.body.trim()).sort(newest),
     journal: all.filter((row) => row.kind === "journal" && forBaby(row) && inRange(row)).sort(newest),
+    // Only this baby's: a log with no baby is hers, or a removed baby's, and neither belongs on this page.
+    logs: all.filter((row) => !!childId && row.child_id === childId && moreKinds.includes(row.kind) && !isNote(row) && inRange(row)).sort(newest),
+    her: all.filter((row) => !row.child_id && trackerFor(row)?.about === "her" && inRange(row)).sort(newest),
   };
 }
 
@@ -48,7 +53,7 @@ export async function summaryEntries(api: Pick<BabyApi, "records">, state: Devic
   // Questions aren't limited by the dates, so fewer days wouldn't help with those.
   await read({ kinds: ["question"], child_id: childId, include_general: true },
     "You have more questions saved than a summary can hold. Remove some you no longer need, then try again.");
-  await read({ kinds: [...careKinds, "journal"], child_id: childId, include_general: true, occurred_from: from, occurred_to: to },
+  await read({ kinds: [...careKinds, ...moreKinds, "journal"], child_id: childId, include_general: true, occurred_from: from, occurred_to: to },
     "There are more entries in these days than a summary can hold, so some notes would be left out. Choose fewer days.");
   const changed = new Set(state.outbox.map(mutationRecordId)),
     queued = pendingRecords(state).filter((row) => changed.has(row.id));
@@ -114,6 +119,10 @@ export interface SummaryPage {
   questions: BabyRecord[];
   /** Journal entries the writer picked, then notes on care logs. A page short of room loses from the end. Nothing private gets here without a tick. */
   notes: BabyRecord[];
+  /** This baby's medicine, temperature, growth, pumping, shots and her own custom logs. */
+  logs?: BabyRecord[];
+  /** What she keeps about herself, for an expecting page only, as she typed it. */
+  her?: BabyRecord[];
 }
 
 /** How much a page gives up, in turn, to stay one page: long notes first, then how many it lists. */
@@ -136,7 +145,7 @@ export const summaryWords = (row: Pick<BabyRecord, "title" | "body">) => {
 };
 function noteLine(row: BabyRecord, timezone: string, letters: number) {
   const body = clipped(row.body, letters),
-    title = row.kind === "journal" || row.kind === "question" ? (repeatsTitle(row) ? "" : row.title.trim()) : kindName[row.kind],
+    title = row.kind === "journal" || row.kind === "question" ? (repeatsTitle(row) ? "" : row.title.trim()) : row.data.label ?? kindWord(row.kind),
     when = `${shortDay(recordDay(row.occurred_at, timezone))}, ${clockIn(new Date(row.occurred_at), timezone)}`,
     colour = row.kind === "diaper" && row.data.color ? ` (colour: ${row.data.color})` : "",
     from = row.data.provenance === "clinician_instruction" ? " <i>Clinician instruction, labelled by the parent.</i>" : "";
@@ -147,14 +156,59 @@ function questionLine(row: BabyRecord, letters: number) {
   const title = repeatsTitle(row) ? "" : row.title.trim(), body = clipped(row.body, letters);
   return title && body ? `${title}${/[?!.:]$/.test(title) ? " " : ": "}${body}` : title || body;
 }
-function listSection(title: string, rows: BabyRecord[], limit: number, line: (row: BabyRecord) => string) {
+function listSection<T>(title: string, rows: T[], limit: number, line: (row: T) => string) {
   if (!rows.length) return "";
   const left = rows.length - limit;
   return `<h2>${title}</h2><ul>${rows.slice(0, limit).map(line).join("")}</ul>${left > 0 ? `<p class="small">${plural(left, "more entry", "more entries")} not on this page.</p>` : ""}`;
 }
 
+const loggedAt = (row: BabyRecord, timezone: string) => `${shortDay(recordDay(row.occurred_at, timezone))}, ${clockIn(new Date(row.occurred_at), timezone)}`;
+/** A logged line: when, what, and any note on it, in full words and every one escaped. */
+const logLine = (row: BabyRecord, timezone: string, letters: number, what: string) => {
+  const note = clipped(row.body, letters);
+  return `<li><b>${escape(loggedAt(row, timezone))}.</b> ${escape(what)}${note ? `. ${escape(note)}` : ""}</li>`;
+};
+type LogData = Record<string, any>;
+const measures = (d: LogData) => [typeof d.weight === "number" && weightText(d.weight, d.weight_unit), typeof d.length === "number" && `${d.length} ${d.length_unit}`, typeof d.head === "number" && `head ${d.head} ${d.head_unit}`].filter(Boolean).join(", ");
+/** One line a day for pumping. An amount in oz and one in mL stay apart, as they do for bottles. */
+function pumpingDays(rows: BabyRecord[], timezone: string) {
+  const days = new Map<string, { sessions: number; oz: number; ml: number }>();
+  for (const row of rows) {
+    const key = recordDay(row.occurred_at, timezone), day = days.get(key) ?? { sessions: 0, oz: 0, ml: 0 }, d = row.data as LogData;
+    day.sessions++;
+    if (typeof d.amount === "number") { if (d.unit === "oz") day.oz += d.amount; else day.ml += d.amount; }
+    days.set(key, day);
+  }
+  return [...days].map(([key, day]) => ({ key, ...day }));
+}
+function logSections(logs: BabyRecord[], timezone: string, limit: { notes: number; letters: number }) {
+  const of = (kind: BabyRecord["kind"]) => logs.filter((row) => row.kind === kind),
+    custom = of("custom"), shots = custom.filter((row) => trackerFor(row)?.id === "shot"), others = custom.filter((row) => !shots.includes(row));
+  return [
+    listSection("Medicine", of("medicine"), limit.notes, (row) => { const d = row.data as LogData; return logLine(row, timezone, limit.letters, [d.name, d.dose].filter(Boolean).join(", ")); }),
+    listSection("Temperature", of("temperature"), limit.notes, (row) => { const d = row.data as LogData; return logLine(row, timezone, limit.letters, [`${d.value} °${d.unit === "c" ? "C" : "F"}`, d.method].filter(Boolean).join(", ")); }),
+    listSection("Growth", of("growth"), limit.notes, (row) => logLine(row, timezone, limit.letters, measures(row.data as LogData))),
+    listSection("Pumping", pumpingDays(of("pumping"), timezone), limit.notes, (day) => `<li><b>${escape(shortDay(day.key))}.</b> ${escape([plural(day.sessions, "session"), day.oz && `${Math.round(day.oz * 10) / 10} oz`, day.ml && `${Math.round(day.ml)} mL`].filter(Boolean).join(", "))}</li>`),
+    // A name and a date: its noon is only how the date is stored.
+    listSection("Shots", shots, limit.notes, (row) => `<li><b>${escape(row.title)}</b> ${escape(longDay(recordDay(row.occurred_at, timezone)))}</li>`),
+    listSection("Other logs", others, limit.notes, (row) => logLine(row, timezone, limit.letters, [row.data.label, row.title !== row.data.label && row.title].filter(Boolean).join(": "))),
+  ].join("");
+}
+/** What else a full page will carry, in a line for the screen. */
+export function logCounts(logs: BabyRecord[]) {
+  const shot = (row: BabyRecord) => trackerFor(row)?.id === "shot", many = (rows: BabyRecord[], one: string, more = `${one}s`) => (rows.length ? `${rows.length} ${rows.length === 1 ? one : more}` : "");
+  return [many(logs.filter((row) => row.kind === "medicine"), "medicine", "medicines"), many(logs.filter((row) => row.kind === "temperature"), "temperature"),
+    many(logs.filter((row) => row.kind === "growth"), "growth entry", "growth entries"), many(logs.filter((row) => row.kind === "pumping"), "pumping session"),
+    many(logs.filter(shot), "shot"), many(logs.filter((row) => row.kind === "custom" && !shot(row)), "other log")].filter(Boolean).join(" · ");
+}
+/** Hers, exactly as she typed them. Nothing here says whether a number is high or low. */
+const herLine = (row: BabyRecord, timezone: string, letters: number) => {
+  const d = row.data as LogData;
+  return logLine(row, timezone, letters, `${d.label}: ${typeof d.value === "number" ? `${d.value}${d.unit ? ` ${d.unit}` : ""}` : row.title}`);
+};
+
 /** One page, in black on white so it survives a photocopier. No colour, no images, no links out, and every word escaped. */
-export function summaryHtml({ stats, child, timezone, prepared, questions, notes }: SummaryPage, level = 0) {
+export function summaryHtml({ stats, child, timezone, prepared, questions, notes, logs = [], her = [] }: SummaryPage, level = 0) {
   const limit = levels[Math.min(level, lastSummaryLevel)], first = stats?.days[0]?.date, last = stats?.days[stats.days.length - 1]?.date,
     // A month of rows takes the space notes would, so its table gets tighter before any note is cut short.
     tight = !!stats && stats.days.filter(logged).length > 14, what = stats ? "care summary" : "questions and notes";
@@ -173,6 +227,8 @@ td{text-align:right;border-bottom:.5pt solid #777;padding:${tight ? ".5pt" : "1p
 <p>${first ? `${escape(longDay(first))} to ${escape(longDay(last!))}. ` : ""}Prepared ${escape(prepared.toLocaleDateString(undefined, { timeZone: timezone, month: "long", day: "numeric", year: "numeric" }))}. Times are ${escape(timezone)}.</p></div>
 ${stats ? `<h2>Totals</h2>${totals(stats) || "<p>Nothing logged in these days.</p>"}
 <h2>Day by day</h2>${dayTable(stats.days)}` : `<p class="small">Care totals aren’t on this page.</p>`}
+${logSections(logs, timezone, limit)}
+${child?.birth_date ? "" : listSection("Her own logs", her, limit.notes, (row) => herLine(row, timezone, limit.letters))}
 ${listSection("Questions for the doctor", questions, limit.questions, (row) => `<li>${escape(questionLine(row, limit.letters))}</li>`)}
 ${listSection("Notes", notes, limit.notes, (row) => noteLine(row, timezone, limit.letters))}
 <p class="foot">Kept by the family in Håfa Baby. Personal records selected by the account owner. This is not a medical assessment.</p>

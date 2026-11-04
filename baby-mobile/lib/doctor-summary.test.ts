@@ -155,3 +155,88 @@ describe("gathering what can go on it", () => {
     expect(found.logNotes).toEqual([]);
   });
 });
+
+describe("the extra logs on the page", () => {
+  const at = (hour: number) => `2026-11-03T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  const log = (id: string, kind: BabyRecord["kind"], hour: number, title: string, data: object, body = "", child: string | null = "baby") =>
+    row(id, kind, at(hour), body, { title, data: data as never, child_id: child });
+  const dose = log("dose", "medicine", 2, "Tylenol", { name: "Tylenol", dose: "2.5 mL" }, "after a feed"),
+    temp = log("temp", "temperature", 3, "Temperature", { value: 99.1, unit: "f", method: "armpit" }),
+    growth = log("grow", "growth", 4, "Growth", { weight: 7.5, weight_unit: "lb", length: 20, length_unit: "in", head: 35, head_unit: "cm" }),
+    pumpOne = log("p1", "pumping", 1, "Pumping", { side: "left", amount: 3, unit: "oz" }),
+    pumpTwo = log("p2", "pumping", 5, "Pumping", { side: "both", amount: 90, unit: "ml" }),
+    pumpThree = log("p3", "pumping", 6, "Pumping", { side: "right", amount: 2.5, unit: "oz" }),
+    bath = log("bath", "custom", 6, "Bath", { label: "Bath" }),
+    note = log("note", "custom", 7, "Note", { label: "Note" }, "Spit up"),
+    shot = log("shot", "custom", 2, "Hep B", { label: "Shot" }, "left leg"),
+    pressure = log("bp", "custom", 2, "118/76", { label: "Blood pressure" }, "", null),
+    weight = log("kg", "custom", 2, "My weight", { label: "My weight", value: 145.5, unit: "lb" }, "", null),
+    feeling = log("fe", "custom", 3, "Tired", { label: "How I'm feeling" }, "long day", null),
+    vitamin = log("vi", "custom", 4, "Prenatal", { label: "Vitamins and medicine" }, "", null),
+    general = log("gen", "custom", 5, "Bath", { label: "Bath" }, "", null),
+    rows = [dose, temp, growth, pumpOne, pumpTwo, pumpThree, bath, note, shot, pressure, weight, feeling, vitamin, general];
+  const state = (records: BabyRecord[]) => ({ ...emptyState(), records });
+  const found = () => localEntries(state(rows), "baby", "2026-11-03", "2026-11-03", "Pacific/Guam");
+  const sorted = (list: BabyRecord[]) => list.map((item) => item.id).sort();
+  it("keeps her logs off the baby's page, and a log with no baby isn't the baby's", () => {
+    const entries = found();
+    expect(sorted(entries.logs)).toEqual(["bath", "dose", "grow", "p1", "p2", "p3", "shot", "temp"]);
+    expect(sorted(entries.her)).toEqual(["bp", "fe", "kg", "vi"]);
+    expect(entries.logNotes.map((item) => item.id)).toEqual(["note"]);
+    expect(entries.logs.map((item) => item.id)).not.toContain("gen");
+  });
+  it("lists each medicine with its name, dose, note and the family's clock", () => {
+    const html = summaryHtml(page({ logs: found().logs }));
+    expect(html).toContain("<h2>Medicine</h2>");
+    expect(html).toContain("Tylenol, 2.5 mL");
+    expect(html).toContain("after a feed");
+    expect(html).toMatch(/Nov 3, 12:00 PM[^<]*<\/b> Tylenol/); // 02:00 UTC on Guam's clock.
+  });
+  it("lists a temperature with its unit and method, and a growth entry as a doctor says it", () => {
+    const html = summaryHtml(page({ logs: found().logs }));
+    expect(html).toContain("99.1 °F, armpit");
+    expect(html).toContain("7 lb 8 oz, 20 in, head 35 cm");
+  });
+  it("adds up pumping by day, keeping oz and mL apart", () => {
+    const html = summaryHtml(page({ logs: found().logs }));
+    expect(html).toContain("<h2>Pumping</h2>");
+    expect(html).toMatch(/Tue, Nov 3[^<]*<\/b> 3 sessions, 5\.5 oz, 90 mL/);
+  });
+  it("says a shot by name and date alone, and a custom log by its own label, never Entry", () => {
+    const html = summaryHtml(page({ logs: found().logs, notes: found().logNotes }));
+    expect(html).toContain("<h2>Shots</h2>");
+    expect(html).toMatch(/Hep B<\/b> November 3, 2026/);
+    expect(html).not.toContain("left leg");
+    expect(html).toContain("Bath");
+    expect(html).toMatch(/Note\.<\/b> Spit up/);
+    expect(html).not.toContain("Entry");
+  });
+  it("gives her logs their own section on an expecting page, as she typed them, with nothing added", () => {
+    const expecting = summaryHtml(page({ child: { name: "Noa", due_date: "2026-12-10" }, her: found().her }));
+    expect(expecting).toContain("<h2>Her own logs</h2>");
+    for (const text of ["Blood pressure: 118/76", "My weight: 145.5 lb", "How I&#39;m feeling: Tired", "long day", "Vitamins and medicine: Prenatal"]) expect(expecting).toContain(text);
+    expect(expecting).not.toMatch(/normal|high|low\b|elevated|range|hypertens|should|warning/i);
+    const high = summaryHtml(page({ child: { name: "Noa", due_date: "2026-12-10" }, her: [log("bp", "custom", 2, "190/120", { label: "Blood pressure" }, "", null)] }));
+    expect(high).toContain("Blood pressure: 190/120");
+    expect(high).not.toMatch(/normal|high|low\b|elevated|range|hypertens|should|warning/i);
+  });
+  it("leaves her logs off a page for a baby who's here", () => {
+    expect(summaryHtml(page({ her: found().her }))).not.toContain("Her own logs");
+  });
+  it("escapes what she typed in every new section", () => {
+    const html = summaryHtml(page({ logs: [log("x", "medicine", 2, "<b>", { name: "<script>", dose: "<i>" }), log("y", "custom", 2, "<img>", { label: "<u>" }), log("z", "custom", 2, "<svg>", { label: "Shot" })], child: { name: "Noa", due_date: "2026-12-10" }, her: [log("w", "custom", 2, "<em>", { label: "Blood pressure" }, "<a>", null)] }));
+    expect(html).not.toMatch(/<script>|<i>|<u>|<img|<svg|<em>|<a>/);
+  });
+  it("gives up rows and says how many when a page runs short, as it does for notes", () => {
+    const many = Array.from({ length: 30 }, (_, index) => log(`m${index}`, "medicine", 2, "Tylenol", { name: "Tylenol" }));
+    const html = summaryHtml(page({ logs: many }), lastSummaryLevel);
+    expect(html).toMatch(/\d+ more entries not on this page/);
+    expect((html.match(/Tylenol/g) ?? []).length).toBeLessThan(30);
+  });
+  it("still refuses rather than quietly leaving logs out when there are too many to read", async () => {
+    const records = vi.fn(async (filters: { kinds?: string[] }) => ({ items: [], total: 0, has_more: !filters.kinds?.includes("question") }));
+    await expect(summaryEntries({ records } as never, state([]), "baby", "2026-11-03", "2026-11-03", "Pacific/Guam")).rejects.toBeInstanceOf(SummaryTooLong);
+    const asked = records.mock.calls.map(([filters]) => filters.kinds ?? []).find((kinds) => kinds.includes("medicine"))!;
+    for (const kind of ["medicine", "temperature", "growth", "pumping", "custom", "journal"]) expect(asked).toContain(kind);
+  });
+});
