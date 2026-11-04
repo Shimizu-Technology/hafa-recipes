@@ -109,7 +109,8 @@ export interface CareDay {
 }
 /** The API's day worked out from rows on this phone, for offline and for changes it hasn't seen. Half-open, and never the future. */
 export function dayTotals(rows: readonly BabyRecord[], key: string, timeZone?: string | null, now = new Date()): CareDay {
-  const { from, to } = dayRange(key, timeZone), start = new Date(from).getTime(), end = Math.min(new Date(to).getTime(), now.getTime()),
+  // Screens pass a clock that ticks once a minute, and what she just tapped is newer than its last tick.
+  const { from, to } = dayRange(key, timeZone), start = new Date(from).getTime(), end = Math.min(new Date(to).getTime(), now.getTime() + 60_000),
     today = rows.filter((row) => { const at = new Date(row.occurred_at).getTime(); return at >= start && at < end; }),
     diapers = today.filter((row) => row.kind === "diaper"),
     count = today.filter((row) => row.kind === "feeding").length,

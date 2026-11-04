@@ -90,3 +90,10 @@ describe("the API's day with this phone's changes on top", () => {
     expect(dayOverlay(state(rows), "baby", guam, now)(undefined, key)).toEqual(dayTotals(rows, key, guam, now));
   });
 });
+
+it("counts what she just logged, though the screen's clock only ticks once a minute, and still not a feed dated ahead", () => {
+  const feed = (at: string) => ({ ...optimisticRecord({ id: at, kind: "feeding", title: "Feeding", body: "", child_id: "baby", occurred_at: at, data: {} }), revision: 1 });
+  const clock = new Date("2026-11-05T03:46:00.000Z"), day = "2026-11-05";
+  expect(dayTotals([feed("2026-11-05T03:46:40.000Z")], day, "UTC", clock).feeding.count).toBe(1);
+  expect(dayTotals([feed("2026-11-05T09:00:00.000Z")], day, "UTC", clock).feeding.count).toBe(0);
+});
