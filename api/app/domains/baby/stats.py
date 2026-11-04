@@ -85,6 +85,20 @@ def care_query(owner, generation, child_id, *columns):
     )
 
 
+def kind_query(owner, generation, kinds, *columns):
+    """Who can see rows of these kinds: calendar events, contractions and kicks.
+
+    The one owner-scoped query the calendar reads through, kept apart from ``care_query`` so the
+    totals above never count them.
+    """
+    return select(*columns).where(
+        BabyRecord.app_user_id == owner,
+        BabyRecord.generation == generation,
+        BabyRecord.deleted_at.is_(None),
+        BabyRecord.kind.in_(kinds),
+    )
+
+
 async def care_stats(db, owner, generation, child_id, zone, stats_range):
     rows = list(
         await db.execute(
@@ -109,18 +123,23 @@ async def care_stats(db, owner, generation, child_id, zone, stats_range):
     return summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
 
 
-# What puts a dot on a calendar day. To add contractions, kicks or events: add the kind to
-# CARE_KINDS, count it per day in ``summarize``, and add its dot here. ``/care/summary``, its
-# range and its time zone then need no change.
+# What puts a dot on a calendar day. ``day["marks"]`` holds the kinds the caller found for that
+# day that are not care totals: events, contractions and kicks, and a sleep still going.
 DAY_DOTS = {
     "feeding": lambda day: day["feeding"]["count"],
     "diaper": lambda day: day["diapers"]["count"],
-    "sleep": lambda day: day["sleep"]["total_minutes"],
+    "sleep": lambda day: day["sleep"]["total_minutes"] or "sleep" in day["marks"],
+    "contraction": lambda day: "contraction" in day["marks"],
+    "kick_session": lambda day: "kick_session" in day["marks"],
+    "event": lambda day: "event" in day["marks"],
 }
 
 
-async def care_summary(db, owner, generation, child_id, zone, first, last, at):
-    """Inclusive calendar days of totals and dots. A wholly future range is simply empty."""
+async def care_summary(db, owner, generation, child_id, zone, first, last, at, marks=None):
+    """Inclusive calendar days of totals and dots. A wholly future range is simply empty.
+
+    ``marks`` maps an ISO date to the non-care kinds on it; without it only care earns dots.
+    """
     check_custom_span(first, last)
     if first > at.astimezone(zone).date():
         start = day_start(first, zone)
@@ -135,9 +154,9 @@ async def care_summary(db, owner, generation, child_id, zone, first, last, at):
         for item in result["sleep"]["open"]
     }
     for day in result["days"]:
+        day["marks"] = {*(marks or {}).get(day["date"], ()), *({"sleep"} if day["date"] in sleeping else ())}
         day["dots"] = [name for name, earned in DAY_DOTS.items() if earned(day)]
-        if day["date"] in sleeping and "sleep" not in day["dots"]:
-            day["dots"].append("sleep")
+        del day["marks"]
     return result
 
 
