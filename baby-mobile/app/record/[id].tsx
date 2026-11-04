@@ -8,6 +8,7 @@ import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime, isCare } from "@/lib/care-format";
 import { feedProgress } from "@/lib/feed-reducer";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
+import { keyDate, recordDay } from "@/lib/tracker";
 import { inheritedFiles, mutationRecordId, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { Button, Card, Chips, Choice, Copy, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
@@ -85,6 +86,8 @@ export default function RecordDetail() {
     data = record.data,
     // Care and the timers read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
     clock = isCare(record.kind) || record.kind === "contraction" || record.kind === "kick_session" ? b.state.bootstrap?.profile.timezone : undefined,
+    // A milestone is kept by its date, and its noon is only how the date is stored.
+    dateOnly = record.kind === "milestone",
     localFiles = inheritedFiles(b.state, record.id).filter(
       (file) => !file.uploaded_id || !data.attachment_ids?.includes(file.uploaded_id)
     );
@@ -93,7 +96,8 @@ export default function RecordDetail() {
       title={kindName[record.kind]}
       back
       numericSubtitle
-      subtitle={friendlyTime(record.occurred_at, undefined, clock) + (child ? " · " + child.name : "")}
+      subtitle={(dateOnly ? keyDate(recordDay(record.occurred_at, b.state.bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
+        : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + child.name : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
         : title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}

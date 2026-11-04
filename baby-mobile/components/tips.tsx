@@ -89,13 +89,20 @@ export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Da
  * beside it. Past 24 months there's no card for the age, so only her tips remain.
  */
 export function BabyAgeCard({ child, now, tips = [] }: { child: Child; now: Date; tips?: BabyRecord[] }) {
-  const c = useColors(), collections = useBaby().records.filter((row) => row.kind === "collection"),
+  const c = useColors(), { fontScale } = useWindowDimensions(), collections = useBaby().records.filter((row) => row.kind === "collection"),
     age = babyAgeCard(child.birth_date!, now);
   if (!age) return <TipSection title="For this age" view="now" rows={tips} />;
   const title = age.unit === "week" ? `Week ${age.age}` : `${age.age} months`;
   return <FadeUp>
     <View style={{ backgroundColor: c.hero, borderRadius: radii.hero, padding: 22, gap: 16 }}>
-      <Text accessibilityRole="header" maxFontSizeMultiplier={1.5} style={{ ...weekStyle, fontSize: 40, lineHeight: 46, color: c.text }}>{title}</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 12 }}>
+        <Text accessibilityRole="header" maxFontSizeMultiplier={1.5} style={{ ...weekStyle, fontSize: 40, lineHeight: 46, color: c.text }}>{title}</Text>
+        <PressTarget accessibilityRole="button" accessibilityLabel="Milestones" accessibilityHint="CDC’s list, and your keepsakes" hitSlop={4} onPress={() => router.push("/milestones")}
+          style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Icon name="ribbon-outline" size={18} color={c.accentText} />
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: c.accentText }}>Milestones</Text>
+        </PressTarget>
+      </View>
       <AgeFacts age={age} />
       <View style={{ height: 1, backgroundColor: c.border }} />
       <View style={{ gap: 4 }}>

@@ -141,7 +141,7 @@ it("opens on today with a summary, the quick log and everything in order, newest
 it("asks the API for the day and the one before, for a sleep over midnight", async () => {
   await mount();
   const day = mock.requests.find((r) => r.occurred_from);
-  expect(day).toMatchObject({ occurred_from: "2026-11-02T14:00:00.000Z", occurred_to: "2026-11-04T14:00:00.000Z", poll: true, kinds: ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session"] });
+  expect(day).toMatchObject({ occurred_from: "2026-11-02T14:00:00.000Z", occurred_to: "2026-11-04T14:00:00.000Z", poll: true, kinds: ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session", "milestone"] });
 });
 
 it("reaches any recent day in one tap, and steps by day, with a way back to today", async () => {
