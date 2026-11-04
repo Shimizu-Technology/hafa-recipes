@@ -154,3 +154,7 @@ async def erase_product_data(db, member, generation):
     member.consent_epoch += 1
     member.profile = {}
     member.updated_at = now()
+
+    from app.domains.baby.spaces import ensure_personal_space
+
+    await ensure_personal_space(db, member)

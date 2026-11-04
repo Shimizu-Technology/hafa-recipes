@@ -260,6 +260,9 @@ async def enroll(user: User, db: Database, generation: Generation):
         member.status = "active"
         member.profile = Profile().model_dump()
         member.updated_at = now()
+    from app.domains.baby.spaces import ensure_personal_space
+
+    await ensure_personal_space(db, member)
     await db.commit()
     return {"generation": member.generation, "active": True}
 

@@ -99,3 +99,17 @@ async def test_startup_requires_both_markers(baby_api, monkeypatch):
             await verify_baby_schema(baby_api.sessions)
         async with baby_api.engine.begin() as db:
             await db.execute(text("INSERT INTO schema_migrations VALUES(:v,'test')"), {"v": version})
+
+
+async def test_erasure_and_reenrollment_keep_personal_fence_in_step(baby_api):
+    c = baby_api.client
+    response = await c.delete("/api/v1/baby/data?generation=1", headers=shared.GEN)
+    assert response.status_code == 200
+    for status in ("deleted", "active"):
+        async with baby_api.sessions() as db:
+            member = await db.get(BabyMembership, "owner")
+            space = await db.get(BabySpace, member.personal_space_id)
+            assert member.generation == space.generation == 2
+            assert member.status == space.status == status
+        if status == "deleted":
+            assert (await c.post("/api/v1/baby/enroll", headers={"X-Baby-Generation": "2"})).status_code == 200
