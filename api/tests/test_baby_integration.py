@@ -724,7 +724,7 @@ async def test_release_is_private_generation_fenced_and_never_unlinks(baby_api):
     ).status_code == 409
     assert (
         await c.post(f"/api/v1/baby/attachments/{uuid4()}/release", headers=GEN)
-    ).status_code == 204
+    ).status_code == (404 if baby_api.settings.baby_family_enabled else 204)
 
 
 async def quota_upload(baby_api, monkeypatch, identifier=None):
