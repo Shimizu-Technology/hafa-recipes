@@ -15,7 +15,7 @@ from pydantic import Field
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
-from app.domains.baby.budget import reserve
+from app.domains.baby.budget import reserve, reserve_ask
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
 
@@ -99,6 +99,16 @@ class BabyProvider:
             # the exception. Preserve only its safe class, never provider data.
             self.budget_error = failure
             raise
+
+    async def admit_ask_call(self, capability, call):
+        """Gate, reserve this one call, gate again: withdrawing consent stops the next call."""
+        await self.admitted(capability)
+        try:
+            await reserve_ask(capability, call)
+        except BudgetError as failure:
+            self.budget_error = failure
+            raise
+        await self.admitted(capability)
 
     async def json_call(self, *, capability, instructions, content, output_model, max_tokens=2400):
         await self.admitted(capability)

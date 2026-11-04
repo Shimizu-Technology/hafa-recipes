@@ -1,6 +1,9 @@
 """Content-free durable paid admission; no provider retry can evade the ceiling."""
 
+from dataclasses import dataclass
 from datetime import timedelta
+from decimal import ROUND_CEILING, Decimal
+from typing import NamedTuple
 
 from sqlalchemy import func, select, text
 
@@ -10,6 +13,7 @@ from app.db.database import AsyncSessionLocal
 from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyAIAdmission
 from app.domains.workouts.budget import (
+    MODEL_INPUT_UPPER_BOUND,
     BudgetError,
     BudgetPolicy,
     ProviderEnvelope,
@@ -20,6 +24,103 @@ GLOBAL_DAILY_CAP = 5_000_000
 OWNER_DAILY_CAP = 3_000_000
 MAX_ATTEMPTS = 100
 LOCK_ID = 7340052
+LEGACY_MAX_OUTPUT = 2400
+
+
+class ModelPrice(NamedTuple):
+    """USD per million tokens at standard short-context rates."""
+
+    input: Decimal
+    cache_write: Decimal
+    output: Decimal
+
+
+# Provider pricing pages, checked 2026-11-05. A model missing here fails closed.
+BABY_MODEL_PRICES = {
+    "gpt-6-luna": ModelPrice(Decimal("0.10"), Decimal("0.125"), Decimal("0.50")),
+    "gpt-6.1-terra": ModelPrice(Decimal("1.00"), Decimal("1.25"), Decimal("5.00")),
+    "gpt-6-astra": ModelPrice(Decimal("10.00"), Decimal("12.50"), Decimal("50.00")),
+    "claude-haiku-5-5": ModelPrice(Decimal("0.10"), Decimal("0.125"), Decimal("0.50")),
+}
+# Priced so an evaluation can state its cost. It has no adapter or consent text in production.
+EVAL_ONLY_MODELS = frozenset({"claude-haiku-5-5"})
+ASK_CAPABILITIES = ("baby_ask", "baby_research")
+# Ask reserves far less per call than the rest, so its own ledger keeps the same daily ceilings.
+ASK_MAX_ATTEMPTS = 300  # 50 questions a day, each up to 5 tool rounds and a final answer.
+MAX_TOOL_ROUNDS = 5
+MAX_RESEARCH_CALLS = 2
+SEARCH_CALL_MICROUSD = 10_000  # $10 per 1,000 calls; content tokens are billed as input.
+MAX_SEARCHES_PER_CALL = 2
+SEARCH_CONTEXT_TOKENS = 128_000  # The provider's web search context limit.
+LONG_CONTEXT_TOKENS = 272_000  # Past this the provider charges 2x input and 1.5x output.
+ASK_MAX_OUTPUT = 8_000
+FRAMING_TOKENS = 2_000
+
+
+@dataclass(frozen=True)
+class AskCall:
+    """One Responses call, described by the server before it is sent.
+
+    A token is at least one UTF-8 byte, so the request's own size bounds its input.
+    """
+
+    model: str
+    input_bytes: int
+    max_output_tokens: int
+    searches: int = 0
+    endpoint: str = "responses"
+    service_tier: str = "default"
+    sdk_max_retries: int = 0
+
+
+def ask_upper_bound(call):
+    if call.model not in BABY_MODEL_PRICES or call.model in EVAL_ONLY_MODELS:
+        raise BudgetError("workouts_ai_model_unpriced")
+    if (
+        call.endpoint != "responses"
+        or call.service_tier != "default"
+        or call.sdk_max_retries != 0
+        or type(call.input_bytes) is not int
+        or call.input_bytes < 0
+        or type(call.max_output_tokens) is not int
+        or not 1 <= call.max_output_tokens <= ASK_MAX_OUTPUT
+        or type(call.searches) is not int
+        or not 0 <= call.searches <= MAX_SEARCHES_PER_CALL
+    ):
+        raise BudgetError("workouts_ai_envelope_unsupported")
+    tokens = call.input_bytes + FRAMING_TOKENS
+    if call.searches:
+        # Each search can add a full context of results, billed again on the next model turn.
+        tokens = max(tokens, SEARCH_CONTEXT_TOKENS) * (call.searches + 1)
+    # Past the long-context line the rates below would no longer bound the bill.
+    if max(call.input_bytes + FRAMING_TOKENS, SEARCH_CONTEXT_TOKENS if call.searches else 0) > LONG_CONTEXT_TOKENS:
+        raise BudgetError("workouts_ai_envelope_unsupported")
+    price = BABY_MODEL_PRICES[call.model]
+    tokens_cost = tokens * max(price.input, price.cache_write) + call.max_output_tokens * price.output
+    return int(tokens_cost.to_integral_value(rounding=ROUND_CEILING)) + call.searches * SEARCH_CALL_MICROUSD
+
+
+class QuestionBudget:
+    """One question's paid calls, counted before each reservation so a tool loop has to stop."""
+
+    def __init__(self):
+        self.rounds = 0
+        self.research_calls = 0
+
+    @property
+    def tools_allowed(self):
+        return self.rounds < MAX_TOOL_ROUNDS
+
+    def start_round(self):
+        # Five rounds that may use tools, then one that must answer.
+        if self.rounds > MAX_TOOL_ROUNDS:
+            raise BudgetError("workouts_ai_attempt_cap_exceeded")
+        self.rounds += 1
+
+    def start_research(self):
+        if self.research_calls >= MAX_RESEARCH_CALLS:
+            raise BudgetError("workouts_ai_attempt_cap_exceeded")
+        self.research_calls += 1
 
 
 def upper_bound(capability, model, *, images=False, duration=None):
@@ -33,10 +134,20 @@ def upper_bound(capability, model, *, images=False, duration=None):
             sdk_max_retries=0,
         )
         platform_capability = "workout_transcription"
+    elif model in BABY_MODEL_PRICES:
+        # The same whole-context bound as below, at the Baby list's rates.
+        if model in EVAL_ONLY_MODELS:
+            raise BudgetError("workouts_ai_model_unpriced")
+        price = BABY_MODEL_PRICES[model]
+        amount = (
+            MODEL_INPUT_UPPER_BOUND * price.input * Decimal("2.5")
+            + LEGACY_MAX_OUTPUT * price.output * Decimal("1.5")
+        )
+        return int(amount.to_integral_value(rounding=ROUND_CEILING))
     else:
         envelope = ProviderEnvelope(
             endpoint="chat_completions",
-            max_output_tokens=2400,
+            max_output_tokens=LEGACY_MAX_OUTPUT,
             includes_images=images,
             service_tier="default",
             sdk_max_retries=0,
@@ -68,21 +179,67 @@ async def reserve(capability, model, *, images=False, duration=None, sessions=No
         # Account-first ordering matches every private mutation/deletion. This
         # global lock serializes budget reservations across server replicas.
         await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
-        window = BabyAIAdmission.created_at > now() - timedelta(days=1)
+        window = (
+            BabyAIAdmission.created_at > now() - timedelta(days=1),
+            BabyAIAdmission.capability.not_in(ASK_CAPABILITIES),
+        )
         total = await db.scalar(
-            select(func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0)).where(window)
+            select(func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0)).where(*window)
         )
         owner_total, owner_count = (
             await db.execute(
                 select(
                     func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0), func.count()
-                ).where(window, BabyAIAdmission.app_user_id == context.user_id)
+                ).where(*window, BabyAIAdmission.app_user_id == context.user_id)
             )
         ).one()
         if (
             total + amount > GLOBAL_DAILY_CAP
             or owner_total + amount > OWNER_DAILY_CAP
             or owner_count >= MAX_ATTEMPTS
+        ):
+            raise BudgetError("workouts_ai_budget_exceeded")
+        db.add(
+            BabyAIAdmission(
+                app_user_id=context.user_id,
+                generation=member.generation,
+                capability=capability,
+                reserved_microusd=amount,
+                created_at=now(),
+            )
+        )
+        await db.commit()
+
+
+async def reserve_ask(capability, call, *, sessions=None):
+    """Reserve one Ask call on its own ledger: same ceilings, per actor and global."""
+    context = current_ai_context()
+    if not context.user_id or capability not in ASK_CAPABILITIES:
+        raise BudgetError("workouts_ai_budget_unavailable")
+    amount = ask_upper_bound(call)
+    async with (sessions or AsyncSessionLocal)() as db:
+        member = await membership_for(db, context.user_id, write=True)
+        if not member.profile.get("ai_consent"):
+            raise BudgetError("workouts_ai_budget_unavailable")
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
+        window = (
+            BabyAIAdmission.created_at > now() - timedelta(days=1),
+            BabyAIAdmission.capability.in_(ASK_CAPABILITIES),
+        )
+        total = await db.scalar(
+            select(func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0)).where(*window)
+        )
+        owner_total, owner_count = (
+            await db.execute(
+                select(
+                    func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0), func.count()
+                ).where(*window, BabyAIAdmission.app_user_id == context.user_id)
+            )
+        ).one()
+        if (
+            total + amount > GLOBAL_DAILY_CAP
+            or owner_total + amount > OWNER_DAILY_CAP
+            or owner_count >= ASK_MAX_ATTEMPTS
         ):
             raise BudgetError("workouts_ai_budget_exceeded")
         db.add(

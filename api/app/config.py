@@ -94,6 +94,26 @@ class Settings(BaseSettings):
                 "cached_input_per_million": 0.20,
                 "output_per_million": 12.00,
             },
+            "gpt-6-luna": {
+                "input_per_million": 0.10,
+                "cached_input_per_million": 0.01,
+                "output_per_million": 0.50,
+            },
+            "gpt-6.1-terra": {
+                "input_per_million": 1.00,
+                "cached_input_per_million": 0.05,
+                "output_per_million": 5.00,
+            },
+            "gpt-6-astra": {
+                "input_per_million": 10.00,
+                "cached_input_per_million": 1.00,
+                "output_per_million": 50.00,
+            },
+            "claude-haiku-5-5": {
+                "input_per_million": 0.10,
+                "cached_input_per_million": 0.01,
+                "output_per_million": 0.50,
+            },
         }
     )
 
