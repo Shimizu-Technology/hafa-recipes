@@ -51,9 +51,11 @@ from app.domains.baby.queries import (
     timing_filter,
 )
 from app.domains.baby.schemas import (
+    MAX_TRACKERS,
     NEW_KINDS,
     V1_KINDS,
     ChildCreate,
+    ChildDetails,
     ChildPatch,
     CollectionData,
     EventData,
@@ -91,10 +93,38 @@ def child_response(row, access=None):
         "name": row.name,
         "birth_date": row.birth_date,
         "due_date": row.due_date,
+        "details": row.details or {},
         "revision": row.revision,
     }
     if getattr(access, "enabled", False) and access.client == "3":
         result.update(space_id=str(row.space_id), generation=row.generation)
+    return result
+
+
+CHILD_DETAIL_ERRORS = {
+    "sex": "Choose girl or boy, or leave it blank",
+    "weight_at_birth_g": "Enter a birth weight between 100 g and 10 kg",
+    "length_at_birth_cm": "Enter a birth length between 15 and 80 cm",
+    "weeks_at_birth": "Enter weeks at birth between 20 and 45",
+    "feeding": "Choose nursing, bottle or both, or leave it blank",
+    "tracking": "A tracker setting could not be read",
+}
+
+
+def child_details(stored, sent):
+    """A key that was sent changes and null clears it. Anything unsent stays, so a client that doesn't know a key can't lose it."""
+    try:
+        given = ChildDetails.model_validate(sent or {}).model_dump(mode="json", exclude_unset=True)
+    except ValidationError as error:
+        raise HTTPException(422, CHILD_DETAIL_ERRORS[str(error.errors()[0]["loc"][0])]) from None
+    result = dict(stored)
+    for key, value in given.items():
+        if value is None:
+            result.pop(key, None)
+        else:
+            result[key] = {**result.get(key, {}), **value} if key == "tracking" else value
+    if len(result.get("tracking", {})) > MAX_TRACKERS:
+        raise HTTPException(422, CHILD_DETAIL_ERRORS["tracking"])
     return result
 
 
@@ -483,7 +513,9 @@ async def children(user: User, db: Database, access: Access = None):
 async def create_child(body: ChildCreate, user: User, db: Database, generation: Generation,
                        access: Access = None):
     member = access.member
-    fingerprint = digest(body.model_dump(mode="json"))
+    details = child_details({}, body.details)
+    # Hashed only when there are some, so a retry from before this field still matches its row.
+    fingerprint = digest(body.model_dump(mode="json", exclude={"details"}) | ({"details": details} if details else {}))
     if not access.enabled:
         access.check_generation(generation)
     if access.enabled and access.target.role != "parent":
@@ -513,7 +545,8 @@ async def create_child(body: ChildCreate, user: User, db: Database, generation: 
     if count >= 30:
         raise HTTPException(422, "Child profile limit reached")
     row = BabyChild(
-        **body.model_dump(),
+        **body.model_dump(exclude={"details"}),
+        details=details,
         app_user_id=user.id,
         space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,
@@ -536,14 +569,17 @@ async def patch_child(
         raise HTTPException(403, "Only a parent can edit a child profile")
     row = await owned(db, BabyChild, access, generation, identifier)
     revision_matches(row, body.revision)
-    values = {**child_response(row), **body.model_dump(exclude_unset=True, exclude={"revision"})}
+    details = child_details(row.details, body.details)
+    values = {**child_response(row), **body.model_dump(exclude_unset=True, exclude={"revision", "details"})}
     values.pop("revision", None)
+    values.pop("details", None)
     try:
         valid = ChildCreate.model_validate(values)
     except ValidationError:
         raise HTTPException(422, "Enter valid child details") from None
     for key in ("name", "birth_date", "due_date"):
         setattr(row, key, getattr(valid, key))
+    row.details = details
     row.revision += 1
     await touch(row, access.target)
     await db.commit()
@@ -587,7 +623,7 @@ async def delete_child(
         if job.request.get("child_id") == str(identifier):
             job.request = {**job.request, "child_id": None}
             await touch(job, access.grant(job) if access.enabled else None)
-    row.deleted_at, row.name, row.birth_date, row.due_date = now(), "", None, None
+    row.deleted_at, row.name, row.birth_date, row.due_date, row.details = now(), "", None, None, {}
     row.revision += 1
     await touch(row, access.target)
     await settle_running_feeds(db, access, generation, None)

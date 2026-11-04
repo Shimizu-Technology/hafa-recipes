@@ -23,7 +23,7 @@ async def details_column(engine):
 
 
 async def without_details(engine):
-    # The ORM maps this column once J1b lands, and create_all would have made it already.
+    # The shared fixture adds this column, because the ORM maps it once J1b lands.
     async with engine.begin() as db:
         await db.execute(text("ALTER TABLE baby_children DROP COLUMN IF EXISTS details"))
 

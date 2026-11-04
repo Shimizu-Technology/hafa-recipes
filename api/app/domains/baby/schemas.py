@@ -70,11 +70,34 @@ class ProfilePatch(DomainModel):
     auto_process_shares: StrictBool | None = None
 
 
+TrackerId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]
+MAX_TRACKERS = 40
+
+
+class ChildDetails(BaseModel):
+    """Optional setup answers. Unknown keys are ignored, so a newer client can't fail an older API."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+    sex: Literal["girl", "boy"] | None = None
+    weight_at_birth_g: int | None = Field(default=None, strict=True, ge=100, le=10000)
+    length_at_birth_cm: float | None = Field(default=None, strict=True, ge=15, le=80)
+    weeks_at_birth: int | None = Field(default=None, strict=True, ge=20, le=45)
+    feeding: Literal["nursing", "bottle", "both"] | None = None
+    tracking: dict[TrackerId, StrictBool] | None = Field(default=None, max_length=MAX_TRACKERS)
+
+    @field_validator("length_at_birth_cm")
+    @classmethod
+    def one_decimal(cls, value):
+        return None if value is None else round(value, 1)
+
+
 class ChildCreate(DomainModel):
     id: UUID = Field(default_factory=uuid4)
     name: str = Field(min_length=1, max_length=120)
     birth_date: date | None = None
     due_date: date | None = None
+    # Checked by clean_child_details, so a bad value gets its own plain-word answer.
+    details: dict | None = None
 
     @field_validator("name")
     @classmethod
@@ -89,6 +112,7 @@ class ChildPatch(DomainModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     birth_date: date | None = None
     due_date: date | None = None
+    details: dict | None = None
 
 
 class Evidence(DomainModel):

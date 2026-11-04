@@ -62,6 +62,11 @@ async def baby_api(monkeypatch, request):
             await importlib.import_module(name).run_migration(
                 configured=settings, migration_engine=engine
             )
+        # The ORM maps this at every stage, and 059 only runs after 057. Its own tests are in test_baby_child_details_migration.
+        async with engine.begin() as connection:
+            await connection.execute(text(
+                "ALTER TABLE baby_children ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}'::jsonb"
+            ))
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         async with sessions() as db:
             db.add_all([AppUser(id="owner"), AppUser(id="other")])

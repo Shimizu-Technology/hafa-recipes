@@ -100,7 +100,7 @@ class BabyAccess:
                        "generation": row.generation, "revision": getattr(row, "revision", None)}
             details["record"] = jsonable_encoder({key: getattr(row, key) for key in (
                 "id", "kind", "title", "body", "child_id", "occurred_at", "data", "revision",
-                "created_at", "updated_at", "space_id", "generation", "name", "birth_date", "due_date") if hasattr(row, key)})
+                "created_at", "updated_at", "space_id", "generation", "name", "birth_date", "due_date", "details") if hasattr(row, key)})
             if getattr(row, "kind", None) == "journal" and row.child_id:
                 from app.domains.baby.models import BabyChild
 

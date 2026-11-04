@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base
@@ -72,6 +73,7 @@ class BabyChild(Base):
     name = Column(String(120), nullable=False)
     birth_date = Column(Date)
     due_date = Column(Date)
+    details = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     creation_hash = Column(String(64), nullable=False)
     __table_args__ = (Index("ix_baby_children_owner", "app_user_id", "generation"),)
 
