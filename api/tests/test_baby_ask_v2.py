@@ -1,0 +1,289 @@
+"""The new Ask's request shape and who reaches it. No paid call: a local stub answers at the HTTP layer."""
+
+import json
+from types import SimpleNamespace
+from uuid import uuid4
+
+import httpx
+import pytest
+from sqlalchemy import func, select
+
+from app.domains.baby import ask_gate, ask_tools, ask_v2, budget, provider
+from app.domains.baby.ask_gate import ASK_CONSENT_VERSION
+from app.domains.baby.ask_tools import AskTools
+from app.domains.baby.ask_v2 import effort_for, response_text
+from app.domains.baby.models import BabyAIAdmission, BabyMessage
+from app.models.ai import AIInvocation
+from tests import test_baby_integration as shared
+
+baby_api = shared.baby_api
+pytestmark = pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+HEADERS = {**shared.GEN, "X-Baby-Client": "2"}
+USAGE = {
+    "input_tokens": 1000, "output_tokens": 50,
+    "input_tokens_details": {"cached_tokens": 200}, "output_tokens_details": {"reasoning_tokens": 10},
+}
+
+
+def answered(message="Stub answer", **fields):
+    text = json.dumps({"message": message, "citation_ids": [], "proposal": None, **fields})
+    return {
+        "id": "resp_1", "status": "completed", "usage": USAGE,
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": text, "annotations": []}]}],
+    }
+
+
+def tool_call(name="stub_tool", arguments="{}", call_id="call_1"):
+    return {
+        "id": "resp_tool", "status": "completed", "usage": USAGE,
+        "output": [
+            {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque", "summary": []},
+            {"type": "function_call", "id": "fc_1", "call_id": call_id, "name": name, "arguments": arguments},
+        ],
+    }
+
+
+class Stub:
+    """Stands in for the provider's HTTP endpoints and records exactly what was sent."""
+
+    def __init__(self):
+        self.replies, self.sent, self.urls = [], [], []
+        self.on_call = None
+
+    def handler(self, request):
+        self.urls.append(str(request.url))
+        self.sent.append(json.loads(request.content))
+        if "chat/completions" in str(request.url):
+            content = json.dumps({"message": "Old path answer", "citation_ids": [], "proposal": None})
+            return httpx.Response(200, json={
+                "id": "chat_1", "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                "choices": [{"finish_reason": "stop", "message": {"content": content}}],
+            })
+        reply = self.replies.pop(0) if self.replies else answered()
+        if isinstance(reply, httpx.Response):
+            return reply
+        return httpx.Response(200, json=reply)
+
+
+@pytest.fixture
+async def stub(baby_api, monkeypatch):
+    fake = Stub()
+    settings = SimpleNamespace(
+        baby_ask_v2_enabled=True, baby_ask_model="gpt-6-luna", baby_ask_reasoning_effort="low",
+        baby_ai_model="gpt-5.6-luna", recipe_chat_model="gpt-5.6-luna", openai_reasoning_effort="none",
+        ai_model_pricing={"gpt-5.6-luna": {"input_per_million": 0.2, "output_per_million": 1.2}},
+        is_ai_capability_enabled=lambda _: True,
+    )
+    fake.settings = settings
+    for module in (provider, ask_gate, ask_v2):
+        monkeypatch.setattr(module, "get_settings", lambda: settings)
+    monkeypatch.setattr(budget, "get_settings", lambda: settings)
+    monkeypatch.setattr(budget, "AsyncSessionLocal", baby_api.sessions)
+    monkeypatch.setattr("app.db.database.AsyncSessionLocal", baby_api.sessions)
+    monkeypatch.setattr("app.db.AsyncSessionLocal", baby_api.sessions)
+    monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda self: True))
+    monkeypatch.setattr(provider.BabyProvider, "_key", lambda self, _: "stub-key")
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", lambda retries=0: httpx.MockTransport(fake.handler))
+    return fake
+
+
+async def enable(baby_api, *, acknowledge=True):
+    body = {"ai_consent": True, **({"acknowledge_ai_consent_version": ASK_CONSENT_VERSION} if acknowledge else {})}
+    assert (await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json=body)).status_code == 200
+
+
+def question(**fields):
+    return {"request_id": str(uuid4()), "message": "What happened today?", "ask_v2": True, **fields}
+
+
+async def ask(baby_api, headers=HEADERS, **fields):
+    return await baby_api.client.post("/api/v1/baby/chat", headers=headers, json=question(**fields))
+
+
+async def test_the_new_ask_uses_responses_without_provider_storage(baby_api, stub):
+    await enable(baby_api)
+    result = await ask(baby_api)
+    assert result.status_code == 200, result.text
+    assert result.json()["message"] == "Stub answer"
+    assert stub.urls == ["https://api.openai.com/v1/responses"]
+    sent = stub.sent[0]
+    assert sent["store"] is False and sent["service_tier"] == "default"
+    assert sent["model"] == "gpt-6-luna" and sent["reasoning"] == {"effort": "low"}
+    assert sent["include"] == ["reasoning.encrypted_content"]
+    assert "What happened today?" in sent["input"][0]["content"]
+    assert "untrusted DATA" in sent["instructions"]
+
+
+async def test_reasoning_effort_comes_from_configuration(baby_api, stub):
+    await enable(baby_api)
+    stub.settings.baby_ask_reasoning_effort = "medium"
+    assert (await ask(baby_api)).status_code == 200
+    assert stub.sent[0]["reasoning"] == {"effort": "medium"}
+    assert effort_for("gpt-6-astra", "none") == "low" and effort_for("gpt-6-luna", "none") == "none"
+
+
+async def test_usage_and_a_reservation_are_recorded_without_content(baby_api, stub):
+    await enable(baby_api)
+    assert (await ask(baby_api)).status_code == 200
+    async with baby_api.sessions() as db:
+        row = await db.scalar(select(AIInvocation))
+        admission = await db.scalar(select(BabyAIAdmission))
+    assert (row.capability, row.model, row.status) == ("baby_ask", "gpt-6-luna", "success")
+    assert (row.input_tokens, row.cached_input_tokens, row.output_tokens, row.reasoning_tokens) == (1000, 200, 50, 10)
+    assert row.prompt_version == "baby-ask-v2-1" and row.provider_request_id == "resp_1"
+    assert admission.capability == "baby_ask" and admission.app_user_id == "owner"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["not_acknowledged", "flag_off", "old_build_request", "scoped_conversation", "no_client_header"],
+)
+async def test_everyone_else_stays_on_the_old_path(baby_api, stub, case):
+    await enable(baby_api, acknowledge=case != "not_acknowledged")
+    stub.settings.baby_ask_v2_enabled = case != "flag_off"
+    fields, headers = {}, HEADERS
+    if case == "old_build_request":
+        fields["ask_v2"] = False
+    if case == "scoped_conversation":
+        fields["scope"] = "library"
+    if case == "no_client_header":
+        headers = shared.GEN
+    result = await ask(baby_api, headers, **fields)
+    assert result.status_code == 200, result.text
+    assert result.json()["message"] == "Old path answer"
+    assert stub.urls == ["https://api.openai.com/v1/chat/completions"]
+    async with baby_api.sessions() as db:
+        assert await db.scalar(select(BabyAIAdmission.capability)) == "baby_chat"
+
+
+async def test_an_older_questions_retry_still_matches_after_this_field_exists(baby_api, stub):
+    await enable(baby_api)
+    body = question(ask_v2=False)
+    assert (await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json=body)).status_code == 200
+    async with baby_api.sessions() as db:
+        prior = await db.get(BabyMessage, body["request_id"])
+        expected = {key: body.get(key) for key in ("message", "request_id")}
+        assert prior.content["hash"] != ""
+    from app.domains.baby.lifecycle import digest
+    from app.domains.baby.schemas import ChatRequest
+
+    old_shape = ChatRequest.model_validate(expected).model_dump(mode="json", exclude={"ask_v2"})
+    assert prior.content["hash"] == digest(old_shape)
+
+
+def stub_tool(monkeypatch):
+    calls = []
+
+    async def read(tools, db, owner, arguments):
+        calls.append(owner)
+        return {"found": "stub"}
+
+    monkeypatch.setitem(ask_tools.TOOLS, "stub_tool", ask_tools.Tool(
+        {"description": "Stub", "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False}},
+        ask_tools.DomainModel, read))
+    return calls
+
+
+async def test_tool_rounds_send_back_what_the_model_produced_and_stop_at_five(baby_api, stub, monkeypatch):
+    calls = stub_tool(monkeypatch)
+    await enable(baby_api)
+    stub.replies = [tool_call() for _ in range(5)]
+    assert (await ask(baby_api)).status_code == 200
+    assert len(stub.sent) == 6 and len(calls) == 5
+    assert [body["tool_choice"] for body in stub.sent] == ["auto"] * 5 + ["none"]
+    second = stub.sent[1]["input"]
+    assert [item.get("type") for item in second[1:]] == ["reasoning", "function_call", "function_call_output"]
+    assert second[1]["encrypted_content"] == "opaque"
+    assert json.loads(second[3]["output"]) == {"untrusted_data": {"found": "stub"}}
+    async with baby_api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 6
+
+
+async def test_a_model_that_ignores_the_last_round_gets_no_answer_saved(baby_api, stub, monkeypatch):
+    stub_tool(monkeypatch)
+    await enable(baby_api)
+    stub.replies = [tool_call() for _ in range(9)]
+    result = await ask(baby_api)
+    assert result.status_code == 503 and len(stub.sent) == 6
+    async with baby_api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
+
+
+async def test_a_bad_tool_request_comes_back_as_data_rather_than_failing(baby_api, stub):
+    await enable(baby_api)
+    stub.replies = [tool_call("no_such_tool"), answered()]
+    assert (await ask(baby_api)).status_code == 200
+    assert json.loads(stub.sent[1]["input"][-1]["output"]) == {"untrusted_data": {"error": "unknown_tool"}}
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"id": "r", "status": "incomplete", "output": [], "usage": USAGE},
+        httpx.Response(500, text="Provider said something private"),
+        {"id": "r", "status": "completed", "output": [{"type": "message", "content": []}], "usage": USAGE},
+        answered(citation_ids=["00000000-0000-0000-0000-000000000000"]),
+    ],
+)
+async def test_a_failed_or_unsupported_answer_saves_nothing_and_leaks_nothing(baby_api, stub, reply):
+    await enable(baby_api)
+    stub.replies = [reply]
+    result = await ask(baby_api)
+    assert result.status_code == 503 and "private" not in result.text
+    async with baby_api.sessions() as db:
+        rows = list(await db.scalars(select(BabyMessage)))
+    assert [row.role for row in rows] == ["user"] and rows[0].content["status"] == "failed"
+
+
+async def test_withdrawing_mid_answer_discards_the_answer(baby_api, stub, monkeypatch):
+    await enable(baby_api)
+    real = provider.BabyProvider.responses_call
+
+    async def revoking(self, **kwargs):
+        result = await real(self, **kwargs)
+        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        return result
+
+    monkeypatch.setattr(provider.BabyProvider, "responses_call", revoking)
+    result = await ask(baby_api)
+    assert result.status_code == 403
+    async with baby_api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
+
+
+async def test_withdrawing_between_rounds_stops_the_next_paid_call(baby_api, stub, monkeypatch):
+    stub_tool(monkeypatch)
+    await enable(baby_api)
+    real = provider.BabyProvider.responses_call
+
+    async def revoking(self, **kwargs):
+        result = await real(self, **kwargs)
+        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        return result
+
+    monkeypatch.setattr(provider.BabyProvider, "responses_call", revoking)
+    stub.replies = [tool_call(), answered()]
+    assert (await ask(baby_api)).status_code in {403, 503}
+    assert len(stub.sent) == 1
+
+
+async def test_a_new_consent_version_stops_a_person_until_they_acknowledge(baby_api, stub, monkeypatch):
+    await enable(baby_api)
+    monkeypatch.setattr(ask_gate, "ASK_CONSENT_VERSION", ASK_CONSENT_VERSION + 1)
+    result = await ask(baby_api)
+    assert result.status_code == 200 and result.json()["message"] == "Old path answer"
+
+
+def test_only_output_text_counts_as_the_answer():
+    assert response_text({"output": [
+        {"type": "reasoning", "summary": [{"text": "thinking"}]},
+        {"type": "message", "content": [{"type": "refusal", "refusal": "no"}, {"type": "output_text", "text": "{}"}]},
+    ]}) == "{}"
+
+
+async def test_tools_read_with_access_as_of_each_round(baby_api, stub):
+    await enable(baby_api)
+    tools = AskTools(user_id="owner", client="2", personal_space_id=None, family=False, generation=1,
+                     zone=None, tracked={"records": {}, "children": {}})
+    async with baby_api.sessions() as db:
+        assert await tools.scope(db) == "owner"

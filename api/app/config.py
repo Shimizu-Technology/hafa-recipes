@@ -270,6 +270,8 @@ class Settings(BaseSettings):
     baby_ask_v2_enabled: bool = False
     # Who approved Ask's medical wording, and when. Production stays off without it.
     baby_ask_clinician_approval: str = ""
+    baby_ask_model: str = "gpt-6-luna"
+    baby_ask_reasoning_effort: str = "low"
     baby_local_storage_dir: str | None = None
     baby_development_ai_api_key: SecretStr | None = None
     # Accept the record kinds that migration 055 allows. Set only after it is applied.
@@ -329,6 +331,8 @@ class Settings(BaseSettings):
 
         if self.openai_reasoning_effort not in {"none", "low", "medium", "high", "xhigh"}:
             raise ValueError("OPENAI_REASONING_EFFORT must be none, low, medium, high, or xhigh")
+        if self.baby_ask_reasoning_effort not in {"none", "low", "medium", "high", "xhigh", "max"}:
+            raise ValueError("BABY_ASK_REASONING_EFFORT must be none, low, medium, high, xhigh, or max")
         supported_canary_capabilities = {
             "recipe_extraction",
             "ocr",

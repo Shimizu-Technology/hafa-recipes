@@ -18,10 +18,11 @@ from pydantic import Field
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
-from app.domains.baby.budget import reserve, reserve_ask
+from app.domains.baby.budget import AskCall, reserve, reserve_ask
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
 
+RESPONSES_URL = "https://api.openai.com/v1/responses"
 DAILY_LIMIT_CODE = "baby_ai_daily_limit"
 DAILY_LIMIT_MESSAGE = (
     "Daily AI limit reached. Your originals and available text are saved. Try again later."
@@ -143,6 +144,50 @@ class BabyProvider:
             self.budget_error = failure
             raise
         await self.admitted(capability)
+
+    async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
+        """One Responses request: admitted first, tracked, never stored by the provider, never retried."""
+        body = {**body, "model": model, "store": False, "service_tier": "default"}
+        call = AskCall(
+            model=model,
+            input_bytes=len(json.dumps(body, ensure_ascii=False).encode()),
+            max_output_tokens=body["max_output_tokens"],
+            searches=searches,
+        )
+        await self.admit_ask_call(capability, call)
+        async with AIInvocationTracker(
+            capability=capability,
+            primary_model=model,
+            prompt_version=prompt_version,
+            schema_version="baby-ask-v2",
+            allow_canary=False,
+            rollout_variant="primary",
+        ) as invocation:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=75, transport=httpx.AsyncHTTPTransport(retries=0)
+                ) as client:
+                    response = await client.post(
+                        RESPONSES_URL,
+                        headers={"Authorization": f"Bearer {self._key(get_settings())}"},
+                        json=body,
+                    )
+                response.raise_for_status()
+                data = response.json()
+                if data.get("status") != "completed" or data.get("error"):
+                    raise ValueError("Incomplete response")
+                if self.gate:
+                    await self.gate()  # A revoked result never reaches the next round.
+                invocation.succeed(data)
+                return data
+            except asyncio.CancelledError:
+                invocation.fail("cancelled")
+                raise
+            except Exception:
+                invocation.fail("baby_provider_failed")
+                raise ProviderUnavailable(
+                    "AI could not finish; your original information is saved"
+                ) from None
 
     async def json_call(self, *, capability, instructions, content, output_model, max_tokens=2400):
         return await with_retries(capability, lambda: self.json_attempt(

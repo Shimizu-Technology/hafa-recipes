@@ -14,6 +14,7 @@ from sqlalchemy import String, and_, case, cast, func, or_, select
 from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
+from app.domains.baby.ask_gate import ask_v2_allowed
 from app.domains.baby.dependencies import Access, Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
@@ -22,7 +23,7 @@ from app.domains.baby.provider import (
     BabyProvider,
     budget_failure_message,
 )
-from app.domains.baby.queries import child_timing, legacy_client, records_query
+from app.domains.baby.queries import child_timing, legacy_client, records_query, row_scope
 from app.domains.baby.schemas import V1_KINDS, ChatRequest, RecordCreate
 from app.domains.baby.security import BabyRoute
 from app.domains.baby.stats import care_stats, custom_days, last_feed
@@ -509,8 +510,6 @@ async def context_pack(db, owner, generation, request, zone, *, tracked=None):
     today = now().astimezone(zone).date()
     # A focused or Saved or Journal conversation is not about care, so it isn't sent any.
     with_care = not request.record_id and request.scope in {"all", "care"}
-    from app.domains.baby.queries import row_scope
-
     query = select(BabyChild).where(
         row_scope(BabyChild, owner, generation),
         BabyChild.deleted_at.is_(None),
@@ -581,12 +580,14 @@ def conversation_scope(model, access):
         [str(g.id) for g in readable.spaces])
 
 
-async def verify_context(db, access, tracked):
-    readable, _ = chat_scopes(access)
+async def verify_context(db, access, tracked, *, generation=None):
+    readable = chat_scopes(access)[0] if access.enabled else access.actor
     for model, key in ((BabyRecord, "records"), (BabyChild, "children")):
         snapshots = tracked[key]
+        if not snapshots:
+            continue
         rows = list(await db.scalars(select(model).where(
-            model.id.in_(snapshots), readable.condition(model), model.deleted_at.is_(None)
+            model.id.in_(snapshots), row_scope(model, readable, generation), model.deleted_at.is_(None)
         ).order_by(model.id).with_for_update().execution_options(populate_existing=True)))
         if len(rows) != len(snapshots) or any(
             (row.space_id, row.generation, row.revision) != snapshots[row.id] for row in rows
@@ -653,7 +654,9 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
     if access.enabled and access.target.id != access.personal_space_id:
         raise HTTPException(422, "Ask conversations belong in your personal Baby space")
-    tracked = {"records": {}, "children": {}} if access.enabled else None
+    # Old conversations scoped to one area keep the search they began with.
+    use_v2 = body.ask_v2 and body.scope == "all" and not legacy_client(client) and ask_v2_allowed(member.profile)
+    tracked = {"records": {}, "children": {}} if access.enabled or use_v2 else None
     if not member.profile.get("ai_consent"):
         raise HTTPException(403, "Enable AI processing in settings before asking a question")
     provider = BabyProvider()
@@ -783,11 +786,13 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     zone = parent_zone(member.profile.get("timezone"))
     pack = await context_pack(db, readable, generation, body, zone,
                               **({"tracked": tracked} if tracked is not None else {}))
-    context, displays, requested_range = await retrieve(
-        db, readable, generation, body, zone, legacy=legacy_client(client),
-        child_names=[item["name"] for item in pack["children"]],
-        **({"tracked": tracked} if tracked is not None else {})
-    )
+    context, displays, requested_range = [], {}, None
+    if not use_v2:
+        context, displays, requested_range = await retrieve(
+            db, readable, generation, body, zone, legacy=legacy_client(client),
+            child_names=[item["name"] for item in pack["children"]],
+            **({"tracked": tracked} if tracked is not None else {})
+        )
     history_rows = list(
         await db.scalars(
             select(BabyMessage)
@@ -824,7 +829,11 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                                      space_id=personal_space_id if access.enabled else None,
                                      generation=generation)
             current = fresh.member
-            if not current.profile.get("ai_consent") or current.consent_epoch != epoch:
+            if (
+                not current.profile.get("ai_consent")
+                or current.consent_epoch != epoch
+                or (use_v2 and not ask_v2_allowed(current.profile))
+            ):
                 raise HTTPException(403, "AI processing permission changed")
 
     provider.gate = gate
@@ -832,14 +841,30 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         with ai_request_context(
             request_id=str(body.request_id), user_id=user.id, job_id=None, route="/api/v1/baby/chat"
         ):
-            result = await provider.answer(
-                message=body.message,
-                context=context,
-                history=history,
-                now_local=now().astimezone(zone).isoformat(timespec="minutes"),
-                context_pack=pack,
-                requested_range=requested_range,
-            )
+            if use_v2:
+                from app.domains.baby.ask_tools import AskTools
+                from app.domains.baby.ask_v2 import answer_question
+
+                tools = AskTools(
+                    user_id=user.id, client=client, personal_space_id=personal_space_id,
+                    family=access.enabled, generation=generation, zone=zone, tracked=tracked,
+                    child_id=body.child_id,
+                )
+                result = await answer_question(
+                    provider, tools=tools, message=body.message, history=history,
+                    now_local=now().astimezone(zone).isoformat(timespec="minutes"),
+                    context_pack=pack,
+                )
+                context, displays = list(tools.citable.values()), tools.displays
+            else:
+                result = await provider.answer(
+                    message=body.message,
+                    context=context,
+                    history=history,
+                    now_local=now().astimezone(zone).isoformat(timespec="minutes"),
+                    context_pack=pack,
+                    requested_range=requested_range,
+                )
         allowed = {item["id"]: item for item in context}
         if any(identifier not in allowed for identifier in result.citation_ids):
             raise ValueError("Unsupported citation")
@@ -863,8 +888,12 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             raise HTTPException(
                 403, "AI processing permission changed; this response was discarded"
             )
-        if access.enabled:
-            await verify_context(db, access, tracked)
+        if use_v2 and not ask_v2_allowed(current.profile):
+            raise HTTPException(
+                403, "AI processing permission changed; this response was discarded"
+            )
+        if access.enabled or use_v2:
+            await verify_context(db, access, tracked, generation=generation)
         # Legacy completion retains its existing citation revision check.
         for citation in citations if not access.enabled else []:
             current_record = await owned(db, BabyRecord, user.id, generation, UUID(citation["id"]))
