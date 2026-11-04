@@ -6,6 +6,7 @@ import { kindName, type BabyRecord } from "@/lib/models";
 import { feedProgress } from "@/lib/feed-reducer";
 import { addDays, clockIn, keyDate, recordDay, weekOf } from "@/lib/tracker";
 import { Icon, PressTarget, fonts, radii, typeScale, useColors } from "./ui";
+import { contractionDetail } from "@/lib/contractions";
 import { kindIcon } from "./record-row";
 
 const letters = ["S", "M", "T", "W", "T", "F", "S"];
@@ -56,6 +57,7 @@ export function timelineDetail(record: BabyRecord, { rows = [record], day, timeZ
   const progress = record.kind === "feeding" ? feedProgress(record, rows, now) : undefined;
   if (progress === "running") return "Feeding now";
   if (progress === "no_end") return "No end time";
+  if (record.kind === "contraction") return contractionDetail(record, now);
   return record.body.trim().split("\n")[0] ?? "";
 }
 

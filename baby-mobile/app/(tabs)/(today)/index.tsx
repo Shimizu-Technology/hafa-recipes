@@ -119,6 +119,9 @@ export default function Today() {
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
       </Grouped>
+      <Grouped>
+        <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
+      </Grouped>
       {pregnant && <Row title="Baby’s here?" detail="Add birth details to start feeding, sleep and diaper logs" icon="heart-outline"
         onPress={addBirth} />}
     </Screen>

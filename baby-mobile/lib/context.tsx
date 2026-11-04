@@ -39,6 +39,7 @@ import {
   plainFeedNotice,
   rejectedAction,
   removedFeedNotice,
+  retriedSave,
   retryLater,
   switchTooLate,
   unresolvedAttempts,
@@ -409,8 +410,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
             setError(messageFor(e));
             break;
           }
-          if (next.type === "feed_action" && shouldRetry(status)) {
-            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "feed_action" ? retryLater(m) : m)) }));
+          if ((next.type === "feed_action" || retriedSave(next)) && shouldRetry(status)) {
+            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && (m.type === "feed_action" || m.type === "save") ? retryLater(m) : m)) }));
             continue;
           }
           await commit((s) => ({

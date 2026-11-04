@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -206,6 +206,9 @@ export type Mutation = { localOnly?: boolean } & (
       type: "save";
       record: RecordWrite;
       files: LocalFile[];
+      /** Waiting to try again after the service said not yet. */
+      hold_until?: string;
+      attempts?: number;
       error?: string;
       conflict?: boolean;
     }
@@ -283,6 +286,7 @@ export const kindName: Record<Kind, string> = {
   routine: "Routine",
   question: "Doctor question",
   collection: "Collection",
+  contraction: "Contraction",
 };
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {

@@ -132,9 +132,13 @@ export function switchTooLate(action: FeedAction, result: BabyRecord) {
   return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
 }
 /** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
-export function retryLater<T extends Extract<Mutation, { type: "feed_action" }>>(change: T, now = Date.now()): T {
+export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "save" }>>(change: T, now = Date.now()): T {
   const attempts = (change.attempts ?? 0) + 1;
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
+}
+/** Kinds the API can refuse for now with a 503 until its flag is on, so a build shipped first keeps them queued. */
+export function retriedSave(change: Mutation): change is Extract<Mutation, { type: "save" }> {
+  return change.type === "save" && change.record.kind === "contraction";
 }
 /** How many rejected reads of a timed feed to try before asking her. */
 export const unresolvedAttempts = 5;
@@ -146,7 +150,7 @@ export function mutationRecordId(change: Mutation) {
 }
 /** Still inside its Undo window; the sync loop comes back for it. */
 export function heldUntil(change: Mutation, now = Date.now()) {
-  if (change.type !== "feed_action" || !change.hold_until) return 0;
+  if ((change.type !== "feed_action" && change.type !== "save") || !change.hold_until) return 0;
   const until = new Date(change.hold_until).getTime();
   return until > now ? until : 0;
 }

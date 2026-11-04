@@ -272,6 +272,23 @@ describe("feed actions in the sync loop", () => {
     expect(queued()).toEqual([]);
     expect(mock.api.save).toHaveBeenCalledOnce();
   });
+  it("keeps a contraction queued while the API's flag is off, and sends it when it answers", async () => {
+    const write2 = { id: "c", kind: "contraction" as const, title: "Contraction", body: "", child_id: null, occurred_at: start.at, data: {} };
+    mock.api.save = vi.fn(async (r: any) => ({ ...optimisticRecord(r), revision: 1 }));
+    mock.api.save.mockRejectedValueOnce(new ApiError("This can't be saved yet", 503));
+    mock.saved = { ...mock.saved!, outbox: [{ id: "c-save", generation: 1, type: "save" as const, record: write2, files: [] }] };
+    await mount(); await flush();
+    expect(baby.state.outbox[0]).toMatchObject({ id: "c-save", attempts: 1 });
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5100); await settle(); });
+    expect(queued()).toEqual([]);
+  });
+  it("still asks for review on an ordinary save the API rejects with a 500", async () => {
+    mock.api.save = vi.fn(async () => { throw new ApiError("Failed", 500); });
+    mock.saved = { ...mock.saved!, outbox: [create] };
+    await mount(); await flush();
+    expect(baby.state.outbox[0].error).toBe("Failed");
+  });
   it("sends a waiting edit at its own revision when someone else wrote first, so the API can stop it", async () => {
     // The tap lands at revision 3 on a record this phone knew at 1: another phone wrote revision 2.
     mock.api.feedAction = vi.fn(async () => timed({ revision: 3 }));
