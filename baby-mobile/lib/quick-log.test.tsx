@@ -1,6 +1,6 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
 
@@ -21,6 +21,7 @@ vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/running-feed", () => import("./running-feed"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
+vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/api", () => ({ get sendsCareDetails() { return scope.details; } }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
@@ -454,4 +455,51 @@ it("holds no health advice in anything the log shows", async () => {
   await press("Poo");
   await press("Black");
   expect(texts().join(" ")).not.toMatch(/doctor|call|normal|meconium|expected|worry|concern/i);
+});
+
+describe("logging another day", () => {
+  const pastDay = { key: "2026-11-01", timezone: "Pacific/Guam" }, noon = "2026-11-01T02:00:00.000Z";
+  const past = () => <QuickLog child={child} rows={[breast("last", "left")]} now={new Date()} pastDay={pastDay} />;
+  async function mountPast() { await act(async () => { renderer = create(past()); }); }
+  async function tapPast(label: string) {
+    const node = target(label);
+    expect(node, label).toBeDefined();
+    await act(async () => { await node!.props.onPress(); });
+    await act(async () => renderer!.update(past()));
+  }
+  it("asks for the time, on that day, with the times already open", async () => {
+    setup();
+    await mountPast();
+    await tapPast("Diaper");
+    for (const label of ["8 AM", "12 PM", "4 PM", "8 PM", "11 PM", "Pick a time"]) expect(target(label), label).toBeDefined();
+    expect(target("Now")).toBeUndefined();
+    await tapPast("4 PM");
+    await tapPast("Pee");
+    expect(lastSave().occurred_at).toBe("2026-11-01T06:00:00.000Z");
+  });
+  it("lands at noon that day if she doesn't choose, never at now", async () => {
+    setup();
+    await mountPast();
+    await tapPast("Diaper");
+    await tapPast("Dry");
+    expect(lastSave().occurred_at).toBe(noon);
+  });
+  it("saves a left feed on that day with no running card, and no start action", async () => {
+    const b = setup();
+    await mountPast();
+    await tapPast("Breastfeed");
+    await tapPast("Left");
+    expect(lastSave()).toMatchObject({ occurred_at: noon, data: { method: "breast", side: "left" } });
+    expect(lastSave().data.actions).toBeUndefined();
+    expect(target("Done")).toBeUndefined();
+    expect(runningFeed(pendingRecords(b.state), "baby", new Date("2026-11-01T02:30:00.000Z"))).toBeUndefined();
+  });
+  it("logs a sleep whole, with how long instead of Start and End", async () => {
+    setup();
+    await mountPast();
+    await tapPast("Sleep");
+    expect(target("Start")).toBeUndefined();
+    await tapPast("2 hr");
+    expect(lastSave()).toMatchObject({ kind: "sleep", occurred_at: noon, data: { end_at: "2026-11-01T04:00:00.000Z" } });
+  });
 });

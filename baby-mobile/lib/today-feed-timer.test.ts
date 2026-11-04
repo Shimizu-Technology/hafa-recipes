@@ -58,6 +58,7 @@ vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
 vi.mock("@/components/quick-log", () => import("../components/quick-log"));
 vi.mock("@/lib/running-feed", () => import("./running-feed"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
+vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: false }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));

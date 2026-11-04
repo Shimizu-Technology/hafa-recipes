@@ -11,6 +11,7 @@ import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { careWrite, logCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData } from "@/lib/feed-timer";
 import { runningFeed } from "@/lib/feed-reducer";
+import { dayKey, daySummary } from "@/lib/tracker";
 import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, useToast, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -158,6 +159,7 @@ export default function Today() {
         onPress={addBirth} />}
     </Screen>
   );
+  const todayLine = `Today: ${daySummary(latestCare.all.filter((row) => row.child_id === child?.id), dayKey(today), b.state.bootstrap!.profile.timezone, now)}`;
   const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} legacyTimer={!!timer} /> : null;
   return (
     <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}
@@ -168,6 +170,12 @@ export default function Today() {
       {children.length > 1 && <ChildFilter />}
       {timer && timerChild ? <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />
         : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} running={running} /> : <FirstStep child={child} now={now} />}
+      {showCare && <PressTarget accessibilityRole="button" accessibilityLabel={todayLine} accessibilityHint="Opens today in Tracker"
+        onPress={() => router.navigate({ pathname: "/tracker", params: { day: dayKey(today), at: String(Date.now()) } })}
+        style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingHorizontal: 4 }}>
+        <View style={{ flexShrink: 1 }}><Copy numeric kind="small" tone="muted">{todayLine}</Copy></View>
+        <Icon name="chevron-forward" size={16} color={c.muted} />
+      </PressTarget>}
       {fontScale >= dockBelow && quickLog}
       {!!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>

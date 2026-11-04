@@ -43,6 +43,9 @@ export interface RecordFilters {
   timing?: "now" | "upcoming";
   timing_child_id?: string;
   within_weeks?: number;
+  /** Half-open, with an offset: from <= occurred_at < to. */
+  occurred_from?: string;
+  occurred_to?: string;
 }
 export class ApiError extends Error {
   constructor(

@@ -12,7 +12,8 @@ import { feedWrite, finishFeed, startFeed, switchFeed } from "@/lib/running-feed
 import { Icon, PressTarget, easeOut, fonts, radii, tap, typeScale, useColors, useToast, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
-import { TimeChip, TimeChoices } from "./quick-time";
+import { TimeChip, TimeChoices, type PastDay } from "./quick-time";
+import { zonedInstant } from "@/lib/tracker";
 
 const word = { left: "Left", right: "Right", both: "Both" } as const;
 const other = (side: FeedSide): FeedSide => (side === "left" ? "right" : "left");
@@ -106,7 +107,7 @@ function Follow({ colors, color, onColor, onNote, onFocusChange }: { colors: boo
 }
 
 /** What just saved, with Undo. It fades on its own; nothing here needs an answer. */
-function SavedRow({ saved, color, now, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved; color?: PoopColor; now: Date; onUndo: () => void; onGone: () => void;
+function SavedRow({ saved, color, now, day, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved; color?: PoopColor; now: Date; day?: PastDay; onUndo: () => void; onGone: () => void;
   onMove: (iso: string | null) => void; onColor: (value?: PoopColor) => void; onNote: (note: string) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), reduced = useReducedMotion(), fade = useRef(new Animated.Value(1)).current,
     [choosing, setChoosing] = useState(false), [holding, setHolding] = useState(false), [touched, setTouched] = useState(0),
@@ -142,7 +143,7 @@ function SavedRow({ saved, color, now, onUndo, onGone, onMove, onColor, onNote }
       </PressTarget>}
     </View>
     {choosing && !!saved.at && <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
-      <TimeChoices value={saved.at} now={now} onChange={(iso) => { setChoosing(false); onMove(iso); touch(); }} />
+      <TimeChoices value={saved.at} now={now} day={day} onChange={(iso) => { setChoosing(false); onMove(iso); touch(); }} />
     </View>}
     {!!saved.follow && <Follow colors={saved.follow === "color"} color={color} onFocusChange={setHolding}
       onColor={(value) => { onColor(value); touch(); }} onNote={(note) => { onNote(note); touch(); }} />}
@@ -150,22 +151,25 @@ function SavedRow({ saved, color, now, onUndo, onGone, onMove, onColor, onNote }
 }
 
 /** A panel above the tiles: what it's for, and when it happened. */
-function Panel({ title, detail, at, now, onTime, children }: { title: string; detail?: string; at: string | null; now: Date; onTime: (iso: string | null) => void; children: React.ReactNode }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), [open, setOpen] = useState(false);
+function Panel({ title, detail, at, now, day, onTime, children }: { title: string; detail?: string; at: string | null; now: Date; day?: PastDay; onTime: (iso: string | null) => void; children: React.ReactNode }) {
+  // On another day "now" would be wrong, so the times are already open, and asking.
+  const c = useColors(), { fontScale } = useWindowDimensions(), [open, setOpen] = useState(!!day),
+    noon = day ? zonedInstant(day.key, 12, 0, day.timezone).toISOString() : null,
+    shown = at ?? noon;
   return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
       <Text key={fontScale} maxFontSizeMultiplier={0} style={{ flexShrink: 1, fontFamily: fonts.semibold, fontSize: 15, lineHeight: 19, color: c.text, paddingHorizontal: 2 }}>
         {title}{detail ? <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: c.muted }}>{`  ${detail}`}</Text> : null}
       </Text>
-      <TimeChip label={at ? friendlyTime(at, now) : "Now"} open={open} onPress={() => { tap(); setOpen(!open); }} />
+      <TimeChip label={shown ? friendlyTime(shown, now) : "Now"} open={open} asking={!!day && !at} onPress={() => { tap(); setOpen(!open); }} />
     </View>
-    {open && <TimeChoices value={at ?? now.toISOString()} now={now} onChange={(iso) => { onTime(iso); setOpen(false); }} />}
+    {open && <TimeChoices value={shown ?? now.toISOString()} now={now} day={day} onChange={(iso) => { onTime(iso); setOpen(false); }} />}
     {children}
   </View>;
 }
 
 /** The amount, the unit, and the two milks. Choosing a milk saves it. */
-function BottlePanel({ start, at, now, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
+function BottlePanel({ start, at, now, day, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; day?: PastDay; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
     same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit,
     unitWord = bottle.unit === "oz" ? "oz" : "mL",
@@ -173,7 +177,7 @@ function BottlePanel({ start, at, now, onTime, onSave }: { start: BottleChoice; 
       style={{ width: 64, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
       <Icon name={direction > 0 ? "add" : "remove"} size={24} color={c.text} />
     </PressTarget>;
-  return <Panel title="Bottle" at={at} now={now} onTime={onTime}>
+  return <Panel title="Bottle" at={at} now={now} day={day} onTime={onTime}>
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: c.tile }}>
       {step(-1, "Less")}
       <PressTarget accessibilityRole="button" accessibilityLabel={`${bottle.amount} ${unitWord}`} accessibilityHint={`Changes to ${bottle.unit === "oz" ? "milliliters" : "ounces"}`}
@@ -190,10 +194,12 @@ function BottlePanel({ start, at, now, onTime, onSave }: { start: BottleChoice; 
   </Panel>;
 }
 
-export function QuickLog({ child, rows, now, legacyTimer }: {
+export function QuickLog({ child, rows, now, legacyTimer, pastDay }: {
   child: Child;
   rows: BabyRecord[];
   now: Date;
+  /** Logging a day that isn't today: entries get that day's time, and nothing runs. */
+  pastDay?: PastDay;
   /** A timer started on an older build is still running; it finishes on its own card first. */
   legacyTimer?: boolean;
 }) {
@@ -204,12 +210,12 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
     // A ref, not state, so two taps in the same frame cannot both start a write.
     writing = useRef(false),
     keys = useRef(0),
-    running = runningFeed(rows, child.id, now),
+    running = pastDay ? undefined : runningFeed(rows, child.id, now),
     next = nextSide(rows, child.id),
-    openSleep = careGlance(rows, child.id, now).openSleep,
+    openSleep = pastDay ? undefined : careGlance(rows, child.id, now).openSleep,
     last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
     savedRow = saved?.recordId ? b.records.find((row) => row.id === saved.recordId) : undefined,
-    when = () => (at ? new Date(at) : new Date());
+    when = () => (at ? new Date(at) : pastDay ? zonedInstant(pastDay.key, 12, 0, pastDay.timezone) : new Date());
   async function save(label: string, action: () => Promise<() => Promise<unknown>>, details: Pick<Saved, "recordId" | "at" | "follow"> = {}) {
     if (writing.current) return;
     writing.current = true;
@@ -234,7 +240,7 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
     try { await action(); } catch (e) { toast(messageFor(e)); }
   }
   function toggle(name: NonNullable<typeof panel>) {
-    if (name === "breast" && legacyTimer) return toast("A feeding timer is running. Finish it from the timer above.");
+    if (name === "breast" && legacyTimer && !pastDay) return toast("A feeding timer is running. Finish it from the timer above.");
     tap();
     setAt(null);
     setPanel(panel === name ? null : name);
@@ -244,6 +250,10 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
     if (choice === "both") {
       const record = careWrite("feeding", child.id, { method: "breast", side: "both" }, time);
       return save("Both sides", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
+    }
+    if (pastDay) {
+      const plain = careWrite("feeding", child.id, { method: "breast", side: choice }, time);
+      return save(word[choice], () => logCare(b, plain), { recordId: plain.id, at: plain.occurred_at });
     }
     const record = feedWrite(child.id, choice, time);
     return save(word[choice], () => startFeed(b, record), { recordId: record.id, at: record.occurred_at });
@@ -260,6 +270,11 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
       // Colour goes to the API only once it can store it.
       follow: sendsCareDetails && (type === "dirty" || type === "both") ? "color" : "note" });
   }
+  /** On another day a sleep is logged whole: when it started, and how long. */
+  function sleepFor(minutes: number) {
+    const start = when(), record = careWrite("sleep", child.id, { end_at: new Date(start.getTime() + minutes * 60_000).toISOString() }, start);
+    return save(careSummary("sleep", record.data, record.occurred_at), () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
+  }
   function sleep() {
     if (openSleep) {
       const started = new Date(openSleep.occurred_at).getTime(),
@@ -272,7 +287,7 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
     return save("Sleep started", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
   }
   return <View style={{ gap: 8 }}>
-    {!!saved && <SavedRow saved={saved} now={now} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
+    {!!saved && <SavedRow saved={saved} now={now} day={pastDay} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
       onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
       onMove={(iso) => {
         const moved = iso ?? new Date().toISOString();
@@ -290,25 +305,26 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
           done = withFeedAction(running.record.data, { id: "preview", action: "finish", at: at.toISOString() });
         void save(careSummary("feeding", done, running.started_at), () => finishFeed(b, running, at));
       }} />}
-    {panel === "breast" && <Panel title="Which side?" detail={last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now)}` : undefined} at={at} now={now} onTime={setAt}>
+    {panel === "breast" && <Panel title="Which side?" detail={last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now)}` : undefined} at={at} now={now} day={pastDay} onTime={setAt}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {(["left", "right", "both"] as const).map((choice) => <Option key={choice} label={word[choice]} strong={choice === next} detail={choice === next ? "Next" : undefined}
           onPress={() => void side(choice)} />)}
       </View>
     </Panel>}
-    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} at={at} now={now} onTime={setAt} onSave={(choice) => void bottle(choice)} />}
-    {panel === "diaper" && <Panel title="Diaper" at={at} now={now} onTime={setAt}>
+    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} at={at} now={now} day={pastDay} onTime={setAt} onSave={(choice) => void bottle(choice)} />}
+    {panel === "diaper" && <Panel title="Diaper" at={at} now={now} day={pastDay} onTime={setAt}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {diaperChoices.map((choice) => <Option key={choice.type} label={choice.label} onPress={() => void diaper(choice.label, choice.type)} />)}
       </View>
     </Panel>}
-    {panel === "sleep" && <Panel title={openSleep ? `Sleeping since ${friendlyTime(openSleep.occurred_at, now)}` : "Sleep"} at={at} now={now} onTime={setAt}>
-      <View style={{ flexDirection: "row" }}>
-        <Option label={openSleep ? "End" : "Start"} strong onPress={() => void sleep()} />
+    {panel === "sleep" && <Panel title={openSleep ? `Sleeping since ${friendlyTime(openSleep.occurred_at, now)}` : pastDay ? "Sleep, how long?" : "Sleep"} at={at} now={now} day={pastDay} onTime={setAt}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        {pastDay ? ([["30 min", 30], ["1 hr", 60], ["2 hr", 120], ["3 hr", 180]] as const).map(([label, minutes]) => <Option key={label} label={label} onPress={() => void sleepFor(minutes)} />)
+          : <Option label={openSleep ? "End" : "Start"} strong onPress={() => void sleep()} />}
       </View>
     </Panel>}
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      <Tile primary icon="care:mother-nurse" label={running || legacyTimer ? "Feeding" : "Breastfeed"} open={panel === "breast"}
+      <Tile primary icon="care:mother-nurse" label={(running || legacyTimer) && !pastDay ? "Feeding" : "Breastfeed"} open={panel === "breast"}
         hint="Choose left, right or both. A tap saves it." onPress={() => toggle("breast")} />
       <Tile icon="care:baby-bottle-outline" label="Bottle" open={panel === "bottle"} hint="Choose an amount and breast milk or formula. A tap saves it." onPress={() => toggle("bottle")} />
       <Tile icon="care:human-baby-changing-table" label="Diaper" open={panel === "diaper"} hint="Choose pee, poo, both or dry. A tap saves it." onPress={() => toggle("diaper")} />
