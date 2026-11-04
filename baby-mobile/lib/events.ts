@@ -266,6 +266,11 @@ export function eventWrite(draft: EditorDraft): EditorDraft {
   if (edit.scope === "one") return { ...clean, ...edit.series, data: oneDateData(draft, edit) };
   return fromFirst(edit) ? clean : { ...clean, ...edit.series, data: seriesEnding(edit.series, ms(edit.original_start)) };
 }
+/** "All future" moved to before the date it changes from: the old series keeps those dates, so they would show twice. */
+export function startsBeforeSplit(draft: EditorDraft) {
+  const edit = draft.event_edit, zone = draft.data.timezone;
+  return edit?.scope === "future" && !fromFirst(edit) && recordDay(draft.occurred_at, zone) < recordDay(edit.original_start, zone);
+}
 /** The series that takes over from that date. A change to a date it still has moves with it. */
 export function splitEvent(draft: EditorDraft, id: string): RecordWrite | undefined {
   const edit = draft.event_edit;
