@@ -62,6 +62,11 @@ it("keeps what she typed when it can't be saved, and says why", async () => {
   expect(all("Field")[0].props.value).toBe("Keep me");
   expect(all("Notice")[0].props.children).toBe("Storage is full.");
 });
+it("opens this baby's doctor summary from the appointment", async () => {
+  await mount(<VisitSections visit={{ id: "visit", child_id: "mia" }} />);
+  await act(async () => { renderer!.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.title === "Doctor summary")!.props.onPress(); });
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "mia" } });
+});
 it("doesn't save an empty question, and its button says so", async () => {
   const b = setup([]);
   await mount(<VisitQuestions visit={{ id: "visit", child_id: null }} />);

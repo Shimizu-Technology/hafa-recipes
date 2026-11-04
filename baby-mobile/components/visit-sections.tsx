@@ -66,6 +66,8 @@ export function VisitSections({ visit }: { visit: Visit }) {
     <View style={{ gap: 10 }}>
       <Copy kind="heading">Questions for the doctor</Copy>
       <VisitQuestions visit={visit} />
+      <Grouped><Row title="Doctor summary" detail="One page with your questions, notes and daily totals" icon="document-text-outline"
+        onPress={() => router.push({ pathname: "/doctor-summary", params: { child: visit.child_id ?? undefined } })} /></Grouped>
     </View>
     {loose.length > 0 && <View style={{ gap: 10 }}>
       <Copy kind="label">Saved questions</Copy>
