@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 // Exact reviewed dependency tree: any lock change requires renewed reachability
 // assessment. These are temporary documented exceptions, not security fixes.
-const reviewedLock = "33eb77111f1508fc13636afc4e4b4f07620cf7cc1c6c6b4c30e170c32c291619";
+const reviewedLock = "6c2d775dd98333c3c6d060484e494acc127269edda56c7e0485191b9418455f2";
 // Expo CLI/config/fingerprint and Metro file matching; absent from native bundles.
 const reviewed = new Set(["braces:1240992", "decode-uri-component:1147955", "decode-uri-component:1243857", "deepmerge:1243505", "glob:1244013", "minimatch:1244012", "minimatch:1244623", "zod:1243066"]);
 const lock = readFileSync(new URL("../package-lock.json", import.meta.url));

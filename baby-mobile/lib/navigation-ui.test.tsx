@@ -4,7 +4,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   fontScale: 1, ask: {} as any, keyboard: {} as Record<string, () => void>, removed: [] as string[],
   params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[], picker: null as any, toasts: [] as any[],
-  exportVisit: vi.fn(async (_text: string, _owner: string) => {}),
 }));
 vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
 vi.mock("react-native", () => ({
@@ -38,7 +37,6 @@ vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true, NavigationContext: React.createContext(undefined) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
-vi.mock("@/lib/files", () => ({ exportVisit: mock.exportVisit }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));
 vi.mock("@/components/motion", () => ({ Swell: ({ children }: { children: React.ReactNode }) => children, FadeUp: ({ children }: { children: React.ReactNode }) => children }));
@@ -54,7 +52,6 @@ vi.mock("@/lib/outbox", () => import("./outbox"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/history", () => import("./history"));
-vi.mock("@/lib/visit-summary", () => import("./visit-summary"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/chat-citations", () => import("./chat-citations"));
 vi.mock("@/components/header-search", () => import("../components/header-search"));
@@ -99,7 +96,7 @@ async function press(label: string) {
 }
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  mock.params = {}; mock.stack = []; mock.views = []; mock.picker = null; mock.toasts = []; mock.exportVisit.mockClear();
+  mock.params = {}; mock.stack = []; mock.views = []; mock.picker = null; mock.toasts = [];
   mock.fontScale = 1; mock.ask = {}; mock.keyboard = {}; mock.removed = [];
   const records = [row("Journal observation", "journal"), row("Bottle observation", "feeding"), row("Doctor question", "question"), row("Saved source", "source")];
   mock.baby = {
@@ -120,21 +117,12 @@ it("reads a sleep's times on the family's clock, as Tracker does", async () => {
   expect(texts).toMatch(/Started.*2:00\sPM/);
   expect(texts).toMatch(/Ended.*3:00\sPM/);
 });
-it("prepares a mixed journal and care visit summary from Doctor questions", async () => {
+it("sends Doctor questions to the one-page summary, for the selected baby", async () => {
   mock.params = { filter: "question" };
   await mount(<Journal />);
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
-  await press("Prepare a visit summary");
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
-  await press("Journal observation");
-  await press("Bottle observation");
-  await press("Share 2 selected entries");
-  const [text, owner] = mock.exportVisit.mock.calls[0];
-  expect(owner).toBe("owner");
-  expect(text).toContain("Observation Journal observation");
-  expect(text).toContain("Observation Bottle observation");
-  expect(text).not.toContain("Observation Doctor question");
-  await press("Done choosing");
+  await press("Doctor summary");
+  expect(mock.stack.at(-1)!.pathname).toBe("/doctor-summary");
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
 });
 it("pushes focused Ask from a saved entry and its real Back control returns to that entry", async () => {
@@ -149,19 +137,12 @@ it("pushes focused Ask from a saved entry and its real Back control returns to t
   expect(mock.stack.at(-1)).toEqual({ pathname: "/record/[id]", params: { id: "Saved source" } });
 });
 
-it("keeps compact Journal filters horizontal, writing-only, and clears route-driven visit selections", async () => {
-  mock.params = { filter: "question" };
-  await mount(<Journal />);
-  await press("Prepare a visit summary");
-  await press("Journal observation");
+it("keeps compact Journal filters horizontal and writing-only", async () => {
   mock.params = { filter: "all" };
-  await act(async () => renderer!.update(<Journal />));
+  await mount(<Journal />);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["journal", "question"]);
   expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).some(n => n.props.horizontal)).toBe(true);
-  mock.params = { filter: "question" };
-  await act(async () => renderer!.update(<Journal />));
-  await press("Prepare a visit summary");
-  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "Share 0 selected entries" && n.props.disabled)).toBe(true);
 });
 it("opens Journal as a pushed screen with Back and Write, and old filtered links keep working", async () => {
   mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/journal", params: { filter: "question", at: "1" } }];

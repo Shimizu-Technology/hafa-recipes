@@ -124,6 +124,7 @@ export default function Tracker() {
       <Button secondary size="lg" icon="add" title="Add event" onPress={() => addEvent(day)} />
       </>}
       <Grouped>
+        <Row title="Doctor summary" detail="One page to bring to an appointment" icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: scope ?? undefined } })} />
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
     </Screen>

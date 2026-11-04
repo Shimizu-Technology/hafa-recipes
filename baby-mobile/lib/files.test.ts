@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BabyApi } from "./api";
 
-const native = vi.hoisted(() => ({ size: 3, copy: vi.fn(), remove: vi.fn(), bytes: vi.fn(async () => new Uint8Array([65, 66, 67])) }));
+const native = vi.hoisted(() => ({ size: 3, copy: vi.fn(), remove: vi.fn(), move: vi.fn(), print: vi.fn(), share: vi.fn(), bytes: vi.fn(async () => new Uint8Array([65, 66, 67])) }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
-vi.mock("expo-file-system/legacy", () => ({ documentDirectory: "file:///private/", makeDirectoryAsync: vi.fn(), copyAsync: native.copy, deleteAsync: native.remove }));
+vi.mock("expo-file-system/legacy", () => ({ documentDirectory: "file:///private/", makeDirectoryAsync: vi.fn(), copyAsync: native.copy, deleteAsync: native.remove, moveAsync: native.move }));
 vi.mock("expo-file-system", () => ({
   File: class {
     get size() { return native.size; }
@@ -11,8 +11,50 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "copy-id" }));
-vi.mock("expo-sharing", () => ({}));
-import { preserveFile, uploadFile } from "./files";
+vi.mock("expo-sharing", () => ({ shareAsync: native.share }));
+vi.mock("expo-print", () => ({ printToFileAsync: native.print }));
+import { exportOnePagePdf, preserveFile, uploadFile } from "./files";
+
+describe("sharing a one-page PDF", () => {
+  beforeEach(() => { native.print.mockReset(); native.move.mockReset(); native.remove.mockReset().mockResolvedValue(undefined); native.share.mockReset().mockResolvedValue(undefined); });
+  it("gives up detail, level by level, until the page fits, and shares only that one", async () => {
+    native.print.mockResolvedValueOnce({ uri: "file:///cache/a.pdf", numberOfPages: 2 }).mockResolvedValueOnce({ uri: "file:///cache/b.pdf", numberOfPages: 1 });
+    const html = vi.fn((level: number) => `level ${level}`);
+    await expect(exportOnePagePdf(html, 3, "owner", "s.pdf")).resolves.toEqual({ level: 1, fits: true });
+    expect(html.mock.calls.map(([level]) => level)).toEqual([0, 1]);
+    expect(native.share).toHaveBeenCalledTimes(1);
+    expect(native.share.mock.calls[0][1]).toEqual({ mimeType: "application/pdf", UTI: "com.adobe.pdf" });
+    expect(native.print.mock.calls[0][0]).toMatchObject({ width: 612, height: 792 });
+  });
+  it("shares nothing when even the last level runs over, and keeps none of the tries", async () => {
+    native.print.mockResolvedValueOnce({ uri: "file:///cache/a.pdf", numberOfPages: 2 }).mockResolvedValueOnce({ uri: "file:///cache/b.pdf", numberOfPages: 2 });
+    await expect(exportOnePagePdf(() => "x", 1, "owner", "s.pdf")).resolves.toEqual({ level: 1, fits: false });
+    expect(native.share).not.toHaveBeenCalled();
+    expect(native.move).not.toHaveBeenCalled();
+    for (const uri of ["file:///cache/a.pdf", "file:///cache/b.pdf"]) expect(native.remove).toHaveBeenCalledWith(uri, { idempotent: true });
+  });
+  it("leaves nothing in the print cache when the move fails", async () => {
+    native.print.mockResolvedValue({ uri: "file:///cache/a.pdf", numberOfPages: 1 });
+    native.move.mockRejectedValue(Error("disk full"));
+    await expect(exportOnePagePdf(() => "x", 0, "owner", "s.pdf")).rejects.toThrow("disk full");
+    expect(native.remove).toHaveBeenCalledWith("file:///cache/a.pdf", { idempotent: true });
+    expect(native.remove.mock.calls.some(([uri]) => String(uri).endsWith("s.pdf"))).toBe(true);
+    expect(native.share).not.toHaveBeenCalled();
+  });
+  it("still clears the rest, and reports the real failure, when one delete fails", async () => {
+    native.print.mockResolvedValue({ uri: "file:///cache/a.pdf", numberOfPages: 1 });
+    native.share.mockRejectedValue(Error("cancelled"));
+    native.remove.mockImplementation(async (uri: string) => { if (uri.endsWith("a.pdf")) throw Error("locked"); });
+    await expect(exportOnePagePdf(() => "x", 0, "owner", "s.pdf")).rejects.toThrow("cancelled");
+    expect(native.remove.mock.calls.some(([uri]) => String(uri).endsWith("s.pdf"))).toBe(true);
+  });
+  it("keeps no private copy, even when sharing fails", async () => {
+    native.print.mockResolvedValue({ uri: "file:///cache/a.pdf", numberOfPages: 1 });
+    native.share.mockRejectedValue(Error("cancelled"));
+    await expect(exportOnePagePdf(() => "x", 0, "owner", "s.pdf")).rejects.toThrow("cancelled");
+    expect(native.remove.mock.calls.at(-1)![0]).toContain("s.pdf");
+  });
+});
 
 describe("private native upload compatibility", () => {
   beforeEach(() => {

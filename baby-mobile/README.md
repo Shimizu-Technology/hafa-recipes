@@ -268,3 +268,5 @@ dependencies, TTF assets only, no native code), next to the existing `@expo-goog
 The app imports only the six faces it uses (`lib/fonts.ts`). The reviewed lock hash above is renewed
 for this one addition. Fresh `npm audit --omit=dev`: 21 inherited findings, zero critical, and the
 same six reviewed advisory IDs; nothing new. The existing 2026-11-17 expiry is unchanged.
+
+`expo-print` 57.0.2 (Nov 2026) makes the doctor summary PDF on the device. It has no dependencies of its own and adds no advisories, but it is native code, so it needs a new binary.

@@ -29,11 +29,11 @@ const maxCustomDays = 92;
 export const basedOn = (logged: number, total: number) => `based on ${logged} logged day${logged === 1 ? "" : "s"} of ${total}`;
 
 /** Why these dates can't be asked for, in the API's own words, or nothing. */
-export function customProblem(from: string, to: string, today: string) {
+export function customProblem(from: string, to: string, today: string, limit = maxCustomDays) {
   if (from > to) return "Choose a start before the end";
   if (from > today) return "Choose dates that have already started";
   const days = Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
-  return days >= maxCustomDays ? `Choose ${maxCustomDays} days or fewer` : null;
+  return days >= limit ? `Choose ${limit} days or fewer` : null;
 }
 
 const statKinds: readonly Kind[] = ["feeding", "sleep", "diaper", "contraction", "kick_session"];
