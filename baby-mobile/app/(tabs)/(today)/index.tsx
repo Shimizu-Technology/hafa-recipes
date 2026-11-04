@@ -9,7 +9,9 @@ import { runningFeed } from "@/lib/feed-reducer";
 import { dayKey, summaryLine } from "@/lib/tracker";
 import { dayOverlay } from "@/lib/care-summary";
 import { useCareSummary } from "@/lib/use-care-summary";
-import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, type IconName } from "@/components/ui";
+import { babyArrived } from "@/lib/quick-care";
+import { messageFor } from "@/lib/models";
+import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, tap, typeScale, useColors, useToast, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -54,6 +56,7 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
 
 export default function Today() {
   const b = useBaby(), c = useColors(),
+    toast = useToast(),
     now = useMinuteClock(),
     { fontScale } = useWindowDimensions(),
     children = b.state.bootstrap!.children,
@@ -83,6 +86,17 @@ export default function Today() {
     questions = records.filter((r) => r.kind === "question").length;
   const titleText = child?.name.trim() || "Today";
   const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id } });
+  /** One tap, since it may be the only hand free. Settings changes the date if it was another day. */
+  async function arrived() {
+    if (!child) return;
+    try {
+      const undo = await babyArrived(b, child, dayKey(today));
+      tap("success");
+      toast("Birth date set to today. You can change it in Settings.", { label: "Undo", onPress: async () => {
+        try { await undo(); toast("Undone."); } catch (e) { toast(messageFor(e)); }
+      } });
+    } catch (e) { toast(messageFor(e)); }
+  }
   if (expecting && child) return (
     <Screen title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
@@ -98,6 +112,10 @@ export default function Today() {
         <Copy numeric kind="small" tone="muted">{`${dueLine(child.due_date!, today)}. Add the birth date to start feeding, sleep and diaper logs and see tips for this age.`}</Copy>
         <Button title="Add the birth date" onPress={addBirth} />
       </Card>}
+      <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
+        <Tile icon="pulse-outline" label="Contraction timer" hint="Start, stop, and the last hour" onPress={() => router.push("/contractions")} />
+        <Tile icon="footsteps-outline" label="Kick counter" hint="A tap for each movement, and your history" onPress={() => router.push("/kicks")} />
+      </View>
       <View style={{ gap: 8 }}>
         <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
           <Tile icon="link-outline" label="Save a link" hint="Paste a link, or share from TikTok, Instagram or Safari"
@@ -119,12 +137,8 @@ export default function Today() {
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
       </Grouped>
-      <Grouped>
-        <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
-        <Row title="Kick counter" detail="A tap for each movement, and your history" icon="footsteps-outline" onPress={() => router.push("/kicks")} />
-      </Grouped>
-      {pregnant && <Row title="Baby’s here?" detail="Add birth details to start feeding, sleep and diaper logs" icon="heart-outline"
-        onPress={addBirth} />}
+      {pregnant && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
+        hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
     </Screen>
   );
   const todayLine = `Today: ${summaryLine(dayOverlay(b.state, child?.id ?? null, timezone, now)(summary?.[todayKey], todayKey))}`;

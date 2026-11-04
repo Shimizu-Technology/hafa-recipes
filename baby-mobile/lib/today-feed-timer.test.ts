@@ -1,6 +1,6 @@
 import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 
 const scope = vi.hoisted(() => ({
@@ -226,9 +226,8 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0);
   for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(1);
-  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Doctor questions", "Journal", "Lists & routines", "Contraction timer", "Kick counter", "Baby’s here?"]);
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Doctor questions", "Journal", "Lists & routines", "Baby’s here?"]);
   await act(async () => (find("Row", p => p.title === "Baby’s here?")[0].props.onPress as () => void)());
-  expect(scope.push).toHaveBeenLastCalledWith({ pathname: "/child", params: { id: "baby" } });
   child.birth_date = "2026-11-02"; await render();
   expect(find("PregnancyHero", () => true)).toHaveLength(1);
   child.birth_date = "2026-10-19"; await render();
@@ -240,6 +239,60 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("StackScreen", () => true)[0].props.options.title).toBe("Today");
   expect(find("FirstStep", () => true)[0].props.child).toBeNull();
   expect(find("Row", p => p.title === "Add a baby profile")).toHaveLength(1);
+});
+
+describe("Baby's here?", () => {
+  const due = () => {
+    const account = setup() as ReturnType<typeof setup> & { api: { child: ReturnType<typeof vi.fn> } };
+    account.state.bootstrap!.children[0].due_date = "2026-11-20";
+    account.state.records = [optimisticRecord({ id: "c", kind: "contraction", child_id: "baby", title: "Contraction", body: "", occurred_at: start.toISOString(), data: {} })];
+    account.api = { child: vi.fn(async (value: object) => ({ ...account.state.bootstrap!.children[0], ...value, revision: 2 })) };
+    return account;
+  };
+  const here = () => find("Row", (p) => p.title === "Baby’s here?")[0];
+  it("sets today's date in one tap and turns on care, with nothing lost and an Undo", async () => {
+    const account = due();
+    await render();
+    await act(async () => { (here().props.onPress as () => void)(); });
+    expect(account.api.child).toHaveBeenCalledWith({ id: "baby", name: "Mia", due_date: "2026-11-20", birth_date: "2026-10-20", revision: 1 }, 2);
+    await render();
+    expect(account.state.bootstrap!.children[0]).toMatchObject({ birth_date: "2026-10-20", due_date: "2026-11-20" });
+    expect(find("Pressable", (p) => p.accessibilityLabel === "Breastfeed")).toHaveLength(1);
+    expect(find("CareGlance", () => true)).toHaveLength(1);
+    expect(account.state.records.map((row) => row.id)).toEqual(["c"]);
+    expect(account.state.outbox).toEqual([]);
+    const [message, action] = scope.toast.mock.lastCall as [string, { label: string; onPress: () => Promise<void> }];
+    expect(message).toContain("Birth date set to today");
+    expect(action.label).toBe("Undo");
+    await act(async () => { await action.onPress(); });
+    expect(account.api.child).toHaveBeenLastCalledWith({ id: "baby", name: "Mia", due_date: "2026-11-20", birth_date: null, revision: 2 }, 2);
+    await render();
+    expect(find("Row", (p) => p.title === "Baby’s here?")).toHaveLength(1);
+  });
+  it("uses the family's day, not the phone's", async () => {
+    const account = due();
+    account.state.bootstrap!.profile.timezone = "Pacific/Kiritimati";
+    vi.setSystemTime(new Date("2026-10-20T11:00:00.000Z"));
+    await render();
+    await act(async () => { (here().props.onPress as () => void)(); });
+    expect(account.api.child).toHaveBeenCalledWith(expect.objectContaining({ birth_date: "2026-10-21" }), 2);
+  });
+  it("says why when it can't reach the service, and leaves her where she was", async () => {
+    const account = due();
+    account.api.child.mockRejectedValueOnce(Error("Connect to save this."));
+    await render();
+    await act(async () => { (here().props.onPress as () => void)(); });
+    expect(scope.toast).toHaveBeenCalledWith("Connect to save this.");
+    expect(account.state.bootstrap!.children[0].birth_date).toBeUndefined();
+  });
+  it("reaches both tools from Today in one tap", async () => {
+    due();
+    await render();
+    for (const [title, route] of [["Contraction timer", "/contractions"], ["Kick counter", "/kicks"]]) {
+      (find("Pressable", (p) => p.accessibilityLabel === title)[0].props.onPress as () => void)();
+      expect(scope.push).toHaveBeenCalledWith(route);
+    }
+  });
 });
 
 it("keeps child B's routine out of child A's Today summary when Everything is selected", async () => {

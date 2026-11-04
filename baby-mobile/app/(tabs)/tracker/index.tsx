@@ -27,7 +27,7 @@ export default function Tracker() {
     today = dayKey(profileToday(now, timezone)),
     [picked, setPicked] = useState<string | null>(null),
     [newest, setNewest] = useState(true),
-    [view, setView] = useState("day"),
+    [chosenView, setView] = useState<string | null>(null),
     day = picked ?? today,
     range = dayRange(day, timezone),
     // A day looks back one more, for a sleep that ran over midnight into it.
@@ -38,6 +38,9 @@ export default function Tracker() {
     children = b.state.bootstrap!.children,
     child = timingChild(b.state, keyDate(today)),
     logging = careLogsStarted(children, keyDate(today)) && !!child && todayStage(child, keyDate(today)) === "baby",
+    expecting = !!child && !logging && todayStage(child, keyDate(today)) !== "none",
+    // Before the birth there's nothing to log by the day yet, so she lands on the calendar and the tools.
+    view = chosenView ?? (expecting ? "month" : "day"),
     summary = useCareSummary(child?.id ?? null, strip[0], strip[strip.length - 1], { poll: day === today }),
     overlay = dayOverlay(b.state, child?.id ?? null, timezone, now),
     rows = care.all.filter((row) => onDay(row, day, timezone, now)).sort((x, y) => (newest ? 1 : -1) * newestFirst(x, y)),
@@ -56,6 +59,10 @@ export default function Tracker() {
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
       <FilterChips label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }]} />
+      {expecting && <Grouped>
+        <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
+        <Row title="Kick counter" detail="A tap for each movement, and your history" icon="footsteps-outline" onPress={() => router.push("/kicks")} />
+      </Grouped>}
       {view === "month" ? <TrackerMonth today={today} day={day} childId={b.state.selectedChild ?? child?.id ?? null} birthDate={child?.birth_date}
         onOpen={(key) => { pick(key); setView("day"); }} /> : <>
       <WeekStrip day={day} today={today} marked={marked} onPick={pick} />

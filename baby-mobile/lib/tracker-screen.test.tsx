@@ -145,11 +145,30 @@ it("shows what's on the phone when it can't reach the service", async () => {
   expect(titles().join(" ")).toContain("Diaper · Pee");
 });
 
-it("has no quick log before the birth, and says when care will appear", async () => {
+it("before the birth, opens on the calendar and the tools, with no quick log, and a day still opens", async () => {
   mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10" }];
   await mount();
   expect(screen().props.footer).toBeFalsy();
+  expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(1);
+  const rows = () => renderer!.root.findAll((n) => String(n.type) === "Row");
+  expect(rows().map((n) => n.props.title)).toEqual(["Contraction timer", "Kick counter", "Care history"]);
+  await act(async () => rows()[0].props.onPress());
+  expect(mock.push).toHaveBeenCalledWith("/contractions");
+  await act(async () => rows()[1].props.onPress());
+  expect(mock.push).toHaveBeenCalledWith("/kicks");
+  await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onOpen("2026-11-02"));
+  expect(screen().props.footer).toBeFalsy();
   expect(renderer!.root.findAll((n) => String(n.type) === "Empty")[0].props.body).toContain("once the baby’s here");
+});
+
+it("goes straight to the day and the log once she's born, with nothing else to choose", async () => {
+  mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10" }];
+  await mount();
+  mock.baby.state = { ...mock.baby.state, bootstrap: { ...mock.baby.state.bootstrap, children: [{ id: "baby", name: "Mia", revision: 2, due_date: "2026-12-10", birth_date: "2026-11-04" }] } };
+  await act(async () => renderer!.update(<Tracker />));
+  expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(0);
+  expect(screen().props.footer).toBeTruthy();
+  expect(renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toEqual(["Care history"]);
 });
 
 it("moves the quick log into the page at the largest text sizes", async () => {

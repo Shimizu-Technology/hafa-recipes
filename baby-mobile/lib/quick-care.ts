@@ -1,6 +1,6 @@
 import * as Crypto from "expo-crypto";
 import type { useBaby } from "./context";
-import type { BabyRecord, DeviceState, Kind, Mutation, RecordData, RecordWrite } from "./models";
+import type { BabyRecord, Child, DeviceState, Kind, Mutation, RecordData, RecordWrite } from "./models";
 import { kindName } from "./models";
 import { newestFirst } from "./feed-reducer";
 import { addMutation, pendingRecords } from "./outbox";
@@ -87,6 +87,20 @@ export async function amendCare(b: Account, id: string, change: (record: BabyRec
     return record ? addMutation(state, { id: mutation, generation, type: "save", record: { ...record, ...change(record) }, files: [] }) : state;
   });
   void b.sync();
+}
+
+/**
+ * "Baby's here?": today becomes the birth date, which is what turns care logs on. Nothing else changes, so everything
+ * logged during the pregnancy stays where it was. Returns the undo for a tap made by mistake.
+ */
+export async function babyArrived(b: Account & Pick<ReturnType<typeof useBaby>, "api">, child: Child, today: string) {
+  const write = async (birth_date: string | null, revision: number) => {
+    const saved = await b.api.child({ id: child.id, name: child.name, due_date: child.due_date ?? null, birth_date, revision }, b.state.bootstrap!.generation);
+    await b.commit((state) => ({ ...state, bootstrap: { ...state.bootstrap!, children: state.bootstrap!.children.map((row) => (row.id === saved.id ? saved : row)) } }));
+    return saved;
+  };
+  const saved = await write(today, child.revision);
+  return () => write(child.birth_date ?? null, saved.revision);
 }
 
 const ozToMl = 30;
