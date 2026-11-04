@@ -67,6 +67,7 @@ vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 vi.mock("@/components/tips", () => ({ PregnancyHero: "PregnancyHero", TipSection: "TipSection" }));
 vi.mock("@/lib/timing", () => import("./timing"));
+vi.mock("@/components/event-row", () => ({ NextEvent: "NextEvent" }));
 vi.mock("@/lib/use-timing-tips", () => ({ useTimingTips: () => ({ rows: [], total: 0 }) }));
 import Today from "../app/(tabs)/(today)/index";
 

@@ -11,6 +11,27 @@ const row = optimisticRecord({
   data: {},
 });
 describe("Baby wire boundaries", () => {
+  it("sends all of an event's data on an edit, because PATCH replaces it", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(row)),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport),
+      data = { timezone: "Pacific/Guam", recurrence: { frequency: "weekly" as const }, reminder_minutes: [60], exceptions: [{ original_start: "2026-11-16T00:00:00Z", cancelled: true }] };
+    await api.save({ id: "e", kind: "event", title: "Class", body: "", child_id: null, occurred_at: "2026-11-02T00:00:00Z", data, revision: 3 }, 1);
+    expect(transport.mock.calls[0][1]?.method).toBe("PATCH");
+    expect(JSON.parse(String(transport.mock.calls[0][1]?.body)).data).toEqual(data);
+  });
+  it("tells her plainly when she has too many repeating events", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ detail: "You can keep up to 200 repeating events" }, { status: 422 })),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+    await expect(api.save({ id: "e", kind: "event", title: "Class", body: "", child_id: null, occurred_at: "2026-11-02T00:00:00Z", data: {} }, 1))
+      .rejects.toThrow("You can keep up to 200 repeating events. Delete one you no longer need, or save this one without repeating.");
+  });
+  it("reads occurrences by calendar day, for one baby or everyone", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ items: [], complete: true })),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+    await api.events("2026-12-01", "2026-12-31", "baby");
+    await api.events("2026-12-01", "2026-12-31", null);
+    expect(transport.mock.calls.map(([url]) => String(url).split("/baby")[1])).toEqual(["/events?from=2026-12-01&to=2026-12-31&child_id=baby", "/events?from=2026-12-01&to=2026-12-31"]);
+  });
   it("uses the shared account routes registered by the existing Håfa API", async () => {
     const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ id: "owner" }));
     const api = createBabyApi(

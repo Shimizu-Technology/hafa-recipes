@@ -1,6 +1,6 @@
 import type { BabyRecord, Kind } from "./models";
 
-/** Everything the Day view lists. Events and milestones join this once they exist. */
+/** The records the Day view lists as they are. Events join them as dated occurrences, from `useEvents`. */
 export const timelineKinds: Kind[] = ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session"];
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -23,7 +23,7 @@ export function weekOf(key: string) {
   return Array.from({ length: 7 }, (_, index) => addDays(first, index));
 }
 
-function zoneParts(instant: Date, timeZone: string) {
+export function zoneParts(instant: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(instant),
     part = (type: string) => Number(parts.find((value) => value.type === type)?.value);
   return { year: part("year"), month: part("month"), day: part("day"), hour: part("hour"), minute: part("minute"), second: part("second") };

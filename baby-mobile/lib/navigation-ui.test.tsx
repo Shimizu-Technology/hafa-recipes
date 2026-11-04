@@ -176,7 +176,7 @@ it("shrinks the Add sheet to things to keep: care leaves, a video or link leads"
   mock.stack = [{ pathname: "/add" }];
   await mount(<Add />);
   const labels = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => n.props.accessibilityLabel).filter(Boolean);
-  expect(labels.filter(l => !/Close/.test(l)).map(l => l.split(".")[0])).toEqual(["Save a video or link", "Write in your journal", "Keep a doctor question", "Make a list"]);
+  expect(labels.filter(l => !/Close/.test(l)).map(l => l.split(".")[0])).toEqual(["Save a video or link", "Write in your journal", "Add to the calendar", "Keep a doctor question", "Make a list"]);
 });
 it("keeps care-only history pushed with Back and disclosed care search", async () => {
   mock.stack = [{ pathname: "/(tabs)" }, { pathname: "/care-history" }];

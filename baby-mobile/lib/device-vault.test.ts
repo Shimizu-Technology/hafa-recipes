@@ -8,6 +8,13 @@ import { emptyState, optimisticRecord, type DeviceState } from "./models";
 const row = (id: string, kind: "source" | "routine") =>
   optimisticRecord({ id, kind, title: id, body: "", child_id: null, occurred_at: "2026-10-20T00:00:00Z", data: {} });
 describe("routine cache persistence migration", () => {
+  it("keeps every event through a relaunch, behind any number of newer logs", () => {
+    const logs = Array.from({ length: 300 }, (_, n) => row(`source-${n}`, "source")),
+      old = optimisticRecord({ id: "weekly-class", kind: "event", title: "Class", body: "", child_id: null, occurred_at: "2020-01-01T00:00:00Z", data: {} }),
+      kept = persistedCache("records", [...logs, old]) as typeof logs;
+    expect(kept.map((row) => row.id)).toContain("weekly-class");
+    expect(kept).toHaveLength(201);
+  });
   it("keeps every old routine independently of the recent nonroutine cache cap", () => {
     const records = [
       ...Array.from({ length: 220 }, (_, i) => row("source" + i, "source")),

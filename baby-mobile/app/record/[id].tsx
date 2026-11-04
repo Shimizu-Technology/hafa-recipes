@@ -2,7 +2,7 @@ import { sourceTitle } from "@/lib/source-title";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { Image } from "expo-image";
-import { router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime, isCare } from "@/lib/care-format";
@@ -80,6 +80,7 @@ export default function RecordDetail() {
         />
       </Screen>
     );
+  if (record.kind === "event") return <Redirect href={{ pathname: "/event/[id]", params: { id: record.id } }} />;
   const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
     title = record.kind === "source" ? sourceTitle(record) : record.title,
     data = record.data,

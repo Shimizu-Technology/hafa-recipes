@@ -50,6 +50,8 @@ const light = {
   tabIndicator: "#F1DDD3", tabInk: "#5A4740", addFill: "#9A5744", onAdd: "#FFFFFF",
   // The 34-of-40 pregnancy bar, and the blush monogram tile for sources without a photo.
   progressTrack: "rgba(154,87,68,0.16)", progressFill: "#9A5744", placeholder: "#F1DDD3", placeholderInk: "#8E4F3D",
+  // Calendar events, by category. Each also has its own icon and name, so colour is never the only signal.
+  categories: { appointment: "#9A5744", family: "#557A52", celebration: "#A06F0C", milestone: "#85568A", reminder: "#44708F", other: "#725F56" },
 };
 const dark: typeof light = {
   background: "#14110F", groupedBackground: "#14110F", surface: "#221B18",
@@ -62,6 +64,7 @@ const dark: typeof light = {
   tabBar: "#1C1714", tabBarBorder: "#2E2622", headerFill: "#2A221F",
   tabIndicator: "#3A2A23", tabInk: "#F3E9E2", addFill: "#E0A894", onAdd: "#2A1B16",
   progressTrack: "rgba(224,168,148,0.2)", progressFill: "#E0A894", placeholder: "#33251F", placeholderInk: "#E0A894",
+  categories: { appointment: "#E0A894", family: "#9CC497", celebration: "#E6C069", milestone: "#CDA2D2", reminder: "#96BEDB", other: "#B5A39A" },
 };
 export const palettes = { light, dark };
 export function useColors() {
@@ -712,7 +715,7 @@ export function Chips({
   label,
   scroll = false,
 }: {
-  options: { label: string; value: string }[];
+  options: { label: string; value: string; dot?: ColorValue }[];
   value: string;
   onChange: (v: string) => void;
   /** Read before each option by VoiceOver, for example "Feeding method". */
@@ -742,12 +745,15 @@ export function Chips({
               paddingHorizontal: 16,
               paddingVertical: 10,
               borderRadius: 999,
+              flexDirection: "row",
+              gap: 7,
               justifyContent: "center",
               alignItems: "center",
               backgroundColor: on ? c.action : c.soft,
 
             })}
           >
+            {!!o.dot && <View style={{ width: 9, height: 9, borderRadius: 4.5, backgroundColor: o.dot }} />}
             <Text
               key={fontScale}
               maxFontSizeMultiplier={0}

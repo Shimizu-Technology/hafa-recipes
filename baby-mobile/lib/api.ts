@@ -3,6 +3,7 @@ import type {
   Bootstrap,
   BabyRecord,
   ChatResult,
+  EventOccurrence,
   SuggestionResult,
   Child,
   Conversation,
@@ -23,12 +24,15 @@ import { dailyAiLimitMessage } from "./import-status";
  */
 export const babyClient = 2 as 2 | null;
 export const sendsCareDetails = babyClient === 2;
+const seriesLimit = "You can keep up to 200 repeating events";
+export const seriesLimitMessage = `${seriesLimit}. Delete one you no longer need, or save this one without repeating.`;
 /** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
 const knownDetails = new Set([
   "Add the birth date to see what is relevant now",
   "Add a due date or birth date to see what is relevant now",
   "Add a due date to see what is relevant now",
   "Choose which child to show timing for",
+  seriesLimit,
 ]);
 export interface RecordFilters {
   kind?: Kind;
@@ -151,7 +155,7 @@ export function createBabyApi(
                   : response.status === 413
                     ? "This file is too large. Choose a smaller file."
                     : response.status === 422
-                      ? known ? `${known}.` : "Some details need review. Check your entries and try again."
+                      ? known === seriesLimit ? seriesLimitMessage : known ? `${known}.` : "Some details need review. Check your entries and try again."
                       : response.status === 429
                         ? dailyLimit
                           ? dailyAiLimitMessage
@@ -234,6 +238,9 @@ export function createBabyApi(
     /** Totals and dots per calendar day, inclusive, on the profile's clock. No child means the logs that have none. */
     careSummary: (from: string, to: string, child_id?: string | null) =>
       request<{ days: CareDay[] }>("/care/summary?" + query({ from, to, child_id })),
+    /** Dated occurrences on these calendar days, inclusive. With a child: theirs and the whole family's. */
+    events: (from: string, to: string, child_id?: string | null) =>
+      request<{ items: EventOccurrence[]; complete: boolean }>("/events?" + query({ from, to, child_id })),
     save: (value: RecordWrite, g: number) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
       // Repair optional links at the wire boundary, including durable outbox
