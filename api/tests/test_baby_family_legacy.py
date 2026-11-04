@@ -76,7 +76,8 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
             ("GET", f"/api/v1/baby/family/{family}/invites", None),
             ("GET", f"/api/v1/baby/family/{family}/members", None),
             ("DELETE", f"/api/v1/baby/family/{family}/invites/{uuid4()}", None)):
-        await call(method, path, expected=404, **({"json": body} if body is not None else {}))
+        await call(method, path, expected=403 if enabled and method != "POST" else 404,
+                   **({"json": body} if body is not None else {}))
     await call("GET", "/api/v1/baby/changes", expected=403 if enabled else 404)
     for method, path in (("POST", f"/api/v1/baby/family/{family}/leave"),
                          ("DELETE", f"/api/v1/baby/family/{family}/members/other"),

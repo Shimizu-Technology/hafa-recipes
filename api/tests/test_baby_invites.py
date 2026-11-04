@@ -143,3 +143,16 @@ async def test_invites_default_off_and_only_client_three(baby_api, enabled):
     for client in (None, "2"):
         headers = shared.GEN | ({"X-Baby-Client": client} if client else {})
         assert (await baby_api.client.post("/api/v1/baby/family/invites", headers=headers, json={})).status_code == 403
+
+
+async def test_invite_shutdown_keeps_revocation_and_member_management_available(baby_api, invites):
+    invitation = await create(baby_api, invites)
+    baby_api.settings.baby_invites_enabled = False
+    h = records.headers(invitation["space_id"], generation=1)
+    assert (await accept(baby_api, invitation)).status_code == 404
+    for suffix in ("members", "invites"):
+        response = await baby_api.client.get(f"/api/v1/baby/family/{invitation['space_id']}/{suffix}", headers=h)
+        assert response.status_code == 200
+    response = await baby_api.client.delete(
+        f"/api/v1/baby/family/{invitation['space_id']}/invites/{invitation['id']}", headers=h)
+    assert response.status_code == 200

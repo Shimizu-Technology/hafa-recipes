@@ -27,7 +27,9 @@ class InviteRoute(security.BabyRoute):
     def get_route_handler(self):
         original = super().get_route_handler()
         async def handler(request):
-            if not family_enabled() or not getattr(security.get_settings(), "baby_invites_enabled", False):
+            if not family_enabled():
+                raise HTTPException(404, "Not found")
+            if request.method == "POST" and not getattr(security.get_settings(), "baby_invites_enabled", False):
                 raise HTTPException(404, "Not found")
             if request.headers.get("X-Baby-Client") != "3":
                 raise HTTPException(403, "Update Baby before using family invitations")
