@@ -23,6 +23,7 @@ import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
 import { ensureAiConsent } from "../lib/ai-consent";
+import { staysWithBaby } from "../lib/well-visits";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -430,7 +431,7 @@ export default function Edit() {
           label="Who is this for?"
           options={[
             // Care always belongs to a baby; older general care entries can still be reassigned.
-            ...(isCare(draft.kind) && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
+            ...((isCare(draft.kind) || staysWithBaby(draft)) && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
               ? []
               : [{ label: "For me / general", value: "" }]),
             ...b.state.bootstrap!.children.map((c) => ({ label: c.name, value: c.id })),

@@ -17,6 +17,8 @@ export const kindIcon: Record<Kind, IconName> = {
   collection: "folder-outline",
   contraction: "pulse-outline",
   kick_session: "footsteps-outline",
+  milestone: "ribbon-outline",
+  custom: "medkit-outline",
   event: "calendar-outline",
 };
 /** Journal entries and doctor questions lead with their date, not the same glyph on every row. Decorative: the row says the time. */

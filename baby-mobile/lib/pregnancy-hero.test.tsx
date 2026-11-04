@@ -1,7 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Child } from "./models";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BabyRecord, Child } from "./models";
 
 const scope = vi.hoisted(() => ({ fontScale: 1, width: 390 }));
 vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
@@ -22,7 +22,7 @@ vi.mock("../components/ui", () => ({
   useColors: () => ({ accentText: "clay", text: "cocoa", muted: "grey", hero: "blush", border: "line", progressTrack: "track", progressFill: "fill" }),
 }));
 vi.mock("@/lib/timing", () => import("./timing"));
-import { PregnancyHero } from "../components/tips";
+import { BabyAgeCard, PregnancyHero } from "../components/tips";
 
 const child = { id: "isla", name: "Isla", due_date: "2026-12-10", revision: 1 } as Child;
 const now = new Date(2026, 10, 1);
@@ -80,4 +80,26 @@ it("says where this week's tips will appear when none are saved yet", async () =
   const copy = renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
   expect(copy).toContain("Tips you save for this point in your pregnancy show up here.");
   expect(renderer!.root.findAll((n) => (n.type as unknown) === "PressTarget")).toHaveLength(0);
+});
+
+describe("BabyAgeCard", () => {
+  const born = { ...child, birth_date: "2026-12-10", due_date: null } as Child;
+  const shown = () => JSON.stringify(renderer!.toJSON());
+  const mount = (at: Date, tips: BabyRecord[] = []) => act(async () => { renderer = create(React.createElement(BabyAgeCard, { child: born, now: at, tips })); });
+  it("names the week, holds back unreviewed lines, and keeps her saved tips beside it", async () => {
+    await mount(new Date(2026, 11, 20), [{ id: "t1", kind: "source", title: "Latch tips", data: {} } as BabyRecord]);
+    expect(shown()).toContain("Week 2");
+    expect(shown()).toContain("What’s typical at this age is coming once a doctor has reviewed it.");
+    expect(shown()).not.toContain("Crying is how your baby");
+    expect(shown()).toContain("Latch tips");
+  });
+  it("switches to months after week 12, and says where tips will go when there are none", async () => {
+    await mount(new Date(2027, 5, 10));
+    expect(shown()).toContain("6 months");
+    expect(shown()).toContain("Tips you save for this age show up here.");
+  });
+  it("past 24 months has no age card, and her tips still have a home", async () => {
+    await mount(new Date(2029, 5, 10), [{ id: "t1", kind: "source", title: "Latch tips", data: {} } as BabyRecord]);
+    expect(renderer!.root.findAll((n) => String(n.type) === "Section")[0].props.title).toBe("For this age");
+  });
 });

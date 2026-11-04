@@ -16,7 +16,7 @@ export const quickEvents: { title: string; category: EventCategory; timed?: bool
 type Series = Pick<BabyRecord, "id" | "title" | "occurred_at" | "child_id" | "data" | "revision">;
 const day = 24 * 60 * 60_000;
 const ms = (iso: string) => new Date(iso).getTime(), iso = (at: number) => new Date(at).toISOString();
-const midnight = (key: string, zone?: string | null) => zonedInstant(key, 0, 0, zone).getTime();
+export const midnight = (key: string, zone?: string | null) => zonedInstant(key, 0, 0, zone).getTime();
 const keyParts = (key: string) => key.split("-").map(Number);
 const dayGap = (from: string, to: string) => {
   const [a, b, c] = keyParts(from), [x, y, z] = keyParts(to);

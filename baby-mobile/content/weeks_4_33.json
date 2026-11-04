@@ -1,0 +1,1096 @@
+{
+  "batch": "weeks-4-33",
+  "approved": false,
+  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md items L1 and M1 to M3 are signed off.",
+  "generated": "2026-11-05",
+  "size_source": {
+    "used": "WHO fetal growth charts: Table 11, estimated fetal weight regardless of fetal sex, 50th percentile (Kiserud et al. PLoS Med 2017;14(1):e1002220). Covers weeks 14 to 40.",
+    "urls": [
+      "https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1002220"
+    ],
+    "method": "Figures are the published 50th percentile, unchanged. Converted at 1 oz = 28.3495 g, rounded to the nearest ounce.",
+    "why": "One published table, sex-neutral, multinational, no arithmetic of ours. It's also an option in item I1 of the first packet, so choosing it there would put all of pregnancy on one chart.",
+    "caveat": "No length: this table has none, and no single table I could open gives length for these weeks. Weeks 4 to 13 show no number, because WHO starts at 14 and KidsHealth's early figures contradict each other (week 10 is 1.2 oz, week 14 is 1.6 oz, while week 8 is 0.04 oz and week 7 is 0.33 oz). The batch for weeks 34 to 42 currently uses INTERGROWTH birth sizes, so if I1 stays INTERGROWTH, the card changes source between weeks 33 and 34 (2,103 g, then 2,175 g).",
+    "alternatives_read": {
+      "hadlock": "Hadlock 1991, 10 to 40 weeks, weight only. Figures here are computed from its published equation; the first packet checked that equation against Table 1 for weeks 34 to 40. Not checked against the table for these weeks: the PDF's scan is not machine-readable here."
+    }
+  },
+  "size_comparison_note": "Weeks 4 to 13 use a size stated by the linked source. From week 14, everyday objects are our own rough picks, compared on weight, with no source. They are not measurements. Kami may swap any of them.",
+  "weeks": [
+    {
+      "week": 4,
+      "size_comparison": {
+        "object": "a poppy seed",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+      },
+      "facts": [
+        {
+          "text": "Your baby is a tiny ball of cells that has just settled into the wall of your uterus.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "The beginnings of the placenta are forming.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        },
+        {
+          "text": "A fluid-filled sac is forming around your baby to cushion them.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
+          "additional_source_urls": [
+            "https://kidshealth.org/en/parents/week4.html"
+          ]
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 5,
+      "size_comparison": {
+        "object": "a sesame seed",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week5.html"
+      },
+      "facts": [
+        {
+          "text": "Your baby's brain, spinal cord and heart are starting to develop.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm",
+          "additional_source_urls": [
+            "https://kidshealth.org/en/parents/week5.html"
+          ]
+        },
+        {
+          "text": "The cells are sorting into three layers that go on to form the skin, nerves, heart, gut and lungs.",
+          "source_url": "https://kidshealth.org/en/parents/week5.html"
+        },
+        {
+          "text": "The placenta is developing too. It will carry nourishment from you to your baby.",
+          "source_url": "https://kidshealth.org/en/parents/week5.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 6,
+      "size_comparison": {
+        "object": "a pea",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week6.html"
+      },
+      "facts": [
+        {
+          "text": "Buds that will become arms and legs are appearing.",
+          "source_url": "https://kidshealth.org/en/parents/week6.html",
+          "additional_source_urls": [
+            "https://medlineplus.gov/ency/article/002398.htm",
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "The heart may begin to beat around now, and an ultrasound might pick it up.",
+          "source_url": "https://kidshealth.org/en/parents/week6.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ],
+          "review_note": "Could read as a test of the pregnancy if an early scan shows nothing. Soften or cut?"
+        },
+        {
+          "text": "Early structures for the eyes and inner ears are taking shape.",
+          "source_url": "https://kidshealth.org/en/parents/week6.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 7,
+      "size_comparison": {
+        "object": "a blueberry",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week7.html"
+      },
+      "facts": [
+        {
+          "text": "The umbilical cord has formed. It's your baby's link to you for oxygen and nourishment.",
+          "source_url": "https://kidshealth.org/en/parents/week7.html",
+          "review_note": "Cleveland Clinic says fully developed at week 8."
+        },
+        {
+          "text": "The mouth, nostrils, ears and eyes are becoming more defined.",
+          "source_url": "https://kidshealth.org/en/parents/week7.html"
+        },
+        {
+          "text": "Each arm bud now ends in a tiny paddle that will become a hand.",
+          "source_url": "https://kidshealth.org/en/parents/week7.html",
+          "review_note": "MedlinePlus places hand and foot paddles at week 8."
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 8,
+      "size_comparison": {
+        "object": "a raspberry",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week8.html"
+      },
+      "facts": [
+        {
+          "text": "Fingers and toes are just starting to form.",
+          "source_url": "https://kidshealth.org/en/parents/week8.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "The head is large compared with the body, and your baby may start to wiggle a little.",
+          "source_url": "https://kidshealth.org/en/parents/week8.html"
+        },
+        {
+          "text": "The lungs are starting to form.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 9,
+      "size_comparison": {
+        "object": "a grape",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week9.html"
+      },
+      "facts": [
+        {
+          "text": "The tip of the nose can now be seen in profile, and eyelids are starting to take shape.",
+          "source_url": "https://kidshealth.org/en/parents/week9.html"
+        },
+        {
+          "text": "First movements may start now, though it will be weeks before you can feel them.",
+          "source_url": "https://kidshealth.org/en/parents/week9.html"
+        },
+        {
+          "text": "The beginnings of teeth and taste buds are forming.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 10,
+      "size_comparison": {
+        "object": "a strawberry",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week10.html"
+      },
+      "figures_read": {
+        "hadlock_1991_equation_g": 35
+      },
+      "facts": [
+        {
+          "text": "Fingers and toes are separating.",
+          "source_url": "https://kidshealth.org/en/parents/week10.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Tooth buds are forming.",
+          "source_url": "https://kidshealth.org/en/parents/week10.html",
+          "review_note": "MedlinePlus places tooth buds in weeks 11 to 14."
+        },
+        {
+          "text": "Bone cells are starting to replace softer cartilage.",
+          "source_url": "https://kidshealth.org/en/parents/week10.html",
+          "review_note": "Cleveland Clinic places this at week 7."
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 11,
+      "size_comparison": {
+        "object": "a golf ball",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week11.html"
+      },
+      "figures_read": {
+        "hadlock_1991_equation_g": 45
+      },
+      "facts": [
+        {
+          "text": "Your baby is starting to open and close their fists and mouth.",
+          "source_url": "https://kidshealth.org/en/parents/week11.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Bones are forming, and the skin is still see-through.",
+          "source_url": "https://kidshealth.org/en/parents/week11.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "The ears are moving toward their final spot on the sides of the head.",
+          "source_url": "https://kidshealth.org/en/parents/week11.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 12,
+      "size_comparison": {
+        "object": "a lime",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://kidshealth.org/en/parents/week12.html"
+      },
+      "figures_read": {
+        "hadlock_1991_equation_g": 58
+      },
+      "facts": [
+        {
+          "text": "Tiny fingernails and toenails are starting to form.",
+          "source_url": "https://kidshealth.org/en/parents/week12.html",
+          "review_note": "Cleveland Clinic places this at week 10."
+        },
+        {
+          "text": "The kidneys are starting to work. Your baby swallows amniotic fluid and passes it as urine.",
+          "source_url": "https://kidshealth.org/en/parents/week12.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Babies grow at their own pace, and there's a wide range of what's considered normal.",
+          "source_url": "https://kidshealth.org/en/parents/week12.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 13,
+      "size_comparison": {
+        "object": "a plum",
+        "approximate": true,
+        "compared_on": "size",
+        "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+      },
+      "figures_read": {
+        "hadlock_1991_equation_g": 73
+      },
+      "facts": [
+        {
+          "text": "The placenta has fully formed. It brings oxygen and nutrients and carries away waste.",
+          "source_url": "https://kidshealth.org/en/parents/week13.html"
+        },
+        {
+          "text": "Vocal cords are forming.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
+          "review_note": "KidsHealth says week 12."
+        },
+        {
+          "text": "Your baby's head is starting to grow more in proportion to the body.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 14,
+      "size_comparison": {
+        "object": "a lemon",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 3,
+          "kg": 0.09,
+          "display": "about 3 oz (90 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 90,
+        "hadlock_1991_equation_g": 93
+      },
+      "facts": [
+        {
+          "text": "Fine, soft hair called lanugo is starting to grow.",
+          "source_url": "https://kidshealth.org/en/parents/week14.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Your baby's thyroid gland has matured and is starting to make hormones.",
+          "source_url": "https://kidshealth.org/en/parents/week14.html"
+        },
+        {
+          "text": "Fingerprints are beginning to form.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 15,
+      "size_comparison": {
+        "object": "a small peach",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 4,
+          "kg": 0.114,
+          "display": "about 4 oz (114 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 114,
+        "hadlock_1991_equation_g": 117
+      },
+      "facts": [
+        {
+          "text": "The skin is still very thin, so blood vessels show through it.",
+          "source_url": "https://kidshealth.org/en/parents/week15.html"
+        },
+        {
+          "text": "Hair is growing on the head and eyebrows.",
+          "source_url": "https://kidshealth.org/en/parents/week15.html"
+        },
+        {
+          "text": "Your baby is probably moving a lot: head, mouth, arms, hands, legs and feet.",
+          "source_url": "https://kidshealth.org/en/parents/week15.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 16,
+      "size_comparison": {
+        "object": "an avocado",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 5,
+          "kg": 0.144,
+          "display": "about 5 oz (144 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 144,
+        "hadlock_1991_equation_g": 146
+      },
+      "facts": [
+        {
+          "text": "Your baby can hold their head up now, and facial muscles allow squints and frowns.",
+          "source_url": "https://kidshealth.org/en/parents/week16.html"
+        },
+        {
+          "text": "The eyes are still closed, but they can already sense light.",
+          "source_url": "https://kidshealth.org/en/parents/week16.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Blood is now pumping through the circulatory system.",
+          "source_url": "https://kidshealth.org/en/parents/week16.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 17,
+      "size_comparison": {
+        "object": "a pear",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 6,
+          "kg": 0.179,
+          "display": "about 6 oz (179 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 179,
+        "hadlock_1991_equation_g": 181
+      },
+      "facts": [
+        {
+          "text": "Bones are changing from soft cartilage to hard bone.",
+          "source_url": "https://kidshealth.org/en/parents/week17.html"
+        },
+        {
+          "text": "Sweat glands are starting to grow.",
+          "source_url": "https://kidshealth.org/en/parents/week17.html"
+        },
+        {
+          "text": "The umbilical cord is getting thicker and stronger.",
+          "source_url": "https://kidshealth.org/en/parents/week17.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 18,
+      "size_comparison": {
+        "object": "a large bell pepper",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 8,
+          "kg": 0.222,
+          "display": "about 8 oz (222 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 222,
+        "hadlock_1991_equation_g": 223
+      },
+      "facts": [
+        {
+          "text": "The ears are in their final position and stand out from the head.",
+          "source_url": "https://kidshealth.org/en/parents/week18.html"
+        },
+        {
+          "text": "The eyes now face forward instead of to the sides.",
+          "source_url": "https://kidshealth.org/en/parents/week18.html"
+        },
+        {
+          "text": "Your baby may have a sleep-wake cycle already.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 19,
+      "size_comparison": {
+        "object": "a mango",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 10,
+          "kg": 0.272,
+          "display": "about 10 oz (272 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 272,
+        "hadlock_1991_equation_g": 273
+      },
+      "facts": [
+        {
+          "text": "A white, waxy coating called vernix helps protect your baby's delicate skin.",
+          "source_url": "https://kidshealth.org/en/parents/week19.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Brown fat is developing. It will help keep your baby warm after birth.",
+          "source_url": "https://kidshealth.org/en/parents/week19.html"
+        },
+        {
+          "text": "Some people feel first movements around now. They can feel like a flutter.",
+          "source_url": "https://kidshealth.org/en/parents/week20.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ],
+          "review_note": "Timing varies, especially in a first pregnancy. Is 'some people' enough to avoid worry?"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 20,
+      "size_comparison": {
+        "object": "a large grapefruit",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 12,
+          "kg": 0.33,
+          "display": "about 12 oz (330 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 330,
+        "hadlock_1991_equation_g": 331
+      },
+      "facts": [
+        {
+          "text": "You're about halfway there.",
+          "source_url": "https://kidshealth.org/en/parents/week20.html"
+        },
+        {
+          "text": "Hair and nails keep growing.",
+          "source_url": "https://kidshealth.org/en/parents/week20.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Your baby is taking up more room, which can put pressure on your lungs, stomach and bladder.",
+          "source_url": "https://kidshealth.org/en/parents/week20.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 21,
+      "size_comparison": {
+        "object": "a can of beans",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 0,
+          "oz": 14,
+          "kg": 0.398,
+          "display": "about 14 oz (398 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 398,
+        "hadlock_1991_equation_g": 399
+      },
+      "facts": [
+        {
+          "text": "Arm and leg movements are coordinated and frequent.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        },
+        {
+          "text": "Bone marrow is starting to help make blood cells.",
+          "source_url": "https://kidshealth.org/en/parents/week21.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ],
+          "review_note": "MedlinePlus places this in weeks 23 to 25."
+        },
+        {
+          "text": "Your baby swallows amniotic fluid, and the intestines can absorb small amounts of sugar from it.",
+          "source_url": "https://kidshealth.org/en/parents/week21.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 22,
+      "size_comparison": {
+        "object": "a 1-lb box of pasta",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 1,
+          "oz": 1,
+          "kg": 0.476,
+          "display": "about 1 lb 1 oz (476 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 476,
+        "hadlock_1991_equation_g": 478
+      },
+      "facts": [
+        {
+          "text": "Taste buds have started to form on the tongue.",
+          "source_url": "https://kidshealth.org/en/parents/week22.html",
+          "review_note": "Cleveland Clinic says week 9."
+        },
+        {
+          "text": "Your baby can feel touch, and may stroke their own face or suck a thumb.",
+          "source_url": "https://kidshealth.org/en/parents/week22.html"
+        },
+        {
+          "text": "Your baby's grip is getting stronger.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 23,
+      "size_comparison": {
+        "object": "a 20-oz bottle of water",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 1,
+          "oz": 4,
+          "kg": 0.565,
+          "display": "about 1 lb 4 oz (565 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 565,
+        "hadlock_1991_equation_g": 568
+      },
+      "facts": [
+        {
+          "text": "Fat is starting to build up, but the skin still hangs loosely, so your baby looks wrinkled.",
+          "source_url": "https://kidshealth.org/en/parents/week23.html"
+        },
+        {
+          "text": "Your baby is exercising fingers, toes, arms and legs. You may feel stronger movements.",
+          "source_url": "https://kidshealth.org/en/parents/week23.html"
+        },
+        {
+          "text": "Meconium, your baby's first poop, is forming in the intestines.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm",
+          "review_note": "MedlinePlus lists this at week 22; used a week later here."
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 24,
+      "size_comparison": {
+        "object": "a large jar of pasta sauce",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 1,
+          "oz": 7,
+          "kg": 0.665,
+          "display": "about 1 lb 7 oz (665 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 665,
+        "hadlock_1991_equation_g": 670
+      },
+      "facts": [
+        {
+          "text": "The inner ear, which controls balance, is now fully developed.",
+          "source_url": "https://kidshealth.org/en/parents/week24.html"
+        },
+        {
+          "text": "Your baby may be able to tell which way is up while floating.",
+          "source_url": "https://kidshealth.org/en/parents/week24.html"
+        },
+        {
+          "text": "The lower airways of the lungs are developing.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 25,
+      "size_comparison": {
+        "object": "a small head of cauliflower",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 1,
+          "oz": 11,
+          "kg": 0.778,
+          "display": "about 1 lb 11 oz (778 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 778,
+        "hadlock_1991_equation_g": 785
+      },
+      "facts": [
+        {
+          "text": "You may notice resting and alert times. Movement is often easier to notice when you're still.",
+          "source_url": "https://kidshealth.org/en/parents/week25.html"
+        },
+        {
+          "text": "Your baby may now be able to hear your voice.",
+          "source_url": "https://kidshealth.org/en/parents/week25.html",
+          "review_note": "Cleveland Clinic says hearing at week 16, MedlinePlus at weeks 19 to 21."
+        },
+        {
+          "text": "More body fat is making the skin plumper and less wrinkled.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 26,
+      "size_comparison": {
+        "object": "a 2-lb bag of sugar",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 2,
+          "oz": 0,
+          "kg": 0.902,
+          "display": "about 2 lb 0 oz (902 g)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 902,
+        "hadlock_1991_equation_g": 913
+      },
+      "facts": [
+        {
+          "text": "Eyelashes are growing in, and so is more hair on the head.",
+          "source_url": "https://kidshealth.org/en/parents/week26.html"
+        },
+        {
+          "text": "Your baby's heart rate may speed up, or they may move, in response to sounds.",
+          "source_url": "https://kidshealth.org/en/parents/week26.html"
+        },
+        {
+          "text": "The lungs are starting to make surfactant, which helps with breathing after birth.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
+          "additional_source_urls": [
+            "https://medlineplus.gov/ency/article/002398.htm"
+          ]
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 27,
+      "size_comparison": {
+        "object": "a quart of milk",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 2,
+          "oz": 5,
+          "kg": 1.039,
+          "display": "about 2 lb 5 oz (1.0 kg)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 1039,
+        "hadlock_1991_equation_g": 1055
+      },
+      "facts": [
+        {
+          "text": "Your baby can open their eyes and blink.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
+          "additional_source_urls": [
+            "https://medlineplus.gov/ency/article/002398.htm"
+          ]
+        },
+        {
+          "text": "Your baby may start to recognize voices they hear often, though sounds are muffled.",
+          "source_url": "https://kidshealth.org/en/parents/week27.html"
+        },
+        {
+          "text": "This is the last week of the second trimester.",
+          "source_url": "https://kidshealth.org/en/parents/week27.html",
+          "additional_source_urls": [
+            "https://www.acog.org/womens-health/faqs/how-your-fetus-grows-during-pregnancy"
+          ]
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 28,
+      "size_comparison": {
+        "object": "a small pineapple",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 2,
+          "oz": 10,
+          "kg": 1.189,
+          "display": "about 2 lb 10 oz (1.2 kg)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 1189,
+        "hadlock_1991_equation_g": 1210
+      },
+      "facts": [
+        {
+          "text": "The folds and grooves of the brain are still developing.",
+          "source_url": "https://kidshealth.org/en/parents/week28.html"
+        },
+        {
+          "text": "Your baby is adding layers of fat.",
+          "source_url": "https://kidshealth.org/en/parents/week28.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Your baby may begin turning head-down, and still has time to change position.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
+          "additional_source_urls": [
+            "https://kidshealth.org/en/parents/week28.html"
+          ]
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 29,
+      "size_comparison": {
+        "object": "a 3-lb bag of apples",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 3,
+          "oz": 0,
+          "kg": 1.35,
+          "display": "about 3 lb 0 oz (1.4 kg)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 1350,
+        "hadlock_1991_equation_g": 1379
+      },
+      "facts": [
+        {
+          "text": "First flutters have given way to harder jabs and pokes.",
+          "source_url": "https://kidshealth.org/en/parents/week29.html",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "Your baby's brain is growing fast.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm",
+          "additional_source_urls": [
+            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+          ]
+        },
+        {
+          "text": "If your baby moves less than usual, don't wait: get care right away.",
+          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html",
+          "review_note": "Same wording as I3 in the first packet. KidsHealth's '10 times in 2 hours' is left out on purpose until you rule on E2 and E3."
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 30,
+      "size_comparison": {
+        "object": "a big head of cabbage",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 3,
+          "oz": 6,
+          "kg": 1.523,
+          "display": "about 3 lb 6 oz (1.5 kg)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 1523,
+        "hadlock_1991_equation_g": 1559
+      },
+      "facts": [
+        {
+          "text": "Your baby is practicing breathing movements with the diaphragm.",
+          "source_url": "https://kidshealth.org/en/parents/week30.html"
+        },
+        {
+          "text": "Your baby can get hiccups. You may feel them as rhythmic twitches.",
+          "source_url": "https://kidshealth.org/en/parents/week30.html"
+        },
+        {
+          "text": "Added fat makes your baby look less wrinkled and will help with warmth after birth.",
+          "source_url": "https://kidshealth.org/en/parents/week30.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 31,
+      "size_comparison": {
+        "object": "a 4-lb bag of oranges",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 3,
+          "oz": 12,
+          "kg": 1.707,
+          "display": "about 3 lb 12 oz (1.7 kg)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 1707,
+        "hadlock_1991_equation_g": 1751
+      },
+      "facts": [
+        {
+          "text": "Your baby pees several cups a day into the amniotic fluid, and swallows the fluid too.",
+          "source_url": "https://kidshealth.org/en/parents/week31.html"
+        },
+        {
+          "text": "You may notice clearer patterns in when your baby is awake and asleep.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        },
+        {
+          "text": "Your baby is gaining a lot of fat now.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 32,
+      "size_comparison": {
+        "object": "a half-gallon of milk",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 4,
+          "oz": 3,
+          "kg": 1.901,
+          "display": "about 4 lb 3 oz (1.9 kg)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 1901,
+        "hadlock_1991_equation_g": 1953
+      },
+      "facts": [
+        {
+          "text": "Eyelashes, eyebrows and hair on the head are easy to see now.",
+          "source_url": "https://kidshealth.org/en/parents/week32.html"
+        },
+        {
+          "text": "The lanugo hair is falling off, though some may stay on the shoulders and back at birth.",
+          "source_url": "https://kidshealth.org/en/parents/week32.html"
+        },
+        {
+          "text": "The skin isn't see-through anymore.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "week": 33,
+      "size_comparison": {
+        "object": "a small honeydew melon",
+        "approximate": true,
+        "compared_on": "weight",
+        "unsourced": true
+      },
+      "average": {
+        "weight": {
+          "lb": 4,
+          "oz": 10,
+          "kg": 2.103,
+          "display": "about 4 lb 10 oz (2.1 kg)"
+        },
+        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
+      },
+      "figures_read": {
+        "who_kiserud_2017_table_11_50th_g": 2103,
+        "hadlock_1991_equation_g": 2162
+      },
+      "facts": [
+        {
+          "text": "Your baby's pupils can narrow and widen in response to light.",
+          "source_url": "https://kidshealth.org/en/parents/week33.html"
+        },
+        {
+          "text": "Your baby sleeps much of the time and even has REM sleep, like a newborn.",
+          "source_url": "https://kidshealth.org/en/parents/week33.html"
+        },
+        {
+          "text": "The bones are fully developed but still soft.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    }
+  ]
+}
