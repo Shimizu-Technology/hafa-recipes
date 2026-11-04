@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
-import type { BabyRecord, Child, FeedTimer } from "@/lib/models";
+import type { BabyRecord, Child } from "@/lib/models";
+import type { RunningFeed } from "@/lib/feed-reducer";
 import { duration, friendlyTime, timeAgo } from "@/lib/care-format";
 import { babyAge, careGlance, nextSide } from "@/lib/care-glance";
 import { Card, Copy, PressTarget, fonts, typeScale, useColors } from "./ui";
@@ -19,7 +20,7 @@ export function useMinuteClock() {
 const sideWord = { left: "Left", right: "Right", both: "Both sides" } as const;
 
 /** Readable from across a dark room: when she last fed, and which side is next, with no tap. */
-export function CareGlance({ child, rows, now, running }: { child: Child; rows: BabyRecord[]; now: Date; running?: FeedTimer }) {
+export function CareGlance({ child, rows, now, running }: { child: Child; rows: BabyRecord[]; now: Date; running?: RunningFeed }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     feed = careGlance(rows, child.id, now).lastFeed,
     next = nextSide(rows, child.id),

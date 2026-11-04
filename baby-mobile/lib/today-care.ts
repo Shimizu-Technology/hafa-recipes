@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useBaby } from "./context";
 import { careKinds, messageFor, type DeviceState } from "./models";
@@ -31,6 +32,8 @@ export function todayCareRows(
 }
 /** Enough recent care for today's totals at newborn frequency (about 30 entries a day per baby). */
 export const glanceLimit = 100;
+/** How often Today looks for what the other phone logged, while it's on screen. */
+export const carePollMs = 15_000;
 
 export function useTodayCare() {
   const b = useBaby(),
@@ -40,6 +43,7 @@ export function useTodayCare() {
     viewKey = useRef(key),
     active = useRef(false),
     request = useRef(0),
+    looking = useRef(false),
     local = useRef({ key, ids: new Set<string>(), deleted: new Set<string>() });
   latest.current = b;
   viewKey.current = key;
@@ -51,7 +55,8 @@ export function useTodayCare() {
   const [page, setPage] = useState<{ key: string; ids: string[] } | null>(null),
     [loading, setLoading] = useState(false),
     [error, setError] = useState("");
-  async function refresh() {
+  /** `quiet` is the background look: no spinner, and a failure leaves what's on screen alone. */
+  async function refresh({ quiet = false } = {}) {
     if (!active.current) return;
     const account = latest.current,
       capturedKey = key,
@@ -61,8 +66,10 @@ export function useTodayCare() {
     const valid = () =>
       active.current && request.current === ticket && capturedKey === viewKey.current && account.current() &&
       latest.current.owner === account.owner && latest.current.api === account.api && account.api.lease() === lease;
-    setLoading(true);
-    setError("");
+    if (!quiet) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const response = await account.api.records({ kinds: careKinds, child_id: childId, include_general: true, limit: glanceLimit });
       account.api.assertLease(lease);
@@ -81,12 +88,12 @@ export function useTodayCare() {
       });
       if (valid()) setPage({ key: capturedKey, ids: response.items.map((row) => row.id) });
     } catch (failure) {
-      if (valid()) {
+      if (valid() && !quiet) {
         setPage(null);
         setError(messageFor(failure));
       }
     } finally {
-      if (valid()) setLoading(false);
+      if (valid() && !quiet) setLoading(false);
     }
   }
   useFocusEffect(useCallback(() => {
@@ -97,7 +104,14 @@ export function useTodayCare() {
       deleted: new Set(latest.current.state.outbox.flatMap((change) => change.type === "delete" ? [change.record.id] : [])),
     };
     void refresh();
-    return () => { active.current = false; request.current++; };
+    const poll = setInterval(() => {
+      // Never in the background, and never on top of a look still under way.
+      if (AppState.currentState === "active" && !looking.current) {
+        looking.current = true;
+        void refresh({ quiet: true }).finally(() => { looking.current = false; });
+      }
+    }, carePollMs);
+    return () => { active.current = false; request.current++; looking.current = false; clearInterval(poll); };
   }, [key]));
   const ids = page?.key === key ? page.ids : null,
     all = todayCareRows(b.state, childId, ids, [...local.current.ids], [...local.current.deleted], glanceLimit);

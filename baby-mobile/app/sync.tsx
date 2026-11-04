@@ -7,7 +7,7 @@ import { retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox
 import { exportFile } from "@/lib/files";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
 function rebase(row: Mutation, revision: number): Mutation {
-  if (row.type === "import") return row;
+  if (row.type === "import" || row.type === "feed_action") return row;
   if (row.type === "delete") return { ...retryMutation(row), record: { ...row.record, revision } };
   return { ...retryMutation(row), record: { ...row.record, revision } };
 }
@@ -66,6 +66,8 @@ export default function Sync() {
               <Copy kind="heading">
                 {m.type === "import"
                   ? "Source import"
+                  : m.type === "feed_action"
+                  ? "Feeding update"
                   : m.type === "delete"
                     ? "Delete: " + m.record.title
                     : m.record.title}
@@ -83,11 +85,13 @@ export default function Sync() {
               </Copy>
               {m.type === "import" ? (
                 <Copy>{m.url || m.text || "Attached source files"}</Copy>
+              ) : m.type === "feed_action" ? (
+                <Copy>{`Saved at ${new Date(m.action.at).toLocaleTimeString()}.`}</Copy>
               ) : (
                 <Copy>{m.record.body || "Care details and attachments are saved with this change."}</Copy>
               )}
               {m.error && <Notice error>{m.error}</Notice>}
-              {m.conflict && m.type !== "import" && (
+              {m.conflict && m.type !== "import" && m.type !== "feed_action" && (
                 <>
                   <Button
                     secondary

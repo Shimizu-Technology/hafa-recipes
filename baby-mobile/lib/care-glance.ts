@@ -1,6 +1,7 @@
 import type { BabyRecord, Child, DeviceState, RecordData } from "./models";
 
 import { careSummary, duration, timeAgo } from "./care-format";
+import { reduceFeed } from "./feed-reducer";
 
 const day = 24 * 60 * 60_000;
 
@@ -78,10 +79,11 @@ export function careGlance(rows: BabyRecord[], childId: string | null, now = new
 
 /** The side to offer next: the opposite of the side the newest one-sided breastfeed started on, or none yet. */
 export function nextSide(rows: BabyRecord[], childId: string | null): "left" | "right" | undefined {
-  const last = rows
-    .filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "breast" && (row.data.side === "left" || row.data.side === "right"))
-    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
-  return last ? (last.data.side === "left" ? "right" : "left") : undefined;
+  const started = (row: BabyRecord) => reduceFeed(row.data.actions)?.start_side ?? row.data.side,
+    last = rows
+      .filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "breast" && (started(row) === "left" || started(row) === "right"))
+      .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  return last ? (started(last) === "left" ? "right" : "left") : undefined;
 }
 
 /** Prefill a new feed from the last one: same method, and the other breast after one side. */

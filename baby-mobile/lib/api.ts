@@ -6,6 +6,7 @@ import type {
   SuggestionResult,
   Child,
   Conversation,
+  FeedAction,
   ImportJob,
   Kind,
   Profile,
@@ -234,6 +235,11 @@ export function createBabyApi(
       const payloadData = kind === "source" && typeof data.url === "string" && !data.url.trim()
         ? { ...data, url: null }
         : data;
+      // A feed's actions only ever change through feed-action. An edit from an older copy must not put them back.
+      if (revision && kind === "feeding") {
+        const { actions: _a, state: _s, end_at: _e, ...edit } = payloadData;
+        return request<BabyRecord>(`/records/${id}`, "PATCH", { title, body, child_id, occurred_at, data: edit, revision }, g);
+      }
       return request<BabyRecord>(
         revision ? `/records/${id}` : "/records",
         revision ? "PATCH" : "POST",
@@ -243,6 +249,9 @@ export function createBabyApi(
         g
       );
     },
+    feedAction: (recordId: string, value: FeedAction, g: number) =>
+      request<BabyRecord>(`/records/${recordId}/feed-action`, "POST",
+        { action_id: value.id, action: value.action, at: value.at, ...(value.side ? { side: value.side } : {}) }, g),
     /** Accept or dismiss suggested categories; each item reports its own result. */
     decideSuggestions: (items: { record_id: string; revision: number }[], g: number, action: "accept" | "dismiss" = "accept") =>
       request<SuggestionResult>("/suggested-categories", "POST", { action, items }, g),

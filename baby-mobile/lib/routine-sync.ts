@@ -1,7 +1,7 @@
 import type { RecordFilters } from "./api";
 import type { BabyRecord, DeviceState, Mutation, RecordPage } from "./models";
 
-const routineMutation = (m: Mutation) => m.type !== "import" && m.record.kind === "routine";
+const routineMutation = (m: Mutation) => m.type !== "import" && m.type !== "feed_action" && m.record.kind === "routine";
 const routines = (s: DeviceState) => s.records.filter((r) => r.kind === "routine");
 function sameRows(a: BabyRecord[], b: BabyRecord[]) {
   const rows = new Map(a.map((r) => [r.id, r]));
@@ -24,7 +24,7 @@ export function routineReminderScope(state: DeviceState, owner: string) {
         ...(valid ? marker.managed_ids : []),
         ...state.outbox
           .filter((m) => m.generation === generation && routineMutation(m))
-          .map((m) => (m.type === "import" ? "" : m.record.id)),
+          .map((m) => (m.type === "import" || m.type === "feed_action" ? "" : m.record.id)),
       ]),
     ],
   };
@@ -47,7 +47,7 @@ export function trackRoutineIntents(before: DeviceState, after: DeviceState, own
       owner,
       generation,
       complete: scope.authoritative,
-      managed_ids: [...new Set([...scope.managedIds, ...changed.map((m) => (m.type === "import" ? "" : m.record.id))])],
+      managed_ids: [...new Set([...scope.managedIds, ...changed.map((m) => (m.type === "import" || m.type === "feed_action" ? "" : m.record.id))])],
     },
   };
 }

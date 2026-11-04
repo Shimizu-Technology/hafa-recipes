@@ -67,6 +67,12 @@ export interface SuggestedCategory {
   confidence?: number;
   status: "pending" | "accepted" | "dismissed";
 }
+export interface FeedAction {
+  id: string;
+  action: "start" | "switch" | "finish";
+  at: string;
+  side?: "left" | "right";
+}
 export interface RecordData {
   provenance?: "caregiver_observation" | "clinician_instruction";
   url?: string;
@@ -86,6 +92,9 @@ export interface RecordData {
   unit?: "ml" | "oz";
   side?: "left" | "right" | "both";
   duration_minutes?: number | null;
+  /** A running feed's actions; everything else about it is derived from them, here and on the server. */
+  actions?: FeedAction[];
+  state?: "running" | "finished" | "unknown_end";
   /** What's in a bottle. Stored in the API's words; shown as Breast milk or Formula. */
   contents?: "breast_milk" | "formula" | null;
   end_at?: string;
@@ -202,6 +211,18 @@ export type Mutation = { localOnly?: boolean } & (
     }
   | { id: string; generation: number; type: "delete"; record: BabyRecord; error?: string; conflict?: boolean }
   | {
+      /** The action's own id, which is what makes a retry idempotent. */
+      id: string;
+      generation: number;
+      type: "feed_action";
+      record_id: string;
+      action: FeedAction;
+      /** Stays on this phone until then, so Undo can take it back. */
+      hold_until?: string;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
       id: string;
       generation: number;
       type: "import";
@@ -219,7 +240,7 @@ export type Mutation = { localOnly?: boolean } & (
       conflict?: boolean;
     }
 );
-/** A breastfeed being timed on this device. Active time is the sum of segments; a pause
+/** A breastfeed being timed by an older build, on one device. It finishes the old way, then is gone. Active time is the sum of segments; a pause
  * closes the open segment. It belongs to one Baby space generation and is never synced. */
 export interface FeedTimer {
   child_id: string;
@@ -227,8 +248,6 @@ export interface FeedTimer {
   started_at: string;
   segments: { side: "left" | "right"; started_at: string; ended_at?: string }[];
   paused_at?: string;
-  /** The saved record this timer belongs to. Older timers have none and save when stopped. */
-  record_id?: string;
 }
 export interface DeviceState {
   feedTimer?: FeedTimer;

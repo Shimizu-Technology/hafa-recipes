@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
-import { messageFor, type BabyRecord, type Child, type FeedTimer } from "@/lib/models";
+import { messageFor, type BabyRecord, type Child } from "@/lib/models";
+import { runningFeed, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
 import { careGlance, nextSide } from "@/lib/care-glance";
 import { sendsCareDetails } from "@/lib/api";
 import { amendCare, bottleStart, careWrite, changeUnit, logCare, stepAmount, updateCare, type BottleChoice } from "@/lib/quick-care";
 import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
-import { clockText, currentSide, feedRecordData, type FeedSide } from "@/lib/feed-timer";
-import { finishFeed, runningFeed, startFeed, switchFeed } from "@/lib/running-feed";
+import { clockText, type FeedSide } from "@/lib/feed-timer";
+import { finishFeed, startFeed, switchFeed } from "@/lib/running-feed";
 import { Icon, PressTarget, easeOut, fonts, radii, tap, typeScale, useColors, useToast, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
@@ -51,17 +52,17 @@ function Tile({ icon, label, hint, primary, open, onPress }: { icon: IconName; l
 }
 
 /** The running feed: side and elapsed time, Switch and Done. Ignoring it is fine; the feed is already saved. */
-function RunningCard({ timer, onSwitch, onDone }: { timer: FeedTimer; onSwitch: () => void; onDone: () => void }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), now = useSecondClock(true), side = currentSide(timer),
-    open = timer.segments[timer.segments.length - 1],
-    earlier = timer.segments.slice(0, -1).filter((s) => s.ended_at)
+function RunningCard({ feed, onSwitch, onDone }: { feed: RunningFeed; onSwitch: () => void; onDone: () => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), now = useSecondClock(true),
+    open = feed.segments[feed.segments.length - 1], side = open.side,
+    earlier = feed.segments.slice(0, -1)
       .map((s) => `${word[s.side]} ${clockText(new Date(s.ended_at!).getTime() - new Date(s.started_at).getTime())}`).join(", "),
     spent = clockText(now.getTime() - new Date(open.started_at).getTime()),
     stacked = fontScale >= 1.3;
   return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
     <View style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "flex-end", justifyContent: "space-between", gap: 10, paddingHorizontal: 4 }}>
       {/* Read as one line, and not again every second. */}
-      <View accessible accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(timer.started_at, now)}`} style={{ flexShrink: 0 }}>
+      <View accessible accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(feed.started_at, now)}`} style={{ flexShrink: 0 }}>
         <Text key={`e:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Feeding</Text>
         <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} numberOfLines={1} style={{ fontFamily: fonts.semibold, fontSize: 34, lineHeight: 40, color: c.text, fontVariant: ["tabular-nums"] }}>{`${word[side]} · ${spent}`}</Text>
       </View>
@@ -203,7 +204,7 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
     // A ref, not state, so two taps in the same frame cannot both start a write.
     writing = useRef(false),
     keys = useRef(0),
-    running = runningFeed(b.state, child.id, now),
+    running = runningFeed(rows, child.id, now),
     next = nextSide(rows, child.id),
     openSleep = careGlance(rows, child.id, now).openSleep,
     last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
@@ -280,9 +281,13 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
       // An explicit null clears it: the API keeps a field a PATCH leaves out.
       onColor={(color) => amend((row) => ({ data: { ...row.data, color: color ?? null } }))}
       onNote={(note) => amend((row) => (row.body === note ? {} : { body: note }))} />}
-    {running && <RunningCard timer={running}
-      onSwitch={() => void save(`Switched to ${word[other(currentSide(running))]}`, () => switchFeed(b, running))}
-      onDone={() => void save(careSummary("feeding", feedRecordData(running), running.started_at), () => finishFeed(b, running))} />}
+    {running && <RunningCard feed={running}
+      onSwitch={() => void save(`Switched to ${word[other(running.segments[running.segments.length - 1].side)]}`, () => switchFeed(b, running))}
+      onDone={() => {
+        const at = new Date(),
+          done = withFeedAction(running.record.data, { id: "preview", action: "finish", at: at.toISOString() });
+        void save(careSummary("feeding", done, running.started_at), () => finishFeed(b, running, at));
+      }} />}
     {panel === "breast" && <Panel title="Which side?" detail={last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now)}` : undefined} at={at} now={now} onTime={setAt}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {(["left", "right", "both"] as const).map((choice) => <Option key={choice} label={word[choice]} strong={choice === next} detail={choice === next ? "Next" : undefined}

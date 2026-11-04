@@ -1,4 +1,5 @@
 import { importFinished } from "./import-status";
+import { withFeedAction } from "./feed-reducer";
 import type { BabyRecord, DeviceState, ImportJob, Mutation } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
@@ -17,6 +18,8 @@ export function pendingRecords(state: DeviceState) {
         updated_at: change.record.occurred_at,
       });
     } else if (change.type === "delete") rows = rows.filter((r) => r.id !== change.record.id);
+    else if (change.type === "feed_action")
+      rows = rows.map((r) => (r.id === change.record_id ? { ...r, data: withFeedAction(r.data, change.action) } : r));
   }
   return rows;
 }
@@ -52,7 +55,7 @@ export function uploadedReferences(state: DeviceState) {
   return new Set(
     [
       ...Object.values(state.drafts).flatMap((draft) => draft.files),
-      ...state.outbox.flatMap((mutation) => (mutation.type === "delete" ? [] : mutation.files)),
+      ...state.outbox.flatMap((mutation) => (mutation.type === "delete" || mutation.type === "feed_action" ? [] : mutation.files)),
     ]
       .map((file) => file.uploaded_id ?? state.fileUploads?.[file.id])
       .filter((id): id is string => !!id)
@@ -93,7 +96,7 @@ export function inheritedFiles(state: DeviceState, id: string) {
   ];
 }
 export function advancePending(m: Mutation, result: BabyRecord): Mutation {
-  if (m.type === "import" || m.record.id !== result.id) return m;
+  if (m.type === "import" || m.type === "feed_action" || m.record.id !== result.id) return m;
   if (m.type === "delete") return { ...m, record: { ...m.record, revision: result.revision } };
   return { ...m, record: { ...m.record, revision: result.revision } };
 }
@@ -101,7 +104,13 @@ export function advancePending(m: Mutation, result: BabyRecord): Mutation {
 /** All operations on a record share one durable order, including source imports.
  * An unresolved ancestor holds only its own record, never the entire outbox. */
 export function mutationRecordId(change: Mutation) {
-  return change.type === "import" ? change.record_id : change.record.id;
+  return change.type === "import" || change.type === "feed_action" ? change.record_id : change.record.id;
+}
+/** Still inside its Undo window; the sync loop comes back for it. */
+export function heldUntil(change: Mutation, now = Date.now()) {
+  if (change.type !== "feed_action" || !change.hold_until) return 0;
+  const until = new Date(change.hold_until).getTime();
+  return until > now ? until : 0;
 }
 export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
   const recordId = mutationRecordId(change);

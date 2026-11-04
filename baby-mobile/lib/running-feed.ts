@@ -1,50 +1,54 @@
+import * as Crypto from "expo-crypto";
 import type { useBaby } from "./context";
-import type { BabyRecord, DeviceState, FeedTimer } from "./models";
-import { activeTimer, feedRecordData, startTimer, switchSide, type FeedSide } from "./feed-timer";
-import { careWrite, logCare, updateCare } from "./quick-care";
+import type { FeedAction, Mutation } from "./models";
+import type { RunningFeed } from "./feed-reducer";
+import type { FeedSide } from "./feed-timer";
+import { careWrite, logCare } from "./quick-care";
 
 type Account = Pick<ReturnType<typeof useBaby>, "commit" | "queue" | "state" | "sync" | "records">;
 
-/** A feed nobody finished stops showing as running. It stays saved with a side and start time, and no duration. */
-export const runningLimit = 60 * 60_000;
-
 /**
- * The running breastfeed for one baby. This file is the only place that knows where a running feed lives:
- * for now the record is saved on tap and its side and times stay on this device, until `feed_action` syncs them.
- * A timer with no record is from an older build. It finishes the old way, on its own card.
+ * How long a Switch or Done stays on this phone before it syncs, so Undo can take it back. The finish a server has
+ * accepted is terminal, by contract. It is durable the moment it's tapped, and keeps the time she tapped.
  */
-export function runningFeed(state: Pick<DeviceState, "feedTimer" | "bootstrap">, childId: string | null, now = new Date()) {
-  const timer = activeTimer(state);
-  if (!timer?.record_id || timer.child_id !== childId) return undefined;
-  return now.getTime() - new Date(timer.started_at).getTime() < runningLimit ? timer : undefined;
+export const undoWindow = 6500;
+
+function queueAction(b: Account, recordId: string, action: Omit<FeedAction, "id">, hold = undoWindow) {
+  const id = Crypto.randomUUID();
+  const mutation: Mutation = { id, generation: b.state.bootstrap!.generation, type: "feed_action", record_id: recordId, action: { ...action, id },
+    ...(hold ? { hold_until: new Date(Date.now() + hold).toISOString() } : {}) };
+  return b.queue(mutation).then(() => id);
 }
 
-/** Put a timer back only if the feed it belongs to is still the current one. */
-const restoring = (recordId: string | undefined, before: FeedTimer | undefined) => (state: DeviceState): DeviceState => {
-  if (state.feedTimer?.record_id !== recordId) return state;
-  const { feedTimer: _, ...rest } = state;
-  return before ? { ...rest, feedTimer: before } : rest;
-};
-
-/** Left or Right: the feed is saved as soon as the side is tapped. Undo removes it. */
-export async function startFeed(b: Account, childId: string, side: FeedSide, now = new Date()) {
-  const record = careWrite("feeding", childId, { method: "breast", side }, now),
-    before = b.state.feedTimer;
-  return logCare(b, record, (state) => ({
-    ...state,
-    feedTimer: { ...startTimer(childId, state.bootstrap!.generation, side, now), record_id: record.id },
-  }), restoring(record.id, before?.record_id ? before : undefined));
+/** Take back an action still on this phone. False once it has reached the server. */
+async function cancelAction(b: Account, id: string) {
+  let cancelled = false;
+  await b.commit((state) => {
+    cancelled = state.outbox.some((change) => change.id === id);
+    return cancelled ? { ...state, outbox: state.outbox.filter((change) => change.id !== id) } : state;
+  });
+  return cancelled;
 }
 
-export async function switchFeed(b: Account, timer: FeedTimer, now = new Date()) {
-  await b.commit((state) => (state.feedTimer?.record_id === timer.record_id ? { ...state, feedTimer: switchSide(timer, now) } : state));
-  return () => b.commit(restoring(timer.record_id, timer));
+/** Left or Right: the record is created with its start, so it's saved and synced as soon as the side is tapped. */
+export function startFeed(b: Account, childId: string, side: FeedSide, now = new Date()) {
+  const at = now.toISOString(),
+    action: FeedAction = { id: Crypto.randomUUID(), action: "start", at, side };
+  return logCare(b, careWrite("feeding", childId, { method: "breast", side, state: "running", actions: [action] }, now));
 }
 
-/** Done records how long it took. If the record is gone, only the timer goes with it. */
-export async function finishFeed(b: Account, timer: FeedTimer, now = new Date()) {
-  const clear = restoring(timer.record_id, undefined),
-    record: BabyRecord | undefined = b.records.find((row) => row.id === timer.record_id);
-  if (!record) { await b.commit(clear); return async () => undefined; }
-  return updateCare(b, record, { ...record.data, ...feedRecordData(timer, now) }, clear, (state) => ({ ...state, feedTimer: timer }));
+export async function switchFeed(b: Account, feed: RunningFeed, now = new Date()) {
+  const from = feed.segments[feed.segments.length - 1].side,
+    id = await queueAction(b, feed.record.id, { action: "switch", at: now.toISOString(), side: from === "left" ? "right" : "left" });
+  return async () => {
+    // Too late to take back: switching back is the same as tapping Switch again.
+    if (!(await cancelAction(b, id))) await queueAction(b, feed.record.id, { action: "switch", at: new Date().toISOString(), side: from }, 0);
+  };
+}
+
+export async function finishFeed(b: Account, feed: RunningFeed, now = new Date()) {
+  const id = await queueAction(b, feed.record.id, { action: "finish", at: now.toISOString() });
+  return async () => {
+    if (!(await cancelAction(b, id))) throw Error("This feed is already finished. You can change it in Tracker.");
+  };
 }

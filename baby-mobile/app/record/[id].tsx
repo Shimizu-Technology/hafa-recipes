@@ -7,7 +7,7 @@ import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime } from "@/lib/care-format";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
-import { inheritedFiles, replaceRecord } from "@/lib/outbox";
+import { inheritedFiles, mutationRecordId, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { Button, Card, Chips, Choice, Copy, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
@@ -26,7 +26,7 @@ export default function RecordDetail() {
     [missing, setMissing] = useState(false),
     [editingTiming, setEditingTiming] = useState(false),
     record = b.records.find((r) => r.id === id),
-    pending = b.state.outbox.some((m) => m.type !== "import" && m.record.id === id);
+    pending = b.state.outbox.some((m) => mutationRecordId(m) === id && m.type !== "import");
   useEffect(() => {
     if (record && !record.cache_partial) return;
     let active = true;

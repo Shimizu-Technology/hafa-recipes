@@ -154,6 +154,79 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+describe("feed actions in the sync loop", () => {
+  const start = { id: "s", action: "start" as const, at: "2026-11-04T12:00:00.000Z", side: "left" as const },
+    write = { id: "feed", kind: "feeding" as const, title: "Feeding", body: "", child_id: null, occurred_at: start.at, data: { method: "breast" as const, side: "left" as const, state: "running" as const, actions: [start] } },
+    create = { id: "create", generation: 1, type: "save" as const, record: write, files: [] },
+    action = (id: string, hold?: string) => ({ id, generation: 1, type: "feed_action" as const, record_id: "feed", ...(hold ? { hold_until: hold } : {}),
+      action: { id, action: "finish" as const, at: "2026-11-04T12:09:00.000Z" } });
+  beforeEach(() => {
+    vi.setSystemTime(new Date("2026-11-04T12:10:00.000Z"));
+    mock.api.save = vi.fn(async (r: any) => ({ ...optimisticRecord(r), revision: 1 }));
+    mock.api.feedAction = vi.fn(async (_id: string, value: any) => ({ ...optimisticRecord(write), revision: 2, data: { ...write.data, state: "finished", actions: [start, value] } }));
+    mock.saved = { ...emptyState(), bootstrap } as DeviceState;
+  });
+  const queued = () => baby.state.outbox.map((m) => m.id);
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+
+  it("sends the record's create first, then its action, and the action only after its create landed", async () => {
+    mock.saved = { ...mock.saved!, outbox: [create, action("end")] };
+    await mount(); await flush();
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(mock.api.feedAction.mock.invocationCallOrder[0]).toBeGreaterThan(mock.api.save.mock.invocationCallOrder[0]);
+    expect(mock.api.feedAction).toHaveBeenCalledWith("feed", action("end").action, 1);
+    expect(queued()).toEqual([]);
+    expect(baby.state.records.find((r) => r.id === "feed")?.data.state).toBe("finished");
+  });
+  it("holds an action back if its create is rejected, and does not send it", async () => {
+    mock.api.save = vi.fn(async () => { throw new ApiError("Review", 422); });
+    mock.saved = { ...mock.saved!, outbox: [create, action("end")] };
+    await mount(); await flush();
+    expect(mock.api.feedAction).not.toHaveBeenCalled();
+    expect(queued()).toEqual(["create", "end"]);
+  });
+  it("keeps an action on this phone through its Undo window, and sends it straight after without waiting for the 15-second pass", async () => {
+    mock.saved = { ...mock.saved!, outbox: [action("end", "2026-11-04T12:10:06.500Z")] };
+    await mount(); await flush();
+    expect(mock.api.feedAction).not.toHaveBeenCalled();
+    expect(queued()).toEqual(["end"]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(6400); await settle(); });
+    expect(mock.api.feedAction).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(200); await settle(); });
+    expect(mock.api.feedAction).toHaveBeenCalledOnce();
+    await flush();
+    expect(queued()).toEqual([]);
+  });
+  it("retries after a dropped connection with the same action id, so it applies once", async () => {
+    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Offline", 0));
+    mock.saved = { ...mock.saved!, outbox: [action("end")] };
+    await mount(); await flush();
+    expect(queued()).toEqual(["end"]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
+    expect(mock.api.feedAction.mock.calls.map((call: any[]) => call[1].id)).toEqual(["end", "end"]);
+    await flush();
+    expect(queued()).toEqual([]);
+  });
+  it("drops an action whose record is gone, with nothing left to review", async () => {
+    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Gone", 404));
+    mock.saved = { ...mock.saved!, outbox: [action("end")] };
+    await mount(); await flush();
+    expect(queued()).toEqual([]);
+    expect(baby.error).toBe("");
+  });
+  it("marks any other rejection for review, without losing it", async () => {
+    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Review", 422));
+    mock.saved = { ...mock.saved!, outbox: [action("end")] };
+    await mount(); await flush();
+    expect(baby.state.outbox[0]).toMatchObject({ id: "end", error: "Review" });
+  });
+  it("keeps queued actions showing on a record the server has just replaced", async () => {
+    mock.saved = { ...mock.saved!, outbox: [create, action("end", "2026-11-04T12:10:06.500Z")] };
+    await mount(); await flush();
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(baby.records.find((r) => r.id === "feed")?.data).toMatchObject({ state: "finished", duration_minutes: 9 });
+  });
+});
 describe("provider routine restore integration", () => {
   it("retries failed live sign-out cleanup without reopening the Baby space", async () => {
     await mount();

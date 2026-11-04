@@ -29,6 +29,7 @@ import {
 import {
   addMutation,
   fencedState,
+  heldUntil,
   pendingRecords,
   replaceRecord,
   shouldRetry,
@@ -118,6 +119,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     closing = useRef(false),
     routineVersion = useRef(0),
     restoringRoutines = useRef<Promise<void> | null>(null),
+    heldSync = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     initializer = useRef<() => Promise<void>>(async () => {});
   const commit = (change: (s: DeviceState) => DeviceState, lease = api.lease()): Promise<void> => {
     const next = serialized.current
@@ -283,11 +285,18 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
           continue;
         }
-        if (waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
+        if (heldUntil(next) || waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
         try {
           let result: BabyRecord | undefined;
           if (next.type === "delete") {
             await api.remove(next.record, next.generation);
+          } else if (next.type === "feed_action") {
+            try {
+              result = await api.feedAction(next.record_id, next.action, next.generation);
+            } catch (failure) {
+              // The record is gone, on another phone or by Undo. There's nothing left for this action to change.
+              if (!(failure instanceof ApiError && failure.status === 404)) throw failure;
+            }
           } else {
             let files = next.files.map((f) => ({
               ...f,
@@ -424,6 +433,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
       }
       busy.current = false;
       if (alive.current) setSyncing(false);
+      // Come back for anything still inside its Undo window, not only on the next 15-second pass.
+      const held = ref.current.outbox.map((change) => heldUntil(change)).filter(Boolean);
+      clearTimeout(heldSync.current);
+      if (held.length && alive.current)
+        heldSync.current = setTimeout(() => void funcs.current.sync(), Math.max(0, Math.min(...held) - Date.now()) + 50);
       if (rerun.current && alive.current) {
         rerun.current = false;
         void funcs.current.sync();
@@ -504,6 +518,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       app.remove();
       net();
       clearInterval(timer);
+      clearTimeout(heldSync.current);
     };
   }, [binding]);
   useEffect(() => {

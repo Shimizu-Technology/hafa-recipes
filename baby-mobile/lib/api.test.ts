@@ -356,3 +356,34 @@ it("sends X-Baby-Client from one constant, and only when it is set", async () =>
   await api.records({});
   expect(seen[0]["X-Baby-Client"]).toBe(babyClient ? String(babyClient) : undefined);
 });
+
+describe("feed actions on the wire", () => {
+  function capture() {
+    const calls: { url: string; method?: string; body?: any }[] = [];
+    const api = createBabyApi("https://api.test", async () => "token", () => true, async (url, init) => {
+      calls.push({ url, method: init?.method, body: JSON.parse(String(init?.body ?? "null")) });
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    return { api, calls };
+  }
+  it("posts the contract's body, with the action's id as its idempotency", async () => {
+    const { api, calls } = capture();
+    await api.feedAction("feed", { id: "act", action: "switch", at: "2026-11-04T12:00:00Z", side: "right" }, 2);
+    expect(calls[0]).toMatchObject({ url: "https://api.test/api/v1/baby/records/feed/feed-action", method: "POST", body: { action_id: "act", action: "switch", at: "2026-11-04T12:00:00Z", side: "right" } });
+    await api.feedAction("feed", { id: "end", action: "finish", at: "2026-11-04T12:09:00Z" }, 2);
+    expect(calls[1].body).toEqual({ action_id: "end", action: "finish", at: "2026-11-04T12:09:00Z" });
+  });
+  it("creates a feed with its start, and never sends actions back on an ordinary edit", async () => {
+    const { api, calls } = capture(), data = { method: "breast" as const, side: "left" as const, state: "running" as const, actions: [{ id: "s", action: "start" as const, at: "2026-11-04T12:00:00Z", side: "left" as const }] },
+      write = { id: "feed", kind: "feeding" as const, title: "Feeding", body: "", child_id: "baby", occurred_at: "2026-11-04T12:00:00Z", data };
+    await api.save(write, 2);
+    expect(calls[0].body.data.actions).toHaveLength(1);
+    await api.save({ ...write, revision: 3, body: "A note" }, 2);
+    expect(calls[1]).toMatchObject({ method: "PATCH", body: { body: "A note", revision: 3, data: { method: "breast", side: "left" } } });
+    expect(calls[1].body.data).not.toHaveProperty("actions");
+    expect(calls[1].body.data).not.toHaveProperty("state");
+    // A sleep's end is not a feed's.
+    await api.save({ ...write, kind: "sleep", data: { end_at: "2026-11-04T13:00:00Z" }, revision: 3 }, 2);
+    expect(calls[2].body.data.end_at).toBe("2026-11-04T13:00:00Z");
+  });
+});

@@ -10,7 +10,7 @@ import { careSummary } from "@/lib/care-format";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { careWrite, logCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData } from "@/lib/feed-timer";
-import { runningFeed } from "@/lib/running-feed";
+import { runningFeed } from "@/lib/feed-reducer";
 import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, useToast, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -73,11 +73,10 @@ export default function Today() {
     showCare = !!child && !expecting,
     tipsNow = useTimingTips(child, "now", 5, today),
     tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, today),
-    // A timer with no record is from an older build: it finishes the old way, on its own card, and is gone.
-    active = activeTimer(b.state),
-    timer = active && !active.record_id ? active : undefined,
+    // A device timer is from an older build: it finishes the old way, on its own card, and is gone.
+    timer = activeTimer(b.state),
     timerChild = timer && children.find((c) => c.id === timer.child_id),
-    running = runningFeed(b.state, child?.id ?? null, now),
+    running = runningFeed(latestCare.all, child?.id ?? null, now),
     writing = useRef(false);
   async function quick(action: () => Promise<() => Promise<void>>, message: string) {
     // One write at a time: a double tap must not start two sleeps or end one twice.

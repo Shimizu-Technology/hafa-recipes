@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   addMutation,
+  mutationRecordId,
+  uploadedReferences,
+  heldUntil,
   fencedState,
   pendingRecords,
   searchLocal,
@@ -200,4 +203,38 @@ it("applies the edit's attachment additions and removals to the terminal import 
     data: { attachment_ids: ["keep", "remove", "import-addition"] } };
   expect(advanceAfterImport(edit, result, { id: "job", status: "ready", baseline }))
     .toMatchObject({ record: { data: { attachment_ids: ["keep", "import-addition", "local-addition"] } } });
+});
+
+describe("feed actions in the outbox", () => {
+  const action = (id: string, kind: "switch" | "finish", at: string): Extract<Mutation, { type: "feed_action" }> =>
+    ({ id, generation: 1, type: "feed_action", record_id: "feed", action: { id, action: kind, at, ...(kind === "switch" ? { side: "right" } : {}) } });
+  const create: Mutation = { id: "create", generation: 1, type: "save", files: [], record: { id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: "baby", occurred_at: "2026-11-04T12:00:00.000Z",
+    data: { method: "breast", side: "left", state: "running", actions: [{ id: "start", action: "start", at: "2026-11-04T12:00:00.000Z", side: "left" }] } } };
+  it("waits behind its record's create, and each action behind the one before", () => {
+    const first = action("a", "switch", "2026-11-04T12:05:00.000Z"), second = action("b", "finish", "2026-11-04T12:09:00.000Z"), outbox = [create, first, second];
+    expect(mutationRecordId(first)).toBe("feed");
+    expect(waitingForEarlier(outbox, first)).toBe(true);
+    expect(waitingForEarlier([first, second], first)).toBe(false);
+    expect(waitingForEarlier([first, second], second)).toBe(true);
+    const other: Mutation = { ...create, id: "other", record: { ...create.record, id: "other-record" } };
+    expect(waitingForEarlier([create, other], other)).toBe(false);
+  });
+  it("shows on the record while queued, offline, and leaves when the record is removed", () => {
+    const state = { ...emptyState(), outbox: [create, action("a", "switch", "2026-11-04T12:05:00.000Z"), action("b", "finish", "2026-11-04T12:09:00.000Z")] };
+    expect(pendingRecords(state)[0].data).toMatchObject({ state: "finished", side: "both", duration_minutes: 9 });
+    const gone: Mutation = { id: "gone", generation: 1, type: "delete", record: { ...create.record, revision: 0, created_at: "", updated_at: "" } };
+    expect(pendingRecords({ ...state, outbox: [...state.outbox, gone] })).toEqual([]);
+  });
+  it("is not changed by a record landing, and does not count as files or a routine", () => {
+    const queued = action("a", "finish", "2026-11-04T12:09:00.000Z");
+    expect(advancePending(queued, { ...create.record, revision: 3, created_at: "", updated_at: "" })).toBe(queued);
+    expect([...uploadedReferences({ ...emptyState(), outbox: [queued] })]).toEqual([]);
+  });
+  it("holds until its Undo window ends, and only then", () => {
+    const held = { ...action("a", "finish", "2026-11-04T12:09:00.000Z"), hold_until: "2026-11-04T12:09:06.500Z" }, at = (s: string) => new Date(s).getTime();
+    expect(heldUntil(held, at("2026-11-04T12:09:06.000Z"))).toBe(at("2026-11-04T12:09:06.500Z"));
+    expect(heldUntil(held, at("2026-11-04T12:09:06.500Z"))).toBe(0);
+    expect(heldUntil(action("b", "finish", "2026-11-04T12:09:00.000Z"))).toBe(0);
+    expect(heldUntil(create)).toBe(0);
+  });
 });

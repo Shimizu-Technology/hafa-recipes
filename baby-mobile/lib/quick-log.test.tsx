@@ -20,6 +20,7 @@ vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/running-feed", () => import("./running-feed"));
+vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/api", () => ({ get sendsCareDetails() { return scope.details; } }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
@@ -28,7 +29,7 @@ vi.mock("../components/ui", () => ({ PressTarget: "Pressable", Icon: "Icon", But
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 import { QuickLog, quickTarget } from "../components/quick-log";
 import { CareGlance } from "../components/care-glance";
-import { runningFeed, runningLimit } from "./running-feed";
+import { runningFeed, runningLimit } from "./feed-reducer";
 
 const start = new Date("2026-11-04T17:00:00.000Z");
 const child = { id: "baby", name: "Mia", revision: 1, birth_date: "2026-11-01" };
@@ -82,23 +83,24 @@ it("saves a left feed in two taps: inline sides with next highlighted, no system
   expect(b.state.outbox).toEqual([]);
   await press("Left, Next", rows);
   expect(saves()).toHaveLength(1);
-  expect(saves()[0].record).toMatchObject({ kind: "feeding", child_id: "baby", occurred_at: start.toISOString(), data: { method: "breast", side: "left" } });
-  expect(b.sync).toHaveBeenCalled();
+  expect(saves()[0].record).toMatchObject({ kind: "feeding", child_id: "baby", occurred_at: start.toISOString(),
+    data: { method: "breast", side: "left", state: "running", actions: [{ action: "start", at: start.toISOString(), side: "left" }] } });
+  expect(b.queue).toHaveBeenCalledOnce();
   expect(scope.taps.at(-1)).toBe("success");
   expect(target("Left")).toBeUndefined();
   expect(target("Undo Left")).toBeDefined();
   expect(texts()).toContain("You can put the phone down. It stays saved.");
-  expect(b.state.feedTimer).toMatchObject({ record_id: saves()[0].record.id });
+  expect(b.state.feedTimer).toBeUndefined();
 });
 
 it("saves through the outbox with no connection, so airplane mode changes nothing", async () => {
   const b = setup();
-  b.sync.mockRejectedValue(new Error("offline"));
   await mount();
   await press("Breastfeed");
   await press("Right");
   expect(pendingRecords(b.state).map((r) => r.data.side)).toEqual(["right"]);
   expect(texts().some((t) => t.startsWith("Right · 00:00"))).toBe(true);
+  expect(b.state.outbox.map((m) => m.type)).toEqual(["save"]);
 });
 
 it("saves Both finished, with no duration and no running card", async () => {
@@ -107,50 +109,80 @@ it("saves Both finished, with no duration and no running card", async () => {
   await press("Breastfeed");
   await press("Both");
   expect(saves()[0].record.data).toEqual({ method: "breast", side: "both" });
-  expect(b.state.feedTimer).toBeUndefined();
   expect(target("Done")).toBeUndefined();
 });
 
-it("switches and finishes: both sides, a duration only once finished, in one record", async () => {
+const feedActions = () => scope.account.state.outbox.filter((m: Mutation) => m.type === "feed_action") as Extract<Mutation, { type: "feed_action" }>[];
+
+it("switches and finishes through durable actions behind the record: both sides, a duration only once finished", async () => {
   const b = setup();
   await mount();
   await press("Breastfeed");
   await press("Left");
+  const id = saves()[0].record.id;
   expect(saves()[0].record.data.duration_minutes).toBeUndefined();
   vi.setSystemTime(start.getTime() + 5 * 60_000);
   await press("Switch to Right");
-  expect(b.state.feedTimer!.segments.map((s) => s.side)).toEqual(["left", "right"]);
+  expect(feedActions().map((m) => m.action.action)).toEqual(["switch"]);
+  expect(feedActions()[0]).toMatchObject({ record_id: id, action: { side: "right", at: new Date(start.getTime() + 5 * 60_000).toISOString() } });
   expect(texts().some((t) => t.startsWith("Left 05:00"))).toBe(true);
   vi.setSystemTime(start.getTime() + 8 * 60_000);
   await press("Done");
-  expect(b.state.feedTimer).toBeUndefined();
   expect(pendingRecords(b.state)).toHaveLength(1);
-  expect(pendingRecords(b.state)[0].data).toMatchObject({ method: "breast", side: "both", duration_minutes: 8 });
-  expect(pendingRecords(b.state)[0].occurred_at).toBe(start.toISOString());
+  expect(pendingRecords(b.state)[0]).toMatchObject({ occurred_at: start.toISOString(), data: { state: "finished", side: "both", duration_minutes: 8 } });
+  expect(target("Done")).toBeUndefined();
+  expect(saves()).toHaveLength(1);
 });
 
-it("undoes each step: start removes the record, switch and done put the feed back as it was", async () => {
+it("undoes each step: start removes the record, switch and done are taken back before they leave the phone", async () => {
   const b = setup();
   await mount();
   await press("Breastfeed");
   await press("Left");
   await press("Undo Left");
   expect(pendingRecords(b.state)).toEqual([]);
-  expect(b.state.feedTimer).toBeUndefined();
+  b.state = { ...b.state, outbox: [] };
 
+  await refresh();
   await press("Breastfeed");
   await press("Left");
   vi.setSystemTime(start.getTime() + 60_000);
   await press("Switch to Right");
   await press("Undo Switched to Right");
-  expect(b.state.feedTimer!.segments.map((s) => s.side)).toEqual(["left"]);
+  expect(feedActions()).toEqual([]);
+  expect(pendingRecords(b.state)[0].data.side).toBe("left");
   vi.setSystemTime(start.getTime() + 3 * 60_000);
   await press("Done");
-  expect(b.state.feedTimer).toBeUndefined();
+  expect(pendingRecords(b.state)[0].data.state).toBe("finished");
   const undo = targets().find((n) => n.props.accessibilityLabel?.startsWith("Undo Breastfeeding"));
   await act(async () => { await undo!.props.onPress(); });
-  expect(b.state.feedTimer).toMatchObject({ segments: [{ side: "left" }] });
+  await refresh();
+  expect(feedActions()).toEqual([]);
+  expect(pendingRecords(b.state)[0].data.state).toBe("running");
   expect(pendingRecords(b.state)[0].data.duration_minutes).toBeUndefined();
+  expect(target("Done")).toBeDefined();
+});
+
+it("says so when a finished feed has already reached the server, and switches back when a switch has", async () => {
+  const b = setup();
+  await mount();
+  await press("Breastfeed");
+  await press("Left");
+  vi.setSystemTime(start.getTime() + 60_000);
+  await press("Switch to Right");
+  b.state = { ...b.state, outbox: b.state.outbox.filter((m) => m.type !== "feed_action"),
+    records: [{ ...pendingRecords(b.state)[0], data: { method: "breast", side: "both", state: "running", actions: [
+      ...saves()[0].record.data.actions!, { id: "sent", action: "switch", at: new Date().toISOString(), side: "right" }] } }] };
+  await press("Undo Switched to Right");
+  expect(feedActions()).toEqual([expect.objectContaining({ action: expect.objectContaining({ action: "switch", side: "left" }) })]);
+  await refresh();
+  vi.setSystemTime(start.getTime() + 2 * 60_000);
+  await refresh();
+  await press("Done");
+  b.state = { ...b.state, outbox: [] };
+  const undo = targets().find((n) => n.props.accessibilityLabel?.startsWith("Undo Breastfeeding"));
+  await act(async () => { await undo!.props.onPress(); });
+  expect(scope.toast).toHaveBeenCalledWith("This feed is already finished. You can change it in Tracker.");
 });
 
 it("keeps two taps in one frame from saving twice", async () => {
@@ -167,12 +199,24 @@ it("stops showing a feed as running after an hour, saved with no duration", asyn
   await mount();
   await press("Breastfeed");
   await press("Left");
-  expect(runningFeed(b.state, "baby", new Date(start.getTime() + runningLimit - 1))).toBeDefined();
-  expect(runningFeed(b.state, "baby", new Date(start.getTime() + runningLimit))).toBeUndefined();
+  expect(runningFeed(pendingRecords(b.state), "baby", new Date(start.getTime() + runningLimit - 1))).toBeDefined();
+  expect(runningFeed(pendingRecords(b.state), "baby", new Date(start.getTime() + runningLimit))).toBeUndefined();
   vi.setSystemTime(start.getTime() + runningLimit);
   await refresh();
   expect(target("Done")).toBeUndefined();
   expect(pendingRecords(b.state)[0].data.duration_minutes).toBeUndefined();
+});
+
+it("shows a feed the other phone started, and finishes it from here", async () => {
+  const b = setup(), startedElsewhere = { ...breast("elsewhere", "right", start.toISOString()),
+    data: { method: "breast", side: "right", state: "running", actions: [{ id: "a1", action: "start", at: start.toISOString(), side: "right" }] } } as BabyRecord;
+  b.state = { ...b.state, records: [startedElsewhere] };
+  await mount();
+  expect(texts().some((t) => t.startsWith("Right · 00:00"))).toBe(true);
+  vi.setSystemTime(start.getTime() + 4 * 60_000);
+  await press("Done");
+  expect(feedActions()[0]).toMatchObject({ record_id: "elsewhere", action: { action: "finish" } });
+  expect(pendingRecords(b.state)[0].data).toMatchObject({ state: "finished", duration_minutes: 4 });
 });
 
 it("leaves an older timer to finish on its own card first", async () => {
@@ -238,7 +282,7 @@ it("shows the running side on the hero while feeding, and still the next side", 
   await mount();
   await press("Breastfeed");
   await press("Left");
-  const running = runningFeed(b.state, "baby", new Date())!;
+  const running = runningFeed(pendingRecords(b.state), "baby", new Date())!;
   await act(async () => renderer!.update(<CareGlance child={child} rows={pendingRecords(b.state)} now={new Date()} running={running} />));
   expect(texts()).toEqual(expect.arrayContaining(["Feeding now", "Left", "Next side", "Right"]));
 });
