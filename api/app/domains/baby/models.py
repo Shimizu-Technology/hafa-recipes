@@ -81,7 +81,9 @@ class BabyRecord(Base):
     __table_args__ = (
         CheckConstraint("revision > 0", name="ck_baby_record_revision"),
         CheckConstraint(
-            "kind IN ('source','journal','feeding','sleep','diaper','routine','question','collection')",
+            "kind IN ('source','journal','feeding','sleep','diaper','routine','question','collection',"
+            "'event','contraction','kick_session','pumping','medicine','temperature',"
+            "'growth','milestone','custom')",
             name="ck_baby_record_kind",
         ),
         Index("ix_baby_records_owner", "app_user_id", "generation", "occurred_at"),

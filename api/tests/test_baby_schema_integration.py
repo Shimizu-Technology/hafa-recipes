@@ -132,7 +132,7 @@ async def test_every_space_column_is_checked_without_an_orm_mapping(baby_api, ta
 async def test_frozen_creation_and_verification_ignore_future_model_changes(baby_api, monkeypatch):
     changed_tables = (BABY_TABLES[1], BabyShareCredential.__table__)
     async with baby_api.engine.begin() as db:
-        await db.execute(text("DELETE FROM schema_migrations WHERE version IN (50,51,52)"))
+        await db.execute(text("DELETE FROM schema_migrations WHERE version IN (50,51,52,55)"))
         for table in reversed(LIVE_TABLES):
             await db.execute(text(f"DROP TABLE {table.name} CASCADE"))
     added = []
