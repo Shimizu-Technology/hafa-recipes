@@ -226,6 +226,8 @@ export interface FeedTimer {
 }
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** Ask has shown its reminder about sources on this device. */
+  askNoticeSeen?: boolean;
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];
