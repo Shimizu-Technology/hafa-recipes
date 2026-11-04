@@ -90,6 +90,7 @@ def check_week(result):
         "bottle_oz": 3,
         "breast_minutes": 60,  # The untimed right-side feed adds nothing.
         "timed_breast_feeds": 3,
+        "unknown_end_feeds": 0,
         "days_logged": 2,
         "days_total": 7,
     }

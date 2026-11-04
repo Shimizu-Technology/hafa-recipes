@@ -125,7 +125,9 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   length?,length_unit?:cm|in,head?,head_unit?:cm|in}` with at least one measurement;
   milestone `{milestone_id?,attachment_ids?:[]}`; custom `{label?,value?,unit?}`.
   PATCH keeps the feeding and diaper additions when a client omits them; only an explicit
-  null clears one. `contents` applies to bottles, `color` to poo, and `state`, `actions`
+  null clears one, and `actions` only change through `feed-action`. Changing `side` or
+  `duration_minutes` by hand on a feed with actions makes it a plain finished entry, and
+  changing `occurred_at` moves its start action. `contents` applies to bottles, `color` to poo, and `state`, `actions`
   and `end_at` to breastfeeds; a change of method or type drops what no longer applies;
   routine `{routine_type:checklist|schedule,
   items:[{id,label,done}],reminder_at?,timezone?,repeat?:none|daily|weekly,
@@ -260,6 +262,7 @@ A running feed stores its actions, and everything else is derived by one pure re
 - **Per child:** the newest `start` is the running feed, whatever order they arrive in, with ties broken by record id. Older running feeds become `unknown_end`: no end time, no duration, left out of minutes in Stats, which says so. A running feed older than 60 minutes shows as not running.
 - **Client:** a new durable `feed_action` outbox type, ordered behind its record's create via `mutationRecordId`.
 - **Tests:** permutations of finish and switch races, timestamp ties, reversed starts, concurrent ordinary edits.
+- `side` is `both` once more than one side was used. A finished feed with no actions (a Both tap, or any older feed) also counts as the newest feed for its child, and refuses actions with 409. A bottle does not close a running feed. Undoing the newest feed restores the one before it. A finish after a feed became `unknown_end` still finishes it.
 - Old device timers finish the old way, then are gone. Next side: opposite of the side the last feed started on (P3).
 
 ### 8 Leaving, deleting, un-sharing
