@@ -19,6 +19,9 @@ async def test_stored_family_destination_rotation_and_pending_captures_survive(b
     credential_id, secret = provision.json()["credential_id"], provision.json()["token"]
     capability = {"Authorization": "Bearer " + secret}
     request = native.capture()
+    wrong_generation = await c.post("/api/v1/baby/share/captures",
+        headers={**capability, "X-Baby-Generation": "1"}, json=request)
+    assert wrong_generation.status_code == 409
     result = await c.post("/api/v1/baby/share/captures", headers=capability, json=request)
     assert result.status_code == 202 and result.json()["space_id"] == str(family), result.text
     async with baby_api.sessions() as db:
@@ -62,3 +65,13 @@ async def test_rotate_after_family_access_ends_preserves_original_receipt(baby_a
     assert result.status_code == 201, result.text
     async with baby_api.sessions() as db:
         assert (await db.get(BabyShareCapture, request["capture_id"])).space_id == family
+
+
+async def test_caregiver_cannot_provision_a_family_source_capability(baby_api, family):
+    baby_api.client._transport.app.include_router(native.router)
+    async with baby_api.sessions() as db:
+        (await db.get(BabySpaceMember, (family, "other"))).role = "caregiver"
+        await db.commit()
+    result = await baby_api.client.post("/api/v1/baby/share/session", headers=records.headers(family, "other"),
+                                        json={"installation_id": str(uuid4())})
+    assert result.status_code == 403

@@ -40,7 +40,7 @@ def _require_baby_mutation_stamp():
             table = getattr(row, "__table__", None)
             if table is not None and table.name.startswith("baby_") and "space_id" in table.c and "change_seq" in table.c:
                 if session.is_modified(row):
-                    stamped = session.info.setdefault("baby_touched_rows", {}).pop(id(row), None)
+                    stamped = session.info.setdefault("baby_touched_rows", {}).get(id(row))
                     assert row.change_seq is not None and stamped is session.get_transaction(), (
                         "Baby mutation skipped touch", table.name, getattr(row, "id", None))
 

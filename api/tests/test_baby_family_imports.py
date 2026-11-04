@@ -217,3 +217,14 @@ async def test_worker_rechecks_generated_category_relation(baby_api, family):
         source = await db.get(BabyRecord, job.record_id)
         assert job.status == "failed" and source.data["status"] == "failed"
         assert not source.data.get("suggested_category") and source.title != "Must not publish"
+async def test_worker_mutation_guard_rejects_a_claim_skipping_touch(baby_api, family, monkeypatch):
+    request = {"id": str(uuid4()), "text": "Synthetic original"}
+    result = await baby_api.client.post("/api/v1/baby/imports", headers=records.headers(family), json=request)
+    assert result.status_code == 200
+
+    async def skipped(row, space):
+        pass
+
+    monkeypatch.setattr("app.domains.baby.runtime.touch", skipped)
+    with pytest.raises(AssertionError, match="Baby mutation skipped touch"):
+        await BabyWorker(baby_api.sessions).tick()

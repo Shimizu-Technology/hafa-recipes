@@ -129,3 +129,23 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     # Existing personal erasure only; family deletion rules belong to the next worker.
     await call("DELETE", "/api/v1/baby/data?generation=1")
     assert executed == legacy_endpoint_inventory, legacy_endpoint_inventory - executed
+
+
+async def test_family_gate_preserves_first_write_provisioning(baby_api, family):
+    from app.domains.baby.models import BabyMembership
+    from app.models.identity import AppUser
+
+    async with baby_api.sessions() as db:
+        db.add_all([AppUser(id="legacy-first-write"), AppUser(id="legacy-bootstrap")])
+        await db.flush()
+        db.add_all([BabyMembership(app_user_id="legacy-first-write", generation=4),
+                    BabyMembership(app_user_id="legacy-bootstrap", generation=3)])
+        await db.commit()
+    result = await baby_api.client.post("/api/v1/baby/records", headers={
+        "X-Test-Owner": "legacy-first-write", "X-Baby-Generation": "4"}, json=shared.payload())
+    assert result.status_code == 200, result.text
+    assert (await baby_api.client.get("/api/v1/baby/bootstrap", headers={
+        "X-Test-Owner": "legacy-bootstrap", "X-Baby-Client": "3"})).status_code == 409
+    result = await baby_api.client.post("/api/v1/baby/bootstrap", headers={
+        "X-Test-Owner": "legacy-bootstrap", "X-Baby-Client": "3"})
+    assert result.status_code == 200 and len(result.json()["spaces"]) == 1, result.text

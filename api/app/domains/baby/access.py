@@ -134,7 +134,12 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
     locked = []
     if write:
         # Extra destinations come only from server-discovered actor-owned capabilities.
-        lock_ids = sorted({space.id for space, _, _ in discovered} | set(extra_space_ids))
+        personal_id = None
+        if member.personal_space_id is None:
+            personal_id = await db.scalar(select(BabySpace.id).where(
+                BabySpace.created_by == actor, BabySpace.kind == "personal"))
+        lock_ids = sorted({space.id for space, _, _ in discovered} | set(extra_space_ids)
+                          | ({personal_id} if personal_id is not None else set()))
         # All writers in this domain use this order, including short worker claims.
         affected = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
             BabySpaceMember.space_id.in_(lock_ids))))
@@ -150,8 +155,20 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
         if affected_after != affected:
             raise HTTPException(409, "Baby access changed; retry before saving")
         before = _snapshot(discovered)
+        member = await membership_for(db, actor, active=active)
+        provisioned = None
+        if member.personal_space_id is None:
+            from app.domains.baby.spaces import ensure_personal_space
+
+            provisioned = await ensure_personal_space(db, member)
+            if provisioned.id not in {grant.id for grant in locked}:
+                locked.append(SpaceAccess(provisioned, "internal", 0, db, db.get_transaction()))
         discovered = await _spaces(db, actor, member.personal_space_id if not active else None)
-        if before != _snapshot(discovered):
+        after = _snapshot(discovered)
+        if provisioned is not None:
+            before = tuple(value for value in before if value[0] != provisioned.id)
+            after = tuple(value for value in after if value[0] != provisioned.id)
+        if before != after:
             raise HTTPException(409, "Baby access changed; retry before saving")
         member = await membership_for(db, actor, active=active)
     try:
@@ -179,6 +196,10 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
     target = next((grant for grant in grants if grant.id == destination), None)
     if destination is not None and target is None:
         raise HTTPException(403, "Baby space unavailable")
+    if write and not bootstrap and target is None:
+        raise HTTPException(409, "Open Baby to initialize your personal space")
+    if write and target is not None and target.space.kind == "personal" and target.id != member.personal_space_id:
+        raise HTTPException(403, "Another person's personal space cannot be changed")
     if generation is not None:
         if target is None:
             raise HTTPException(422, "Choose a Baby space before checking its generation")

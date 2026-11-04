@@ -256,6 +256,8 @@ async def initialize(user: User, db: Database, request: Request):
 async def bootstrap_state(user, db, *, create, request):
     access = None
     member = await db.get(BabyMembership, user.id, populate_existing=True)
+    if not create and family_enabled() and member is not None and member.personal_space_id is None:
+        raise HTTPException(409, "Open Baby to initialize your personal space")
     if family_enabled() and member is not None:
         access = await access_for(db, user.id, client=request.headers.get("X-Baby-Client"),
                                   write=create, bootstrap=True, active=False)

@@ -78,6 +78,18 @@ async def share_credential(
     access = await access_for(db, row.app_user_id, stored_space_id=row.space_id,
                               space_id=request.headers.get("X-Baby-Space"),
                               generation=row.generation, write=True)
+    if access.enabled and access.target.role == "caregiver" and request.method != "DELETE":
+        raise HTTPException(403, "This role cannot share saved sources")
+    supplied_generation = request.headers.get("X-Baby-Generation")
+    if access.enabled and supplied_generation is not None:
+        try:
+            supplied = int(supplied_generation)
+        except ValueError:
+            raise HTTPException(422, "Choose a valid Baby generation") from None
+        if not 1 <= supplied <= 2_147_483_647:
+            raise HTTPException(422, "Choose a valid Baby generation")
+        if supplied != access.target.generation:
+            raise HTTPException(409, "Baby data changed; refresh before saving")
     await db.refresh(row)
     db.info["baby_share_access"] = access
     if (
@@ -108,6 +120,8 @@ async def provision(body: SessionRequest, user: User, db: Database, generation: 
                               space_id=request.headers.get("X-Baby-Space"), generation=generation,
                               write=True, extra_space_ids=[value for value in prior_spaces if value is not None])
     member = access.member
+    if access.enabled and access.target.role == "caregiver":
+        raise HTTPException(403, "This role cannot share saved sources")
     row = await db.scalar(
         select(BabyShareCredential).where(
             BabyShareCredential.app_user_id == user.id,
