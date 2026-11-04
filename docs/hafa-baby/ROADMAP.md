@@ -10,21 +10,25 @@ write a journal with photos/documents; log feeding, sleep and diapers; manage
 checklists, chosen routines and reminders; ask grounded general/focused questions.
 The stages are construction order, not permission to omit agreed features.
 
-One stable application user owns their data. A child is a profile, not a login.
-No household setup is required. No cross-product private context is implicit.
-Optional caregiver collaboration, public feeds, billing and wearables are outside
-this release. Support multiple child profiles without making setup complicated.
+One stable application user owns their account. A child is a profile, not a login.
+No household setup is required to start: each person has a private personal space,
+and a family space appears only when someone invites another person. No
+cross-product private context is implicit. Public feeds, billing and wearables are
+outside this release. Support multiple child profiles without making setup
+complicated. See "Family, tracker and calendar contracts" below.
 
 ## Experience brief
 
 Calm, warm and contemporary. Legible typography, "Sand & Cocoa" warm neutrals
 (sand and nude grounds, cocoa actions, a soft clay accent; chosen by Kami),
 clear contrast, comfortable one-handed targets, useful empty states, and plain
-language. Four main tabs: Today gives fast logging and writing; Saved holds an
-uncategorized inbox, all posts and user-created categories; Journal holds writing
-and doctor questions (with visit summaries inside that view); Ask retrieves saved
-context. Today links to pushed Care history and Lists & routines screens with
-Back. The profile button opens settings and profiles. A focused Ask from an entry
+language. Bottom bar: Today · Tracker · + · Saved · Ask, opening on Today. Today
+answers "where are we right now" and holds one-tap logging. Tracker holds Day,
+Calendar and Stats. Saved holds an uncategorized inbox, all posts and user-created
+categories. Journal is a pushed screen for the person's own writing, private by
+default. Ask knows what the person can see. Every log takes at most two taps from
+opening, with no Save button and no trip back. Today links to pushed Lists &
+routines with Back. The profile button opens settings and profiles. A focused Ask from an entry
 stays in its stack with Back; notification links retain their owner/generation
 checks and land on a routine or the pushed routines list. Global Add follows the current task. Bulk category selection preserves
 membership on other devices and offers Undo. Source details lead with concise
@@ -144,6 +148,148 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   stale offline writes/imports. All writes send `X-Baby-Generation` after bootstrap.
 
 Details may be tightened together, never changed independently in API/client.
+
+## Family, tracker and calendar contracts
+
+Decided November 4, 2026 with Leon and Kami. These extend the API contract above
+and win where the two differ. Details may be tightened together, never changed
+independently in API and client.
+
+### 1 The core rule: two kinds of space
+
+Everyone has one **personal space**. A **family space** is separate and is created the first time someone invites another person. **Private means "stored in your personal space."** There's no visibility flag to filter on.
+
+- Access has one rule: you can read a row if its `space_id` is a space you're an active member of (caregivers also get a kind filter).
+- **Shared by default, stored in the family space when one exists:** baby profiles, care logs, contractions, kicks, events, milestones, doctor questions, lists, saved posts and categories.
+- **Personal by default:** journal entries. **Always personal:** Ask chats.
+- The per-item toggle "Shared with family / Just me" (saved posts, categories, and one journal entry at a time) **moves the row** with one function, `move_record()`. A journal entry its writer shares is a family row like any other: every parent can read it, and each parent's Ask can use it. Un-sharing moves it back. Only the writer can share or un-share a journal entry.
+- Choosing "Just me" also sets `data.just_me: true`. This is not an access rule, which stays the space. It only tells Create family to leave that row in the personal space.
+- **Same-space references only.** A collection, its members, a suggested category, and a record's attachments must all be in the record's space, enforced in `validate_relations`. Care records live in their child's space. The one exception: a personal journal entry may point to a family child. If that child can't be read any more (the person left, or the child was deleted), the link is ignored on read and cleared on the next edit. Nothing ever writes into another person's personal space.
+- This removes hidden references: a family row can't point at a private row, so search over stored JSON and raw responses can't reveal one.
+
+### 2 Tables
+
+| Table | `space_id` | `app_user_id` | On account deletion |
+|---|---|---|---|
+| `baby_memberships` (person's Baby account) | none; adds `personal_space_id` | PK, stays CASCADE | Removed |
+| `baby_spaces` (new): `kind` personal or family, `generation`, `change_seq`, `timezone`, `status` | is the id | `created_by`, SET NULL | Personal erased. Family erased if no parent remains |
+| `baby_space_members` (new): role, status, `access_version` | yes | CASCADE, handled first by app | Removed |
+| `baby_space_invites` (new): hash, role, expiry, used, revoked | yes | `created_by`, SET NULL | Revoked by app |
+| `baby_children`, `baby_records`, `baby_attachments` | NOT NULL after 058 | creator, nullable, SET NULL | Personal rows go with the personal space. Family rows stay as "former member" |
+| `baby_moved_out` (new): tombstones `(space_id, seq, record_id)` | yes | none | With its space |
+| `baby_imports` | NOT NULL after 058 | actor, CASCADE | Cancelled and removed |
+| `baby_conversations`, `baby_messages` | personal space; add `context_space_ids` | owner, CASCADE | Removed |
+| `baby_share_credentials`, `baby_share_captures` | NOT NULL after 058 | actor, CASCADE | Removed |
+| `baby_ai_admissions` | none | unchanged, SET NULL | Kept anonymous |
+
+`app_user_id` is never rewritten. On children, records and attachments it comes to mean "created by." A code comment and the roadmap say so.
+
+### 3 Resolving the space on each request
+
+In this order:
+
+1. **Share credentials and background jobs** use their stored `space_id`. A conflicting header fails.
+2. **Requests with `X-Baby-Client: 2`:**
+   - Reads return everything across the caller's spaces.
+   - Writes must send `X-Baby-Space`, or they fail with 422. It must be a space the caller is an active member of, or 403.
+   - Bootstrap never needs a space. It returns `spaces: [{id, kind, role, generation, access_version}]`, plus `personal_space_id`.
+3. **Requests with no client header (build 32):** served from the personal space only, with v1 kinds, and with new data fields kept when omitted (the `SOURCE_ADDITIONS` pattern). Bootstrap's `generation` is the personal space's, so it never decreases (`api.ts:159`). Build 32 can't see or write family data at all.
+
+`X-Baby-Generation` is compared to the resolved space's generation, never `baby_memberships.generation`.
+
+**Because old builds only see the personal space,** Kami must update before creating a family, or her baby profile would disappear from her old build. Only `X-Baby-Client: 2` can create a family or accept an invite.
+
+### 4 Device storage
+
+No partition switching. One actor vault, as today.
+
+- Records, children and outbox items carry `space_id`. Outbox items carry that space's generation too. Generation fencing and the API's `knownGeneration` become a map by space.
+- Joining adds a space and removes nothing. Local drafts and unsynced work are untouched, so the preflight isn't needed.
+- Each write targets its record's space. New items: care follows the child; other shared kinds go to the family if one exists; journal goes to personal.
+- **Leaving or removal:** rows for that space are purged locally. Outbox items for it stop retrying and show as "Not sent: you're no longer in this family," with **Keep in my personal space** (copies under a new ID). A removed phone can't be purged while offline, and the removal screen says so.
+- Mounted screens: role or space-list changes remount through `<SpaceBoundary key={accessKey}>`, so open editors, history pagers and Ask memory reset.
+- Build 32's cached account storage migrates once, with `space_id` set to personal, keeping pending work.
+- **Native captures** are tagged with their destination, generation and identity. The native store gets a one-time migration and a **non-destructive rebind** operation. Today, binding a new scope calls `clearLocked()` and deletes pending captures (`BabyShareStore.swift:96`), so that clear stays reserved for sign-out and erasure. The credential rotates when a family is created or left.
+- Sign-out clears the whole actor vault and files, as today.
+
+### 5 Attachments
+
+- An attachment belongs to one space, the same as its record. Reads are allowed to members of that space. Unattached uploads are visible to the uploader only.
+- Delete: uploader, or a parent for family files. Retention checks all live references in the space.
+- `move_record()` moves a file with its record when nothing else uses it. If another record in the old space still references it, the file is **copied** to a new attachment with its own object, so neither space ever reads across. Production has no attachments today, so this is a tested rule rather than a data migration.
+- All cleanup and quota checks use the stored `object_key`, and keep the cleanup worker's validated prefix format and asset lock. Fix `attachments.py:180`, which rebuilds it from generation.
+
+### 6 Fetching changes
+
+- Every write locks its space row (`access_for`) and stamps the row with `change_seq` from `UPDATE baby_spaces SET change_seq = change_seq + 1`. The row lock makes the sequence commit-ordered per space, so a cursor can't skip a late commit.
+- One helper, `touch(row, space)`, does this for routes **and workers**, and also fixes the worker branch that changes data without advancing it (`runtime.py:331`). A test asserts every mutation path goes through it.
+- `GET /changes?cursor={space: seq}` returns rows above the cursor, soft deletes as `{id, removed: true}`, moves via `baby_moved_out`, and each space's `access_version`. Paged by seq, with `has_more`. Starting from 0 is the first snapshot.
+- If `access_version` changed, the client resets from a fresh snapshot.
+- **Baseline:** F3's rerun gives every existing row a positive `change_seq`, so a snapshot from 0 includes them. R1 ships only after every writer in F4 uses `touch()`.
+- Called every 15 seconds in the foreground, on open, on reconnect and on silent push.
+
+### 7 Feeds
+
+A running feed stores its actions, and everything else is derived by one pure reducer on the server, mirrored in the app.
+
+- `data.actions: [{id, action: start|switch|finish, at, side?}]`. Order: `(at, id)`.
+- **Tap Left or Right:** create the record with a `start` action. **Tap Both:** create a finished record with `side: both`, no duration.
+- `POST /records/{id}/feed-action {action_id, action, at, side?}`: idempotent by `action_id`, with a payload check, no revision needed. It still increments `revision` and `change_seq`, so ordinary editors and `/changes` stay correct.
+- **Reducer:** the earliest `finish` is terminal. A `switch` before it applies even if it arrives later. Later actions are kept but have no effect. Duration comes from the segments, only when finished.
+- **Per child:** the newest `start` is the running feed, whatever order they arrive in, with ties broken by record id. Older running feeds become `unknown_end`: no end time, no duration, left out of minutes in Stats, which says so. A running feed older than 60 minutes shows as not running.
+- **Client:** a new durable `feed_action` outbox type, ordered behind its record's create via `mutationRecordId`.
+- **Tests:** permutations of finish and switch races, timestamp ties, reversed starts, concurrent ordinary edits.
+- Old device timers finish the old way, then are gone. Next side: opposite of the side the last feed started on (P3).
+
+### 8 Leaving, deleting, un-sharing
+
+| Action | Effect |
+|---|---|
+| Create family (first invite) | One transaction: family space created; shared kinds and their children move from personal with `move_record()`; journals, and any row with `data.just_me`, stay. Before a first family exists the toggle isn't shown, so all saved posts and categories move unless the person unticks them on the Invite screen, which sets `data.just_me`. Credential rotates |
+| Leave, or removed by a parent | Membership ends. Personal space untouched. Shared records stay, shown as logged by them. Their chats with that family in `context_space_ids` are deleted. The last parent can't leave; they choose Delete family, with export offered |
+| Delete account from any Håfa app | Personal space and chats erased. Family rows stay as "former member," via SET NULL. Last parent: family erased. Only files actually deleted are queued for cleanup |
+| Baby `DELETE /data` | Erases the caller's personal space and chats. For family data: leave, or Delete family if last parent |
+| Delete a child (parent) | Detaches across the family space, for all members. Journal links in personal spaces are handled by the read rule in 4.1 |
+| Share to "Just me" | `move_record()`, removed from family categories, tombstone written. The confirm dialog says: "Answers Ask already gave in other chats may still mention this." Citations to it stop opening right away |
+
+**Writes caught mid-move.** A second phone, or a queued offline write, can still hold the old space.
+
+- **Create replays** look up the row by its original ID, check the caller can read its current space, and return the current row with its space. Generation is only compared for brand-new creates. This applies equally to children, imports and captures.
+- **Edits and deletes** to a moved row get `409 {code: "moved", space_id, generation, revision, record}`. The client updates the queued item's space and generation and retries; a real edit conflict falls into the existing review flow.
+- **New care for a moved child:** the same response, and the client retargets it to the child's space automatically.
+- **Other queued personal items stay personal.** Pending private content is never published automatically.
+- Moves increment `revision` and `change_seq`. Personal generation doesn't change, so `fencedState` doesn't wipe pending work.
+- The Invite screen lists what becomes shared before Create family runs. That disclosure is the only automatic publish.
+
+**Imports caught mid-move.** `move_record()` clears the job's lease and requeues it with the new space and generation, keeping the original and the actor's consent. The worker's gates and completion verify stored space, generation, lease and authorization, discard stale results and validate generated relations. Requeued work reloads the destination's categories, so private category names can't reach a family source.
+
+**Lock order, everywhere:** discover what's affected; lock `app_users` rows in ascending order; lock `baby_spaces` in ascending order; lock records and assets; re-check what was discovered, and retry if it changed. No space lock is held during media processing or AI calls: the worker keeps short claim and completion transactions.
+
+**There's no retroactive rewriting of chat text.** A person can't unsee something, and tracking that lineage across chat turns isn't worth its risk. The dialog says so. On removal, chats tied to the family are deleted.
+
+**All of this ships and passes before anyone real joins.**
+
+### 9 Calendar events
+
+- `event` record: `start` (`occurred_at`), `end`, `all_day`, `timezone`, `category`, `location`, `child_id` or whole family, `attendees`, and `recurrence` (`daily|weekly|monthly|yearly`, interval, `until`).
+- `GET /events?from&to`: range up to 400 days, up to 500 occurrences, returned as `{event_id, occurrence_start, ...}`.
+- Expansion starts from all recurring events in the space, not only those dated in range, so older repeats aren't lost.
+- Occurrence identity is `event_id + original start`. Exceptions are stored in `data.exceptions` as `{original_start, cancelled | overrides}`.
+- Month-end repeats clamp to the last day. Computed in the event's time zone.
+
+### 10 Push delivery
+
+- Worker: in-process task started and stopped in `main.py` lifespan, like the import worker, with its own advisory lock and short claim transactions. Rechecks membership and prefs right before sending.
+- Delivery is **at-least-once.** A send whose outcome is unknown is retried once with the same `collapseId`, which on iOS replaces a shown duplicate. Duplicates remain possible and are acceptable; lost reminders aren't. Receipts checked at about 15 minutes.
+- A reminder ends in one of `accepted`, `failed` or `unknown`. `accepted` only means the provider took it, not that a phone showed it. After the one retry an unknown send stays `unknown`: it isn't sent again, so a parent isn't alarmed repeatedly at night, and it's counted in operational logs.
+- **Push is never the only record of a reminder.** Any due reminder also appears on Today until it's dismissed or its condition clears (for example, a feed gets logged), whatever its delivery state.
+- The offline local copy uses the same identity, and is cancelled on sync.
+
+### 11 AI admission
+
+`budget.py` currently reserves a Chat Completions envelope under a Workouts capability, and `workouts/budget.py` only prices the two `gpt-5.6` models, so **changing `BABY_AI_MODEL` today fails closed**. Q0 adds a Baby provider and admission path: priced model list, Responses endpoint, $10-per-1,000-search charge, per-call reservations, up to 5 tool rounds per question, cancellation gates. Per-person limits stay per actor; global anonymous spend stays global.
+
+**Consent versioning:** `ai_consent: true` alone doesn't authorize a new provider or web search. Add `ai_consent_version` to the profile. `BABY_ASK_V2` runs only for people who acknowledged the current version, and everyone else stays on the existing path. Changing provider (for example, if Haiku wins) bumps the version.
 
 ## Construction and ownership
 
