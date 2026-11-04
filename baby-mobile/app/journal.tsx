@@ -5,9 +5,7 @@ import { useBaby } from "@/lib/context";
 import { messageFor } from "@/lib/models";
 import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
-import { exportVisit } from "@/lib/files";
-import { visitSummary } from "@/lib/visit-summary";
-import { Button, HeaderAction, Card, FilterChips, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, HeaderAction, FilterChips, Grouped, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
 import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -18,10 +16,6 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     [filter, setFilter] = useState(careHistory ? "care" : "journal"),
     [q, setQ] = useState(""),
     [searching, setSearching] = useState(false),
-    [selected, setSelected] = useState<string[]>([]),
-    [preparing, setPreparing] = useState(false),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
     [historyError, setHistoryError] = useState(""),
     [page, setPage] = useState<{ key: string; ticket: number; ids: string[] | null; more: boolean } | null>(null);
@@ -31,10 +25,9 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     else if (params.filter && ["all", "journal", "question"].includes(params.filter))
       setFilter(params.filter === "all" ? "writing" : params.filter);
   }, [params.filter, params.at, careHistory]);
-  useEffect(() => { setPreparing(false); setSelected([]); }, [filter]);
   const latest = useRef(b);
   latest.current = b;
-  const view = { filter: preparing ? "all" : filter, childId: b.state.selectedChild, query: q },
+  const view = { filter, childId: b.state.selectedChild, query: q },
     key = JSON.stringify([b.owner, b.state.bootstrap?.generation, view.childId, view.filter, q.trim()]),
     viewKey = useRef(key),
     lastFocusedKey = useRef<string | null>(null),
@@ -95,21 +88,6 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     await loadHistory(ticket, key);
   }
   const records = historyRows(b.state, view, page?.key === key ? page.ids : null, [...localChanges.current.ids]);
-  async function share() {
-    setBusy(true);
-    setError("");
-    try {
-      const rows = b.records.filter((r) => selected.includes(r.id));
-      await exportVisit(
-        visitSummary(rows, b.state.bootstrap!.children, b.state.bootstrap!.profile.timezone),
-        b.owner
-      );
-    } catch (e) {
-      setError(messageFor(e));
-    } finally {
-      setBusy(false);
-    }
-  }
   return (
     <Screen
       title={careHistory ? "Care history" : "Journal"}
@@ -134,29 +112,8 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
         onChange={setFilter}
       />}
       {searching && <HeaderSearch value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Search notes and questions"} />}
-      {filter === "question" && (preparing ? (
-        <Card tone="soft">
-          <Copy kind="label">Choose what to bring to the visit</Copy>
-          <Copy kind="small" tone="muted">
-            Tap questions and observations below, then share them as one summary.
-          </Copy>
-          <Button
-            title={`Share ${selected.length} selected entr${selected.length === 1 ? "y" : "ies"}`}
-            disabled={!selected.length}
-            busy={busy}
-            onPress={() => void share()}
-          />
-          <Button variant="ghost" title="Done choosing" onPress={() => setPreparing(false)} />
-        </Card>
-      ) : (
-        <Row
-          title="Prepare a visit summary"
-          detail="Bring your questions and notes to the next appointment"
-          icon="document-text-outline"
-          onPress={() => setPreparing(true)}
-        />
-      ))}
-      {!!error && <Notice error>{error}</Notice>}
+      {filter === "question" && <Row title="Doctor summary" detail="One page with your questions, notes and daily totals"
+        icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: b.state.selectedChild ?? undefined } })} />}
       {!!historyError && <>
         <Notice error>{historyError} Entries already on this device are shown below.</Notice>
         <Button secondary title="Try loading again" busy={loading}
@@ -174,27 +131,14 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
           />
         ))}
       {loading && !records.length ? <Loading label={careHistory ? "Loading care history…" : "Loading your journal…"} /> : records.length ? (
-        <Grouped separatorInset={preparing ? 52 : 72}>
-          {records.map((r) =>
-            preparing ? (
-              <View key={r.id} style={{ paddingHorizontal: 16 }}>
-                <Choice
-                  label={r.title}
-                  detail={r.body.slice(0, 160) || new Date(r.occurred_at).toLocaleString()}
-                  selected={selected.includes(r.id)}
-                  onPress={() =>
-                    setSelected((ids) => (ids.includes(r.id) ? ids.filter((id) => id !== r.id) : [...ids, r.id]))
-                  }
-                />
-              </View>
-            ) : (
-              <RecordRow
-                key={r.id}
-                record={r}
-                pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === r.id)}
-              />
-            )
-          )}
+        <Grouped separatorInset={72}>
+          {records.map((r) => (
+            <RecordRow
+              key={r.id}
+              record={r}
+              pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === r.id)}
+            />
+          ))}
         </Grouped>
       ) : (
         <Empty

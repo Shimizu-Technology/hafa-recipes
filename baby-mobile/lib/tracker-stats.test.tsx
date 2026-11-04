@@ -5,7 +5,10 @@ import { emptyState } from "./models";
 import { answer, day } from "./care-stats-fixtures";
 import type { CareStats, StatsChoice } from "./care-stats";
 
-const mock = vi.hoisted(() => ({ baby: null as any, fontScale: 1 }));
+const mock = vi.hoisted(() => ({ baby: null as any, fontScale: 1, push: vi.fn() }));
+vi.mock("expo-router", () => ({ router: { push: mock.push } }));
+vi.mock("@/lib/doctor-summary", () => ({ summaryMaxDays: 31 }));
+vi.mock("../components/tab-stack", () => ({ HeaderPill: "HeaderPill" }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", useWindowDimensions: () => ({ fontScale: mock.fontScale }), useColorScheme: () => "dark" }));
 vi.mock("react-native-svg", () => ({ default: "Svg", Path: "Path" }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
@@ -67,6 +70,22 @@ describe("with little or nothing logged", () => {
     expect(flat()).toMatch(/Showing numbers from 2:14\sPM\./);
     expect(flat()).toContain("9 feeds");
     expect(flat()).not.toContain("You're offline.");
+  });
+});
+
+describe("the doctor summary, one tap away", () => {
+  const pill = () => renderer!.root.findAll((n) => String(n.type) === "HeaderPill").find((n) => n.props.title === "Doctor summary")!;
+  it("opens on the same days and baby", async () => {
+    mock.push.mockClear();
+    await mount(answer(week()));
+    await act(async () => pill().props.onPress());
+    expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "baby", from: "2026-10-29", to: today } });
+  });
+  it("leaves the dates to her when the range won't fit a page", async () => {
+    mock.push.mockClear();
+    await mount(answer(Array.from({ length: 40 }, (_, n) => day(`2026-09-${String(n % 30 + 1).padStart(2, "0")}`))));
+    await act(async () => pill().props.onPress());
+    expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "baby" } });
   });
 });
 

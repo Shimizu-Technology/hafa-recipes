@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
+import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
+import { summaryMaxDays } from "@/lib/doctor-summary";
 import { basedOn, customProblem, statsNote, statsRanges, waitingEntries, type CareStats, type StatsChoice, type StatsDay } from "@/lib/care-stats";
 import { duration } from "@/lib/care-format";
 import { secondsWords } from "@/lib/contractions";
@@ -8,6 +10,7 @@ import { addDays, clockIn, keyDate } from "@/lib/tracker";
 import { Button, Card, Copy, Empty, FilterChips, Notice, Section, fonts, useColors } from "./ui";
 import { DateField } from "./date-field";
 import { Legend, SplitBar, StatBars, useSeriesColors, type Bar } from "./stat-bars";
+import { HeaderPill } from "./tab-stack";
 
 const words = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 /** "7.5h" or "40m", short enough for a bar's cap. */
@@ -65,7 +68,12 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
       action={<Button secondary title="Try again" onPress={() => void answer.refresh()} />} />}
     {answer.loading && !stats && <Copy kind="small" tone="muted">Adding it up…</Copy>}
     {!!stats && <>
-      <Copy numeric kind="small" tone="muted">{rolling ? `The last 24 hours, up to ${clockIn(new Date(stats.range.end), timezone)}` : `${labels(days[0].date)[1]} to ${labels(days[days.length - 1].date)[1]}`}</Copy>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 8 }}>
+        <Copy numeric kind="small" tone="muted">{rolling ? `The last 24 hours, up to ${clockIn(new Date(stats.range.end), timezone)}` : `${labels(days[0].date)[1]} to ${labels(days[days.length - 1].date)[1]}`}</Copy>
+        {/* The same days, when they fit on a page. */}
+        <HeaderPill title="Doctor summary" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: childId ?? undefined,
+          ...(days.length <= summaryMaxDays ? { from: days[0].date, to: days[days.length - 1].date } : {}) } })} />
+      </View>
       {!stats.complete && <Notice>There are more logs in these days than Stats can add up at once, so try fewer days.</Notice>}
       {!!note && <Notice>{note}</Notice>}
       {!logged && (waiting ? <Empty icon="stats-chart-outline" title="Nothing has reached Håfa yet" body="What you’ve logged will add up here once it’s synced." />

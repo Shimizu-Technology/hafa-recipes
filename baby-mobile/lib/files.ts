@@ -1,6 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { File } from "expo-file-system";
 import * as Crypto from "expo-crypto";
+import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 import type { BabyApi } from "./api";
@@ -97,13 +98,23 @@ export async function exportFile(value: unknown, owner: string) {
     await removeLocal(owner, target);
   }
 }
-export async function exportVisit(text: string, owner: string) {
-  if (Platform.OS === "web") throw Error("Share your visit summary from the installed app.");
+/** Prints each level in turn until it fits one page, shares that, and keeps no copy. Returns the level used and whether it fit. */
+export async function exportOnePagePdf(html: (level: number) => string, lastLevel: number, owner: string, name: string) {
+  if (Platform.OS === "web") throw Error("Share your summary from the installed app.");
   await FileSystem.makeDirectoryAsync(directory(owner), { intermediates: true });
-  const target = directory(owner) + "doctor-questions.txt";
-  await FileSystem.writeAsStringAsync(target, text);
+  const target = directory(owner) + name;
+  let level = 0;
   try {
-    await Sharing.shareAsync(target, { mimeType: "text/plain", UTI: "public.plain-text" });
+    for (;;) {
+      const page = await Print.printToFileAsync({ html: html(level), width: 612, height: 792, margins: { top: 36, bottom: 36, left: 36, right: 36 } });
+      await FileSystem.deleteAsync(target, { idempotent: true });
+      await FileSystem.moveAsync({ from: page.uri, to: target });
+      if (page.numberOfPages <= 1 || level === lastLevel) {
+        await Sharing.shareAsync(target, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
+        return { level, fits: page.numberOfPages <= 1 };
+      }
+      level++;
+    }
   } finally {
     await removeLocal(owner, target);
   }
