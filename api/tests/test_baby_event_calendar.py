@@ -6,9 +6,12 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
 
+from app.domains.baby import events as baby_events
 from app.domains.baby import router as baby_router
 from app.domains.baby.events import occurrences_of
+from app.domains.baby.models import BabyRecord
 from app.domains.baby.recurrence import first_index, nth_date
 from tests import test_baby_integration as shared
 from tests.test_baby_events import allow_events, save
@@ -482,3 +485,214 @@ async def test_a_sleep_still_running_keeps_its_dot_beside_new_ones(baby_api, fro
     assert (await save(baby_api, "sleep", occurred_at="2026-11-03T22:00:00+10:00", data={}))[0].status_code == 200
     got = await baby_api.client.get(f"{API}/care/summary", headers=V2, params={"from": "2026-11-03", "to": "2026-11-03"})
     assert got.json()["days"][0]["dots"] == ["sleep", "event"]
+
+
+# ---- bounded work, complete scans, null clears and all-day dates --------------------------------
+
+
+async def stored_events(baby_api, count, start, *, owner="owner", **data):
+    """``count`` events written straight to the table, as if made over time; ids in a known order."""
+    ids = sorted(uuid4() for _ in range(count))
+    async with baby_api.sessions() as db:
+        db.add_all([
+            BabyRecord(
+                id=identifier, app_user_id=owner, generation=1, kind="event", title=f"Series {n}", body="",
+                occurred_at=utc(start), data={"timezone": "Pacific/Guam", **data}, revision=1,
+                creation_hash="x", created_at=NOW, updated_at=NOW,
+            )
+            for n, identifier in enumerate(ids)
+        ])
+        await db.commit()
+    return [str(identifier) for identifier in ids]
+
+
+@pytest.fixture
+def counted(monkeypatch):
+    """How many occurrences get built, which is the work a request costs."""
+    built = []
+    real = baby_events.shaped
+    monkeypatch.setattr(baby_events, "shaped", lambda *args: built.append(1) or real(*args))
+    return built
+
+
+@needs_database
+async def test_a_thousand_daily_series_cost_one_page_of_work_not_every_occurrence(baby_api, counted):
+    await allow_events(baby_api)
+    ids = await stored_events(baby_api, 1000, "2026-01-01T09:00:00+10:00", **repeat("daily"))
+    got = await listing(baby_api, "2026-01-01", "2027-02-04")  # 400 days
+    assert got.status_code == 200
+    items = got.json()["items"]
+    # The first 500 in the fixed order: every series' first morning, smallest ids first.
+    assert [i["event_id"] for i in items] == ids[:500]
+    assert {i["occurrence_start"][:10] for i in items} == {"2026-01-01"}
+    assert got.json()["complete"] is False
+    assert len(counted) < 3000  # Expanding everything would build about 765,000.
+
+
+@needs_database
+async def test_a_thousand_daily_series_do_not_make_summary_dots_enumerate_every_day_of_each(baby_api, frozen, counted):
+    await allow_events(baby_api)
+    await stored_events(baby_api, 1000, "2026-01-01T09:00:00+10:00", **repeat("daily"))
+    got = await baby_api.client.get(f"{API}/care/summary", headers=V2, params={"from": "2026-08-05", "to": "2026-11-03"})
+    assert got.status_code == 200 and len(got.json()["days"]) == 91
+    assert all(day["dots"] == ["event"] for day in got.json()["days"])
+    assert len(counted) < 3000  # Each of 1,000 series enumerated over ~460 days would be about 460,000.
+
+
+@needs_database
+async def test_an_all_day_event_the_whole_range_long_marks_every_day_without_counting_each_one_as_an_occurrence(baby_api, frozen, counted):
+    await make(baby_api, "2026-01-01T00:00:00+10:00", "Pregnancy", all_day=True, end="2026-12-11T00:00:00+10:00")
+    got = await baby_api.client.get(f"{API}/care/summary", headers=V2, params={"from": "2026-09-01", "to": "2026-11-30"})
+    assert [day["dots"] for day in got.json()["days"]] == [["event"]] * 65  # Through today, Nov 4.
+    assert len(counted) == 1
+
+
+@needs_database
+async def test_old_finished_series_cannot_hide_a_current_events_dot(baby_api, frozen, counted):
+    await allow_events(baby_api)
+    finished = repeat("weekly", until="2025-01-01")
+    await stored_events(baby_api, 1000, "2024-01-01T09:00:00+10:00", **finished)
+    await make(baby_api, "2026-11-03T09:00:00+10:00", "Visit")
+    got = await baby_api.client.get(f"{API}/care/summary", headers=V2, params={"from": "2026-11-01", "to": "2026-11-04"})
+    assert {d["date"]: d["dots"] for d in got.json()["days"]}["2026-11-03"] == ["event"]
+    assert len(counted) == 1  # None of the finished series was even read.
+    assert (await listing(baby_api, "2026-11-01", "2026-11-30")).json()["complete"] is True
+
+
+@needs_database
+async def test_every_eligible_series_is_scanned_however_many_there_are(baby_api, frozen):
+    await allow_events(baby_api)
+    # 1,100 repeats that never reach early November, then one that does: it sorts last by start.
+    await stored_events(baby_api, 1100, "2010-12-25T09:00:00+10:00", **repeat("yearly"))
+    await stored_events(baby_api, 1, "2011-11-03T09:00:00+10:00", **repeat("yearly"))
+    got = await baby_api.client.get(f"{API}/care/summary", headers=V2, params={"from": "2026-11-01", "to": "2026-11-04"})
+    assert {d["date"]: d["dots"] for d in got.json()["days"]}["2026-11-03"] == ["event"]
+
+
+@needs_database
+async def test_a_finished_series_still_counts_while_one_of_its_changes_reaches_into_the_range(baby_api, frozen):
+    await allow_events(baby_api)
+    moved = {"original_start": "2024-06-02T09:00:00+10:00", "overrides": {"start": "2026-11-03T09:00:00+10:00"}}
+    await make(baby_api, "2024-01-07T09:00:00+10:00", "Moved", exceptions=[moved], **repeat("weekly", until="2024-12-31"))
+    await make(baby_api, "2024-01-07T09:00:00+10:00", "Gone", **repeat("weekly", until="2024-12-31"))
+    got = await baby_api.client.get(f"{API}/care/summary", headers=V2, params={"from": "2026-11-01", "to": "2026-11-04"})
+    assert {d["date"]: d["dots"] for d in got.json()["days"]}["2026-11-03"] == ["event"]
+    assert titles(await listing(baby_api, "2026-11-01", "2026-11-30")) == [("2026-11-03T09:00", "Moved")]
+
+
+def test_null_clears_an_end_a_category_and_a_location_for_one_occurrence():
+    original = "2026-11-08T09:00:00+10:00"
+    event = row(
+        "2026-11-01T09:00:00+10:00", **repeat("weekly"), end="2026-11-01T10:00:00+10:00", category="appointment",
+        location="Clinic", exceptions=[
+            {"original_start": original, "overrides": {"end": None, "category": None, "location": None}},
+            {"original_start": "2026-11-15T09:00:00+10:00", "overrides": {"title": "Only the title"}},
+        ],
+    )
+    found = sorted(occurrences_of(event, utc("2026-11-01T00:00:00+10:00"), utc("2026-11-20T00:00:00+10:00")), key=lambda i: i.sort_key)
+    plain, cleared, titled = (item.item() for item in found)
+    assert (cleared["occurrence_end"], cleared["category"], cleared["location"]) == (None, None, None)
+    assert cleared["changed"] is True and cleared["title"] == "Check-up" and cleared["all_day"] is False
+    # Left out is not cleared: the rest comes from the series.
+    assert (titled["occurrence_end"], titled["category"], titled["location"]) == (
+        "2026-11-15T10:00:00+10:00", "appointment", "Clinic")
+    assert plain["occurrence_end"] == "2026-11-01T10:00:00+10:00" and titled["all_day"] is False
+
+
+def test_clearing_the_end_of_an_all_day_occurrence_leaves_it_one_day():
+    event = row("2026-11-12T00:00:00+10:00", all_day=True, end="2026-11-14T00:00:00+10:00", **repeat("weekly"), exceptions=[
+        {"original_start": "2026-11-19T00:00:00+10:00", "overrides": {"end": None}}])
+    found = sorted(occurrences_of(event, utc("2026-11-01T00:00:00Z"), utc("2026-11-30T00:00:00Z")), key=lambda i: i.sort_key)
+    assert [i.item()["occurrence_end"] for i in found] == [
+        "2026-11-14T00:00:00+10:00", "2026-11-20T00:00:00+10:00", "2026-11-28T00:00:00+10:00"]
+
+
+@needs_database
+async def test_occurrence_changes_refuse_null_where_a_value_is_required_and_show_real_booleans(baby_api):
+    await allow_events(baby_api)
+    series = await make(baby_api, "2026-11-10T09:00:00+10:00", "Weekly", **repeat("weekly"), location="Clinic")
+    url = f"{API}/events/{series['id']}/occurrences"
+    original = "2026-11-17T09:00:00+10:00"
+    for overrides in ({"all_day": None, "title": "x"}, {"title": None}, {"attendees": None}, {"start": None, "title": "x"}):
+        refused = await baby_api.client.put(url, headers=V2, json={
+            "revision": 1, "original_start": original, "overrides": overrides})
+        assert refused.status_code == 422, overrides
+    ok = await baby_api.client.put(url, headers=V2, json={
+        "revision": 1, "original_start": original, "overrides": {"title": "Moved", "location": None}})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["data"]["exceptions"][0]["overrides"] == {"title": "Moved", "location": None}
+    items = (await listing(baby_api, "2026-11-10", "2026-11-23")).json()["items"]
+    assert [(i["title"], i["location"], i["all_day"], i["attendees"]) for i in items] == [
+        ("Weekly", "Clinic", False, []), ("Moved", None, False, [])]
+
+
+KIRITIMATI, WEST = "Pacific/Kiritimati", "Etc/GMT+12"  # UTC+14 and UTC-12: 26 hours apart.
+
+
+async def in_zone(baby_api, profile_zone):
+    assert (await baby_api.client.patch(f"{API}/profile", headers=V2, json={"timezone": profile_zone})).status_code == 200
+
+
+async def days_with_event(baby_api, first, last):
+    got = await baby_api.client.get(f"{API}/care/summary", headers=V2, params={"from": first, "to": last})
+    return [d["date"] for d in got.json()["days"] if "event" in d["dots"]]
+
+
+@needs_database
+@pytest.mark.parametrize(
+    "event_zone, midnight, profile_zone",
+    [
+        (KIRITIMATI, "2026-11-01T00:00:00+14:00", WEST),
+        (WEST, "2026-11-01T00:00:00-12:00", KIRITIMATI),
+        (KIRITIMATI, "2026-11-01T00:00:00+14:00", "Pacific/Guam"),
+        (WEST, "2026-11-01T00:00:00-12:00", "America/New_York"),
+    ],
+)
+async def test_an_all_day_event_is_on_its_own_date_whatever_the_parents_zone(baby_api, frozen, event_zone, midnight, profile_zone):
+    await allow_events(baby_api)
+    await in_zone(baby_api, profile_zone)
+    saved, _ = await save(baby_api, "event", occurred_at=midnight, title="Birthday", data={"timezone": event_zone, "all_day": True})
+    assert saved.status_code == 200, saved.text
+    for first, last, expected in [
+        ("2026-11-01", "2026-11-01", ["Birthday"]), ("2026-10-31", "2026-10-31", []),
+        ("2026-11-02", "2026-11-02", []), ("2026-10-30", "2026-11-03", ["Birthday"]),
+    ]:
+        assert [i["title"] for i in (await listing(baby_api, first, last)).json()["items"]] == expected, (first, last)
+    assert await days_with_event(baby_api, "2026-10-30", "2026-11-03") == ["2026-11-01"]
+
+
+@needs_database
+async def test_a_timed_event_still_goes_by_the_instant_in_the_parents_zone(baby_api, frozen):
+    await allow_events(baby_api)
+    await in_zone(baby_api, WEST)
+    # 00:30 on Nov 1 in Kiritimati is 22:30 on Oct 30 for a parent at UTC-12.
+    saved, _ = await save(baby_api, "event", occurred_at="2026-11-01T00:30:00+14:00", title="Early", data={"timezone": KIRITIMATI})
+    assert saved.status_code == 200
+    assert await days_with_event(baby_api, "2026-10-30", "2026-11-03") == ["2026-10-30"]
+    for day in ("2026-10-31", "2026-11-01"):
+        assert [i["title"] for i in (await listing(baby_api, day, day)).json()["items"]] == []
+    assert [i["title"] for i in (await listing(baby_api, "2026-10-30", "2026-10-30")).json()["items"]] == ["Early"]
+
+
+@needs_database
+async def test_an_owner_keeps_a_bounded_number_of_repeating_events(baby_api):
+    await allow_events(baby_api)
+    cap = baby_events.MAX_SERIES
+    await stored_events(baby_api, cap, "2026-01-01T09:00:00+10:00", **repeat("weekly"))
+    await stored_events(baby_api, 5, "2026-01-01T09:00:00+10:00", owner="other", **repeat("weekly"))
+    body = {"timezone": "Pacific/Guam", **repeat("daily")}
+    refused, _ = await save(baby_api, "event", occurred_at="2026-11-01T09:00:00+10:00", data=body)
+    assert refused.status_code == 422 and str(cap) in refused.json()["detail"]
+    # One-off events are not limited, the cap is per owner, and a repeat already kept can still be edited.
+    single, _ = await save(baby_api, "event", occurred_at="2026-11-01T09:00:00+10:00", data={"timezone": "Pacific/Guam"})
+    assert single.status_code == 200
+    theirs, _ = await save(baby_api, "event", owner="other", occurred_at="2026-11-01T09:00:00+10:00", data=body)
+    assert theirs.status_code == 200
+    url = f"{API}/records/{single.json()['id']}"
+    assert (await baby_api.client.patch(url, headers=V2, json={"revision": 1, "data": body})).status_code == 422
+    async with baby_api.sessions() as db:
+        existing = await db.scalar(select(BabyRecord.id).where(BabyRecord.app_user_id == "owner", BabyRecord.title == "Series 0"))
+    kept = await baby_api.client.get(f"{API}/records/{existing}", headers=V2)
+    changed = await baby_api.client.patch(
+        f"{API}/records/{existing}", headers=V2, json={"revision": 1, "title": "Renamed", "data": kept.json()["data"]})
+    assert changed.status_code == 200

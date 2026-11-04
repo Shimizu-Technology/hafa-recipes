@@ -14,7 +14,7 @@ from app.domains.baby.attachments import retire_unreferenced_attachments, upload
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
 from app.domains.baby.dependencies import Client, Database, Generation, Limit, Offset, User
-from app.domains.baby.events import day_marks
+from app.domains.baby.events import check_series_cap, day_marks
 from app.domains.baby.events import router as events_router
 from app.domains.baby.feeds import retimed, same_action
 from app.domains.baby.imports import router as imports_router
@@ -774,6 +774,8 @@ async def create_record(
             raise HTTPException(410, "This entry was removed; create a new entry")
         return record_response(prior)
     await validate_relations(db, user.id, generation, body.child_id, body.data, record_id=body.id)
+    if body.kind == "event":
+        await check_series_cap(db, user.id, generation, body.data, record_id=body.id)
     row = BabyRecord(
         **body.model_dump(),
         app_user_id=user.id,
@@ -829,6 +831,8 @@ async def patch_record(
     except ValidationError:
         raise HTTPException(422, "Enter valid details for this entry") from None
     await validate_relations(db, user.id, generation, valid.child_id, valid.data, record_id=row.id)
+    if row.kind == "event":
+        await check_series_cap(db, user.id, generation, valid.data, record_id=row.id)
     removed_attachments = set(row.data.get("attachment_ids", [])) - set(
         valid.data.get("attachment_ids", [])
     )
