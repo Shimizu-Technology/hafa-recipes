@@ -61,6 +61,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
     large = fontScale >= 1.5,
     historyTitle = showHistory ? "Done" : "History",
     actions = <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+      <HeaderIconButton icon="medkit-outline" label="Help" onPress={() => router.push("/help")} />
       {large ? <HeaderIconButton icon="add" label="New chat" disabled={locked} onPress={chat.startNew} />
         : <HeaderPill title="New chat" disabled={locked} onPress={chat.startNew} />}
       {large ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={historyTitle} disabled={chat.resolving} onPress={() => void openHistory()} />

@@ -49,6 +49,7 @@ export default function Settings() {
   return (
     <Screen scrollRef={scroller} onContentReady={() => setContentReady(true)} title="Settings" subtitle="A private space, with choices you control." back>
       {!!error && <Notice error>{error}</Notice>}
+      <Grouped><Row title="Help" detail="Urgent warning signs and numbers to call" icon="medkit-outline" onPress={() => router.push("/help")} /></Grouped>
       <Section title="Your details">
         <Field label="Your name" value={name} onChange={setName} />
         <Button

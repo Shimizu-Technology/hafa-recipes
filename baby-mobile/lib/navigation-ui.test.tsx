@@ -244,6 +244,11 @@ it("has no scope chips, and keeps New chat beside History in every state", async
   await press("New chat");
   expect(startNew).toHaveBeenCalledOnce();
 });
+it("reaches Help from Ask's header, in one tap", async () => {
+  await mount(<AskEntry />);
+  await press("Help");
+  expect(mock.stack.at(-1)).toBe("/help");
+});
 it("keeps New chat from interrupting an answer on its way", async () => {
   mock.ask = { busy: true, startNew: vi.fn() };
   await mount(<AskEntry />);
