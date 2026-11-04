@@ -177,6 +177,19 @@ it.each([1, 3.1])("keeps Undo above the native tab bar through a live fontScale 
   expect(controls().some(n => n.props.accessibilityLabel === "Undo")).toBe(true);
 });
 
+it("caps the toast's text so a short word beside Undo isn't split at the largest size", async () => {
+  mock.fontScale = 3.1;
+  function Trigger() {
+    const toast = useToast();
+    return <Button title="Show toast" onPress={() => toast("Started", { label: "Undo", onPress() {} })} />;
+  }
+  await mount(<ToastProvider><Trigger /></ToastProvider>);
+  await act(async () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).find(n => n.props.accessibilityLabel === "Show toast")!.props.onPress());
+  const text = renderer!.root.findAllByType("Text" as React.ElementType).filter(n => ["Started", "Undo"].includes(String(n.props.children)));
+  expect(text.map(n => n.props.maxFontSizeMultiplier)).toEqual([2, 2]);
+  mock.fontScale = 1;
+});
+
 it.each(["", undefined, "A useful subtitle"])("keeps optional subtitle %j inside Text rather than a layout View", async subtitle => {
   await mount(<Screen title="Today" subtitle={subtitle}><Copy>Care comes first</Copy></Screen>);
   const layoutChildren = renderer!.root.findAllByType("View" as React.ElementType)

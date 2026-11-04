@@ -1010,7 +1010,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           }}
         >
           <PressTarget style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={2} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
               {toast.message}
             </Text>
           </PressTarget>
@@ -1033,7 +1033,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
+              <Text key={fontScale} maxFontSizeMultiplier={2} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
                 {toast.action.label}
               </Text>
             </PressTarget>
