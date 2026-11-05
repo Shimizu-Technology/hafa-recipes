@@ -171,3 +171,24 @@ describe("the measurement at birth", () => {
     expect(measuredOn([], { id: "baby", birth_date: "2026-11-01" }, "girls", "weight", "UTC", "2027-01-01")).toEqual([]);
   });
 });
+
+describe("birth point changes", () => {
+  const birth = { id: "baby", birth_date: "2026-11-01", details: { weight_at_birth_g: 3345, length_at_birth_cm: 50.8 } };
+  it("reflects edited details, with no stale saved copy of the birth point", () => {
+    expect(measuredOn([], birth, "girls", "weight")[0].metric).toBe(3.345);
+    expect(measuredOn([], { ...birth, details: { ...birth.details, weight_at_birth_g: 3500 } }, "girls", "weight")[0].metric).toBe(3.5);
+  });
+  it("removing the birth date removes its synthetic point", () => {
+    expect(measuredOn([], { ...birth, birth_date: null }, "girls", "weight")).toEqual([]);
+  });
+  it("suppresses a duplicate by the profile's local birth day", () => {
+    // Oct 31 UTC is Nov 1 in Guam.
+    const rows = [row({ weight: 3.4, weight_unit: "kg" }, "2026-10-31T22:00:00.000Z")];
+    expect(measuredOn(rows, birth, "girls", "weight", "Pacific/Guam")).toHaveLength(1);
+    expect(measuredOn(rows, birth, "girls", "weight", "Pacific/Guam")[0].atBirth).toBeUndefined();
+  });
+  it("never uses a second baby's same-day measure to suppress this baby's point", () => {
+    const points = measuredOn([row({ weight: 4, weight_unit: "kg" }, "2026-11-01T02:00:00.000Z", "other")], birth, "girls", "weight", "Pacific/Guam");
+    expect(points).toHaveLength(1); expect(points[0].atBirth).toBe(true);
+  });
+});
