@@ -1,6 +1,13 @@
+import { holdJoinLink, joinLink } from "../lib/join-link";
+
 /** OAuth and share receipt links are consumed by their native bridges. Keeping
  * them on the index route avoids an unmatched screen during foreground intake. */
 export function redirectSystemPath({ path }: { path: string; initial: boolean }) {
+  const code = joinLink(path);
+  if (code !== null) {
+    holdJoinLink(code);
+    return "/join";
+  }
   if (path.length > 8192 || /[\u0000-\u001f\u007f\\]/.test(path)) return "/";
   try {
     decodeURIComponent(path);

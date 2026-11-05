@@ -2,6 +2,7 @@ import type { BabyRecord, Kind } from "./models";
 import { careKinds } from "./models";
 import { herLog } from "./spaces";
 import { trackedKinds } from "./trackers";
+import { codeShape } from "./join-link";
 
 export const disclosureVersion = 2 as const;
 export interface FamilyPhone {
@@ -16,11 +17,10 @@ export interface InvitePreview { role: "parent" | "caregiver"; expires_at: strin
 export interface FamilyMember { app_user_id: string; role: "parent" | "caregiver"; status: "active" | "left" | "removed"; access_version: number; display_name: string }
 
 /** The code in whatever they pasted, usually the whole message it came in. */
-const codeShape = /hfbi_v1\.[A-Za-z0-9_-]{16,}/;
 export const looksLikeCode = (text: string) => codeShape.test(text);
 export const codeFrom = (text: string) => text.match(codeShape)?.[0] ?? text.trim();
 export const inviteMessage = (code: string) =>
-  `Join our family in Håfa Baby. Update the app first, then open your profile, Family, I have a code, and paste this. It works once, for 7 days.\n\n${code}`;
+  `Join our family in Håfa Baby. Update the app first, then tap this: https://shimizu-technology.com/join/${code}\n\nIf that doesn’t open the app, open your profile, Family, I have a code, and paste this. It works once, for 7 days.\n\n${code}`;
 
 /** What the API can move between spaces. */
 export const canBeJustMe = (kind: Kind) => kind === "source" || kind === "collection" || kind === "journal";

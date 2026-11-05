@@ -9,6 +9,7 @@ import { installationId, nativeSharingAvailable } from "@/modules/hafa-baby-shar
 import { Button, Card, Choice, Copy, Field, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { ApiError, PhonesNotReady } from "../lib/api";
 import { looksLikeCode } from "../lib/family";
+import { takeJoinLink } from "../lib/join-link";
 import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
 import { babyLabel, familyOpen, familySpaces, herLog, rowFence } from "../lib/spaces";
 import { leftFamilyNotice } from "../lib/outbox";
@@ -26,6 +27,7 @@ const everyPage = async (read: (offset: number) => Promise<{ items: BabyRecord[]
   return rows;
 };
 const notACode = "That doesn’t look like a family code. Check you copied all of it.";
+const notALink = "That link doesn’t have a working family code in it. Ask for a new one, or paste the code here.";
 /** Fixed words for what a code can come back with. */
 function codeProblem(failure: unknown) {
   if (!(failure instanceof ApiError) || failure.local) return messageFor(failure);
@@ -148,8 +150,8 @@ function Invite({ onBack }: { onBack: () => void }) {
     <Button variant="ghost" title="Not now" disabled={busy} onPress={onBack} />
   </>;
 }
-function Join({ onBack }: { onBack: () => void }) {
-  const b = useBaby(), [code, setCode] = useState(""), [preview, setPreview] = useState<InvitePreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""),
+function Join({ link, onBack }: { link: string | null; onBack: () => void }) {
+  const b = useBaby(), [code, setCode] = useState(link ?? ""), [preview, setPreview] = useState<InvitePreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""),
     { readiness, setReadiness, failed, checking, check, confirmPhones } = usePhones(setError);
   async function look(text = code) {
     setError(""); setPreview(null);
@@ -163,6 +165,11 @@ function Join({ onBack }: { onBack: () => void }) {
     catch (failure) { setError(codeProblem(failure)); }
     finally { setBusy(false); }
   }
+  // A tapped link is the same as pasting: it's checked straight away, and joining still takes a tap.
+  useEffect(() => {
+    if (link === "") setError(notALink);
+    else if (link) void look(link);
+  }, []);
   async function join() {
     setBusy(true); setError("");
     try {
@@ -268,12 +275,14 @@ function InFamily() {
   </>;
 }
 export default function Family() {
-  const b = useBaby(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], [step, setStep] = useState<"start" | "invite" | "join">("start");
-  if (!familyOpen(bootstrap)) return <Screen title="Family" back><Notice>Family sharing isn’t open yet. Everything you log stays safe in your own space.</Notice></Screen>;
-  if (family) return <Screen title="Family" back><YourName /><InFamily /></Screen>;
+  const b = useBaby(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], [link] = useState(takeJoinLink), [step, setStep] = useState<"start" | "invite" | "join">(link === null ? "start" : "join"),
+    [alreadyIn] = useState(link !== null && !!family);
+  if (!familyOpen(bootstrap)) return <Screen title="Family" back><Notice>{link === null ? "Family sharing isn’t open yet. Everything you log stays safe in your own space."
+    : "Family sharing isn’t open on your account yet, so this invitation wasn’t used. Everything you log stays safe in your own space. Try the link again later."}</Notice></Screen>;
+  if (family) return <Screen title="Family" back>{alreadyIn && <Notice>You’re already in a family, so this invitation wasn’t used.</Notice>}<YourName /><InFamily /></Screen>;
   return <Screen title={step === "invite" ? "Invite someone" : step === "join" ? "Join a family" : "Family"} back>
     {step !== "start" && <YourName />}
-    {step === "invite" ? <Invite onBack={() => setStep("start")} /> : step === "join" ? <Join onBack={() => setStep("start")} /> : <>
+    {step === "invite" ? <Invite onBack={() => setStep("start")} /> : step === "join" ? <Join link={link} onBack={() => setStep("start")} /> : <>
       <Section title="Share with your family">
         <Copy>Log feeds and appointments together, and each keep your own journal.</Copy>
         <Button title="Invite someone" icon="person-add-outline" size="lg" onPress={() => setStep("invite")} />
