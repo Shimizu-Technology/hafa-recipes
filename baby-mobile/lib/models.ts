@@ -312,15 +312,14 @@ export interface Citation {
   /** Present on newer responses; older stored conversations omit it. */
   kind?: Kind;
 }
-/** A link from the web a new-Ask answer used. `kind` says whether it came from the trusted list or the open web. */
+/** A link from the trusted list a new-Ask answer used. */
 export interface WebSource {
   url: string;
   title: string;
   domain: string;
-  kind: "trusted" | "web";
   ref?: string;
 }
-export type AskHelp = "urgent_maternal" | "harm" | "baby_unwell" | "mental_health";
+export type AskHelp = "urgent_maternal" | "harm" | "baby_unwell" | "mental_health" | "cant_answer";
 export interface Proposal {
   kind: Kind;
   title: string;

@@ -17,11 +17,11 @@ vi.mock("../components/ui", () => ({
 }));
 import { AnswerText, WebSources } from "../components/ask-answer";
 import { AskHistory } from "../components/ask-history";
-import { answerParts, askV2Active, openableUrl, sourceGroups } from "./ask-sources";
+import { answerParts, askV2Active, openableSources, openableUrl } from "./ask-sources";
 import type { WebSource } from "./models";
 
-const cdc: WebSource = { url: "https://www.cdc.gov/sleep", title: "Safe sleep", domain: "www.cdc.gov", kind: "trusted", ref: "S1" };
-const blog: WebSource = { url: "https://gifts.example.com/x", title: "Gift ideas", domain: "gifts.example.com", kind: "web", ref: "S2" };
+const cdc: WebSource = { url: "https://www.cdc.gov/sleep", title: "Safe sleep", domain: "www.cdc.gov", ref: "S1" };
+const aap: WebSource = { url: "https://www.aap.org/x", title: "Sleep", domain: "www.aap.org", ref: "S2" };
 let renderer: ReactTestRenderer | undefined;
 const mount = async (element: React.ReactElement) => { await act(async () => { renderer = create(element); }); };
 const labels = () => renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
@@ -36,7 +36,7 @@ it("only opens real web links", () => {
   expect(openableUrl("https://evil.example\\@cdc.gov/x")).toBe(false);
   expect(openableUrl("https://www.cdc.gov/a\u0000b")).toBe(false);
   expect(openableUrl("https://www.cdc.gov/a\tb")).toBe(false);
-  expect(sourceGroups([{ ...cdc, url: "javascript:alert(1)" }]).trusted).toEqual([]);
+  expect(openableSources([{ ...cdc, url: "javascript:alert(1)" }])).toEqual([]);
 });
 
 it("numbers references by the sources shown and drops any it can't link", () => {
@@ -71,12 +71,12 @@ it("says plainly when a link can't open", async () => {
   expect(scope.toasts[0]).toMatch(/couldn’t open/);
 });
 
-it("keeps trusted sources and the open web under their own headings, with tappable rows", async () => {
-  await mount(<WebSources sources={[cdc, blog]} />);
-  expect(labels()).toEqual(["From trusted sources", "From the web, not checked by a health organization"]);
-  expect(rows().map((row) => [row.props.title, row.props.detail])).toEqual([["Safe sleep", "www.cdc.gov"], ["Gift ideas", "gifts.example.com"]]);
+it("shows one heading for sources, with tappable rows", async () => {
+  await mount(<WebSources sources={[cdc, aap]} />);
+  expect(labels()).toEqual(["From trusted sources"]);
+  expect(rows().map((row) => [row.props.title, row.props.detail])).toEqual([["Safe sleep", "www.cdc.gov"], ["Sleep", "www.aap.org"]]);
   await act(async () => rows()[1].props.onPress());
-  expect(scope.opened).toEqual([blog.url]);
+  expect(scope.opened).toEqual([aap.url]);
 });
 
 it("shows no heading with nothing under it", async () => {

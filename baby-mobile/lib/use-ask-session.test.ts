@@ -378,7 +378,7 @@ it.each([[1, true], [0, false], [undefined, false]])("asks for the new Ask when 
 });
 
 it("keeps an answer's sources and help with its message", async () => {
-  const account = setup(), sources = [{ url: "https://www.cdc.gov/x", title: "CDC", domain: "www.cdc.gov", kind: "trusted" as const, ref: "S1" }];
+  const account = setup(), sources = [{ url: "https://www.cdc.gov/x", title: "CDC", domain: "www.cdc.gov", ref: "S1" }];
   account.api.chat.mockResolvedValueOnce({ conversation_id: "c", message: "Answer [S1]", citations: [], sources, help: "harm" } as never);
   await mount();
   await question();

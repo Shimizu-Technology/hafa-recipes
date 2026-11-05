@@ -11,9 +11,8 @@ export function openableUrl(url: string) {
   return /^https?:\/\/[^\s\\\x00-\x1f\x7f]+$/i.test(url);
 }
 
-export function sourceGroups(sources: WebSource[] = []) {
-  const usable = sources.filter((source) => openableUrl(source.url));
-  return { trusted: usable.filter((source) => source.kind === "trusted"), web: usable.filter((source) => source.kind !== "trusted") };
+export function openableSources(sources: WebSource[] = []) {
+  return sources.filter((source) => openableUrl(source.url));
 }
 
 export type AnswerPart = { text: string; url?: string };

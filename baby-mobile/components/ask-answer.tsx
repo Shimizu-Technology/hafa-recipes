@@ -1,5 +1,5 @@
 import { Linking, Text, View } from "react-native";
-import { answerParts, sourceGroups } from "@/lib/ask-sources";
+import { answerParts, openableSources } from "@/lib/ask-sources";
 import type { WebSource } from "@/lib/models";
 import { Copy, Grouped, Row, fonts, useColors, useToast } from "./ui";
 
@@ -26,11 +26,7 @@ function SourceList({ heading, sources }: { heading: string; sources: WebSource[
   </View>;
 }
 
-/** Where web findings came from, kept apart from her own entries. Anything off the trusted list says so. */
+/** Where web findings came from, kept apart from her own entries. Every search uses the trusted list. */
 export function WebSources({ sources }: { sources?: WebSource[] }) {
-  const { trusted, web } = sourceGroups(sources);
-  return <>
-    <SourceList heading="From trusted sources" sources={trusted} />
-    <SourceList heading="From the web, not checked by a health organization" sources={web} />
-  </>;
+  return <SourceList heading="From trusted sources" sources={openableSources(sources)} />;
 }
