@@ -1,13 +1,16 @@
 """Hashed, single-use family invitations. No token is stored or returned on list."""
 import hashlib
+import logging
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from pydantic import Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.domains.baby import security
 from app.domains.baby.access import SpaceAccess, access_for, family_enabled, touch
@@ -19,6 +22,7 @@ from app.domains.baby.moves import create_family, require_contract, rotate_crede
 from app.domains.baby.schemas import DomainModel
 from app.domains.baby.share_models import BabyShareCredential
 
+logger = logging.getLogger(__name__)
 DISCLOSURE_VERSION = 1
 DISCLOSURE = "Shared family entries are available to every parent and to each parent's Ask when AI is enabled. Your personal journal and chats stay private. Update Baby on every signed-in phone before creating a family."
 
@@ -89,6 +93,70 @@ def summary(row):
             "used_at": row.used_at, "revoked_at": row.revoked_at}
 
 
+MAX_PHONES = 16
+CREDENTIAL_DAYS = 30
+# How long a sighting of an older client holds up Create family, unless she's answered it.
+OLDER_CLIENT_DAYS = 14
+OLDER_CLIENT_NOTE_EVERY = timedelta(hours=1)
+
+
+def note_phone_ready(member, installation):
+    """This installation asked for its credential as client 3, so it's updated and rebound."""
+    phones = {**member.profile.get("family_phones", {}), installation: now().isoformat()}
+    newest = sorted(phones, key=phones.get)[-MAX_PHONES:]
+    member.profile = {**member.profile, "family_phones": {key: phones[key] for key in newest}}
+
+
+async def note_older_client(db, member):
+    """This account was just seen on a client below 3: at a POST bootstrap or a credential request.
+
+    It takes back any readiness and any answer she gave, since neither can speak for a phone seen
+    since. It asks every 15 seconds, so an unchanged sighting is only written hourly. Callers hold the
+    owner lock, so a racing profile edit can't lose the note. A failure here mustn't cost her the
+    request, and the phone will be seen again on its next one.
+    """
+    profile, stamp = member.profile, now()
+    seen = profile.get("older_client_at")
+    if (seen and datetime.fromisoformat(seen) > stamp - OLDER_CLIENT_NOTE_EVERY
+            and not profile.get("family_phones") and not profile.get("older_client_confirmed_at")):
+        return
+    try:
+        async with db.begin_nested():
+            await db.execute(text("UPDATE baby_memberships SET profile = (profile - 'family_phones' - 'older_client_confirmed_at')"
+                                  " || jsonb_build_object('older_client_at', cast(:stamp as text)) WHERE app_user_id = :actor"),
+                             {"stamp": stamp.isoformat(), "actor": member.app_user_id})
+    except SQLAlchemyError:
+        logger.warning("Couldn't note an older Baby client", exc_info=False)
+
+
+def recent_older_client(profile):
+    """When an older client was last seen, if that's recent and she hasn't answered it since."""
+    seen, confirmed = profile.get("older_client_at"), profile.get("older_client_confirmed_at")
+    if not seen or datetime.fromisoformat(seen) <= now() - timedelta(days=OLDER_CLIENT_DAYS):
+        return None
+    return None if confirmed and datetime.fromisoformat(confirmed) >= datetime.fromisoformat(seen) else seen
+
+
+async def family_readiness(db, access, installation=None):
+    """Whether this account's phones can follow its baby into a family.
+
+    The API can't see sessions, but it can see clients. A client below 3 seen in the last two weeks
+    blocks, by any bootstrap or credential request, until she answers it. Separately, every iOS build
+    asks for a share credential when it opens: one that hasn't asked as client 3 is outdated, and one
+    whose credential expired hasn't opened in a month, so nobody can say. Either blocks too. This can't
+    prove every phone is updated, so F10 still has a person check: both phones, by eye.
+    """
+    rows = await db.scalars(select(BabyShareCredential).where(
+        BabyShareCredential.app_user_id == access.actor, BabyShareCredential.revoked_at.is_(None)))
+    profile = access.member.profile
+    ready = profile.get("family_phones", {})
+    phones = [{"id": str(row.id), "state": "unknown" if row.expires_at <= now() else "ready" if row.installation_hash in ready else "outdated",
+               "last_seen": row.expires_at - timedelta(days=CREDENTIAL_DAYS),
+               "this_phone": row.installation_hash == installation} for row in rows]
+    older = recent_older_client(profile)
+    return {"ready": not older and all(phone["state"] == "ready" for phone in phones), "phones": phones, "older_client_at": older}
+
+
 async def check_invite_creation(db, access, body, generation):
     """Run cheap admission before staging and again under the write locks."""
     access.check_generation(generation)
@@ -96,6 +164,10 @@ async def check_invite_creation(db, access, body, generation):
     existing = [g for g in access.spaces if g.space.kind == "family"]
     if not existing and not body.publish_shared:
         raise HTTPException(422, "Review what becomes shared before creating your family")
+    if not existing:
+        state = await family_readiness(db, access)
+        if not state["ready"]:
+            raise HTTPException(409, jsonable_encoder({"code": "phones_not_ready", **state}))
     return existing
 
 
@@ -122,6 +194,36 @@ async def create_invite(body: InviteCreate, user: User, db: Database, generation
             "disclosure_version": DISCLOSURE_VERSION, "disclosure": DISCLOSURE}
 
 
+@router.get("/family/readiness")
+async def readiness(user: User, db: Database, access: FamilyAccess = None, installation_id: UUID | None = None):
+    require_family_client(access)
+    from app.domains.baby.share_router import token_hash as installation_hash
+
+    return await family_readiness(db, access, installation_hash(str(installation_id)) if installation_id else None)
+
+
+class PhonesConfirmed(DomainModel):
+    installation_id: UUID | None = None
+
+
+@router.post("/family/phones/confirm")
+async def confirm_phones(body: PhonesConfirmed, user: User, db: Database, access: FamilyAccess = None):
+    """She says the older phone is updated or gone. Its credential stops, and so does the sighting, until a new one."""
+    require_family_client(access)
+    from app.domains.baby.share_router import token_hash as installation_hash
+
+    here = installation_hash(str(body.installation_id)) if body.installation_id else None
+    ready = access.member.profile.get("family_phones", {})
+    for row in await db.scalars(select(BabyShareCredential).where(BabyShareCredential.app_user_id == access.actor,
+            BabyShareCredential.revoked_at.is_(None))):
+        if row.installation_hash != here and (row.installation_hash not in ready or row.expires_at <= now()):
+            row.revoked_at = now()
+            await touch(row, next(g for g in access.locked_spaces + access.spaces if g.id == row.space_id))
+    access.member.profile = {**access.member.profile, "older_client_confirmed_at": now().isoformat()}
+    await db.commit()
+    return {"confirmed": True}
+
+
 @router.post("/family/invites/preview")
 async def preview_invite(body: InviteCode, user: User, db: Database):
     row = await db.scalar(select(BabySpaceInvite).where(BabySpaceInvite.token_hash == token_hash(body.code)))
@@ -144,6 +246,9 @@ async def accept_invite(body: InviteAccept, request: Request, user: User, db: Da
         raise HTTPException(422, "Accept an invitation from your personal space")
     if any(g.space.kind == "family" for g in access.spaces):
         raise HTTPException(409, "Leave your current family before joining another")
+    state = await family_readiness(db, access)
+    if not state["ready"]:
+        raise HTTPException(409, jsonable_encoder({"code": "phones_not_ready", **state}))
     row = await db.get(BabySpaceInvite, identifier, populate_existing=True, with_for_update=True)
     available(row)
     family = next((g for g in access.locked_spaces if g.id == family_id and g.space.status == "active"), None)

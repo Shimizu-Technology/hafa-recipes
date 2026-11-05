@@ -187,6 +187,9 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     for path in (f"/family/{sample['space']}/invites", f"/family/{sample['space']}/members"):
         await call("GET", API + path, 200 if parent else (403 if member else 404))
     await call("DELETE", f"{API}/family/{sample['space']}/invites/{invitation['id']}", 200 if parent else hidden)
+    # Each person's own phones: nothing of the family's, and no one else's to confirm.
+    await call("GET", API + "/family/readiness", 200)
+    await call("POST", API + "/family/phones/confirm", 200 if member else hidden, json={})
     for path in ("preview", "accept"):
         await call("POST", API + "/family/invites/" + path, 409,
                    json={"code": "hfbi_v1.invalid-synthetic-token", **({"disclosure_version": 1} if path == "accept" else {})})

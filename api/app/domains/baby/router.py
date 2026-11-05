@@ -39,6 +39,7 @@ from app.domains.baby.models import (
     BabyImport,
     BabyMembership,
     BabyMessage,
+    BabyMovedOut,
     BabyRecord,
 )
 from app.domains.baby.queries import (
@@ -54,6 +55,7 @@ from app.domains.baby.queries import (
 from app.domains.baby.schemas import (
     MAX_TRACKERS,
     NEW_KINDS,
+    SERVER_PROFILE_FIELDS,
     V1_KINDS,
     ChildCreate,
     ChildDetails,
@@ -305,6 +307,23 @@ async def bootstrap(user: User, db: Database, request: Request):
     return await bootstrap_state(user, db, create=False, request=request)
 
 
+async def tapped_row(db, access, generation, identifier):
+    """The row a queued tap is for.
+
+    An older phone can't see a row that moved to a family, and builds 34 and 35 read a 404 or 409 here,
+    then a 404 on the row, as "removed", and drop the tap. They keep and retry on a 5xx, so a tap for a
+    row that left this account's personal space waits there until the phone is updated and can follow it.
+    """
+    try:
+        return await owned(db, BabyRecord, access, generation, identifier)
+    except HTTPException as failure:
+        if failure.status_code == 404 and access.enabled and access.client != "3" and await db.scalar(
+                select(BabyMovedOut.record_id).where(BabyMovedOut.space_id == access.personal_space_id,
+                                                     BabyMovedOut.record_id == identifier).limit(1)):
+            raise HTTPException(503, {"code": "update_required"}, headers={"Retry-After": "300"}) from None
+        raise
+
+
 @router.post("/bootstrap")
 async def initialize(user: User, db: Database, request: Request):
     return await bootstrap_state(user, db, create=True, request=request)
@@ -359,7 +378,7 @@ async def bootstrap_state(user, db, *, create, request):
         else []
     )
     result = {
-        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
+        "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
         "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
@@ -373,6 +392,11 @@ async def bootstrap_state(user, db, *, create, request):
     if create and access:
         personal = next(g for g in access.spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
+    # Only the POST, under the owner lock. GET stays read-only, and every build opens with the POST.
+    if create and request.headers.get("X-Baby-Client") != "3":
+        from app.domains.baby.invites import note_older_client
+
+        await note_older_client(db, member)
     await db.commit()
     return result
 
@@ -494,7 +518,7 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
         personal = next(g for g in access.member_spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
     await db.commit()
-    return Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"})
+    return Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS)
 
 
 @router.get("/children")
@@ -1073,7 +1097,7 @@ async def feed_action(
 ):
     """A running feed's tap. Idempotent by its ID, and needs no revision: taps never conflict."""
     access.check_generation(generation)
-    row = await owned(db, BabyRecord, access, generation, identifier)
+    row = await tapped_row(db, access, generation, identifier)
     stored = row.data.get("actions", [])
     if (
         row.kind != "feeding"
@@ -1113,7 +1137,7 @@ async def session_action(
 ):
     """A kick session's tap or a contraction's stop. Idempotent by its ID, and needs no revision."""
     access.check_generation(generation)
-    row = visible_to(await owned(db, BabyRecord, access, generation, identifier), client)
+    row = visible_to(await tapped_row(db, access, generation, identifier), client)
     stored = row.data.get("session_actions", [])
     # A count from before taps had identities has nothing an action could add to.
     if row.kind not in SESSION_KINDS or (row.data.get("count") and not stored):
@@ -1216,7 +1240,7 @@ async def export(user: User, db: Database, client: Client = None):
         "format": "hafa-baby-v1",
         "exported_at": now(),
         "generation": member.generation,
-        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
+        "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
         "children": [child_response(row, access) for row in await rows(BabyChild) if row.deleted_at is None],
         "records": [record_response(row, access, readable) for row in records],
         "attachments": [metadata(row, access) for row in await rows(BabyAttachment) if row.state == "ready"],
