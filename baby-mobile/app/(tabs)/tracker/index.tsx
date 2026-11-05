@@ -130,7 +130,8 @@ export default function Tracker() {
       {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
       {fontScale >= dockBelow && quickLog}
       {timeline.length ? <View style={{ gap: 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Wraps as a whole at the largest text, rather than breaking mid-word beside the toggle. */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
           <Copy kind="small" tone="muted">Everything, in order</Copy>
           <OrderToggle newest={newest} onFlip={() => setNewest(!newest)} />
         </View>
