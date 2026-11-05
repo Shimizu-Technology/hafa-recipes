@@ -1,14 +1,14 @@
 """Hashed, single-use family invitations. No token is stored or returned on list."""
 import hashlib
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.domains.baby import security
 from app.domains.baby.access import SpaceAccess, access_for, family_enabled, touch
@@ -92,6 +92,9 @@ def summary(row):
 
 MAX_PHONES = 16
 CREDENTIAL_DAYS = 30
+# How long a sighting of an older client holds up Create family, unless she's answered it.
+OLDER_CLIENT_DAYS = 14
+OLDER_CLIENT_NOTE_EVERY = timedelta(hours=1)
 
 
 def note_phone_ready(member, installation):
@@ -101,20 +104,49 @@ def note_phone_ready(member, installation):
     member.profile = {**member.profile, "family_phones": {key: phones[key] for key in newest}}
 
 
-async def family_readiness(db, access, installation=None):
-    """Whether every phone signed in to this account can follow its baby into a family.
+async def note_older_client(db, member):
+    """This account was just seen on a client below 3: at a bootstrap or a credential request.
 
-    Every iOS build asks for a share credential when it opens, so its credential is how a phone is
-    known. One that hasn't asked as client 3 is outdated. One whose credential expired hasn't opened
-    in a month, so nobody can say. Either blocks, until it updates or she says it's not in use.
+    It takes back any readiness and any answer she gave, since neither can speak for a phone seen
+    since. It asks every 15 seconds, so an unchanged sighting is only written hourly. A single
+    statement, so a read route or a racing profile edit can't lose the note or be lost to it.
+    """
+    profile, stamp = member.profile, now()
+    seen = profile.get("older_client_at")
+    if (seen and datetime.fromisoformat(seen) > stamp - OLDER_CLIENT_NOTE_EVERY
+            and not profile.get("family_phones") and not profile.get("older_client_confirmed_at")):
+        return
+    await db.execute(text("UPDATE baby_memberships SET profile = (profile - 'family_phones' - 'older_client_confirmed_at')"
+                          " || jsonb_build_object('older_client_at', cast(:stamp as text)) WHERE app_user_id = :actor"),
+                     {"stamp": stamp.isoformat(), "actor": member.app_user_id})
+
+
+def recent_older_client(profile):
+    """When an older client was last seen, if that's recent and she hasn't answered it since."""
+    seen, confirmed = profile.get("older_client_at"), profile.get("older_client_confirmed_at")
+    if not seen or datetime.fromisoformat(seen) <= now() - timedelta(days=OLDER_CLIENT_DAYS):
+        return None
+    return None if confirmed and datetime.fromisoformat(confirmed) >= datetime.fromisoformat(seen) else seen
+
+
+async def family_readiness(db, access, installation=None):
+    """Whether this account's phones can follow its baby into a family.
+
+    The API can't see sessions, but it can see clients. A client below 3 seen in the last two weeks
+    blocks, by any bootstrap or credential request, until she answers it. Separately, every iOS build
+    asks for a share credential when it opens: one that hasn't asked as client 3 is outdated, and one
+    whose credential expired hasn't opened in a month, so nobody can say. Either blocks too. This can't
+    prove every phone is updated, so F10 still has a person check: both phones, by eye.
     """
     rows = await db.scalars(select(BabyShareCredential).where(
         BabyShareCredential.app_user_id == access.actor, BabyShareCredential.revoked_at.is_(None)))
-    ready = access.member.profile.get("family_phones", {})
+    profile = access.member.profile
+    ready = profile.get("family_phones", {})
     phones = [{"id": str(row.id), "state": "unknown" if row.expires_at <= now() else "ready" if row.installation_hash in ready else "outdated",
                "last_seen": row.expires_at - timedelta(days=CREDENTIAL_DAYS),
                "this_phone": row.installation_hash == installation} for row in rows]
-    return {"ready": all(phone["state"] == "ready" for phone in phones), "phones": phones}
+    older = recent_older_client(profile)
+    return {"ready": not older and all(phone["state"] == "ready" for phone in phones), "phones": phones, "older_client_at": older}
 
 
 async def check_invite_creation(db, access, body, generation):
@@ -162,19 +194,26 @@ async def readiness(user: User, db: Database, access: FamilyAccess = None, insta
     return await family_readiness(db, access, installation_hash(str(installation_id)) if installation_id else None)
 
 
-@router.post("/family/phones/{identifier}/forget")
-async def forget_phone(identifier: UUID, user: User, db: Database, access: FamilyAccess = None):
-    """She says nobody uses this phone. Its credential stops, and it would need signing in again to get another."""
+class PhonesConfirmed(DomainModel):
+    installation_id: UUID | None = None
+
+
+@router.post("/family/phones/confirm")
+async def confirm_phones(body: PhonesConfirmed, user: User, db: Database, access: FamilyAccess = None):
+    """She says the older phone is updated or gone. Its credential stops, and so does the sighting, until a new one."""
     require_family_client(access)
-    row = await db.get(BabyShareCredential, identifier, populate_existing=True, with_for_update=True)
-    if row is None or row.app_user_id != access.actor:
-        raise HTTPException(404, "Phone unavailable")
-    if row.revoked_at is None:
-        row.revoked_at = now()
-        grant = next(g for g in access.locked_spaces + access.spaces if g.id == row.space_id)
-        await touch(row, grant)
+    from app.domains.baby.share_router import token_hash as installation_hash
+
+    here = installation_hash(str(body.installation_id)) if body.installation_id else None
+    ready = access.member.profile.get("family_phones", {})
+    for row in await db.scalars(select(BabyShareCredential).where(BabyShareCredential.app_user_id == access.actor,
+            BabyShareCredential.revoked_at.is_(None))):
+        if row.installation_hash != here and (row.installation_hash not in ready or row.expires_at <= now()):
+            row.revoked_at = now()
+            await touch(row, next(g for g in access.locked_spaces + access.spaces if g.id == row.space_id))
+    access.member.profile = {**access.member.profile, "older_client_confirmed_at": now().isoformat()}
     await db.commit()
-    return {"forgotten": True}
+    return {"confirmed": True}
 
 
 @router.post("/family/invites/preview")

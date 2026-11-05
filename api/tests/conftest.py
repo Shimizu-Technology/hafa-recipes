@@ -17,6 +17,19 @@ os.environ.setdefault("ENVIRONMENT", "test")
 import pytest  # noqa: E402
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "older_client_gate: keep the two-week older-client check on")
+
+
+@pytest.fixture(autouse=True)
+def _older_client_gate(request, monkeypatch):
+    """Most fixtures bootstrap as a legacy client on purpose. The gate's own tests turn it on."""
+    if "older_client_gate" not in request.keywords:
+        from app.domains.baby import invites
+
+        monkeypatch.setattr(invites, "OLDER_CLIENT_DAYS", 0)
+
+
 @pytest.fixture(autouse=True)
 def _reset_ai_rate_limiter():
     """Keep the process-wide AI budgets from leaking between tests."""

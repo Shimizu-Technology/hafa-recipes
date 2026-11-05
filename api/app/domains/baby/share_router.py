@@ -169,9 +169,11 @@ async def provision(body: SessionRequest, user: User, db: Database, generation: 
         None,
     )
     await touch(row, access.target)
-    if access.enabled and request.headers.get("X-Baby-Client") == "3":
-        from app.domains.baby.invites import note_phone_ready
+    from app.domains.baby.invites import note_older_client, note_phone_ready
 
+    if request.headers.get("X-Baby-Client") != "3":
+        await note_older_client(db, member)
+    elif access.enabled:
         note_phone_ready(member, installation)
     await db.commit()
     result = {

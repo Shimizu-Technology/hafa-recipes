@@ -77,8 +77,13 @@ async def test_updating_that_phone_clears_the_gate(baby_api, gate):
     assert (await create(baby_api, gate)).status_code == 201
 
 
+async def confirm(api, personal, **body):
+    result = await api.client.post(API + "/family/phones/confirm", headers=records.headers(personal, generation=1), json=body)
+    assert result.status_code == 200, result.text
+
+
 async def test_a_phone_it_cant_vouch_for_blocks_too_until_she_says_it_is_not_in_use(baby_api, gate):
-    installation, credential = await phone(baby_api, gate)
+    _, credential = await phone(baby_api, gate)
     async with baby_api.sessions() as db:
         row = await db.get(BabyShareCredential, credential)
         row.expires_at = now() - timedelta(days=1)
@@ -86,21 +91,21 @@ async def test_a_phone_it_cant_vouch_for_blocks_too_until_she_says_it_is_not_in_
     state = await readiness(baby_api, gate)
     assert state["ready"] is False and state["phones"][0]["state"] == "unknown"
     assert (await create(baby_api, gate)).status_code == 409
-    forgot = await baby_api.client.post(f"{API}/family/phones/{credential}/forget", headers=records.headers(gate, generation=1))
-    assert forgot.status_code == 200, forgot.text
+    await confirm(baby_api, gate)
     assert (await readiness(baby_api, gate))["ready"] is True
     assert (await create(baby_api, gate)).status_code == 201
-    del installation
 
 
-async def test_forget_refuses_someone_elses_phone(baby_api, gate):
-    _, credential = await phone(baby_api, gate)
+async def test_confirming_leaves_this_phone_and_other_peoples_phones_alone(baby_api, gate):
+    mine, here = await phone(baby_api, gate, client="2")
+    _, stale = await phone(baby_api, gate, client="2")
     async with baby_api.sessions() as db:
-        row = await db.get(BabyShareCredential, credential)
-        row.app_user_id = "other"
+        (await db.get(BabyShareCredential, stale)).app_user_id = "other"
         await db.commit()
-    result = await baby_api.client.post(f"{API}/family/phones/{credential}/forget", headers=records.headers(gate, generation=1))
-    assert result.status_code == 404
+    await confirm(baby_api, gate, installation_id=mine)
+    async with baby_api.sessions() as db:
+        assert (await db.get(BabyShareCredential, here)).revoked_at is None
+        assert (await db.get(BabyShareCredential, stale)).revoked_at is None
 
 
 async def test_a_signed_out_phone_doesnt_count(baby_api, gate):
@@ -112,7 +117,125 @@ async def test_a_signed_out_phone_doesnt_count(baby_api, gate):
 
 
 async def test_no_known_phone_isnt_a_reason_to_stop(baby_api, gate):
-    assert (await readiness(baby_api, gate)) == {"ready": True, "phones": []}
+    assert (await readiness(baby_api, gate)) == {"ready": True, "phones": [], "older_client_at": None}
+
+
+async def older_bootstrap(api, client="2"):
+    headers = {"X-Test-Owner": "owner", **({"X-Baby-Client": client} if client else {})}
+    result = await api.client.post(API + "/bootstrap", headers=headers)
+    assert result.status_code == 200, result.text
+
+
+async def no_sighting_yet(api):
+    """The fixtures bootstrap as a legacy client before each test begins."""
+    async with api.sessions() as db:
+        member = await db.get(BabyMembership, "owner")
+        member.profile = {key: value for key, value in member.profile.items() if key != "older_client_at"}
+        await db.commit()
+
+
+async def age_sighting(api, days):
+    async with api.sessions() as db:
+        member = await db.get(BabyMembership, "owner")
+        member.profile = {**member.profile, "older_client_at": (now() - timedelta(days=days)).isoformat()}
+        await db.commit()
+
+
+@pytest.mark.older_client_gate
+@pytest.mark.parametrize("client", ["2", None], ids=["client2", "build32"])
+async def test_an_old_phone_that_only_ever_reads_bootstrap_blocks_create_family(baby_api, gate, client):
+    await older_bootstrap(baby_api, client)
+    state = await readiness(baby_api, gate)
+    assert state["ready"] is False and state["older_client_at"] and state["phones"] == []
+    result = await create(baby_api, gate)
+    assert result.status_code == 409 and result.json()["detail"]["code"] == "phones_not_ready"
+    assert await family_count(baby_api) == 0
+
+
+@pytest.mark.older_client_gate
+async def test_an_old_credential_request_is_a_sighting_and_undoes_readiness(baby_api, gate):
+    await no_sighting_yet(baby_api)
+    installation, _ = await phone(baby_api, gate)
+    assert (await readiness(baby_api, gate))["ready"] is True
+    await phone(baby_api, gate, client="2", installation=installation)
+    state = await readiness(baby_api, gate)
+    assert state["ready"] is False and state["older_client_at"] and state["phones"][0]["state"] == "outdated"
+    assert (await create(baby_api, gate)).status_code == 409
+
+
+@pytest.mark.older_client_gate
+async def test_she_can_confirm_a_sighting_and_a_new_one_takes_it_back(baby_api, gate):
+    installation, _ = await phone(baby_api, gate)
+    await older_bootstrap(baby_api)
+    await phone(baby_api, gate, installation=installation)
+    assert (await readiness(baby_api, gate))["ready"] is False
+    await confirm(baby_api, gate, installation_id=installation)
+    assert (await readiness(baby_api, gate))["ready"] is True
+    await older_bootstrap(baby_api)
+    state = await readiness(baby_api, gate)
+    assert state["ready"] is False, "A new sighting clears the confirmation"
+    assert state["phones"][0]["state"] == "outdated", "and any readiness"
+    assert (await create(baby_api, gate)).status_code == 409
+
+
+@pytest.mark.older_client_gate
+async def test_a_confirmation_from_before_the_sighting_doesnt_count(baby_api, gate):
+    await older_bootstrap(baby_api)
+    await confirm(baby_api, gate)
+    await age_sighting(baby_api, 0)
+    async with baby_api.sessions() as db:
+        member = await db.get(BabyMembership, "owner")
+        member.profile = {**member.profile, "older_client_confirmed_at": (now() - timedelta(hours=2)).isoformat()}
+        await db.commit()
+    assert (await readiness(baby_api, gate))["ready"] is False
+
+
+@pytest.mark.older_client_gate
+async def test_a_sighting_stops_counting_after_14_days(baby_api, gate):
+    await older_bootstrap(baby_api)
+    await age_sighting(baby_api, 13)
+    assert (await readiness(baby_api, gate))["ready"] is False
+    await age_sighting(baby_api, 15)
+    assert (await readiness(baby_api, gate)) == {"ready": True, "phones": [], "older_client_at": None}
+    assert (await create(baby_api, gate)).status_code == 201
+
+
+@pytest.mark.older_client_gate
+async def test_this_build_is_never_a_sighting(baby_api, gate):
+    await no_sighting_yet(baby_api)
+    await older_bootstrap(baby_api, "3")
+    installation, _ = await phone(baby_api, gate)
+    await phone(baby_api, gate, installation=installation)
+    assert (await readiness(baby_api, gate))["older_client_at"] is None
+    baby_api.settings.baby_family_enabled = False
+    three = {"X-Test-Owner": "owner", "X-Baby-Client": "3", "X-Baby-Generation": "1"}
+    assert (await baby_api.client.post(API + "/bootstrap", headers=three)).status_code == 200
+    assert (await baby_api.client.post(API + "/share/session", headers=three, json={"installation_id": installation})).status_code == 201
+    async with baby_api.sessions() as db:
+        assert "older_client_at" not in (await db.get(BabyMembership, "owner")).profile
+
+
+@pytest.mark.older_client_gate
+async def test_old_phones_are_seen_with_the_flag_off_too(baby_api, gate):
+    baby_api.settings.baby_family_enabled = False
+    await older_bootstrap(baby_api)
+    async with baby_api.sessions() as db:
+        assert (await db.get(BabyMembership, "owner")).profile["older_client_at"]
+
+
+@pytest.mark.older_client_gate
+async def test_it_writes_at_most_hourly_unless_something_needs_clearing(baby_api, gate):
+    await older_bootstrap(baby_api)
+    async with baby_api.sessions() as db:
+        first = (await db.get(BabyMembership, "owner")).profile["older_client_at"]
+    await older_bootstrap(baby_api)
+    async with baby_api.sessions() as db:
+        assert (await db.get(BabyMembership, "owner")).profile["older_client_at"] == first
+    await age_sighting(baby_api, 0)
+    await confirm(baby_api, gate)
+    await older_bootstrap(baby_api)
+    async with baby_api.sessions() as db:
+        assert "older_client_confirmed_at" not in (await db.get(BabyMembership, "owner")).profile
 
 
 async def test_only_the_first_invite_is_gated_since_nothing_moves_after_that(baby_api, gate):
@@ -121,18 +244,29 @@ async def test_only_the_first_invite_is_gated_since_nothing_moves_after_that(bab
     assert (await create(baby_api, gate)).status_code == 201
 
 
-async def test_its_marks_stay_out_of_every_response(baby_api, gate):
+@pytest.mark.older_client_gate
+async def test_its_marks_stay_out_of_every_response_and_survive_an_edit(baby_api, gate):
+    await no_sighting_yet(baby_api)
     await phone(baby_api, gate)
     h = records.headers(gate, generation=1)
-    bootstrap = await baby_api.client.post(API + "/bootstrap", headers={"X-Test-Owner": "owner", "X-Baby-Client": "3"})
-    assert "family_phones" not in bootstrap.json()["profile"]
     patched = await baby_api.client.patch(API + "/profile", headers=h, json={"display_name": "Kami"})
     assert patched.status_code == 200 and "family_phones" not in patched.json()
     async with baby_api.sessions() as db:
         assert (await db.get(BabyMembership, "owner")).profile["family_phones"], "An edit from any build keeps them"
+    await confirm(baby_api, gate)
+    await older_bootstrap(baby_api)
+    await confirm(baby_api, gate)
+    patched = await baby_api.client.patch(API + "/profile", headers=h, json={"display_name": "Kami again"})
+    bootstrap = await baby_api.client.post(API + "/bootstrap", headers={"X-Test-Owner": "owner", "X-Baby-Client": "3"})
+    exported = await baby_api.client.get(API + "/export", headers=h)
+    for body in (patched.text, bootstrap.text, exported.text):
+        assert not any(word in body for word in ("family_phones", "older_client_at", "older_client_confirmed_at"))
+    async with baby_api.sessions() as db:
+        profile = (await db.get(BabyMembership, "owner")).profile
+        assert profile["older_client_at"] and profile["older_client_confirmed_at"]
 
 
-async def test_the_flag_off_changes_nothing(baby_api, gate):
+async def test_the_flag_off_keeps_the_route_shut(baby_api, gate):
     baby_api.settings.baby_family_enabled = False
     result = await baby_api.client.post(API + "/share/session", headers=old_build(), json={"installation_id": str(uuid4())})
     assert result.status_code == 201, result.text

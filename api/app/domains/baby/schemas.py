@@ -48,8 +48,11 @@ class Profile(DomainModel):
     model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
     family_disclosures: list[dict] = Field(default_factory=list, exclude_if=lambda value: not value)
-    # The F10 gate's own note: which installations reported from a family-capable build, and when.
+    # The F10 gate's own notes: which installations reported from a family-capable build, when this
+    # account was last seen on an older one, and when she said that phone is updated or gone.
     family_phones: dict[str, str] = Field(default_factory=dict, exclude_if=lambda value: not value)
+    older_client_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    older_client_confirmed_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
     display_name: str = Field(default="", max_length=120)
     timezone: str = Field(default="Pacific/Guam", max_length=80)
     ai_consent: StrictBool = False
@@ -67,7 +70,7 @@ class Profile(DomainModel):
 
 
 # Stored with the profile and never sent back: a client that saves what it read can't touch them.
-SERVER_PROFILE_FIELDS = {"family_disclosures", "family_phones"}
+SERVER_PROFILE_FIELDS = {"family_disclosures", "family_phones", "older_client_at", "older_client_confirmed_at"}
 
 
 class ProfilePatch(DomainModel):
