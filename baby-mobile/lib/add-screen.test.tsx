@@ -190,6 +190,14 @@ describe("Add", () => {
     await act(async () => rows()[0].props.onPress());
     expect(scope.replace).toHaveBeenCalledWith("/child");
   });
+  it("leads with the date a named baby still needs, as Today does, with the logs still there", async () => {
+    setup([{ id: "kid", name: "Noa", revision: 1 }]);
+    await mount();
+    expect(order()[0]).toBe("Is Noa here yet?");
+    expect(order()).toContain("Breastfeed");
+    await act(async () => rows()[0].props.onPress());
+    expect(scope.replace).toHaveBeenCalledWith({ pathname: "/child", params: { id: "kid" } });
+  });
   it("with one baby, doesn't ask which", async () => {
     setup([newborn]);
     await mount();

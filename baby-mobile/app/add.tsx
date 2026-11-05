@@ -11,7 +11,7 @@ import { TrackerPanel } from "@/components/tracker-panel";
 import { kindIcon } from "@/components/record-row";
 import { useBaby } from "@/lib/context";
 import { useTodayCare } from "@/lib/today-care";
-import { profileToday, timingChild, trackerStage } from "@/lib/timing";
+import { profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { messageFor, type Child } from "@/lib/models";
 import { keepItems, otherStage, trackerById, trackerOn, trackersFor, type Tracker } from "../lib/trackers";
 
@@ -87,6 +87,8 @@ export default function Add() {
     <Screen title="Add" close scrollRef={scroller}>
       {child ? <>
         {b.state.bootstrap!.children.length > 1 && <ChildFilter only={child.id} />}
+        {todayStage(child, today) === "none" && <Row title={`Is ${child.name.trim()} here yet?`} detail="Add a due date or birth date and Today fills in." icon="person-add-outline"
+          onPress={() => router.replace({ pathname: "/child", params: { id: child.id } })} />}
         <Track child={child} now={now} stage={trackerStage(child, today)} scroller={scroller} />
       </> : <>
         <Row title="Set up your baby" detail="Tracking starts here, whether you’re expecting or your baby’s here" icon="person-add-outline" onPress={() => router.replace("/child")} />
