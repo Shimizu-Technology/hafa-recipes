@@ -31,7 +31,15 @@ def make_tools(owner="owner", *, client="3", personal=None, family_on=False, gen
                     generation=generation, zone=GUAM, tracked={"records": {}, "children": {}}, child_id=child_id)
 
 
+async def with_this_persons_space(baby_api, tools):
+    # With family spaces on, the app always tells the tools which personal space this is.
+    if baby_api.settings.baby_family_enabled and not tools.family:
+        async with baby_api.sessions() as db:
+            tools.family, tools.personal_space_id = True, (await db.get(BabyMembership, tools.user_id)).personal_space_id
+
+
 async def run(baby_api, tools, name, **arguments):
+    await with_this_persons_space(baby_api, tools)
     call = {"call_id": "c", "name": name, "arguments": json.dumps(arguments, default=str)}
     return json.loads((await tools.run([call], SimpleNamespace()))[0]["output"])["untrusted_data"]
 
@@ -371,7 +379,9 @@ async def test_tool_limits_bound_what_one_round_can_read(baby_api, monkeypatch):
 
     monkeypatch.setitem(TOOLS, "review_large", Tool({"description": "stub", "parameters": {}}, ask_tools.DomainModel, read))
     monkeypatch.setitem(ask_tools.TOOL_PERMISSIONS, "review_large", "saved")
+    await add(baby_api, HEADERS, kind="journal", title="Sets this person up", body="words")
     tools = make_tools()
+    await with_this_persons_space(baby_api, tools)
     output = await tools.run([{"call_id": str(index), "name": "review_large", "arguments": "{}"} for index in range(20)], None)
     assert len(calls) == 8 and len(output) == 20
     assert all(len(item["output"]) <= 30_000 for item in output)
