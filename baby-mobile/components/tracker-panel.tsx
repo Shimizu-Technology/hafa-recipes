@@ -139,10 +139,10 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
       // Never one tap: half asleep, a tap could be a second dose. It fills the form, with the Last under it, and Save records it.
       offers={(form, fill) => !!recentMedicines(rows, childId).length && <Choices>{recentMedicines(rows, childId).map((one) => <Option key={one.name.toLowerCase()} height={64} label={one.name} detail={[one.dose, lastWords(one.at)].filter(Boolean).join(" · ")}
         strong={form.name.trim().toLowerCase() === one.name.trim().toLowerCase()} onPress={() => fill({ name: one.name, dose: one.dose })} />)}</Choices>} />
-    : id === "vitamins" ? <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!recentVitamins(rows, childId).length} saveAs={(form) => saveForm(form, () => form.name.trim())}>
-      {!!recentVitamins(rows, childId).length && <Choices>{recentVitamins(rows, childId).map((one) => <Option key={one.name} height={64} label={one.name} detail={lastWords(one.at)}
-        onPress={() => void log(dataFrom(id, { ...start, name: one.name }), one.name, one.name)} />)}</Choices>}
-    </FormPanel>
+    : id === "vitamins" ? <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!recentVitamins(rows, childId).length} saveAs={(form) => saveForm(form, () => form.name.trim())}
+      // It can hold a medicine too, so like Medicine a tap fills the form and only Save records it.
+      offers={(form, fill) => !!recentVitamins(rows, childId).length && <Choices>{recentVitamins(rows, childId).map((one) => <Option key={one.name} height={64} label={one.name} detail={lastWords(one.at)}
+        strong={form.name.trim().toLowerCase() === one.name.trim().toLowerCase()} onPress={() => fill({ name: one.name })} />)}</Choices>} />
     : id === "custom" ? <FormPanel id={id} title={tracker.label} detail={who} start={start} panelProps={panelProps} autoFocus={!recentCustomLabels(rows, childId).length} saveAs={(form) => saveForm(form, (data) => data.label)}>
       {!!recentCustomLabels(rows, childId).length && <Choices>{recentCustomLabels(rows, childId).map((label) => <Option key={label} height={64} label={label} onPress={() => void log({ label }, label, label)} />)}</Choices>}
     </FormPanel>
