@@ -7,7 +7,7 @@ import { eventWhen } from "@/lib/events";
 import { messageFor, type BabyRecord, type EventOccurrence, type RecordWrite } from "@/lib/models";
 import { useUpcomingEvents } from "@/lib/use-events";
 import { useVisitRecords } from "@/lib/use-visit";
-import { fitsVisit, looseQuestions, newQuestion, newVisitNote, nextAppointment, questionWords, visitNotes, visitQuestions } from "@/lib/visits";
+import { fitsVisit, heldDrafts, holdDraft, looseQuestions, newQuestion, newVisitNote, nextAppointment, questionWords, visitNotes, visitQuestions } from "@/lib/visits";
 import { dayKey } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { Button, Copy, Field, Grouped, Notice, Row, tap, useToast } from "./ui";
@@ -21,6 +21,11 @@ const queueWrite = (b: ReturnType<typeof useBaby>, record: RecordWrite) => b.que
 export function useVisitDrafts() {
   const [typed, setTyped] = useState<Record<string, string>>({});
   return { typed, write: (target: string, text: string) => setTyped((held) => ({ ...held, [target]: text })) };
+}
+/** The same on an appointment's own screen, so leaving it for a moment doesn't lose her words. */
+function useHeldDrafts(key: string) {
+  const [typed, setTyped] = useState(() => heldDrafts(key));
+  return { typed, write: (target: string, text: string) => setTyped(holdDraft(key, target, text)) };
 }
 const draftTarget = ({ id, child_id }: Visit) => `${id}:${child_id ?? ""}`;
 /**
@@ -60,12 +65,13 @@ export function VisitQuestions({ visit, limit, drafts }: { visit: Visit; limit?:
 }
 /** Everything about the visit itself, on the appointment's own screen. */
 export function VisitSections({ visit }: { visit: Visit }) {
-  const b = useBaby(), toast = useToast(), notes = visitNotes(b.records, visit.id), loose = looseQuestions(b.records, visit), whose = useWhose(visit);
+  const b = useBaby(), toast = useToast(), notes = visitNotes(b.records, visit.id), loose = looseQuestions(b.records, visit), whose = useWhose(visit),
+    questionDrafts = useHeldDrafts(`${b.owner}:question`), noteDrafts = useHeldDrafts(`${b.owner}:note`);
   useVisitRecords(visit.id, true);
   return <>
     <View style={{ gap: 10 }}>
       <Copy kind="heading">Questions for the doctor</Copy>
-      <VisitQuestions visit={visit} />
+      <VisitQuestions visit={visit} drafts={questionDrafts} />
       <Grouped><Row title="Doctor summary" detail="One page with your questions, notes and daily totals" icon="document-text-outline"
         onPress={() => router.push({ pathname: "/doctor-summary", params: { child: visit.child_id ?? undefined } })} /></Grouped>
     </View>
@@ -77,7 +83,7 @@ export function VisitSections({ visit }: { visit: Visit }) {
     <View style={{ gap: 10 }}>
       <Copy kind="heading">What the doctor said</Copy>
       {notes.length > 0 && <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.journal} onPress={() => openRecord(row)} />)}</Grouped>}
-      <QuickAdd target={draftTarget(visit)} multiline label="In your words" action="Save this note" placeholder="Write it here" save={(text) => queueWrite(b, newVisitNote(Crypto.randomUUID(), text, visit))} />
+      <QuickAdd target={draftTarget(visit)} drafts={noteDrafts} multiline label="In your words" action="Save this note" placeholder="Write it here" save={(text) => queueWrite(b, newVisitNote(Crypto.randomUUID(), text, visit))} />
     </View>
   </>;
 }
