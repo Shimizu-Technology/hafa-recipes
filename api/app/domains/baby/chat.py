@@ -642,6 +642,11 @@ async def chat(
     return await answer_chat(body, user, db, generation, client, access)
 
 
+def question_identity(body):
+    # The same in a later release, so a retry across a rollback still matches. Which Ask answers isn't part of the question.
+    return digest(body.model_dump(mode="json", exclude={"ask_v2", *(() if body.focus_date else ("focus_date",))}))
+
+
 async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     access.check_generation(generation)
     member = access.member
@@ -657,7 +662,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             503, "AI is temporarily unavailable; your library and journal remain available"
         )
     original_body = body
-    fingerprint = digest(body.model_dump(mode="json"))
+    fingerprint = question_identity(body)
     prior = await db.get(BabyMessage, body.request_id, populate_existing=True)
     answer_id = uuid5(NAMESPACE_URL, f"hafa-baby-answer:{user.id}:{generation}:{body.request_id}")
     if prior:

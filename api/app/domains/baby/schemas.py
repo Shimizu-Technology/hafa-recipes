@@ -813,6 +813,9 @@ class ChatRequest(DomainModel):
     scope: Literal["all", "library", "journal", "care"] = "all"
     record_id: UUID | None = None
     child_id: UUID | None = None
+    # A later release's app sends these. After a rollback they're accepted and answered as an ordinary question.
+    ask_v2: StrictBool = False
+    focus_date: date | None = None
 
     @field_validator("message")
     @classmethod
