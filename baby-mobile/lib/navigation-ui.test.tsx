@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   fontScale: 1, ask: {} as any, keyboard: {} as Record<string, () => void>, removed: [] as string[],
   params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[], picker: null as any, toasts: [] as any[],
@@ -125,6 +125,35 @@ it("sends Doctor questions to the one-page summary, for the selected baby", asyn
   await press("Doctor summary");
   expect(mock.stack.at(-1)!.pathname).toBe("/doctor-summary");
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
+});
+describe("a caregiver and Ask", () => {
+  const caregiver = () => { mock.baby.state = { ...mock.baby.state, bootstrap: { ...mock.baby.state.bootstrap, spaces: [{ id: "own", kind: "personal", role: "owner" }, { id: "fam", kind: "family", role: "caregiver" }] } }; };
+  const said = () => renderer!.root.findAll((n) => typeof n.props.children === "string" || typeof n.props.title === "string").map((n) => n.props.title ?? n.props.children).join(" | ");
+  it("isn't offered Ask on an entry", async () => {
+    caregiver();
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    expect(said()).not.toContain("Ask about this entry");
+    expect(said()).toContain("Edit this entry");
+  });
+  it("gets a plain explanation if a link lands on it, without opening a chat", async () => {
+    caregiver();
+    let asked = 0;
+    mock.ask = { get question() { asked += 1; return ""; } };
+    mock.params = { record_id: "Saved source" };
+    await mount(<AskEntry />);
+    expect(said()).toMatch(/caregiver/i);
+    expect(said()).toMatch(/kept/i);
+    expect(said()).not.toContain("Ask about this");
+    expect(asked).toBe(0);
+    expect(renderer!.root.findAllByType("TextInput" as React.ElementType)).toHaveLength(0);
+  });
+  it("gets Ask back with no change for a parent", async () => {
+    mock.baby.state = { ...mock.baby.state, bootstrap: { ...mock.baby.state.bootstrap, spaces: [{ id: "own", kind: "personal", role: "owner" }, { id: "fam", kind: "family", role: "parent" }] } };
+    mock.params = { record_id: "Saved source" };
+    await mount(<AskEntry />);
+    expect(said()).toContain("Ask about this");
+  });
 });
 it("pushes focused Ask from a saved entry and its real Back control returns to that entry", async () => {
   mock.params = { id: "Saved source" };

@@ -1,8 +1,8 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({ push: vi.fn(), keyboard: {} as Record<string, () => void>, heights: [] as number[],
-  reduced: false, springs: [] as number[] }));
+  reduced: false, springs: [] as number[], spaces: undefined as unknown }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Platform: { OS: "ios" }, StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.33 },
   AccessibilityInfo: { isReduceMotionEnabled: async () => mock.reduced, addEventListener: () => ({ remove() {} }) },
@@ -14,6 +14,7 @@ vi.mock("react-native", () => ({
   Keyboard: { addListener: (name: string, callback: () => void) => { mock.keyboard[name] = callback; return { remove() {} }; } },
 }));
 vi.mock("expo-router", () => ({ router: { push: mock.push }, Tabs: Object.assign(({ children, ...props }: any) => React.createElement("Tabs", props, children), { Screen: "TabScreen" }) }));
+vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { bootstrap: { spaces: mock.spaces } } }) }));
 vi.mock("@/lib/bottom-overlay", () => ({ reportTabBarHeight: (height: number) => mock.heights.push(height) }));
 vi.mock("../components/ui", () => ({
   Icon: "Icon", tap: () => undefined, PressTarget: "PressTarget", fonts: { semibold: "semibold", bold: "bold" },
@@ -31,7 +32,7 @@ async function mount(index = 0) {
     insets={{ top: 0, bottom: 34, left: 0, right: 0 }} descriptors={{} as any} />); });
 }
 const targets = () => renderer!.root.findAllByType("PressTarget" as React.ElementType);
-beforeEach(() => { mock.push.mockClear(); navigation.emit.mockClear(); navigation.navigate.mockClear(); mock.reduced = false; mock.springs = []; });
+beforeEach(() => { mock.push.mockClear(); navigation.emit.mockClear(); navigation.navigate.mockClear(); mock.reduced = false; mock.springs = []; mock.spaces = undefined; });
 /** Lay the 5-slot row out at 400pt, so each slot is 80pt wide. */
 const layOut = () => act(() => renderer!.root.findAll((node) => String(node.type) === "View" && node.props.style?.height === 56 && !!node.props.onLayout)[0]
   .props.onLayout({ nativeEvent: { layout: { width: 400 } } }));
@@ -89,6 +90,28 @@ it("opens the Add sheet from the centre and describes what it offers", async () 
   expect(mock.push).toHaveBeenCalledWith("/add");
 });
 
+describe("for a caregiver", () => {
+  const space = (role: string) => [{ id: "own", kind: "personal", role: "owner" }, { id: "fam", kind: "family", role }];
+  const ids = () => targets().map((target) => target.props.testID);
+  it("leaves Ask out of the bar and shares the room between what's left", async () => {
+    mock.spaces = space("caregiver");
+    await mount(2);
+    expect(ids()).toEqual(["tab-today", "tab-tracker", "tab-add", "tab-saved"]);
+    act(() => renderer!.root.findAll((node) => String(node.type) === "View" && node.props.style?.height === 56 && !!node.props.onLayout)[0]
+      .props.onLayout({ nativeEvent: { layout: { width: 400 } } }));
+    expect(indicator().props.style[1].width).toBe(100);
+    expect(indicator().props.style[1].transform[0].translateX.value).toBe(300);
+  });
+  it("keeps Ask for a parent, and on an account with no family", async () => {
+    mock.spaces = space("parent");
+    await mount();
+    expect(ids()).toContain("tab-ask");
+    await act(async () => renderer!.unmount());
+    mock.spaces = undefined;
+    await mount();
+    expect(ids()).toContain("tab-ask");
+  });
+});
 it("switches tabs, and leaves a second tap on the current tab to its stack", async () => {
   await mount(0);
   await act(async () => targets()[3].props.onPress());

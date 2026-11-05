@@ -24,7 +24,7 @@ import { RecordVisit } from "@/components/visit-sections";
 import { ShareToggle } from "@/components/share-toggle";
 import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
 import { ensureAiConsent } from "../../lib/ai-consent";
-import { babyLabel } from "../../lib/spaces";
+import { babyLabel, isCaregiver } from "../../lib/spaces";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -241,11 +241,11 @@ export default function RecordDetail() {
         icon="pencil-outline"
         onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: record.kind } })}
       />
-      <Row
+      {!isCaregiver(b.state.bootstrap) && <Row
         title="Ask about this entry"
         icon="sparkles-outline"
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
-      />
+      />}
       </Grouped>
       {record.kind === "source" && <Disclosure title="Process this post again">
         <Button

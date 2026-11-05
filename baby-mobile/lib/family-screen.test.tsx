@@ -337,14 +337,30 @@ describe("as a caregiver", () => {
     expect(text()).toMatch(/caregiver/i);
     expect(button("Leave this family")).toBeDefined();
   });
+  it("tells her before she joins that Ask goes and her chats stay", async () => {
+    setup([own], { previewInvite: vi.fn(async () => ({ role: "caregiver", expires_at: "2026-11-12T00:00:00Z", disclosure: "Caregivers log care." })) });
+    await open();
+    await press("I have a code");
+    await act(async () => all("Field").find((n) => n.props.label === "Code")!.props.onChange("hfbi_v1_code"));
+    await press("Check the code");
+    expect(text()).toMatch(/Ask isn’t part of helping/);
+  });
+  it("says Ask is off while helping, and that her own chats are kept", async () => {
+    helper();
+    await open();
+    expect(text()).not.toMatch(/Ask doesn’t use/);
+    expect(text()).toMatch(/Ask isn’t part of helping/);
+    expect(text()).toMatch(/your own chats are kept/i);
+  });
 });
 describe("choosing who they'll be", () => {
-  it("invites a parent unless she says caregiver, and says what a caregiver can't see", async () => {
+  it("invites a parent unless she says caregiver, and says what a caregiver can't do", async () => {
     const b = setup();
     await open();
     await press("Invite someone");
     const caregiver = all("Choice").find((n) => n.props.label === "Caregiver");
     expect(caregiver!.props.detail).toMatch(/can’t see/i);
+    expect(caregiver!.props.detail).toMatch(/can’t use Ask/i);
     await act(async () => caregiver!.props.onPress());
     await press("Share and get a code");
     expect(b.api.createInvite).toHaveBeenCalledWith("caregiver", true, 1);

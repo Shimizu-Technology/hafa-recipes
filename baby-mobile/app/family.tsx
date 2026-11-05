@@ -35,7 +35,7 @@ type Role = "parent" | "caregiver";
 function RoleChoice({ role, onChange, disabled }: { role: Role; onChange: (role: Role) => void; disabled?: boolean }) {
   return <Section title="Who are they?">
     <Choice label="Parent" detail="Sees and changes everything shared, and can invite others" selected={role === "parent"} disabled={disabled} onPress={() => onChange("parent")} />
-    <Choice label="Caregiver" detail="Logs care and sees the calendar. Can’t see saved posts or doctor questions, and can’t change a baby’s profile" selected={role === "caregiver"} disabled={disabled} onPress={() => onChange("caregiver")} />
+    <Choice label="Caregiver" detail="Logs care and sees the calendar. Can’t see saved posts or doctor questions, can’t use Ask, and can’t change a baby’s profile" selected={role === "caregiver"} disabled={disabled} onPress={() => onChange("caregiver")} />
   </Section>;
 }
 /** An older build would lose sight of her baby when it moves. Nothing moves until her phones are updated, or she says one is gone. */
@@ -160,6 +160,7 @@ function Join({ onBack }: { onBack: () => void }) {
     {preview ? <Section title={preview.role === "parent" ? "Join as a parent" : "Join as a caregiver"}>
       <Copy>{preview.disclosure}</Copy>
       <Copy>Nothing of yours moves. Your own entries stay in your own space, and you can come back to them if you leave.</Copy>
+      {preview.role === "caregiver" && <Copy>Ask isn’t part of helping as a caregiver. Your own chats are kept for if you leave.</Copy>}
       <Button title="Join this family" size="lg" icon="people-outline" busy={busy} onPress={() => void join()} />
     </Section> : <Section title="Paste the code you were sent">
       <Button title="Paste" icon="clipboard-outline" size="lg" busy={busy} onPress={() => void Clipboard.getStringAsync().then((text) => { setCode(text); return look(text); })} />
@@ -223,7 +224,7 @@ function InFamily() {
         ])} />)}
     </Section>}
     {!parent && <Section title="You’re helping as a caregiver">
-      <Copy>You can log care and see the calendar. Saved posts and doctor questions stay with the parents, Ask doesn’t use the family’s entries, and a parent changes a baby’s profile.</Copy>
+      <Copy>You can log care and see the calendar. Saved posts and doctor questions stay with the parents, and a parent changes a baby’s profile. Ask isn’t part of helping, and your own chats are kept for if you leave.</Copy>
     </Section>}
     {parent && !unread && members !== null && <RoleChoice role={role} onChange={setRole} disabled={busy} />}
     {parent && !unread && members !== null && <Section title="Invite">

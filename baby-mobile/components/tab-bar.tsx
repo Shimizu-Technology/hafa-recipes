@@ -3,6 +3,8 @@ import { Animated, Keyboard, Platform, StyleSheet, Text, View } from "react-nati
 import { router } from "expo-router";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
 import { reportTabBarHeight } from "@/lib/bottom-overlay";
+import { useBaby } from "@/lib/context";
+import { isCaregiver } from "../lib/spaces";
 import { Icon, PressTarget, fonts, tap, useColors, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
 
@@ -10,7 +12,7 @@ import { useReducedMotion } from "./motion";
 export const TAB_BAR_HEIGHT = 56;
 
 type TabSpec = { route: string; label: string; icon: IconName; selectedIcon: IconName };
-/** Today · Tracker · Add · Saved · Ask. Add opens the Add sheet; it is an action, not a tab. */
+/** Today · Tracker · Add · Saved · Ask. Add opens the Add sheet; it is an action, not a tab. A caregiver has no Ask. */
 export const tabs: TabSpec[] = [
   { route: "(today)", label: "Today", icon: "sunny-outline", selectedIcon: "sunny" },
   { route: "tracker", label: "Tracker", icon: "calendar-outline", selectedIcon: "calendar" },
@@ -40,9 +42,10 @@ const slotOf = [0, 1, 3, 4];
  */
 export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
   const c = useColors(), keyboard = useKeyboardShown(), reduced = useReducedMotion(),
+    shown = isCaregiver(useBaby().state.bootstrap) ? tabs.filter((tab) => tab.route !== "ask") : tabs,
     focused = state.routes[state.index]?.name,
-    selectedIndex = tabs.findIndex((tab) => tab.route === focused),
-    [width, setWidth] = useState(0), slot = width / 5,
+    selectedIndex = shown.findIndex((tab) => tab.route === focused),
+    [width, setWidth] = useState(0), slot = width / (shown.length + 1),
     x = useRef(new Animated.Value(0)).current, placed = useRef(false),
     target = slot * (slotOf[selectedIndex] ?? 0);
   useEffect(() => {
@@ -81,16 +84,16 @@ export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
         style={[styles.track, { width: slot, transform: [{ translateX: x }] }]}>
         <View style={[styles.pill, { backgroundColor: c.tabIndicator }]} />
       </Animated.View>}
-      {item(tabs[0])}
-      {item(tabs[1])}
+      {item(shown[0])}
+      {item(shown[1])}
       <PressTarget testID="tab-add" accessibilityRole="button" accessibilityLabel="Add" accessibilityShowsLargeContentViewer accessibilityLargeContentTitle="Add"
         accessibilityHint="Save a video or link, write in your journal, keep a doctor question, or make a list"
         onPress={() => { tap(); router.push("/add"); }} style={styles.slot}>
         <View style={[styles.add, { backgroundColor: c.addFill }]}><Icon name="add" size={26} color={c.onAdd} /></View>
         <Text allowFontScaling={false} style={[styles.label, { color: c.muted, fontFamily: fonts.semibold }]}>Add</Text>
       </PressTarget>
-      {item(tabs[2])}
-      {item(tabs[3])}
+      {item(shown[2])}
+      {shown[3] && item(shown[3])}
     </View>
   </View>;
 }
