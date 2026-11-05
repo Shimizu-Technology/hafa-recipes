@@ -56,7 +56,9 @@ function Tile({ icon, label, hint, primary, open, many, onPress }: { icon: IconN
       alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: primary ? c.action : c.surface,
       borderWidth: 2, borderColor: open ? c.accent : "transparent" }}>
     <Icon name={icon} size={24} color={primary ? c.onAction : c.accentText} />
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 13, lineHeight: 16, textAlign: "center", color: primary ? c.onAction : c.text }}>{label}</Text>
+    {/* One word stays whole, a little smaller if four tiles share the row. */}
+    <Text key={fontScale} maxFontSizeMultiplier={0} numberOfLines={label.includes(" ") ? undefined : 1} adjustsFontSizeToFit={!label.includes(" ")} minimumFontScale={0.8}
+      style={{ fontFamily: fonts.semibold, fontSize: 13, lineHeight: 16, textAlign: "center", color: primary ? c.onAction : c.text }}>{label}</Text>
   </PressTarget>;
 }
 

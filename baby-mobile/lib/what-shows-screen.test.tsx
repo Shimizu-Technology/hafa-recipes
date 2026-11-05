@@ -5,8 +5,8 @@ import { emptyState, type Child, type DeviceState, type Mutation } from "./model
 import { withPendingTracking } from "./outbox";
 import { trackersFor } from "./trackers";
 
-const scope = vi.hoisted(() => ({ account: null as any, params: {} as Record<string, string>, push: vi.fn(), announced: [] as string[] }));
-vi.mock("react-native", () => ({ View: "View", Text: "Text", Switch: "Switch", useWindowDimensions: () => ({ fontScale: 1 }), AccessibilityInfo: { announceForAccessibility: (text: string) => scope.announced.push(text) } }));
+const scope = vi.hoisted(() => ({ account: null as any, params: {} as Record<string, string>, push: vi.fn(), announced: [] as string[], fontScale: 1 }));
+vi.mock("react-native", () => ({ View: "View", Text: "Text", Switch: "Switch", useWindowDimensions: () => ({ fontScale: scope.fontScale }), AccessibilityInfo: { announceForAccessibility: (text: string) => scope.announced.push(text) } }));
 vi.mock("expo-router", () => ({ router: { push: scope.push }, useLocalSearchParams: () => scope.params }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id}` }; });
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
@@ -56,6 +56,15 @@ describe("What shows", () => {
     expect(named("Diaper").props.value).toBe(true);
     expect(named("Pumping").props.value).toBe(false);
   });
+  it("gives a long name the whole row at the largest text sizes, so it doesn't break mid-word", async () => {
+    setup([newborn]);
+    scope.fontScale = 3.1;
+    await mount();
+    const row = renderer!.root.findAll((n) => String(n.type) === "Switch")[0].parent!;
+    expect(row.props.style).toMatchObject({ flexDirection: "column" });
+    scope.fontScale = 1;
+  });
+
   it("says plainly that off only hides the button", async () => {
     setup([newborn]);
     await mount();
