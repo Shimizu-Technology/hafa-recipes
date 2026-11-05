@@ -21,6 +21,15 @@ export function withFittingVisit<T extends Pick<BabyRecord, "child_id" | "data">
 }
 export const questionWords = (row: Pick<BabyRecord, "title" | "body">) => row.body.trim() || row.title;
 
+/** What's half-typed on an appointment, outlasting its screen. By account, and in memory only, so it goes when the app closes. */
+const heldWords = new Map<string, Record<string, string>>();
+export const heldDrafts = (key: string) => heldWords.get(key) ?? {};
+export function holdDraft(key: string, target: string, text: string) {
+  const next = { ...heldDrafts(key), [target]: text };
+  heldWords.set(key, next);
+  return next;
+}
+
 function written(id: string, kind: Kind, text: string, visit: Visit, data: RecordData): RecordWrite {
   return { id, kind, title: firstLine(text), body: text.trim(), child_id: visit.child_id, occurred_at: new Date().toISOString(), data: { ...data, event_id: visit.id } };
 }
