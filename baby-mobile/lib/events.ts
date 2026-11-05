@@ -266,6 +266,11 @@ export function eventWrite(draft: EditorDraft): EditorDraft {
   if (edit.scope === "one") return { ...clean, ...edit.series, data: oneDateData(draft, edit) };
   return fromFirst(edit) ? clean : { ...clean, ...edit.series, data: seriesEnding(edit.series, ms(edit.original_start)) };
 }
+/** Moving a whole repeat from its first date: changes to single dates belong to the old dates, so they don't come along. */
+export function movesAwayFromDateChanges(draft: EditorDraft) {
+  const edit = draft.event_edit;
+  return edit?.scope === "future" && fromFirst(edit) && ms(draft.occurred_at) !== ms(edit.original_start) && !!edit.series.data.exceptions?.length;
+}
 /** "All future" moved to before the date it changes from: the old series keeps those dates, so they would show twice. */
 export function startsBeforeSplit(draft: EditorDraft) {
   const edit = draft.event_edit, zone = draft.data.timezone;

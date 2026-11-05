@@ -91,6 +91,8 @@ interface BabyContext {
   error: string;
   syncing: boolean;
   online: boolean;
+  /** The last sync or refresh couldn't reach Håfa. Nothing has gone wrong with her work, which waits on this phone. */
+  unreachable: boolean;
   refresh: () => Promise<void>;
   sync: () => Promise<void>;
   commit: (change: (s: DeviceState) => DeviceState) => Promise<void>;
@@ -127,7 +129,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
     [ready, setReady] = useState(false),
     [error, setError] = useState(""),
     [syncing, setSyncing] = useState(false),
-    [online, setOnline] = useState(true);
+    [online, setOnline] = useState(true),
+    [unreachable, setUnreachable] = useState(false);
   const ref = useRef(state),
     vault = useRef<ReturnType<typeof createDeviceVault> | null>(null),
     serialized = useRef<Promise<unknown>>(Promise.resolve()),
@@ -223,6 +226,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
     setReady(true);
     return true;
   }
+  function noteFailure(e: unknown) {
+    setUnreachable(e instanceof ApiError && e.status === 0);
+    setError(messageFor(e));
+  }
   async function refresh(opening = false) {
     try {
       if (deleting.current) return;
@@ -267,7 +274,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       setError("");
     } catch (e) {
       if (opening) throw e;
-      if (alive.current) setError(messageFor(e));
+      if (alive.current) noteFailure(e);
     }
   }
   async function sync() {
@@ -469,7 +476,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             break;
           }
           if (status === 0 || status === 401) {
-            setError(messageFor(e));
+            noteFailure(e);
             break;
           }
           if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "event_split" || retriedSave(next)) && shouldRetry(status)) {
@@ -522,7 +529,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           }
         }
     } catch (e) {
-      if (current()) setError(messageFor(e));
+      if (current()) noteFailure(e);
     } finally {
       // A failed upload/release must not leave reminders stale on every subsequent sync.
       if (restoreAfterSync) {
@@ -682,6 +689,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         error,
         syncing,
         online,
+        unreachable: unreachable && !!error,
         refresh,
         sync,
         commit,

@@ -108,7 +108,7 @@ export default function Tracker() {
         {(!future || dayEvents.length > 0) && <Copy numeric kind="small" tone="muted">{[!future && summaryLine(overlay(summary?.[day], day)), dayEvents.length > 0 && eventCount(dayEvents.length)].filter(Boolean).join(" · ")}</Copy>}
       </View>
       {day === today && <LegacyTimer />}
-      {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}
+      {!!care.error && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
       {fontScale >= dockBelow && quickLog}
       {timeline.length ? <View style={{ gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>

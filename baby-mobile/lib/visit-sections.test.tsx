@@ -67,6 +67,21 @@ it("opens this baby's doctor summary from the appointment", async () => {
   await act(async () => { renderer!.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.title === "Doctor summary")!.props.onPress(); });
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "mia" } });
 });
+it("keeps a half-typed question and note when she leaves the appointment and comes back", async () => {
+  setup([]);
+  const visit = { id: "left-and-back", child_id: "mia" }, field = (label: string) => all("Field").find((n) => n.props.label === label)!;
+  await mount(<VisitSections visit={visit} />);
+  await act(async () => { field("Add a question for the doctor").props.onChange("Is a tarry"); });
+  await act(async () => { field("In your words").props.onChange("She said to"); });
+  await act(async () => renderer!.unmount());
+  await mount(<VisitSections visit={visit} />);
+  expect(field("Add a question for the doctor").props.value).toBe("Is a tarry");
+  expect(field("In your words").props.value).toBe("She said to");
+  await act(async () => renderer!.unmount());
+  await mount(<VisitSections visit={{ id: "another-visit", child_id: "mia" }} />);
+  expect(field("Add a question for the doctor").props.value).toBe("");
+});
+
 it("doesn't save an empty question, and its button says so", async () => {
   const b = setup([]);
   await mount(<VisitQuestions visit={{ id: "visit", child_id: null }} />);

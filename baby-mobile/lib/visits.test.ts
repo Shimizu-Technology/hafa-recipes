@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EventOccurrence, type RecordData } from "./models";
-import { looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withFittingVisit, withVisitRows } from "./visits";
+import { heldDrafts, holdDraft, looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withFittingVisit, withVisitRows } from "./visits";
 
 const guam = "Pacific/Guam", isQuestion = (item: BabyRecord) => item.kind === "question";
 const row = (id: string, kind: BabyRecord["kind"], data: RecordData = {}, occurred_at = "2026-11-01T00:00:00Z", body = "") => optimisticRecord({ id, kind, title: id, body, child_id: null, occurred_at, data });
 const when = (id: string, at: string, category: EventOccurrence["category"] = "appointment"): EventOccurrence => ({ event_id: id, original_start: at, occurrence_start: at, occurrence_end: null, all_day: false, timezone: guam, title: id, category, location: null, attendees: [], child_id: null, repeats: false, changed: false, revision: 1 });
+
+describe("half-typed words on an appointment", () => {
+  it("are still there when its screen opens again, for that visit and account", () => {
+    holdDraft("kami:question", "visit:mia", "Is a tarry");
+    holdDraft("kami:question", "other:mia", "Another");
+    expect(heldDrafts("kami:question")).toEqual({ "visit:mia": "Is a tarry", "other:mia": "Another" });
+    expect(heldDrafts("kami:note")).toEqual({});
+    expect(heldDrafts("leon:question")).toEqual({});
+  });
+  it("clear once they're saved", () => {
+    holdDraft("kami:question", "visit:mia", "");
+    expect(heldDrafts("kami:question")["visit:mia"]).toBe("");
+  });
+});
 
 describe("what belongs to a visit", () => {
   const rows = [row("q1", "question", { event_id: "visit" }, "2026-11-02T00:00:00Z"), row("q2", "question", { event_id: "visit" }, "2026-11-01T00:00:00Z"), row("other", "question", { event_id: "another" }), row("loose", "question"),
