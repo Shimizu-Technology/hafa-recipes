@@ -38,7 +38,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="What’s happening?" />
-    {!draft.existing && quick && <FilterChips label="Suggestions" value={selectedSuggestion(draft)} options={[...quickEvents, ...used].map(({ title }) => ({ label: title, value: title }))}
+    {!draft.existing && quick && <FilterChips label="Suggestions" value={selectedSuggestion(draft)} options={[quickEvents[0], ...used, ...quickEvents.slice(1)].map(({ title }) => ({ label: title, value: title }))}
       onChange={(title) => change(quickEvent(draft, title, used))} />}
     {data.all_day
       ? <DateField label="When" dateOnly value={key} onChange={(day) => change({ occurred_at: zonedInstant(day, 0, 0, zone).toISOString() })} trailing={<AllDay on onPress={() => change(allDayChanged(draft, false))} />} />
@@ -50,7 +50,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
         onChange={(frequency) => set({ recurrence: frequency ? { ...rule, interval: rule?.frequency === frequency ? rule.interval : 1, frequency: frequency as EventRecurrence["frequency"] } : null })} />}
       {!one && rule && <DateField label="Repeat until (optional)" dateOnly optional value={rule.until} onChange={(until) => set({ recurrence: { ...rule, until: until || null } })} />}
       <Copy kind="small">Category</Copy>
-      <FilterChips label="Category" value={data.category ?? "other"} options={eventCategories.map(({ value, label }) => ({ value, label, dot: c.categories?.[value] }))}
+      <FilterChips wrap label="Category" value={data.category ?? "other"} options={eventCategories.map(({ value, label }) => ({ value, label, dot: c.categories?.[value] }))}
         onChange={(category) => set({ category: category as EventCategory })} />
       <Field label="Location (optional)" value={data.location ?? ""} maxLength={240} onChange={(location) => set({ location })} placeholder="Clinic, church, grandma’s house…" />
       <Field label="Who’s coming (optional)" value={people} onChange={(typed) => { setPeople(typed); set({ attendees: attendeesFrom(typed) }); }} placeholder="Grandma, Auntie Rose" />
