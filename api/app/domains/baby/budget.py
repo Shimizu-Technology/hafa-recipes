@@ -13,6 +13,7 @@ from app.db.database import AsyncSessionLocal
 from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyAIAdmission
 from app.domains.workouts.budget import (
+    AUTHORIZED_CAP_MICROUSD,
     BudgetError,
     BudgetPolicy,
     ProviderEnvelope,
@@ -151,7 +152,8 @@ def upper_bound(capability, model, *, images=False, duration=None):
         envelope,
         BudgetPolicy(
             enabled=True,
-            budget_24h_microusd=GLOBAL_DAILY_CAP,
+            # Only here to reuse the pricing check. Baby's own ceilings are enforced in reserve, on its own ledger.
+            budget_24h_microusd=min(GLOBAL_DAILY_CAP, AUTHORIZED_CAP_MICROUSD),
             model_pricing=get_settings().ai_model_pricing,
         ),
     )

@@ -25,6 +25,7 @@ from app.domains.baby.budget import (
 from app.domains.baby.models import BabyAIAdmission
 from app.domains.baby.provider import BabyProvider
 from app.domains.workouts.budget import (
+    AUTHORIZED_CAP_MICROUSD,
     BudgetError,
     BudgetPolicy,
     ProviderEnvelope,
@@ -109,7 +110,7 @@ def test_a_question_cannot_research_without_end():
 def test_workouts_still_refuses_the_new_models():
     envelope = ProviderEnvelope(endpoint="chat_completions", max_output_tokens=100)
     policy = BudgetPolicy(
-        enabled=True, budget_24h_microusd=GLOBAL_DAILY_CAP,
+        enabled=True, budget_24h_microusd=min(GLOBAL_DAILY_CAP, AUTHORIZED_CAP_MICROUSD),
         model_pricing=get_settings().ai_model_pricing,
     )
     for model in budget.BABY_MODEL_PRICES:
