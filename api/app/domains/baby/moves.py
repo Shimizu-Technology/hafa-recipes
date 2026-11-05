@@ -27,6 +27,13 @@ from app.domains.baby.models import (
 )
 from app.domains.baby.share_models import BabyShareCapture, BabyShareCredential
 
+# Logs about the person, not a baby: `about: "her"` in baby-mobile/lib/trackers.ts. They stay with her.
+HER_LOG_LABELS = frozenset({"How I'm feeling", "My weight", "Blood pressure", "Vitamins and medicine"})
+
+
+def her_log(row):
+    return row.kind == "custom" and row.child_id is None and row.data.get("label") in HER_LOG_LABELS
+
 
 async def require_contract(db):
     if not await db.scalar(text("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=58)")):
@@ -252,7 +259,7 @@ async def create_family(db, access):
     rows = list(await db.scalars(select(BabyRecord).where(
         BabyRecord.space_id == personal.id, BabyRecord.generation == personal.generation,
         BabyRecord.deleted_at.is_(None)).order_by(BabyRecord.id)))
-    moving = [row for row in rows if row.kind != "journal" and not row.data.get("just_me")]
+    moving = [row for row in rows if row.kind != "journal" and not row.data.get("just_me") and not her_log(row)]
     children = list(await db.scalars(select(BabyChild).where(
         BabyChild.space_id == personal.id, BabyChild.generation == personal.generation,
         BabyChild.deleted_at.is_(None)).order_by(BabyChild.id)))
