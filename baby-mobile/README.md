@@ -51,6 +51,12 @@ Reassess after dependency/navigation/signing changes. Web is a preview/export
 surface with memory-only state, not the supported release target.
 
 
+## Dependency review renewal — 2026-11-05
+
+Expo's newer SDK 57 patches (Expo 57.0.32, Router 57.0.30, notifications 57.0.25 and six others) made
+`expo-doctor` fail in CI with no change here. This takes those patches. The runtime audit reports the same
+reviewed advisories and 0 unexpected, so reachability is unchanged. The window still expires **2026-11-17T00:00:00Z**.
+
 ## Dependency review renewal — 2026-10-24
 
 minimatch GHSA advisory 1244623 (Nov 2026, globparts amplification) has the same reachability as the earlier minimatch finding: only `@expo/fingerprint` and `glob` use it, in Expo build tooling on our own file patterns, and it's absent from the native bundle.
