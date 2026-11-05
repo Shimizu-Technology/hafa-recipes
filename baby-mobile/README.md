@@ -51,6 +51,33 @@ Reassess after dependency/navigation/signing changes. Web is a preview/export
 surface with memory-only state, not the supported release target.
 
 
+## Dependency review renewal — 2026-11-06
+
+Re-checked each advisory from `origin/main` at `ff862204` with a fresh audit and the registry. Fixes first, then a renewal to
+**2027-01-15T00:00:00Z** for what can't be fixed safely. The date clears the December 3 freeze and the December 10 due date.
+
+Gone from the exceptions:
+
+- `zod:1243066` (high): fixed. Only `abitype`'s optional peer still declares it, so it's out of the lock.
+- `deepmerge:1243505`: fixed by the Expo patch taken on 2026-11-05. `@expo/config` no longer uses it.
+- `braces:1240992`: its advisory was withdrawn on 2026-10-23.
+- `minimatch:1244012`: the registry now reports the same advisory as `1244623`.
+
+Renewed, with why:
+
+- `decode-uri-component:1147955` and `1243857` (high): the only patched decoder, 0.5.1, is default-only ESM. Required the way
+  query-string 7.1.3 requires it, `decodeComponent` isn't a function, so an override breaks parsing. Router 57.0.30 still needs
+  query-string 7, and Router 58 drops it, so the real fix is the SDK 58 upgrade, which doesn't belong before the freeze. The
+  active Router fork uses URLSearchParams and `+native-intent` still bounds incoming paths. The join link adds no decoder
+  path: `+native-intent` takes the code out and routes to `/join`, with no query.
+- `glob:1244013` and `minimatch:1244623`: only `@expo/fingerprint` 0.20.15 still uses them (glob 13.0.6, minimatch 10.2.6), and
+  the fixes are majors it doesn't allow. Fingerprint 0.21.9 on SDK 58 asks for the same ranges, so this waits on Expo. It reads
+  developer-controlled paths during builds, and neither package is in the native bundles.
+
+Fresh audit: 9 inherited findings, 4 reviewed advisories, zero critical, zero unexpected. Reviewed lock SHA-256:
+`f3c959b5baac3c55a36a41b0065ea1efc9d73cb19534dcd94e840973c79507eb`. `npm ci`, tests, typecheck, doctor, audit, exports and the
+native bundle check pass on Node 22.22.2.
+
 ## Dependency review renewal — 2026-11-05
 
 Expo's newer SDK 57 patches (Expo 57.0.32, Router 57.0.30, notifications 57.0.25 and six others) made

@@ -4,12 +4,12 @@ import { createHash } from "node:crypto";
 
 // Exact reviewed dependency tree: any lock change requires renewed reachability
 // assessment. These are temporary documented exceptions, not security fixes.
-const reviewedLock = "9af7bbd5b0cab5ec2d6ccc9684d28d78d5c0b2a8eed075d0d807997e3acee2d9";
+const reviewedLock = "d13203582bbab24842156098356708deb773f4240126a246efd47c27995ccdd6";
 // Expo CLI/config/fingerprint and Metro file matching; absent from native bundles.
-const reviewed = new Set(["braces:1240992", "decode-uri-component:1147955", "decode-uri-component:1243857", "deepmerge:1243505", "glob:1244013", "minimatch:1244012", "minimatch:1244623", "zod:1243066", "stream-json:1164823", "stream-json:1241262", "stream-json:1241263"]);
+const reviewed = new Set(["decode-uri-component:1147955", "decode-uri-component:1243857", "glob:1244013", "minimatch:1244623", "stream-json:1164823", "stream-json:1241262", "stream-json:1241263"]);
 const lock = readFileSync(new URL("../package-lock.json", import.meta.url));
 const now = Date.now();
-if (createHash("sha256").update(lock).digest("hex") !== reviewedLock || now < Date.parse("2026-10-24T00:00:00Z") || now >= Date.parse("2026-11-17T00:00:00Z")) {
+if (createHash("sha256").update(lock).digest("hex") !== reviewedLock || now < Date.parse("2026-10-24T00:00:00Z") || now >= Date.parse("2027-01-15T00:00:00Z")) {
   throw new Error("Workouts dependency review changed or expired; renew NATIVE_DEPENDENCY_REACHABILITY.md before accepting inherited findings.");
 }
 const result = spawnSync("npm", ["audit", "--omit=dev", "--json"], { encoding: "utf8", maxBuffer: 20*1024*1024 });
@@ -23,4 +23,4 @@ for (const [name, finding] of Object.entries(report.vulnerabilities)) {
   }
 }
 if (report.metadata.vulnerabilities.critical || unexpected.length) throw new Error(`Unexpected dependency advisories: ${unexpected.join("; ")}`);
-console.log(`Workouts audit: ${report.metadata.vulnerabilities.total} inherited findings; ${reviewed.size} reviewed advisories;0 unexpected. Temporary reachability exceptions expire2026-11-17.`);
+console.log(`Workouts audit: ${report.metadata.vulnerabilities.total} inherited findings; ${reviewed.size} reviewed advisories;0 unexpected. Temporary reachability exceptions expire 2027-01-15.`);

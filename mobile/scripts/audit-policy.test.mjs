@@ -51,11 +51,8 @@ describe('mobile runtime audit policy', () => {
 const reviewedAt = Date.parse('2026-10-24T12:00:00Z');
 const buildToolAdvisories = [
   { packageName: 'decode-uri-component', source: 1243857, parent: 'node_modules/query-string' },
-  { packageName: 'deepmerge', source: 1243505, parent: 'node_modules/@expo/config' },
-  { packageName: 'zod', source: 1243066, parent: 'node_modules/abitype' },
-  { packageName: 'braces', source: 1240992, parent: 'node_modules/micromatch' },
-  { packageName: 'glob', source: 1244013, parent: 'node_modules/@expo/cli' },
-  { packageName: 'minimatch', source: 1244012, parent: 'node_modules/glob' },
+  { packageName: 'glob', source: 1244013, parent: 'node_modules/@expo/fingerprint' },
+  { packageName: 'minimatch', source: 1244623, parent: 'node_modules/@expo/fingerprint' },
   { packageName: 'minimatch', source: 1244623, parent: 'node_modules/glob' },
 ];
 
@@ -66,11 +63,11 @@ describe.each(buildToolAdvisories)('$packageName temporary dependency review', (
 
   it('accepts only the reviewed tree before its existing expiry', () => {
     expect(accepted()).toBe(true);
-    expect(accepted(lockfile, Date.parse('2026-11-16T23:59:59.999Z'))).toBe(true);
+    expect(accepted(lockfile, Date.parse('2027-01-14T23:59:59.999Z'))).toBe(true);
   });
 
   it('rejects expiry, dates before review, and invalid clocks', () => {
-    for (const now of [Date.parse('2026-11-17T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), NaN]) {
+    for (const now of [Date.parse('2027-01-15T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), NaN]) {
       expect(accepted(lockfile, now)).toBe(false);
     }
   });
@@ -104,14 +101,13 @@ describe.each(buildToolAdvisories)('$packageName temporary dependency review', (
 
   it('rejects changed dependency ranges and dependency kinds', () => {
     const rangeChanged = structuredClone(lockfile);
-    const kind = advisory.packageName === 'zod' ? 'peerDependencies' : 'dependencies';
-    rangeChanged.packages[advisory.parent][kind][advisory.packageName] = '*';
+    rangeChanged.packages[advisory.parent].dependencies[advisory.packageName] = '*';
     expect(accepted(rangeChanged)).toBe(false);
     const kindChanged = structuredClone(lockfile);
     kindChanged.packages[advisory.parent].optionalDependencies = {
-      [advisory.packageName]: kindChanged.packages[advisory.parent][kind][advisory.packageName],
+      [advisory.packageName]: kindChanged.packages[advisory.parent].dependencies[advisory.packageName],
     };
-    delete kindChanged.packages[advisory.parent][kind][advisory.packageName];
+    delete kindChanged.packages[advisory.parent].dependencies[advisory.packageName];
     expect(accepted(kindChanged)).toBe(false);
   });
 
@@ -123,10 +119,16 @@ describe.each(buildToolAdvisories)('$packageName temporary dependency review', (
   });
 });
 
-it('rejects a newly declared micromatch runtime path for the braces exception', () => {
+it('rejects a change to the patched glob the other Expo packages use', () => {
   const changed = structuredClone(lockfile);
-  changed.packages[''].dependencies.micromatch = '^4.0.8';
-  expect(isAcceptedAdvisory({ packageName: 'braces', source: 1240992, lockfile: changed, now: reviewedAt })).toBe(false);
+  changed.packages['node_modules/@expo/cli/node_modules/glob'].version = '13.0.0';
+  expect(isAcceptedAdvisory({ packageName: 'glob', source: 1244013, lockfile: changed, now: reviewedAt })).toBe(false);
+});
+
+it.each([
+  ['deepmerge', 1243505], ['zod', 1243066], ['braces', 1240992], ['minimatch', 1244012],
+])('no longer accepts %s %i, which is fixed or withdrawn', (packageName, source) => {
+  expect(isAcceptedAdvisory({ packageName, source, lockfile, now: reviewedAt })).toBe(false);
 });
 
 
@@ -136,7 +138,8 @@ describe.each([1164823, 1241262, 1241263])('stream-json advisory %s constrained 
 
   it('accepts the exact reviewed native wallet path and expires without renewal', () => {
     expect(accepted()).toBe(true);
-    expect(accepted(lockfile, Date.parse('2026-11-17T00:00:00Z'))).toBe(false);
+    expect(accepted(lockfile, Date.parse('2026-11-17T00:00:00Z'))).toBe(true);
+    expect(accepted(lockfile, Date.parse('2027-01-15T00:00:00Z'))).toBe(false);
     expect(accepted(lockfile, Date.parse('2026-10-23T23:59:59Z'))).toBe(false);
     expect(accepted(lockfile, NaN)).toBe(false);
   });
@@ -164,27 +167,6 @@ describe.each([1164823, 1241262, 1241263])('stream-json advisory %s constrained 
     duplicate.packages['node_modules/new-parent/node_modules/stream-json'] = structuredClone(duplicate.packages['node_modules/stream-json']);
     expect(accepted(duplicate)).toBe(false);
   });
-});
-
-
-describe('Zod wallet and CLI parent constraints', () => {
-  const accepted = (candidate) => isAcceptedAdvisory({ packageName: 'zod', source: 1243066,
-    lockfile: candidate, now: Date.parse('2026-10-24T12:00:00Z') });
-  it.each(['expo', '@expo/cli', '@clerk/expo', '@clerk/clerk-js', '@base-org/account', '@coinbase/wallet-sdk',
-    'ox', 'viem', 'abitype', 'viem/node_modules/abitype', 'viem/node_modules/ox'])(
-    'rejects changed intermediate metadata for %s', (name) => {
-      for (const field of ['version', 'integrity']) {
-        const changed = structuredClone(lockfile);
-        changed.packages[`node_modules/${name}`][field] += '-changed';
-        expect(accepted(changed)).toBe(false);
-      }
-    });
-  it.each(['expo', '@expo/cli', '@clerk/expo', '@clerk/clerk-js', '@base-org/account', '@coinbase/wallet-sdk', 'ox', 'viem', 'abitype'])(
-    'rejects new declarations of intermediate %s', (name) => {
-      const changed = structuredClone(lockfile);
-      changed.packages['node_modules/new-runtime-parent'] = { dependencies: { [name]: '*' } };
-      expect(accepted(changed)).toBe(false);
-    });
 });
 
 
