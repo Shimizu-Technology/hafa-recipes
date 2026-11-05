@@ -69,7 +69,8 @@ export function TrackerMonth({ today, day, childId, birthDate, onPick, onOpen, c
       <PressTarget accessibilityRole="button" accessibilityLabel="Previous month" onPress={() => setMonth(stepMonth(month, -1))} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
         <Icon name="chevron-back" size={22} color={c.text} />
       </PressTarget>
-      <View style={{ flex: 1, alignItems: "center" }}><Copy kind="heading" align="center">{label}</Copy></View>
+      {/* A month is one line whatever the text size: at the largest it broke mid-word and pushed the days off the screen. */}
+      <View style={{ flex: 1, alignItems: "center" }}><Copy kind="heading" align="center" lines={1} limit={1.3}>{label}</Copy></View>
       <PressTarget accessibilityRole="button" accessibilityLabel="Next month" onPress={() => setMonth(stepMonth(month, 1))} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
         <Icon name="chevron-forward" size={22} color={c.text} />
       </PressTarget>
@@ -102,7 +103,8 @@ export function TrackerMonth({ today, day, childId, birthDate, onPick, onOpen, c
         <Text key={fontScale} maxFontSizeMultiplier={1.3} style={{ fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.muted }}>{categoryName(kind)}</Text>
       </View>)}
     </View>}
-    {error && <Notice>Showing what’s on this phone. Older dots will come back when you reconnect.</Notice>}
+    {/* The line at the top of the page already says it's offline. */}
+    {error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. Older dots will come back when you reconnect.</Notice>}
     {children}
     {jumps.length > 0 && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {jumps.map((jump) => <PressTarget key={jump.label} accessibilityRole="button" accessibilityLabel={`${jump.label}, ${friendlyDate(jump.key)}`} accessibilityHint="Opens that day" onPress={() => onOpen(jump.key)}

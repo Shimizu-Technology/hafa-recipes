@@ -222,3 +222,10 @@ it("shows what it's given under the grid, above First log", async () => {
   await act(async () => { renderer = create(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} onPick={onPick}>{React.createElement("Selected")}</TrackerMonth>); });
   expect(renderer!.root.findAll((n) => String(n.type) === "Selected")).toHaveLength(1);
 });
+it("says it's showing what's on the phone only when nothing else on the page does", async () => {
+  setup();
+  mock.baby.api.records = vi.fn(async () => { throw new TypeError("offline"); });
+  mock.baby.online = false;
+  await mount();
+  expect(renderer!.root.findAll((n) => String(n.type) === "Notice")).toHaveLength(0);
+});
