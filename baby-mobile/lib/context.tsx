@@ -290,6 +290,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
     const lease = api.lease();
     try {
       for (let page = 0; page < changePagesPerPass; page++) {
+        // A long first snapshot doesn't carry on once she's left, or under another account.
+        if (!current() || closing.current || deleting.current || AppState.currentState === "background") return;
         const held = ref.current.changes, answer = await api.changes(held?.cursor ?? {}, held?.access ?? {});
         let result: ReturnType<typeof applyChanges> | undefined;
         await commit((s) => { result = applyChanges(s, answer); return result.state; }, lease);

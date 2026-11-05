@@ -1344,6 +1344,33 @@ describe("fetching the other phone's changes", () => {
     expect(at).toBe(25);
     expect(baby.state.changes?.cursor.p).toBe(25);
   });
+  it("stops paging once the app goes to the background during a first snapshot", async () => {
+    setup(live);
+    const { AppState } = await import("react-native");
+    let at = 0;
+    mock.api.changes.mockImplementation(async () => {
+      at++;
+      if (at === 1) (AppState as { currentState: string }).currentState = "background";
+      return { ...quiet, has_more: true, cursor: { p: at }, spaces: [{ ...quiet.spaces[0], has_more: true, cursor: at }] };
+    });
+    try {
+      await mount(); await flush(); await flush();
+      expect(at).toBe(1);
+      expect(baby.state.changes?.cursor.p).toBe(1);
+    } finally { (AppState as { currentState: string }).currentState = "active"; }
+  });
+  it("stops paging when the account has changed", async () => {
+    setup(live);
+    let at = 0;
+    mock.api.changes.mockImplementation(async () => {
+      at++;
+      if (at === 1) await act(async () => { renderer?.unmount(); });
+      return { ...quiet, has_more: true, cursor: { p: at }, spaces: [{ ...quiet.spaces[0], has_more: true, cursor: at }] };
+    });
+    await mount(); await flush();
+    expect(at).toBe(1);
+    renderer = undefined;
+  });
   it("stops rather than spinning if an answer says there's more without moving on", async () => {
     setup(live);
     mock.api.changes.mockImplementation(async () => ({ ...quiet, has_more: true, spaces: [{ ...quiet.spaces[0], has_more: true }] }));
