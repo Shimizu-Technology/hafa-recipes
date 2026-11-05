@@ -405,7 +405,7 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
     job_access = replace(access, spaces=access.member_spaces) if access.enabled else access
     values = {
         **Profile.model_validate(member.profile).model_dump(),
-        **body.model_dump(exclude_unset=True),
+        **body.model_dump(exclude_unset=True, exclude={"ai_consent_version", "acknowledge_ai_consent_version"}),
     }
     try:
         profile = Profile.model_validate(values)

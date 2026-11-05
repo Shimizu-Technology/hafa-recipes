@@ -44,6 +44,9 @@ class DomainModel(BaseModel):
 
 
 class Profile(DomainModel):
+    # Read back from stored JSON, so a release rolled back to must still open what a later one saved.
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
     family_disclosures: list[dict] = Field(default_factory=list, exclude_if=lambda value: not value)
     display_name: str = Field(default="", max_length=120)
     timezone: str = Field(default="Pacific/Guam", max_length=80)
@@ -68,6 +71,9 @@ class ProfilePatch(DomainModel):
     timezone: str | None = Field(default=None, max_length=80)
     ai_consent: StrictBool | None = None
     auto_process_shares: StrictBool | None = None
+    # A later app may send these. This release has no use for them, and must not refuse its save.
+    ai_consent_version: object = None
+    acknowledge_ai_consent_version: object = None
 
 
 TrackerId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]
