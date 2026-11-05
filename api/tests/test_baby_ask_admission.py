@@ -327,3 +327,8 @@ async def test_twelve_at_once_for_the_last_of_the_ceiling_admit_exactly_one(baby
 
 def test_the_ceilings_are_six_dollars_a_person_and_ten_overall():
     assert (budget.OWNER_DAILY_CAP, budget.GLOBAL_DAILY_CAP) == (6_000_000, 10_000_000)
+
+
+def test_the_safety_check_counts_as_ask_in_budget_and_attempts():
+    # Two checks on top of up to five tool rounds and a final answer, for fifty questions a day.
+    assert "baby_safety" in budget.ASK_CAPABILITIES and budget.ASK_MAX_ATTEMPTS == 400

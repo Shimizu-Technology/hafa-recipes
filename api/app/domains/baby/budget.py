@@ -44,10 +44,10 @@ BABY_MODEL_PRICES = {
 }
 # Priced so an evaluation can state its cost. It has no adapter or consent text in production.
 EVAL_ONLY_MODELS = frozenset({"claude-haiku-5-5"})
-ASK_CAPABILITIES = ("baby_ask", "baby_research")
+ASK_CAPABILITIES = ("baby_ask", "baby_research", "baby_safety")
 # Dollars are one ceiling across every Baby capability. Attempts are counted apart, since an Ask
 # question is several small calls and shouldn't use up the attempts imports count on.
-ASK_MAX_ATTEMPTS = 300  # 50 questions a day, each up to 5 tool rounds and a final answer.
+ASK_MAX_ATTEMPTS = 400  # 50 questions a day, each up to 5 tool rounds, a final answer and 2 safety checks.
 MAX_TOOL_ROUNDS = 5
 MAX_RESEARCH_CALLS = 1
 SEARCH_CALL_MICROUSD = 10_000  # $10 per 1,000 calls; content tokens are billed as input.
