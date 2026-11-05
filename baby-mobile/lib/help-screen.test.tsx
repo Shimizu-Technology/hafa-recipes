@@ -62,8 +62,7 @@ it("keeps CDC's sentences word for word", () => {
   expect(cdcUrgentSigns[5].title).toBe("Thoughts about harming yourself or your baby");
 });
 
-it("says the maternal hotline's connection from Guam isn't confirmed, until a Guam test is recorded", async () => {
-  await mount();
+it("says the maternal hotline's connection from Guam isn't confirmed, until a Guam test is recorded", () => {
   const hotline = helpLines.find((line) => line.name === "National Maternal Mental Health Hotline")!;
   expect(hotline.note).toMatch(/Guam/);
   expect(copy()).toContain(hotline.note);

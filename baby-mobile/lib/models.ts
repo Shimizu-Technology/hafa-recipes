@@ -346,7 +346,8 @@ export interface Conversation {
   messages?: ChatMessage[];
 }
 export interface ChatResult {
-  conversation_id: string;
+  /** Null only when an urgent reply couldn't be kept in the chat: she still gets the reply. */
+  conversation_id: string | null;
   message: string;
   citations: Citation[];
   proposal?: Proposal;

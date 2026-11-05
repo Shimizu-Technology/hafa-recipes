@@ -350,3 +350,13 @@ it("leaves History on Send so the pending conversation and answer are visible", 
   expect(result.showHistory).toBe(false);
   expect(result.messages.map(message => message.content)).toEqual(["Find my packing notes", "Your packing notes are here."]);
 });
+
+it("shows an urgent reply that couldn't be saved, and the next question starts a new chat", async () => {
+  const account = setup();
+  account.api.chat.mockResolvedValueOnce({ conversation_id: null, message: "Call 911", citations: [], help: "baby_unwell" } as never);
+  await mount();
+  await question("My baby is not breathing");
+  await act(async () => { await result.send(); });
+  expect(result.messages[1]).toMatchObject({ content: "Call 911", help: "baby_unwell" });
+  expect(result.conversation).toBeUndefined();
+});
