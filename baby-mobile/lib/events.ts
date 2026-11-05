@@ -1,13 +1,39 @@
+import type { ColorValue } from "react-native";
 import type { BabyRecord, DeviceState, EditorDraft, EventCategory, EventEdit, EventException, EventOccurrence, EventOverrides, EventRecurrence, RecordData, RecordWrite } from "./models";
 import { mutationRecordIds, pendingRecords } from "./outbox";
 import { addDays, clockIn, keyDate, recordDay, zonedInstant, zoneParts } from "./tracker";
 
 export const eventCategories: { value: EventCategory; label: string }[] = [
-  { value: "appointment", label: "Appointment" }, { value: "family", label: "Family" }, { value: "celebration", label: "Celebration" },
+  { value: "appointment", label: "Doctor’s appointment" }, { value: "family", label: "Family" }, { value: "celebration", label: "Celebration" },
   { value: "milestone", label: "Milestone" }, { value: "reminder", label: "Reminder" }, { value: "other", label: "Other" },
 ];
 export const categoryName = (category?: EventCategory | null) => eventCategories.find((item) => item.value === category)?.label ?? "Other";
-export interface EventSuggestion { title: string; category: EventCategory; timed?: boolean; repeat?: EventRecurrence }
+/** What it is, in her words or ours, or nothing: most things on a calendar don't need a type. An older build that changes the category changes what shows. */
+export const eventKindName = ({ category, category_label }: { category?: EventCategory | null; category_label?: string | null }) =>
+  !category || category === "other" ? category_label?.trim() || "" : categoryName(category);
+/** Hers, typed once and offered again: newest first, once each. */
+export function herCategories(rows: readonly BabyRecord[]) {
+  const seen = new Set<string>(), named: string[] = [];
+  for (const row of [...rows].filter((item) => item.kind === "event").sort((x, y) => y.updated_at.localeCompare(x.updated_at))) {
+    const label = row.data.category_label?.trim(), key = label?.toLocaleLowerCase();
+    if (label && !seen.has(key!)) { seen.add(key!); named.push(label); }
+  }
+  return named;
+}
+const labelValue = (label: string) => `label:${label}`;
+export const categoryValue = ({ category, category_label }: Pick<RecordData, "category" | "category_label">) =>
+  !category || category === "other" ? (category_label?.trim() ? labelValue(category_label.trim()) : "") : category;
+/** The core ones and hers. There's no Other: choosing nothing is fine. */
+export function categoryChoices(labels: readonly string[], colors: Partial<Record<EventCategory, ColorValue>> = {}) {
+  return [...eventCategories.filter(({ value }) => value !== "other").map(({ value, label }) => ({ value: value as string, label, dot: colors[value] })),
+    ...labels.map((label) => ({ value: labelValue(label), label, dot: undefined }))];
+}
+/** One or the other, and choosing what's chosen takes it back. */
+export function chooseCategory(data: RecordData, value: string): Pick<RecordData, "category" | "category_label"> {
+  if (!value || value === categoryValue(data)) return { category: "other", category_label: null };
+  return value.startsWith("label:") ? { category: "other", category_label: value.slice(6) } : { category: value as EventCategory, category_label: null };
+}
+export interface EventSuggestion { title: string; category: EventCategory; category_label?: string | null; timed?: boolean; repeat?: EventRecurrence }
 /** A doctor's appointment is a choice of its own: it's what brings questions, what the doctor said, and Book next. */
 export const doctorVisit = "Doctor’s appointment";
 /** The kinds she named, ready in one tap. Birthdays come round again by themselves. */
@@ -22,7 +48,7 @@ export function usedEventNames(rows: readonly BabyRecord[], count = 6): EventSug
     const title = row.title.trim(), key = title.toLocaleLowerCase();
     if (!title || seen.has(key)) continue;
     seen.add(key);
-    named.push({ title, category: row.data.category ?? "other", timed: row.data.all_day === false });
+    named.push({ title, category: row.data.category ?? "other", category_label: row.data.category_label, timed: row.data.all_day === false });
   }
   return named.slice(0, count);
 }
@@ -102,6 +128,7 @@ function shaped(row: Series, original: number, change?: EventException): EventOc
   }
   return { event_id: row.id, original_start: iso(original), occurrence_start: iso(begin), occurrence_end: end === null ? null : iso(end), all_day: allDay,
     timezone: zone ?? "", title: changes.title ?? row.title, category: changes.category === undefined ? data.category ?? null : changes.category,
+    category_label: changes.category_label === undefined ? data.category_label ?? null : changes.category_label,
     location: changes.location === undefined ? data.location ?? null : changes.location, attendees: changes.attendees ?? data.attendees ?? [],
     child_id: row.child_id, repeats: !!data.recurrence, changed: Object.keys(changes).length > 0, revision: row.revision };
 }
@@ -220,9 +247,9 @@ export function quickEvent(draft: EditorDraft, title: string, used: readonly Eve
   const pick = [...quickEvents, ...used].find((item) => item.title === title)!, was = quickEvents.find((item) => item.title === draft.title), doctor = title === doctorVisit,
     keepsName = doctor && !!draft.title.trim() && !was;
   if (selectedSuggestion(draft) === title)
-    return { title: keepsName ? draft.title : "", data: { ...draft.data, category: "other", ...(was?.repeat ? { recurrence: null } : {}) } };
+    return { title: keepsName ? draft.title : "", data: { ...draft.data, category: "other", category_label: null, ...(was?.repeat ? { recurrence: null } : {}) } };
   const timing = pick.timed && draft.data.all_day ? allDayChanged(draft, false) : {};
-  return { title: keepsName ? draft.title : title, ...timing, data: { ...draft.data, ...timing.data, category: pick.category, ...(pick.repeat ? { recurrence: pick.repeat } : was?.repeat ? { recurrence: null } : {}) } };
+  return { title: keepsName ? draft.title : title, ...timing, data: { ...draft.data, ...timing.data, category: pick.category, category_label: pick.category_label ?? null, ...(pick.repeat ? { recurrence: pick.repeat } : was?.repeat ? { recurrence: null } : {}) } };
 }
 /** Who's coming, as she typed them: split on commas, each name once, as the API holds them. */
 export function attendeesFrom(typed: string) {
@@ -254,7 +281,7 @@ export const detailsSet = (draft: Pick<EditorDraft, "body" | "data">, remindersO
 /** The same, in one line, for when it's shut: nothing is ever hidden without a word. Until reminders are on, one she has stays kept and unsaid. */
 export function detailsLine({ body, data }: Pick<EditorDraft, "body" | "data">, remindersOn = false) {
   const reminders = remindersOn ? data.reminder_minutes ?? [] : [], people = data.attendees ?? [];
-  return [data.recurrence && repeatName(data.recurrence), data.location?.trim(), people.length && `With ${people.join(", ")}`,
+  return [eventKindName(data), data.recurrence && repeatName(data.recurrence), data.location?.trim(), people.length && `With ${people.join(", ")}`,
     reminders.length === 1 ? reminderName(reminders[0], !!data.all_day) : reminders.length > 1 && `${reminders.length} reminders`, body.trim() && "Note"].filter(Boolean).join(" · ");
 }
 /** A new day for a new event, at the same time of day. */
@@ -277,9 +304,12 @@ export function occurrenceDraft(row: BabyRecord, at: string, scope: "one" | "fut
     return { title: row.title, occurred_at: regular.occurrence_start, data: { ...row.data, end: row.data.end ? regular.occurrence_end : null }, event_edit: edit };
   }
   const shown = shaped(row, original, changeAt(row.data, original));
-  return { title: shown.title, occurred_at: shown.occurrence_start, data: { ...row.data, all_day: shown.all_day, category: shown.category, location: shown.location, attendees: shown.attendees, end: null }, event_edit: edit };
+  return { title: shown.title, occurred_at: shown.occurrence_start, data: { ...row.data, all_day: shown.all_day, category: shown.category, category_label: shown.category_label ?? null, location: shown.location, attendees: shown.attendees, end: null }, event_edit: edit };
 }
 const placeOf = (data: RecordData) => data.location?.trim() || null;
+const labelOf = (data: RecordData) => data.category_label?.trim() || null;
+/** Typed text, trimmed. A label stays out altogether until there's one, so an event with none looks as it always did. */
+const cleaned = (data: RecordData): RecordData => ({ ...data, location: placeOf(data), ...("category_label" in data ? { category_label: labelOf(data) } : {}) });
 /** The API refuses a first date that doesn't lead to the start, so a moved start or a new repeat counts afresh. */
 function withFittingAnchor(data: RecordData, start: string): RecordData {
   const rule = data.recurrence;
@@ -302,6 +332,7 @@ function oneDateData({ title, occurred_at, data }: EditorDraft, { original_start
   if (!!data.all_day !== was.all_day) changes.all_day = !!data.all_day;
   if (ms(occurred_at) !== ms(was.occurrence_start) || changes.all_day !== undefined) changes.start = occurred_at;
   if ((data.category ?? null) !== was.category) changes.category = data.category ?? null;
+  if (labelOf(data) !== (was.category_label ?? null)) changes.category_label = labelOf(data);
   if (placeOf(data) !== (was.location ?? null)) changes.location = placeOf(data);
   if ((data.attendees ?? []).join() !== was.attendees.join()) changes.attendees = data.attendees ?? [];
   const overrides = { ...prior?.overrides, ...changes }, others = (series.data.exceptions ?? []).filter((item) => ms(item.original_start) !== original);
@@ -319,7 +350,7 @@ const fromFirst = ({ original_start, series }: NonNullable<EditorDraft["event_ed
  * what keeps `exceptions` and `reminder_minutes`. "All future" from a later date ends this series, and `splitEvent` starts the next.
  */
 export function eventWrite(draft: EditorDraft): EditorDraft {
-  const clean = { ...draft, title: draft.title.trim(), data: withFittingAnchor({ ...draft.data, location: placeOf(draft.data) }, draft.occurred_at) }, edit = draft.event_edit;
+  const clean = { ...draft, title: draft.title.trim(), data: withFittingAnchor(cleaned(draft.data), draft.occurred_at) }, edit = draft.event_edit;
   if (!edit) return clean;
   if (edit.scope === "one") return { ...clean, ...edit.series, data: oneDateData(draft, edit) };
   return fromFirst(edit) ? clean : { ...clean, ...edit.series, data: seriesEnding(edit.series, ms(edit.original_start)) };
@@ -338,7 +369,7 @@ export function startsBeforeSplit(draft: EditorDraft) {
 export function splitEvent(draft: EditorDraft, id: string): RecordWrite | undefined {
   const edit = draft.event_edit;
   if (edit?.scope !== "future" || fromFirst(edit)) return undefined;
-  const original = ms(edit.original_start), data = continuedRule({ ...draft.data, location: placeOf(draft.data) }, draft.occurred_at, original, edit.series);
+  const original = ms(edit.original_start), data = continuedRule(cleaned(draft.data), draft.occurred_at, original, edit.series);
   return { id, kind: "event", title: draft.title.trim(), body: draft.body, child_id: draft.child_id, occurred_at: draft.occurred_at,
     data: { ...data, exceptions: data.recurrence ? (edit.series.data.exceptions ?? []).filter((item) => ms(item.original_start) >= original && isStart(draft.occurred_at, data, ms(item.original_start))) : [] } };
 }

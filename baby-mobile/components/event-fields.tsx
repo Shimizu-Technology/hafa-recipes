@@ -1,15 +1,16 @@
 import { useMemo, useState } from "react";
 import { Text, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
-import { allDayChanged, attendeesFrom, dayName, detailsLine, detailsSet, eventCategories, quickEvent, quickEvents, reminderChoices, reminderValue, repeatName, selectedSuggestion, startingAt, usedEventNames } from "@/lib/events";
-import type { EditorDraft, EventCategory, EventRecurrence } from "@/lib/models";
+import { allDayChanged, attendeesFrom, categoryChoices, categoryValue, chooseCategory, dayName, detailsLine, detailsSet, herCategories, quickEvent, quickEvents, reminderChoices, reminderValue, repeatName, selectedSuggestion, startingAt, usedEventNames } from "@/lib/events";
+import type { EditorDraft, EventRecurrence } from "@/lib/models";
 import { pendingRecords } from "@/lib/outbox";
 import { recordDay, zonedInstant } from "@/lib/tracker";
 import { DateField } from "./date-field";
 import { Disclosure } from "./disclosure";
 import { Copy, Field, FilterChips, Icon, Notice, PressTarget, fonts, tap, typeScale, useColors } from "./ui";
-import { babyLabel } from "../lib/spaces";
+import { babyLabel, choiceFor, familySpaces } from "../lib/spaces";
 
+const familyId = (bootstrap: NonNullable<ReturnType<typeof useBaby>["state"]["bootstrap"]>) => familySpaces(bootstrap)[0]?.id;
 const frequencies: EventRecurrence["frequency"][] = ["daily", "weekly", "monthly", "yearly"];
 
 /** On the date's own row, the same height as it. A switch to VoiceOver, and a pill to the eye. */
@@ -34,34 +35,52 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     used = useMemo(() => (quick && !draft.existing ? usedEventNames(pendingRecords(b.state)) : []), [quick, draft.existing]),
     // Typing can't take a comma away: the names she means are worked out from what she sees.
     [people, setPeople] = useState((data.attendees ?? []).join(", ")),
-    reminders = data.reminder_minutes ?? [], remindersOn = !!b.state.bootstrap!.reminders?.push;
+    reminders = data.reminder_minutes ?? [], remindersOn = !!b.state.bootstrap!.reminders?.push,
+    labels = useMemo(() => [...new Set([...herCategories(pendingRecords(b.state)), ...(data.category_label ? [data.category_label] : [])])], [draft.existing]),
+    [naming, setNaming] = useState(false),
+    bootstrap = b.state.bootstrap!, choice = choiceFor(bootstrap, draft),
+    space = choice?.space_id,
+    // An event and its baby stay in one space, so only the babies in this one are offered.
+    babies = space ? children.filter((child) => child.space_id === space) : children,
+    place = choice ? (choice.shared ? "Shared with family" : "Just me") : "",
+    // Choosing where it goes can't leave it pointing at a baby who isn't there.
+    share = (shared: boolean) => {
+      const target = shared ? familyId(bootstrap) : bootstrap.personal_space_id,
+        keeps = children.some((child) => child.id === draft.child_id && child.space_id === target);
+      change({ shared, child_id: keeps ? draft.child_id : null });
+    };
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="What’s happening?" />
     {!draft.existing && quick && <FilterChips label="Suggestions" value={selectedSuggestion(draft)} options={[quickEvents[0], ...used, ...quickEvents.slice(1)].map(({ title }) => ({ label: title, value: title }))}
       onChange={(title) => change(quickEvent(draft, title, used))} />}
+    {data.category === "appointment" && <Copy kind="small" tone="muted">Keeps your questions and what the doctor said with this visit, and lets you book the next one.</Copy>}
     {data.all_day
       ? <DateField label="When" dateOnly value={key} onChange={(day) => change({ occurred_at: zonedInstant(day, 0, 0, zone).toISOString() })} trailing={<AllDay on onPress={() => change(allDayChanged(draft, false))} />} />
       : <DateField label="When" timeZone={zone} value={draft.occurred_at} onChange={(start) => change(startingAt(draft, start))} trailing={<AllDay on={false} onPress={() => change(allDayChanged(draft, true))} />} />}
     {/* Book next carries over what the last visit had, and is still one tap from saving. */}
-    <Disclosure title="More details" detail={detailsLine(draft, remindersOn)} startOpen={(draft.existing || quick) && detailsSet(draft, remindersOn)}>
+    <Disclosure title="More details" detail={[detailsLine(draft, remindersOn), place].filter(Boolean).join(" · ")} startOpen={(draft.existing || quick) && detailsSet(draft, remindersOn)}>
       {!one && <Copy kind="small">Repeat</Copy>}
       {!one && <FilterChips label="Repeat" value={rule?.frequency ?? ""} options={[{ label: "Doesn’t repeat", value: "" }, ...repeats]}
         onChange={(frequency) => set({ recurrence: frequency ? { ...rule, interval: rule?.frequency === frequency ? rule.interval : 1, frequency: frequency as EventRecurrence["frequency"] } : null })} />}
       {!one && rule && <DateField label="Repeat until (optional)" dateOnly optional value={rule.until} onChange={(until) => set({ recurrence: { ...rule, until: until || null } })} />}
       <Copy kind="small">Category</Copy>
-      <FilterChips wrap label="Category" value={data.category ?? "other"} options={eventCategories.map(({ value, label }) => ({ value, label, dot: c.categories?.[value] }))}
-        onChange={(category) => set({ category: category as EventCategory })} />
+      <FilterChips wrap label="Category" value={naming ? "new" : categoryValue(data)} options={[...categoryChoices(labels, c.categories), { label: "New…", value: "new", dot: undefined, icon: "add" as const }]}
+        onChange={(value) => { setNaming(value === "new"); if (value !== "new") set(chooseCategory(data, value)); else set({ category: "other", category_label: null }); }} />
+      {naming && <Field label="Your category" autoFocus value={data.category_label ?? ""} maxLength={60} onChange={(label) => set({ category: "other", category_label: label })} placeholder="Car, work, church…" />}
       <Field label="Location (optional)" value={data.location ?? ""} maxLength={240} onChange={(location) => set({ location })} placeholder="Clinic, church, grandma’s house…" />
       <Field label="Who’s coming (optional)" value={people} onChange={(typed) => { setPeople(typed); set({ attendees: attendeesFrom(typed) }); }} placeholder="Grandma, Auntie Rose" />
-      {!one && children.length > 0 && <Copy kind="small">Who is it for?</Copy>}
-      {!one && children.length > 0 && <FilterChips label="Who is it for?" value={draft.child_id ?? ""}
-        options={[{ label: "Whole family", value: "" }, ...children.map((child) => ({ label: babyLabel(child, b.state.bootstrap), value: child.id }))]} onChange={(id) => change({ child_id: id || null })} />}
+      {!one && babies.length > 0 && <Copy kind="small">Who is it for?</Copy>}
+      {!one && babies.length > 0 && <FilterChips label="Who is it for?" value={draft.child_id ?? ""}
+        options={[{ label: choice && !choice.shared ? "Just me" : "Whole family", value: "" }, ...babies.map((child) => ({ label: babyLabel(child, b.state.bootstrap), value: child.id }))]} onChange={(id) => change({ child_id: id || null })} />}
       {/* Only once reminders are on: a choice that does nothing yet would be a promise. One she already has is kept. */}
       {!one && remindersOn && <Copy kind="small">Reminder</Copy>}
       {!one && remindersOn && <FilterChips label="Reminder" value={reminderValue(reminders)} options={reminderChoices(!!data.all_day, reminders)}
         onChange={(value) => { if (value !== "several") set({ reminder_minutes: value ? [Number(value)] : [] }); }} />}
       {!one && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
+      {!!choice && <Copy kind="small">Who can see this</Copy>}
+      {!!choice && <FilterChips label="Who can see this" value={choice.shared ? "shared" : "just_me"} options={[{ label: "Shared with family", value: "shared" }, { label: "Just me", value: "just_me" }]}
+        onChange={(value) => share(value === "shared")} />}
     </Disclosure>
   </>;
 }

@@ -3,7 +3,7 @@ import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
-import { categoryName, dayName, eventWhen, occurrenceAt, reminderName, repeatName, withoutDate, withoutFuture } from "@/lib/events";
+import { dayName, eventKindName, eventWhen, occurrenceAt, reminderName, repeatName, withoutDate, withoutFuture } from "@/lib/events";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { mutationRecordIds, replaceRecord } from "@/lib/outbox";
 import { dayKey, recordDay } from "@/lib/tracker";
@@ -13,6 +13,7 @@ import { CategoryTile, openEvent } from "@/components/event-row";
 import { VisitSections } from "@/components/visit-sections";
 import { useUpcomingEvents } from "@/lib/use-events";
 import { visitAfter } from "@/lib/visits";
+import { familySpaces } from "../../lib/spaces";
 
 /** One event, on the date she opened. A repeating event says which dates a change reaches before making it. */
 export default function EventDetail() {
@@ -31,6 +32,7 @@ export default function EventDetail() {
   const shown = occurrenceAt(row, at), when = eventWhen(shown, today, timezone), original = shown.original_start, repeating = !!row.data.recurrence,
     date = dayName(recordDay(shown.occurrence_start, shown.all_day ? shown.timezone : timezone), today),
     child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordIds(m).includes(row.id) && m.type !== "import");
+  const family = familySpaces(b.state.bootstrap)[0], inFamily = !!family && !!row.space_id, justMe = inFamily && row.space_id !== family.id;
   const appointment = shown.category === "appointment", booked = appointment ? visitAfter(upcoming.items, shown) : undefined;
   const edit = (scope?: "one" | "future") => router.push({ pathname: "/edit", params: { kind: "event", id: row.id, ...(scope ? { scope, at: original } : {}) } });
   async function save(record: BabyRecord) {
@@ -55,7 +57,7 @@ export default function EventDetail() {
     </Grouped>
     <Button variant="ghost" title="Keep as it is" onPress={() => setAsking(null)} />
   </Card>;
-  return <Screen title={categoryName(shown.category)} back>
+  return <Screen title={eventKindName(shown) || "Event"} back>
     {!!error && <Notice error>{error}</Notice>}
     {pending && <Notice>Saved on this phone. It will sync when a connection is available.</Notice>}
     <Card tone="hero" style={{ gap: 8 }}>
@@ -66,7 +68,7 @@ export default function EventDetail() {
       <Copy numeric>{when}</Copy>
       {!!shown.location && <Copy>{shown.location}</Copy>}
       {shown.attendees.length > 0 && <Copy>With {shown.attendees.join(", ")}</Copy>}
-      <Copy kind="small" tone="muted">{child?.name ?? "Whole family"}{repeating ? ` · ${repeatName(row.data.recurrence)}` : ""}</Copy>
+      <Copy kind="small" tone="muted">{[child?.name ?? (justMe ? "" : "Whole family"), repeating && repeatName(row.data.recurrence), inFamily && (justMe ? "Just me" : "Shared with family")].filter(Boolean).join(" · ")}</Copy>
       {!!row.body && <Copy>{row.body}</Copy>}
       {!!b.state.bootstrap!.reminders?.push && !!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
     </Card>

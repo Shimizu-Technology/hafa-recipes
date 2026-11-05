@@ -344,3 +344,27 @@ describe("whether Family is offered", () => {
     expect(familyOpen({ spaces: [own, shared], family_available: false })).toBe(true);
   });
 });
+
+describe("a new event once there's a family", () => {
+  const draft = (extra = {}) => ({ kind: "event", existing: false, child_id: null, ...extra }) as never;
+  it("starts shared, with Just me to choose", () => {
+    expect(choiceFor(boot(), draft())).toEqual({ shared: true, space_id: family, just_me: false });
+    expect(choiceFor(boot(), draft({ shared: false }))).toEqual({ shared: false, space_id: personal, just_me: false });
+    expect(choiceFor(boot(), draft({ child_id: "baby" }))).toMatchObject({ shared: true, space_id: family });
+  });
+  it("goes with a baby who's only hers, since the API keeps an event and its baby in one space", () => {
+    expect(choiceFor(boot(), draft({ child_id: "mine" }))).toMatchObject({ shared: false, space_id: personal });
+  });
+  it("has nothing to choose with no family, for a caregiver, or once it's saved", () => {
+    expect(choiceFor(boot([own]), draft())).toBeNull();
+    expect(choiceFor(boot([own, { ...shared, role: "caregiver" }]), draft())).toBeNull();
+    expect(choiceFor(boot(), draft({ existing: true }))).toBeNull();
+  });
+  it("a draft from before the family stays private until she says", () => {
+    expect(choiceFor(boot(), draft({ space_id: personal }))).toMatchObject({ shared: false, space_id: personal });
+  });
+  it("is stamped where the choice says, and never sets just_me, which an event can't hold", () => {
+    expect(stampedDraft({ bootstrap: boot() }, undefined, { ...(draft() as object), id: "e", title: "", body: "", occurred_at: "", files: [], data: {} } as never)).toMatchObject({ shared: true, space_id: family });
+    expect(stampedDraft({ bootstrap: boot() }, undefined, { ...(draft({ shared: false }) as object), id: "e", title: "", body: "", occurred_at: "", files: [], data: {} } as never)).toMatchObject({ shared: false, space_id: personal });
+  });
+});

@@ -168,6 +168,7 @@ export interface EventOverrides {
   all_day?: boolean;
   title?: string;
   category?: EventCategory | null;
+  category_label?: string | null;
   location?: string | null;
   attendees?: string[];
 }
@@ -186,6 +187,8 @@ export interface EventOccurrence {
   timezone: string;
   title: string;
   category: EventCategory | null;
+  /** Her own name for it. The API sends it from this release on, so an older answer has none. */
+  category_label?: string | null;
   location: string | null;
   attendees: string[];
   child_id: string | null;
@@ -242,6 +245,8 @@ export interface RecordData {
   end?: string | null;
   all_day?: boolean;
   category?: EventCategory | null;
+  /** Her own name for the kind of event. Only a category of "other", or none, shows it. */
+  category_label?: string | null;
   location?: string | null;
   attendees?: string[];
   /** Minutes before the start; for an all-day event, before 9 AM on its first day. */

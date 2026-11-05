@@ -69,16 +69,17 @@ export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records"
 /** What can be saved to a family if she says so. Care goes with its baby. */
 const choosable = new Set<Kind>(["source", "journal", "question", "routine", "event", "collection"]);
 /**
- * Shared with family, or Just me, as a new entry is written. A new post starts shared and a new journal entry private.
- * A draft from before the family starts private, whatever its kind, since pending work is never published on its own,
- * and she can still choose Shared. Only a parent in a family has anything to choose.
+ * Shared with family, or Just me, as a new entry is written. A new post or event starts shared and a new journal entry
+ * private. An event goes with a baby who's only hers, since the API keeps it in its baby's space. A draft from before
+ * the family starts private, whatever its kind, since pending work is never published on its own, and she can still
+ * choose Shared. Only a parent in a family has anything to choose.
  */
-export function choiceFor(bootstrap: Bootstrap | undefined, draft: Pick<EditorDraft, "kind" | "existing" | "shared" | "space_id">) {
+export function choiceFor(bootstrap: Bootstrap | undefined, draft: Pick<EditorDraft, "kind" | "existing" | "shared" | "space_id"> & { child_id?: string | null }) {
   const family = familySpaces(bootstrap)[0];
   if (draft.existing || family?.role !== "parent") return null;
-  const held = !!draft.space_id;
-  if (held ? !choosable.has(draft.kind) : draft.kind !== "source" && draft.kind !== "journal") return null;
-  const shared = draft.shared ?? (!held && draft.kind === "source");
+  const held = !!draft.space_id, personalBaby = draft.kind === "event" && bootstrap!.children.some((child) => child.id === draft.child_id && child.space_id === bootstrap!.personal_space_id);
+  if (held ? !choosable.has(draft.kind) : draft.kind !== "source" && draft.kind !== "journal" && draft.kind !== "event") return null;
+  const shared = draft.shared ?? (!held && (draft.kind === "source" || (draft.kind === "event" && !personalBaby)));
   return { shared, space_id: shared ? family.id : bootstrap!.personal_space_id!, just_me: !shared && draft.kind === "source" };
 }
 /**

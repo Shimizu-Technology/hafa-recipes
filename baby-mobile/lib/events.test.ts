@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allDayChanged, attendeesFrom, dayName, dayTimeline, detailsLine, detailsSet, doctorVisit, reminderChoices, reminderName, selectedSuggestion, usedEventNames, eventOccurrences, eventsByDay, eventWhen, eventWrite, newEvent, nextEvent, occurrenceAt, occurrenceDraft, onNewDay, quickEvent, seriesFull, splitEvent, startingAt, visibleEvents, withEventRows, withoutDate, withoutFuture , movesAwayFromDateChanges } from "./events";
+import { allDayChanged, attendeesFrom, eventKindName, herCategories, chooseCategory, categoryChoices, dayName, dayTimeline, detailsLine, detailsSet, doctorVisit, reminderChoices, reminderName, selectedSuggestion, usedEventNames, eventOccurrences, eventsByDay, eventWhen, eventWrite, newEvent, nextEvent, occurrenceAt, occurrenceDraft, onNewDay, quickEvent, seriesFull, splitEvent, startingAt, visibleEvents, withEventRows, withoutDate, withoutFuture , movesAwayFromDateChanges } from "./events";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type EventOccurrence, type Mutation, type RecordData } from "./models";
 import { advancePending, pendingRecords, producedRevision, queuedChain, settledDraft, settledSplit, waitingForEarlier, withoutChain } from "./outbox";
 import { recordDay } from "./tracker";
@@ -355,5 +355,78 @@ describe("what More details holds", () => {
     expect(detailsSet(draft)).toBe(true);
     expect(detailsLine(draft, true)).toBe("Every year · Church · With Grandma · The day before · Note");
     expect(detailsLine(draft)).toBe("Every year · Church · With Grandma · Note");
+  });
+});
+
+describe("what kind of event it is", () => {
+  const blank = () => newEvent("e", null, "2026-11-20", guam);
+  it("is a core category's name, or her own, or nothing at all", () => {
+    expect(eventKindName({ category: "family" })).toBe("Family");
+    expect(eventKindName({ category: "appointment" })).toBe("Doctor’s appointment");
+    expect(eventKindName({ category: "other", category_label: "Car" })).toBe("Car");
+    expect(eventKindName({ category: null, category_label: "Car" })).toBe("Car");
+    expect(eventKindName({ category: "other" })).toBe("");
+    expect(eventKindName({ category: null })).toBe("");
+  });
+  it("shows the core one when an older build changed the category under her label", () => {
+    expect(eventKindName({ category: "family", category_label: "Car" })).toBe("Family");
+  });
+  it("her own are offered again: newest first, once each, past and queued alike", () => {
+    const rows = [row({ data: { category_label: "Car" }, updated_at: "2026-11-01T00:00:00.000Z" }), row({ data: { category_label: "car " }, updated_at: "2026-10-01T00:00:00.000Z" }),
+      row({ data: { category_label: "Work" }, updated_at: "2026-11-02T00:00:00.000Z" }), row({ data: { category: "family" } })];
+    expect(herCategories(rows)).toEqual(["Work", "Car"]);
+  });
+  it("lists the core ones, then hers, with no Other", () => {
+    expect(categoryChoices(["Car"], {}).map((item) => item.label)).toEqual(["Doctor’s appointment", "Family", "Celebration", "Milestone", "Reminder", "Car"]);
+  });
+  it("is one choice: a core category or her own, and either can be taken back", () => {
+    const family = { ...blank().data, ...chooseCategory(blank().data, "family") };
+    expect(family).toMatchObject({ category: "family", category_label: null });
+    const car = { ...family, ...chooseCategory(family, "label:Car") };
+    expect(car).toMatchObject({ category: "other", category_label: "Car" });
+    expect({ ...car, ...chooseCategory(car, "label:Car") }).toMatchObject({ category: "other", category_label: null });
+    expect({ ...family, ...chooseCategory(family, "family") }).toMatchObject({ category: "other", category_label: null });
+  });
+  it("is said in the More details line", () => {
+    expect(detailsSet({ body: "", data: { category: "family" } })).toBe(true);
+    expect(detailsLine({ body: "", data: { category: "other", category_label: "Car" } })).toBe("Car");
+    expect(detailsSet({ body: "", data: { category: "other" } })).toBe(false);
+  });
+  it("from a name she's used, comes back with her own category", () => {
+    const used = usedEventNames([row({ title: "Oil change", data: { category: "other", category_label: "Car" } })])[0];
+    expect(({ ...blank(), ...quickEvent(blank(), used.title, [used]) } as EditorDraft).data).toMatchObject({ category: "other", category_label: "Car" });
+  });
+  it("a suggestion clears a label she'd chosen", () => {
+    const labelled = { ...blank(), data: { ...blank().data, category_label: "Car" } };
+    expect(quickEvent(labelled, "Baptism").data).toMatchObject({ category: "celebration", category_label: null });
+  });
+});
+describe("her own category on a repeating event", () => {
+  const series = () => event("s", "2026-11-02T00:00:00.000Z", { recurrence: { frequency: "weekly" }, category: "other", category_label: "Car" });
+  const at = "2026-11-09T00:00:00.000Z";
+  it("shows on each occurrence, and a date can have its own", () => {
+    const rows = eventOccurrences({ ...series(), data: { ...series().data, exceptions: [{ original_start: at, overrides: { category_label: "Tires" } }] } }, "2026-11-02", "2026-11-09", guam);
+    expect(rows.map((item) => item.category_label)).toEqual(["Car", "Tires"]);
+  });
+  it("one date's editor changes only that date", () => {
+    const draft = { ...series(), ...occurrenceDraft(series(), at, "one"), files: [], existing: true } as EditorDraft;
+    expect(draft.data.category_label).toBe("Car");
+    const written = eventWrite({ ...draft, data: { ...draft.data, category_label: "Tires" } });
+    expect(written.data.category_label).toBe("Car");
+    expect(written.data.exceptions?.[0].overrides).toEqual({ category_label: "Tires" });
+  });
+  it("one date's editor adds no change when she leaves it alone", () => {
+    const draft = { ...series(), ...occurrenceDraft(series(), at, "one"), files: [], existing: true } as EditorDraft;
+    expect(eventWrite(draft).data.exceptions).toEqual([]);
+  });
+  it("all future keeps it, on both halves", () => {
+    const draft = { ...series(), ...occurrenceDraft(series(), at, "future"), files: [], existing: true } as EditorDraft;
+    expect(eventWrite(draft).data.category_label).toBe("Car");
+    expect(splitEvent(draft, "next")?.data.category_label).toBe("Car");
+  });
+  it("trims what she typed, and a blank one is none", () => {
+    const draft = newEvent("e", null, "2026-11-20", guam);
+    expect(eventWrite({ ...draft, title: "x", data: { ...draft.data, category_label: "  Car " } }).data.category_label).toBe("Car");
+    expect(eventWrite({ ...draft, title: "x", data: { ...draft.data, category_label: "   " } }).data.category_label).toBeNull();
   });
 });

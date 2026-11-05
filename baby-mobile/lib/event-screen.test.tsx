@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
+const mock = vi.hoisted(() => ({ title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
 vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
@@ -28,7 +28,7 @@ vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
 vi.mock("@/lib/visits", () => import("./visits"));
 vi.mock("@/components/event-fields", () => import("../components/event-fields"));
 const ui = vi.hoisted(() => ({ fonts: {}, typeScale: {}, tap: () => undefined, FilterChips: "FilterChips", Icon: "Icon", PressTarget: "PressTarget", Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
-  Screen: ({ children, footer }: { children: unknown; footer?: unknown }) => [children, footer], useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
+  Screen: ({ children, footer, title }: { children: unknown; footer?: unknown; title?: string }) => { mock.title = title; return [children, footer]; }, useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
@@ -437,5 +437,97 @@ describe("the form opens on a name, a date and Save", () => {
     await mount(EventDetail);
     expect(texts()).toContain("Grandma, Auntie Rose");
     expect(texts()).toContain("1 day before");
+  });
+});
+
+describe("any event works", () => {
+  const nameField = () => found("Field", (p) => p.label === "Name");
+  const more = () => renderer!.root.findAll((n) => String(n.props.accessibilityLabel).startsWith("More details"))[0];
+  const category = () => found("FilterChips", (p) => p.label === "Category");
+  const openNew = async (rows: BabyRecord[] = []) => { const b = setup(rows); mock.params = { kind: "event", day: "2026-11-20" }; await mount(Edit); return b; };
+
+  it("types a category once and it's there next time", async () => {
+    const b = await openNew();
+    await act(async () => nameField().props.onChange("Oil change"));
+    await act(async () => more().props.onPress());
+    await act(async () => category().props.onChange("new"));
+    await act(async () => found("Field", (p) => p.label === "Your category").props.onChange(" Car "));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0].record.data).toMatchObject({ category: "other", category_label: "Car" });
+    await act(async () => renderer!.unmount());
+    mock.params = { kind: "event" };
+    await mount(Edit);
+    await act(async () => more().props.onPress());
+    expect(category().props.options.map((o: any) => o.label)).toContain("Car");
+  });
+  it("a birthday, a dentist visit and a car appointment each save with no type chosen", async () => {
+    for (const title of ["Dentist", "Car appointment", "Birthday party"]) {
+      const b = await openNew();
+      await act(async () => nameField().props.onChange(title));
+      await press("Button", "Save event");
+      expect(b.state.outbox[0].record).toMatchObject({ title, data: { category: "other" } });
+      expect(b.state.outbox[0].record.data.category_label).toBeUndefined();
+      await act(async () => renderer!.unmount());
+    }
+  });
+  it("calls only an explicit doctor's appointment one, so a car appointment doesn't open doctor questions", async () => {
+    const car = { ...event({ recurrence: null, category: "other", category_label: "Car" }, "car"), title: "Car appointment" };
+    setup([car]);
+    mock.params = { id: "car" };
+    await mount(EventDetail);
+    expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(0);
+    expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")).toHaveLength(0);
+    await act(async () => renderer!.unmount());
+    setup([{ ...event({ recurrence: null, category: "appointment" }, "dr"), title: "Dr. Cruz" }]);
+    mock.params = { id: "dr" };
+    await mount(EventDetail);
+    expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(1);
+  });
+  it("says what a doctor's appointment brings, once she's chosen it", async () => {
+    await openNew();
+    await act(async () => found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Doctor’s appointment"));
+    const copy = renderer!.root.findAll((n) => String(n.type) === "Copy").flatMap((n) => n.children).join(" ");
+    expect(copy).toContain("questions");
+  });
+  it("names an event without a category plainly, and never Other", async () => {
+    setup([{ ...event({ recurrence: null, category: "other" }, "plain"), title: "Picnic" }]);
+    mock.params = { id: "plain" };
+    await mount(EventDetail);
+    expect(mock.title).toBe("Event");
+  });
+  it("in a family, says it's shared while shut, and Just me clears a baby the API wouldn't let it keep", async () => {
+    const b = setup([]);
+    b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+      children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
+    b.state.selectedChild = "baby";
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    expect(more().props.accessibilityLabel).toContain("Shared with family");
+    await act(async () => nameField().props.onChange("Date night"));
+    await act(async () => more().props.onPress());
+    const who = () => found("FilterChips", (p) => p.label === "Who can see this");
+    expect(who().props.value).toBe("shared");
+    await act(async () => who().props.onChange("just_me"));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "me", record: { title: "Date night", child_id: null } });
+    expect(b.state.outbox[0].record.data.just_me).toBeUndefined();
+  });
+  it("in a family, saves to the family with no choice made", async () => {
+    const b = setup([]);
+    b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+      children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    await act(async () => nameField().props.onChange("Baptism"));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { title: "Baptism" } });
+  });
+  it("with the family flag off, asks nothing and adds nothing", async () => {
+    const b = await openNew();
+    await act(async () => more().props.onPress());
+    expect(renderer!.root.findAll((n) => n.props.label === "Who can see this")).toHaveLength(0);
+    await act(async () => nameField().props.onChange("Baptism"));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0].space_id).toBeUndefined();
   });
 });
