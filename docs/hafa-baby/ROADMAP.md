@@ -252,7 +252,7 @@ No partition switching. One actor vault, as today.
 - Every write locks its space row (`access_for`) and stamps the row with `change_seq` from `UPDATE baby_spaces SET change_seq = change_seq + 1`. The row lock makes the sequence commit-ordered per space, so a cursor can't skip a late commit.
 - One helper, `touch(row, space)`, does this for routes **and workers**, and also fixes the worker branch that changes data without advancing it (`runtime.py:331`). A test asserts every mutation path goes through it.
 - `GET /changes?cursor={space: seq}` returns rows above the cursor, soft deletes as `{id, removed: true}`, moves via `baby_moved_out`, and each space's `access_version`. Paged by seq, with `has_more`. Starting from 0 is the first snapshot.
-- If `access_version` changed, the client resets from a fresh snapshot.
+- If `access_version` changed, the client resets from a fresh snapshot. Removing an attachment reference also advances access versions: discard the old snapshot so formerly readable upload metadata is evicted without disclosing never-readable upload IDs.
 - **Baseline:** F3's rerun gives every existing row a positive `change_seq`, so a snapshot from 0 includes them. R1 ships only after every writer in F4 uses `touch()`.
 - Called every 15 seconds in the foreground, on open, on reconnect and on silent push.
 

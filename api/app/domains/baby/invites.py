@@ -89,14 +89,20 @@ def summary(row):
             "used_at": row.used_at, "revoked_at": row.revoked_at}
 
 
-@router.post("/family/invites", status_code=201)
-async def create_invite(body: InviteCreate, user: User, db: Database, generation: Generation,
-                        access: FamilyAccess = None):
+async def check_invite_creation(db, access, body, generation):
+    """Run cheap admission before staging and again under the write locks."""
     access.check_generation(generation)
     await require_contract(db)
     existing = [g for g in access.spaces if g.space.kind == "family"]
     if not existing and not body.publish_shared:
         raise HTTPException(422, "Review what becomes shared before creating your family")
+    return existing
+
+
+@router.post("/family/invites", status_code=201)
+async def create_invite(body: InviteCreate, user: User, db: Database, generation: Generation,
+                        access: FamilyAccess = None):
+    existing = await check_invite_creation(db, access, body, generation)
     space = await create_family(db, access)
     # create_family enforces parent access, including first-invite replay.
     pending = await db.scalar(select(func.count()).select_from(BabySpaceInvite).where(

@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Header, HTTPException, Response, UploadFile
-from sqlalchemy import String, and_, cast, func, or_, select, text
+from sqlalchemy import String, and_, cast, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
@@ -17,7 +17,7 @@ from app.domains.baby import storage
 from app.domains.baby.access import access_for, family_enabled, touch
 from app.domains.baby.dependencies import Access, Database, Generation, User
 from app.domains.baby.lifecycle import membership_for, now
-from app.domains.baby.models import BabyAttachment, BabyImport, BabyRecord
+from app.domains.baby.models import BabyAttachment, BabyImport, BabyRecord, BabySpaceMember
 from app.domains.baby.security import BabyRoute, BabyUploadRoute
 from app.image_validation import (
     ImageValidationError,
@@ -182,6 +182,15 @@ async def retire_unreferenced_attachments(db, owner, generation, identifiers):
     candidates = sorted({UUID(str(value)) for value in identifiers})
     if not candidates:
         return 0
+    if getattr(owner, "enabled", False) and await db.scalar(select(BabyAttachment.id).where(
+        BabyAttachment.id.in_(candidates), asset_scope(owner, generation, BabyAttachment),
+        BabyAttachment.state == "ready").limit(1)):
+        # Removing a reference can hide metadata from a former reader while the
+        # uploader or another record still retains the bytes. Invalidate the
+        # snapshot rather than disclose IDs of never-visible uploads in a delta.
+        await db.execute(update(BabySpaceMember).where(
+            BabySpaceMember.space_id == owner.target.id, BabySpaceMember.status == "active"
+        ).values(access_version=BabySpaceMember.access_version + 1))
     # The owner lock makes references stable for the whole batch, avoiding one
     # separate scan per file on the shared production database.
     rows = list(
@@ -623,7 +632,9 @@ async def delete_attachment(identifier: UUID, user: User, db: Database, generati
                     None,
                     None,
                 )
-                await touch(job, access.grant(job) if access.enabled else None)
+                # This internal cancellation is authorized by the deleted upload,
+                # not by read access to another actor's private import request.
+                await touch(job, access.grant(row) if access.enabled else None)
                 source = await db.get(BabyRecord, job.record_id)
                 if (
                     source

@@ -1203,24 +1203,25 @@ async def delete_data(
 
     grants = await lock_family_data(db, user.id)
     member = await membership_for(db, user.id, write=True, active=False)
+    replay = member.status == "deleted" and member.generation == generation + 1
     if family_enabled() and request.headers.get("X-Baby-Client") == "3":
-        raw_space = request.headers.get("X-Baby-Space")
-        try:
-            requested = UUID(raw_space) if raw_space else None
-        except ValueError:
-            raise HTTPException(422, "Choose a valid Baby space") from None
-        if requested is None:
-            raise HTTPException(422, "X-Baby-Space is required")
-        if requested != member.personal_space_id:
-            raise HTTPException(422, "Use Delete family to erase a family; data erasure targets your personal space")
-    if family_enabled() and request.headers.get("X-Baby-Client") == "3":
+        if not replay:
+            raw_space = request.headers.get("X-Baby-Space")
+            try:
+                requested = UUID(raw_space) if raw_space else None
+            except ValueError:
+                raise HTTPException(422, "Choose a valid Baby space") from None
+            if requested is None:
+                raise HTTPException(422, "X-Baby-Space is required")
+            if requested != member.personal_space_id:
+                raise HTTPException(422, "Use Delete family to erase a family; data erasure targets your personal space")
         from app.domains.baby.models import BabySpaceMember
 
         if await db.scalar(select(BabySpaceMember.space_id).where(
             BabySpaceMember.app_user_id == user.id, BabySpaceMember.status == "active",
             BabySpaceMember.space_id != member.personal_space_id).limit(1)):
             raise HTTPException(409, {"code": "family_exit_required"})
-    if member.status == "deleted" and member.generation == generation + 1:
+    if replay:
         return {"deleted": True, "generation": member.generation}
     if member.status != "active" or member.generation != generation:
         raise HTTPException(409, "Baby data changed; refresh before deleting")

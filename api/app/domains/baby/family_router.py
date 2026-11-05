@@ -25,7 +25,7 @@ async def family_access(request: Request, user: User, db: Database):
     inviting = request.method == "POST" and request.url.path.endswith("/family/invites")
     if family_enabled() and request.headers.get("X-Baby-Client") == "3" and (moving or inviting):
         discovery = await access_for(db, user.id, client="3",
-            space_id=request.headers.get("X-Baby-Space") if moving else None, bootstrap=not moving)
+            space_id=request.headers.get("X-Baby-Space"))
         try:
             record_id = UUID(str(request.path_params["identifier"])) if moving else None
         except ValueError:
@@ -50,6 +50,19 @@ async def family_access(request: Request, user: User, db: Database):
                 if destination is None:
                     raise HTTPException(403, "Baby space unavailable")
                 check_move(discovery, row, destination)
+        if inviting:
+            from app.domains.baby.invites import InviteCreate, check_invite_creation
+
+            if discovery.target is None:
+                raise HTTPException(422, "X-Baby-Space is required")
+            try:
+                body = InviteCreate.model_validate(await request.json())
+                generation = int(request.headers.get("X-Baby-Generation", ""))
+                if not 1 <= generation <= 2_147_483_647:
+                    raise ValueError()
+            except ValueError:
+                raise HTTPException(422, "Enter valid invitation details") from None
+            await check_invite_creation(db, discovery, body, generation)
         if stage:
             await prepare_move_files(db, user.id, discovery, record_id)
     # Capabilities in a former space must also rotate, without late user locks.

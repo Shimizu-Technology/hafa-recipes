@@ -104,14 +104,17 @@ async def move_file(db, access, asset, source, destination, record_id, batch_ids
     if prepared is None or prepared[0] != signature:
         raise HTTPException(409, "Attached files changed; retry the move")
     _, identifier, prefix, receipt_id = prepared
+    from app.models.deletion import DeletionCleanupJob
+
+    intent = await db.scalar(select(DeletionCleanupJob).where(
+        DeletionCleanupJob.id == receipt_id).with_for_update())
+    if intent is None or intent.status != "queued" or intent.attempt_count:
+        raise HTTPException(409, "Staged attachment copy expired; retry the move")
     copy = BabyAttachment(id=identifier, app_user_id=access.actor, space_id=destination.id,
         generation=destination.generation, name=asset.name, mime_type=asset.mime_type,
         size=asset.size, object_key=prefix + "asset", byte_hash=asset.byte_hash, state="ready",
         cleanup_job_id=receipt_id)
     await touch(copy, destination)
-    from app.models.deletion import DeletionCleanupJob
-
-    intent = await db.get(DeletionCleanupJob, receipt_id)
     intent.status, intent.completed_at, intent.storage_prefixes = "completed", now(), []
     return identifier
 
