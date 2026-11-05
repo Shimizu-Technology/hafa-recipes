@@ -6,7 +6,7 @@ const mock = vi.hoisted(() => ({
   options: [] as any[],
   fontScale: 1, reduced: false, scheme: "light", listener: null as null | ((value: boolean) => void),
   timings: [] as { toValue: number; duration: number; useNativeDriver: boolean }[],
-  baby: { online: true, syncing: false, error: "", state: { outbox: [] as any[] } }, push: vi.fn(),
+  baby: { online: true, unreachable: false, syncing: false, error: "", state: { outbox: [] as any[] } }, push: vi.fn(),
   scrollToTop: [] as { current: { scrollToTop: () => void } }[],
 }));
 /** iOS header actions arrive as one custom item; render it like headerRight. */
@@ -107,6 +107,18 @@ it.each([1, 3.1])("keeps long row text and first-line alignment at font scale %s
   const textContainer = views.find(v => v.props.style?.gap === 2 && v.props.style?.minWidth === 0)!;
   const iconContainer = views.find(v => v.props.style?.width === 44)!;
   expect(textContainer.props.style.paddingTop + 11.5 * fontScale).toBeCloseTo(iconContainer.props.style.marginTop + 22);
+});
+it("stays calm when Håfa can't be reached, and still flags a real problem", async () => {
+  mock.baby.state.outbox = [{ id: "queued" }]; mock.baby.error = "Check your connection and try again."; mock.baby.unreachable = true;
+  await mount(<SyncStatus />);
+  expect(renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.accessibilityLabel).toContain("Saved on this phone · offline");
+  mock.baby.state.outbox = [];
+  await act(async () => renderer!.update(<SyncStatus />));
+  expect(renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.accessibilityLabel).toContain("Offline · showing what’s on this phone");
+  mock.baby.unreachable = false; mock.baby.error = "Sign in again to continue.";
+  await act(async () => renderer!.update(<SyncStatus />));
+  expect(renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.accessibilityLabel).toContain("needs attention");
+  mock.baby.error = "";
 });
 it("keeps normal sync quiet but expands rejected changes for action", async () => {
   mock.baby.state.outbox = [{ id: "queued" }]; mock.baby.syncing = true;

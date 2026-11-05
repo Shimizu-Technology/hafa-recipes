@@ -7,12 +7,14 @@ export function SyncStatus() {
   if (notice) return <Row title="A tap wasn’t added" detail={notice} icon="information-circle-outline" hint="Dismisses this"
     onPress={() => void b.commit((state) => ({ ...state, feedNotices: state.feedNotices?.slice(1) }))} />;
   const failed = b.state.outbox.filter(m => (m.error || m.conflict) && !m.localOnly).length;
-  if (failed || b.error)
+  // Not reaching Håfa isn't a problem to fix: her work waits here, and goes when it can.
+  if (failed || (b.error && !b.unreachable))
     return <Row title={failed ? `${failed} change${failed === 1 ? " needs" : "s need"} attention` : "Sync needs attention"}
-      detail={b.error || "Your work is safe on this phone. Review the failed changes."}
+      detail={(!b.unreachable && b.error) || "Your work is safe on this phone. Review the failed changes."}
       icon="cloud-upload-outline" onPress={() => router.push("/sync")} />;
-  if (b.online && !b.state.outbox.length) return null;
-  const message = !b.online ? "Saved on this phone · offline"
+  const offline = !b.online || b.unreachable;
+  if (!offline && !b.state.outbox.length) return null;
+  const message = offline ? b.state.outbox.length ? "Saved on this phone · offline" : "Offline · showing what’s on this phone"
     : b.syncing ? "Saved on this phone · syncing" : "Saved on this phone";
   return <PressTarget accessibilityRole="button" accessibilityLabel={`${message}. Review sync status`}
     onPress={() => router.push("/sync")} style={{ minHeight: 44, justifyContent: "center" }}>

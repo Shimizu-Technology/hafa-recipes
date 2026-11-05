@@ -12,7 +12,7 @@ import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { EventFields } from "@/components/event-fields";
-import { eventWrite, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, startsBeforeSplit, dayName } from "@/lib/events";
+import { eventWrite, movesAwayFromDateChanges, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, startsBeforeSplit, dayName } from "@/lib/events";
 import { nextVisitDraft, withFittingVisit } from "@/lib/visits";
 import { dayKey, recordDay } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
@@ -404,6 +404,7 @@ export default function Edit() {
       footer={<Button title={draft.existing ? "Save changes" : params.from ? "Save next visit" : "Save event"} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}>
       {!!error && <Notice error>{error}</Notice>}
       <EventFields draft={draft} change={change} quick={!params.from} today={dayKey(profileToday(new Date(), b.state.bootstrap!.profile.timezone))} />
+      {movesAwayFromDateChanges(draft) && <Notice>Changes you made to single dates won’t carry over to the new dates. If you don’t want that, leave the first date as it is.</Notice>}
       <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
     </Screen>
   );
