@@ -86,7 +86,8 @@ export function TrackerPanel({ tracker, child, now, pastDay, flow }: { tracker: 
     baby = tracker.about === "baby" && b.state.bootstrap!.children.length > 1 ? child.name : "",
     who = baby ? `For ${baby}` : undefined,
     panelProps = { at: flow.at, now, day: pastDay, timeZone, needTime: flow.needTime, onTime: (iso: string | null) => flow.change(notAhead(iso)) },
-    lastWords = (at: string) => `Last ${friendlyTime(at, now, timeZone)} · ${timeAgo(at, now)}`;
+    // Kept whole, so a narrow chip can't leave "3" on one line and "h ago" on the next.
+    lastWords = (at: string) => `Last ${friendlyTime(at, now, timeZone)} · ${timeAgo(at, now).replace(/ /g, "\u00a0")}`;
   function log(data: RecordData, title: string, label: string, body = "") {
     const time = flow.when();
     if (!time) return;

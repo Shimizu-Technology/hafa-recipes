@@ -194,7 +194,7 @@ describe("from the review of #543", () => {
     const chip = labels().find((label) => label?.startsWith("Tylenol"));
     expect(chip).toContain("2.5 mL");
     expect(chip).toContain("1:00 AM"); // Guam's clock, as Tracker reads.
-    expect(chip).toContain("2 h ago");
+    expect(chip?.replace(/\u00a0/g, " ")).toContain("2 h ago");
   });
   it("3: says when it can't reach the service, and keeps looking while the panel is open", async () => {
     setup();
@@ -224,7 +224,7 @@ describe("from the review of #543", () => {
     await type("Name", "gas drops");
     const text = JSON.stringify(renderer!.toJSON());
     expect(text).toContain("0.3 mL");
-    expect(text).toContain("2 h ago");
+    expect(text.replace(/\u00a0/g, " ")).toContain("2 h ago");
   });
   it("10: names the baby in the panel and the saved row when there's more than one", async () => {
     setup((state) => ({ ...state, bootstrap: { ...state.bootstrap!, children: [child, { id: "two", name: "Noa", revision: 1 }] } }));
