@@ -5,7 +5,7 @@ import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord } from "./models";
 
 const mock = vi.hoisted(() => ({ baby: null as any, params: {} as Record<string, string>, stats: undefined as any, error: undefined as string | undefined, refresh: vi.fn(), shared: [] as string[], result: { level: 0, fits: true } }));
-vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }) }));
+vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Switch: "Switch", useWindowDimensions: () => ({ fontScale: 1 }) }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/care-stats", () => import("./care-stats"));
@@ -19,6 +19,7 @@ vi.mock("@/lib/files", () => ({ exportOnePagePdf: async (html: (level: number) =
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Chips: "Chips", Choice: "Choice", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Section: "Section",
+  useColors: () => ({ action: "action" }),
   Screen: ({ children, footer }: { children: unknown; footer: unknown }) => [children, footer] }));
 import DoctorSummary from "../app/doctor-summary";
 
@@ -56,6 +57,55 @@ it("leaves a private journal entry off the page unless she ticks it", async () =
   await act(async () => journal().props.onPress());
   await share();
   expect(mock.shared[1]).toContain("So tired and scared tonight");
+});
+describe("her own logs", () => {
+  const pressure = { ...optimisticRecord({ id: "bp", kind: "custom", title: "118/76", body: "", child_id: null, occurred_at: new Date(Date.now() - 3_600_000).toISOString(), data: { label: "Blood pressure" } }), revision: 1 };
+  const include = () => renderer!.root.findAll((n) => String(n.type) === "Switch").find((n) => n.props.accessibilityLabel === "Include my own logs");
+  const sections = () => renderer!.root.findAll((n) => String(n.type) === "Section").map((n) => n.props.title);
+  beforeEach(() => {
+    const read = mock.baby.api.records;
+    mock.baby.api.records = vi.fn(async (filters: any) => { const answer = await read(filters); return filters.kinds.includes("custom") ? { ...answer, items: [...answer.items, pressure], total: answer.total + 1 } : answer; });
+  });
+  it("stay off a born baby's page until she switches them on, then go in their own Mom section", async () => {
+    await mount();
+    expect(include()!.props.value).toBe(false);
+    expect(sections()).not.toContain("Mom");
+    await share();
+    expect(mock.shared[0]).not.toContain("118/76");
+    await act(async () => include()!.props.onValueChange(true));
+    expect(sections()).toContain("Mom");
+    await share();
+    expect(mock.shared[1]).toContain("<h2>Mom</h2>");
+    expect(mock.shared[1]).toContain("Blood pressure: 118/76");
+    await act(async () => include()!.props.onValueChange(false));
+    await share();
+    expect(mock.shared[2]).not.toContain("118/76");
+  });
+  it("can still leave one off with its tick", async () => {
+    await mount();
+    await act(async () => include()!.props.onValueChange(true));
+    await act(async () => choices().find((n) => n.props.label === "Blood pressure")!.props.onPress());
+    await share();
+    expect(mock.shared[0]).not.toContain("118/76");
+  });
+  it("go back off for another baby, so a pediatrician's page doesn't get them unasked", async () => {
+    mock.baby.state.bootstrap.children = [child("baby", "Mia"), child("sister", "Noa")];
+    await mount();
+    await act(async () => include()!.props.onValueChange(true));
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "Chips")[0].props.onChange("sister"));
+    await settle();
+    expect(include()!.props.value).toBe(false);
+    expect(sections()).not.toContain("Mom");
+  });
+  it("stay as they are before the birth: no switch, ticked, and under her own heading", async () => {
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10" }];
+    await mount();
+    expect(include()).toBeUndefined();
+    expect(sections()).toContain("Your own logs");
+    await share();
+    expect(mock.shared[0]).toContain("<h2>Her own logs</h2>");
+    expect(mock.shared[0]).toContain("Blood pressure: 118/76");
+  });
 });
 it("puts what she ticked ahead of log notes, so a full page never drops it first", async () => {
   await mount();

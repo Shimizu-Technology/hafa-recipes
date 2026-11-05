@@ -124,7 +124,7 @@ export interface SummaryPage {
   notes: BabyRecord[];
   /** This baby's medicine, temperature, growth, pumping, shots and her own custom logs. */
   logs?: BabyRecord[];
-  /** What she keeps about herself, for an expecting page only, as she typed it. */
+  /** What she keeps about herself, as she typed it. After the birth the page is the baby's, so only if she's chosen to add it. */
   her?: BabyRecord[];
 }
 
@@ -236,7 +236,7 @@ td{text-align:right;border-bottom:.5pt solid #777;padding:${tight ? ".5pt" : "1p
 ${stats ? `<h2>Totals</h2>${totals(stats) || "<p>Nothing logged in these days.</p>"}
 <h2>Day by day</h2>${dayTable(stats.days)}` : `<p class="small">Care totals aren’t on this page.</p>`}
 ${logSections(logs, timezone, limit, atBirth && child ? birthWords(child, logs, timezone) : [])}
-${child?.birth_date ? "" : listSection("Her own logs", her, limit.notes, (row) => herLine(row, timezone, limit.letters))}
+${listSection(child?.birth_date ? "Mom" : "Her own logs", her, limit.notes, (row) => herLine(row, timezone, limit.letters))}
 ${listSection("Questions for the doctor", questions, limit.questions, (row) => `<li>${escape(questionLine(row, limit.letters))}</li>`)}
 ${listSection("Notes", notes, limit.notes, (row) => noteLine(row, timezone, limit.letters))}
 <p class="foot">Kept by the family in Håfa Baby. Personal records selected by the account owner. This is not a medical assessment.</p>

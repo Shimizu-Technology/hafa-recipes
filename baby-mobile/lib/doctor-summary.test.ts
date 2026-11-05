@@ -226,8 +226,14 @@ describe("the extra logs on the page", () => {
     expect(high).toContain("Blood pressure: 190/120");
     expect(high).not.toMatch(/normal|high|low\b|elevated|range|hypertens|should|warning/i);
   });
-  it("leaves her logs off a page for a baby who's here", () => {
-    expect(summaryHtml(page({ her: found().her }))).not.toContain("Her own logs");
+  it("gives her logs a Mom section on a page for a baby who's here, only when she's added them", () => {
+    const added = summaryHtml(page({ her: found().her }));
+    expect(added).toContain("<h2>Mom</h2>");
+    expect(added).toContain("Blood pressure: 118/76");
+    expect(added).not.toContain("Her own logs");
+    expect(added).not.toMatch(/normal|high|low\b|elevated|range|hypertens|should|warning/i);
+    expect(summaryHtml(page({ her: [] }))).not.toContain("<h2>Mom</h2>");
+    expect(summaryHtml(page({}))).not.toContain("<h2>Mom</h2>");
   });
   it("escapes what she typed in every new section", () => {
     const html = summaryHtml(page({ logs: [log("x", "medicine", 2, "<b>", { name: "<script>", dose: "<i>" }), log("y", "custom", 2, "<img>", { label: "<u>" }), log("z", "custom", 2, "<svg>", { label: "Shot" })], child: { name: "Noa", due_date: "2026-12-10" }, her: [log("w", "custom", 2, "<em>", { label: "Blood pressure" }, "<a>", null)] }));
