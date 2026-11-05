@@ -164,11 +164,10 @@ async def test_an_older_questions_retry_still_matches_after_this_field_exists(ba
         prior = await db.get(BabyMessage, body["request_id"])
         expected = {key: body.get(key) for key in ("message", "request_id")}
         assert prior.content["hash"] != ""
-    from app.domains.baby.lifecycle import digest
+    from app.domains.baby.chat import question_identity
     from app.domains.baby.schemas import ChatRequest
 
-    old_shape = ChatRequest.model_validate(expected).model_dump(mode="json", exclude={"ask_v2"})
-    assert prior.content["hash"] == digest(old_shape)
+    assert prior.content["hash"] == question_identity(ChatRequest.model_validate(expected))
 
 
 def stub_tool(monkeypatch):
