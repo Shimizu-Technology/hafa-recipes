@@ -446,6 +446,18 @@ export type Mutation = {
       conflict?: boolean;
     }
   | {
+      /** A person's reminder settings. Only what's named changes. */
+      id: string;
+      generation: number;
+      type: "reminder_prefs";
+      patch: PrefsPatch;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
       /** A "What shows" switch: only these keys change, and the API merges them key by key. */
       id: string;
       generation: number;
@@ -489,8 +501,32 @@ export interface FeedTimer {
   /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
   record_id?: string;
 }
+export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit";
+export interface KindPref {
+  enabled: boolean;
+  /** Comes through quiet hours, as time-sensitive. */
+  break_through: boolean;
+  hours: number | null;
+  feed_hours: number | null;
+  sleep_hours: number | null;
+}
+export interface QuietHours {
+  start: string;
+  end: string;
+  timezone: string;
+}
+export interface ReminderPrefs {
+  quiet_hours: QuietHours | null;
+  kinds: Partial<Record<ReminderKind, KindPref>>;
+}
+export interface PrefsPatch {
+  quiet_hours?: QuietHours | null;
+  kinds?: Partial<Record<ReminderKind, Partial<KindPref>>>;
+}
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** The API's copy of this person's settings. Only with its push flag on. */
+  reminderPrefs?: ReminderPrefs;
   /** Taps the API couldn't apply, kept until she has seen why. */
   feedNotices?: string[];
   /** Ask has shown its reminder about sources on this device. */

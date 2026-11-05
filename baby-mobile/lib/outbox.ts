@@ -46,6 +46,7 @@ function targetOf(state: DeviceState, m: Mutation) {
   if (m.type === "delete") return m.record.space_id ?? home(m.record.id) ?? personal;
   if (m.type === "child_birth" || m.type === "child_tracking") return state.bootstrap?.children.find((child) => child.id === m.child_id)?.space_id ?? personal;
   if (m.type === "import") return home(m.record_id) ?? spaceForNew(state, { kind: "source", child_id: m.child_id ?? null, data: {} });
+  if (m.type === "reminder_prefs") return personal;
   return home(m.record_id) ?? personal;
 }
 export function addMutation(state: DeviceState, mutation: Mutation) {
@@ -438,7 +439,7 @@ export function switchTooLate(action: { action: string; at: string }, result: Ba
   return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
 }
 /** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
-export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "child_tracking" | "save" | "event_split" | "delete" }>>(change: T, now = Date.now()): T {
+export function retryLater<T extends Extract<Mutation, { type: "reminder_prefs" | "feed_action" | "session_action" | "child_birth" | "child_tracking" | "save" | "event_split" | "delete" }>>(change: T, now = Date.now()): T {
   const attempts = (change.attempts ?? 0) + 1;
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
 }
@@ -454,6 +455,7 @@ export const unresolvedAttempts = 5;
  * An unresolved ancestor holds only its own record, never the entire outbox. */
 export function mutationRecordId(change: Mutation) {
   if (change.type === "child_birth" || change.type === "child_tracking") return change.child_id;
+  if (change.type === "reminder_prefs") return change.id;
   if (change.type === "event_split") return change.series.id;
   return change.type === "save" || change.type === "delete" ? change.record.id : change.record_id;
 }

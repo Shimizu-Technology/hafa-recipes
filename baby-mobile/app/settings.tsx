@@ -9,7 +9,7 @@ import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { babyDetailLine } from "@/lib/child-setup";
-import { babyLabel, canAddBaby, canChangeBaby, familyOpen, familySpaces } from "../lib/spaces";
+import { babyLabel, canAddBaby, canChangeBaby, familyOpen, familySpaces, remindersOn } from "../lib/spaces";
 export default function Settings() {
   const b = useBaby(),
     toast = useToast(),
@@ -137,6 +137,7 @@ export default function Settings() {
       </Card>
       </View>
       <Section title="Your device">
+        {remindersOn(b.state.bootstrap) && <Row title="Reminders" detail="Feed, calendar and timers, and quiet hours" icon="alarm-outline" onPress={() => router.push("/reminders")} />}
         <Row
           title="Saved changes & recovery"
           numericDetail

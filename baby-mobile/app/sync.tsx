@@ -93,6 +93,8 @@ export default function Sync() {
                   ? "Birth date"
                   : m.type === "child_tracking"
                   ? "What shows"
+                  : m.type === "reminder_prefs"
+                  ? "Reminder settings"
                   : m.type === "event_split"
                   ? m.event.title
                   : m.type === "delete"
@@ -120,6 +122,8 @@ export default function Sync() {
                 <Copy>{m.birth_date ? `Born ${friendlyDate(m.birth_date)}.` : "Taking the birth date back."}</Copy>
               ) : m.type === "child_tracking" ? (
                 <Copy>{`${Object.entries(m.tracking).filter(([id]) => trackerForKey(id)).map(([id, on]) => `${trackerForKey(id)!.label} ${on ? "on" : "off"}`).join(", ") || "A suggestion answered"}.`}</Copy>
+              ) : m.type === "reminder_prefs" ? (
+                <Copy>Your reminder settings, waiting to be saved.</Copy>
               ) : m.type === "event_split" ? (
                 <Copy>{`Changes ${m.series.title} from ${friendlyDate(recordDay(m.from_start, m.series.data.timezone))} on. Discarding this keeps every date as it was.`}</Copy>
               ) : (

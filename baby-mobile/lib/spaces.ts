@@ -15,6 +15,9 @@ export const familyOpen = (bootstrap?: Pick<Bootstrap, "spaces" | "family_availa
 export const accessKey = (bootstrap?: Pick<Bootstrap, "spaces"> | null) =>
   familySpaces(bootstrap).map((space) => `${space.id}:${space.role}`).sort().join("|");
 
+/** Only ever true with the API's push flag on. Everything to do with reminders hangs off this. */
+export const remindersOn = (bootstrap?: Pick<Bootstrap, "reminders"> | null) => !!bootstrap?.reminders?.push;
+
 /** What the API answers for something this phone can't see, and how an older build wrote that down. */
 export const unavailableMessage = "This item is no longer available. Keep your local copy or discard this change.";
 export const goneBabyMessage = "This baby’s profile was removed.";

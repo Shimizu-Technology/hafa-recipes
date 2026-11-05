@@ -1,14 +1,14 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const f = vi.hoisted(() => ({ section: undefined as string | undefined, scroll: vi.fn(), bootstrap: {} as object }));
+const f = vi.hoisted(() => ({ section: undefined as string | undefined, scroll: vi.fn(), reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object }));
 vi.mock("react-native", () => ({ Alert: {}, Linking: {}, ScrollView: "ScrollView", View: "View" }));
 vi.mock("expo-router", () => ({ router: {}, useLocalSearchParams: () => ({ section: f.section }) }));
 vi.mock("expo-constants", () => ({ default: { expoConfig: {} } }));
 vi.mock("@/lib/share-session-state", () => ({ revokeShareSession() {} }));
 vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion() {} }));
 vi.mock("@/lib/files", () => ({ exportFile() {} }));
-vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { outbox: [], bootstrap: { profile: { display_name: "Parent" }, children: [], ...f.bootstrap } } }) }));
+vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { outbox: [], bootstrap: { profile: { display_name: "Parent" }, children: [], reminders: f.reminders, ...f.bootstrap } } }) }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Notice: "Notice", Row: "Row", Section: "Section", useToast: () => () => {},
   Screen: (props: any) => { props.scrollRef.current = { scrollTo: f.scroll }; return React.createElement("scroll-screen", props); },
@@ -17,7 +17,7 @@ vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/child-setup", () => ({ babyDetailLine() {} }));
 import Settings from "../app/settings";
 let view: ReactTestRenderer;
-beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); f.scroll.mockClear(); f.bootstrap = {}; });
+beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); f.scroll.mockClear(); });
 afterEach(() => { act(() => view.unmount()); vi.unstubAllGlobals(); });
 it.each([undefined, "ai"])("scrolls only AI deep links after both layout and content are ready (%s)", async section => {
   f.section = section;
@@ -29,6 +29,18 @@ it.each([undefined, "ai"])("scrolls only AI deep links after both layout and con
   if (section === "ai") expect(f.scroll).toHaveBeenCalledWith({ y: 620, animated: false });
   else expect(f.scroll).not.toHaveBeenCalled();
 });
+
+it("offers Reminders only with the API's flag on", async () => {
+  f.section = undefined;
+  await act(async () => { view = create(<Settings />); });
+  const titles = () => view.root.findAll((node) => String(node.type) === "Row").map((node) => node.props.title);
+  expect(titles()).not.toContain("Reminders");
+  f.reminders = { push: true };
+  await act(async () => { view.update(<Settings />); });
+  expect(titles()).toContain("Reminders");
+  f.reminders = undefined;
+});
+
 it.each([
   ["the flag off", {}, false],
   ["the flag on", { spaces: [{ id: "p", kind: "personal" }] }, true],

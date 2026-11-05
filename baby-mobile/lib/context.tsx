@@ -126,6 +126,7 @@ interface BabyContext {
   enroll: () => Promise<void>;
   /** After she's allowed notifications: this phone goes on the list now, not on the next pass. */
   registerPush: () => Promise<boolean>;
+  refreshPrefs: () => Promise<void>;
 }
 const Context = createContext<BabyContext | null>(null);
 export function useBaby() {
@@ -310,6 +311,13 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) noteFailure(e);
     }
   }
+  async function refreshPrefs() {
+    const lease = api.lease();
+    try {
+      const saved = await api.pushPrefs();
+      await commit((s) => ({ ...s, reminderPrefs: saved }), lease);
+    } catch { /* Quiet: with the flag off or no signal, the switches stay where they were. */ }
+  }
   /** What other phones did. A failure is quiet: everything here stays as it is and the next pass asks from the same place. */
   async function pullChanges() {
     const lease = api.lease();
@@ -349,7 +357,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (!(await mergeBootstrap(latest))) return;
       if (alive.current) setError("");
       if (latest.active === false) return;
-      if (latest.reminders?.push) void pushDevice.ensure(latest.generation);
+      if (latest.reminders?.push) {
+        void pushDevice.ensure(latest.generation);
+        // Once, to know where the switches are. The screen itself asks again each time it's opened.
+        if (!ref.current.reminderPrefs) void refreshPrefs();
+      }
       restoreAfterSync = true;
       let serverChildren = latest.children;
       for (const pending of [...ref.current.outbox]) {
@@ -415,6 +427,16 @@ export function BabyProvider({ children }: PropsWithChildren) {
             }
             await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id),
               bootstrap: s.bootstrap && { ...s.bootstrap, children: s.bootstrap.children.map((child) => (child.id === saved.id ? saved : child)) } }));
+            continue;
+          } else if (next.type === "reminder_prefs") {
+            let taken = false;
+            await commit((s) => {
+              taken = s.outbox.some((m) => m.id === next.id);
+              return { ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "reminder_prefs" ? { ...m, sent: true } : m)) };
+            });
+            if (!taken) continue;
+            const saved = await api.savePushPrefs(next.patch, fenceOf(next));
+            await commit((s) => ({ ...s, reminderPrefs: saved, outbox: s.outbox.filter((m) => m.id !== next.id) }));
             continue;
           } else if (next.type === "child_tracking") {
             const server = serverChildren.find((child) => child.id === next.child_id), step = trackingStep(server, next);
@@ -576,7 +598,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
             noteFailure(e);
             break;
           }
-          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "child_tracking" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
+          // The flag went off while this waited: there's nothing to save it to, and nothing offers it now.
+          if (status === 404 && next.type === "reminder_prefs") {
+            await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
+            continue;
+          }
+          if ((next.type === "reminder_prefs" || next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "child_tracking" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
             await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type !== "import" ? retryLater(m) : m)) }));
             continue;
           }
@@ -860,6 +887,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           }
           await funcs.current.refresh();
         },
+        refreshPrefs,
         registerPush: async () => {
           const held = ref.current.bootstrap;
           return held?.reminders?.push && held.active !== false && !closing.current ? pushDevice.ensure(held.generation) : false;

@@ -1776,3 +1776,60 @@ describe("this phone and the push flag", () => {
     expect(mock.pushEnd.mock.invocationCallOrder[0]).toBeLessThan(mock.signOut.mock.invocationCallOrder[0]);
   });
 });
+describe("reminder settings saved with no signal", () => {
+  const change = { id: "prefs", generation: 1, type: "reminder_prefs" as const, patch: { kinds: { event: { enabled: true } } } },
+    saved = { quiet_hours: null, kinds: { event: { enabled: true, break_through: false, hours: null, feed_hours: null, sleep_hours: null } } };
+  const holding = (extra = {}) => { mock.saved = { ...emptyState(), bootstrap, outbox: [{ ...change, ...extra }] } as unknown as DeviceState; };
+  it("goes when it can, and keeps what the API answered", async () => {
+    holding();
+    mock.api.savePushPrefs = vi.fn(async () => saved);
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.savePushPrefs).toHaveBeenCalledWith(change.patch, 1);
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.reminderPrefs).toEqual(saved);
+  });
+  it("offline it stays queued and shows no problem", async () => {
+    holding();
+    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Could not connect", 0); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.outbox).toHaveLength(1);
+    expect(baby.state.outbox[0].error).toBeUndefined();
+  });
+  it("a server problem retries later rather than asking her", async () => {
+    holding();
+    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Down", 503); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.outbox[0]).toMatchObject({ attempts: 1 });
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    expect((baby.state.outbox[0] as { hold_until?: string }).hold_until).toBeTruthy();
+  });
+  it("the flag going off drops it quietly: nothing offers it now", async () => {
+    holding();
+    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.error).toBe("");
+  });
+  it("reads the settings once with the flag on, and never with it off", async () => {
+    mock.api.pushPrefs = vi.fn(async () => saved);
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.pushPrefs).not.toHaveBeenCalled();
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    await act(async () => { await baby.sync(); await settle(); });
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.pushPrefs).toHaveBeenCalledOnce();
+    expect(baby.state.reminderPrefs).toEqual(saved);
+  });
+  it("a failed read stays quiet", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.error).toBe("");
+  });
+});

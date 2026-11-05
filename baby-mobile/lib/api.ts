@@ -10,7 +10,9 @@ import type {
   FeedAction,
   ImportJob,
   Kind,
+  PrefsPatch,
   Profile,
+  ReminderPrefs,
   SessionAction,
   RecordPage,
   RecordWrite,
@@ -392,6 +394,8 @@ export function createBabyApi(
       request<{ registration: string }>(`/push/devices/${encodeURIComponent(installation)}`, "PUT", { token, platform }, generation),
     unregisterPushDevice: (installation: string, registration: string) =>
       request<void>(`/push/devices/${encodeURIComponent(installation)}?` + query({ registration }), "DELETE"),
+    pushPrefs: () => request<ReminderPrefs>("/push/prefs"),
+    savePushPrefs: (patch: PrefsPatch, g: Fence) => request<ReminderPrefs>("/push/prefs", "PATCH", patch, g),
     readiness: (installation_id?: string) => request<FamilyReadiness>("/family/readiness?" + query({ installation_id })),
     /** She says the older phone is updated or gone. This phone's own credential stays. */
     confirmPhones: (installation_id?: string) => request<unknown>("/family/phones/confirm", "POST", installation_id ? { installation_id } : {}),
