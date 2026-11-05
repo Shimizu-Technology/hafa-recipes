@@ -7,6 +7,8 @@ import { preserveFile, removeLocal } from "@/lib/files";
 import { addMutation } from "@/lib/outbox";
 import type { LocalFile, Mutation, Profile } from "@/lib/models";
 import { stockShareScope } from "../lib/stock-share-scope";
+import { captureBelongs, captureSpace } from "../lib/share-scope";
+import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
 import { acknowledgeShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
 
@@ -25,6 +27,7 @@ export function ShareCapture() {
     const drain = async () => {
       if (running) return;
       running = true;
+      let retry = false;
       try {
         while (alive) {
           const baby = account.current, bootstrap = baby.state.bootstrap;
@@ -35,7 +38,8 @@ export function ShareCapture() {
           const native = Platform.OS === "ios" && nativeSharingAvailable ? await pendingShare() : null;
           if (!current()) return;
           if (Platform.OS === "ios" && nativeSharingAvailable && !native) return;
-          if (native && native.scope !== `${owner}:${generation}`) return;
+          // Any capture of this account's, whatever its destination was then. Its tag says where it goes now.
+          if (native && !captureBelongs(native.scope, owner, bootstrap)) return;
           if (!native && !stock.hasShareIntent) return;
           if (!native && !stockShareScope.allow(stock.shareIntent, owner, generation)) return;
           if (native?.status) {
@@ -89,7 +93,9 @@ export function ShareCapture() {
               // file copies and creation bytes rather than replacing the save.
               if (state.outbox.some(m => m.id === save.id) || state.records.some(r => r.id === id)) return state;
               copiesRetained = true;
-              let next = addMutation(state, save);
+              // Read here, from this write's own state: bootstrap can list the family after this drain began, and a capture made before it must not go there.
+              const space = native ? captureSpace(native.scope, state.bootstrap) : undefined;
+              let next = addMutation(state, space ? { ...save, space_id: space } : save);
               if (profile.ai_consent && profile.auto_process_shares &&
                 (automatic.automatic_epoch ?? 0) === (profile.auto_process_epoch ?? 0)) next = addMutation(next, automatic);
               return next;
@@ -105,10 +111,15 @@ export function ShareCapture() {
             if (!committed || !copiesRetained) await Promise.allSettled(copied.map(file => removeLocal(owner, file.uri)));
           }
         }
-      } catch {
+      } catch (failure) {
+        // The first bootstrap ending a lease mid-write isn't a failure to tell her about: it goes again as soon as this one's done.
+        if (failure instanceof ApiError && failure.local) { retry = true; return; }
         if (alive) Alert.alert("Your shared source is still on this phone",
           "Håfa Baby could not finish saving every item. Your original capture is kept; reopen the app to try again.");
-      } finally { running = false; }
+      } finally {
+        running = false;
+        if (retry && alive) setTimeout(() => void drain(), 500);
+      }
     };
     void drain();
     const app = AppState.addEventListener("change", state => { if (state === "active") void drain(); });

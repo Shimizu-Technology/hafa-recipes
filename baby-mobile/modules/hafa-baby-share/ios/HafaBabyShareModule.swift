@@ -40,8 +40,8 @@ public final class HafaBabyShareModule: Module {
         defaults.set(id, forKey: key); defaults.synchronize(); return id
       }
     }
-    AsyncFunction("configureSession") { (token: String, base: String, expires: String, owner: String, generation: Int, automaticEpoch: Int?) throws in
-      try BabyShareSession.configure(storage: self.store(), token: token, base: base, expires: expires, owner: owner, generation: generation, automaticEpoch: automaticEpoch ?? 0)
+    AsyncFunction("configureSession") { (token: String, base: String, expires: String, owner: String, generation: Int, automaticEpoch: Int?, destination: String?) throws in
+      try BabyShareSession.configure(storage: self.store(), token: token, base: base, expires: expires, owner: owner, generation: generation, automaticEpoch: automaticEpoch ?? 0, destination: destination)
     }
   }
 

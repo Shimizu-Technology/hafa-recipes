@@ -137,6 +137,9 @@ describe("leaving a family, or being removed", () => {
     expect(next.outbox.map((m) => m.error)).toEqual([undefined, undefined, undefined]);
     expect(next.outbox[0].left_space).toBeUndefined();
   });
+  it("takes back the notice when she's in a family again", () => {
+    expect(rejoined(withoutFamily(before(), family, uuid), boot()).feedNotices).toEqual([]);
+  });
   it("isn't sent again by the retry that follows a space appearing", () => {
     const next = retryUnavailable(withoutFamily(before(), family, uuid));
     expect(next.outbox[0].error).toBe(notSentMessage);

@@ -5,6 +5,8 @@ export interface ShareSession {
   generation: number;
   auto_process_epoch?: number;
   expires_at: string;
+  /** Where its captures go. Only with the API's family stack on. */
+  space_id?: string;
 }
 export interface NativeShare {
   token: string;
@@ -24,7 +26,7 @@ const bridge = requireOptionalNativeModule<{
   acknowledge(token: string): boolean;
   clear(): void;
   installationId(): Promise<string>;
-  configureSession(token: string, base: string, expires: string, owner: string, generation: number, automaticEpoch: number): Promise<void>;
+  configureSession(token: string, base: string, expires: string, owner: string, generation: number, automaticEpoch: number, destination: string | null): Promise<void>;
   sessionOwner(): Promise<string | null>;
   clearSession(preserveUnassigned: boolean): Promise<void>;
 }>("HafaBabyShare");
@@ -35,5 +37,6 @@ export const clearPendingShares = () => bridge?.clear();
 export const installationId = () => bridge?.installationId() ?? Promise.reject(Error("Native sharing unavailable"));
 export const sessionOwner = () => bridge?.sessionOwner() ?? Promise.resolve(null);
 export const clearSession = (preserveUnassigned = false) => bridge?.clearSession(preserveUnassigned) ?? Promise.resolve();
-export const configureSession = (session: ShareSession, base: string, owner: string) =>
-  bridge?.configureSession(session.token, base, session.expires_at, owner, session.generation, session.auto_process_epoch ?? 0) ?? Promise.resolve();
+/** `destination` is `personal` or a family's id. None names no destination, as with the API's family flag off. */
+export const configureSession = (session: ShareSession, base: string, owner: string, destination: string | null = null) =>
+  bridge?.configureSession(session.token, base, session.expires_at, owner, session.generation, session.auto_process_epoch ?? 0, destination) ?? Promise.resolve();

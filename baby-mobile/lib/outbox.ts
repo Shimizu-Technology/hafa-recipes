@@ -269,8 +269,10 @@ export function withoutFamily(state: DeviceState, space: string, uuid: () => str
 }
 /** Back in a family this phone had stopped writing to: what was waiting for it goes again. */
 export function rejoined(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces">): DeviceState {
-  const back = (m: Mutation) => !!m.left_space && bootstrap.spaces?.some((space) => space.id === m.left_space);
-  return state.outbox.some(back) ? { ...state, outbox: state.outbox.map((m) => (back(m) ? retryMutation(m) : m)) } : state;
+  const back = (m: Mutation) => !!m.left_space && bootstrap.spaces?.some((space) => space.id === m.left_space),
+    // "You're no longer in this family" isn't true any more, in this family or a new one.
+    notices = state.feedNotices?.filter((notice) => notice !== leftFamilyNotice);
+  return { ...state, ...(notices ? { feedNotices: notices } : {}), outbox: state.outbox.map((m) => (back(m) ? retryMutation(m) : m)) };
 }
 /**
  * Copies what a former family's queue held into the personal space, under a new id, and takes its chain out. The last
