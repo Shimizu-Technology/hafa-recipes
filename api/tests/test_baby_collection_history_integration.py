@@ -36,6 +36,10 @@ async def test_collection_finds_old_members_and_topic_before_all_pagination(baby
         # Identical search/topic words outside the collection must not inflate
         # totals or hide old members behind the latest 100 source cache.
         db.add_all([source(index + 1000) for index in range(125)] + members + [group])
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     c = baby_api.client
     latest = (await c.get("/api/v1/baby/records?limit=100")).json()["items"]
@@ -111,6 +115,10 @@ async def test_collection_search_composes_child_general_topic_and_owner_generati
                 group,
             ]
         )
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     for path in ("/records", "/search"):
         filters = {
@@ -148,6 +156,10 @@ async def test_collection_visibility_and_kind_filters_are_strict(baby_api, path)
     deleted.deleted_at = datetime.now(UTC)
     async with baby_api.sessions() as db:
         db.add_all([live_source, empty, foreign, deleted])
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     c = baby_api.client
     for identifier in (foreign.id, deleted.id, live_source.id, uuid4()):
@@ -191,7 +203,14 @@ async def test_old_generation_collection_and_members_cannot_return_after_new_gen
             select(BabyMembership).where(BabyMembership.app_user_id == "owner")
         )
         member.generation = 2
+        from app.domains.baby.models import BabySpace
+
+        (await db.get(BabySpace, member.personal_space_id)).generation = 2
         db.add_all([old_source, old_collection, current_collection])
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     for path in ("/records", "/search"):
         stale = await baby_api.client.get(
@@ -229,6 +248,10 @@ async def test_uncategorized_full_history_scoped_membership_before_paging(baby_a
     async with baby_api.sessions() as db:
         db.add_all(old + newer + groups + [foreign, stale, deleted_group, wrong_kind,
                                          source(10, owner="other"), source(11, generation=2), deleted_source])
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     params = {"uncategorized": True, "q": "packing", "topic": "Labor", "limit": 10}
     ids = []
@@ -255,6 +278,10 @@ async def test_uncategorized_rejects_conflicts_and_composes_general(baby_api, pa
     group = collection([])
     async with baby_api.sessions() as db:
         db.add_all([assigned, general, group, fixture_record("journal", 3)])
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     base = [("uncategorized", "true"), ("q", "packing")]
     for conflict in [[("collection_id", str(group.id))], [("kind", "journal")],

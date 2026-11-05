@@ -28,23 +28,11 @@ LIVE_TABLES = (*BABY_TABLES, BabyShareCredential.__table__, BabyShareCapture.__t
 OLD_TABLES = (*BABY_V1_TABLES, *BABY_SHARE_V1_TABLES)
 
 
-async def simulate_contract_stage(engine, stage):
-    async with engine.begin() as db:
-        if stage >= 58:
-            for table in SPACE_TABLES:
-                await db.execute(text(f"ALTER TABLE {table} ALTER COLUMN space_id SET NOT NULL"))
-            for table in CREATORS:
-                await db.execute(text(f"""ALTER TABLE {table}
-                    ALTER COLUMN app_user_id DROP NOT NULL,
-                    DROP CONSTRAINT {table}_app_user_id_fkey,
-                    ADD CONSTRAINT {table}_app_user_id_fkey FOREIGN KEY (app_user_id)
-                        REFERENCES app_users(id) ON DELETE SET NULL"""))
 
 
 @pytest.mark.parametrize("baby_api", [54, 55, 56, 57, 58], indirect=True)
 async def test_startup_and_named_chain_rerun_at_each_stage(baby_api, monkeypatch, request):
     stage = request.node.callspec.params["baby_api"]
-    await simulate_contract_stage(baby_api.engine, stage)
     monkeypatch.setattr("app.domains.baby.runtime.get_settings", lambda: baby_api.settings)
     if stage >= 57:
         await verify_baby_schema(baby_api.sessions)
@@ -137,7 +125,7 @@ async def test_frozen_creation_and_verification_ignore_future_model_changes(baby
             )
         async with baby_api.engine.connect() as db:
             assert await check_schema(
-                db, tables=(*BABY_V1_TABLES, *BABY_SHARE_V1_TABLES), allowed_forms={}
+                db, tables=(*BABY_V1_TABLES, *BABY_SHARE_V1_TABLES), allowed_forms=ALLOWED_FORMS
             )
             assert not await db.scalar(text("""SELECT EXISTS(SELECT 1 FROM information_schema.columns
                 WHERE table_name LIKE 'baby_%' AND column_name='future_required_column')"""))

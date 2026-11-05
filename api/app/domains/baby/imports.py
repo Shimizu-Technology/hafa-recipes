@@ -40,6 +40,8 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
     if access is None:
         access = await access_for(db, user.id, generation=None, stored_space_id=stored_space_id, write=True)
     member = access.member
+    if access.enabled and access.target.role == "caregiver":
+        raise HTTPException(403, "This role cannot create saved sources")
     if automatic and not (
         member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
     ):
@@ -73,7 +75,7 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         return import_response(prior, access)
     access.check_generation(generation)
     await validate_relations(
-        db, access, generation, body.child_id, {"attachment_ids": body.attachment_ids}
+        db, access, generation, body.child_id, {"attachment_ids": body.attachment_ids}, kind="import"
     )
     count = await db.scalar(
         select(func.count())
@@ -233,6 +235,8 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         source.child_id,
         {"attachment_ids": row.request.get("attachment_ids", [])},
     )
+    if access.enabled:
+        member = await membership_for(db, row.app_user_id)
     # Retry is an explicit request, independent of automatic-share permission.
     if row.request.get("automatic"):
         row.request = {
@@ -240,8 +244,6 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
             for key, value in row.request.items()
             if key not in {"automatic", "automatic_epoch", "automatic_title"}
         }
-    if access.enabled:
-        member = await membership_for(db, row.app_user_id)
     row.status, row.error, row.consent_epoch = "queued", None, member.consent_epoch
     row.lease_token, row.lease_until, row.updated_at = None, None, now()
     source.data = {**source.data, "status": "queued"}

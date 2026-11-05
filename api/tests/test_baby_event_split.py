@@ -243,7 +243,8 @@ async def test_someone_elses_series_is_unavailable(baby_api):
     assert (await split(baby_api, row, start, event)).status_code == 200
     theirs = await series_for(baby_api, "other")
     response = await split(baby_api, theirs, start, event, headers={**V2, "X-Test-Owner": "other"})
-    assert response.status_code == 409 and "New name" not in response.text
+    # With family on it's simply not theirs to see; with it off the id is refused as used.
+    assert response.status_code in {404, 409} and "New name" not in response.text
 
 
 async def series_for(baby_api, owner):

@@ -285,6 +285,11 @@ def test_account_delete_remains_202_with_retryable_cleanup_response():
     )
 
     class ReplaySession:
+        async def scalar(self, statement):
+            # This offline replay fixture has no Baby schema.
+            assert "to_regclass" in str(statement)
+            return False
+
         async def execute(self, statement):
             entity = statement.column_descriptions[0].get("entity")
             return Result(None if entity is AppUser else cleanup)

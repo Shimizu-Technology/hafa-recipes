@@ -21,5 +21,9 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /up
     envVars:
+      # Keep these defaults off. Enable through a reviewed Blueprint change
+      # following the R1 runbook so later sync cannot undo the rollout.
       - key: BABY_FAMILY_ENABLED
+        value: "false"
+      - key: BABY_INVITES_ENABLED
         value: "false"

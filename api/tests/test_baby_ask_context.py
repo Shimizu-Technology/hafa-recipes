@@ -300,12 +300,15 @@ async def test_saved_tips_apply_outside_the_named_week_but_logs_do_not(baby_api,
 @needs_database
 async def test_a_busy_range_reports_that_it_is_partial(baby_api, frozen):
     async with baby_api.sessions() as db:
+        from app.domains.baby.models import BabyMembership
+
+        space = (await db.get(BabyMembership, "owner")).personal_space_id
         for index in range(61):
             data = {"type": "wet"}
             moment = guam(3, index // 6, index % 6 * 10)
             db.add(
                 BabyRecord(
-                    id=uuid4(), app_user_id="owner", generation=1, kind="diaper", title="Diaper",
+                    id=uuid4(), app_user_id="owner", space_id=space, generation=1, kind="diaper", title="Diaper",
                     body="", occurred_at=moment, data=data, revision=1, creation_hash="x",
                     created_at=moment, updated_at=moment,
                 )

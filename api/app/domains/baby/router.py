@@ -127,8 +127,8 @@ async def record_reply(db, row, access):
 
 
 # Clients that predate these fields omit them; only an explicit null clears one.
-SOURCE_ADDITIONS = ("relevance", "suggested_category")
-PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id",), "question": ("event_id",)}
+SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me")
+PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
 
 
 def reconciled_event(data, start):
@@ -328,7 +328,7 @@ async def bootstrap_state(user, db, *, create, request):
         else []
     )
     result = {
-        "profile": Profile.model_validate(member.profile).model_dump(),
+        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
         "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
@@ -463,7 +463,7 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
         personal = next(g for g in access.member_spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
     await db.commit()
-    return member.profile
+    return Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"})
 
 
 @router.get("/children")
@@ -934,11 +934,16 @@ async def create_record(
             raise HTTPException(410, "This entry was removed; create a new entry")
         return await record_reply(db, prior, access)
     access.check_generation(generation)
-    await validate_relations(db, access, generation, body.child_id, body.data, record_id=body.id, kind=body.kind)
+    child_id = body.child_id
+    if access.enabled and child_id and body.kind in {"source", "collection"} and access.target.space.kind == "personal":
+        child = await access.row(db, BabyChild, child_id)
+        if child.space_id != access.target.id:
+            child_id = None
+    await validate_relations(db, access, generation, child_id, body.data, record_id=body.id, kind=body.kind)
     if body.kind == "event":
         await check_series_cap(db, access, generation, body.data, record_id=body.id)
     row = BabyRecord(
-        **body.model_dump(),
+        **{**body.model_dump(), "child_id": child_id},
         app_user_id=user.id,
         space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,
@@ -1177,7 +1182,7 @@ async def export(user: User, db: Database, client: Client = None):
         "format": "hafa-baby-v1",
         "exported_at": now(),
         "generation": member.generation,
-        "profile": member.profile,
+        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
         "children": [child_response(row, access) for row in await rows(BabyChild) if row.deleted_at is None],
         "records": [record_response(row, access, readable) for row in records],
         "attachments": [metadata(row, access) for row in await rows(BabyAttachment) if row.state == "ready"],
@@ -1188,6 +1193,7 @@ async def export(user: User, db: Database, client: Client = None):
 
 @router.delete("/data")
 async def delete_data(
+    request: Request,
     user: User,
     db: Database,
     generation: Generation,
@@ -1195,14 +1201,57 @@ async def delete_data(
 ):
     if expected != generation:
         raise HTTPException(409, "Deletion generation does not match")
+    from app.domains.baby.lifecycle import erase_conversations, erase_space, lock_family_data
+
+    grants = await lock_family_data(db, user.id)
     member = await membership_for(db, user.id, write=True, active=False)
-    await erase_product_data(db, member, generation)
+    if family_enabled() and request.headers.get("X-Baby-Client") == "3":
+        raw_space = request.headers.get("X-Baby-Space")
+        try:
+            requested = UUID(raw_space) if raw_space else None
+        except ValueError:
+            raise HTTPException(422, "Choose a valid Baby space") from None
+        if requested is None:
+            raise HTTPException(422, "X-Baby-Space is required")
+        if requested != member.personal_space_id:
+            raise HTTPException(422, "Use Delete family to erase a family; data erasure targets your personal space")
+    if family_enabled() and request.headers.get("X-Baby-Client") == "3":
+        from app.domains.baby.models import BabySpaceMember
+
+        if await db.scalar(select(BabySpaceMember.space_id).where(
+            BabySpaceMember.app_user_id == user.id, BabySpaceMember.status == "active",
+            BabySpaceMember.space_id != member.personal_space_id).limit(1)):
+            raise HTTPException(409, {"code": "family_exit_required"})
+    if member.status == "deleted" and member.generation == generation + 1:
+        return {"deleted": True, "generation": member.generation}
+    if member.status != "active" or member.generation != generation:
+        raise HTTPException(409, "Baby data changed; refresh before deleting")
+    if grants is not None:
+        personal_id = member.personal_space_id
+        member.personal_space_id = None
+        await erase_conversations(db, grants, actor=user.id)
+        prefixes = []
+        for grant in grants:
+            if grant.id == personal_id:
+                prefixes.extend(await erase_space(db, grant.space, grants))
+        if prefixes:
+            from app.domains.baby.attachments import cleanup_job
+
+            db.add(cleanup_job(user.id, prefixes))
+    await erase_product_data(db, member, generation, erased=grants is not None)
     await db.commit()
     return {"deleted": True, "generation": member.generation}
 
 
 # All routes are registered under one integration entry point.
 
+from app.domains.baby.changes import router as changes_router  # noqa: E402
+from app.domains.baby.family_router import router as family_router  # noqa: E402
+from app.domains.baby.invites import router as invites_router  # noqa: E402
+
+router.include_router(invites_router)
+router.include_router(changes_router)
+router.include_router(family_router)
 router.include_router(attachments_router)
 router.include_router(upload_router)
 router.include_router(chat_router)

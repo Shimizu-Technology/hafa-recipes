@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import func, select, text
 
 from app.auth import ClerkUser, get_current_user
+from app.domains.baby.access import access_for, touch
 from app.domains.baby.lifecycle import now
 from app.domains.baby.models import BabyImport, BabyRecord
 from app.domains.baby.share_models import BabyShareCapture, BabyShareCredential
@@ -101,7 +102,7 @@ async def test_capability_only_saves_original_replays_and_cannot_read_or_borrow(
     other = await session(c, **{"X-Test-Owner": "other"})
     assert (
         await c.post("/api/v1/baby/share/captures", headers=other, json=body)
-    ).status_code == 409
+    ).status_code == (404 if baby_api.settings.baby_family_enabled else 409)
     for token in [
         "Bearer hfws_v1." + str(uuid4()) + "." + "a" * 43,
         "Bearer clerk-jwt",
@@ -169,11 +170,15 @@ async def test_original_survives_active_and_daily_limits_then_deferred_admission
         await db.commit()
         assert await drain_deferred_captures(db) == 1
         assert (await db.get(BabyImport, body["capture_id"])).request["automatic"] is True
+        from app.domains.baby.models import BabyMembership
+
+        space = (await db.get(BabyMembership, "owner")).personal_space_id
         for _ in range(24):
             db.add(
                 BabyImport(
                     id=uuid4(),
                     app_user_id="owner",
+                    space_id=space,
                     generation=1,
                     consent_epoch=0,
                     creation_hash="a" * 64,
@@ -185,6 +190,11 @@ async def test_original_survives_active_and_daily_limits_then_deferred_admission
                     updated_at=now(),
                 )
             )
+        if baby_api.settings.baby_family_enabled:
+            with db.no_autoflush:
+                access = await access_for(db, "owner", stored_space_id=space, write=True)
+                for seeded in list(db.new):
+                    await touch(seeded, access.target)
         await db.commit()
     daily_body = capture()
     daily = await c.post("/api/v1/baby/share/captures", headers=capability, json=daily_body)
@@ -529,9 +539,14 @@ async def test_progress_waits_for_owner_admission_and_never_reports_false_saved(
         progress = asyncio.create_task(c.get("/api/v1/baby/imports/" + body["capture_id"]))
         try:
             await asyncio.sleep(0.05)
-            assert not progress.done()
+            if baby_api.settings.baby_family_enabled:
+                # Family reads are read-only and observe the last committed receipt.
+                assert (await asyncio.wait_for(progress, 5)).json()["status"] == "deferred"
+            else:
+                assert not progress.done()
             await admit_capture(db, receipt, member)
-            assert (await asyncio.wait_for(progress, 5)).json()["status"] == "queued"
+            result = await c.get("/api/v1/baby/imports/" + body["capture_id"]) if baby_api.settings.baby_family_enabled else await asyncio.wait_for(progress, 5)
+            assert result.json()["status"] == "queued"
         finally:
             if not progress.done():
                 progress.cancel()

@@ -45,6 +45,10 @@ async def test_old_journal_and_care_pages_are_not_hidden_behind_newer_sources(ba
             )
         ]
         db.add_all(expected)
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     c = baby_api.client
     bootstrap_page = (await c.get("/api/v1/baby/records?limit=100")).json()
@@ -118,8 +122,15 @@ async def test_kind_groups_and_explicit_general_notes_obey_child_owner_and_gener
             select(BabyMembership).where(BabyMembership.app_user_id == "owner")
         )
         member.generation = 2
+        from app.domains.baby.models import BabySpace
+
+        (await db.get(BabySpace, member.personal_space_id)).generation = 2
         current = fixture_record("journal", 99, generation=2)
         db.add(current)
+        with db.no_autoflush:
+            for seeded in list(db.new):
+                if hasattr(seeded, "space_id") and seeded.space_id is None:
+                    seeded.space_id = (await db.get(BabyMembership, seeded.app_user_id)).personal_space_id
         await db.commit()
     result = await c.get(
         "/api/v1/baby/records", params=[("kinds", "journal"), ("include_general", "true")]

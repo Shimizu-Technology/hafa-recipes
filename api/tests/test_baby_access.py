@@ -65,6 +65,7 @@ async def test_stored_destination_precedes_client_and_rejects_header(baby_api, f
 
 
 async def test_disabled_resolver_preserves_owner_fence_and_ignores_headers(baby_api, monkeypatch):
+    baby_api.settings.baby_family_enabled = False
     monkeypatch.setattr("app.domains.baby.access.get_settings", lambda: baby_api.settings)
     async with baby_api.sessions() as db:
         access = await access_for(db, "owner", client="3", space_id="invalid", generation=1, write=True)
@@ -133,6 +134,7 @@ async def test_removed_membership_is_rechecked_after_waiting_for_user_lock(baby_
 
 
 async def test_disabled_flag_matches_fixed_record_responses(baby_api, monkeypatch):
+    baby_api.settings.baby_family_enabled = False
     monkeypatch.setattr("app.domains.baby.access.get_settings", lambda: baby_api.settings)
     at = shared.datetime(2026, 10, 20, 2, tzinfo=shared.UTC)
     monkeypatch.setattr("app.domains.baby.router.now", lambda: at)

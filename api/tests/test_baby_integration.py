@@ -53,7 +53,8 @@ async def baby_api(monkeypatch, request):
                 text("INSERT INTO schema_migrations VALUES (33,'test baseline')")
             )
         settings = SimpleNamespace(
-            baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20
+            baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20,
+            baby_family_enabled=os.environ.get("BABY_FAMILY_ENABLED", "false").lower() == "true"
         )
         for name in BABY_MIGRATIONS:
             if int(name.split(".")[1].split("_")[0]) > getattr(request, "param", 57):
@@ -83,6 +84,7 @@ async def baby_api(monkeypatch, request):
         app.dependency_overrides[get_db] = database
         app.dependency_overrides[get_current_user] = identity
         monkeypatch.setattr(security, "get_settings", lambda: settings)
+        monkeypatch.setattr("app.domains.baby.access.get_settings", lambda: settings)
         # Provider gates use fresh independent sessions, just like production.
         monkeypatch.setattr("app.db.database.AsyncSessionLocal", sessions)
         async with httpx.AsyncClient(
@@ -603,6 +605,9 @@ async def media_fixture(
     async with baby_api.sessions() as db:
         db.add(intent)
         await db.flush()
+        from app.domains.baby.models import BabyMembership
+
+        row.space_id = (await db.get(BabyMembership, "owner")).personal_space_id
         db.add(row)
         await db.commit()
     return identifier
@@ -705,7 +710,7 @@ async def test_release_is_private_generation_fenced_and_never_unlinks(baby_api):
             f"/api/v1/baby/attachments/{identifier}/release",
             headers={**GEN, "X-Test-Owner": "other"},
         )
-    ).status_code == 204
+    ).status_code == (404 if baby_api.settings.baby_family_enabled else 204)
     assert (
         await c.post(f"/api/v1/baby/attachments/{identifier}/release", headers=GEN)
     ).status_code == 204
@@ -719,7 +724,7 @@ async def test_release_is_private_generation_fenced_and_never_unlinks(baby_api):
     ).status_code == 409
     assert (
         await c.post(f"/api/v1/baby/attachments/{uuid4()}/release", headers=GEN)
-    ).status_code == 204
+    ).status_code == (404 if baby_api.settings.baby_family_enabled else 204)
 
 
 async def quota_upload(baby_api, monkeypatch, identifier=None):

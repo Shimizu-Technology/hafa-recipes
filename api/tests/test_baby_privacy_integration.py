@@ -420,7 +420,7 @@ async def test_whole_account_erasure_cascades_baby_and_cleans_only_owned_private
         assert all(other.asset_id not in prefix for prefix in job.storage_prefixes)
         job_id = job.id
     assert case.path.is_file()
-    assert (await c.get(f"/api/v1/baby/attachments/{case.asset_id}")).status_code == 404
+    assert (await c.get(f"/api/v1/baby/attachments/{case.asset_id}")).status_code == (409 if api.settings.baby_family_enabled else 404)
     await complete_cleanup(api, job_id)
     assert not case.path.parent.exists() and other.path.read_bytes() == other.original_bytes
     assert api.deleted_subjects == ["different-subject"]

@@ -85,6 +85,9 @@ async def test_queued_routines_and_events_retarget_but_private_sources_do_not(ba
     for kind, data in (("routine", {"routine_type": "checklist"}), ("event", {"timezone": "Pacific/Guam"}), ("source", {})):
         response = await c.post("/api/v1/baby/records", headers=private,
                                 json=shared.payload(kind, child_id=child["id"], data=data))
-        assert response.status_code == (422 if kind == "source" else 409), response.text
-        if kind != "source":
+        assert response.status_code == (200 if kind == "source" else 409), response.text
+        if kind == "source":
+            assert response.json()["child_id"] is None
+            assert response.json()["space_id"] == str(personal)
+        else:
             assert response.json().get("detail", response.json())["code"] == "moved"

@@ -44,6 +44,7 @@ class DomainModel(BaseModel):
 
 
 class Profile(DomainModel):
+    family_disclosures: list[dict] = Field(default_factory=list, exclude_if=lambda value: not value)
     display_name: str = Field(default="", max_length=120)
     timezone: str = Field(default="Pacific/Guam", max_length=80)
     ai_consent: StrictBool = False
@@ -61,6 +62,8 @@ class Profile(DomainModel):
 
 
 class ProfilePatch(DomainModel):
+    family_disclosures: object = Field(default=None, exclude=True)
+    auto_process_epoch: object = Field(default=None, exclude=True)
     display_name: str | None = Field(default=None, max_length=120)
     timezone: str | None = Field(default=None, max_length=80)
     ai_consent: StrictBool | None = None
@@ -155,6 +158,7 @@ class CategorySuggestion(DomainModel):
 
 
 class SourceData(DomainModel):
+    just_me: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     url: str | None = Field(default=None, max_length=2000)
     topics: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
         default_factory=list, max_length=30
@@ -343,6 +347,7 @@ class RoutineData(DomainModel):
 
 
 class JournalData(DomainModel):
+    just_me: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
     provenance: Literal["caregiver_observation", "clinician_instruction"] = "caregiver_observation"
     # A question for a visit, or a note after it. Checked against the owner's events on save.
@@ -350,6 +355,7 @@ class JournalData(DomainModel):
 
 
 class CollectionData(DomainModel):
+    just_me: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     record_ids: list[UUID] = Field(default_factory=list, max_length=500)
 
 

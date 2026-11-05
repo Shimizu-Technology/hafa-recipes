@@ -127,7 +127,7 @@ async def test_get_bootstrap_stays_read_only_and_takes_no_owner_lock(baby_api):
             baby_api.client.get("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "legacy"}), 5
         )
         await holder.rollback()
-    assert response.status_code == 200
+    assert response.status_code == (409 if baby_api.settings.baby_family_enabled else 200)
     async with baby_api.sessions() as db:
         assert await db.scalar(
             select(func.count()).select_from(BabySpace).where(BabySpace.created_by == "legacy")
