@@ -159,7 +159,7 @@ async def test_f5_concurrent_removal_and_accept(fam):
     status = await member_status(fam.api, fam.family, "other")
     assert b.status_code in {200, 409}
     if a.status_code == 200 and b.status_code == 200:
-        assert status in {"removed", "active"}
+        assert status == "removed"
 
 
 async def post_in_family(fam, actor_h, data=None):
