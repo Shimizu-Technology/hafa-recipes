@@ -67,7 +67,6 @@ class ExtractionOutput(DomainModel):
 class AnswerOutput(DomainModel):
     message: str = Field(min_length=1, max_length=12000)
     citation_ids: list[str] = Field(default_factory=list, max_length=12)
-    source_urls: list[str] = Field(default_factory=list, max_length=12)
     safety: str | None = None
     proposal: dict | None = None
     quotes: list[dict] = Field(default_factory=list)

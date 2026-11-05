@@ -304,7 +304,7 @@ def unsupported_source(answer, tools) -> bool:
     # What the model read isn't invented, like a saved post's own link. Production shows neither way.
     offered = {source["url"] for source in tools.web_sources} | {row["source_url"] for row in tools.citable.values() if row.get("source_url")}
     links = [match.group("url") or match.group(0) for match in LINK.finditer(answer.message)]
-    if any(not domain_of(url) or clean_url(url) not in offered for url in [*answer.source_urls, *links]):
+    if any(not domain_of(url) or clean_url(url) not in offered for url in links):
         return True
     if any(ref not in {source.get("ref") for source in tools.web_sources} for ref in re.findall(r"\[(S\d+)\]", answer.message)):
         return True

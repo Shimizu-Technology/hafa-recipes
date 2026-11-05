@@ -475,7 +475,7 @@ async def test_an_unsafe_answer_cannot_publish(baby_api, stub, question, unsafe,
 async def test_vaccine_questions_look_it_up_first_and_show_both_schedules(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     cdc = VACCINE_SOURCES[1]["url"]
-    stub.replies = [research_call(), search_reply(urls=[cdc]), answered("AAP says this, CDC says that [S1].", source_urls=[cdc])]
+    stub.replies = [research_call(), search_reply(urls=[cdc]), answered("AAP says this, CDC says that [S1].")]
     body = (await ask(baby_api, "Which vaccine schedule should I follow?")).json()
     assert stub.sent[0]["tool_choice"] == {"type": "function", "name": "research_trusted"}
     assert stub.sent[2]["tool_choice"] == "auto"

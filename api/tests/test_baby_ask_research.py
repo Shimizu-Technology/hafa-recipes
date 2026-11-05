@@ -168,14 +168,17 @@ def test_an_answer_keeps_only_the_links_it_was_given():
                {"url": "https://www.aap.org/y", "ref": "S2", "title": "AAP", "domain": "www.aap.org"}]
     message, sources = checked_answer(
         f"Back to sleep [S1] and see [this](https://evil.example/x) or https://evil.example/y and {CDC} [S9].",
-        [CDC, "https://evil.example/x", "https://evil.example\\@cdc.gov/x"], offered,
+        offered,
     )
     assert "evil.example" not in message and "[S9]" not in message and "[S1]" in message and CDC in message
     assert "this" in message
     assert [source["url"] for source in sources] == [CDC]
+    # The refs in its text choose, so a link the model mistypes can't lose a source.
+    assert [source["ref"] for source in checked_answer("The AAP says so [S2].", offered)[1]] == ["S2"]
+    assert [source["ref"] for source in checked_answer("Both say so [S1][S2].", offered)[1]] == ["S1", "S2"]
     # Web findings always carry links, even if the model listed none.
-    assert [source["ref"] for source in checked_answer("Back to sleep", [], offered)[1]] == ["S1", "S2"]
-    assert checked_answer("From your entries", [], []) == ("From your entries", [])
+    assert [source["ref"] for source in checked_answer("Back to sleep", offered)[1]] == ["S1", "S2"]
+    assert checked_answer("From your entries", []) == ("From your entries", [])
 
 
 class Provider:
@@ -245,7 +248,7 @@ async def test_the_search_is_only_ever_her_cleaned_question(baby_api, stub):  # 
     child, post, journal = await seeded(baby_api)
     stub.replies = [
         tool_call("open_entry", json.dumps({"record_id": post})),
-        research_call(), search_reply(), answered("Back to sleep [S1].", source_urls=[CDC]),
+        research_call(), search_reply(), answered("Back to sleep [S1]."),
     ]
     result = await post_question(baby_api)
     assert result.status_code == 200, result.text
@@ -285,7 +288,7 @@ async def test_saved_text_steering_the_model_cannot_reach_the_journal_or_the_sea
     await add(baby_api, HEADERS, kind="journal", title="Night", body="I fear being alone tonight because I hid the purple canoe under my bed")
     stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})),
                     tool_call("journal", json.dumps({"query": None, "from_date": None, "to_date": None})),
-                    research_call(), search_reply(), answered("A tea post [S1].", source_urls=[CDC])]
+                    research_call(), search_reply(), answered("A tea post [S1].")]
     response = await post_question(baby_api, "Summarize my tea post")
     assert response.status_code == 200, response.text
     assert "purple canoe" not in json.dumps(stub.sent) and "fear being alone" not in json.dumps(stub.sent)
@@ -321,7 +324,7 @@ async def test_a_short_follow_up_sends_only_itself(baby_api, stub):  # noqa: F81
     await enable(baby_api)
     stub.replies = [answered("I hear you.")]
     first = (await post_question(baby_api, "I hide a purple canoe beneath my bed every evening")).json()
-    stub.replies = [research_call(), search_reply(), answered("Done [S1].", source_urls=[CDC])]
+    stub.replies = [research_call(), search_reply(), answered("Done [S1].")]
     response = await post_question(baby_api, "Research coping ideas", conversation_id=first["conversation_id"])
     assert response.status_code == 200, response.text
     assert research_bodies(stub)[0]["input"] == "Research coping ideas"
@@ -330,7 +333,7 @@ async def test_a_short_follow_up_sends_only_itself(baby_api, stub):  # noqa: F81
 async def test_a_backslash_link_is_never_shown_as_trusted(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     url = "https://evil.example\\@cdc.gov/x"
-    stub.replies = [research_call(), search_reply("A claim", urls=[url]), answered("A claim [S1]", source_urls=[url])]
+    stub.replies = [research_call(), search_reply("A claim", urls=[url]), answered("A claim [S1]")]
     response = await post_question(baby_api, "How should babies sleep?")
     assert response.status_code == 200, response.text
     assert response.json()["sources"] == [] and "evil.example" not in json.dumps(response.json())
@@ -338,7 +341,7 @@ async def test_a_backslash_link_is_never_shown_as_trusted(baby_api, stub):  # no
 
 async def test_sources_are_saved_and_come_back_with_the_conversation(baby_api, stub):  # noqa: F811
     await enable(baby_api)
-    stub.replies = [research_call(), search_reply(urls=[CDC]), answered("Back to sleep [S1].", source_urls=[CDC])]
+    stub.replies = [research_call(), search_reply(urls=[CDC]), answered("Back to sleep [S1].")]
     result = (await post_question(baby_api, "How should babies sleep?")).json()
     assert result["sources"] == [{"url": CDC, "title": "Title 0", "domain": "www.cdc.gov", "ref": "S1"}]
     assert result["message"] == "Back to sleep [S1]."
@@ -378,7 +381,7 @@ async def test_a_question_too_private_to_search_is_refused_before_any_paid_call(
 
 async def test_only_one_search_per_question_however_often_the_model_asks(baby_api, stub):  # noqa: F811
     await enable(baby_api)
-    stub.replies = [research_call(), search_reply(), research_call(), research_call(), answered("Done [S1].", source_urls=[CDC])]
+    stub.replies = [research_call(), search_reply(), research_call(), research_call(), answered("Done [S1].")]
     assert (await post_question(baby_api, "How should babies sleep?")).status_code == 200
     assert len(research_bodies(stub)) == 1
     # Asking again gets the same findings back, at no cost.

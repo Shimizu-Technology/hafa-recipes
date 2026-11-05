@@ -135,7 +135,7 @@ def test_every_required_tool_has_to_be_called():
 async def test_a_fabricated_source_or_citation_cannot_pass():
     from tests.test_baby_ask_research import search_reply
 
-    provider = Scripted(call_reply("research_trusted"), search_reply(), answer_reply("Put baby on the back [S999]", source_urls=["https://evil.example/made-up"]))
+    provider = Scripted(call_reply("research_trusted"), search_reply(), answer_reply("Put baby on the back [S999]"))
     result = await evaluation.evaluate_case(provider, case_named("research_safe_sleep"), DATASET, "gpt-6-luna", "low", 1)
     assert not result["task_success"] and result["failures"]["unsupported_source"]
     invented = Scripted(answer_reply("9 poos", citation_ids=["00000000-0000-4000-8000-000000000000"]))
@@ -482,9 +482,8 @@ def test_the_estimate_prices_the_checks_at_the_check_model():
 def test_a_saved_posts_own_link_is_not_invented():
     tools = evaluation.WorldTools(DATASET["actors"][A], None, question="x")
     tools.read("search_saved", {"query": "hospital bag"})
-    answer = SimpleNamespace(message="You saved it.", source_urls=["https://example.test/bag"])
-    assert evaluation.unsupported_source(answer, tools) is False
-    assert evaluation.unsupported_source(SimpleNamespace(message="You saved it.", source_urls=["https://invented.example/x"]), tools) is True
+    assert evaluation.unsupported_source(SimpleNamespace(message="You saved it: https://example.test/bag"), tools) is False
+    assert evaluation.unsupported_source(SimpleNamespace(message="You saved it: https://invented.example/x"), tools) is True
 
 
 def test_what_day_log_and_events_return_can_be_cited_as_in_production():

@@ -108,7 +108,7 @@ async def test_everything_a_round_produced_goes_back_in_its_order(baby_api, stub
 
 
 def strict_reply(proposal=None, message="Here is a suggestion."):
-    text = json.dumps({"message": message, "citation_ids": [], "source_urls": [], "safety": None, "quotes": [], "proposal": proposal})
+    text = json.dumps({"message": message, "citation_ids": [], "safety": None, "quotes": [], "proposal": proposal})
     return {"id": "resp_1", "status": "completed", "usage": USAGE, "output": [{"type": "message", "content": [{"type": "output_text", "text": text, "annotations": []}]}]}
 
 
@@ -149,21 +149,20 @@ async def test_a_citation_the_tools_never_gave_is_dropped_and_the_answer_stays(b
     assert [citation["id"] for citation in response.json()["citations"]] == [post]
 
 
-async def test_a_saved_posts_own_link_in_source_urls_does_no_harm(baby_api, stub):  # noqa: F811
-    await enable(baby_api)
-    post = await add(baby_api, HEADERS, kind="source", title="A post", data={"source_text": "something saved", "url": "https://example.test/post"})
-    stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("You saved a post.", citation_ids=[post], source_urls=["https://example.test/post"])]
-    body = (await ask(baby_api, "What did I save?")).json()
-    assert body["message"] == "You saved a post." and body["sources"] == [] and [citation["id"] for citation in body["citations"]] == [post]
-
-
-def test_the_prompt_says_what_source_urls_are_for():
+def test_an_answer_points_at_sources_by_ref_and_never_retypes_a_link():
+    from app.domains.baby.ask_research import TOOL_RULES
     from app.domains.baby.ask_tools import TOOL_GUIDE
     from app.domains.baby.ask_v2 import BASE_INSTRUCTIONS
 
-    description = ANSWER_SCHEMA["properties"]["source_urls"]["description"]
-    assert "research_trusted" in description and "research_trusted" in BASE_INSTRUCTIONS
+    assert "source_urls" not in ANSWER_SCHEMA["properties"] and "source_urls" not in ANSWER_SCHEMA["required"]
+    assert "source_urls" not in BASE_INSTRUCTIONS and "source_urls" not in TOOL_RULES and "[S1]" in TOOL_RULES
     assert "partial" in TOOL_GUIDE and "open_entry" in TOOL_GUIDE
+
+
+def test_guidance_is_reported_without_measuring_the_child_against_it():
+    from app.domains.baby.ask_research import TOOL_RULES
+
+    assert "without measuring her or the child against it" in TOOL_RULES
 
 
 async def test_a_long_entry_from_search_says_it_is_partial_and_open_entry_gives_the_rest(baby_api):
