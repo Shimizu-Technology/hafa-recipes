@@ -26,11 +26,12 @@ function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage
     // With two babies she can log for either from here, so it says which.
     who = b.state.bootstrap!.children.length > 1 ? child.name : undefined,
     care = useTodayCare({ child: child.id }),
-    afterSave = ({ label, undo }: Saved) => {
-      toast(`Saved: ${label}`, { label: "Undo", onPress: async () => {
+    afterSave = ({ label, undo, until }: Saved, current: boolean) => {
+      toast(`Saved: ${label}`, { label: "Undo", until, onPress: async () => {
         try { await undo?.(); toast("Undone."); } catch (e) { toast(messageFor(e)); }
       } });
-      close();
+      // She's moved on since she tapped, to the other baby or off this sheet altogether, so it stays where she is.
+      if (current) close();
     },
     quick = useQuickLog({ child, rows: care.all, now, who, afterSave }),
     more = useLogFlow<string>(undefined, afterSave),
@@ -49,7 +50,7 @@ function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage
     router.replace(tracker.opens);
   }
   const on = listed.filter((tracker) => trackerOn(tracker, stage)),
-    rest = listed.filter((tracker) => !on.includes(tracker) && !otherStage(tracker, stage)),
+    rest = listed.filter((tracker) => !on.includes(tracker) && (!otherStage(tracker, stage) || (tracker.id === "sleep" && !!quick.openSleep))),
     tile = (tracker: Tracker, big: boolean) => <TrackerTile key={tracker.id} tracker={tracker} big={big} {...(tracker.opens === "quick-log" ? quickFace(quick, tracker) : {})}
       open={tracker.opens === "quick-log" || tracker.opens === "panel" ? panel === tracker.id : undefined} onPress={() => open(tracker)} />,
     group = (title: string, trackers: Tracker[]) => !!trackers.length && <View style={{ gap: 8 }}>

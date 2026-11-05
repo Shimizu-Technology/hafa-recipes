@@ -30,7 +30,7 @@ vi.mock("@/lib/more-logs", () => import("./more-logs"));
 vi.mock("@/lib/trackers", () => import("./trackers"));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: true }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: scope.care, rows: scope.care, loading: false, error: "", refresh: vi.fn() }) }));
-const ui = vi.hoisted(() => ({ PressTarget: "Pressable", Icon: "Icon", Button: "Button", Card: "Card", Copy: "Copy", Grouped: "Grouped", Row: "Row", Screen: "Screen", OnSurface: "OnSurface", Field: "Field", Chips: "Chips",
+const ui = await vi.hoisted(async () => ({ KeyboardSave: (await import("react")).createContext(null), PressTarget: "Pressable", Icon: "Icon", Button: "Button", Card: "Card", Copy: "Copy", Grouped: "Grouped", Row: "Row", Screen: "Screen", OnSurface: "OnSurface", Field: "Field", Chips: "Chips",
   easeOut: () => 0, fonts: {}, radii: {}, typeScale: { footnote: { fontSize: 14 }, caption: {} }, useColors: () => ({}), useToast: () => scope.toast, tap: () => undefined }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
@@ -245,4 +245,127 @@ describe("Add", () => {
     await mount();
     expect(renderer!.root.findAll((n) => String(n.type) === "LegacyTimer")).toHaveLength(1);
   });
+  describe("from the independent review", () => {
+    const open = (id: string, minutes: number, end?: string) => { const at = new Date(now.getTime() - minutes * 60_000).toISOString();
+      return { id, kind: "sleep", child_id: "baby", title: "Sleep", body: "", occurred_at: at, data: end ? { end_at: end } : {}, revision: 1, created_at: at, updated_at: at } as BabyRecord; };
+    it.each([false, true])("Undo after unmount and a baby switch deletes only the original record; synced=%s", async (synced) => {
+      const b = setup([newborn, { ...newborn, id: "two", name: "Kai" }], "baby");
+      b.online = false;
+      await mount(); await press("Diaper"); await press("Pee");
+      const original = saves()[0].record, first = original.id, undo = scope.toast.mock.calls.at(-1)![1].onPress;
+      if (synced) b.state = { ...b.state, outbox: [], records: [{ ...original, revision: 8, created_at: now.toISOString(), updated_at: now.toISOString() }] as BabyRecord[] };
+      act(() => renderer!.unmount()); renderer = undefined;
+      b.state = { ...b.state, selectedChild: "two", records: [...b.state.records,
+        { id: "newer", kind: "diaper", child_id: "two", title: "Diaper", body: "", occurred_at: now.toISOString(), data: { type: "wet" }, revision: 1, created_at: now.toISOString(), updated_at: now.toISOString() } as BabyRecord] };
+      await undo();
+      expect(b.records.map((r: BabyRecord) => r.id)).toEqual(["newer"]);
+      if (synced) { expect(b.state.outbox.filter((m) => m.type === "delete").map((m: any) => m.record.id)).toEqual([first]); }
+    });
+    it("a double tap before the phone write resolves queues one diaper", async () => {
+      const b = setup([newborn]); let release!: () => void;
+      const wait = new Promise<void>((resolve) => { release = resolve; });
+      b.queue = vi.fn(async (m: Mutation) => { await wait; b.state = { ...b.state, outbox: [...b.state.outbox, m] }; });
+      await mount(); await press("Diaper");
+      const onPress = tile("Pee")!.props.onPress;
+      await act(async () => { onPress(); onPress(); await Promise.resolve(); });
+      expect(b.queue).toHaveBeenCalledOnce();
+      await act(async () => { release(); await wait; });
+      expect(saves()).toHaveLength(1);
+    });
+    it("a hidden sleep and breast tracker can still finish from Add", async () => {
+      const b = setup([newborn]);
+      const at = new Date(now.getTime() - 60_000).toISOString(), sleep = open("s", 1);
+      scope.care = [sleep, { ...feedWrite("baby", "left", new Date(at)), revision: 1, created_at: at, updated_at: at } as unknown as BabyRecord];
+      b.state.records = scope.care;
+      await mount();
+      expect(tile("Done")).toBeDefined();
+      await press("Sleeping"); await press("End");
+      expect(saves().at(-1)!.record).toMatchObject({ id: "s", data: { end_at: expect.any(String) } });
+    });
+    it("a sleep under way can still be ended from Add while expecting, when Sleep isn't one of her tiles", async () => {
+      const b = setup([expected]), sleep = { ...open("s", 1), child_id: "due" };
+      scope.care = [sleep]; b.state.records = scope.care;
+      await mount();
+      await press("Sleeping"); await press("End");
+      expect(saves().at(-1)!.record).toMatchObject({ id: "s", data: { end_at: expect.any(String) } });
+    });
+    it("maternal logs never attach to either baby", async () => {
+      setup([expected, newborn], "due");
+      await mount(); await press("How I’m feeling"); await press("Good");
+      expect(saves()[0].record.child_id).toBeNull();
+    });
+    it("a late-arriving sleep from another phone isn't stranded: both show as running, and End both clears them", async () => {
+      const b = setup([newborn]); b.online = false;
+      // Start stays exactly as it is offline: this phone can't know about the other's yet.
+      await mount(); await press("Sleep"); await press("Start");
+      expect(saves().map((m) => m.record.kind)).toEqual(["sleep"]);
+      b.state = { ...b.state, records: [open("other-phone", 1)] }; scope.care = b.records;
+      await act(async () => renderer!.update(<Add />));
+      await press("Sleeping");
+      expect(texts().join(" ")).toContain("2 sleeps running");
+      expect(tile("Start")).toBeUndefined();
+      await press("End both");
+      scope.care = b.records;
+      await act(async () => renderer!.update(<Add />));
+      expect(b.records.filter((r: BabyRecord) => r.kind === "sleep" && !r.data.end_at)).toHaveLength(0);
+      expect(tile("Sleeping")).toBeUndefined();
+      expect(scope.toast.mock.calls.at(-1)![0]).toBe("Saved: 2 sleeps ended");
+    });
+    it("takes both back with one Undo", async () => {
+      const b = setup([newborn]);
+      scope.care = [open("a", 10), open("b", 60)]; b.state.records = scope.care;
+      await mount(); await press("Sleeping"); await press("End both");
+      await act(async () => { await scope.toast.mock.calls.at(-1)![1].onPress(); });
+      expect(b.records.filter((r: BabyRecord) => r.kind === "sleep" && !r.data.end_at).map((r: BabyRecord) => r.id).sort()).toEqual(["a", "b"]);
+    });
+    it("hands a Done's own expiry to the toast, so Undo goes before the hold ends", async () => {
+      const b = setup([newborn]), at = new Date(now.getTime() - 60_000).toISOString();
+      scope.care = [{ ...feedWrite("baby", "left", new Date(at)), revision: 1, created_at: at, updated_at: at }];
+      b.state.records = scope.care;
+      let release!: () => void; const wait = new Promise<void>((resolve) => { release = resolve; });
+      b.queue = vi.fn(async (m: Mutation) => { await wait; b.state = { ...b.state, outbox: [...b.state.outbox, m] }; });
+      await mount();
+      await act(async () => { tile("Done")!.props.onPress(); await Promise.resolve(); });
+      // A second to persist locally: the hold already began, and no toast exists until saving finishes.
+      await act(async () => { vi.advanceTimersByTime(1000); release(); await wait; });
+      const held = b.state.outbox.find((m) => m.type === "feed_action")! as Extract<Mutation, { type: "feed_action" }>;
+      const action = scope.toast.mock.calls.at(-1)![1];
+      expect(action.until).toBeLessThan(Date.parse(held.hold_until!));
+      expect(action.until).toBe(now.getTime() + 6000);
+    });
+    it("gives a plain save no expiry of its own", async () => {
+      setup([newborn]);
+      await mount(); await press("Diaper"); await press("Pee");
+      expect(scope.toast.mock.calls.at(-1)![1].until).toBeUndefined();
+    });
+  });
+});
+
+it("an old pending save does not close the second baby's new panel, and still says it saved", async () => {
+  const b = setup([newborn, { ...newborn, id: "two", name: "Kai" }], "baby");
+  let release!: () => void; const wait = new Promise<void>((resolve) => { release = resolve; });
+  b.queue = vi.fn(async (m: Mutation) => { await wait; b.state = { ...b.state, outbox: [...b.state.outbox, m] }; });
+  await mount(); await press("Diaper");
+  await act(async () => { tile("Pee")!.props.onPress(); await Promise.resolve(); });
+  b.state = { ...b.state, selectedChild: "two" };
+  await act(async () => renderer!.update(<Add />));
+  await press("Temperature");
+  expect(renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.accessibilityLabel)).toContain("Save temperature");
+  await act(async () => { release(); await wait; });
+  expect(saves()[0].record.child_id).toBe("baby");
+  expect(scope.back).not.toHaveBeenCalled();
+  // The panel she opened for Kai is still open, and what saved for Mia still offers Undo.
+  expect(renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.accessibilityLabel)).toContain("Save temperature");
+  expect(scope.toast.mock.calls.at(-1)![0]).toBe("Saved: Pee, for Mia");
+});
+it("doesn't navigate after the sheet has already gone", async () => {
+  const b = setup([newborn]);
+  let release!: () => void; const wait = new Promise<void>((resolve) => { release = resolve; });
+  b.queue = vi.fn(async (m: Mutation) => { await wait; b.state = { ...b.state, outbox: [...b.state.outbox, m] }; });
+  await mount(); await press("Diaper");
+  await act(async () => { tile("Pee")!.props.onPress(); await Promise.resolve(); });
+  act(() => renderer!.unmount()); renderer = undefined;
+  await act(async () => { release(); await wait; });
+  expect(scope.back).not.toHaveBeenCalled();
+  expect(scope.toast.mock.calls.at(-1)![0]).toBe("Saved: Pee");
 });

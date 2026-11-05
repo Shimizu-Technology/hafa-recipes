@@ -92,7 +92,7 @@ export default function Today() {
     todayKey = dayKey(today),
     summary = useCareSummary(child?.id ?? null, todayKey, todayKey, { poll: true });
   const sleepEntry = glance.openSleep ?? glance.lastSleep,
-    sleepTitle = glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
+    sleepTitle = glance.openSleeps.length > 1 ? `${glance.openSleeps.length} sleeps running` : glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
     sleepDetail = sleepGlanceDetail(glance, now),
     routine = routines[0],
     questions = records.filter((r) => r.kind === "question").length;

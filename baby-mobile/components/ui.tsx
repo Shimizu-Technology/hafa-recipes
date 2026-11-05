@@ -945,6 +945,8 @@ export function Row({
 export interface ToastAction {
   label: string;
   onPress: () => void | Promise<void>;
+  /** When it stops being able to work, as an absolute time. It goes then, whatever else the toast is doing. */
+  until?: number;
 }
 type ShowToast = (value: string, action?: ToastAction) => void;
 const ToastContext = createContext<ShowToast>(() => undefined);
@@ -962,7 +964,15 @@ export function ToastProvider({ children }: PropsWithChildren) {
     c = useColors(),
     enter = useRef(new Animated.Value(0)).current,
     [still, setStill] = useState(false),
-    show = useRef<ShowToast>((message, action) => setToast(message ? { message, action, key: Date.now() } : null));
+    [spent, setSpent] = useState<number | null>(null),
+    show = useRef<ShowToast>((message, action) => setToast(message ? { message, action, key: Date.now() } : null)),
+    action = toast?.action && spent !== toast.key && !(toast.action.until && toast.action.until <= Date.now()) ? toast.action : undefined;
+  useEffect(() => {
+    const until = toast?.action?.until;
+    if (!toast || !until) return;
+    const timer = setTimeout(() => setSpent(toast.key), Math.max(0, until - Date.now()));
+    return () => clearTimeout(timer);
+  }, [toast]);
   useEffect(() => {
     if (!toast) return;
     // Rise 8pt and fade in quickly; with Reduce Motion only the fade remains. VoiceOver hears the
@@ -1026,12 +1036,13 @@ export function ToastProvider({ children }: PropsWithChildren) {
               {toast.message}
             </Text>
           </PressTarget>
-          {toast.action && (
+          {action && (
             <PressTarget
               accessibilityRole="button"
-              accessibilityLabel={toast.action.label}
+              accessibilityLabel={action.label}
               onPress={() => {
-                const action = toast.action!;
+                // A tap already on its way when the time came.
+                if (action.until && action.until <= Date.now()) return setSpent(toast.key);
                 setToast(null);
                 void action.onPress();
               }}
@@ -1046,7 +1057,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
               })}
             >
               <Text key={fontScale} maxFontSizeMultiplier={2} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
-                {toast.action.label}
+                {action.label}
               </Text>
             </PressTarget>
           )}
