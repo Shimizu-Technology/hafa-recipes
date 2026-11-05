@@ -155,6 +155,10 @@ export function cancelCopy(owner: string, identity: string) {
       if (n.identifier === identity && n.content.data?.copyOwner === owner) await Notifications.cancelScheduledNotificationAsync(n.identifier);
   }).catch(() => undefined);
 }
+/** Read back from the phone, after anything queued has run, so it's what's really scheduled. */
+export function scheduledNotifications(owner: string) {
+  return ordered(owner, async () => (Platform.OS === "web" ? [] : Notifications.getAllScheduledNotificationsAsync()));
+}
 export function clearReminders(owner: string) {
   return ordered(owner, () => clearOwnedReminders(owner));
 }

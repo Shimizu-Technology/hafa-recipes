@@ -86,7 +86,7 @@ export default function Reminders() {
       {!!feed?.enabled && <Grouped separatorInset={16}><Line title="Also during quiet hours" on={feed.break_through} onChange={(value) => void savePrefs(b, { kinds: { feed_interval: { break_through: value } } })} /></Grouped>}
     </Section>}
     <Section title="Quiet hours">
-      <Copy kind="small" tone="muted">Anything that comes up then waits until they end, and is still on Today.</Copy>
+      <Copy kind="small" tone="muted">Anything that comes up then waits until they end, and is still on Today. A routine you set for a time in quiet hours still goes off at that time.</Copy>
       <Grouped separatorInset={16}><Line title="Quiet hours" on={!!prefs.quiet_hours} onChange={(value) => void savePrefs(b, { quiet_hours: value ? quietWindow(prefs.quiet_hours, zone) : null })} /></Grouped>
       {!!prefs.quiet_hours && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
         <TimeField label="From" value={prefs.quiet_hours.start} onChange={(start) => void savePrefs(b, { quiet_hours: quietWindow(prefs.quiet_hours, zone, { start }) })} />

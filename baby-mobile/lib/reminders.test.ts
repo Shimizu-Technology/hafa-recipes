@@ -113,3 +113,14 @@ it("keeps the chosen timezone and schedules a healthy routine after a bad timezo
   await expect(reconcileReminders("owner",1,[invalid,row("healthy")])).rejects.toThrow("reminder");
   expect(native.scheduleNotificationAsync.mock.calls.map(([n])=>n.content.data.recordId)).toEqual(["healthy"]);
 });
+describe("a routine schedule from an earlier build", () => {
+  it("is left exactly as it is by this one: same signature, no cancel, no reschedule", async () => {
+    native.getAllScheduledNotificationsAsync.mockResolvedValue([scheduled("from-build-35")]);
+    await reconcileReminders("owner", 1, [row("from-build-35")], { authoritative: true, managedIds: [] });
+    expect(native.cancelScheduledNotificationAsync).not.toHaveBeenCalled();
+    expect(native.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+  it("a build 35 payload's fields haven't changed", () => {
+    expect(Object.keys(reminderNotificationData("owner", 1, row("a"))).sort()).toEqual(["babyOwner", "generation", "recordId", "signature"]);
+  });
+});

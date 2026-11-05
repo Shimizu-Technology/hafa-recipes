@@ -75,7 +75,8 @@ import {
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
-import { clearReminders, reconcileCopies, reconcileReminders } from "./reminders";
+import { clearReminders, reconcileCopies, reconcileReminders, scheduledNotifications } from "./reminders";
+import { heldRoutines } from "./routine-report";
 import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
 import { forgetInvite } from "./family";
 import { nativePushDevice } from "./push-native";
@@ -161,6 +162,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
     vault = useRef<ReturnType<typeof createDeviceVault> | null>(null),
     serialized = useRef<Promise<unknown>>(Promise.resolve()),
     busy = useRef(false),
+    pushRegistered = useRef(false),
+    reporting = useRef(false),
+    reportAgain = useRef(false),
+    lastReport = useRef(""),
     rerun = useRef(false),
     onlineRef = useRef(true),
     ownerRef = useRef(""),
@@ -313,6 +318,34 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) noteFailure(e);
     }
   }
+  /**
+   * Tells the API which routines this phone fires for itself, so it pushes only the ones it doesn't. Nothing is cancelled
+   * here or anywhere else for this, so a phone that can't report, or reports late, carries on exactly as it was.
+   */
+  async function reportRoutines() {
+    if (reporting.current) { reportAgain.current = true; return; }
+    const owner = ownerRef.current;
+    if (!pushRegistered.current || !owner || !ref.current.bootstrap?.reminders?.routines || ref.current.bootstrap.active === false || closing.current) return;
+    reporting.current = true;
+    try {
+      const generation = ref.current.bootstrap.generation,
+        holds = heldRoutines(await scheduledNotifications(owner), owner, generation, ref.current),
+        said = JSON.stringify(Object.entries(holds).sort());
+      if (said === lastReport.current) return;
+      await api.reportRoutines(await pushDevice.installation(), holds);
+      lastReport.current = said;
+    } catch (failure) {
+      // Dropped on the API's side, say by a token Apple retired. The next pass registers it again.
+      if (failure instanceof ApiError && !failure.local && failure.status === 404) {
+        pushRegistered.current = false;
+        lastReport.current = "";
+        pushDevice.forget();
+      }
+    } finally {
+      reporting.current = false;
+      if (reportAgain.current) { reportAgain.current = false; void reportRoutines(); }
+    }
+  }
   async function refreshPrefs() {
     if (!remindersOn(ref.current.bootstrap)) return;
     const lease = api.lease();
@@ -361,7 +394,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) setError("");
       if (latest.active === false) return;
       if (latest.reminders?.push) {
-        void pushDevice.ensure(latest.generation);
+        void pushDevice.ensure(latest.generation).then((registered) => {
+          pushRegistered.current = registered;
+          if (registered) void reportRoutines();
+        });
         // Once, to know where the switches are. The screen itself asks again each time it's opened.
         if (!ref.current.reminderPrefs) void refreshPrefs();
       }
@@ -789,7 +825,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           !deleting.current &&
           ownerRef.current === owner &&
           api.lease() === lease,
-      }).catch(() => {
+      }).then(() => { if (!cancelled) void reportRoutines(); }, () => {
         if (!cancelled && current())
           setError(
             "Your entries are saved, but reminders need another attempt. Open Routines or check notification settings."
@@ -808,6 +844,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
   async function clean() {
     // First, while it can still reach the API as this person.
     await pushDevice.end();
+    pushRegistered.current = false;
+    lastReport.current = "";
     forgetInvite();
     await revokeShareSession();
     clearPendingShares();

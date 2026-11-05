@@ -18,10 +18,12 @@ const mock = vi.hoisted(() => ({
   readCleanup: vi.fn(),
   failWrites: false,
   alert: vi.fn(),
+  scheduled: [] as unknown[],
   copies: vi.fn(async () => undefined),
   cancelCopy: vi.fn(async () => undefined),
   pushEnsure: vi.fn(async () => true),
   pushEnd: vi.fn(async () => undefined),
+  pushForget: vi.fn(),
 }));
 vi.mock("react-native", () => ({
   Alert: { alert: (...args: unknown[]) => mock.alert(...args) },
@@ -70,10 +72,11 @@ vi.mock("./reminders", () => ({
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
   reconcileCopies: (owner: string, copies: unknown[]) => (mock.copies as (...args: unknown[]) => Promise<void>)(owner, copies),
   cancelCopy: (owner: string, identity: string) => (mock.cancelCopy as (...args: unknown[]) => Promise<void>)(owner, identity),
+  scheduledNotifications: async () => mock.scheduled,
 }));
 
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
-vi.mock("./push-native", () => ({ nativePushDevice: () => ({ ensure: mock.pushEnsure, end: mock.pushEnd }) }));
+vi.mock("./push-native", () => ({ nativePushDevice: () => ({ ensure: mock.pushEnsure, end: mock.pushEnd, installation: async () => "install-1", forget: mock.pushForget }) }));
 import { BabyProvider, useBaby } from "./context";
 import { ApiError, MovedError } from "./api";
 import { notSentMessage } from "./outbox";
@@ -81,6 +84,8 @@ import { unavailableMessage } from "./spaces";
 import { uploadFile } from "./files";
 import { runningFeed } from "./feed-reducer";
 import { switchFeed } from "./running-feed";
+import { reminderNotificationData } from "./notification-route";
+import { routineSchedule } from "./routine-report";
 let baby!: ReturnType<typeof useBaby>, renderer: ReactTestRenderer | undefined;
 function Probe() {
   baby = useBaby();
@@ -391,6 +396,9 @@ beforeEach(() => {
   mock.cancelCopy.mockClear();
   mock.pushEnsure.mockClear();
   mock.pushEnd.mockClear();
+  mock.pushForget.mockClear();
+  mock.pushEnsure.mockResolvedValue(true);
+  mock.scheduled = [];
   mock.revoke.mockClear();
   mock.cleanupOwner = null;
   mock.readCleanup.mockReset().mockImplementation(async () => mock.cleanupOwner);
@@ -1931,5 +1939,71 @@ describe("the offline copy and the push flag", () => {
     await act(async () => { await baby.sync(); await settle(); });
     expect(baby.state.upcomingReminders).toEqual([listed]);
     expect(mock.copies).toHaveBeenLastCalledWith("owner", []);
+  });
+});
+describe("telling the API what this phone holds", () => {
+  const on = { ...bootstrap, reminders: { push: true, routines: true } }, kept = row("kept", true, 3);
+  const local = () => ({ identifier: "n", content: { data: reminderNotificationData("owner", 1, kept) } });
+  const flagOn = (answer: typeof bootstrap = on) => {
+    mock.api.bootstrap = vi.fn(async () => answer);
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => ({ items: [] }));
+    mock.api.upcomingReminders = vi.fn(async () => ({ items: [] }));
+    mock.api.reportRoutines = vi.fn(async () => ({ held: 1 }));
+    mock.api.records = vi.fn(async (filters: { kind?: string }) => page(filters.kind === "routine" ? [kept] : []));
+    mock.scheduled = [local()];
+  };
+  const syncs = async (times = 1) => { for (let i = 0; i < times; i++) await act(async () => { await baby.sync(); await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); }); };
+  it("with the flag off, or before the migration, it says nothing", async () => {
+    flagOn({ ...bootstrap, reminders: { push: true } } as typeof bootstrap);
+    await mount();
+    await syncs();
+    expect(mock.api.reportRoutines).not.toHaveBeenCalled();
+    flagOn(bootstrap);
+    await syncs();
+    expect(mock.api.reportRoutines).not.toHaveBeenCalled();
+  });
+  it("reports what's really scheduled, and only when that changes", async () => {
+    flagOn();
+    await mount();
+    await syncs(2);
+    expect(mock.api.reportRoutines).toHaveBeenCalledOnce();
+    expect(mock.api.reportRoutines).toHaveBeenCalledWith("install-1", { kept: routineSchedule(kept.data) });
+    mock.scheduled = [];
+    await syncs();
+    expect(mock.api.reportRoutines).toHaveBeenCalledTimes(2);
+    expect(mock.api.reportRoutines).toHaveBeenLastCalledWith("install-1", {});
+  });
+  it("doesn't report for a phone the API refused to register", async () => {
+    flagOn();
+    mock.pushEnsure.mockResolvedValue(false);
+    await mount();
+    await syncs();
+    expect(mock.api.reportRoutines).not.toHaveBeenCalled();
+  });
+  it("reporting changes nothing on the phone: every schedule stays in charge", async () => {
+    flagOn();
+    await mount();
+    await syncs();
+    expect(mock.clear).not.toHaveBeenCalled();
+  });
+  it("a phone the API has lost registers again, quietly", async () => {
+    flagOn();
+    mock.api.reportRoutines = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await syncs();
+    expect(mock.pushForget).toHaveBeenCalled();
+    expect(baby.error).toBe("");
+  });
+  it("offline it tries again later, and says nothing", async () => {
+    flagOn();
+    mock.api.reportRoutines = vi.fn(async () => { throw new ApiError("Could not connect", 0); });
+    await mount();
+    await syncs();
+    expect(mock.pushForget).not.toHaveBeenCalled();
+    expect(baby.error).toBe("");
+    mock.api.reportRoutines = vi.fn(async () => ({ held: 1 }));
+    await syncs();
+    expect(mock.api.reportRoutines).toHaveBeenCalledOnce();
   });
 });

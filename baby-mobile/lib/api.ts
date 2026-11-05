@@ -403,6 +403,9 @@ export function createBabyApi(
     tappedReminder: (id: string) => request<TappedReminder>(`/reminders/${encodeURIComponent(id)}/tap`),
     pushPrefs: () => request<ReminderPrefs>("/push/prefs"),
     savePushPrefs: (patch: PrefsPatch, g: Fence) => request<ReminderPrefs>("/push/prefs", "PATCH", patch, g),
+    /** What this phone has scheduled for itself, replacing what it said before. */
+    reportRoutines: (installation: string, holds: Record<string, string>) =>
+      request<{ held: number }>(`/push/devices/${encodeURIComponent(installation)}/routines`, "PUT", { holds }),
     readiness: (installation_id?: string) => request<FamilyReadiness>("/family/readiness?" + query({ installation_id })),
     /** She says the older phone is updated or gone. This phone's own credential stays. */
     confirmPhones: (installation_id?: string) => request<unknown>("/family/phones/confirm", "POST", installation_id ? { installation_id } : {}),

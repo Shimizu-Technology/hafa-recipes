@@ -87,6 +87,16 @@ describe("registering this phone", () => {
   });
 });
 
+describe("when the API has lost this phone", () => {
+  it("forgetting makes the next pass register it again", async () => {
+    const { env, device } = fixture();
+    await device.ensure(1);
+    device.forget();
+    await device.ensure(1);
+    expect(env.put).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("signing out", () => {
   const holding = (overrides: Partial<PushDeviceEnvironment> = {}) => {
     const made = fixture(overrides);
