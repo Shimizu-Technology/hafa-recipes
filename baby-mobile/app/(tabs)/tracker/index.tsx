@@ -108,7 +108,7 @@ export default function Tracker() {
           <CalendarDay key={day} day={day} today={today} items={dayEvents} known={!events.failed && events.complete} logged={future ? undefined : dayWords} logs={rows.map(logRow)} onAdd={() => addEvent(day)} onOpen={future ? undefined : () => { setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} />
         </TrackerMonth>
         <ComingUp childId={scope} today={today} except={dayEvents} />
-      </> : view === "stats" ? <TrackerStats answer={stats} choice={statsChoice} onChoose={setStatsChoice} today={today} childId={scope} expecting={expecting} now={now} growth={logging}
+      </> : view === "stats" ? <TrackerStats answer={stats} choice={statsChoice} onChoose={setStatsChoice} today={today} childId={scope} on={onNow.map((tracker) => tracker.id)} now={now} growth={logging}
         // A bar can be far down the page, and the day has to start at its own title.
         onOpen={(key) => { pick(key); setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} /> : <>
       <WeekStrip day={day} today={today} marked={marked} onPick={pick} />

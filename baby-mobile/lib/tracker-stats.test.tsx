@@ -24,8 +24,9 @@ import { StatBars } from "../components/stat-bars";
 const onOpen = vi.fn(), onChoose = vi.fn(), now = new Date("2026-11-04T10:00:00Z"), today = "2026-11-04";
 let renderer: ReactTestRenderer | undefined;
 const refresh = vi.fn(), fetchedAt = new Date("2026-11-04T04:14:00Z"); // 2:14 PM in Guam.
-async function mount(stats?: CareStats, { choice = { range: "7d" } as StatsChoice, expecting = false, error = undefined as string | undefined } = {}) {
-  await act(async () => { renderer = create(<TrackerStats answer={{ stats, fetchedAt, error, loading: !stats && !error, refresh }} choice={choice} onChoose={onChoose} today={today} childId="baby" expecting={expecting} now={now} onOpen={onOpen} />); });
+async function mount(stats?: CareStats, { choice = { range: "7d" } as StatsChoice, expecting = false, error = undefined as string | undefined, on = undefined as string[] | undefined } = {}) {
+  on ??= expecting ? ["kicks", "contractions", "feeling", "my_weight", "blood_pressure", "vitamins"] : ["breast", "bottle", "diaper", "sleep"];
+  await act(async () => { renderer = create(<TrackerStats on={on} answer={{ stats, fetchedAt, error, loading: !stats && !error, refresh }} choice={choice} onChoose={onChoose} today={today} childId="baby" now={now} onOpen={onOpen} />); });
 }
 const flat = () => JSON.stringify(renderer!.toJSON());
 const bars = () => renderer!.root.findAll((n) => String(n.type) === "Pressable");
@@ -207,4 +208,89 @@ it("has one Doctor summary, reachable before any numbers have loaded", async () 
   expect(renderer!.root.findAll((n) => String(n.type) === "QuietRow").filter((n) => n.props.title === "Doctor summary")).toHaveLength(1);
   await act(async () => renderer!.root.findAll((n) => String(n.type) === "QuietRow")[0].props.onPress());
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "baby" } });
+});
+
+describe("following the stage", () => {
+  const sections = () => renderer!.root.findAll((n) => String(n.type) === "Section").map((n) => n.props.title);
+  const empty = () => renderer!.root.findAll((n) => String(n.type) === "Empty")[0];
+  const logged = (over: Partial<ReturnType<typeof day>> = {}) => { const days = week(); days[5] = day("2026-11-03", false, over); return days; };
+  const kicked = () => { const stats = answer(logged({ kicks: { sessions: 2, movements: 21 } } as never)); stats.kicks = { sessions: 2, movements: 21 }; return stats; };
+  const own = (stats: CareStats) => { stats.days = stats.days.map((one) => ({ ...one, own: { count: one.date === "2026-11-03" ? 3 : 0 } }));
+    stats.own = { count: 3, logs: [{ label: "My weight", count: 2, latest_title: "152 lb", latest_at: "2026-11-03T10:00:00+10:00" }, { label: "Blood pressure", count: 1, latest_title: "118/76", latest_at: "2026-11-03T09:00:00+10:00" }] };
+    return stats; };
+
+  it("expecting, a blank range talks about what she can log now", async () => {
+    await mount(answer(week()), { expecting: true });
+    expect(empty().props.body).toMatch(/kicks, contractions and your own logs/i);
+    expect(empty().props.body).not.toMatch(/feeds|diapers|sleep/i);
+  });
+  it("expecting, with kicks switched off, doesn't promise them", async () => {
+    await mount(answer(week()), { expecting: true, on: ["contractions", "my_weight"] });
+    expect(empty().props.body).not.toMatch(/kicks/i);
+    expect(empty().props.body).toMatch(/contractions and your own logs/i);
+  });
+  it("after the birth, a blank range follows What shows", async () => {
+    await mount(answer(week()), { on: ["breast", "sleep"] });
+    expect(empty().props.body).toMatch(/feeds and sleep/i);
+    expect(empty().props.body).not.toMatch(/diapers/i);
+  });
+  it("with nothing switched on, a blank range still reads well", async () => {
+    await mount(answer(week()), { on: [] });
+    expect(empty().props.body).toBe("What you log will add up here.");
+  });
+  it("says the last day when the range is 24 hours", async () => {
+    await mount(answer(week()), { choice: { range: "24h" } });
+    expect(empty().props.title).toBe("Nothing logged in the last 24 hours");
+  });
+  it("expecting, shows what's logged and names what isn't, with no empty charts", async () => {
+    await mount(kicked(), { expecting: true });
+    expect(sections()).toEqual(["Kicks"]);
+    const words = renderer!.root.findAll((n) => String(n.type) === "Copy").flatMap((n) => n.children).join(" ");
+    expect(words).toContain("Nothing logged in these days: contractions and your own logs.");
+  });
+  it("after the birth, a tracker she's switched off with no logs is gone, and one with logs stays", async () => {
+    const days = logged({ ...feeds(2) }), stats = answer(days); stats.feeding.count = 2;
+    await mount(stats, { on: ["breast", "sleep"] });
+    expect(sections()).toEqual(["Feeding"]);
+    const words = renderer!.root.findAll((n) => String(n.type) === "Copy").flatMap((n) => n.children).join(" ");
+    expect(words).toContain("Nothing logged in these days: sleep.");
+    expect(words).not.toContain("diapers");
+    await act(async () => renderer!.unmount());
+    await mount(stats, { on: ["sleep"] });
+    expect(sections()).toEqual(["Feeding"]);
+  });
+  it("shows her own logs: how many, and the newest exactly as she typed it", async () => {
+    await mount(own(answer(logged())), { expecting: true });
+    expect(sections()).toEqual(["Your logs"]);
+    const words = renderer!.root.findAll((n) => String(n.type) === "Copy" || String(n.type) === "Text").flatMap((n) => n.children).join(" ");
+    expect(words).toContain("152 lb");
+    expect(words).toContain("118/76");
+    expect(words).toContain("My weight");
+    expect(words).toContain("2 entries");
+  });
+  it("lists her logs in the app's own order, and a bar still opens its day", async () => {
+    const stats = own(answer(logged()));
+    await mount(stats, { expecting: true });
+    const labels = renderer!.root.findAll((n) => n.props.accessibilityLabel?.startsWith?.("My weight") || n.props.accessibilityLabel?.startsWith?.("Blood pressure")).map((n) => n.props.accessibilityLabel);
+    expect(labels[0]).toContain("My weight");
+    const bar = bars().find((n) => String(n.props.accessibilityLabel).includes("3 entries"))!;
+    await act(async () => bar.props.onPress());
+    expect(onOpen).toHaveBeenCalledWith("2026-11-03");
+  });
+  it("never reads a number she typed", async () => {
+    const stats = own(answer(logged())); stats.own!.logs[1].latest_title = "190/120";
+    await mount(stats, { expecting: true });
+    const words = renderer!.root.findAll((n) => String(n.type) === "Copy" || String(n.type) === "Text").flatMap((n) => n.children).join(" ").toLowerCase();
+    expect(words).toContain("190/120");
+    for (const word of ["high", "low", "normal", "range", "elevated", "healthy", "concern"]) expect(words).not.toContain(word);
+  });
+  it("shows nothing of hers from an API that hasn't sent any, and doesn't crash", async () => {
+    await mount(kicked(), { expecting: true });
+    expect(sections()).not.toContain("Your logs");
+  });
+  it("counts her queued log as waiting, whichever baby is on screen", async () => {
+    mock.baby.state.outbox = [{ id: "m", generation: 1, type: "save", files: [], record: { id: "w", kind: "custom", title: "152 lb", body: "", child_id: null, occurred_at: "2026-11-03T12:00:00.000Z", data: { label: "My weight" } } }];
+    await mount(answer(week()), { expecting: true });
+    expect(empty().props.title).toBe("Nothing has reached Håfa yet");
+  });
 });

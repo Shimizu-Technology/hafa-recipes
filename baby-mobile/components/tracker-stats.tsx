@@ -3,12 +3,13 @@ import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { summaryMaxDays } from "@/lib/doctor-summary";
-import { basedOn, customProblem, statsNote, statsRanges, waitingEntries, type CareStats, type StatsChoice, type StatsDay } from "@/lib/care-stats";
+import { basedOn, blankStats, customProblem, nothingYet, statsNote, statsRanges, waitingEntries, type CareStats, type StatsChoice, type StatsDay } from "@/lib/care-stats";
 import { duration } from "@/lib/care-format";
 import { secondsWords } from "@/lib/contractions";
 import { addDays, clockIn, keyDate } from "@/lib/tracker";
 import { Button, Card, Copy, Empty, FilterChips, Notice, QuietRow, Section, fonts, useColors } from "./ui";
 import { DateField } from "./date-field";
+import { trackers } from "../lib/trackers";
 import { Legend, SplitBar, StatBars, useSeriesColors, type Bar } from "./stat-bars";
 
 const words = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
@@ -29,13 +30,14 @@ const averageNote = (logged: number, total: number) => (logged ? basedOn(logged,
 const Tiles = ({ children }: { children: React.ReactNode }) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>{children}</View>;
 
 /** The Tracker's Stats: what was logged, by the API's numbers, and no opinion on any of them. */
-export function TrackerStats({ answer, choice, onChoose, today, childId, expecting, now, growth, onOpen }: {
+export function TrackerStats({ answer, choice, onChoose, today, childId, on, now, growth, onOpen }: {
   answer: { stats?: CareStats; fetchedAt?: Date; error?: string; loading: boolean; refresh: () => void };
   choice: StatsChoice;
   onChoose: (choice: StatsChoice) => void;
   today: string;
   childId: string | null;
-  expecting: boolean;
+  /** The trackers with a button now, for what to say about a blank range. Logs always show, whether it's on or not. */
+  on: readonly string[];
   now: Date;
   /** Whether there's a baby to have measurements. */
   growth?: boolean;
@@ -54,8 +56,9 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
     bar = (day: StatsDay, values: number[], cap: string, spoken: string): Bar => ({ key: day.date, labels: labels(day.date), values, partial: day.partial && !rolling,
       cap: values.some(Boolean) ? cap : nothing, spoken: `${keyDate(day.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}. ${values.some(Boolean) ? spoken : "Nothing logged"}.` }),
     days = stats?.days ?? [];
-  const logged = stats ? stats.feeding.count + stats.diapers.count + stats.sleep.total_minutes + stats.sleep.open.length + stats.contractions.count + stats.kicks.sessions > 0 : false,
-    care = !expecting || (!!stats && stats.feeding.count + stats.diapers.count + stats.sleep.total_minutes + stats.sleep.open.length > 0),
+  const logged = stats ? stats.feeding.count + stats.diapers.count + stats.sleep.total_minutes + stats.sleep.open.length + stats.contractions.count + stats.kicks.sessions + (stats.own?.count ?? 0) > 0 : false,
+    ownLogs = stats?.own?.logs ?? [], ownOrder = trackers.filter((tracker) => tracker.about === "her").map((tracker) => tracker.dataLabel),
+    quiet = stats && logged ? nothingYet(stats, on, rolling) : "",
     averages = !rolling && days.some((day) => !day.partial),
     bothDiapers = days.some((day) => day.diapers.pee + day.diapers.poo + day.diapers.dry > day.diapers.count);
   return <View style={{ gap: 16 }}>
@@ -73,10 +76,9 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
       {!stats.complete && <Notice>There are more logs in these days than Stats can add up at once, so try fewer days.</Notice>}
       {!!note && <Notice>{note}</Notice>}
       {!logged && (waiting ? <Empty icon="stats-chart-outline" title="Nothing has reached Håfa yet" body="What you’ve logged will add up here once it’s synced." />
-        : <Empty icon="stats-chart-outline" title="Nothing logged in these days" body={expecting ? "Contractions and kicks you time will show here." : "Feeds, diapers and sleep will add up here as you log them."} />)}
-      {logged && care && !rolling && days.some((day) => day.partial) && <Copy kind="small" tone="muted">The paler bar is today so far. It isn’t in the averages.</Copy>}
-      {logged && care && <>
-        <Section title="Feeding">
+        : <Empty icon="stats-chart-outline" title={rolling ? "Nothing logged in the last 24 hours" : "Nothing logged in these days"} body={blankStats(on)} />)}
+      {logged && !rolling && days.some((day) => day.partial) && <Copy kind="small" tone="muted">The paler bar is today so far. It isn’t in the averages.</Copy>}
+      {stats.feeding.count > 0 && <Section title="Feeding">
           <Card>
             <Tiles>
               <Tile label="Feeds" value={String(stats.feeding.count)} />
@@ -93,8 +95,8 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
             {stats.feeding.timed_breast_feeds > 0 && <Copy numeric kind="small">{`Breastfeeding: ${duration(stats.feeding.breast_minutes)} over ${words(stats.feeding.timed_breast_feeds, "timed feed")}`}</Copy>}
             {stats.feeding.unknown_end_feeds > 0 && <Copy numeric kind="small" tone="muted">{`${words(stats.feeding.unknown_end_feeds, "feed")} with no end time ${stats.feeding.unknown_end_feeds === 1 ? "isn’t" : "aren’t"} in those minutes.`}</Copy>}
           </Card>
-        </Section>
-        <Section title="Diapers">
+        </Section>}
+      {stats.diapers.count > 0 && <Section title="Diapers">
           <Card>
             <Tiles>
               <Tile label="Diapers" value={String(stats.diapers.count)} />
@@ -104,8 +106,8 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
             <Legend colors={colors} items={[`Pee ${stats.diapers.pee}`, `Poo ${stats.diapers.poo}`, `Dry ${stats.diapers.dry}`]} />
             {bothDiapers && <Copy kind="small" tone="muted">A diaper with both is in pee and in poo. The number on top counts it once.</Copy>}
           </Card>
-        </Section>
-        <Section title="Sleep">
+        </Section>}
+      {stats.sleep.total_minutes + stats.sleep.open.length + stats.sleep.unusable > 0 && <Section title="Sleep">
           <Card>
             <Tiles>
               <Tile label={averages ? "Per day" : "Total"} value={averages ? (stats.sleep.average_minutes_per_day === null ? nothing : duration(stats.sleep.average_minutes_per_day)) : duration(stats.sleep.total_minutes)} note={averages ? averageNote(stats.sleep.days_logged, stats.sleep.days_total) : undefined} />
@@ -115,9 +117,8 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
             {stats.sleep.open.length > 0 && <Copy numeric kind="small" tone="muted">{`${words(stats.sleep.open.length, "sleep")} still going will count once ${stats.sleep.open.length === 1 ? "it ends" : "they end"}.`}</Copy>}
             {stats.sleep.unusable > 0 && <Copy numeric kind="small" tone="muted">{`${words(stats.sleep.unusable, "sleep")} with an end before ${stats.sleep.unusable === 1 ? "its" : "their"} start ${stats.sleep.unusable === 1 ? "isn’t" : "aren’t"} counted.`}</Copy>}
           </Card>
-        </Section>
-      </>}
-      {logged && (expecting || stats.contractions.count > 0) && <Section title="Contractions">
+        </Section>}
+      {stats.contractions.count > 0 && <Section title="Contractions">
         <Card>
           <Tiles>
             <Tile label="Contractions" value={String(stats.contractions.count)} />
@@ -126,7 +127,7 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
           <StatBars colors={single} onOpen={onOpen} bars={days.map((day) => bar(day, [day.contractions.count], String(day.contractions.count), [words(day.contractions.count, "contraction"), day.contractions.average_seconds !== null ? `about ${secondsWords(day.contractions.average_seconds)} long` : ""].filter(Boolean).join(", ")))} />
         </Card>
       </Section>}
-      {logged && (expecting || stats.kicks.sessions > 0) && <Section title="Kicks">
+      {stats.kicks.sessions > 0 && <Section title="Kicks">
         <Card>
           <Tiles>
             <Tile label="Sessions" value={String(stats.kicks.sessions)} />
@@ -135,6 +136,23 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
           <StatBars colors={single} onOpen={onOpen} bars={days.map((day) => bar(day, [day.kicks.movements], String(day.kicks.movements), `${words(day.kicks.movements, "movement")} in ${words(day.kicks.sessions, "session")}`))} />
         </Card>
       </Section>}
+      {ownLogs.length > 0 && <Section title="Your logs">
+        <Card>
+          {/* The newest word for word, and how many. Nothing here reads a number or compares it to anything. */}
+          {[...ownLogs].sort((x, y) => ownOrder.indexOf(x.label) - ownOrder.indexOf(y.label)).map((log) => {
+            const name = trackers.find((tracker) => tracker.dataLabel === log.label)?.label ?? log.label, latest = `Latest: ${log.latest_title}, ${labels(log.latest_at.slice(0, 10))[1]}`, count = words(log.count, "entry", "entries");
+            return <View key={log.label} accessible accessibilityLabel={`${name}: ${count}. ${latest}`} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 12 }}>
+              <View style={{ flexShrink: 1 }}>
+                <Copy kind="label">{name}</Copy>
+                <Copy numeric kind="small" tone="muted">{latest}</Copy>
+              </View>
+              <Copy numeric kind="small">{count}</Copy>
+            </View>;
+          })}
+          <StatBars colors={single} onOpen={onOpen} bars={days.map((day) => bar(day, [day.own?.count ?? 0], String(day.own?.count ?? 0), words(day.own?.count ?? 0, "entry", "entries")))} />
+        </Card>
+      </Section>}
+      {!!quiet && <Copy numeric kind="small" tone="muted">{quiet}</Copy>}
     </>}
     {/* It lives here because it's these numbers on paper: it opens on the same days, when they fit on a page. */}
     <View>
