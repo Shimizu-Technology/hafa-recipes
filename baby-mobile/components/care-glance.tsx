@@ -63,11 +63,3 @@ export function CareGlance({ child, rows, now, running, timeZone }: { child: Chi
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: feed.id } })}>{content}</PressTarget>
     : <View accessible accessibilityLabel={spoken}>{content}</View>;
 }
-
-export function FirstStep({ child, now }: { child?: Child | null; now: Date }) {
-  return <Card tone="hero">
-    <Copy kind="small" tone="accent">{child?.due_date ? "Looking ahead" : "A little space for your day"}</Copy>
-    <Copy numeric={!!child?.due_date} kind="heading">{child?.due_date ? babyAge(child, now) : "Start with a small moment"}</Copy>
-    <Copy tone="muted">{child?.due_date ? "Keep your notes, questions and preparations together." : "Save a note, write in your journal, or add a baby profile when you’re ready."}</Copy>
-  </Card>;
-}

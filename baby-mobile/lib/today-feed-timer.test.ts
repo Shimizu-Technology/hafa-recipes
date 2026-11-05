@@ -5,6 +5,7 @@ import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type M
 import { withPendingBirths } from "./outbox";
 
 const scope = vi.hoisted(() => ({
+  careError: "",
   account: null as unknown,
   care: [] as unknown[],
   tint: "#59453B",
@@ -37,7 +38,7 @@ vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/today-care", () => ({
-  useTodayCare: () => ({ rows: scope.care.slice(0, 3), all: scope.care, loading: false, error: "", refresh: vi.fn() }),
+  useTodayCare: () => ({ rows: scope.care.slice(0, 3), all: scope.care, loading: false, error: scope.careError, refresh: vi.fn() }),
 }));
 const ui = await vi.hoisted(async () => {
   const { createElement } = await import("react");
@@ -54,7 +55,8 @@ vi.mock("../components/ui", () => ui);
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: { feeding: "f", sleep: "s", diaper: "d" } }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
-vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", FirstStep: "FirstStep", useMinuteClock: () => new Date() }));
+vi.mock("@/components/stage-options", () => ({ BabySetupCard: "BabySetupCard" }));
+vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
 vi.mock("@/components/quick-log", () => import("../components/quick-log"));
 vi.mock("@/components/more-logs", () => import("../components/more-logs"));
@@ -133,6 +135,7 @@ afterEach(async () => { await act(async () => renderer?.unmount()); renderer = u
 
 it("finishes a timer from an older build the old way: timed, switched, saved once with Undo, then gone", async () => {
   const account = setup();
+  account.state.bootstrap!.children[0].birth_date = "2026-10-01";
   legacyTimer(account);
   await render();
   expect(find("Pressable", (p) => p.accessibilityLabel === "Feeding")).toHaveLength(1);
@@ -165,6 +168,7 @@ it("finishes a timer from an older build the old way: timed, switched, saved onc
 
 it("discards a timer only after confirming, and keeps one timer at a time", async () => {
   const account = setup();
+  account.state.bootstrap!.children[0].birth_date = "2026-10-01";
   legacyTimer(account);
   await render();
   await tapFeedTile("Feeding");
@@ -184,6 +188,7 @@ it("discards a timer only after confirming, and keeps one timer at a time", asyn
 
 it("restores a persisted timer after restart and hides one from an older space", async () => {
   const account = setup();
+  account.state.bootstrap!.children[0].birth_date = "2026-10-01";
   account.state = { ...account.state, feedTimer: { child_id: "baby", generation: 2, started_at: start.toISOString(),
     segments: [{ side: "left", started_at: start.toISOString(), ended_at: new Date(start.getTime() + 4 * 60_000).toISOString() }],
     paused_at: new Date(start.getTime() + 4 * 60_000).toISOString() } };
@@ -247,10 +252,44 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("TipSection", () => true)).toHaveLength(0);
   account.state.bootstrap!.children = []; await render();
   expect(find("StackScreen", () => true)[0].props.options.title).toBe("Today");
-  expect(find("FirstStep", () => true)[0].props.child).toBeNull();
-  expect(find("Row", p => p.title === "Add a baby profile")).toHaveLength(1);
+  expect(find("BabySetupCard", () => true)[0].props.child).toBeNull();
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Lists & routines", "Journal", "Care history"]);
 });
 
+it("asks a named baby with no date which stage they're in, keeping care only if some is logged", async () => {
+  setup();
+  await render();
+  expect(find("BabySetupCard", () => true)[0].props.child.id).toBe("baby");
+  expect(find("CareGlance", () => true)).toHaveLength(0);
+  expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(0);
+  expect(find("Screen", () => true)[0].props.subtitle).toBeUndefined();
+  scope.care = [optimisticRecord({ id: "logged", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: start.toISOString(), data: { method: "breast", side: "left" } })];
+  await render();
+  expect(find("BabySetupCard", () => true)).toHaveLength(1);
+  expect(find("CareGlance", () => true)).toHaveLength(1);
+  expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(1);
+});
+it("is quiet about loading care only when there's no baby at all", async () => {
+  const account = setup();
+  scope.careError = "Could not connect.";
+  // A named baby with no date and nothing cached: there may well be care to load, and she needs the retry.
+  await render();
+  expect(find("Notice", () => true)).toHaveLength(1);
+  expect(find("Button", (p) => p.title === "Try loading care again")).toHaveLength(1);
+  account.state.bootstrap!.children[0].birth_date = "2026-10-01"; await render();
+  expect(find("Notice", () => true)).toHaveLength(1);
+  account.state.bootstrap!.children = []; await render();
+  expect(find("Notice", () => true)).toHaveLength(0);
+  expect(find("Button", (p) => p.title === "Try loading care again")).toHaveLength(0);
+  scope.careError = "";
+});
+it("drops the setup card as soon as there's a date", async () => {
+  const account = setup();
+  account.state.bootstrap!.children[0].birth_date = "2026-10-01"; await render();
+  expect(find("BabySetupCard", () => true)).toHaveLength(0);
+  account.state.bootstrap!.children[0].birth_date = null; account.state.bootstrap!.children[0].due_date = "2026-12-10"; await render();
+  expect(find("BabySetupCard", () => true)).toHaveLength(0);
+});
 describe("Baby's here?", () => {
   const due = () => {
     const account = setup();
