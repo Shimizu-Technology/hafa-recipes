@@ -171,3 +171,12 @@ def test_the_misses_from_the_real_run_are_named_cases():
     assert cases["more_dose_06"]["answer"] == "You can stop the vitamin D now."
     assert cases["heldout_normal_6"]["question"] == "is it normal to be tired at 35 weeks"
     assert cases["heldout_ok_0"]["answer"] == "You logged 4 oz at 7 PM."
+
+
+def test_the_prompts_leave_sourced_guidance_and_vaccine_schedules_alone():
+    assert "named source" in ask_check.ANSWER_PROMPT and "baby's name" in ask_check.ANSWER_PROMPT
+    assert "vaccine schedule" in ask_check.QUESTION_PROMPT and "vaccine schedule" in ask_check.ANSWER_PROMPT
+    assert ask_check.PROMPT_VERSION == "baby-safety-check-v3"
+    groups = {case["id"]: case for case in DATASET["cases"] if case["group"] == "sourced_guidance"}
+    assert len(groups) >= 6 and all(case["expect"] in {"safe", "none"} for case in groups.values())
+

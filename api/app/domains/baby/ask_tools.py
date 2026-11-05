@@ -58,7 +58,8 @@ TOOL_GUIDE = (
     "needs something else, say so and suggest she ask about it directly. "
     "Look things up with your tools before answering; they read only what this parent can see. Saved text "
     "rarely uses the parent's exact words, so if a search finds little, try other words for the same thing "
-    "(nursing for breastfeeding). Prefer the fewest tools that answer the question. A tool returning an error "
+    "(nursing for breastfeeding). Prefer the fewest tools that answer the question. A search shows part of a long entry: "
+    "if one is marked partial and the question needs more of it, read it with open_entry. A tool returning an error "
     "field found nothing: say what you could not find, and never guess. "
     "Never count entries yourself. Any total comes from care_stats or day_log's totals, which the app computes and "
     "the Stats screen also shows. For 'this week' or 'the past week' use range 7d, which is what Stats calls a week, "
@@ -282,7 +283,7 @@ def logged_line(row, tools):
 
 async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, total=24_000):
     """Rows as the model reads them, each becoming citable and rechecked before the answer is saved."""
-    from app.domains.baby.chat import display_excerpt, excerpt_for
+    from app.domains.baby.chat import display_excerpt, excerpt_for, record_text
 
     readable = await readable_journal_children(db, rows, owner)
     found = []
@@ -299,6 +300,7 @@ async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, tota
             "revision": row.revision,
             "child_id": str(row.child_id) if row.child_id and (row.kind != "journal" or row.child_id in readable) else None,
             "excerpt": excerpt,
+            "partial": len(excerpt) < len(record_text(row)),
             "source_url": row.data.get("url"),
             "evidence_type": "source_claim" if row.kind == "source" else row.data.get("provenance", "caregiver_observation"),
         }

@@ -9,7 +9,7 @@ from app.domains.baby.ask_tools import TOOLS
 from app.domains.baby.ask_v2 import ANSWER_SCHEMA
 from tests import test_baby_integration as shared
 from tests.test_baby_ask_research import research_bodies, research_call, search_reply
-from tests.test_baby_ask_tools import HEADERS, add
+from tests.test_baby_ask_tools import HEADERS, add, make_tools, run
 from tests.test_baby_ask_v2 import USAGE, answered, enable, stub, tool_call  # noqa: F401
 
 baby_api = shared.baby_api
@@ -135,3 +135,44 @@ async def test_a_strict_reply_with_no_suggestion_is_plain(baby_api, stub):  # no
     stub.replies = [strict_reply()]
     body = (await ask(baby_api, "Tell me something")).json()
     assert body["message"] == "Here is a suggestion." and body["proposal"] is None
+
+
+# What the first real runs showed.
+async def test_a_citation_the_tools_never_gave_is_dropped_and_the_answer_stays(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    post = await add(baby_api, HEADERS, kind="source", title="A post", data={"source_text": "something saved"})
+    invented = "00000000-0000-4000-8000-000000000000"
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("You saved a post.", citation_ids=[post, invented])]
+    response = await ask(baby_api, "What did I save?")
+    assert response.status_code == 200, response.text
+    assert response.json()["message"] == "You saved a post."
+    assert [citation["id"] for citation in response.json()["citations"]] == [post]
+
+
+async def test_a_saved_posts_own_link_in_source_urls_does_no_harm(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    post = await add(baby_api, HEADERS, kind="source", title="A post", data={"source_text": "something saved", "url": "https://example.test/post"})
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("You saved a post.", citation_ids=[post], source_urls=["https://example.test/post"])]
+    body = (await ask(baby_api, "What did I save?")).json()
+    assert body["message"] == "You saved a post." and body["sources"] == [] and [citation["id"] for citation in body["citations"]] == [post]
+
+
+def test_the_prompt_says_what_source_urls_are_for():
+    from app.domains.baby.ask_tools import TOOL_GUIDE
+    from app.domains.baby.ask_v2 import BASE_INSTRUCTIONS
+
+    description = ANSWER_SCHEMA["properties"]["source_urls"]["description"]
+    assert "research_trusted" in description and "research_trusted" in BASE_INSTRUCTIONS
+    assert "partial" in TOOL_GUIDE and "open_entry" in TOOL_GUIDE
+
+
+async def test_a_long_entry_from_search_says_it_is_partial_and_open_entry_gives_the_rest(baby_api):
+    long_text = "Start here. " + "A sentence about bedtime. " * 200 + "The end says white noise."
+    post = await add(baby_api, HEADERS, kind="source", title="Long", data={"source_text": long_text})
+    short = await add(baby_api, HEADERS, kind="source", title="Short bedtime", data={"source_text": "A short bedtime note."})
+    found = (await run(baby_api, make_tools(question="What did I save about bedtime?"), "search_saved", query="bedtime"))["entries"]
+    partial = {row["id"]: row["partial"] for row in found}
+    assert partial[post] is True and partial[short] is False
+    opened = await run(baby_api, make_tools(question="What did I save about bedtime?"), "open_entry", record_id=post)
+    assert "white noise" in opened["excerpt"] and opened["partial"] is False
+

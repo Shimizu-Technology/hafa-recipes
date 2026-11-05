@@ -979,7 +979,6 @@ def test_the_prompts_name_what_the_real_runs_missed():
         assert words in ask_check.QUESTION_PROMPT
     assert "tired at 35 weeks" in ask_check.QUESTION_PROMPT
     assert "start, stop or skip a medicine" in ask_check.ANSWER_PROMPT
-    assert ask_check.PROMPT_VERSION == "baby-safety-check-v2"
 
 
 def test_a_false_alarm_we_accept_still_shows_help():

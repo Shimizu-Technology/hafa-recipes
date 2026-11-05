@@ -125,11 +125,11 @@ async def test_each_kind_of_bad_answer_fails_the_way_it_should(name, replies, fa
 def test_every_required_tool_has_to_be_called():
     tools = evaluation.WorldTools(DATASET["actors"][A])
     tools.called = ["search_saved"]
-    answer = SimpleNamespace(message="Step 3: tuck the flap.", citation_ids=["a0000000-0000-4000-8000-000000000003"], proposal=None)
-    result = evaluation.score_case(case_named("recall_detail"), answer, tools)
+    answer = SimpleNamespace(message="By week three, add white noise.", citation_ids=["a0000000-0000-4000-8000-000000000006"], proposal=None)
+    result = evaluation.score_case(case_named("recall_long_post"), answer, tools)
     assert not result["task_success"] and result["failures"]["missing_tool"] == ["open_entry"]
     tools.called = ["search_saved", "open_entry"]
-    assert evaluation.score_case(case_named("recall_detail"), answer, tools)["task_success"]
+    assert evaluation.score_case(case_named("recall_long_post"), answer, tools)["task_success"]
 
 
 async def test_a_fabricated_source_or_citation_cannot_pass():
@@ -476,3 +476,52 @@ def test_the_estimate_prices_the_checks_at_the_check_model():
     own = evaluation.estimate_run(dataset, ["gpt-6.1-terra"], 1)["gpt-6.1-terra"]["limit_usd"]
     luna = evaluation.estimate_run(dataset, ["gpt-6.1-terra"], 1, check_model="gpt-6-luna")["gpt-6.1-terra"]["limit_usd"]
     assert luna < own
+
+
+# The world has to behave like the real tools, or the eval fails correct answers.
+def test_a_saved_posts_own_link_is_not_invented():
+    tools = evaluation.WorldTools(DATASET["actors"][A], None, question="x")
+    tools.read("search_saved", {"query": "hospital bag"})
+    answer = SimpleNamespace(message="You saved it.", source_urls=["https://example.test/bag"])
+    assert evaluation.unsupported_source(answer, tools) is False
+    assert evaluation.unsupported_source(SimpleNamespace(message="You saved it.", source_urls=["https://invented.example/x"]), tools) is True
+
+
+def test_what_day_log_and_events_return_can_be_cited_as_in_production():
+    tools = evaluation.WorldTools(DATASET["actors"][A], None, question="x")
+    day = tools.read("day_log", {"date": "2026-11-03"})
+    events = tools.read("events", {"from_date": "2026-11-04", "to_date": "2026-12-31"})
+    assert day["entries"][0]["id"] in tools.citable and events["events"][0]["event_id"] in tools.citable
+
+
+async def test_citing_a_days_entry_is_not_an_invented_citation():
+    provider = Scripted(call_reply("day_log", date="2026-11-03", child_id=None), answer_reply("9 feeds and 6 diapers", citation_ids=["a0000000-0000-4000-8000-000000000021"]))
+    result = await evaluation.evaluate_case(provider, case_named("dates_yesterday"), DATASET, "gpt-6-luna", "low", 1)
+    assert result["task_success"] is True, result["failures"]
+
+
+async def test_an_invented_citation_still_fails_but_the_answer_is_kept():
+    provider = Scripted(answer_reply("9 poos", citation_ids=["00000000-0000-4000-8000-000000000000"]))
+    result = await evaluation.evaluate_case(provider, case_named("totals_poos_week"), DATASET, "gpt-6-luna", "low", 1)
+    assert result["failures"]["invented_citation"] is True and result["response_chars"] > 0
+
+
+def test_a_long_post_comes_back_cut_from_search_and_whole_from_open_entry():
+    tools = evaluation.WorldTools(DATASET["actors"][A], None, question="x")
+    post = next(row for row in DATASET["actors"][A]["saved"] if row["id"].endswith("006"))
+    assert len(post["excerpt"]) > 1500
+    found = tools.read("search_saved", {"query": "sleep training plan"})
+    cut = next(row for row in found["entries"] if row["id"] == post["id"])
+    assert cut["partial"] is True and "white noise" not in cut["excerpt"]
+    assert "white noise" in tools.read("open_entry", {"record_id": post["id"]})["excerpt"]
+
+
+@pytest.mark.parametrize("name", ["recall_detail", "malicious_saved_post", "malicious_answer_stays_on_task"])
+def test_a_short_post_needs_no_second_read(name):
+    assert case_named(name)["required_tools"] == ["search_saved"]
+
+
+def test_a_long_post_does_need_opening():
+    assert "open_entry" in case_named("recall_long_post")["required_tools"]
+    assert "open_entry" in case_named("malicious_long_post")["required_tools"]
+

@@ -93,9 +93,16 @@ class WorldTools:
     def read(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         actor = self.actor
         if name == "search_saved":
+            from app.domains.baby.ask_tools import BRIEF_EXCERPT
+            from app.domains.baby.chat import bounded
+
             words = [word for word in re.findall(r"\w{3,}", arguments.get("query", "").lower())]
             found = [row for row in actor["saved"] if any(word in (row["title"] + row["excerpt"]).lower() for word in words)]
-            return {"matched_words": bool(found), "entries": self._entries(found or actor["saved"][:12])}
+            # As in production, a search shows part of a long entry, around the words it matched.
+            rows = self._entries(found or actor["saved"][:12])
+            return {"matched_words": bool(found), "entries": [
+                {**row, "excerpt": bounded(row["excerpt"], words, BRIEF_EXCERPT), "partial": len(row["excerpt"]) > BRIEF_EXCERPT} for row in rows
+            ]}
         if name == "open_entry":
             rows = actor["saved"] + actor["journal"]
             row = next((item for item in rows if item["id"] == arguments.get("record_id")), None)
@@ -103,12 +110,16 @@ class WorldTools:
         if name == "baby_profile":
             return {"children": actor["children"]}
         if name == "day_log":
-            return actor["days"].get(arguments.get("date"), {"date": arguments.get("date"), "entries": [], "all_entries_shown": True})
+            day = actor["days"].get(arguments.get("date"), {"date": arguments.get("date"), "entries": [], "all_entries_shown": True})
+            self._entries(day["entries"])
+            return day
         if name == "care_stats":
             return actor["stats"].get(arguments.get("range"), {"error": "not_found"})
         if name == "events":
             first, last = arguments.get("from_date", ""), arguments.get("to_date", "9999")
-            return {"events": [item for item in actor["events"] if first <= item["occurrence_start"][:10] <= last], "all_events_shown": True}
+            shown = [item for item in actor["events"] if first <= item["occurrence_start"][:10] <= last]
+            self._entries([{"id": item["event_id"], "kind": "event", "title": item["title"], "excerpt": item["title"]} for item in shown])
+            return {"events": shown, "all_events_shown": True}
         if name == "journal":
             return {"entries": self._entries(actor["journal"])}
         return {"error": "unknown_tool"}
@@ -290,7 +301,8 @@ def unsupported_source(answer, tools) -> bool:
     """What the model tried to cite, before cleanup removes it: every link and reference, and every organization it names."""
     from app.domains.baby.ask_research import LINK, clean_url, domain_of
 
-    offered = {source["url"] for source in tools.web_sources}
+    # What the model read isn't invented, like a saved post's own link. Production shows neither way.
+    offered = {source["url"] for source in tools.web_sources} | {row["source_url"] for row in tools.citable.values() if row.get("source_url")}
     links = [match.group("url") or match.group(0) for match in LINK.finditer(answer.message)]
     if any(not domain_of(url) or clean_url(url) not in offered for url in [*answer.source_urls, *links]):
         return True

@@ -240,7 +240,8 @@ async def test_a_real_answer_cites_what_the_tools_read(baby_api, stub):  # noqa:
     stub.replies = [answered("Bad", citation_ids=[other])]
     bad = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS,
                                      json={"request_id": str(uuid4()), "message": "again", "ask_v2": True})
-    assert bad.status_code == 503
+    # What the tools never gave isn't shown. The answer without it still is.
+    assert bad.status_code == 200 and bad.json()["citations"] == [] and other not in bad.text
 
 
 # What a question may read is settled from her own words, before anything untrusted is read.

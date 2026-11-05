@@ -237,10 +237,9 @@ async def test_a_bad_tool_request_comes_back_as_data_rather_than_failing(baby_ap
         {"id": "r", "status": "incomplete", "output": [], "usage": USAGE},
         httpx.Response(500, text="Provider said something private"),
         {"id": "r", "status": "completed", "output": [{"type": "message", "content": []}], "usage": USAGE},
-        answered(citation_ids=["00000000-0000-0000-0000-000000000000"]),
     ],
 )
-async def test_a_failed_or_unsupported_answer_saves_nothing_and_leaks_nothing(baby_api, stub, reply):
+async def test_a_failed_answer_saves_nothing_and_leaks_nothing(baby_api, stub, reply):
     await enable(baby_api)
     stub.replies = [reply, reply, reply]  # A 500 gets two more tries.
     result = await ask(baby_api)

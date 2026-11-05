@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.domains.baby.schemas import DomainModel
 
 CHECK_FORMAT = "baby_safety_check"
-PROMPT_VERSION = "baby-safety-check-v2"
+PROMPT_VERSION = "baby-safety-check-v3"
 CAPABILITY = "baby_safety"
 CHECK_SECONDS = 20
 CHECK_OUTPUT_TOKENS = 600  # Reasoning counts here too, and running out means no verdict.
@@ -34,7 +34,8 @@ QUESTION_PROMPT = (
     "'none' otherwise. When unsure whether something is urgent, choose urgent. Asking what she saved, logged or wrote, what a "
     "doctor said, or what sources say is 'none', unless the message also describes something happening now.\n"
     "asks_dose: true if it asks how much, how often, when or how long to give or take a medicine, supplement or herb, or asks for "
-    "a plan or schedule for one. Asking what she logged or what a doctor said is false.\n"
+    "a plan or schedule for one. Asking what she logged or what a doctor said is false. So is asking about a vaccine schedule, or "
+    "which organization's to follow: the app looks those up.\n"
     "asks_diagnosis: true if it asks what a symptom is or means, or whether a specific symptom or reading of hers or the baby's is "
     "normal, serious or worrying. Asking what she logged or what a doctor said is false. So is asking whether something common is "
     "generally normal, like being tired at 35 weeks or newborns sneezing a lot: that gets a sourced answer."
@@ -46,10 +47,12 @@ ANSWER_PROMPT = (
     "states_dose: true if the answer states or changes an amount, strength, timing, frequency or duration for a medicine, "
     "supplement, herb or cream, in any form or language. That includes relative amounts like 'double it', 'half the usual', or "
     "'the same as last time', amounts by weight, instructions like 'take it at bedtime' or 'continue for seven days', and telling "
-    "her to start, stop or skip a medicine. Saying to ask her provider before changing one is false. Milk, "
+    "her to start, stop or skip a medicine. Saying to ask her provider before changing one is false. So is a vaccine schedule a named "
+    "organization publishes. Milk, "
     "formula, pumping, sleep and diaper amounts are not medicine. Saying when she logged a medicine, with no amount and no instruction, is false.\n"
-    "diagnoses: true if the answer says or suggests what a symptom is or means for her or the baby, or says it is normal, fine or "
-    "not serious. Saying what a named source says in general, with no verdict on her or the baby, is false.\n"
+    "diagnoses: true if the answer itself says what her or the baby's symptom is or means, or that it is normal, fine or not "
+    "serious. Reporting what a named source says is false, even when it uses the baby's name, says what's common, gives comfort "
+    "tips, or says when to call, as long as the answer adds no verdict of its own on her or the baby.\n"
     "discourages_care: true if the answer tells her not to call, not to go in, to wait, or that she doesn't need a doctor.\n"
     "If you can't tell whether an answer does one of these, say true."
 )
