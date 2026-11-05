@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.domains.baby import budget, provider
+from app.domains.baby.ask_safety import CANT_ANSWER_LINE
 from app.domains.baby.budget import OWNER_DAILY_CAP
 from app.domains.baby.models import BabyAIAdmission, BabyImport, BabyMessage, BabyRecord
 from app.domains.baby.provider import AI_UNAVAILABLE_MESSAGE, DAILY_LIMIT_CODE, DAILY_LIMIT_MESSAGE
@@ -102,9 +103,9 @@ async def test_chat_budget_limit_is_distinct_from_operational_unavailability(
     response = await baby_api.client.post("/api/v1/baby/chat", headers=shared.GEN, json=body)
     assert response.status_code == status, response.text
     expected = (
-        {"code": DAILY_LIMIT_CODE, "message": DAILY_LIMIT_MESSAGE}
+        {"code": DAILY_LIMIT_CODE, "message": f"{DAILY_LIMIT_MESSAGE} {CANT_ANSWER_LINE}"}
         if reason == "exhausted"
-        else AI_UNAVAILABLE_MESSAGE
+        else f"{AI_UNAVAILABLE_MESSAGE} {CANT_ANSWER_LINE}"
     )
     assert response.json() == {"detail": expected}
     assert "workouts" not in response.text and "unpriced-fixture-model" not in response.text

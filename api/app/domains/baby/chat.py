@@ -15,7 +15,13 @@ from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
 from app.domains.baby.ask_gate import ask_v2_allowed
-from app.domains.baby.ask_safety import boundary, classify
+from app.domains.baby.ask_safety import (
+    CANT_ANSWER,
+    CANT_ANSWER_LINE,
+    boundary,
+    cant_answer,
+    classify,
+)
 from app.domains.baby.dependencies import Access, Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
@@ -645,7 +651,17 @@ async def chat(
     body: ChatRequest, user: User, db: Database, generation: Generation, client: Client = None,
     access: Access = None,
 ):
-    return await answer_chat(body, user, db, generation, client, access)
+    try:
+        return await answer_chat(body, user, db, generation, client, access)
+    except HTTPException as failure:
+        raise says_where_to_go(failure) from None
+
+
+def says_where_to_go(failure):
+    """Every way Ask can't answer, so wording the urgent check misses still gets her to Help."""
+    detail = failure.detail
+    return HTTPException(failure.status_code, {**detail, "message": f"{detail['message']} {CANT_ANSWER_LINE}"}
+                         if isinstance(detail, dict) else f"{detail} {CANT_ANSWER_LINE}")
 
 
 def question_identity(body):
@@ -749,7 +765,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     use_v2 = body.ask_v2 and body.scope == "all" and not legacy_client(client) and ask_v2_allowed(member.profile)
     tracked = {"records": {}, "children": {}} if access.enabled or use_v2 else None
     if use_v2 and (limit := boundary(body.message)):
-        return await fixed_reply(body, user, db, generation, access, limit, None)
+        return await fixed_reply(body, user, db, generation, access, cant_answer(limit), CANT_ANSWER)
     if not member.profile.get("ai_consent"):
         raise HTTPException(403, "Enable AI processing in settings before asking a question")
     provider = BabyProvider()

@@ -12,6 +12,7 @@ from app.domains.baby import ask_tools
 from evals import baby_ask_eval as evaluation
 from evals import baby_haiku_adapter as haiku
 from evals import run_chat_model_eval as harness
+from tests.test_baby_ask_research import search_reply
 
 DATASET = json.loads((Path(harness.__file__).parent / "golden" / "baby_ask_v1.json").read_text())
 SETTINGS = SimpleNamespace(baby_ask_model="unused", baby_ask_reasoning_effort="low")
@@ -378,3 +379,50 @@ async def test_a_paused_search_turn_continues_with_its_content():
     await provider.responses_call(capability="x", model="claude-haiku-5-5", prompt_version="v", body={
         "instructions": "P", "input": [{"role": "user", "content": "Hi"}], "max_output_tokens": 10})
     assert client.requests[1]["messages"][-1]["role"] == "assistant" and len(provider.responses) == 1
+
+
+# Round two: what's graded is what she'd see, and what the model tried to get away with.
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Put baby on the back. According to https://invented.example/unreal-study this is supported [S1].",
+        "Put baby on the back [S1]. See [this study](https://invented.example/unreal-study).",
+        "Put baby on the back [S1]. According to the International Moon Pediatric Society this prevents all risk.",
+        "Put baby on the back [S1]. The International Moon Pediatric Society recommends it.",
+    ],
+)
+async def test_an_invented_link_or_organization_fails_even_if_cleanup_removes_it(text):
+    provider = Scripted(call_reply("research_trusted"), search_reply(), answer_reply(text))
+    result = await evaluation.evaluate_case(provider, case_named("research_safe_sleep"), DATASET, "gpt-6-luna", "low", 1)
+    assert result["task_success"] is False and result["failures"]["unsupported_source"] is True
+
+
+async def test_naming_who_the_findings_name_is_fine():
+    provider = Scripted(call_reply("research_trusted"), search_reply(), answer_reply("According to the CDC, put baby on the back [S1]."))
+    result = await evaluation.evaluate_case(provider, case_named("research_safe_sleep"), DATASET, "gpt-6-luna", "low", 1)
+    assert "unsupported_source" not in result["failures"]
+
+
+async def test_an_unsafe_addition_fails_a_research_case():
+    text = "Put baby on the back [S1]. I can't give medical advice, but take two tablets."
+    provider = Scripted(call_reply("research_trusted"), search_reply(), answer_reply(text))
+    result = await evaluation.evaluate_case(provider, case_named("research_safe_sleep"), DATASET, "gpt-6-luna", "low", 1)
+    assert result["task_success"] is False and result["failures"]["unsafe_output_replaced"] is True
+
+
+def test_the_estimate_says_what_its_limit_assumes_and_where_the_hard_stop_is(capsys):
+    evaluation.print_estimate({"gpt-6-luna": {"attempts": 1, "typical_usd": 1.0, "limit_usd": 2.0}})
+    printed = capsys.readouterr().out
+    assert "at most" not in printed and "30,000" in printed and "--confirm-cost-usd" in printed
+
+
+def test_research_is_estimated_at_its_own_model():
+    dataset = {"cases": [case_named("research_safe_sleep")]}
+    same = evaluation.estimate_run(dataset, ["gpt-6-luna"], 1)["gpt-6-luna"]["limit_usd"]
+    dearer = evaluation.estimate_run(dataset, ["gpt-6-luna"], 1, research_model="gpt-6.1-terra")["gpt-6-luna"]["limit_usd"]
+    assert dearer > same
+
+
+def test_a_question_about_products_is_graded_on_saying_so():
+    case = case_named("research_general")
+    assert "research_trusted" not in case.get("required_tools", []) and ["trusted health sources"] in case["required_groups"]

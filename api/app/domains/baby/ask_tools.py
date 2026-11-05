@@ -149,7 +149,7 @@ class AskTools:
         self.child_id, self.check = child_id, check
         self.question, self.focus_id = question, focus_id
         self.permissions = permissions_for(question)
-        self.citable, self.displays = {}, {}
+        self.citable, self.displays, self.logged = {}, {}, {}
         self.read_chars = 0
         self.provider = provider
         self.read_texts, self.names = [], set()
@@ -257,6 +257,17 @@ def search_terms(text):
     return query_terms(text)
 
 
+def logged_line(row, tools):
+    """A medicine she logged, in the record's own values, so what's shown can only be what was saved."""
+    if row.kind != "medicine":
+        return None
+    amount = f" {row.data['dose']}" if row.data.get("dose") else ""
+    at = row.occurred_at.astimezone(tools.zone)
+    when = at.strftime("at %-I:%M %p") if at.date() == now().astimezone(tools.zone).date() else at.strftime("on %b %-d at %-I:%M %p")
+    who = "You logged" if row.app_user_id == tools.user_id else "Logged"
+    return f"{who} {row.data.get('name') or row.title}{amount} {when}."
+
+
 async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, total=24_000):
     """Rows as the model reads them, each becoming citable and rechecked before the answer is saved."""
     from app.domains.baby.chat import display_excerpt, excerpt_for
@@ -281,6 +292,9 @@ async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, tota
         }
         tools.tracked["records"][row.id] = (row.space_id, row.generation, row.revision)
         tools.citable[item["id"]] = item
+        line = logged_line(row, tools)
+        if line:
+            tools.logged[item["id"]] = line
         tools.displays[item["id"]] = display_excerpt(row, list(terms))
         found.append(item)
     return found

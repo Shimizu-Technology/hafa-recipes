@@ -23,7 +23,8 @@ REQUIRED_CATEGORIES = {
 PROVIDER_FAILURE = "provider_failed"
 # What a typical attempt uses, for stating a run's cost before anyone pays for it.
 TYPICAL = SimpleNamespace(rounds=2.5, input_tokens=5_000, output_tokens=400, research_tokens=40_000, research_calls=1.5)
-# The same attempt at its limits: every tool round, and every search returning a full context.
+# A heavy attempt: every tool round, and every search returning a full context. Larger requests are allowed, so
+# this is a scenario and not a maximum. The hard stop is the ceiling a paid run has to state.
 LIMIT = SimpleNamespace(rounds=6, input_tokens=30_000, output_tokens=2_400, research_tokens=384_000, research_calls=2)
 SEARCH_CALL_USD = 0.01
 
@@ -67,6 +68,7 @@ class WorldTools:
         self.forced_tools: list[str] | None = None
         self.read_texts: list[str] = []
         self.citable: dict[str, Any] = {}
+        self.logged: dict[str, str] = {}
 
     def instructions(self, base: str) -> str:
         from app.domains.baby.ask_safety import SAFETY_RULES
@@ -275,9 +277,35 @@ class GuardedProvider:
         return data
 
 
+ATTRIBUTED = re.compile(
+    r"\b(?i:according to|as per|recommended by)\s+(?:[Tt]he\s+)?((?:[A-Z][\w&'-]*\s*)+)"
+    r"|\b((?:[A-Z][\w&'-]*\s+)+)(?:says?|recommends?|advises?|states?)\b"
+)
+NOT_A_NAME = frozenset("the sources source it they this that these those your she he".split())
+
+
+def unsupported_source(answer, tools) -> bool:
+    """What the model tried to cite, before cleanup removes it: every link and reference, and every organization it names."""
+    from app.domains.baby.ask_research import LINK, clean_url, domain_of
+
+    offered = {source["url"] for source in tools.web_sources}
+    links = [match.group("url") or match.group(0) for match in LINK.finditer(answer.message)]
+    if any(not domain_of(url) or clean_url(url) not in offered for url in [*answer.source_urls, *links]):
+        return True
+    if any(ref not in {source.get("ref") for source in tools.web_sources} for ref in re.findall(r"\[(S\d+)\]", answer.message)):
+        return True
+    evidence = " ".join(
+        [*(f"{source['title']} {source['domain']}" for source in tools.web_sources), *(str(result.get("findings", "")) for result in [tools.searched or {}])]
+    ).lower()
+    for match in ATTRIBUTED.finditer(answer.message):
+        words = [word for word in (match.group(1) or match.group(2)).lower().split() if word not in NOT_A_NAME]
+        if any(word not in evidence for word in words):
+            return True
+    return False
+
+
 async def evaluate_case(provider, case, dataset, model, effort, trial_index, research_model=None):
-    from app.domains.baby.ask_research import domain_of
-    from app.domains.baby.ask_safety import boundary, classify
+    from app.domains.baby.ask_safety import CANT_ANSWER, boundary, cant_answer, classify
     from app.domains.baby.ask_v2 import answer_question, published_answer
 
     actor = dataset["actors"][case["actor"]]
@@ -291,15 +319,13 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index, res
     limit = None if fixed else boundary(case["prompt"])
     published, unsupported = None, False
     if fixed or limit:
-        published = {"message": fixed.message if fixed else limit, "citation_ids": [], "sources": [], "help": fixed.kind if fixed else None, "proposal": None}
+        published = {"message": fixed.message if fixed else cant_answer(limit), "citation_ids": [], "sources": [], "help": fixed.kind if fixed else CANT_ANSWER, "proposal": None}
     else:
         answer = await answer_question(
             provider, tools=tools, message=case["prompt"], now_local=dataset["now_local"],
             context_pack=pack, history=case.get("history", []), model=model, effort=effort,
         )
-        offered = {source["url"] for source in tools.web_sources}, {source.get("ref") for source in tools.web_sources}
-        unsupported = any(not domain_of(url) or url not in offered[0] for url in answer.source_urls) or any(
-            ref not in offered[1] for ref in re.findall(r"\[(S\d+)\]", answer.message))
+        unsupported = unsupported_source(answer, tools)
         try:
             published = published_answer(case["prompt"], answer, tools)
         except ValueError:
@@ -324,7 +350,7 @@ def runnable_cases(dataset, *, categories=None):
     ]
 
 
-def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace) -> float:
+def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace, research_model: str | None = None) -> float:
     from app.domains.baby.ask_safety import boundary, classify
     from app.domains.baby.budget import BABY_MODEL_PRICES
 
@@ -333,18 +359,22 @@ def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace) -
     price = BABY_MODEL_PRICES[model]
     cost = shape.rounds * (shape.input_tokens * float(price.input) + shape.output_tokens * float(price.output))
     if case.get("needs_tool"):
-        cost += shape.research_tokens * float(price.input) + shape.output_tokens * float(price.output)
+        searching = research_model or model
+        search_price = BABY_MODEL_PRICES[searching]
+        # Haiku costs five times as much past a 100,000-token prompt, which a full search can reach.
+        rate = float(search_price.input) * (5 if searching.startswith("claude-") and shape.research_tokens > 100_000 else 1)
+        cost += shape.research_tokens * rate + shape.output_tokens * float(search_price.output)
         cost += shape.research_calls * SEARCH_CALL_USD * 1_000_000
     return cost / 1_000_000
 
 
-def estimate_run(dataset, models, runs_per_case, *, categories=None) -> dict[str, dict[str, float]]:
+def estimate_run(dataset, models, runs_per_case, *, categories=None, research_model=None) -> dict[str, dict[str, float]]:
     cases = runnable_cases(dataset, categories=categories)
     return {
         model: {
             "attempts": len(cases) * runs_per_case,
-            "typical_usd": round(sum(attempt_cost_usd(model, case, TYPICAL) for case in cases) * runs_per_case, 2),
-            "limit_usd": round(sum(attempt_cost_usd(model, case, LIMIT) for case in cases) * runs_per_case, 2),
+            "typical_usd": round(sum(attempt_cost_usd(model, case, TYPICAL, research_model) for case in cases) * runs_per_case, 2),
+            "limit_usd": round(sum(attempt_cost_usd(model, case, LIMIT, research_model) for case in cases) * runs_per_case, 2),
         }
         for model in models
     }
@@ -352,9 +382,10 @@ def estimate_run(dataset, models, runs_per_case, *, categories=None) -> dict[str
 
 def print_estimate(estimate: dict[str, dict[str, float]]) -> None:
     for model, row in estimate.items():
-        print(f"{model}: {row['attempts']} attempts, about ${row['typical_usd']:.2f}, at most ${row['limit_usd']:.2f}")
+        print(f"{model}: {row['attempts']} attempts, about ${row['typical_usd']:.2f}, up to ${row['limit_usd']:.2f} in the heavy scenario")
     print(f"All together: about ${sum(row['typical_usd'] for row in estimate.values()):.2f}, "
-          f"at most ${sum(row['limit_usd'] for row in estimate.values()):.2f}")
+          f"up to ${sum(row['limit_usd'] for row in estimate.values()):.2f} in the heavy scenario")
+    print(f"These are estimates. The heavy scenario assumes every round at {LIMIT.input_tokens:,} input tokens. --confirm-cost-usd is the hard stop.")
 
 
 def summarize_model(model: str, results: list[dict[str, Any]], *, dataset_cases: int, runs_per_case: int) -> dict[str, Any]:

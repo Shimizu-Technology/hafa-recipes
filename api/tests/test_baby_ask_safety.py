@@ -4,18 +4,23 @@ import json
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import func, select
 
-from app.domains.baby import budget, provider
+from app.domains.baby import ask_safety, budget, provider
 from app.domains.baby.ask_research import is_trusted
 from app.domains.baby.ask_safety import (
     BABY_UNWELL,
+    CANT_ANSWER,
+    CANT_ANSWER_LINE,
     DIAGNOSIS_REFUSAL,
     DOSE_REFUSAL,
+    ENGLISH_ONLY_REFUSAL,
     HARM,
     MESSAGES,
     SAFETY_RULES,
+    TRUSTED_SITES_ONLY,
     URGENT_MATERNAL,
     VACCINE_CLOSING,
     VACCINE_SOURCES,
@@ -23,7 +28,7 @@ from app.domains.baby.ask_safety import (
     boundary,
     classify,
 )
-from app.domains.baby.models import BabyAIAdmission, BabyConversation, BabyMessage
+from app.domains.baby.models import BabyAIAdmission, BabyConversation, BabyMembership, BabyMessage
 from tests import test_baby_integration as shared
 from tests.test_baby_ask_research import research_call, search_reply
 from tests.test_baby_ask_tools import HEADERS, add, add_child
@@ -199,7 +204,7 @@ def answer(message="An answer", **fields):
     ],
 )
 def test_a_dose_in_an_answer_is_replaced(question, message):
-    assert answer_checks(question, answer(message, citation_ids=["x"]), ["Tylenol at 2:14 PM"])[0] == DOSE_REFUSAL
+    assert answer_checks(question, answer(message, citation_ids=["x"]))[0] == DOSE_REFUSAL
 
 
 @pytest.mark.parametrize(
@@ -235,14 +240,9 @@ def test_ordinary_answers_and_refusals_stay(message):
     assert answer_checks("How was this week?", answer(message))[0] == message
 
 
-def test_what_she_logged_can_be_reported_when_the_record_says_it():
+def test_saying_when_she_logged_it_stays_when_it_states_no_amount():
     logged = answer("You logged Tylenol at 2:14 PM.", citation_ids=["x"])
-    assert answer_checks("When did I log Tylenol?", logged, ["Tylenol at 2:14 PM"])[0] == logged.message
-    with_amount = answer("You logged Tylenol 500 mg at 9 AM.", citation_ids=["x"])
-    assert answer_checks("When did I last log Tylenol?", with_amount, ["Tylenol 500 mg, 9 AM"])[0] == with_amount.message
-    # Not in the record it cites, so it isn't what she logged.
-    assert answer_checks("When did I last log Tylenol?", with_amount, ["Tylenol, 9 AM"])[0] == DOSE_REFUSAL
-    assert answer_checks("When did I last log Tylenol?", answer("You logged Tylenol 500 mg at 9 AM."), [])[0] == DOSE_REFUSAL
+    assert answer_checks("When did I log Tylenol?", logged)[0] == logged.message
 
 
 def test_bottle_amounts_are_not_doses():
@@ -448,7 +448,7 @@ async def test_a_tool_is_still_answered_when_a_model_flags_safety_after_reading(
 async def test_boundary_questions_never_reach_a_model(baby_api, stub, question, reply):  # noqa: F811
     await enable(baby_api)
     response = await ask(baby_api, question)
-    assert response.status_code == 200 and response.json()["message"] == reply and stub.sent == []
+    assert response.status_code == 200 and response.json()["message"].startswith(reply) and stub.sent == []
     async with baby_api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 0
 
@@ -465,7 +465,7 @@ async def test_an_unsafe_answer_cannot_publish(baby_api, stub, question, unsafe,
     await enable(baby_api)
     stub.replies = [answered(unsafe)]
     body = (await ask(baby_api, question)).json()
-    assert body["message"] == reply and unsafe not in json.dumps(body)
+    assert body["message"].startswith(reply) and unsafe not in json.dumps(body)
     async with baby_api.sessions() as db:
         saved = await db.scalar(select(BabyMessage).where(BabyMessage.role == "assistant"))
     assert unsafe not in json.dumps(saved.content)
@@ -481,3 +481,278 @@ async def test_vaccine_questions_look_it_up_first_and_show_both_schedules(baby_a
     assert stub.sent[2]["tool_choice"] == "auto"
     assert {item["url"] for item in body["sources"]} == {item["url"] for item in VACCINE_SOURCES}
     assert body["message"].endswith(VACCINE_CLOSING)
+
+
+# Round two. The exact wordings the matcher missed.
+@pytest.mark.parametrize(
+    "message",
+    [
+        "My baby cant breathe", "My baby cannot breathe", "My baby is struggling for air", "Neni can’t breathe",
+        "I saved a post but nene not breathing", "My baby is breathing. Not anymore.", "My newborn has a temperature. 38.5 C.",
+        "My infant has not had a wet diaper all day", "No wet diaper all day for my baby", "Read the post. Our infant has stopped breathing",
+        "What did I log about her fever? My baby is not breathing",
+        "What did the doctor say about bleeding, my baby is not breathing",
+        "What did I log about her fever and she is not breathing",
+    ],
+)
+def test_the_missed_wordings_about_a_baby_are_urgent(message):
+    assert classify(message, ["Sunny"]).kind == BABY_UNWELL
+
+
+@pytest.mark.parametrize("message", ["There is no movement from baby today", "No kicks today"])
+def test_no_movement_is_urgent(message):
+    assert classify(message).kind == URGENT_MATERNAL
+
+
+@needs_database
+@pytest.mark.parametrize("message", ["My baby cant breathe", "My baby is struggling for air", "I saved a post but nene not breathing",
+                                     "There is no movement from baby today", "My infant has not had a wet diaper all day"])
+async def test_the_missed_wordings_need_no_ai_permission(baby_api, stub, message):  # noqa: F811
+    await assert_fixed(await ask(baby_api, message), stub)
+
+
+# Looking something up in her records stops at the clause: a separate symptom right now still wins.
+@pytest.mark.parametrize(
+    "message",
+    [
+        "what did the doctor say about bleeding", "What did I log about her fever?", "What did I note about the bleeding?",
+        "What did the pediatrician say about her fever?", "Did the doctor mention fever?", "Show her temperature log",
+        "Find the post about bleeding", "What did the doctor say about fever and bleeding?",
+    ],
+)
+def test_a_lookup_in_her_records_is_not_an_emergency(message):
+    assert classify(message, ["Sunny"]) is None
+
+
+@needs_database
+async def test_a_lookup_reaches_her_records_through_the_endpoint(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("Here is what your entries say.")]
+    body = (await ask(baby_api, "what did the doctor say about bleeding")).json()
+    assert body["message"] == "Here is what your entries say." and body["help"] is None and len(stub.sent) == 1
+
+
+# The model can't state a dose at all, whatever it says around it.
+@pytest.mark.parametrize(
+    ("question", "message"),
+    [
+        ("Tell me about Tylenol", "Take one and a half teaspoons."),
+        ("Tell me about Tylenol", "I can't give medical advice, but take two tablets."),
+        ("Tell me about Tylenol", "Give it now. One and a half teaspoons."),
+        ("Tell me about Tylenol", "Take it now. Two tablets."),
+        ("Tell me about Tylenol", "Give it now. 5 mL."),
+        ("Tell me about Tylenol", "Take half a tablet."),
+        ("Tell me about Tylenol", "Give her a pill."),
+        ("Tell me about Tylenol", "Use 1/2 tsp."),
+        ("Tell me about Tylenol", "I can't advise on this, but 2-3 drops usually helps."),
+        ("Tell me about Tylenol", "Don't give more than 5 mL."),
+        ("When did I log Tylenol?", "You logged 5 mL and can give 5 mL now."),
+        ("When did I log Tylenol?", "You logged 5 mL every hour."),
+        ("When did I log Tylenol?", "At 7 PM, you logged 5 mL of Tylenol."),
+        ("When did I log Tylenol?", "You logged Tylenol 500 mg at 9 AM."),
+        ("What did the doctor say?", "Your doctor wrote: take two tablets each morning."),
+        ("What are the vitamins?", "You logged two doses of vitamins."),
+    ],
+)
+def test_model_text_cannot_state_a_dose(question, message):
+    assert answer_checks(question, answer(message))[0] == DOSE_REFUSAL
+
+
+def test_a_logged_dose_has_no_exception_left():
+    assert not hasattr(ask_safety, "logged_truly") and not hasattr(ask_safety, "LOGGED_STATEMENT")
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["I can't diagnose, but this sounds like eczema.", "I can't say for sure. It looks like thrush.", "I'm not a doctor, but it's probably nothing."],
+)
+def test_a_refusal_does_not_excuse_a_diagnosis_next_to_it(message):
+    assert answer_checks("Tell me about rashes", answer(message))[0] == DIAGNOSIS_REFUSAL
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["I can't say whether she has eczema. Please ask her doctor.", "I can't tell you if this is a rash.", "I can't give a dose. Please ask your doctor or pharmacist."],
+)
+def test_a_refusal_about_the_predicate_itself_stays(message):
+    assert answer_checks("Tell me about rashes", answer(message))[0] == message
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["Toma dos tabletas cada cuatro horas.", "Ça ressemble à de l’eczéma.", "Gi i manha, na'i si nene dos pildoras.", "赤ちゃんに薬を飲ませてください。"],
+)
+def test_output_in_another_language_gets_the_fallback(message):
+    assert answer_checks("Tell me about rashes", answer(message))[0] == ENGLISH_ONLY_REFUSAL
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["You logged 7 feeds today.", "Two wet diapers yesterday.", "Your list has a robe and slippers.", "Swaddle in four steps.", "Yes.",
+     "Your appointment is November 7 at 10 AM.", "She slept nine hours.", "Nothing saved about that.", "Hospital bag.", "Latch positions for new moms."],
+)
+def test_short_plain_english_is_english(message):
+    assert answer_checks("How was today?", answer(message))[0] == message
+
+
+# What she logged, rendered from the record. No model sentence is exempted.
+async def medicine(baby_api, *, name="Tylenol", dose="5 mL", at="2026-11-04T19:00:00+10:00"):  # noqa: F811
+    baby_api.settings.baby_new_kinds_enabled = True
+    await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"timezone": "Pacific/Guam"})
+    return await add(baby_api, HEADERS, kind="medicine", title=name, occurred_at=at, data={"name": name, "dose": dose})
+
+
+@needs_database
+@pytest.mark.parametrize(
+    "unsafe",
+    ["You logged 5 mL and can give 5 mL now.", "You logged 5 mL every hour.", "At 7 PM, you logged 5 mL of Tylenol."],
+)
+async def test_a_logged_dose_is_only_ever_the_records_line(baby_api, stub, unsafe):  # noqa: F811
+    await enable(baby_api)
+    entry = await medicine(baby_api)
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": entry})), answered(unsafe, citation_ids=[entry])]
+    body = (await ask(baby_api, "When did I log Tylenol?")).json()
+    assert "You logged Tylenol 5 mL" in body["message"] and "7:00 PM" in body["message"]
+    assert "can give" not in body["message"] and "every hour" not in body["message"]
+    assert [item["id"] for item in body["citations"]] == [entry]
+
+
+@needs_database
+async def test_a_plain_answer_about_a_log_gets_the_line_added(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    entry = await medicine(baby_api)
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": entry})), answered("Here's what you logged.", citation_ids=[entry])]
+    body = (await ask(baby_api, "How much medicine did I record?")).json()
+    lines = body["message"].split("\n\n")
+    assert lines[0] == "Here's what you logged." and lines[1].startswith("You logged Tylenol 5 mL") and lines[1].endswith("at 7:00 PM.")
+
+
+@needs_database
+async def test_a_dose_with_nothing_to_show_is_refused_with_help(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("You logged 5 mL at 7 PM.")]
+    body = (await ask(baby_api, "When did I give Tylenol?")).json()
+    assert body["message"] == f"{DOSE_REFUSAL}\n\n{CANT_ANSWER_LINE}" and body["help"] == CANT_ANSWER
+
+
+@needs_database
+async def test_a_doctors_note_is_quoted_as_the_records_words(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body="Dr said take two tablets each morning.")
+    stub.replies = [
+        tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
+        answered("Here's your note.", citation_ids=[note], quotes=[{"record_id": note, "words": "take two tablets each morning"}]),
+    ]
+    body = (await ask(baby_api, "What did I write in my journal about the doctor?")).json()
+    assert body["message"].startswith("Here's your note.\n\n")
+    assert 'From your entry "Visit notes"' in body["message"] and '"take two tablets each morning"' in body["message"]
+
+
+@needs_database
+@pytest.mark.parametrize("words", ["take three tablets each morning", "take two tablets each morning, and then more"])
+async def test_a_quote_the_record_does_not_hold_is_not_shown(baby_api, stub, words):  # noqa: F811
+    await enable(baby_api)
+    note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body="Dr said take two tablets each morning.")
+    stub.replies = [
+        tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
+        answered("Here's your note.", citation_ids=[note], quotes=[{"record_id": note, "words": words}]),
+    ]
+    assert (await ask(baby_api, "What did I write in my journal?")).json()["message"] == "Here's your note."
+
+
+@needs_database
+async def test_a_saved_post_is_never_quoted_as_her_record(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    post = await add(baby_api, HEADERS, kind="source", title="A video", data={"source_text": "take two tablets each morning"})
+    stub.replies = [
+        tool_call("open_entry", json.dumps({"record_id": post})),
+        answered("Here's the post.", citation_ids=[post], quotes=[{"record_id": post, "words": "take two tablets each morning"}]),
+    ]
+    assert "tablets" not in (await ask(baby_api, "What did I save?")).json()["message"]
+
+
+# Whenever Ask can't answer, it says where to go. So a wording the matcher misses still reaches Help.
+async def question_with_ai(baby_api, stub, message="Please tell me what to do about this"):  # noqa: F811
+    return await ask(baby_api, message)
+
+
+@needs_database
+async def test_no_ai_permission_says_where_to_go(baby_api, stub):  # noqa: F811
+    response = await question_with_ai(baby_api, stub)
+    assert response.status_code == 403 and CANT_ANSWER_LINE in response.json()["detail"]
+
+
+@needs_database
+async def test_the_ai_being_off_says_where_to_go(baby_api, stub, monkeypatch):  # noqa: F811
+    await enable(baby_api)
+    monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda self: False))
+    response = await question_with_ai(baby_api, stub)
+    assert response.status_code == 503 and CANT_ANSWER_LINE in response.json()["detail"]
+
+
+@needs_database
+async def test_the_daily_limit_says_where_to_go(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    async with baby_api.sessions() as db:
+        conversation = BabyConversation(app_user_id="owner", generation=1, title="x", scope="all",
+                                        space_id=(await db.get(BabyMembership, "owner")).personal_space_id)
+        db.add(conversation)
+        await db.flush()
+        db.add_all(BabyMessage(app_user_id="owner", generation=1, conversation_id=conversation.id, role="user", content={"message": "q"},
+                               space_id=conversation.space_id) for _ in range(50))
+        await db.commit()
+    response = await question_with_ai(baby_api, stub)
+    assert response.status_code == 429 and CANT_ANSWER_LINE in response.json()["detail"]
+
+
+@needs_database
+async def test_the_budget_says_where_to_go_and_keeps_its_code(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    async with baby_api.sessions() as db:
+        db.add(BabyAIAdmission(app_user_id="owner", generation=1, capability="baby_chat", reserved_microusd=budget.OWNER_DAILY_CAP))
+        await db.commit()
+    response = await question_with_ai(baby_api, stub)
+    detail = response.json()["detail"]
+    assert response.status_code == 429 and detail["code"] == "baby_ai_daily_limit" and CANT_ANSWER_LINE in detail["message"]
+
+
+@needs_database
+async def test_a_provider_failure_says_where_to_go(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [httpx.Response(500, text="down")]
+    response = await question_with_ai(baby_api, stub)
+    assert response.status_code == 503 and CANT_ANSWER_LINE in response.json()["detail"]
+
+
+@needs_database
+@pytest.mark.parametrize(("question", "reply"), [("How much Tylenol can I give?", DOSE_REFUSAL), ("Is this eczema?", DIAGNOSIS_REFUSAL)])
+async def test_a_boundary_reply_says_where_to_go(baby_api, stub, question, reply):  # noqa: F811
+    await enable(baby_api)
+    body = (await ask(baby_api, question)).json()
+    assert body["message"] == f"{reply}\n\n{CANT_ANSWER_LINE}" and body["help"] == CANT_ANSWER
+
+
+@needs_database
+@pytest.mark.parametrize("unsafe", ["Give two tablets every four hours.", "This sounds like eczema.", "Toma dos tabletas cada cuatro horas."])
+async def test_a_replaced_answer_says_where_to_go(baby_api, stub, unsafe):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered(unsafe)]
+    body = (await ask(baby_api, "Tell me about this")).json()
+    assert body["message"].endswith(CANT_ANSWER_LINE) and body["help"] == CANT_ANSWER and unsafe not in body["message"]
+
+
+# She asks for something Ask can't search for: it says so plainly.
+@needs_database
+@pytest.mark.parametrize("question", ["What are some nice baptism gift ideas?", "What books should I read aloud?", "Which stroller brand is best?"])
+async def test_products_and_books_are_answered_plainly(baby_api, stub, question):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("I don't have that in your entries.")]
+    assert TRUSTED_SITES_ONLY in (await ask(baby_api, question)).json()["message"]
+
+
+@needs_database
+async def test_saved_books_are_not_told_they_cannot_be_found(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    post = await add(baby_api, HEADERS, kind="source", title="Board books", data={"source_text": "A list of board books"})
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("You saved a list.", citation_ids=[post])]
+    assert TRUSTED_SITES_ONLY not in (await ask(baby_api, "What books did I save?")).json()["message"]

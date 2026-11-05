@@ -70,6 +70,7 @@ class AnswerOutput(DomainModel):
     source_urls: list[str] = Field(default_factory=list, max_length=12)
     safety: str | None = None
     proposal: dict | None = None
+    quotes: list[dict] = Field(default_factory=list)
 
 
 class ProviderBusy(ProviderUnavailable):

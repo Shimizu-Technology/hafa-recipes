@@ -383,7 +383,7 @@ async def run_baby(args: argparse.Namespace, dataset: dict[str, Any]) -> Path | 
     categories = set(args.categories) if args.categories else None
     cases = runnable_cases(dataset, categories=categories)
     print(f"Validated {len(dataset['cases'])} synthetic Baby cases; {len(cases)} can run with today's tools")
-    estimate = estimate_run(dataset, args.models, args.runs_per_case, categories=categories)
+    estimate = estimate_run(dataset, args.models, args.runs_per_case, categories=categories, research_model=args.research_model)
     print_estimate(estimate)
     if args.dry_run:
         return None
