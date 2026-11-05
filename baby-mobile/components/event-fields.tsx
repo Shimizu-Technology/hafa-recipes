@@ -17,7 +17,7 @@ function AllDay({ on, onPress }: { on: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="switch" accessibilityLabel="All day" accessibilityState={{ checked: on }} onPress={() => { tap(); onPress(); }}
     style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 14, borderRadius: 999, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: on ? c.action : c.soft }}>
-    <Icon name={on ? "checkmark" : "time-outline"} size={16} color={on ? c.onAction : c.text} />
+    {on && <Icon name="checkmark" size={16} color={c.onAction} />}
     <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: on ? c.onAction : c.text }}>All day</Text>
   </PressTarget>;
 }
