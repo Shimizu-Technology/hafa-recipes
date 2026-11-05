@@ -322,3 +322,7 @@ async def test_twelve_at_once_for_the_last_of_the_ceiling_admit_exactly_one(baby
     assert sum(await asyncio.gather(*(one() for _ in range(12)))) == 1
     async with baby_api.sessions() as db:
         assert await db.scalar(select(func.sum(BabyAIAdmission.reserved_microusd))) == OWNER_DAILY_CAP
+
+
+def test_the_ceilings_are_six_dollars_a_person_and_ten_overall():
+    assert (budget.OWNER_DAILY_CAP, budget.GLOBAL_DAILY_CAP) == (6_000_000, 10_000_000)

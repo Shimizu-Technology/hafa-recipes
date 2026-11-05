@@ -19,8 +19,8 @@ from app.domains.workouts.budget import (
     admission_upper_bound,
 )
 
-GLOBAL_DAILY_CAP = 5_000_000
-OWNER_DAILY_CAP = 3_000_000
+GLOBAL_DAILY_CAP = 10_000_000
+OWNER_DAILY_CAP = 6_000_000
 MAX_ATTEMPTS = 100
 LOCK_ID = 7340052
 LEGACY_MAX_OUTPUT = 2400
