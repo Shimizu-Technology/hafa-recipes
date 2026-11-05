@@ -7,14 +7,14 @@ const f = vi.hoisted(() => ({
   params: {} as { id?: string; stage?: string },
   back: vi.fn(), toast: vi.fn(), child: vi.fn(), request: vi.fn(), refresh: vi.fn(async () => {}), alert: vi.fn(),
   children: [] as unknown[],
-  generation: 3, commits: 0,
+  generation: 3, commits: 0, spaces: undefined as unknown,
   drafts: undefined as Record<string, unknown> | undefined,
 }));
 vi.mock("react-native", () => ({ Alert: { alert: f.alert }, View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
 vi.mock("expo-router", () => ({ router: { back: f.back }, useLocalSearchParams: () => f.params }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "new-id" }));
 vi.mock("@/lib/context", () => ({ useBaby: () => ({
-  state: { bootstrap: { generation: f.generation, profile: { timezone: "Pacific/Guam" }, children: f.children }, childDrafts: f.drafts },
+  state: { bootstrap: { generation: f.generation, profile: { timezone: "Pacific/Guam" }, children: f.children, ...(f.spaces ? { personal_space_id: "p", spaces: f.spaces } : {}) }, childDrafts: f.drafts },
   records: [], refresh: f.refresh,
   commit: async (update: (s: any) => any) => { f.commits++; f.drafts = update({ bootstrap: { generation: f.generation, children: f.children }, childDrafts: f.drafts }).childDrafts; },
   api: { child: f.child, request: f.request, deleteChild: async () => undefined },
@@ -506,4 +506,24 @@ it("keeps the profile-removal flow, and removing a profile takes its draft with 
   await act(async () => view.unmount());
   expect(f.drafts?.kid).toBeUndefined();
   await open();
+});
+
+describe("as a caregiver", () => {
+  const helper = [{ id: "p", kind: "personal", role: "parent", generation: 3, access_version: 1 }, { id: "f", kind: "family", role: "caregiver", generation: 1, access_version: 1 }];
+  afterEach(() => { f.spaces = undefined; f.params = {}; f.children = []; });
+  it("can't rename or delete a baby, and doesn't get the form to try", async () => {
+    f.spaces = helper;
+    f.children = [{ id: "baby", name: "Mia", revision: 2, space_id: "f", generation: 1 }];
+    f.params = { id: "baby" };
+    await open();
+    expect(JSON.stringify(view.toJSON())).toMatch(/Only a parent/);
+    expect(view.root.findAll((n) => (n.type as unknown) === "Field")).toEqual([]);
+    expect(button("Delete this profile")).toEqual([]);
+  });
+  it("can't add one either", async () => {
+    f.spaces = helper;
+    await open();
+    expect(JSON.stringify(view.toJSON())).toMatch(/Only a parent/);
+    expect(button("Save profile")).toEqual([]);
+  });
 });

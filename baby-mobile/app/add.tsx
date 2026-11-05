@@ -11,6 +11,7 @@ import { TrackerPanel } from "@/components/tracker-panel";
 import { kindIcon } from "@/components/record-row";
 import { useBaby } from "@/lib/context";
 import { useTodayCare } from "@/lib/today-care";
+import { canAddBaby, canChangeBaby } from "../lib/spaces";
 import { profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { messageFor, type Child } from "@/lib/models";
 import { keepItems, otherStage, trackerById, trackerOn, trackersFor, type Tracker } from "../lib/trackers";
@@ -72,7 +73,7 @@ function Track({ child, now, stage, scroller, opening }: { opening?: string; chi
     <Keep />
     {group(`For ${babyLabel(child, b.state.bootstrap)}`, rest.filter((tracker) => tracker.about === "baby"))}
     {group("For you", rest.filter((tracker) => tracker.about === "her"))}
-    <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.replace({ pathname: "/what-shows", params: { child: child.id } })} />
+    {canChangeBaby(b.state.bootstrap, child) && <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.replace({ pathname: "/what-shows", params: { child: child.id } })} />}
   </>;
 }
 
@@ -92,11 +93,11 @@ export default function Add() {
     <Screen title="Add" close scrollRef={scroller}>
       {child ? <>
         {b.state.bootstrap!.children.length > 1 && <ChildFilter only={child.id} />}
-        {todayStage(child, today) === "none" && <Row title={`Is ${child.name.trim()} here yet?`} detail="Add a due date or birth date and Today fills in." icon="person-add-outline"
+        {todayStage(child, today) === "none" && canChangeBaby(b.state.bootstrap, child) && <Row title={`Is ${child.name.trim()} here yet?`} detail="Add a due date or birth date and Today fills in." icon="person-add-outline"
           onPress={() => router.replace({ pathname: "/child", params: { id: child.id } })} />}
         <Track child={child} now={now} stage={trackerStage(child, today)} scroller={scroller} opening={open} />
       </> : <>
-        <Row title="Set up your baby" detail="Tracking starts here, whether you’re expecting or your baby’s here" icon="person-add-outline" onPress={() => router.replace("/child")} />
+        {canAddBaby(b.state.bootstrap) && <Row title="Set up your baby" detail="Tracking starts here, whether you’re expecting or your baby’s here" icon="person-add-outline" onPress={() => router.replace("/child")} />}
         <Keep />
       </>}
     </Screen>

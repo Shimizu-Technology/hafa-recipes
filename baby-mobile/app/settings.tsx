@@ -9,7 +9,7 @@ import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { babyDetailLine } from "@/lib/child-setup";
-import { babyLabel, familySpaces, spacesLive } from "../lib/spaces";
+import { babyLabel, canAddBaby, canChangeBaby, familySpaces, spacesLive } from "../lib/spaces";
 export default function Settings() {
   const b = useBaby(),
     toast = useToast(),
@@ -76,7 +76,7 @@ export default function Settings() {
         <Grouped><Row title="Family" detail={familySpaces(b.state.bootstrap)[0]?.role === "caregiver" ? "You’re helping as a caregiver" : familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} /></Grouped>
       </Section>}
       <Section title="Your little ones">
-        <Grouped>{b.state.bootstrap!.children.map((child) => (
+        <Grouped>{b.state.bootstrap!.children.filter((child) => canChangeBaby(b.state.bootstrap, child)).map((child) => (
           <Row
             key={child.id}
             title={babyLabel(child, b.state.bootstrap)}
@@ -86,7 +86,7 @@ export default function Settings() {
             onPress={() => router.push({ pathname: "/child", params: { id: child.id } })}
           />
         ))}</Grouped>
-        <Button variant="ghost" title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />
+        {canAddBaby(b.state.bootstrap) && <Button variant="ghost" title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />}
       </Section>
       <View onLayout={event => setAiOffset(event.nativeEvent.layout.y)}>
       <Card tone="soft">

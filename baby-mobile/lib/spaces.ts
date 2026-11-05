@@ -84,3 +84,9 @@ export function babyLabel(child: { name: string; space_id?: string }, bootstrap?
   if (!personal || !spaces.includes(personal) || !spaces.some((space) => space && space !== personal)) return child.name;
   return `${child.name} · ${child.space_id === personal ? "Personal" : "Family"}`;
 }
+/** Helping in a family, not running it. The API refuses them the rest: this is so she's never offered what it'd refuse. */
+export const isCaregiver = (bootstrap?: Pick<Bootstrap, "spaces"> | null) => familySpaces(bootstrap)[0]?.role === "caregiver";
+export const canAddBaby = (bootstrap?: Pick<Bootstrap, "spaces"> | null) => !isCaregiver(bootstrap);
+/** Changing a profile takes a parent of the space that baby lives in. */
+export const canChangeBaby = (bootstrap: Pick<Bootstrap, "spaces"> | null | undefined, child: { space_id?: string }) =>
+  !child.space_id || bootstrap?.spaces?.find((space) => space.id === child.space_id)?.role !== "caregiver";

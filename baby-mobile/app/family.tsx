@@ -31,6 +31,13 @@ function codeProblem(failure: unknown) {
   if (failure.status === 403) return "Update Håfa Baby to join a family.";
   return messageFor(failure);
 }
+type Role = "parent" | "caregiver";
+function RoleChoice({ role, onChange, disabled }: { role: Role; onChange: (role: Role) => void; disabled?: boolean }) {
+  return <Section title="Who are they?">
+    <Choice label="Parent" detail="Sees and changes everything shared, and can invite others" selected={role === "parent"} disabled={disabled} onPress={() => onChange("parent")} />
+    <Choice label="Caregiver" detail="Logs care and sees the calendar. Can’t see saved posts or doctor questions, and can’t change a baby’s profile" selected={role === "caregiver"} disabled={disabled} onPress={() => onChange("caregiver")} />
+  </Section>;
+}
 /** An older build would lose sight of her baby when it moves. Nothing moves until her phones are updated, or she says one is gone. */
 function PhoneGate({ readiness, failed, busy, onCheck, onConfirm }: { readiness: FamilyReadiness | null; failed: boolean; busy: boolean; onCheck: () => void; onConfirm: () => void }) {
   if (failed || !readiness)
@@ -60,7 +67,7 @@ function ShownCode({ invite, onDone }: { invite: FamilyInvite; onDone: () => voi
 }
 function Invite({ onBack }: { onBack: () => void }) {
   const b = useBaby(), bootstrap = b.state.bootstrap!, [rows, setRows] = useState<BabyRecord[] | null>(null), [unread, setUnread] = useState(false), [justMe, setJustMe] = useState<string[]>([]),
-    [readiness, setReadiness] = useState<FamilyReadiness | null>(null), [failed, setFailed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null);
+    [readiness, setReadiness] = useState<FamilyReadiness | null>(null), [failed, setFailed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null), [role, setRole] = useState<Role>("parent");
   async function check() {
     setBusy(true);
     try {
@@ -94,7 +101,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     setBusy(true); setError("");
     try {
       for (const row of rows ?? []) if (justMe.includes(row.id)) await b.api.save({ ...row, data: { ...row.data, just_me: true } }, bootstrap.generation);
-      const made = await b.api.createInvite("parent", true, bootstrap.generation);
+      const made = await b.api.createInvite(role, true, bootstrap.generation);
       holdInvite(made, b.owner);
       setInvite(made);
       await b.refresh();
@@ -109,6 +116,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     going = (rows ?? []).filter((row) => !justMe.includes(row.id));
   return <>
     {!!error && <Notice error>{error}</Notice>}
+    <RoleChoice role={role} onChange={setRole} disabled={busy} />
     {unread ? <Card>
       <Notice error>We couldn’t read what would be shared, so nothing has changed.</Notice>
       <Button secondary title="Try again" onPress={readRows} />
@@ -175,7 +183,7 @@ function YourName() {
 }
 function InFamily() {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], fence = rowFence({ space_id: family.id, generation: family.generation }, bootstrap.generation),
-    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false),
+    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false), [role, setRole] = useState<Role>("parent"),
     parent = family.role === "parent", alive = useRef(true);
   async function load() {
     if (!parent) return setMembers([]);
@@ -214,8 +222,12 @@ function InFamily() {
           { text: "Remove", style: "destructive", onPress: () => void run(() => b.api.removeMember(family.id, member.app_user_id, fence)) },
         ])} />)}
     </Section>}
+    {!parent && <Section title="You’re helping as a caregiver">
+      <Copy>You can log care and see the calendar. Saved posts and doctor questions stay with the parents, Ask doesn’t use the family’s entries, and a parent changes a baby’s profile.</Copy>
+    </Section>}
+    {parent && !unread && members !== null && <RoleChoice role={role} onChange={setRole} disabled={busy} />}
     {parent && !unread && members !== null && <Section title="Invite">
-      <Button title="Invite someone" icon="person-add-outline" busy={busy} onPress={() => void run(async () => { const made = await b.api.createInvite("parent", false, fence); holdInvite(made, b.owner); setInvite(made); })} />
+      <Button title="Invite someone" icon="person-add-outline" busy={busy} onPress={() => void run(async () => { const made = await b.api.createInvite(role, false, fence); holdInvite(made, b.owner); setInvite(made); })} />
       {invites.map((row) => <Button key={row.id} variant="ghost" title={`Cancel the code sent ${friendlyDay(row.expires_at, -7)}`} disabled={busy} onPress={() => void run(() => b.api.revokeInvite(family.id, row.id, fence))} />)}
     </Section>}
     {last ? <Section title="Delete this family">

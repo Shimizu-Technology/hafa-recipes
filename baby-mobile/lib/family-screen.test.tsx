@@ -325,3 +325,35 @@ describe("in a family", () => {
     expect(text()).not.toMatch(/Remove Them/);
   });
 });
+
+describe("as a caregiver", () => {
+  const helper = () => setup([own, { ...shared, role: "caregiver" }], { familyMembers: vi.fn(async () => { throw new ApiError("Parents only", 403); }), familyInvites: vi.fn(async () => { throw new ApiError("Parents only", 403); }) });
+  it("says what it means, with no invites or members, and can still leave", async () => {
+    const b = helper();
+    await open();
+    expect(b.api.familyMembers).not.toHaveBeenCalled();
+    expect(button("Invite someone")).toBeUndefined();
+    expect(button("Delete this family")).toBeUndefined();
+    expect(text()).toMatch(/caregiver/i);
+    expect(button("Leave this family")).toBeDefined();
+  });
+});
+describe("choosing who they'll be", () => {
+  it("invites a parent unless she says caregiver, and says what a caregiver can't see", async () => {
+    const b = setup();
+    await open();
+    await press("Invite someone");
+    const caregiver = all("Choice").find((n) => n.props.label === "Caregiver");
+    expect(caregiver!.props.detail).toMatch(/can’t see/i);
+    await act(async () => caregiver!.props.onPress());
+    await press("Share and get a code");
+    expect(b.api.createInvite).toHaveBeenCalledWith("caregiver", true, 1);
+  });
+  it("offers the same for a later invite", async () => {
+    const b = setup([own, shared]);
+    await open();
+    await act(async () => all("Choice").find((n) => n.props.label === "Caregiver")!.props.onPress());
+    await press("Invite someone");
+    expect(b.api.createInvite).toHaveBeenCalledWith("caregiver", false, { generation: 1, space_id: family });
+  });
+});

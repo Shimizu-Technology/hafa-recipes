@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
-import { rowFence, spaceFence, spaceForChild } from "../lib/spaces";
+import { canAddBaby, canChangeBaby, rowFence, spaceFence, spaceForChild } from "../lib/spaces";
 import { messageFor, type Child, type ChildEdits, type ChildField } from "@/lib/models";
 import { dayKey } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
@@ -160,6 +160,9 @@ export default function ChildEditor() {
       } },
     ]);
   }
+  if (child ? !canChangeBaby(b.state.bootstrap, child) : !canAddBaby(b.state.bootstrap)) return (
+    <Screen title="Baby profile" back><Notice>Only a parent can add a baby or change a profile. You can still log for them.</Notice></Screen>
+  );
   if (removed) return (
     <Screen key="removed" title="Baby profile" back>
       <Notice>This baby’s profile was removed, so there’s nothing to edit here.</Notice>

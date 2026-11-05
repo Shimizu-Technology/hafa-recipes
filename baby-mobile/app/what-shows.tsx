@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { Switch, Text, View, useWindowDimensions } from "react-native";
-import { Chips, Copy, Grouped, Icon, Row, Screen, fonts, typeScale, useColors } from "@/components/ui";
+import { Chips, Copy, Grouped, Icon, Row, Screen, fonts, typeScale, useColors , Notice } from "@/components/ui";
 import { SyncStatus } from "@/components/sync-status";
 import { useBaby } from "@/lib/context";
 import { setTracking } from "@/lib/quick-care";
 import { profileToday, timingChild, trackerStage } from "@/lib/timing";
 import { trackerOn, trackersFor, trackingKey, type Tracker } from "../lib/trackers";
-import { babyLabel } from "../lib/spaces";
+import { babyLabel, canAddBaby, canChangeBaby } from "../lib/spaces";
 
 function Line({ tracker, on, onChange }: { tracker: Tracker; on: boolean; onChange: (on: boolean) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
@@ -26,6 +26,8 @@ export default function WhatShows() {
     today = profileToday(new Date(), bootstrap.profile.timezone),
     [picked, setPicked] = useState(params.child),
     child = children.find((one) => one.id === picked) ?? timingChild(b.state, today);
+  // The API takes a switch only from a parent of that baby, so this doesn't offer it.
+  if (child ? !canChangeBaby(bootstrap, child) : !canAddBaby(bootstrap)) return <Screen title="What shows" back><Notice>A parent chooses what shows for this baby.</Notice></Screen>;
   if (!child) return <Screen title="What shows" back>
     <Row title="Set up your baby" detail="Then choose what shows" icon="person-add-outline" onPress={() => router.push("/child")} />
   </Screen>;

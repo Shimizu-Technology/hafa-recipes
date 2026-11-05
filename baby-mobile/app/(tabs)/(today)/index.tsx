@@ -18,6 +18,7 @@ import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, useMinuteClock } from "@/components/care-glance";
 import { BabySetupCard } from "@/components/stage-options";
+import { canAddBaby, canChangeBaby } from "../../../lib/spaces";
 import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
@@ -69,7 +70,8 @@ export default function Today() {
     // A sleep already running keeps its button until it's ended, switched off or not.
     tiles = child ? trackersFor(trackerAge).filter((tracker) => trackerOn(tracker, trackerAge, child.details) || (tracker.id === "sleep" && !!glance.openSleep)) : [],
     showing = (...ids: string[]) => tiles.some((tracker) => ids.includes(tracker.id)),
-    whatShows = child && <Row title="What shows" detail="Everything’s off. Choose what gets a button." icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />;
+    parentHere = child ? canChangeBaby(b.state.bootstrap, child) : canAddBaby(b.state.bootstrap),
+    whatShows = child && parentHere && <Row title="What shows" detail="Everything’s off. Choose what gets a button." icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />;
   const titleText = child?.name.trim() || "Today";
   const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id, stage: "here" } });
   /** One tap, since it may be the only hand free. Settings changes the date if it was another day. */
@@ -97,7 +99,7 @@ export default function Today() {
       </Card>}
       {tiles.length ? <MoreLogs child={child} now={now} shown={tiles} title="" big onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} /> : whatShows}
       {/* Right under the tiles, so in labour she needn't scroll for it. */}
-      {pregnant && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
+      {pregnant && parentHere && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
         hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
@@ -120,7 +122,7 @@ export default function Today() {
       <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
-      {stage === "none" && <BabySetupCard child={child} />}
+      {stage === "none" && (parentHere ? <BabySetupCard child={child} /> : <Notice>A parent adds the baby’s details, and Today fills in.</Notice>)}
       {timer ? <LegacyTimer />
         : child && showCare ? (!feedsShow && !running ? null : <CareGlance child={child} rows={latestCare.all} now={now} running={running} timeZone={timezone} sides={showing("breast")} />) : null}
       {showCare && !!todayWords && <PressTarget accessibilityRole="button" accessibilityLabel={todayLine} accessibilityHint="Opens today in Tracker"
@@ -132,7 +134,7 @@ export default function Today() {
       {fontScale >= dockBelow && quickLog}
       {stage === "none" && !showCare && <Copy kind="small" tone="muted">In the meantime</Copy>}
       {showCare && !tiles.length && whatShows}
-      {!!child && stage === "baby" && <TrackerSuggestion child={child} today={today} now={now} />}
+      {!!child && parentHere && stage === "baby" && <TrackerSuggestion child={child} today={today} now={now} />}
       <NextEvent childId={child?.id ?? null} today={todayKey} now={now} drafts={visitDrafts} quiet={showCare} />
       {!!child && !!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>

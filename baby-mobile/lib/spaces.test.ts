@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
-import { babyLabel, choiceFor, fenceOf, generationOf, holdsFamilyWork, spaceForNew, unavailableMessage } from "./spaces";
+import { babyLabel, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
 import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -290,4 +290,24 @@ describe("Shared or Just me on a new entry", () => {
     expect(choiceFor(boot(), draft("source", { shared: false }))).toEqual({ shared: false, space_id: personal, just_me: true });
     expect(choiceFor(boot(), draft("journal", { shared: true }))).toEqual({ shared: true, space_id: family, just_me: false });
   });
+});
+
+describe("who can change a baby's profile", () => {
+  const helper = boot([own, { ...shared, role: "caregiver" }]);
+  it("a parent can, and anyone can with the flag off or no family", () => {
+    expect(canAddBaby(boot())).toBe(true);
+    expect(canChangeBaby(boot(), boot().children[0])).toBe(true);
+    expect(canAddBaby(off())).toBe(true);
+    expect(canChangeBaby(off(), off().children[0])).toBe(true);
+    expect(canAddBaby(boot([own]))).toBe(true);
+  });
+  it("a caregiver can't add a baby, or change one in the family", () => {
+    expect(isCaregiver(helper)).toBe(true);
+    expect(canAddBaby(helper)).toBe(false);
+    expect(canChangeBaby(helper, helper.children[0])).toBe(false);
+  });
+  it("a caregiver's own earlier baby is still theirs", () => {
+    expect(canChangeBaby(helper, helper.children[1])).toBe(true);
+  });
+  it("isn't a caregiver as a parent", () => expect(isCaregiver(boot())).toBe(false));
 });
