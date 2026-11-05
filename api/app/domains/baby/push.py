@@ -284,6 +284,24 @@ async def patch_prefs(body: PrefsPatch, user: User, db: Database, generation: Ge
     return (await load_prefs(db, user.id, space_id)).response()
 
 
+def reminder_item(row, words):
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "space_id": row.space_id,
+        "text": words.detail,  # This is the person's own screen, not their lock screen.
+        "due_at": row.due_at,
+        "delivery": row.status,
+        "identity": row.collapse_id,
+        "data": words.data,
+    }
+
+
+def readable_spaces(access):
+    # An older build only reads its personal space, so a family's reminders stay off its Today too.
+    return [grant.id for grant in access.spaces] if access.enabled else [access.personal_space_id]
+
+
 @router.get("/reminders/due")
 async def due_reminders(user: User, db: Database, client: Client = None, limit: Limit = 50):
     """What Today shows: due and not dismissed, its reason still standing, however delivery went."""
@@ -291,8 +309,7 @@ async def due_reminders(user: User, db: Database, client: Client = None, limit: 
 
     access = await reminder_access(db, user.id, client=client)
     prefs = await load_prefs(db, user.id, access.personal_space_id)
-    # An older build only reads its personal space, so a family's reminders stay off its Today too.
-    spaces = [grant.id for grant in access.spaces] if access.enabled else [access.personal_space_id]
+    spaces = readable_spaces(access)
     rows = await db.scalars(
         select(BabyNotification)
         .where(
@@ -310,17 +327,31 @@ async def due_reminders(user: User, db: Database, client: Client = None, limit: 
             break
         words = await resolve(db, row, access, prefs)
         if words and not words.not_yet(now()):
-            items.append({
-                "id": row.id,
-                "kind": row.kind,
-                "space_id": row.space_id,
-                "text": words.detail,  # This is the person's own screen, not their lock screen.
-                "due_at": row.due_at,
-                "delivery": row.status,
-                "identity": row.collapse_id,
-                "data": words.data,
-            })
+            items.append(reminder_item(row, words))
     return {"items": items}
+
+
+@router.get("/reminders/{identifier}/tap")
+async def tapped_reminder(identifier: UUID, user: User, db: Database, client: Client = None):
+    """A tap names only a ``notification_id``, so this says what it was and where it opens.
+
+    The same test as Today's list: anything Today wouldn't show now is gone as far as a tap can tell.
+    """
+    from app.domains.baby import triggers  # noqa: F401  (each kind's wording registers itself)
+
+    access = await reminder_access(db, user.id, client=client)
+    row = await db.scalar(select(BabyNotification).where(
+        BabyNotification.id == identifier,
+        BabyNotification.app_user_id == user.id,
+        BabyNotification.space_id.in_(readable_spaces(access)),
+        BabyNotification.due_at <= now(),
+        BabyNotification.dismissed_at.is_(None),
+    ))
+    prefs = await load_prefs(db, user.id, access.personal_space_id)
+    words = await resolve(db, row, access, prefs) if row else None
+    if not words or words.not_yet(now()):
+        raise HTTPException(404, "Not found")
+    return reminder_item(row, words)
 
 
 @router.post("/reminders/{identifier}/dismiss", status_code=204)

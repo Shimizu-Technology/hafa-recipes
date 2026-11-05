@@ -86,7 +86,7 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     for method, path in (("PUT", "/api/v1/baby/push/devices/legacy-install"),
                          ("DELETE", "/api/v1/baby/push/devices/legacy-install?registration=1"),
                          ("GET", "/api/v1/baby/push/prefs"), ("PATCH", "/api/v1/baby/push/prefs"),
-                         ("GET", "/api/v1/baby/reminders/due"), ("POST", f"/api/v1/baby/reminders/{uuid4()}/dismiss")):
+                         ("GET", "/api/v1/baby/reminders/due"), ("GET", f"/api/v1/baby/reminders/{uuid4()}/tap"), ("POST", f"/api/v1/baby/reminders/{uuid4()}/dismiss")):
         await call(method, path, expected=404)
     for method, path in (("POST", f"/api/v1/baby/family/{family}/leave"),
                          ("DELETE", f"/api/v1/baby/family/{family}/members/other"),

@@ -79,7 +79,7 @@ from app.domains.baby.schemas import (
     SourceRelevance,
     Stage,
 )
-from app.domains.baby.security import BabyRoute, new_kinds_enabled
+from app.domains.baby.security import BabyRoute, new_kinds_enabled, push_enabled
 from app.domains.baby.sessions import SESSION_KINDS
 from app.domains.baby.stats import (
     MAX_CUSTOM_DAYS,
@@ -392,6 +392,9 @@ async def bootstrap_state(user, db, *, create, request):
         "active": member.status == "active",
         "ai_available": BabyProvider().enabled,
     }
+    if push_enabled():
+        # Only with the flag on, so a phone reads nothing else about it and asks nothing of it until then.
+        result["reminders"] = {"push": True}
     if access and access.client == "3":
         families = [g.id for g in access.spaces if g.space.status == "active" and g.space.kind == "family"]
         # Everyone who has been in this account's families, since what someone logged stays after they leave.

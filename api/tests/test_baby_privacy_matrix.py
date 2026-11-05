@@ -144,6 +144,7 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
         reminder = await db.scalar(select(BabyNotification).where(BabyNotification.idempotency_key.endswith(f"m-{actor}")))
     listed = (await call("GET", API + "/reminders/due", 200)).json()["items"]
     assert str(reminder.id) not in {item["id"] for item in listed}
+    await call("GET", f"{API}/reminders/{reminder.id}/tap", 404)
     await call("POST", f"{API}/reminders/{reminder.id}/dismiss", 204)
     async with api.sessions() as db:
         assert (await db.get(BabyNotification, reminder.id)).dismissed_at is None
