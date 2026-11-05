@@ -8,7 +8,14 @@ from sqlalchemy import func, select
 
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.dependencies import Access, Database, Generation, User
-from app.domains.baby.lifecycle import digest, membership_for, now, owned, validate_relations
+from app.domains.baby.lifecycle import (
+    digest,
+    membership_for,
+    now,
+    owned,
+    personal_child_link,
+    validate_relations,
+)
 from app.domains.baby.models import BabyImport, BabyRecord
 from app.domains.baby.schemas import DEFAULT_SOURCE_TITLE, ImportCreate, SourceData
 from app.domains.baby.security import BabyRoute
@@ -74,8 +81,11 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
             )
         return import_response(prior, access)
     access.check_generation(generation)
+    child_id = await personal_child_link(db, access, body.child_id, "import", body.attachment_ids)
+    if child_id != body.child_id:
+        request["child_id"] = None
     await validate_relations(
-        db, access, generation, body.child_id, {"attachment_ids": body.attachment_ids}, kind="import"
+        db, access, generation, child_id, {"attachment_ids": body.attachment_ids}, kind="import"
     )
     count = await db.scalar(
         select(func.count())
@@ -149,7 +159,7 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
             kind="source",
             title=title_text.splitlines()[0][:100] if title_text else DEFAULT_SOURCE_TITLE,
             body="",
-            child_id=body.child_id,
+            child_id=child_id,
             occurred_at=now(),
             data=data,
             revision=1,

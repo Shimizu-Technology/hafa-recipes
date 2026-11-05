@@ -132,7 +132,7 @@ async def clean_links(db, access, row, source, batch_ids):
             await touch(related, source)
 
 
-async def move_record(db, access, row, destination, *, just_me=False, batch_ids=frozenset(), file_map=None):
+def check_move(access, row, destination):
     source = access.grant(row)
     if source.role != "parent" or destination.role != "parent":
         raise HTTPException(403, "Only parents can move shared entries")
@@ -143,6 +143,11 @@ async def move_record(db, access, row, destination, *, just_me=False, batch_ids=
     if (source.space.kind == "family" and destination.space.kind == "personal"
             and row.app_user_id is not None and row.app_user_id != access.actor):
         raise HTTPException(403, "Only the creator can make this shared entry personal")
+    return source
+
+
+async def move_record(db, access, row, destination, *, just_me=False, batch_ids=frozenset(), file_map=None):
+    source = check_move(access, row, destination)
     if source.id == destination.id:
         data = dict(row.data)
         if just_me:
@@ -169,6 +174,18 @@ async def move_record(db, access, row, destination, *, just_me=False, batch_ids=
         raise HTTPException(409, "An attached file is unavailable")
     jobs = list(await db.scalars(select(BabyImport).where(BabyImport.record_id == row.id,
                                                           BabyImport.space_id == source.id)))
+    moving_jobs = []
+    for job in jobs:
+        if destination.space.kind == "personal" and job.app_user_id != access.actor:
+            if job.status in {"queued", "processing"}:
+                job.status, job.error, job.lease_token, job.lease_until = "cancelled", None, None, None
+                job.updated_at = now()
+                await touch(job, source)
+                if data.get("status") in {"queued", "processing"}:
+                    data["status"] = "cancelled"
+        else:
+            moving_jobs.append(job)
+    jobs = moving_jobs
     captures = list(await db.scalars(select(BabyShareCapture).where(BabyShareCapture.record_id == row.id,
                                                                    BabyShareCapture.space_id == source.id)))
     for key in ("record_ids",):

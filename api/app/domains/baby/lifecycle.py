@@ -103,6 +103,15 @@ async def validate_relations(db, owner, generation, child_id, data, *, record_id
         await owned(db, BabyRecord, owner, generation, UUID(str(identifier)))
 
 
+async def personal_child_link(db, access, child_id, kind, attachment_ids=()):
+    if (getattr(access, "enabled", False) and child_id and access.target.space.kind == "personal"
+            and (kind in {"source", "collection"} or (kind in {"question", "import"} and attachment_ids))):
+        child = await access.row(db, BabyChild, child_id)
+        if child.space_id != access.target.id:
+            return None
+    return child_id
+
+
 async def space_relations(db, access, child_id, data, *, record_id, kind):
     from uuid import UUID
 
@@ -339,7 +348,16 @@ async def end_family_membership(db, actor, grant, grants, *, removed=False, allo
     from app.domains.baby.share_models import BabyShareCredential
 
     link = await db.get(BabySpaceMember, (grant.id, actor), populate_existing=True)
-    if link is None or link.status != "active":
+    if link is None:
+        return []
+    if link.status != "active":
+        if removed:
+            await db.execute(BabySpaceInvite.__table__.update().where(
+                BabySpaceInvite.space_id == grant.id, BabySpaceInvite.used_at.is_(None),
+                BabySpaceInvite.revoked_at.is_(None)).values(revoked_at=now()))
+            if link.status != "removed":
+                link.status, link.access_version = "removed", link.access_version + 1
+            await db.flush()
         return []
     parents = list(await db.scalars(select(BabySpaceMember.app_user_id).where(
         BabySpaceMember.space_id == grant.id, BabySpaceMember.status == "active", BabySpaceMember.role == "parent",
