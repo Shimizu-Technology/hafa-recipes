@@ -7,7 +7,8 @@ import { preserveFile, removeLocal } from "@/lib/files";
 import { addMutation } from "@/lib/outbox";
 import type { LocalFile, Mutation, Profile } from "@/lib/models";
 import { stockShareScope } from "../lib/stock-share-scope";
-import { captureBelongs, captureSpace } from "../lib/share-scope";
+import { captureBelongs, captureDestination, captureStale } from "../lib/share-scope";
+import { notSentMessage } from "../lib/outbox";
 import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
 import { acknowledgeShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
@@ -38,6 +39,10 @@ export function ShareCapture() {
           const native = Platform.OS === "ios" && nativeSharingAvailable ? await pendingShare() : null;
           if (!current()) return;
           if (Platform.OS === "ios" && nativeSharingAvailable && !native) return;
+          if (native && captureStale(native.scope, owner, bootstrap)) {
+            if (!acknowledgeShare(native.token)) return;
+            continue;
+          }
           // Any capture of this account's, whatever its destination was then. Its tag says where it goes now.
           if (native && !captureBelongs(native.scope, owner, bootstrap)) return;
           if (!native && !stock.hasShareIntent) return;
@@ -94,8 +99,9 @@ export function ShareCapture() {
               if (state.outbox.some(m => m.id === save.id) || state.records.some(r => r.id === id)) return state;
               copiesRetained = true;
               // Read here, from this write's own state: bootstrap can list the family after this drain began, and a capture made before it must not go there.
-              const space = native ? captureSpace(native.scope, state.bootstrap) : undefined;
-              let next = addMutation(state, space ? { ...save, space_id: space } : save);
+              const place = native ? captureDestination(native.scope, state.bootstrap) : {};
+              let next = addMutation(state, { ...save, ...place, ...(place.left_space ? { error: notSentMessage } : {}) });
+              if (place.left_space) return next;
               if (profile.ai_consent && profile.auto_process_shares &&
                 (automatic.automatic_epoch ?? 0) === (profile.auto_process_epoch ?? 0)) next = addMutation(next, automatic);
               return next;

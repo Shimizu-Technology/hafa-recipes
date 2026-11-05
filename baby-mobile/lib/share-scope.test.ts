@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureBelongs, captureSpace, shareDestination, shareOwner, sessionScope } from "./share-scope";
+import { captureBelongs, captureDestination, captureStale, shareDestination, shareOwner, sessionScope } from "./share-scope";
 import type { Bootstrap } from "./models";
 
 const family = "11111111-1111-4111-8111-111111111111", personal = "22222222-2222-4222-8222-222222222222";
@@ -38,22 +38,36 @@ describe("whether this account can take a capture", () => {
   });
 });
 
+describe("a capture from before its space was cleared", () => {
+  it("is stale when its generation is behind, so it can be retired rather than holding the queue up", () => {
+    const cleared = { ...live(), generation: 2 };
+    expect(captureStale("owner:1", "owner", cleared)).toBe(true);
+    expect(captureStale("owner:1:personal", "owner", cleared)).toBe(true);
+  });
+  it("isn't when it's current, ahead, someone else's or for a family", () => {
+    expect(captureStale("owner:2", "owner", { ...live(), generation: 2 })).toBe(false);
+    expect(captureStale("owner:3", "owner", { ...live(), generation: 2 })).toBe(false);
+    expect(captureStale("someone:1", "owner", { ...live(), generation: 2 })).toBe(false);
+    expect(captureStale(`owner:1:${family}`, "owner", { ...live("parent"), generation: 2 })).toBe(false);
+  });
+});
+
 describe("where a capture goes", () => {
   it("names nothing with the flag off", () => {
-    expect(captureSpace("owner:1", off)).toBeUndefined();
+    expect(captureDestination("owner:1", off)).toEqual({});
   });
   it("keeps one made before spaces in the personal space, even once there's a family: pending private work is never published", () => {
-    expect(captureSpace("owner:1", live("parent"))).toBe(personal);
-    expect(captureSpace("owner:1:personal", live("parent"))).toBe(personal);
+    expect(captureDestination("owner:1", live("parent"))).toEqual({ space_id: personal });
+    expect(captureDestination("owner:1:personal", live("parent"))).toEqual({ space_id: personal });
   });
   it("sends one made for the family to the family", () => {
-    expect(captureSpace(`owner:1:${family}`, live("parent"))).toBe(family);
+    expect(captureDestination(`owner:1:${family}`, live("parent"))).toEqual({ space_id: family });
   });
-  it("keeps one made for a family she's since left, in her own space", () => {
-    expect(captureSpace(`owner:1:${family}`, live())).toBe(personal);
+  it("says when it was made for a family she's since left: it may be there already under this id, so only she can copy it", () => {
+    expect(captureDestination(`owner:1:${family}`, live())).toEqual({ space_id: family, left_space: family });
   });
   it("keeps it hers if she's only a caregiver there now", () => {
-    expect(captureSpace(`owner:1:${family}`, live("caregiver"))).toBe(personal);
+    expect(captureDestination(`owner:1:${family}`, live("caregiver"))).toEqual({ space_id: personal });
   });
 });
 

@@ -458,6 +458,12 @@ describe("the client level", () => {
     expect(last().headers["X-Baby-Client"]).toBe("3");
     expect(last().headers["X-Baby-Space"]).toBeUndefined();
   });
+  it("asks for a share credential as client 3 whatever it holds: an older client asking would read as an old phone", async () => {
+    const { api, last } = wire(() => ({ generation: 1, children: [], ai_available: false, profile: {} }));
+    await api.request("/share/session", "POST", { installation_id: "i" }, 1);
+    expect(last().headers["X-Baby-Client"]).toBe("3");
+    expect(last().headers["X-Baby-Space"]).toBeUndefined();
+  });
   it("names the personal space on a write unless it's told the row's own", async () => {
     const { api, last } = wire(() => live);
     await api.save(row, 1);

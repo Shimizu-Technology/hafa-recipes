@@ -8,6 +8,7 @@ import {
   beginShareSessionSync,
   isShareSessionCurrent,
   isShareSessionSuspended,
+  onShareSessionAsked,
   revokeShareAuthority,
   serializeShareSession,
 } from "./share-session-state";
@@ -63,6 +64,7 @@ export function useShareSession() {
     };
     void sync();
     const listener = AppState.addEventListener("change", state => { if (state === "active") void sync(); });
-    return () => { alive = false; listener.remove(); };
+    const stopAsking = onShareSessionAsked(() => void sync());
+    return () => { alive = false; listener.remove(); stopAsking(); };
   }, [b.api, b.owner, generation, active, automaticEpoch, access]);
 }

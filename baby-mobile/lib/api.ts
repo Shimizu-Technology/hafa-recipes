@@ -143,7 +143,8 @@ export function createBabyApi(
           headers: {
             Authorization: `Bearer ${token}`,
             ...(body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-            "X-Baby-Client": String(live || path === "/bootstrap" ? familyClient : babyClient),
+            // Bootstrap asks as 3 to hear what's on. A credential asks as 3 so this build is never counted as an old phone: the API treats a client below 3 asking as one, and takes back its readiness.
+            "X-Baby-Client": String(live || path === "/bootstrap" || path === "/share/session" ? familyClient : babyClient),
             ...(space ? { "X-Baby-Space": space } : {}),
             ...(generation === undefined ? {} : { "X-Baby-Generation": String(generation) }),
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),

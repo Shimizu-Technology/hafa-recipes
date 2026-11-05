@@ -12,6 +12,7 @@ vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, 
   installationId: async () => "install", configureSession: mock.configureSession }));
 vi.mock("./share-session-state", async (original) => ({ ...(await original<object>()) }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearSession: mock.clearSession }));
+import { askForShareSession } from "./share-session-state";
 import { useShareSession } from "./use-share-session";
 
 const personal = "22222222-2222-4222-8222-222222222222", family = "11111111-1111-4111-8111-111111111111";
@@ -72,6 +73,13 @@ describe("the share credential", () => {
     await act(async () => { renderer!.update(<Probe />); });
     expect(baby.api.request).toHaveBeenCalledTimes(2);
     expect(baby.api.request.mock.calls[1][3]).toEqual({ generation: 1, space_id: personal });
+  });
+  it("asks again when the Family screen wants a fresh answer about this phone", async () => {
+    const baby = account({ personal_space_id: personal, spaces: [own] }, { space_id: personal });
+    await mount(baby);
+    expect(baby.api.request).toHaveBeenCalledTimes(1);
+    await act(async () => { askForShareSession(); });
+    expect(baby.api.request).toHaveBeenCalledTimes(2);
   });
   it("gets a new one each time the app comes forward, so a capture refused with a 401 meanwhile is back in play", async () => {
     const baby = account({ personal_space_id: personal, spaces: [own] }, { space_id: personal });

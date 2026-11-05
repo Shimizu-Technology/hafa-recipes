@@ -31,10 +31,19 @@ export const sessionScope = (bootstrap: Bootstrap | undefined, session: { space_
   !spacesLive(bootstrap) || !session.space_id ? null : session.space_id === bootstrap!.personal_space_id ? "personal" : session.space_id;
 /**
  * Where a capture on this phone goes. Its own tag decides, so one made before a family existed stays personal: pending
- * private work is never published. One made for a family this account has since left stays with it, in its own space.
+ * private work is never published. One made for a family this account has since left may already be there under its id,
+ * where this phone can't see it. So it stays that family's, held as Not sent, and only she can copy it to her own space.
  */
-export function captureSpace(scope: string | undefined, bootstrap?: Bootstrap) {
-  if (!spacesLive(bootstrap)) return undefined;
+export function captureDestination(scope: string | undefined, bootstrap?: Bootstrap): { space_id?: string; left_space?: string } {
+  if (!spacesLive(bootstrap)) return {};
   const destination = scope ? tagged(scope).destination : "personal", family = familySpaces(bootstrap).find((space) => space.id === destination);
-  return family?.role === "parent" ? family.id : bootstrap!.personal_space_id;
+  if (family?.role === "parent") return { space_id: family.id };
+  if (destination !== "personal" && !family) return { space_id: destination, left_space: destination };
+  return { space_id: bootstrap!.personal_space_id };
+}
+/** A personal capture from before this account's space was cleared. Nothing can use it, and it mustn't hold the queue up. */
+export function captureStale(scope: string | undefined, owner: string, bootstrap?: Bootstrap) {
+  if (!scope) return false;
+  const tag = tagged(scope);
+  return tag.owner === owner && tag.destination === "personal" && !!bootstrap && tag.generation < bootstrap.generation;
 }
