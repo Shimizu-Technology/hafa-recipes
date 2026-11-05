@@ -9,7 +9,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import String, case, cast, func, or_, select
+from sqlalchemy import String, and_, case, cast, func, or_, select
 
 from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
@@ -31,7 +31,7 @@ router = APIRouter(tags=["baby"], route_class=BabyRoute)
 SCOPE_KINDS = {
     "library": ("source", "collection"),
     "journal": ("journal", "question"),
-    "care": ("feeding", "sleep", "diaper", "routine"),
+    "care": ("feeding", "sleep", "diaper", "routine", "medicine"),
 }
 STOPWORDS = frozenset(
     "a an and are as at be been by can could did do does for from had has have how i in is it me my of on or our should that the their them there these they this to us was we were what when where which who why will with would you your about please saved find show tell "
@@ -43,7 +43,19 @@ CARE_WORDS = {
     "feeding": "eat eats ate eaten eating feed feeds fed feeding feedings nurse nurses nursed nursing bottle bottles breastfeed breastfed breastfeeding".split(),
     "sleep": "sleep sleeps slept sleeping asleep nap naps napped napping woke awake".split(),
     "diaper": "diaper diapers poo poos poop poops pooped pee pees peed wet dirty".split(),
+    # A dose's title is the drug's name, so "medicine" can't find it by its text either.
+    "medicine": "medicine medicines meds medication medications".split(),
 }
+# Logs she keeps about herself have no baby on them. These labels match baby-mobile/lib/trackers.ts.
+HER_LOG_LABELS = ("How I'm feeling", "My weight", "Blood pressure", "Vitamins and medicine")
+HER_WORDS = frozenset(
+    "blood pressure bp weight weigh feeling feel felt vitamin vitamins prenatal prenatals "
+    "medicine medicines meds medication medications".split()
+)
+ABOUT_THE_BABY = frozenset("baby babies her hers she he him his daughter son".split())
+# A dated question gets only that range's logs. Only something saved to read applies whenever it was saved.
+SAVED_TO_READ = ("source", "journal", "question", "collection", "routine")
+FIRST_PERSON = frozenset("i i'm i've me my myself".split())
 RECENT_LIMIT = 30  # About one day of newborn logs.
 DATED_LIMIT = 60
 KIND_LIMIT = 10
@@ -300,6 +312,13 @@ def care_kinds(message):
     return [kind for kind, names in CARE_WORDS.items() if words.intersection(names)]
 
 
+def asks_about_her(message, child_names=()):
+    # "Mia's" and "daughter's" are about the baby just as "Mia" and "daughter" are.
+    words = {re.sub(r"'s$", "", word.lower()) for word in re.findall(r"[\w'-]+", message.replace("’", "'"))}
+    named = {word.lower() for name in child_names for word in re.findall(r"[\w'-]+", name)}
+    return bool(words & FIRST_PERSON and words & HER_WORDS) and not words & (ABOUT_THE_BABY | named)
+
+
 def term_matches(terms):
     haystack = BabyRecord.title + " " + BabyRecord.body + " " + cast(BabyRecord.data, String)
     return [
@@ -362,7 +381,7 @@ async def dated_rows(db, query, window, terms):
                         BabyRecord.occurred_at < window.start,
                         BabyRecord.occurred_at >= window.end,
                     ),
-                    BabyRecord.kind.not_in(SCOPE_KINDS["care"]),
+                    BabyRecord.kind.in_(SAVED_TO_READ),
                 )
                 .order_by(ranked(matches).desc(), BabyRecord.occurred_at.desc())
                 .limit(OUTSIDE_RANGE_LIMIT)
@@ -378,6 +397,17 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
     names = set(query_terms(" ".join(child_names)))
     terms = [term for term in query_terms(without_dates(request.message)) if term not in names]
     query = records_query(owner, generation, child_id=request.child_id)
+    if request.child_id and asks_about_her(request.message, child_names):
+        # With a baby selected, a question about herself still reaches her own logs, and nothing else without a baby.
+        query = records_query(owner, generation).where(or_(
+            BabyRecord.child_id == request.child_id,
+            and_(BabyRecord.child_id.is_(None), BabyRecord.kind == "custom", BabyRecord.data["label"].astext.in_(HER_LOG_LABELS)),
+        ))
+    # What she calls it isn't always what it's stored as, so "my meds" still finds "Vitamins and medicine".
+    if re.search(r"\bbp\b", request.message, re.IGNORECASE):  # Too short to be a search term by itself.
+        terms = [*terms, "blood pressure"]
+    if set(terms) & set(CARE_WORDS["medicine"]):
+        terms = [*terms, "medicine"]
     if legacy:
         query = query.where(BabyRecord.kind.in_(V1_KINDS))
     if request.scope in SCOPE_KINDS:
