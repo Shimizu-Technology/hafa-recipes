@@ -12,6 +12,7 @@ from typing import Any
 JSON_ONLY = " Reply with only the JSON object, nothing before or after it."
 # The dynamic-filtering search variant isn't listed for this model, so it uses the basic one.
 SEARCH_TOOL = "web_search_20250305"
+PAUSED_TURNS = 2
 
 
 def tool_for(tool: dict[str, Any]) -> dict[str, Any]:
@@ -78,6 +79,7 @@ def response_from(message: dict[str, Any]) -> dict[str, Any]:
             text += block.get("text", "")
         elif block.get("type") == "tool_use":
             calls.append({"type": "function_call", "call_id": block["id"], "name": block["name"], "arguments": json.dumps(block.get("input") or {})})
+    output.extend({"type": "web_search_call"} for block in message.get("content", []) if block.get("type") == "server_tool_use")
     if calls:
         output.append({"type": "anthropic_content", "content": message["content"]})
         output.extend(calls)
@@ -100,7 +102,7 @@ class HaikuProvider:
     """No retries, so a failure is visible in the evaluation rather than paid for twice."""
 
     def __init__(self, api_key: str, client: Any = None):
-        self.responses: list[dict[str, Any]] = []
+        self.responses: list[tuple[str, dict[str, Any]]] = []
         if client is None:
             import anthropic
 
@@ -110,12 +112,14 @@ class HaikuProvider:
     async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
         request = request_for(model, body)
         message = (await self.client.messages.create(**request)).model_dump()
-        # A paused server tool turn continues by sending its content back.
-        while message.get("stop_reason") == "pause_turn":
+        # A paused server tool turn continues by sending its content back, within what was reserved.
+        for _ in range(PAUSED_TURNS):
+            if message.get("stop_reason") != "pause_turn":
+                break
             request["messages"] = [*request["messages"], {"role": "assistant", "content": message["content"]}]
             message = (await self.client.messages.create(**request)).model_dump()
         data = response_from(message)
         if data["status"] != "completed":
             raise ValueError("Incomplete response")
-        self.responses.append(data)
+        self.responses.append((model, data))
         return data

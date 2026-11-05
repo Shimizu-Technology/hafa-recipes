@@ -118,7 +118,7 @@ class OpenAIProvider:
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.responses: list[dict[str, Any]] = []
+        self.responses: list[tuple[str, dict[str, Any]]] = []
 
     async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
         from app.domains.baby.provider import RESPONSES_URL
@@ -132,7 +132,7 @@ class OpenAIProvider:
         data = response.json()
         if data.get("status") != "completed":
             raise ValueError("Incomplete response")
-        self.responses.append(data)
+        self.responses.append((model, data))
         return data
 
 
@@ -152,7 +152,7 @@ def score_case(case: dict[str, Any], answer: Any, tools: WorldTools) -> dict[str
     failures = {
         "missing_concepts": len(missing) + len(missing_patterns),
         "unsafe_claims": len(find_unsafe_matches(text, case.get("forbidden_patterns", []))),
-        "missing_tool": bool(required_tools) and not set(required_tools) & set(tools.called),
+        "missing_tool": sorted(set(required_tools) - set(tools.called)),
         "forbidden_tool": bool(set(case.get("forbidden_tools", [])) & set(tools.called)),
         "missing_citations": sorted(set(case.get("required_citations", [])) - set(answer.citation_ids)),
         "forbidden_citations": sorted(set(case.get("forbidden_citations", [])) & set(answer.citation_ids)),
@@ -167,17 +167,68 @@ def score_case(case: dict[str, Any], answer: Any, tools: WorldTools) -> dict[str
     }
 
 
-def usage_totals(responses: list[dict[str, Any]], model: str) -> dict[str, Any]:
+def usage_totals(calls: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
+    """Each call at its own model's price, with search fees, which are per call rather than per token."""
     from app.ai_governance import estimate_cost_microusd, extract_token_usage
+    from app.domains.baby.budget import SEARCH_CALL_MICROUSD
 
-    input_tokens = output_tokens = reasoning = cost = 0
-    for data in responses:
+    input_tokens = output_tokens = reasoning = cost = searches = 0
+    for model, data in calls:
         usage = extract_token_usage(data)
         input_tokens += usage["input_tokens"] or 0
         output_tokens += usage["output_tokens"] or 0
         reasoning += usage["reasoning_tokens"] or 0
-        cost += estimate_cost_microusd(model, **{key: usage[key] for key in ("input_tokens", "cached_input_tokens", "output_tokens")}) or 0
-    return {"input_tokens": input_tokens, "output_tokens": output_tokens, "reasoning_tokens": reasoning, "estimated_cost_microusd": cost}
+        count = sum(item.get("type") == "web_search_call" for item in data.get("output", []))
+        searches += count
+        cost += (estimate_cost_microusd(model, **{key: usage[key] for key in ("input_tokens", "cached_input_tokens", "output_tokens")}) or 0) + count * SEARCH_CALL_MICROUSD
+    return {"input_tokens": input_tokens, "output_tokens": output_tokens, "reasoning_tokens": reasoning, "search_calls": searches, "estimated_cost_microusd": cost}
+
+
+class CeilingReached(RuntimeError):
+    """The next call might pass the stated ceiling, so it isn't made and no report is written."""
+
+
+class CostGuard:
+    """A hard ceiling: each call's worst case is reserved before it's sent, then replaced by what it cost."""
+
+    def __init__(self, ceiling_usd: float):
+        self.ceiling_microusd, self.spent_microusd = int(ceiling_usd * 1_000_000), 0
+
+    def reserve(self, amount: int) -> int:
+        if self.spent_microusd + amount > self.ceiling_microusd:
+            raise CeilingReached(f"Stopped before the ${self.ceiling_microusd / 1_000_000:.2f} ceiling; no report written")
+        self.spent_microusd += amount
+        return amount
+
+    def settle(self, reserved: int, actual: int) -> None:
+        self.spent_microusd += actual - reserved
+
+
+def call_bound(model: str, body: dict[str, Any], searches: int) -> int:
+    """Production's admission bound for this request, at this call's own model."""
+    from app.domains.baby.budget import AskCall, ask_upper_bound
+
+    call = AskCall(model=model, input_bytes=len(json.dumps(body, ensure_ascii=False).encode()),
+                   max_output_tokens=body["max_output_tokens"], searches=searches)
+    # Haiku costs five times as much past a 100,000-token prompt, which a search can reach.
+    return ask_upper_bound(call, evaluating=True) * (5 if searches and model.startswith("claude-") else 1)
+
+
+class GuardedProvider:
+    def __init__(self, inner, guard: CostGuard):
+        self.inner, self.guard = inner, guard
+
+    @property
+    def responses(self):
+        return self.inner.responses
+
+    async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
+        reserved = self.guard.reserve(call_bound(model, body, searches))
+        before = len(self.inner.responses)
+        # A failed call may still have been billed, so it keeps its whole reservation.
+        data = await self.inner.responses_call(capability=capability, model=model, prompt_version=prompt_version, body=body, searches=searches)
+        self.guard.settle(reserved, usage_totals(self.inner.responses[before:])["estimated_cost_microusd"])
+        return data
 
 
 async def evaluate_case(provider, case, dataset, model, effort, trial_index):
@@ -196,7 +247,7 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index):
         "case_id": case["id"], "category": case["category"], "trial_index": trial_index,
         "latency_ms": round((time.perf_counter() - started) * 1000),
         "response_chars": len(answer.message),
-        **usage_totals(provider.responses, model),
+        **usage_totals(provider.responses),
         **score_case(case, answer, tools),
     }
 
@@ -269,15 +320,11 @@ def provider_for(model: str, keys: dict[str, str]):
 async def run_baby_comparison(dataset, models, *, keys, effort, runs_per_case, cost_ceiling_usd, categories=None):
     """A failed attempt keeps its place as a failure and stops the run, so it can't pass as a score."""
     cases = runnable_cases(dataset, categories=categories)
-    reports, spent = [], 0
+    guard, reports = CostGuard(cost_ceiling_usd), []
     for model in models:
-        provider, results = provider_for(model, keys), []
+        provider, results = GuardedProvider(provider_for(model, keys), guard), []
         for trial_index in range(1, runs_per_case + 1):
             for case in cases:
-                result = await evaluate_case(provider, case, dataset, model, effort, trial_index)
-                spent += result["estimated_cost_microusd"]
-                results.append(result)
-                if spent > cost_ceiling_usd * 1_000_000:
-                    raise RuntimeError(f"Stopped at the ${cost_ceiling_usd:.2f} ceiling; no report written")
+                results.append(await evaluate_case(provider, case, dataset, model, effort, trial_index))
         reports.append(summarize_model(model, results, dataset_cases=len(cases), runs_per_case=runs_per_case))
     return reports

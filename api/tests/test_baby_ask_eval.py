@@ -36,7 +36,7 @@ class Scripted:
     async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
         self.bodies.append(json.loads(json.dumps(body)))
         data = self.replies.pop(0)
-        self.responses.append(data)
+        self.responses.append((model, data))
         return data
 
 
@@ -98,6 +98,16 @@ async def test_a_good_totals_answer_passes_with_the_right_tool():
 async def test_each_kind_of_bad_answer_fails_the_way_it_should(name, replies, failure):
     result = await evaluation.evaluate_case(Scripted(*replies), case_named(name), DATASET, "gpt-6-luna", "low", 1)
     assert not result["task_success"] and failure in result["failures"]
+
+
+def test_every_required_tool_has_to_be_called():
+    tools = evaluation.WorldTools(DATASET["actors"][A])
+    tools.called = ["search_saved"]
+    answer = SimpleNamespace(message="Step 3: tuck the flap.", citation_ids=["a0000000-0000-4000-8000-000000000003"], proposal=None)
+    result = evaluation.score_case(case_named("recall_detail"), answer, tools)
+    assert not result["task_success"] and result["failures"]["missing_tool"] == ["open_entry"]
+    tools.called = ["search_saved", "open_entry"]
+    assert evaluation.score_case(case_named("recall_detail"), answer, tools)["task_success"]
 
 
 def test_outbound_queries_are_checked():
@@ -165,6 +175,53 @@ async def test_a_report_holds_scores_and_never_the_answer(tmp_path, monkeypatch)
     assert json.loads(report)["models"][0]["by_category"].keys() == {"totals"}
 
 
+async def test_nothing_is_called_when_even_the_first_call_could_pass_the_ceiling(monkeypatch):
+    provider = Scripted(answer_reply("x"))
+    monkeypatch.setattr(evaluation, "provider_for", lambda *_: provider)
+    small = {**DATASET, "cases": [case_named("totals_feeds_today")]}
+    with pytest.raises(evaluation.CeilingReached):
+        await evaluation.run_baby_comparison(small, ["gpt-6-luna"], keys={}, effort="low", runs_per_case=1, cost_ceiling_usd=0.000001)
+    assert provider.bodies == []
+
+
+async def test_the_ceiling_holds_across_calls_before_each_one_is_sent(monkeypatch):
+    calls = []
+
+    class Costly(Scripted):
+        async def responses_call(self, **kwargs):
+            calls.append(kwargs["capability"])
+            reply = call_reply("baby_profile") if len(calls) == 1 else answer_reply("7 feeds")
+            reply["usage"] = {"input_tokens": 10_000, "output_tokens": 0}
+            self.responses.append((kwargs["model"], reply))
+            return reply
+
+    monkeypatch.setattr(evaluation, "provider_for", lambda *_: Costly())
+    small = {**DATASET, "cases": [case_named("totals_feeds_today")]}
+    with pytest.raises(evaluation.CeilingReached):
+        await evaluation.run_baby_comparison(small, ["gpt-6-luna"], keys={}, effort="low", runs_per_case=1, cost_ceiling_usd=0.003)
+    assert len(calls) <= 1
+
+
+def test_a_reservation_is_replaced_by_what_the_call_really_cost():
+    guard = evaluation.CostGuard(1.0)
+    reserved = guard.reserve(500_000)
+    guard.settle(reserved, 2_000)
+    assert guard.spent_microusd == 2_000
+    with pytest.raises(evaluation.CeilingReached):
+        guard.reserve(998_001)
+    assert guard.spent_microusd == 2_000
+
+
+def test_each_call_is_priced_with_its_own_model_and_search_fees_count():
+    usage = {"input_tokens": 1_000_000, "output_tokens": 0}
+    searched = {"id": "r", "usage": usage, "output": [{"type": "web_search_call"}, {"type": "web_search_call"}]}
+    plain = {"id": "r", "usage": usage, "output": []}
+    totals = evaluation.usage_totals([("gpt-6-luna", plain), ("gpt-6.1-terra", searched)])
+    # $0.10 on Luna, $1.00 on Terra, and two $0.01 searches.
+    assert totals["estimated_cost_microusd"] == 100_000 + 1_000_000 + 20_000
+    assert totals["search_calls"] == 2
+
+
 async def test_the_ceiling_stops_a_run_without_writing_a_report(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "stub")
     expensive = answer_reply("x")
@@ -176,7 +233,7 @@ async def test_the_ceiling_stops_a_run_without_writing_a_report(tmp_path, monkey
             return await super().responses_call(**kwargs)
 
     monkeypatch.setattr(evaluation, "provider_for", lambda *_: Provider())
-    with pytest.raises(RuntimeError, match="ceiling"):
+    with pytest.raises(evaluation.CeilingReached):
         await harness.run(arguments(tmp_path, confirm_cost_usd=0.5, categories=["totals"]))
     assert not (tmp_path / "report.json").exists()
 

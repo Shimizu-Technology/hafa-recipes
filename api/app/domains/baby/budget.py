@@ -75,8 +75,8 @@ class AskCall:
     sdk_max_retries: int = 0
 
 
-def ask_upper_bound(call):
-    if call.model not in BABY_MODEL_PRICES or call.model in EVAL_ONLY_MODELS:
+def ask_upper_bound(call, *, evaluating=False):
+    if call.model not in BABY_MODEL_PRICES or (call.model in EVAL_ONLY_MODELS and not evaluating):
         raise BudgetError("workouts_ai_model_unpriced")
     if (
         call.endpoint != "responses"
