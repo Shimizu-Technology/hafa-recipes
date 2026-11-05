@@ -12,6 +12,7 @@ import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBeco
 import { babyLabel, familySpaces, herLog, rowFence, spacesLive } from "../lib/spaces";
 import { askForShareSession } from "@/lib/share-session-state";
 import { friendlyDay } from "../lib/family-format";
+import { sourceTitle } from "../lib/source-title";
 
 const everyPage = async (read: (offset: number) => Promise<{ items: BabyRecord[]; has_more: boolean }>) => {
   const rows: BabyRecord[] = [];
@@ -135,7 +136,7 @@ function Invite({ onBack }: { onBack: () => void }) {
       </Section>
       {!!movable.length && <Section title="Saved posts and categories">
         <Copy kind="small" tone="muted">Untick any you’d rather keep to yourself.</Copy>
-        {movable.map((row) => <Choice key={row.id} label={row.title} selected={!justMe.includes(row.id)} onPress={() => setJustMe((now) => now.includes(row.id) ? now.filter((id) => id !== row.id) : [...now, row.id])} />)}
+        {movable.map((row) => <Choice key={row.id} label={row.kind === "source" ? sourceTitle(row) : row.title} selected={!justMe.includes(row.id)} onPress={() => setJustMe((now) => now.includes(row.id) ? now.filter((id) => id !== row.id) : [...now, row.id])} />)}
       </Section>}
       <Section title="What stays private">
         <Copy>Your journal, your Ask chats{(rows ?? []).some(herLog) ? ", and your own logs like blood pressure" : ""}. Only you can see these, and only your Ask can use them.</Copy>

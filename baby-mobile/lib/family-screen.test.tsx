@@ -120,6 +120,14 @@ describe("before there's a family", () => {
     await press("Done");
     expect(text()).not.toContain(code);
   });
+  it("names an unprocessed post by its words, so she can tell which one to untick", async () => {
+    const row = { ...source("Saved source"), body: "Swaddle tip from the nurse." };
+    setup([own], { records: vi.fn(async () => ({ items: [row], total: 1, has_more: false })) });
+    await open();
+    await press("Invite someone");
+    expect(all("Choice").map((n) => n.props.label)).toContain("Swaddle tip from the nurse.");
+    expect(all("Choice").map((n) => n.props.label)).not.toContain("Saved source");
+  });
   it("saves a post she unticks as Just me first, so it stays behind", async () => {
     const row = source("Private tip"), order: string[] = [];
     const b = setup([own], { records: vi.fn(async () => ({ items: [row], total: 1, has_more: false })), save: vi.fn(async (value: object) => { order.push("save"); return value; }), createInvite: vi.fn(async () => { order.push("create"); return { id: "i", code, role: "parent", expires_at: "2026-11-12T00:00:00Z", space_id: family, generation: 1 }; }) });
