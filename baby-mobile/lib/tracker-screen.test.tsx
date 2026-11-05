@@ -323,6 +323,20 @@ it("opens a day from the calendar, back in the Day view with its quick log", asy
   expect(lastQuick().pastDay).toEqual({ key: "2026-10-26", timezone: "Pacific/Guam" });
 });
 
+it("counts on the day's line only what has a button, and says nothing before the birth", async () => {
+  mock.summary = { "2026-11-04": { date: "2026-11-04", feeding: { count: 4 }, diapers: { count: 3, pee: 2, poo: 1, dry: 0 }, sleep: { total_minutes: 300 }, dots: ["feeding"] } };
+  mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25", details: { tracking: { diaper: false } } }];
+  await mount();
+  expect(copy()).toContain("4 feeds · 5h sleep");
+  expect(copy()).not.toContain("2 pee");
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10" }];
+  await mount();
+  await act(async () => target("Day")?.props.onPress());
+  expect(copy()).not.toContain("feeds");
+  expect(copy()).not.toContain("0h sleep");
+});
+
 it("takes the day's line from the API, so a sleep still going adds nothing and one over midnight counts", async () => {
   mock.care = [row("open", "sleep", "2026-11-03T20:00:00.000Z")];
   mock.summary = { "2026-11-04": { date: "2026-11-04", feeding: { count: 4 }, diapers: { count: 3, pee: 2, poo: 1, dry: 0 }, sleep: { total_minutes: 300 }, dots: ["feeding"] }, "2026-11-02": { date: "2026-11-02", feeding: { count: 0 }, diapers: { count: 0, pee: 0, poo: 0, dry: 0 }, sleep: { total_minutes: 60 }, dots: ["sleep"] } };
