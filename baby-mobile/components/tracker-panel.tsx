@@ -7,7 +7,7 @@ import { dataFrom, feelingWords, lastDose, lastLog, logTitle, noteLabel, recentC
 import type { Tracker } from "@/lib/trackers";
 import { messageFor, type Child, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { Button, Field, OnSurface, typeScale, useColors } from "./ui";
+import { Button, Field, KeyboardSave, OnSurface, typeScale, useColors } from "./ui";
 import { LogFields, sideWords } from "./log-fields";
 import { AmountStepper, Option, Panel, SavedRow, type useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
@@ -33,13 +33,14 @@ function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, 
   hint?: (form: LogForm) => string | undefined;
   panelProps: PanelProps; saveAs: (form: LogForm) => void }) {
   // Follows `start` until she changes something, since what she last used can arrive after the panel opens.
-  const c = useColors(), { fontScale } = useWindowDimensions(), [typed, setTyped] = useState<LogForm | null>(null), [problem, setProblem] = useState(""), form = typed ?? start;
+  const c = useColors(), { fontScale } = useWindowDimensions(), [typed, setTyped] = useState<LogForm | null>(null), [problem, setProblem] = useState(""), form = typed ?? start,
+    label = `Save ${title.toLowerCase()}`, onSave = () => { try { saveAs(form); } catch (e) { setProblem(messageFor(e)); } };
   return <Panel title={title} detail={detail} {...panelProps}>
     {children}
-    <OnSurface><LogFields id={id} start={start} autoFocus={autoFocus} onChange={(next) => { setTyped(next); setProblem(""); }} /></OnSurface>
+    <OnSurface><KeyboardSave.Provider value={{ label, onPress: onSave }}><LogFields id={id} start={start} autoFocus={autoFocus} onChange={(next) => { setTyped(next); setProblem(""); }} /></KeyboardSave.Provider></OnSurface>
     {!!hint?.(form) && <Text key={`h:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{hint(form)}</Text>}
     {!!problem && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>{problem}</Text>}
-    <Button size="lg" icon="checkmark" title="Save" accessibilityLabel={`Save ${title.toLowerCase()}`} onPress={() => { try { saveAs(form); } catch (e) { setProblem(messageFor(e)); } }} />
+    <Button size="lg" icon="checkmark" title="Save" accessibilityLabel={label} onPress={onSave} />
   </Panel>;
 }
 
@@ -57,11 +58,12 @@ function PumpPanel({ start, detail, panelProps, onSave }: { start: BottleChoice;
 }
 
 function NotePanel({ detail, panelProps, onSave }: { detail?: string; panelProps: PanelProps; onSave: (text: string) => void }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), [note, setNote] = useState(""), [empty, setEmpty] = useState(false);
+  const c = useColors(), { fontScale } = useWindowDimensions(), [note, setNote] = useState(""), [empty, setEmpty] = useState(false),
+    onPress = () => { const text = note.trim(); setEmpty(!text); if (text) onSave(text); };
   return <Panel title="Note" detail={detail} {...panelProps}>
-    <OnSurface><Field multiline label="What to remember" value={note} autoFocus onChange={(text) => { setNote(text); setEmpty(false); }} /></OnSurface>
+    <OnSurface><KeyboardSave.Provider value={{ label: "Save note", onPress }}><Field multiline label="What to remember" value={note} autoFocus onChange={(text) => { setNote(text); setEmpty(false); }} /></KeyboardSave.Provider></OnSurface>
     {empty && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>Write the note first.</Text>}
-    <Button size="lg" icon="checkmark" title="Save" accessibilityLabel="Save note" onPress={() => { const text = note.trim(); setEmpty(!text); if (text) onSave(text); }} />
+    <Button size="lg" icon="checkmark" title="Save" accessibilityLabel="Save note" onPress={onPress} />
   </Panel>;
 }
 
