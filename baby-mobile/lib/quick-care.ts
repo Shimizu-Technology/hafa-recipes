@@ -134,19 +134,24 @@ const firstAmount = { oz: 3, ml: 90 } as const;
 
 export interface BottleChoice { amount: number; unit: "oz" | "ml"; contents?: NonNullable<RecordData["contents"]>; fromLast: boolean }
 
+/** The unit she last measured anything in, on any baby, for what has no history of its own. */
+export function lastAmountUnit(rows: readonly BabyRecord[]): "oz" | "ml" | undefined {
+  return rows.filter((row) => (row.kind === "pumping" || (row.kind === "feeding" && row.data.method === "bottle")) && row.data.unit).sort(newestFirst)[0]?.data.unit as "oz" | "ml" | undefined;
+}
+
 /** A bottle starts from the last one: same amount, same unit, same milk. Ounces until she uses something else. */
-export function bottleStart(rows: BabyRecord[], childId: string | null): BottleChoice {
+export function bottleStart(rows: BabyRecord[], childId: string | null, usual: "oz" | "ml" = "oz"): BottleChoice {
   const last = rows.filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "bottle").sort(newestFirst)[0];
-  const unit = last?.data.unit ?? "oz", amount = last?.data.amount;
+  const unit = last?.data.unit ?? usual, amount = last?.data.amount;
   return typeof amount === "number" && amount > 0
     ? { amount, unit, contents: last!.data.contents ?? undefined, fromLast: true }
     : { amount: firstAmount[unit], unit, contents: last?.data.contents ?? undefined, fromLast: false };
 }
 
 /** The same for pumping: what came out last time, in the same unit. */
-export function pumpStart(rows: BabyRecord[], childId: string | null): BottleChoice {
+export function pumpStart(rows: BabyRecord[], childId: string | null, usual: "oz" | "ml" = "oz"): BottleChoice {
   const last = rows.filter((row) => row.kind === "pumping" && row.child_id === childId).sort(newestFirst)[0],
-    unit = last?.data.unit ?? "oz", amount = last?.data.amount;
+    unit = last?.data.unit ?? usual, amount = last?.data.amount;
   return typeof amount === "number" && amount > 0 ? { amount, unit, fromLast: true } : { amount: firstAmount[unit], unit, fromLast: false };
 }
 

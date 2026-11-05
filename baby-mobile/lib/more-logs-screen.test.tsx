@@ -252,7 +252,7 @@ describe("typing a pumping amount", () => {
     setup();
     await mount();
     await press("Pumping");
-    await press("oz");
+    await press("Milliliters");
     await typeAmount("7", "mL");
     await press("Left");
     expect(saved()[0]).toMatchObject({ kind: "pumping", data: { side: "left", amount: 7, unit: "ml" } });

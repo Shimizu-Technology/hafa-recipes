@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
-import { careWrite, logCare, pumpStart, pumpStep, type BottleChoice } from "@/lib/quick-care";
+import { pendingRecords } from "../lib/outbox";
+import { careWrite, lastAmountUnit, logCare, pumpStart, pumpStep, type BottleChoice } from "@/lib/quick-care";
 import { friendlyTime, timeAgo } from "@/lib/care-format";
 import { dataFrom, feelingWords, lastDose, lastLog, logTitle, noteLabel, recentCustomLabels, recentMedicines, recentVitamins, startForm, type LogForm } from "@/lib/more-logs";
 import type { Tracker } from "@/lib/trackers";
@@ -129,7 +130,7 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
   const start = startForm(id, rows, childId), last = lastLog(rows, id, childId);
   return <>
     {behind && <OnThisPhone />}
-    {id === "pumping" ? <PumpPanel start={pumpStart(rows, childId)} detail={who} panelProps={panelProps} onSave={(side, amount) =>
+    {id === "pumping" ? <PumpPanel start={pumpStart(rows, childId, lastAmountUnit(pendingRecords(b.state)))} detail={who} panelProps={panelProps} onSave={(side, amount) =>
       void log({ side, amount: amount.amount, unit: amount.unit }, "Pumping", `Pumping, ${sideWords[side]}, ${amount.amount} ${amount.unit === "oz" ? "oz" : "mL"}`)} />
     : id === "note" ? <NotePanel detail={who} panelProps={panelProps} onSave={(text) => void log({ label: noteLabel }, noteLabel, noteLabel, text)} />
     : id === "feeling" ? <Panel title={tracker.label} {...panelProps}>
