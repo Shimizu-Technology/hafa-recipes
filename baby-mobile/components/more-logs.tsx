@@ -9,7 +9,7 @@ import type { PastDay } from "./quick-time";
 import { SavedLog, TrackerPanel } from "./tracker-panel";
 
 /** What the page's top bar covers, as a page is scrolled to a panel. */
-export const headerClear = 112;
+const headerClear = 112;
 
 /** A tracker's button. `big` is for the ones that are on; a tile that opens a screen has nothing to be open. */
 export function TrackerTile({ tracker, label = tracker.label, icon = tracker.icon, hint = tracker.detail, big, open, onPress }: { tracker: Tracker; label?: string; icon?: IconName; hint?: string; big?: boolean; open?: boolean; onPress: () => void }) {

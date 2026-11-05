@@ -113,6 +113,12 @@ describe("Add", () => {
     expect(seen.slice(1, seen.indexOf("More to track"))).toEqual(["Kick counter", "Contraction timer", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]);
     expect(seen.indexOf("Breastfeed")).toBeGreaterThan(seen.indexOf("More to track"));
   });
+  it("puts the pregnancy timers last once the baby's here", async () => {
+    setup([newborn]);
+    await mount();
+    const seen = order(), keep = seen.indexOf("Keep");
+    expect(seen.slice(keep - 2, keep)).toEqual(["Kick counter", "Contraction timer"]);
+  });
   it("logs a feed in two taps: Breast, then side", async () => {
     setup([newborn]);
     await mount();
