@@ -837,6 +837,31 @@ function EdgeFade({ color }: { color: string }) {
     {fadeBands.map((opacity, index) => <View key={index} style={{ flex: 1, backgroundColor: color, opacity }} />)}
   </View>;
 }
+/** The main views of a screen: one control, the same on every OS. Changes are instant, since it's tapped all day. */
+export function Segmented({ options, value, onChange, label }: { options: { label: string; value: string }[]; value: string; onChange: (value: string) => void; label: string }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <View accessibilityRole="tablist" accessibilityLabel={label} style={{ flexDirection: "row", padding: 3, borderRadius: 16, backgroundColor: c.surface }}>
+    {options.map((option) => {
+      const on = value === option.value;
+      return <PressTarget key={option.value} accessibilityRole="tab" accessibilityLabel={option.label} accessibilityState={{ selected: on }} onPress={() => { if (!on) tap(); onChange(option.value); }}
+        style={{ flex: 1, minHeight: 44, paddingHorizontal: 4, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: on ? c.action : "transparent" }}>
+        <Text key={fontScale} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} maxFontSizeMultiplier={1.6} style={{ ...typeScale.subhead, fontFamily: on ? fonts.semibold : fonts.medium, color: on ? c.onAction : c.text }}>{option.label}</Text>
+      </PressTarget>;
+    })}
+  </View>;
+}
+/** A way somewhere that isn't what the page is about: small, with no tile or card. */
+export function QuietRow({ title, detail, onPress }: { title: string; detail?: string; onPress: () => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <PressTarget accessibilityRole="button" accessibilityLabel={[title, detail].filter(Boolean).join(". ")} onPress={onPress}
+    style={{ minHeight: 44, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
+    <View style={{ flex: 1, minWidth: 0 }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.medium, fontSize: 15, lineHeight: 20, color: c.text }}>{title}</Text>
+      {!!detail && <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{detail}</Text>}
+    </View>
+    <Icon name="chevron-forward" size={16} color={c.muted} />
+  </PressTarget>;
+}
 export function Empty({
   title,
   body,

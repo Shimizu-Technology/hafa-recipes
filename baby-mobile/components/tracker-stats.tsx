@@ -7,10 +7,9 @@ import { basedOn, customProblem, statsNote, statsRanges, waitingEntries, type Ca
 import { duration } from "@/lib/care-format";
 import { secondsWords } from "@/lib/contractions";
 import { addDays, clockIn, keyDate } from "@/lib/tracker";
-import { Button, Card, Copy, Empty, FilterChips, Notice, Section, fonts, useColors } from "./ui";
+import { Button, Card, Copy, Empty, FilterChips, Notice, QuietRow, Section, fonts, useColors } from "./ui";
 import { DateField } from "./date-field";
 import { Legend, SplitBar, StatBars, useSeriesColors, type Bar } from "./stat-bars";
-import { HeaderPill } from "./tab-stack";
 
 const words = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 /** "7.5h" or "40m", short enough for a bar's cap. */
@@ -30,7 +29,7 @@ const averageNote = (logged: number, total: number) => (logged ? basedOn(logged,
 const Tiles = ({ children }: { children: React.ReactNode }) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>{children}</View>;
 
 /** The Tracker's Stats: what was logged, by the API's numbers, and no opinion on any of them. */
-export function TrackerStats({ answer, choice, onChoose, today, childId, expecting, now, onOpen }: {
+export function TrackerStats({ answer, choice, onChoose, today, childId, expecting, now, growth, onOpen }: {
   answer: { stats?: CareStats; fetchedAt?: Date; error?: string; loading: boolean; refresh: () => void };
   choice: StatsChoice;
   onChoose: (choice: StatsChoice) => void;
@@ -38,6 +37,8 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
   childId: string | null;
   expecting: boolean;
   now: Date;
+  /** Whether there's a baby to have measurements. */
+  growth?: boolean;
   onOpen: (key: string) => void;
 }) {
   const b = useBaby(), c = useColors(), colors = useSeriesColors(), timezone = b.state.bootstrap!.profile.timezone, single = [c.progressFill],
@@ -68,12 +69,7 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
       action={<Button secondary title="Try again" onPress={() => void answer.refresh()} />} />}
     {answer.loading && !stats && <Copy kind="small" tone="muted">Adding it up…</Copy>}
     {!!stats && <>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 8 }}>
-        <Copy numeric kind="small" tone="muted">{rolling ? `The last 24 hours, up to ${clockIn(new Date(stats.range.end), timezone)}` : `${labels(days[0].date)[1]} to ${labels(days[days.length - 1].date)[1]}`}</Copy>
-        {/* The same days, when they fit on a page. */}
-        <HeaderPill title="Doctor summary" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: childId ?? undefined,
-          ...(days.length <= summaryMaxDays ? { from: days[0].date, to: days[days.length - 1].date } : {}) } })} />
-      </View>
+      <Copy numeric kind="small" tone="muted">{rolling ? `The last 24 hours, up to ${clockIn(new Date(stats.range.end), timezone)}` : `${labels(days[0].date)[1]} to ${labels(days[days.length - 1].date)[1]}`}</Copy>
       {!stats.complete && <Notice>There are more logs in these days than Stats can add up at once, so try fewer days.</Notice>}
       {!!note && <Notice>{note}</Notice>}
       {!logged && (waiting ? <Empty icon="stats-chart-outline" title="Nothing has reached Håfa yet" body="What you’ve logged will add up here once it’s synced." />
@@ -140,5 +136,11 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
         </Card>
       </Section>}
     </>}
+    {/* It lives here because it's these numbers on paper: it opens on the same days, when they fit on a page. */}
+    <View>
+      <QuietRow title="Doctor summary" detail="One page to bring to an appointment" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: childId ?? undefined,
+        ...(days.length && days.length <= summaryMaxDays ? { from: days[0].date, to: days[days.length - 1].date } : {}) } })} />
+      {!!growth && <QuietRow title="Growth" detail="Your measurements on CDC’s WHO charts" onPress={() => router.push("/growth")} />}
+    </View>
   </View>;
 }

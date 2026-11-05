@@ -40,9 +40,12 @@ const EventListRow = ({ item, today, timeZone }: { item: EventOccurrence; today:
     hint="Opens this event" onPress={() => openEvent(item)} />;
 
 /** Next on the calendar, under the month. */
-export function ComingUp({ childId, today }: { childId: string | null; today: string }) {
+export function ComingUp({ childId, today, except = [] }: { childId: string | null; today: string;
+  /** What's already on the page, so it isn't listed twice. */
+  except?: readonly EventOccurrence[] }) {
   const b = useBaby(), timeZone = b.state.bootstrap?.profile.timezone, { items } = useUpcomingEvents(childId, today), now = new Date(),
-    next = nextEvent(items, now, timeZone), list = next ? items.slice(items.indexOf(next), items.indexOf(next) + 4) : [];
+    next = nextEvent(items, now, timeZone), shown = (item: EventOccurrence) => !except.some((one) => one.event_id === item.event_id && one.original_start === item.original_start),
+    list = next ? items.slice(items.indexOf(next)).filter(shown).slice(0, 4) : [];
   return list.length ? <View style={{ gap: 8 }}>
     <Copy kind="heading">Coming up</Copy>
     <Grouped>{list.map((item) => <EventListRow key={`${item.event_id}:${item.original_start}`} item={item} today={today} timeZone={timeZone} />)}</Grouped>

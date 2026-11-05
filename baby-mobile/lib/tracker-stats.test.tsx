@@ -8,7 +8,6 @@ import type { CareStats, StatsChoice } from "./care-stats";
 const mock = vi.hoisted(() => ({ baby: null as any, fontScale: 1, push: vi.fn() }));
 vi.mock("expo-router", () => ({ router: { push: mock.push } }));
 vi.mock("@/lib/doctor-summary", () => ({ summaryMaxDays: 31 }));
-vi.mock("../components/tab-stack", () => ({ HeaderPill: "HeaderPill" }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", useWindowDimensions: () => ({ fontScale: mock.fontScale }), useColorScheme: () => "dark" }));
 vi.mock("react-native-svg", () => ({ default: "Svg", Path: "Path" }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
@@ -16,7 +15,7 @@ vi.mock("@/lib/care-stats", () => import("./care-stats"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/contractions", () => import("./contractions"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
-const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", FilterChips: "FilterChips", Notice: "Notice", Section: "Section", fonts: {}, useColors: () => ({ progressFill: "#E0A894" }) }));
+const ui = vi.hoisted(() => ({ QuietRow: "QuietRow", Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", FilterChips: "FilterChips", Notice: "Notice", Section: "Section", fonts: {}, useColors: () => ({ progressFill: "#E0A894" }) }));
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 import { TrackerStats } from "../components/tracker-stats";
@@ -74,7 +73,7 @@ describe("with little or nothing logged", () => {
 });
 
 describe("the doctor summary, one tap away", () => {
-  const pill = () => renderer!.root.findAll((n) => String(n.type) === "HeaderPill").find((n) => n.props.title === "Doctor summary")!;
+  const pill = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").find((n) => n.props.title === "Doctor summary")!;
   it("opens on the same days and baby", async () => {
     mock.push.mockClear();
     await mount(answer(week()));
@@ -201,4 +200,11 @@ it("leaves being offline to the one calm line above, and says only where the num
   const empty = renderer!.root.findAll((n) => String(n.type) === "Empty")[0];
   expect(empty.props.body).toBe("Stats come from Håfa, so they’ll show here once it can be reached.");
   mock.baby.unreachable = false;
+});
+
+it("has one Doctor summary, reachable before any numbers have loaded", async () => {
+  await mount(undefined, { error: "You're offline." });
+  expect(renderer!.root.findAll((n) => String(n.type) === "QuietRow").filter((n) => n.props.title === "Doctor summary")).toHaveLength(1);
+  await act(async () => renderer!.root.findAll((n) => String(n.type) === "QuietRow")[0].props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "baby" } });
 });

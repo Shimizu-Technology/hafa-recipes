@@ -43,11 +43,11 @@ function setup(rows: BabyRecord[] = [], outbox: Mutation[] = []) {
 const targets = () => renderer!.root.findAll((n) => String(n.type) === "Pressable");
 const target = (label: string) => targets().find((n) => String(n.props.accessibilityLabel).startsWith(label));
 const heading = () => renderer!.root.findAll((n) => String(n.type) === "Copy")[0].props.children;
-const onOpen = vi.fn();
+const onOpen = vi.fn(), onPick = vi.fn();
 async function mount(props: Partial<React.ComponentProps<typeof TrackerMonth>> = {}) {
-  await act(async () => { renderer = create(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} {...props} />); });
+  await act(async () => { renderer = create(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} onPick={onPick} {...props} />); });
 }
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); onOpen.mockClear(); mock.fontScale = 1; });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); onOpen.mockClear(); onPick.mockClear(); mock.fontScale = 1; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("lays a month out in whole weeks, with the days around it, and steps across years", () => {
@@ -59,7 +59,7 @@ it("lays a month out in whole weeks, with the days around it, and steps across y
   expect(stepMonth("2026-01", -1)).toBe("2025-12");
 });
 
-it("marks days that have something, from the API and from this phone, and opens a day on tap", async () => {
+it("marks days that have something, from the API and from this phone, and chooses a day on tap", async () => {
   const unsynced: Mutation = { id: "m", generation: 1, type: "save", files: [], record: { id: "u", kind: "diaper", title: "", body: "", child_id: "baby", occurred_at: "2026-10-31T20:00:00Z", data: { type: "wet" } } };
   const records = setup([entry("a", "2026-11-02T02:00:00.000Z"), entry("note", "2026-11-03T02:00:00.000Z", "journal")], [unsynced]);
   await mount();
@@ -69,7 +69,8 @@ it("marks days that have something, from the API and from this phone, and opens 
   expect(dotted.join()).toMatch(/November 1.*November 2.*November 3/);
   expect(target("Wednesday, November 4")?.props.accessibilityLabel).toContain("today");
   await act(async () => target("Monday, November 2")!.props.onPress());
-  expect(onOpen).toHaveBeenCalledWith("2026-11-02");
+  expect(onPick).toHaveBeenCalledWith("2026-11-02");
+  expect(onOpen).not.toHaveBeenCalled();
   expect(mock.baby.api.careSummary).toHaveBeenCalledWith("2026-11-01", "2026-12-05", "baby");
   expect(records).toHaveBeenCalledWith(expect.objectContaining({ kinds: expect.arrayContaining(["journal", "question", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth", "milestone", "custom"]), occurred_from: "2026-10-31T14:00:00.000Z", child_id: "baby" }));
 });
@@ -104,7 +105,7 @@ it("moves between months, fetching each once it's on screen, and ignores a late 
   expect(records.mock.calls.filter(([f]: any[]) => f.occurred_from).length).toBeGreaterThanOrEqual(3);
 });
 
-it("still opens days and shows this phone's dots when the service can't be reached", async () => {
+it("still chooses days and shows this phone's dots when the service can't be reached", async () => {
   setup();
   mock.baby.api.records = vi.fn(async () => { throw new TypeError("offline"); });
   mock.baby.state.records = [entry("cached", "2026-11-02T02:00:00.000Z")];
@@ -112,7 +113,7 @@ it("still opens days and shows this phone's dots when the service can't be reach
   expect(target("Monday, November 2")?.props.accessibilityLabel).toContain("has entries");
   expect(renderer!.root.findAll((n) => String(n.type) === "Notice")).toHaveLength(1);
   await act(async () => target("Monday, November 2")!.props.onPress());
-  expect(onOpen).toHaveBeenCalledWith("2026-11-02");
+  expect(onPick).toHaveBeenCalledWith("2026-11-02");
 });
 
 it("gives every day a 44pt target at least, and names it for VoiceOver", async () => {
@@ -148,12 +149,12 @@ it("takes a queued delete of the last note off its day, whatever the API last sa
   await mount();
   expect(dots().join()).toContain("November 3");
   mock.baby.state = { ...mock.baby.state, outbox: [gone] };
-  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} />));
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} onPick={onPick} />));
   expect(dots()).toEqual([]);
   // It stays off once the delete has landed and left the queue, before the next answer comes back.
   mock.baby.api.records = vi.fn(() => new Promise(() => undefined));
   mock.baby.state = { ...mock.baby.state, outbox: [] };
-  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} />));
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} onPick={onPick} />));
   expect(dots()).toEqual([]);
 });
 
@@ -168,7 +169,7 @@ it("reads the month again on coming back, and whenever a queued change leaves", 
   expect(dots().join()).toContain("November 3");
   const before = mock.baby.api.careSummary.mock.calls.length;
   mock.baby.state = { ...mock.baby.state, outbox: [{ id: "m", generation: 1, type: "save", files: [], record: entry("x", "2026-11-05T02:00:00.000Z") }] };
-  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} />));
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} onPick={onPick} />));
   expect(mock.baby.api.careSummary.mock.calls.length).toBeGreaterThan(before);
 });
 
@@ -177,7 +178,7 @@ it("doesn't show one baby's first log on another's calendar while it's looking",
   await mount();
   expect(target("First log")).toBeDefined();
   mock.baby.api.records = vi.fn(() => new Promise(() => undefined));
-  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="sister" onOpen={onOpen} />));
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="sister" onOpen={onOpen} onPick={onPick} />));
   expect(target("First log")).toBeUndefined();
 });
 
@@ -197,4 +198,27 @@ it("puts each category's colour on future months from the events API, and names 
   const colours = renderer!.root.findAll((n) => String(n.type) === "View" && n.props.style?.width === 6).map((n) => n.props.style.backgroundColor);
   expect(colours).toContain("gold");
   mock.occurrences = [];
+});
+
+it("moves to the month of a day tapped from the one around it, and marks the chosen day apart from today", async () => {
+  setup();
+  await mount({ day: "2026-11-20" });
+  expect(target("Friday, November 20")!.props.accessibilityState.selected).toBe(true);
+  expect(target("Wednesday, November 4")!.props.accessibilityState.selected).toBe(false);
+  await act(async () => target("Tuesday, December 1")!.props.onPress());
+  expect(onPick).toHaveBeenCalledWith("2026-12-01");
+  expect(heading()).toContain("December");
+});
+it("has no legend entry for an event with no category", async () => {
+  setup();
+  mock.occurrences = [{ event_id: "e", original_start: "2026-11-10T00:00:00Z", occurrence_start: "2026-11-10T00:00:00Z", occurrence_end: null, all_day: false, timezone: "Pacific/Guam", title: "Lunch", category: "other", location: null, attendees: [], child_id: "baby", repeats: false, changed: false, revision: 1 }];
+  await mount();
+  expect(renderer!.root.findAll((n) => String(n.type) === "Text").map((n) => n.props.children)).not.toContain("Other");
+  expect(target("Tuesday, November 10")!.props.accessibilityLabel).not.toContain("Other");
+  mock.occurrences = [];
+});
+it("shows what it's given under the grid, above First log", async () => {
+  setup([entry("a", "2026-11-02T02:00:00.000Z")]);
+  await act(async () => { renderer = create(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} onPick={onPick}>{React.createElement("Selected")}</TrackerMonth>); });
+  expect(renderer!.root.findAll((n) => String(n.type) === "Selected")).toHaveLength(1);
 });
