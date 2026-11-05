@@ -127,7 +127,7 @@ class AskTools:
     """One question's reads. ``tracked`` and ``citable`` are what the final recheck and citations use."""
 
     def __init__(self, *, user_id, client, personal_space_id, family, generation, zone, tracked, child_id=None,
-                 check=None, provider=None, question="", focus_id=None):
+                 check=None, provider=None, question="", focus_id=None, history=()):
         self.user_id, self.client, self.personal_space_id = user_id, client, personal_space_id
         self.family, self.generation, self.zone, self.tracked = family, generation, zone, tracked
         self.child_id, self.check = child_id, check
@@ -138,6 +138,7 @@ class AskTools:
         self.provider = provider
         self.read_texts, self.names = [], set()
         self.web_sources, self.research_failed = [], False
+        self.history, self.searched = list(history), None
 
     def instructions(self, base):
         return base + " " + TOOL_GUIDE + TOOL_RULES
@@ -207,6 +208,12 @@ class AskTools:
         return outputs
 
     async def research(self, pending, count):
+        # One search per question: asking again gets the same findings, at no cost.
+        if self.searched is None:
+            self.searched = await self.search_once(pending, count)
+        return self.searched
+
+    async def search_once(self, pending, count):
         result, sources = await research_for(self.provider, count, query=pending.query, health=pending.health)
         if result["status"] != "ok":
             self.research_failed = True
@@ -546,21 +553,16 @@ async def people_names(tools, db, owner):
     return names
 
 
-class ResearchArguments(DomainModel):
-    query: str = Field(min_length=3, max_length=QUERY_INPUT_CHARS)
-    topic: Literal["health", "general"]
-
-
 @tool(
     "research_trusted",
-    "Search online with one short general question. Health questions search only trusted medical sites; anything "
-    "else searches the open web. Sends only the query. Never put a name, a date, or anything about this family in it.",
-    ResearchArguments,
-    {"query": {"type": "string"}, "topic": {"type": "string", "enum": ["health", "general"]}},
+    "Search online for the parent's own question, as she asked it. Takes nothing from you. Health questions search only "
+    "trusted medical sites; a few plainly non-health requests, like gift ideas, search the open web.",
+    DomainModel,
+    {},
 )
 async def research_tool(tools, db, owner, arguments):
-    query = clean_query(arguments.query, names=await people_names(tools, db, owner),
-                        private_texts=tools.read_texts, question=tools.question)
+    # Built only from her current question, so nothing read or remembered can be carried out in it.
+    query = clean_query(tools.question, names=await people_names(tools, db, owner), private_texts=[*tools.read_texts, *tools.history])
     if not query:
         return unavailable("query_had_private_details")
-    return PendingResearch(query, needs_trusted_sites(arguments.topic, query, tools.question))
+    return PendingResearch(query, needs_trusted_sites(query))

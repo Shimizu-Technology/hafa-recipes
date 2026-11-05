@@ -861,6 +861,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                     family=access.enabled, generation=generation, zone=zone, tracked=tracked,
                     child_id=body.child_id, check=checked_access, provider=provider, question=body.message,
                     focus_id=body.record_id,
+                    history=[item["message"] for item in history if item["message"] != body.message],
                 )
                 result = await answer_question(
                     provider, tools=tools, message=body.message, history=history,
