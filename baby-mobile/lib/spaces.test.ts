@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
-import { babyLabel, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
+import { babyLabel, stampedDraft, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
 import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -310,4 +310,23 @@ describe("who can change a baby's profile", () => {
     expect(canChangeBaby(helper, helper.children[1])).toBe(true);
   });
   it("isn't a caregiver as a parent", () => expect(isCaregiver(boot())).toBe(false));
+});
+
+describe("where a new draft is going", () => {
+  const p = "p", f = "f", spaces = [{ id: p, kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: f, kind: "family", role: "parent", generation: 3, access_version: 1 }];
+  const here = { bootstrap: { generation: 1, personal_space_id: p, spaces, children: [{ id: "mine", name: "Nora", space_id: p }, { id: "ours", name: "Nora", space_id: f }] } } as never;
+  const draft = (over: object = {}) => ({ id: "d", kind: "feeding", title: "", body: "", child_id: "ours", occurred_at: "2026-11-05T00:00:00Z", data: {}, files: [], ...over }) as never;
+  it("takes the generation of the space it's going to", () => {
+    expect(stampedDraft(here, undefined, draft())).toMatchObject({ space_id: f, generation: 3 });
+  });
+  it("follows the baby when she changes which one it's for, and stays there on the next save", () => {
+    const first = stampedDraft(here, undefined, draft()), moved = stampedDraft(here, first, { ...first, child_id: "mine" });
+    expect(moved).toMatchObject({ space_id: p, generation: 1 });
+    // The open editor still holds the old stamp on its next save.
+    expect(stampedDraft(here, moved, { ...first, child_id: "mine" })).toMatchObject({ space_id: p });
+  });
+  it("leaves a draft from before the family where it was while its baby stays the same", () => {
+    const held = draft({ child_id: null, kind: "note", space_id: p, generation: 1 });
+    expect(stampedDraft(here, held, { ...(held as object), body: "more" } as never)).toMatchObject({ space_id: p });
+  });
 });

@@ -1468,7 +1468,7 @@ describe("a family's protocol, through the sync loop", () => {
   });
   it("believes a removal /changes reported on an earlier pass", async () => {
     const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
-    setup(live, { records: [], outbox: [tap], removed: ["feed"] }, { feedAction, record });
+    setup(live, { records: [], outbox: [tap], removed: [`${personal}:feed`] }, { feedAction, record });
     await mount(); await flush();
     expect(baby.state.outbox).toEqual([]);
     expect(baby.state.feedNotices).toEqual(["This feed was removed."]);
@@ -1570,7 +1570,7 @@ describe("a family's protocol, through the sync loop", () => {
       await mount(); await flush();
       expect(Object.keys(baby.state.drafts)).toEqual(["record:fd"]);
       expect(mock.clearShares).not.toHaveBeenCalled();
-      expect(clearFiles).toHaveBeenCalledWith("owner", new Set(["file:///family.jpg"]));
+      expect((vi.mocked(clearFiles).mock.calls.at(-1)![1] as () => ReadonlySet<string>)()).toEqual(new Set(["file:///family.jpg"]));
     });
     it("doesn't refuse every save while the personal space waits to be started again", async () => {
       setup({ ...cleared, active: false, spaces: [spaces[1]] }, { bootstrap: live, records: [feed(3, family)], outbox: [queued] } as never, { feedAction: vi.fn() });
@@ -1593,5 +1593,136 @@ describe("a family's protocol, through the sync loop", () => {
     expect(baby.state.fileReleases).toEqual([]);
     expect(mock.api.changes).toHaveBeenCalled();
     expect(baby.error).toBe("");
+  });
+});
+describe("the recheck: drafts, removal proof and files", () => {
+  const p = "p", f = "f", own = { id: p, kind: "personal", role: "parent", generation: 1, access_version: 1 }, fam = { id: f, kind: "family", role: "parent", generation: 1, access_version: 1 };
+  const quiet = { spaces: [], cursor: {}, has_more: false, removed_space_ids: [] };
+  const settled = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const account = (over: object) => { mock.api = { bootstrap: vi.fn(async () => over), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes: vi.fn(async () => quiet) }; };
+  const source = (over: object = {}) => ({ id: "draft", kind: "source", title: "T", body: "Keep these words", child_id: null, occurred_at: "2026-11-05T00:00:00Z", data: { topics: [], status: "saved" }, files: [], ...over }) as never;
+  it("a new Shared draft is stamped when it's saved, so erasing the personal space leaves it", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] }, after = { ...before, generation: 2, spaces: [{ ...own, generation: 2 }, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source({ shared: true })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: f, generation: 1, shared: true });
+    mock.api.bootstrap = vi.fn(async () => after);
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ body: "Keep these words", space_id: f });
+  });
+  it("a new draft she made Just me is stamped personal, and erasure takes it", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] }, after = { ...before, generation: 2, spaces: [{ ...own, generation: 2 }, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source({ shared: false })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: p });
+    mock.api.bootstrap = vi.fn(async () => after);
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(baby.state.drafts["new:source"]).toBeUndefined();
+  });
+  it("changing her mind moves the stamp with the choice", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source({ shared: true })); await settle(); });
+    await act(async () => { await baby.saveDraft("new:source", source({ ...baby.state.drafts["new:source"], shared: false })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: p, shared: false });
+    await act(async () => { await baby.saveDraft("new:source", source({ ...baby.state.drafts["new:source"], shared: true })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: f, shared: true });
+  });
+  it("a late save from an editor opened before joining can't overwrite the destination joining gave it", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before, drafts: { "new:source": source() } } as never;
+    await mount(); await settled();
+    const lateSave = baby.saveDraft;
+    mock.api.bootstrap = vi.fn(async () => ({ ...before, spaces: [own, fam] }));
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(baby.state.drafts["new:source"].space_id).toBe(p);
+    await act(async () => { await lateSave("new:source", source({ body: "Last private words" })); await settle(); });
+    const { choiceFor } = await import("./spaces");
+    expect(baby.state.drafts["new:source"]).toMatchObject({ body: "Last private words", space_id: p });
+    expect(choiceFor(baby.state.bootstrap, baby.state.drafts["new:source"])?.space_id).toBe(p);
+  });
+  it("with no family yet, a new draft is stamped personal, and joining leaves it there", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source()); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: p, generation: 1 });
+  });
+  it("an edit of a saved entry keeps its own space", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("edit:x", source({ existing: true, space_id: f, generation: 1 })); await settle(); });
+    expect(baby.state.drafts["edit:x"]).toMatchObject({ space_id: f });
+    expect(baby.state.drafts["edit:x"].shared).toBeUndefined();
+  });
+  it("with the flag off, a draft is left unstamped", async () => {
+    account(bootstrap);
+    mock.saved = { ...emptyState(), version: 2, bootstrap } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source()); await settle(); });
+    expect(baby.state.drafts["new:source"].space_id).toBeUndefined();
+  });
+  describe("a removal only counts in its own space", () => {
+    const live = { ...bootstrap, personal_space_id: p, spaces: [own, fam], children: [] };
+    const feed = { ...optimisticRecord({ id: "feed", kind: "feeding", title: "Feed", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00Z", data: { method: "breast", state: "running", actions: [{ id: "start", action: "start", side: "left", at: "2026-11-05T00:00:00Z" }] } as never }), revision: 2, space_id: f, generation: 1 };
+    const tap = { id: "tap", type: "feed_action", record_id: "feed", space_id: f, generation: 1, action: { id: "tap", action: "finish", at: "2026-11-05T00:10:00Z" } };
+    const refused = () => ({ feedAction: vi.fn(async () => { throw new ApiError("Unavailable", 404); }), record: vi.fn(async () => { throw new ApiError("Unavailable", 404); }) });
+    const answer = (items: object[], removed: string[] = [], space = p) => ({ spaces: [{ id: space, generation: 1, access_version: 1, cursor: 10, has_more: false, reset: false, items }], cursor: { [space]: 10 }, has_more: false, removed_space_ids: removed });
+    it("an old personal move tombstone can't discard a family tap when removal happens after bootstrap", async () => {
+      const changes = vi.fn(async () => answer([{ id: "feed", seq: 10, removed: true }], [f]));
+      mock.api = { bootstrap: vi.fn(async () => live), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes, ...refused() };
+      mock.saved = { ...emptyState(), version: 2, bootstrap: live, records: [feed], outbox: [tap] } as never;
+      await mount(); await settled();
+      expect(changes).toHaveBeenCalled();
+      expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: f, error: expect.stringContaining("no longer in this family") }]);
+      expect(baby.state.feedNotices ?? []).not.toContain("This feed was removed.");
+    });
+    it("a tombstone from the personal space alone doesn't discard a family tap, even with the family still here", async () => {
+      const changes = vi.fn(async () => answer([{ id: "feed", seq: 10, removed: true }]));
+      mock.api = { bootstrap: vi.fn(async () => live), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes, ...refused() };
+      mock.saved = { ...emptyState(), version: 2, bootstrap: live, records: [feed], outbox: [tap] } as never;
+      await mount(); await settled();
+      expect(baby.state.outbox).toMatchObject([{ id: "tap" }]);
+      expect(baby.state.outbox[0]).not.toHaveProperty("left_space");
+      expect(baby.state.feedNotices ?? []).toEqual([]);
+    });
+    it("a removal from the family's own space still settles the tap", async () => {
+      const changes = vi.fn(async () => answer([{ id: "feed", seq: 10, removed: true }], [], f));
+      mock.api = { bootstrap: vi.fn(async () => live), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes, ...refused() };
+      mock.saved = { ...emptyState(), version: 2, bootstrap: live, records: [feed], outbox: [tap] } as never;
+      await mount(); await settled();
+      expect(baby.state.outbox).toEqual([]);
+      expect(baby.state.feedNotices).toContain("This feed was removed.");
+    });
+  });
+  it("erasure racing a new family draft keeps that draft's file", async () => {
+    const { clearFiles } = await import("./files");
+    const live = { ...bootstrap, personal_space_id: p, spaces: [own, fam] };
+    account(live);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: live } as never;
+    await mount(); await settled();
+    let release = () => undefined as void;
+    mock.clear.mockImplementationOnce(() => new Promise<void>((yes) => { release = yes; }));
+    mock.api.bootstrap = vi.fn(async () => ({ ...live, generation: 2, spaces: [{ ...own, generation: 2 }, fam] }));
+    let refreshing: Promise<void> | undefined;
+    await act(async () => { refreshing = baby.refresh(); await settle(); });
+    const file = { id: "new-file", uri: "file:///new-family.jpg", name: "photo.jpg", mime_type: "image/jpeg" };
+    const draft = source({ id: "new-draft", space_id: f, generation: 1, shared: true, files: [file] });
+    await act(async () => { await baby.saveDraft("new:source", draft); await settle(); });
+    vi.mocked(clearFiles).mockClear();
+    await act(async () => { release(); await refreshing; await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ id: "new-draft", files: [file] });
+    const keep = vi.mocked(clearFiles).mock.calls.at(-1)?.[1] as () => ReadonlySet<string>;
+    expect(keep().has(file.uri)).toBe(true);
   });
 });

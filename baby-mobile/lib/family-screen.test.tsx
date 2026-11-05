@@ -353,6 +353,49 @@ describe("as a caregiver", () => {
     expect(text()).toMatch(/your own chats are kept/i);
   });
 });
+describe("joining with an older phone on the account", () => {
+  const stuck = { ready: false, phones: [], older_client_at: "2026-11-01T00:00:00Z" };
+  const toPreview = async () => { await open(); await press("I have a code"); await act(async () => all("Field").find((n) => n.props.label === "Code")!.props.onChange(code)); await press("Check the code"); };
+  it("shows the same check as creating a family, and no way to join until it's answered", async () => {
+    const b = setup([own], { readiness: vi.fn(async () => stuck) });
+    await toPreview();
+    expect(text()).toMatch(/older version of Håfa Baby was used/);
+    expect(button("Join this family")).toBeUndefined();
+    expect(button("That phone is updated or gone")).toBeDefined();
+    expect(b.api.acceptInvite).not.toHaveBeenCalled();
+  });
+  it("doesn't talk about her baby's profile moving, since joining moves nothing", async () => {
+    setup([own], { readiness: vi.fn(async () => stuck) });
+    await toPreview();
+    expect(text()).not.toMatch(/profile moves/);
+  });
+  it("lets her answer it, then join", async () => {
+    const readiness = vi.fn(async () => stuck), b = setup([own], { readiness });
+    await toPreview();
+    readiness.mockResolvedValue({ ready: true, phones: [], older_client_at: null } as never);
+    await press("That phone is updated or gone");
+    await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.text === "Yes, it’s updated or gone")!.onPress!(); });
+    await act(async () => {});
+    expect(b.api.confirmPhones).toHaveBeenCalled();
+    await press("Join this family");
+    expect(b.api.acceptInvite).toHaveBeenCalled();
+  });
+  it("won't join if it couldn't check, and offers to try again", async () => {
+    setup([own], { readiness: vi.fn(async () => { throw new ApiError("x", 0); }) });
+    await toPreview();
+    expect(button("Join this family")).toBeUndefined();
+    expect(button("Check again")).toBeDefined();
+  });
+  it("shows the same thing if the API refuses the join itself", async () => {
+    const accept = vi.fn(async () => { throw new PhonesNotReady(stuck as never); });
+    setup([own], { acceptInvite: accept });
+    await toPreview();
+    await press("Join this family");
+    expect(text()).toMatch(/older version of Håfa Baby was used/);
+    expect(text()).not.toMatch(/expired or been used/);
+    expect(button("Join this family")).toBeUndefined();
+  });
+});
 describe("choosing who they'll be", () => {
   it("invites a parent unless she says caregiver, and says what a caregiver can't do", async () => {
     const b = setup();

@@ -10,6 +10,8 @@ export interface EncryptedFiles {
 interface Manifest {
   version: 1 | 2;
   parts: Record<string, string>;
+  /** This build moved family work out of its own store, so what's left there is stale even if a crash left it. */
+  retired_family?: boolean;
 }
 /** Immutable encrypted section files + one atomic Keychain manifest. Only changed
  * sections are encrypted. A care entry never rewrites the saved source library. */
@@ -19,10 +21,16 @@ export function createPartitionVault(
   uuid: () => string,
   files: EncryptedFiles,
   project: (section: string, value: unknown) => unknown = (_, v) => v,
-  /** 2 fences this save from a build that only knows 1: it refuses the vault and overwrites nothing. */
-  version: (state: Record<string, unknown>) => 1 | 2 = () => 1
+  /**
+   * 2 fences this save from a build that only knows 1. The save and its key go in a store that build doesn't know
+   * about, and only a marker is left where it looks: it refuses the vault, and its sign-out can't reach the save.
+   */
+  version: (state: Record<string, unknown>) => 1 | 2 = () => 1,
+  family: EncryptedFiles = files,
+  /** An older build cleaned up around the saved family work: what it was, and anything that build has saved since. */
+  recovered: (saved: Record<string, unknown>, older: Record<string, unknown> | null) => Record<string, unknown> = (saved) => saved
 ) {
-  const key = storageKey(namespace) + ".manifest";
+  const key = storageKey(namespace) + ".manifest", familyKey = storageKey(namespace) + ".family";
   let retired = false,
     pending: Promise<unknown> = Promise.resolve(),
     references: Record<string, unknown> = {};
@@ -34,8 +42,8 @@ export function createPartitionVault(
     pending = next;
     return next;
   };
-  async function manifest() {
-    const raw = await secret.getItemAsync(key);
+  async function manifest(at = key) {
+    const raw = await secret.getItemAsync(at);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Manifest;
     if (
@@ -55,30 +63,48 @@ export function createPartitionVault(
     read: <T>() =>
       ordered(async () => {
         guard();
-        const saved = await manifest();
-        if (!saved) return null;
-        const output: Record<string, unknown> = {};
-        for (const [section, id] of Object.entries(saved.parts)) {
-          const plaintext = await files.open(await files.read(id), section);
-          guard();
-          output[section] = JSON.parse(plaintext);
+        const marker = await manifest(), saved = await manifest(familyKey);
+        const sections = async (parts: Record<string, string>, store: EncryptedFiles) => {
+          const output: Record<string, unknown> = {};
+          for (const [section, id] of Object.entries(parts)) {
+            const plaintext = await store.open(await store.read(id), section);
+            guard();
+            output[section] = JSON.parse(plaintext);
+          }
+          return output;
+        };
+        if (!saved || marker?.retired_family) {
+          if (!marker || (marker.version === 2 && !Object.keys(marker.parts).length)) return null;
+          references = await sections(marker.parts, files);
+          return references as T;
         }
-        references = output;
-        return output as T;
+        const output = await sections(saved.parts, family);
+        if (marker?.version === 2) {
+          references = output;
+          return output as T;
+        }
+        // No marker: an older build signed out. The next save writes everything and fences it again.
+        references = {};
+        return recovered(output, marker ? await sections(marker.parts, files) : null) as T;
       }),
     write: (value: unknown) =>
       ordered(async () => {
         guard();
         if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Invalid private device state.");
         const state = value as Record<string, unknown>,
-          old = await manifest(),
+          stamp = version(state),
+          marker = await manifest(),
+          saved = await manifest(familyKey),
+          store = stamp === 2 ? family : files,
+          old = stamp === 2 ? saved : marker?.version === 1 ? marker : null,
+          fenced = marker?.version === 2 && !Object.keys(marker.parts).length,
           parts = { ...old?.parts };
         let changed = false;
         for (const [section, content] of Object.entries(state)) {
           if (!/^\w+$/.test(section)) throw Error("Invalid private device section.");
-          if (old && references[section] === content) continue;
+          if (old && references[section] === content && section in parts) continue;
           const id = uuid();
-          await files.write(id, await files.seal(JSON.stringify(project(section, content)), section));
+          await store.write(id, await store.seal(JSON.stringify(project(section, content)), section));
           guard();
           parts[section] = id;
           changed = true;
@@ -88,19 +114,31 @@ export function createPartitionVault(
             delete parts[section];
             changed = true;
           }
-        const stamp = version(state);
-        if (!changed && old?.version === stamp) return;
+        if (!changed && old?.version === stamp && (stamp === 2 ? fenced : !saved)) return;
         guard();
-        await secret.setItemAsync(key, JSON.stringify({ version: stamp, parts }));
+        if (stamp === 2) {
+          // The save is durable before the marker goes up, so a crash between them loses nothing.
+          await secret.setItemAsync(familyKey, JSON.stringify({ version: 2, parts }));
+          if (!fenced) await secret.setItemAsync(key, JSON.stringify({ version: 2, parts: {} }));
+        } else {
+          await secret.setItemAsync(key, JSON.stringify({ version: 1, parts, ...(saved ? { retired_family: true } : {}) }));
+          if (saved) {
+            await secret.deleteItemAsync(familyKey);
+            if (family !== files) await family.clear().catch(() => undefined);
+          }
+        }
         references = state;
         for (const [section, id] of Object.entries(old?.parts ?? {}))
-          if (parts[section] !== id) await files.remove(id).catch(() => undefined);
+          if (parts[section] !== id) await store.remove(id).catch(() => undefined);
+        if (stamp === 2 && marker) for (const id of Object.values(marker.parts)) await files.remove(id).catch(() => undefined);
       }),
     clear: () =>
       ordered(async () => {
         await secret.deleteItemAsync(key);
+        await secret.deleteItemAsync(familyKey);
         references = {};
         await files.clear();
+        if (family !== files) await family.clear();
         retired = true;
       }),
   };

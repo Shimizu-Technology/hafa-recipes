@@ -27,7 +27,7 @@ import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
-import { babyLabel, choiceFor } from "../lib/spaces";
+import { babyLabel, choiceFor, stampedDraft } from "../lib/spaces";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -279,11 +279,11 @@ export default function Edit() {
       const id = Crypto.randomUUID();
       const splitId = Crypto.randomUUID();
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
-        const from = given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records);
+        const from = stampedDraft(b.state, b.state.drafts[slot], given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records));
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, shared: ____, ...record } = from,
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;
         return {
-          id, generation, type: "save", ...(choice ? { space_id: choice.space_id } : from.space_id ? { space_id: from.space_id } : {}),
+          id, generation, type: "save", ...(from.space_id ? { space_id: from.space_id } : {}),
           record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindWord(from.kind)),
             data: from.kind === "source" ? { ...data, source_text: data.source_text || from.body || undefined } : data,
             ...(revision ? { revision } : {}) }, files,

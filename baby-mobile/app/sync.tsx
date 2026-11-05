@@ -7,6 +7,8 @@ import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
 import { keepInPersonal, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
+import { PrivateAttachment } from "@/components/private-attachment";
+import { savedDetails } from "../lib/saved-details";
 import { recordDay } from "@/lib/tracker";
 import { trackerForKey } from "../lib/trackers";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
@@ -158,6 +160,8 @@ export default function Sync() {
                       </Copy>
                       <Copy kind="heading">{remote[m.id].title}</Copy>
                       <Copy>{remote[m.id].body || "No written notes."}</Copy>
+                      {savedDetails(remote[m.id].data as Record<string, unknown>).map((line) => <Copy key={line} kind="small">{line}</Copy>)}
+                      {(remote[m.id].data?.attachment_ids ?? []).map((id) => <PrivateAttachment key={id} id={id} />)}
                       <Copy kind="small" tone="muted">
                         Updated {new Date(remote[m.id].updated_at).toLocaleString()}
                       </Copy>

@@ -76,9 +76,9 @@ import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
-import { applyChanges, changePagesPerPass } from "./changes";
+import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
 import { forgetInvite } from "./family";
-import { accessKey, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
+import { accessKey, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
@@ -231,7 +231,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       // Only what's retiring goes. With a family this account is still in, captures and its files can still go there.
       if (!familySpaces(bootstrap).length) clearPendingShares();
       await clearReminders(ownerRef.current);
-      await clearFiles(ownerRef.current, localFileUris(staying));
+      await clearFiles(ownerRef.current, () => localFileUris(fencedState(ref.current, bootstrap)));
     }
     await commit((s) => {
       const fenced = fencedState(s, bootstrap),
@@ -461,7 +461,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
               if (outcome === "removed" && spacesLive(latest)) {
                 // Not readable isn't the same as gone, and nor is not being on this phone. The tap only goes once the API has said this row was removed.
                 await pullChanges();
-                if (!ref.current.removed?.includes(next.record_id)) outcome = "unresolved";
+                // That pull may have ended her time in the family, which holds this as Not sent. It's hers to decide about.
+                const held = ref.current.outbox.find((m) => m.id === next.id);
+                if (!held || held.left_space) continue;
+                if (!removedFrom(ref.current, next.space_id ?? ref.current.bootstrap?.personal_space_id, next.record_id)) outcome = "unresolved";
               }
               if (outcome === "unresolved") {
                 // The feed still takes taps, so this was a passing race. It's kept, and asks her if it doesn't clear.
@@ -816,7 +819,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => {
             if (valid && !valid()) return s;
             const drafts = { ...s.drafts };
-            if (draft) drafts[key] = draft;
+            if (draft) drafts[key] = stampedDraft(s, s.drafts[key], draft);
             else delete drafts[key];
             return queueRemovedUploads(s, { ...s, drafts });
           });

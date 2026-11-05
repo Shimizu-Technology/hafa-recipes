@@ -1,3 +1,4 @@
+import { Alert } from "react-native";
 import { useState } from "react";
 import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
@@ -28,7 +29,14 @@ export function AccountGate({ children }: { children: React.ReactNode }) {
         <Loading />
         {!!b.error && <Notice error>{b.error}</Notice>}
         <Button title="Try again" secondary onPress={() => void b.refresh()} />
-        <Button title="Sign out" variant="ghost" onPress={() => void b.signOut()} />
+        <Button title="Sign out" variant="ghost" onPress={() => {
+          // What needs recovery is still on this phone, and a sign-out clears it.
+          if (!b.error.includes("needs recovery")) return void b.signOut();
+          Alert.alert("Sign out and clear this phone?", "Changes that haven’t sent are saved here, and signing out removes them. Update Håfa Baby first if you can: that usually opens them again.", [
+            { text: "Keep them", style: "cancel" },
+            { text: "Sign out and clear", style: "destructive", onPress: () => void b.signOut() },
+          ]);
+        }} />
       </Screen>
     );
   if (b.state.bootstrap.active === false)

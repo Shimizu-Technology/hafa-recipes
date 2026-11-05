@@ -13,6 +13,7 @@ vi.mock("@/lib/api", () => import("./api"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/files", () => ({ exportFile: vi.fn() }));
+vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateAttachment" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Screen: "Screen", Section: "Section", useToast: () => scope.toast }));
 import Sync from "../app/sync";
 import { ApiError } from "./api";
@@ -174,5 +175,41 @@ describe("what a former family's queue offers", () => {
     expect(changed.outbox).toMatchObject([{ space_id: "p", record: { title: "q" } }]);
     expect(changed.outbox[0].record.id).not.toBe("entry");
     expect(b.sync).toHaveBeenCalled();
+  });
+});
+
+describe("reviewing a conflict before replacing the saved version", () => {
+  const conflicted = () => { const local = save("edit", "feed", { conflict: true, error: "Changed" }) as Extract<Mutation, { type: "save" }>; local.record.kind = "source"; return local; };
+  const load = async (saved: object) => {
+    const b = setup([conflicted()]);
+    b.api.record = vi.fn(async () => ({ id: "feed", kind: "source", title: "Saved post", body: "Their notes", occurred_at: "2026-11-05T00:00:00Z", updated_at: "2026-11-05T00:00:00Z", revision: 3, data: {}, ...saved }));
+    await act(async () => { renderer = create(<Sync />); });
+    await act(async () => { await renderer!.root.findAll((n) => String(n.type) === "Button").find((n) => n.props.title === "Load saved version to compare")!.props.onPress(); });
+    return renderer!;
+  };
+  const words = (root: ReactTestRenderer) => root.root.findAll((n) => String(n.type) === "Copy").map((n) => [n.props.children].flat().join("")).join(" | ");
+  it("shows the attachments on the saved version", async () => {
+    const root = await load({ data: { attachment_ids: ["their-photo", "their-scan"] } });
+    expect(root.root.findAll((n) => String(n.type) === "PrivateAttachment").map((n) => n.props.id)).toEqual(["their-photo", "their-scan"]);
+  });
+  it("shows the saved care details and category, in words", async () => {
+    const root = await load({ kind: "feeding", title: "Bottle", data: { method: "bottle", contents: "formula", amount_ml: 90, topics: ["sleep", "labor"], status: "saved" } });
+    const said = words(root);
+    expect(said).toMatch(/Method: bottle/);
+    expect(said).toMatch(/Contents: formula/);
+    expect(said).toMatch(/Amount ml: 90/);
+    expect(said).toMatch(/Topics: sleep, labor/);
+  });
+  it("leaves out what isn't for reading, and cuts long source text short", async () => {
+    const root = await load({ data: { attachment_ids: ["a"], actions: [{ id: "x" }], evidence: [{ q: "z" }], source_text: "w".repeat(900) } });
+    const said = words(root);
+    expect(said).not.toMatch(/Attachment ids|Evidence/);
+    expect(said).toMatch(/Actions: 1/);
+    expect((said.match(/w/g) ?? []).length).toBeLessThan(300);
+  });
+  it("doesn't offer the save until it's shown", async () => {
+    setup([conflicted()]);
+    await act(async () => { renderer = create(<Sync />); });
+    expect(renderer!.root.findAll((n) => String(n.type) === "Button").some((n) => n.props.title === "Save my version after review")).toBe(false);
   });
 });

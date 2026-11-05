@@ -112,13 +112,37 @@ describe("clearing what's retired", () => {
   it("takes the whole directory when nothing is staying", async () => {
     await clearFiles("owner");
     expect(native.remove).toHaveBeenCalledExactlyOnceWith(directory("owner"), { idempotent: true });
-    await clearFiles("owner", new Set());
+    await clearFiles("owner", () => new Set());
     expect(native.remove).toHaveBeenLastCalledWith(directory("owner"), { idempotent: true });
   });
   it("keeps exactly what pending work still needs", async () => {
     native.list.mockResolvedValue(["family.jpg", "personal.jpg"]);
-    await clearFiles("owner", new Set([directory("owner") + "family.jpg"]));
+    await clearFiles("owner", () => new Set([directory("owner") + "family.jpg"]));
     expect(native.remove).toHaveBeenCalledExactlyOnceWith(directory("owner") + "personal.jpg", { idempotent: true });
+  });
+  it("decides what's staying on its own turn, not when it was asked", async () => {
+    native.list.mockResolvedValue(["late.jpg"]);
+    native.copy.mockReset().mockResolvedValue(undefined);
+    let finish = () => undefined as void;
+    native.copy.mockImplementationOnce(() => new Promise<void>((done) => { finish = done; }));
+    const staying = new Set<string>();
+    const copying = preserveFile("owner", { uri: "file:///picked.jpg", name: "a.jpg", mimeType: "image/jpeg" });
+    await vi.waitFor(() => expect(native.copy).toHaveBeenCalled());
+    const clearing = clearFiles("owner", () => staying);
+    staying.add(directory("owner") + "late.jpg");
+    finish();
+    await copying; await clearing;
+    expect(native.remove).not.toHaveBeenCalledWith(directory("owner") + "late.jpg", { idempotent: true });
+  });
+  it("doesn't take a file made a moment ago that's still on its way into a draft, but only spares it once", async () => {
+    native.copy.mockReset().mockResolvedValue(undefined);
+    const made = await preserveFile("owner", { uri: "file:///picked.jpg", name: "b.jpg", mimeType: "image/jpeg" });
+    native.list.mockResolvedValue([made.uri.slice(directory("owner").length), "old.jpg"]);
+    await clearFiles("owner", () => new Set(["file:///elsewhere.jpg"]));
+    expect(native.remove).toHaveBeenCalledExactlyOnceWith(directory("owner") + "old.jpg", { idempotent: true });
+    native.remove.mockClear();
+    await clearFiles("owner", () => new Set(["file:///elsewhere.jpg"]));
+    expect(native.remove).toHaveBeenCalledWith(made.uri, { idempotent: true });
   });
 });
 

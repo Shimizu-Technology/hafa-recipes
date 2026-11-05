@@ -175,6 +175,16 @@ export function draftsBeforeFamily(state: DeviceState, bootstrap: Bootstrap): De
   if (!personal || Object.values(state.drafts).every((draft) => draft.space_id)) return state;
   return { ...state, drafts: Object.fromEntries(Object.entries(state.drafts).map(([slot, draft]) => [slot, draft.space_id ? draft : { ...draft, space_id: personal, generation: bootstrap.generation }])) };
 }
+export const recoveredNotice = "This phone was signed out on an older version. What was saved here is back. If a photo is missing, add it again.";
+/** An older build signed out around a family save. The save comes back, with anything that build has queued since, and she's told. */
+export function recoveredState(saved: DeviceState, older: DeviceState | null): DeviceState {
+  const known = new Set(saved.outbox.map((m) => m.id));
+  return withNotice({
+    ...saved,
+    outbox: [...saved.outbox, ...(older?.outbox ?? []).filter((m) => !known.has(m.id))],
+    drafts: { ...older?.drafts, ...saved.drafts },
+  }, recoveredNotice);
+}
 /**
  * Spaces this phone holds work for that the API no longer lists. It reads them off the work itself, so a flag-off
  * bootstrap in between, which says nothing about spaces, can't lose track of one.

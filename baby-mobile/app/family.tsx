@@ -39,19 +39,45 @@ function RoleChoice({ role, onChange, disabled }: { role: Role; onChange: (role:
   </Section>;
 }
 /** An older build would lose sight of her baby when it moves. Nothing moves until her phones are updated, or she says one is gone. */
-function PhoneGate({ readiness, failed, busy, onCheck, onConfirm }: { readiness: FamilyReadiness | null; failed: boolean; busy: boolean; onCheck: () => void; onConfirm: () => void }) {
+function PhoneGate({ readiness, failed, busy, joining, onCheck, onConfirm }: { readiness: FamilyReadiness | null; failed: boolean; busy: boolean; joining?: boolean; onCheck: () => void; onConfirm: () => void }) {
+  const why = joining ? "An older Håfa Baby can’t see a family’s entries, and it could lose track of what you log. You can join once it’s updated."
+    : "Your baby’s profile moves to the family, and an older Håfa Baby would lose sight of it. Nothing moves until they’re updated.";
   if (failed || !readiness)
-    return <Card><Copy kind="heading">Connect to check your phones</Copy><Copy>Your baby’s profile moves to the family, so any phone on your account needs the update first. This can’t be checked without a connection.</Copy><Button secondary title="Check again" busy={busy} onPress={onCheck} /></Card>;
+    return <Card><Copy kind="heading">Connect to check your phones</Copy><Copy>{joining ? "Any phone on your account needs the update before you join." : "Your baby’s profile moves to the family, so any phone on your account needs the update first."} This can’t be checked without a connection.</Copy><Button secondary title="Check again" busy={busy} onPress={onCheck} /></Card>;
   const waiting = readiness.phones.filter((phone) => phone.state !== "ready"), others = waiting.filter((phone) => !phone.this_phone);
   return <Card>
     <Copy kind="heading">Update your other phones first</Copy>
-    <Copy>Your baby’s profile moves to the family, and an older Håfa Baby would lose sight of it. Nothing moves until they’re updated.</Copy>
+    <Copy>{why}</Copy>
     {waiting.map((phone) => <Copy key={phone.id} kind="small">{phone.this_phone ? "This phone is still connecting. Try again in a moment."
       : `A phone ${phone.last_seen ? `last opened ${friendlyDay(phone.last_seen)}` : "signed in to your account"} needs the update.`}</Copy>)}
     {!!readiness.older_client_at && <Copy kind="small">{`An older version of Håfa Baby was used on your account on ${friendlyDay(readiness.older_client_at)}. If that was this phone before you updated it, or a phone nobody uses now, you can say so.`}</Copy>}
     {(!!others.length || !!readiness.older_client_at) && <Button variant="ghost" title="That phone is updated or gone" disabled={busy} onPress={onConfirm} />}
     <Button secondary title="Check again" busy={busy} onPress={onCheck} />
   </Card>;
+}
+/** Whether this account's phones are ready, for the two ways into a family: both are checked, and answered, the same way. */
+function usePhones(setError: (message: string) => void) {
+  const b = useBaby(), [readiness, setReadiness] = useState<FamilyReadiness | null>(null), [failed, setFailed] = useState(false), [checking, setChecking] = useState(false);
+  async function check() {
+    setChecking(true);
+    try {
+      // This phone answers for itself first: a sighting of an older one takes back what it reported.
+      await askForShareSession();
+      setReadiness(await b.api.readiness(nativeSharingAvailable ? await installationId() : undefined));
+      setFailed(false);
+    } catch { setFailed(true); setReadiness(null); }
+    finally { setChecking(false); }
+  }
+  function confirmPhones() {
+    Alert.alert("Is that phone updated, or gone?", "Say yes if it’s updated, or nobody uses it now. If it’s used again on an older Håfa Baby, it won’t see your baby until it updates, and anything waiting on it stays on it.", [
+      { text: "Not yet", style: "cancel" },
+      { text: "Yes, it’s updated or gone", onPress: () => void (async () => {
+        try { await b.api.confirmPhones(nativeSharingAvailable ? await installationId() : undefined); await check(); }
+        catch (failure) { setError(messageFor(failure)); }
+      })() },
+    ]);
+  }
+  return { readiness, setReadiness, failed, checking, check, confirmPhones };
 }
 function ShownCode({ invite, onDone }: { invite: FamilyInvite; onDone: () => void }) {
   const toast = useToast();
@@ -67,17 +93,8 @@ function ShownCode({ invite, onDone }: { invite: FamilyInvite; onDone: () => voi
 }
 function Invite({ onBack }: { onBack: () => void }) {
   const b = useBaby(), bootstrap = b.state.bootstrap!, [rows, setRows] = useState<BabyRecord[] | null>(null), [unread, setUnread] = useState(false), [justMe, setJustMe] = useState<string[]>([]),
-    [readiness, setReadiness] = useState<FamilyReadiness | null>(null), [failed, setFailed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null), [role, setRole] = useState<Role>("parent");
-  async function check() {
-    setBusy(true);
-    try {
-      // This phone answers for itself first: a sighting of an older one takes back what it reported.
-      await askForShareSession();
-      setReadiness(await b.api.readiness(nativeSharingAvailable ? await installationId() : undefined));
-      setFailed(false);
-    } catch { setFailed(true); setReadiness(null); }
-    finally { setBusy(false); }
-  }
+    [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null), [role, setRole] = useState<Role>("parent");
+  const { readiness, setReadiness, failed, checking, check, confirmPhones } = usePhones(setError);
   /** What becomes shared is what she's agreeing to, so a list that didn't load stops her, rather than reading as nothing. */
   function readRows() {
     setUnread(false);
@@ -88,15 +105,6 @@ function Invite({ onBack }: { onBack: () => void }) {
     void check();
     readRows();
   }, []);
-  function confirmPhones() {
-    Alert.alert("Is that phone updated, or gone?", "Say yes if it’s updated, or nobody uses it now. If it’s used again on an older Håfa Baby, it won’t see your baby until it updates, and anything waiting on it stays on it.", [
-      { text: "Not yet", style: "cancel" },
-      { text: "Yes, it’s updated or gone", onPress: () => void (async () => {
-        try { await b.api.confirmPhones(nativeSharingAvailable ? await installationId() : undefined); await check(); }
-        catch (failure) { setError(messageFor(failure)); }
-      })() },
-    ]);
-  }
   async function create() {
     setBusy(true); setError("");
     try {
@@ -134,16 +142,20 @@ function Invite({ onBack }: { onBack: () => void }) {
       </Section>
     </>}
     {!readiness?.ready
-      ? <PhoneGate readiness={readiness} failed={failed} busy={busy} onCheck={() => void check()} onConfirm={confirmPhones} />
-      : !unread && <Button title="Share and get a code" size="lg" icon="people-outline" busy={busy} disabled={!rows} onPress={() => void create()} />}
+      ? <PhoneGate readiness={readiness} failed={failed} busy={busy || checking} onCheck={() => void check()} onConfirm={confirmPhones} />
+      : !unread && <Button title="Share and get a code" size="lg" icon="people-outline" busy={busy || checking} disabled={!rows} onPress={() => void create()} />}
     <Button variant="ghost" title="Not now" disabled={busy} onPress={onBack} />
   </>;
 }
 function Join({ onBack }: { onBack: () => void }) {
-  const b = useBaby(), [code, setCode] = useState(""), [preview, setPreview] = useState<InvitePreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const b = useBaby(), [code, setCode] = useState(""), [preview, setPreview] = useState<InvitePreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""),
+    { readiness, setReadiness, failed, checking, check, confirmPhones } = usePhones(setError);
   async function look(text = code) {
     setBusy(true); setError(""); setPreview(null);
-    try { setPreview(await b.api.previewInvite(codeFrom(text))); }
+    try {
+      setPreview(await b.api.previewInvite(codeFrom(text)));
+      await check();
+    }
     catch (failure) { setError(codeProblem(failure)); }
     finally { setBusy(false); }
   }
@@ -153,7 +165,11 @@ function Join({ onBack }: { onBack: () => void }) {
       await b.api.acceptInvite(codeFrom(code), b.state.bootstrap!.generation);
       await b.refresh();
       void b.sync();
-    } catch (failure) { setError(codeProblem(failure)); setBusy(false); }
+    } catch (failure) {
+      if (failure instanceof PhonesNotReady) setReadiness(failure.readiness);
+      else setError(codeProblem(failure));
+      setBusy(false);
+    }
   }
   return <>
     {!!error && <Notice error>{error}</Notice>}
@@ -161,7 +177,9 @@ function Join({ onBack }: { onBack: () => void }) {
       <Copy>{preview.disclosure}</Copy>
       <Copy>Nothing of yours moves. Your own entries stay in your own space, and you can come back to them if you leave.</Copy>
       {preview.role === "caregiver" && <Copy>Ask isn’t part of helping as a caregiver. Your own chats are kept for if you leave.</Copy>}
-      <Button title="Join this family" size="lg" icon="people-outline" busy={busy} onPress={() => void join()} />
+      {readiness?.ready
+        ? <Button title="Join this family" size="lg" icon="people-outline" busy={busy} onPress={() => void join()} />
+        : <PhoneGate joining readiness={readiness} failed={failed} busy={busy || checking} onCheck={() => void check()} onConfirm={confirmPhones} />}
     </Section> : <Section title="Paste the code you were sent">
       <Button title="Paste" icon="clipboard-outline" size="lg" busy={busy} onPress={() => void Clipboard.getStringAsync().then((text) => { setCode(text); return look(text); })} />
       <Field label="Code" value={code} onChange={setCode} placeholder="hfbi_v1…" />

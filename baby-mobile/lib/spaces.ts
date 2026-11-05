@@ -78,6 +78,19 @@ export function choiceFor(bootstrap: Bootstrap | undefined, draft: Pick<EditorDr
   const shared = draft.shared ?? (!held && draft.kind === "source");
   return { shared, space_id: shared ? family.id : bootstrap!.personal_space_id!, just_me: !shared && draft.kind === "source" };
 }
+/**
+ * Where a new draft is going, written down each time it's saved, so erasure and removal can tell whose it is. Its choice
+ * moves it, and so does changing to a baby in another space. A late write from an editor opened before a family arrived
+ * doesn't know where joining put its draft, so the destination already held wins.
+ */
+export function stampedDraft(state: Pick<DeviceState, "bootstrap">, held: EditorDraft | undefined, draft: EditorDraft): EditorDraft {
+  const { bootstrap } = state;
+  if (draft.existing || !spacesLive(bootstrap)) return draft;
+  const placed = held?.space_id ? { ...draft, space_id: held.space_id, generation: held.generation } : draft,
+    choice = choiceFor(bootstrap, placed),
+    space = choice?.space_id ?? (placed.space_id && (!held || placed.child_id === held.child_id) ? placed.space_id : spaceForNew(state, placed)!);
+  return { ...placed, ...(choice ? { shared: choice.shared } : {}), space_id: space, generation: bootstrap!.spaces!.find((one) => one.id === space)?.generation ?? bootstrap!.generation };
+}
 /** A baby's name, and whose it is when this account has both kinds, so two called the same can be told apart. */
 export function babyLabel(child: { name: string; space_id?: string }, bootstrap?: Pick<Bootstrap, "children" | "personal_space_id"> | null) {
   const personal = bootstrap?.personal_space_id, spaces = (bootstrap?.children ?? []).map((one) => one.space_id);

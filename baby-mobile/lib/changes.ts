@@ -27,6 +27,9 @@ export interface ChangesAnswer {
 /** Every page goes through here, so a first snapshot can't run a sync pass for long. The next pass carries on. */
 export const changePagesPerPass = 20;
 const removedKept = 300;
+const removalKey = (space: string, id: string) => `${space}:${id}`;
+/** Whether the API said this row was removed from this space. A move out of another one says nothing about this one. */
+export const removedFrom = (state: Pick<DeviceState, "removed">, space: string | undefined, id: string) => !!space && !!state.removed?.includes(removalKey(space, id));
 
 /**
  * What `/changes` said, on this phone's copy. Removals only count in the space they came from: a move shows up as gone
@@ -56,7 +59,7 @@ export function applyChanges(state: DeviceState, answer: ChangesAnswer, uuid: ()
     }
     for (const item of page.items) {
       if (item.removed) {
-        removed.push(item.id);
+        removed.push(removalKey(page.id, item.id));
         const row = rows.get(item.id);
         if (row && spaceOf(row, personal) === page.id) { rows.delete(item.id); changed = true; }
         const child = children.find((known) => known.id === item.id);
