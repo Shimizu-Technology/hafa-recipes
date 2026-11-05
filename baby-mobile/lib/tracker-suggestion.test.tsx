@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type BabyRecord, type Child, type DeviceState, type Mutation } from "./models";
 import { withPendingTracking } from "./outbox";
 import { suggestionFor, suggestionsOpen } from "./tracker-suggestion";
+import { profileToday } from "./timing";
 
 const scope = vi.hoisted(() => ({ account: null as any, care: {} as Record<string, any>, requests: [] as any[], toast: vi.fn(), push: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
@@ -174,4 +175,51 @@ describe("the card", () => {
     await mount();
     expect(scope.requests.every((one) => one.child === "baby" && one.poll === false)).toBe(true);
   });
+});
+
+describe("suggestion ownership and revisited dates", () => {
+  beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); scope.requests = []; scope.toast.mockClear(); scope.care = {}; });
+  afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+  it("general legacy logs do not count as this baby's use of a tracker", async () => {
+    setup();
+    scope.care.diaper = { all: [{ ...log("diaper", days(40)), child_id: null }], read: true, error: "" };
+    scope.care.feeding = { all: [], read: true, error: "" };
+    await mount();
+    expect(buttons()).toHaveLength(0);
+  });
+  it("nor does a general log's recency hide this baby's own quiet tracker", async () => {
+    setup();
+    scope.care.diaper = { all: [{ ...log("diaper", days(1)), child_id: null }, log("diaper", days(40))], read: true, error: "" };
+    scope.care.feeding = { all: [], read: true, error: "" };
+    await mount();
+    expect(buttons()).toHaveLength(2);
+  });
+  it("an edited birth date immediately suppresses a card before a year", async () => {
+    setup();
+    scope.care.diaper = { all: [log("diaper", days(40))], read: true, error: "" };
+    scope.care.feeding = { all: [], read: true, error: "" };
+    await mount(); expect(buttons()).toHaveLength(2);
+    scope.account.state.bootstrap.children[0] = { ...toddler, birth_date: "2026-01-01" };
+    await act(async () => renderer!.update(view()));
+    expect(buttons()).toHaveLength(0);
+  });
+  it("an answer synced from another phone suppresses this tracker", async () => {
+    setup({ ...toddler, details: { tracking: { asked_diaper: true } } });
+    scope.care.diaper = { all: [log("diaper", days(40))], read: true, error: "" };
+    scope.care.feeding = { all: [], read: true, error: "" };
+    await mount(); expect(buttons()).toHaveLength(0);
+  });
+});
+
+it("age eligibility uses the profile day around a timezone boundary", () => {
+  const child = { ...toddler, birth_date: "2025-11-04" }, instant = new Date("2026-11-05T02:00:00Z");
+  expect(suggestionsOpen(child, profileToday(instant, "Pacific/Guam"))).toEqual(["diaper", "feed"]);
+  expect(suggestionsOpen(child, profileToday(instant, "America/Los_Angeles"))).toEqual([]);
+});
+it("quiet thresholds count exact elapsed time, without timezone drift", () => {
+  for (const [id, count] of [["diaper", 30], ["feed", 14]] as const) {
+    const logs = { diaper: [log("diaper", days(count))], feed: [log("feeding", days(count))] };
+    expect(suggestionFor([id], logs, now)?.id).toBe(id);
+    expect(suggestionFor([id], logs, new Date(now.getTime() - 1))).toBeNull();
+  }
 });

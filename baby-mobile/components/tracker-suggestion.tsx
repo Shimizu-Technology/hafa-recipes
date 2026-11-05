@@ -11,8 +11,10 @@ function Ask({ child, open, now, onAnswered }: { child: Child; open: AskAbout[];
   const b = useBaby(), toast = useToast(), { fontScale } = useWindowDimensions(),
     diapers = useTodayCare({ kinds: ["diaper"], child: child.id, limit: 5, poll: false }),
     feeds = useTodayCare({ kinds: ["feeding"], child: child.id, limit: 5, poll: false }),
+    // A general log from before there were profiles isn't this baby's, and says nothing about them either way.
+    own = (rows: typeof diapers.all) => rows.filter((row) => row.child_id === child.id),
     // Only on what the API just said. A log on this phone could be behind what another phone has logged since.
-    ask = diapers.read && feeds.read && !diapers.error && !feeds.error ? suggestionFor(open, { diaper: diapers.all, feed: feeds.all }, now) : null;
+    ask = diapers.read && feeds.read && !diapers.error && !feeds.error ? suggestionFor(open, { diaper: own(diapers.all), feed: own(feeds.all) }, now) : null;
   if (!ask) return null;
   const names = suggestionButtons(ask.id, child).map((tracker) => tracker.label).join(" and "), many = ask.id === "feed" && names.includes(" and ");
   async function answer(keep: boolean) {
