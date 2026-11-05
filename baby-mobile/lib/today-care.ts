@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useBaby } from "./context";
 import { careKinds, messageFor, type BabyRecord, type DeviceState, type Kind, type RecordPage } from "./models";
 import { newestFirst } from "./feed-reducer";
 import { pendingRecords, replaceRecord } from "./outbox";
+import { spacesLive } from "./spaces";
 
 /** A successful scoped response replaces cached matches; private cached care is
  * a fallback only before the first response or while offline. Local saves and
@@ -35,7 +36,7 @@ export function todayCareRows(
 const queuedSave = (state: DeviceState, id: string) => state.outbox.some((change) => change.type === "save" && change.record.id === id);
 /** Enough recent care for today's totals at newborn frequency (about 30 entries a day per baby). */
 export const glanceLimit = 100;
-/** How often Today looks for what the other phone logged, while it's on screen. */
+/** How often Today looks for what the other phone logged, while it's on screen and the API can't say what changed. */
 export const carePollMs = 15_000;
 
 /** Today's latest care by default. Tracker asks for a day's window instead, of every kind, over more pages, for one baby. */
@@ -44,12 +45,16 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
 } = {}) {
   const b = useBaby(),
     childId = child === undefined ? b.state.selectedChild : child,
-    key = JSON.stringify([b.owner, b.state.bootstrap?.generation, b.api.lease(), childId, occurred_from, occurred_to, poll, kinds]);
+    key = JSON.stringify([b.owner, b.state.bootstrap?.generation, b.api.lease(), childId, occurred_from, occurred_to, poll, kinds]),
+    // With change-fetching, the provider's own pass says when there's something to read.
+    timed = poll && !spacesLive(b.state.bootstrap),
+    tick = b.changeTick ?? 0;
   const latest = useRef(b),
     viewKey = useRef(key),
     active = useRef(false),
     request = useRef(0),
     looking = useRef(false),
+    seenTick = useRef(tick),
     local = useRef({ key, ids: new Set<string>(), deleted: new Set<string>() });
   latest.current = b;
   viewKey.current = key;
@@ -120,6 +125,14 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
       if (valid() && !quiet) setLoading(false);
     }
   }
+  useEffect(() => {
+    if (seenTick.current === tick) return;
+    seenTick.current = tick;
+    if (active.current && !looking.current) {
+      looking.current = true;
+      void refresh({ quiet: true }).finally(() => { looking.current = false; });
+    }
+  }, [tick]);
   useFocusEffect(useCallback(() => {
     active.current = true;
     local.current = {
@@ -128,7 +141,7 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
       deleted: new Set(latest.current.state.outbox.flatMap((change) => change.type === "delete" ? [change.record.id] : [])),
     };
     void refresh();
-    const timer = poll ? setInterval(() => {
+    const timer = timed ? setInterval(() => {
       // Never in the background, and never on top of a look still under way.
       if (AppState.currentState === "active" && !looking.current) {
         looking.current = true;
@@ -136,7 +149,7 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
       }
     }, carePollMs) : undefined;
     return () => { active.current = false; request.current++; looking.current = false; clearInterval(timer); };
-  }, [key]));
+  }, [key, timed]));
   const ids = page?.key === key ? page.ids : null,
     all = todayCareRows(b.state, childId, ids, [...local.current.ids], [...local.current.deleted], limit, kinds);
   return {

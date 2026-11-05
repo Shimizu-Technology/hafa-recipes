@@ -37,7 +37,7 @@ async function keepEvents(b: ReturnType<typeof useBaby>) {
  */
 export function useEvents(childId: string | null, first: string, last: string) {
   const b = useBaby(), timezone = b.state.bootstrap?.profile.timezone, key = JSON.stringify([b.owner, b.state.bootstrap?.generation, childId, first, last]),
-    waiting = b.state.outbox.length, [answer, setAnswer] = useState<{ key: string; items: EventOccurrence[]; complete: boolean } | null>(null),
+    waiting = b.state.outbox.length, tick = b.changeTick ?? 0, [answer, setAnswer] = useState<{ key: string; items: EventOccurrence[]; complete: boolean } | null>(null),
     [failed, setFailed] = useState(false), asked = useRef(0), shown = useRef(0), local = useRef(new Set<string>()), gone = useDeleted(), latest = useRef(b);
   latest.current = b;
   for (const change of b.state.outbox) if ((change.type === "save" && change.record.kind === "event") || change.type === "event_split") mutationRecordIds(change).forEach((id) => local.current.add(id));
@@ -55,7 +55,7 @@ export function useEvents(childId: string | null, first: string, last: string) {
       void keepEvents(account).catch(() => lastKept.delete(account.api));
     }
     return () => { active = false; };
-  }, [key, waiting]));
+  }, [key, waiting, tick]));
   const remote = answer?.key === key ? answer.items : undefined, { records, outbox } = b.state,
     items = useMemo(() => visibleEvents(b.state, remote, local.current, gone, childId, first, last, timezone), [records, outbox, remote, childId, first, last, timezone]),
     byDay = useMemo(() => eventsByDay(items, first, last, timezone), [items, first, last, timezone]);

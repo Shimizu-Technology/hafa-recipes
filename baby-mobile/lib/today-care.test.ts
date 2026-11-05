@@ -329,3 +329,31 @@ it("doesn't carry a failed look's staleness to another baby's view", async () =>
     expect(result.stale).toBe(false);
   } finally { vi.useRealTimers(); }
 });
+
+describe("once the app fetches changes", () => {
+  const live = { personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] };
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  it("stops its own timer, and reads again when the other phone's change arrives", async () => {
+    const transport = vi.fn(async (_url: string) => page([]));
+    const account = setup(transport) as ReturnType<typeof setup> & { changeTick?: number };
+    Object.assign(account.state.bootstrap!, live);
+    await mount();
+    expect(transport).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs * 3); });
+    expect(transport).toHaveBeenCalledTimes(1);
+    account.changeTick = 1;
+    await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(transport).toHaveBeenCalledTimes(2);
+    await render();
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+  it("keeps its timer while the API doesn't list spaces", async () => {
+    const transport = vi.fn(async (_url: string) => page([]));
+    setup(transport);
+    await mount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+});

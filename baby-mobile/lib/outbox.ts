@@ -9,6 +9,8 @@ export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
     b.occurred_at.localeCompare(a.occurred_at)
   );
 }
+/** The space a row lives in. An older build saved no space, and everything was personal then. */
+export const spaceOf = (row: { space_id?: string }, personal?: string) => row.space_id ?? personal;
 export function pendingRecords(state: DeviceState) {
   let rows = state.records;
   for (const change of state.outbox) {
@@ -100,7 +102,7 @@ export function fencedState(state: DeviceState, generation: number) {
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer: __, feedNotices: ___, settled: ____, childDrafts: _____, ...rest } = state;
+    const { routine_sync: _, feedTimer: __, feedNotices: ___, settled: ____, childDrafts: _____, changes: ______, ...rest } = state;
     return {
       ...rest,
       records: [],

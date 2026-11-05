@@ -1310,3 +1310,50 @@ it("checks Ask draft write leases inside the serialized commit (M3)", async () =
   });
   expect(baby.state.drafts["chat:v2:guarded"]).toBeUndefined();
 });
+
+describe("fetching the other phone's changes", () => {
+  const live = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] };
+  const diaper = { ...optimisticRecord({ id: "theirs", kind: "diaper", title: "Diaper", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: { type: "wet" } }), revision: 1, space_id: "p" };
+  const quiet = { spaces: [{ id: "p", generation: 1, access_version: 1, cursor: 3, has_more: false, reset: false, items: [] }], cursor: { p: 3 }, has_more: false, removed_space_ids: [] };
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const setup = (answer: any, extra: object = {}) => {
+    mock.api = { bootstrap: vi.fn(async () => answer), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes: vi.fn(async () => quiet), ...extra };
+    mock.saved = { ...emptyState(), bootstrap: answer } as unknown as DeviceState;
+  };
+  it("doesn't call /changes while the API doesn't list spaces, which is the flag off", async () => {
+    setup(bootstrap);
+    await mount(); await flush();
+    expect(mock.api.changes).not.toHaveBeenCalled();
+    expect(baby.error).toBe("");
+  });
+  it("carries on from its saved cursor, keeps what arrived, and tells screens to read again", async () => {
+    setup(live);
+    mock.saved!.changes = { cursor: { p: 2 }, access: { p: 1 } };
+    mock.api.changes.mockResolvedValueOnce({ ...quiet, spaces: [{ ...quiet.spaces[0], items: [{ ...diaper, seq: 3, entity: "record" }] }] });
+    await mount(); await flush();
+    expect(mock.api.changes.mock.calls[0]).toEqual([{ p: 2 }, { p: 1 }]);
+    expect(baby.state.records.map((row) => row.id)).toContain("theirs");
+    expect(baby.state.changes?.cursor.p).toBe(3);
+    expect(baby.changeTick).toBe(1);
+  });
+  it("reads every page of a first snapshot in one go, up to a limit, and comes back for the rest", async () => {
+    setup(live);
+    let at = 0;
+    mock.api.changes.mockImplementation(async () => { at++; const more = at < 25; return { ...quiet, has_more: more, cursor: { p: at }, spaces: [{ ...quiet.spaces[0], has_more: more, cursor: at }] }; });
+    await mount(); await flush(); await flush();
+    expect(at).toBe(25);
+    expect(baby.state.changes?.cursor.p).toBe(25);
+  });
+  it("stops rather than spinning if an answer says there's more without moving on", async () => {
+    setup(live);
+    mock.api.changes.mockImplementation(async () => ({ ...quiet, has_more: true, spaces: [{ ...quiet.spaces[0], has_more: true }] }));
+    await mount(); await flush(); await flush();
+    expect(mock.api.changes.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+  it("keeps quiet if the fetch fails: everything stays on this phone and the next pass asks again", async () => {
+    setup(live, { changes: vi.fn(async () => { throw new ApiError("Offline", 0); }) });
+    await mount(); await flush();
+    expect(baby.error).toBe("");
+    expect(baby.state.bootstrap).toMatchObject({ generation: 1 });
+  });
+});

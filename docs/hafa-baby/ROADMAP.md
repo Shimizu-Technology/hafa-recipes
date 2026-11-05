@@ -418,6 +418,10 @@ Keep `BABY_FAMILY_ENABLED=false` in production while deploying this stack. The l
 
 `GET /changes` is client-3-only and returns 404 with the family gate off. `cursor` and optional `access_version` are JSON maps of space UUIDs to integers (at most eight spaces); `limit` is 1–100 per space. The response has `spaces`, the next `cursor` map, `has_more`, and `removed_space_ids`. Each space page includes `id`, `generation`, `access_version`, `cursor`, `has_more`, `reset`, and `items`. Items carry `seq` and `entity`; removals carry `id`, `removed: true`, and `seq`. No raw import requests, capability hashes or tokens are returned. Pass the last access versions on subsequent pages: `reset: true` requires a fresh snapshot from zero. A missing former space must be purged locally. Pages release their access locks before returning the response and never hold locks during external processing.
 
+### Which client level a build sends
+
+The API decides. With `BABY_FAMILY_ENABLED` off it treats client 3 as a legacy client (no calendar, v1 kinds), so a family-capable build can't simply send 3. Bootstrap is the one request that always goes as client 3: it answers the same either way, and lists `spaces` only with the flag on. Every other request follows the bootstrap this phone holds: no `spaces`, client 2, the 15-second care timer and no `/changes`; `spaces`, client 3, `X-Baby-Space` on writes, and `/changes` in place of the timer. A build therefore works on both sides of the flag and takes up a flip on its next bootstrap, and client 2 still reads and writes the personal space in the seconds until then. Turning the flag off again drops a phone back to client 2 on its next bootstrap; family rows stop being readable, which is why rollback goes through `BABY_INVITES_ENABLED` instead.
+
 ### F7a recovery and F10 phone-update gate
 
 | Plan row | Required acceptance |

@@ -67,6 +67,8 @@ import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
+import { applyChanges, changePagesPerPass } from "./changes";
+import { spacesLive } from "./spaces";
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
   Platform.OS === "web"
@@ -96,6 +98,8 @@ interface BabyContext {
   online: boolean;
   /** The last sync or refresh couldn't reach Håfa. Nothing has gone wrong with her work, which waits on this phone. */
   unreachable: boolean;
+  /** Moves on when another phone's changes arrive, so a screen showing what the API worked out reads again. */
+  changeTick: number;
   refresh: () => Promise<void>;
   sync: () => Promise<void>;
   commit: (change: (s: DeviceState) => DeviceState) => Promise<void>;
@@ -125,7 +129,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     liveBinding = useRef(binding);
   liveBinding.current = binding;
   const current = () => alive.current && liveBinding.current === binding;
-  const api = useMemo(() => createBabyApi(configuration.apiBase, () => token.current(), current), [binding]);
+  const api = useMemo(() => createBabyApi(configuration.apiBase, () => token.current(), current, fetch, () => ref.current.bootstrap), [binding]);
   const identityVault = useMemo(() => createVault(secret, "identity:" + binding, Crypto.randomUUID), [binding]);
   const [owner, setOwner] = useState(""),
     [state, setState] = useState<DeviceState>(emptyState),
@@ -133,7 +137,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
     [error, setError] = useState(""),
     [syncing, setSyncing] = useState(false),
     [online, setOnline] = useState(true),
-    [unreachable, setUnreachable] = useState(false);
+    [unreachable, setUnreachable] = useState(false),
+    [changeTick, setChangeTick] = useState(0);
   const ref = useRef(state),
     vault = useRef<ReturnType<typeof createDeviceVault> | null>(null),
     serialized = useRef<Promise<unknown>>(Promise.resolve()),
@@ -279,6 +284,21 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (opening) throw e;
       if (alive.current) noteFailure(e);
     }
+  }
+  /** What other phones did. A failure is quiet: everything here stays as it is and the next pass asks from the same place. */
+  async function pullChanges() {
+    const lease = api.lease();
+    try {
+      for (let page = 0; page < changePagesPerPass; page++) {
+        const held = ref.current.changes, answer = await api.changes(held?.cursor ?? {}, held?.access ?? {});
+        let result: ReturnType<typeof applyChanges> | undefined;
+        await commit((s) => { result = applyChanges(s, answer); return result.state; }, lease);
+        if (result?.changed && current()) setChangeTick((tick) => tick + 1);
+        // An answer that says there's more without moving on would only ask the same thing forever.
+        if (!result?.more || (!result.changed && JSON.stringify(result.state.changes?.cursor) === JSON.stringify(held?.cursor))) return;
+      }
+      rerun.current = true;
+    } catch { /* The next pass carries on from the saved cursor. */ }
   }
   async function sync() {
     // A change queued mid-sync (for example Undo right after a quick log) runs on the next pass.
@@ -563,6 +583,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             /* The next foreground attempt retries persisted jobs. */
           }
         }
+      if (spacesLive(latest)) await pullChanges();
     } catch (e) {
       if (current()) noteFailure(e);
     } finally {
@@ -725,6 +746,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         syncing,
         online,
         unreachable: unreachable && !!error,
+        changeTick,
         refresh,
         sync,
         commit,

@@ -12,6 +12,7 @@ import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { BabyProvider } from "@/lib/context";
 import { SignupGate } from "@/components/signup-gate";
 import { AccountGate } from "@/components/account-gate";
+import { SpaceBoundary } from "@/components/space-boundary";
 import { NotificationResponseHandler } from "@/components/notification-response-handler";
 import { ShareSessionGuard } from "@/lib/use-share-session";
 import { StockShareBoundary } from "@/components/stock-share-boundary";
@@ -73,7 +74,7 @@ function Routes() {
       <BabyProvider key={userId}>
         <AccountGate>
           <ShareCapture />
-          <NativeHeaderContext.Provider value={true}>{stack}</NativeHeaderContext.Provider>
+          <SpaceBoundary><NativeHeaderContext.Provider value={true}>{stack}</NativeHeaderContext.Provider></SpaceBoundary>
           <NotificationResponseHandler />
         </AccountGate>
       </BabyProvider>

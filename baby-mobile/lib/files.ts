@@ -4,7 +4,7 @@ import * as Crypto from "expo-crypto";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
-import type { BabyApi } from "./api";
+import type { BabyApi, Fence } from "./api";
 import type { LocalFile } from "./models";
 import { storageKey } from "./vault";
 import { fileExtension, supportedFileMime } from "./file-type";
@@ -34,7 +34,7 @@ export async function preserveFile(
   }
   return { id, uri, name, mime_type: mime, size };
 }
-export async function uploadFile(api: BabyApi, file: LocalFile, generation: number) {
+export async function uploadFile(api: BabyApi, file: LocalFile, generation: Fence) {
   const body = new FormData();
   if (Platform.OS === "web") {
     const blob = await (await fetch(file.uri)).blob();

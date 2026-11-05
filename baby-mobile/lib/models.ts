@@ -59,13 +59,28 @@ export interface Child {
   due_date?: string | null;
   details?: ChildDetails | null;
   revision: number;
+  /** Where it lives, once the API lists spaces. Until then everything is personal. */
+  space_id?: string;
+  generation?: number;
+}
+/** One of this account's spaces: its own personal one, and a family it's in. */
+export interface BabySpace {
+  id: string;
+  kind: "personal" | "family";
+  role: "parent" | "caregiver";
+  generation: number;
+  access_version: number;
 }
 export interface Bootstrap {
   profile: Profile;
   children: Child[];
+  /** The personal space's. */
   generation: number;
   ai_available: boolean;
   active?: boolean;
+  /** Only with the API's family stack on. */
+  personal_space_id?: string;
+  spaces?: BabySpace[];
 }
 export interface Attachment {
   id: string;
@@ -239,6 +254,9 @@ export interface BabyRecord {
   revision: number;
   created_at: string;
   updated_at: string;
+  /** Where it lives, once the API lists spaces. Until then everything is personal. */
+  space_id?: string;
+  generation?: number;
 }
 export type RecordWrite = Pick<BabyRecord, "id" | "kind" | "title" | "body" | "child_id" | "occurred_at" | "data"> & {
   revision?: number;
@@ -467,6 +485,8 @@ export interface DeviceState {
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
+  /** How far `/changes` has come in each space, and the access versions that came with it. */
+  changes?: { cursor: Record<string, number>; access: Record<string, number> };
 }
 export const emptyState = (): DeviceState => ({
   fileUploads: {},
