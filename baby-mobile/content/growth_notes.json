@@ -1,0 +1,18 @@
+{
+  "approved": false,
+  "review": "AWAITING CLINICIAN REVIEW. MEDICAL_REVIEW_3 items G1 to G3. These lines are ours, not CDC's, so none shows until a doctor signs off and this is set to true.",
+  "notes": [
+    "One measurement says less than how a baby's measurements move over time. Your baby's doctor can tell you what these mean for your baby.",
+    "If your baby was born early, your doctor may look at this differently. This chart counts age from the birth date.",
+    "Measurements taken at home can differ from the ones taken at the doctor's office."
+  ],
+  "cdc": {
+    "attribution": "Source: CDC. WHO Child Growth Standards, from CDC's data files. Also available for free on CDC's website.",
+    "non_endorsement": "Our use of this material, including links to CDC's website, does not imply endorsement by CDC, HHS or the United States Government of Håfa Baby, Shimizu Technology or their products.",
+    "lines": [
+      { "text": "The World Health Organization (WHO) Child Growth Standards are recommended for plotting and tracking growth of US children from birth to 2 years.", "source": "CDC, Using WHO Growth Standard Charts", "url": "https://www.cdc.gov/growth-chart-training/hcp/using-growth-charts/who-using.html" },
+      { "text": "Percentile curves show the distribution of selected body measurements in children.", "source": "CDC, Overview of CDC Growth Charts", "url": "https://www.cdc.gov/growth-chart-training/hcp/overview/" }
+    ],
+    "after_two": { "text": "At age 2 years, CDC recommends transitioning to the CDC Growth Charts.", "source": "CDC, Using WHO Growth Standard Charts", "url": "https://www.cdc.gov/growth-chart-training/hcp/using-growth-charts/who-using.html" }
+  }
+}

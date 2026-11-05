@@ -28,7 +28,8 @@ export default function WellVisits() {
   const b = useBaby(), c = useColors(), toast = useToast(), minute = useMinuteClock(),
     timeZone = b.state.bootstrap!.profile.timezone, today = profileToday(minute, timeZone), todayKey = dayKey(today),
     child = timingChild(b.state, today), childId = child?.id ?? null,
-    care = useTodayCare({ kinds: ["custom"], limit: 200, poll: false, child: childId }),
+    // Notes and other custom logs share this kind, so every page is read: a shot must not fall off behind months of them.
+    care = useTodayCare({ kinds: ["custom"], pages: 50, limit: 5000, poll: false, child: childId }),
     shots = recordedShots(care.all, childId),
     [preview, setPreview] = useState(false), visible = visitsVisible(preview),
     [adding, setAdding] = useState(false), [name, setName] = useState(""), [day, setDay] = useState(todayKey), [note, setNote] = useState("");

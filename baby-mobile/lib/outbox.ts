@@ -1,7 +1,9 @@
 import { importFinished } from "./import-status";
 import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
 import { withSessionAction } from "./session-actions";
-import type { BabyRecord, Child, DeviceState, EditorDraft, ImportJob, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
+import { careKinds } from "./models";
+import { trackedKinds } from "./trackers";
+import type { BabyRecord, Child, DeviceState, EditorDraft, ImportJob, Kind, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
     b.occurred_at.localeCompare(a.occurred_at)
@@ -238,13 +240,14 @@ export function switchTooLate(action: { action: string; at: string }, result: Ba
   return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
 }
 /** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
-export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "save" | "event_split" }>>(change: T, now = Date.now()): T {
+export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "save" | "event_split" | "delete" }>>(change: T, now = Date.now()): T {
   const attempts = (change.attempts ?? 0) + 1;
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
 }
 /** Kinds the API can refuse for now with a 503 until its flag is on, so a build shipped first keeps them queued. */
+const retriedKinds: readonly Kind[] = trackedKinds.filter((kind) => !careKinds.includes(kind));
 export function retriedSave(change: Mutation): change is Extract<Mutation, { type: "save" }> {
-  return change.type === "save" && (change.record.kind === "contraction" || change.record.kind === "kick_session" || change.record.kind === "milestone" || change.record.kind === "custom");
+  return change.type === "save" && retriedKinds.includes(change.record.kind);
 }
 /** How many rejected reads of a timed feed to try before asking her. */
 export const unresolvedAttempts = 5;
@@ -264,7 +267,7 @@ export function mutationRecordIds(change: Mutation) {
 }
 /** Still inside its Undo window; the sync loop comes back for it. */
 export function heldUntil(change: Mutation, now = Date.now()) {
-  if (change.type === "delete" || change.type === "import" || !change.hold_until) return 0;
+  if (change.type === "import" || !change.hold_until) return 0;
   const until = new Date(change.hold_until).getTime();
   return until > now ? until : 0;
 }

@@ -18,6 +18,8 @@ import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { useMinuteClock } from "@/components/care-glance";
 import { QuickLog } from "@/components/quick-log";
+import { MoreLogs } from "@/components/more-logs";
+import { trackerById } from "../../../lib/trackers";
 import { LegacyTimer } from "@/components/feed-timer";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
 import { TrackerMonth } from "@/components/tracker-month";
@@ -29,6 +31,7 @@ import type { StatsChoice } from "@/lib/care-stats";
 const dockBelow = 1.5;
 
 export default function Tracker() {
+  const [moreOpen, setMoreOpen] = useState(false);
   const b = useBaby(), c = useColors(), now = useMinuteClock(), params = useLocalSearchParams<{ day?: string; at?: string }>(),
     timezone = b.state.bootstrap!.profile.timezone,
     today = dayKey(profileToday(now, timezone)),
@@ -73,7 +76,7 @@ export default function Tracker() {
   }, [params.day, params.at]);
   const addEvent = (key: string) => router.push({ pathname: "/edit", params: { kind: "event", day: key } }),
     pick = (key: string) => setPicked(key === today ? null : key),
-    quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} /> : null;
+    quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} tilesAside={moreOpen} /> : null;
   return (
     <Screen title="Tracker" scrollRef={scroller} onRefresh={() => Promise.all([care.refresh(), recent.refresh(), stats.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
       <Stack.Screen options={{ title: "Tracker" }} />
@@ -81,8 +84,7 @@ export default function Tracker() {
       {children.length > 1 && <ChildFilter only={scope ?? undefined} />}
       <FilterChips label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }, { label: "Stats", value: "stats" }]} />
       {expecting && view !== "stats" && <Grouped>
-        <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
-        <Row title="Kick counter" detail="A tap for each movement, and your history" icon="footsteps-outline" onPress={() => router.push("/kicks")} />
+        {[trackerById("contractions")!, trackerById("kicks")!].map((tracker) => <Row key={tracker.id} title={tracker.label} detail={tracker.detail} icon={tracker.icon} onPress={() => router.push(tracker.opens as "/kicks")} />)}
       </Grouped>}
       {view === "month" ? <>
         <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date} onOpen={(key) => { pick(key); setView("day"); }} />
@@ -121,10 +123,12 @@ export default function Tracker() {
         )}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}
+      {(logging || expecting) && !future && <MoreLogs key={`more:${day}`} child={child!} now={now} stage={logging ? "born" : "expecting"} pastDay={day === today ? undefined : { key: day, timezone }} onOpen={(open, y) => { setMoreOpen(open); if (open) scroller.current?.scrollTo({ y, animated: true }); }} />}
       <Button secondary size="lg" icon="add" title="Add event" onPress={() => addEvent(day)} />
       </>}
       <Grouped>
         <Row title="Doctor summary" detail="One page to bring to an appointment" icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: scope ?? undefined } })} />
+        {logging && <Row title="Growth" detail="Your measurements on CDC’s WHO charts" icon="trending-up-outline" onPress={() => router.push("/growth")} />}
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
     </Screen>

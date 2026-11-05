@@ -107,6 +107,8 @@ export const TabScreenContext = createContext(false);
 const GroupedPageContext = createContext(false);
 /** Inside a white (warm-dark at night) card or grouped section, fields take the page ground so they stay visible. */
 const OnSurfaceContext = createContext(false);
+/** For fields on a panel the same colour as they are, so they still read as fields. */
+export const OnSurface = ({ children }: { children: React.ReactNode }) => <OnSurfaceContext.Provider value>{children}</OnSurfaceContext.Provider>;
 
 /** Gentle confirmation on deliberate choices; skipped where the platform has no haptics. */
 export function tap(kind: "select" | "success" = "select") {
@@ -158,6 +160,8 @@ type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table" | "mother-n
 export type IconName = React.ComponentProps<typeof Ionicons>["name"] | `care:${CareGlyph}`;
 export function Icon({ name, size = 22, color }: { name: IconName; size?: number; color?: ColorValue }) {
   const c = useColors();
+  // A kind from a newer build has no icon here yet, and shouldn't take the screen down.
+  if (!name) return <Ionicons name="ellipse-outline" size={size} color={color ?? c.action} accessible={false} importantForAccessibility="no" accessibilityElementsHidden />;
   if (name.startsWith("care:"))
     return (
       <MaterialCommunityIcons

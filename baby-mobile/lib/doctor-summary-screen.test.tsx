@@ -263,3 +263,41 @@ describe("questions and notes with no network", () => {
     expect(notices().join()).toMatch(/wasn’t shared/);
   });
 });
+
+describe("the extra logs on the screen", () => {
+  const at = "2026-11-03T02:00:00.000Z";
+  const log = (id: string, kind: BabyRecord["kind"], title: string, data: object, body = "", child: string | null = "baby") => ({ ...optimisticRecord({ id, kind, title, body, child_id: child, occurred_at: at, data: data as never }), revision: 1 });
+  const dose = log("dose", "medicine", "Tylenol", { name: "Tylenol" }), pressure = log("bp", "custom", "118/76", { label: "Blood pressure" }, "", null);
+  function setupWith(child: object, items: BabyRecord[]) {
+    mock.stats = answer([day("2026-11-03")]);
+    mock.params = { child: "baby", from: "2026-11-03", to: "2026-11-03" };
+    mock.baby = { owner: "o", state: { ...emptyState(), records: items, bootstrap: { generation: 1, children: [{ id: "baby", name: "Noa", revision: 1, ...child }], profile: { timezone: "Pacific/Guam" } } },
+      api: { records: vi.fn(async ({ kinds }: { kinds: string[] }) => ({ items: items.filter((row) => kinds.includes(row.kind)), total: items.length, has_more: false })), careStats: vi.fn(async () => mock.stats) }, sync: vi.fn() };
+  }
+  it("lets her untick her own logs on an expecting summary, and puts what's ticked on the page", async () => {
+    setupWith({ due_date: "2026-12-10" }, [dose, pressure]);
+    await mount();
+    expect(choices().find((n) => n.props.label === "Blood pressure")!.props.selected).toBe(true);
+    await share();
+    expect(mock.shared.at(-1)).toContain("Blood pressure: 118/76");
+    await act(async () => choices().find((n) => n.props.label === "Blood pressure")!.props.onPress());
+    await share();
+    expect(mock.shared.at(-1)).not.toContain("118/76");
+  });
+  it("doesn't offer her logs for a baby who's here, and says the logs are on the page", async () => {
+    setupWith({ birth_date: "2026-10-10" }, [dose, pressure]);
+    await mount();
+    expect(choices().some((n) => n.props.label === "Blood pressure")).toBe(false);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("1 medicine");
+    await share();
+    expect(mock.shared.at(-1)).toContain("Tylenol");
+    expect(mock.shared.at(-1)).not.toContain("118/76");
+  });
+  it("leaves logs off a page of just questions and notes, since this phone may not hold them all", async () => {
+    setupWith({ birth_date: "2026-10-10" }, [dose, log("q", "question", "Rash", {}, "Is this fine?")]);
+    await mount();
+    await act(async () => { await button("Share questions and notes")!.props.onPress(); });
+    expect(mock.shared.at(-1)).toContain("Rash");
+    expect(mock.shared.at(-1)).not.toContain("Tylenol");
+  });
+});

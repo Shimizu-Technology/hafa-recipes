@@ -2,7 +2,7 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-const m = vi.hoisted(() => ({ child: {} as unknown, rows: [] as unknown[], logged: [] as { kind: string; title: string; body: string; data: { label: string } }[], toast: vi.fn() }));
+const m = vi.hoisted(() => ({ careOptions: undefined as unknown, child: {} as unknown, rows: [] as unknown[], logged: [] as { kind: string; title: string; body: string; data: { label: string } }[], toast: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: vi.fn(async () => undefined) }, useWindowDimensions: () => ({ fontScale: 1 }) }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "id" }));
@@ -15,7 +15,7 @@ vi.mock("@/lib/quick-care", () => ({
 }));
 vi.mock("@/lib/outbox", () => ({ pendingRecords: () => m.rows }));
 vi.mock("@/lib/timing", () => import("./timing"));
-vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: m.rows, error: "" }) }));
+vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: unknown) => { m.careOptions = options; return { all: m.rows, error: "" }; } }));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
 vi.mock("@/lib/well-visits", () => import("./well-visits"));
@@ -100,4 +100,12 @@ it("won't take a shot dated before birth or in the future", async () => {
   await act(async () => date().props.onChange("2027-12-01"));
   await act(async () => button("Save shot").props.onPress());
   expect(m.logged).toHaveLength(0);
+});
+
+it("reads every page of custom entries, so an old shot can't fall off behind months of notes", async () => {
+  vi.stubGlobal("__DEV__", false);
+  await mount();
+  expect(m.careOptions).toMatchObject({ kinds: ["custom"], poll: false, child: "kid" });
+  expect((m.careOptions as { pages: number }).pages).toBeGreaterThanOrEqual(50);
+  expect((m.careOptions as { limit: number }).limit).toBeGreaterThanOrEqual(5000);
 });

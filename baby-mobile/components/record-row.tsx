@@ -1,7 +1,12 @@
 import { router } from "expo-router";
 import type { BabyRecord, Kind } from "@/lib/models";
-import { kindName } from "@/lib/models";
-import { careSummary, friendlyTime, isCare } from "@/lib/care-format";
+import { kindName, kindWord } from "@/lib/models";
+import { careSummary, friendlyTime, summaryHoldsTitle } from "@/lib/care-format";
+import { trackerFor, whoseLog } from "../lib/trackers";
+import { datedOnly } from "../lib/well-visits";
+import { contractionDetail } from "../lib/contractions";
+import { kickDetail } from "../lib/kicks";
+import { keyDate, recordDay } from "../lib/tracker";
 import { useBaby } from "@/lib/context";
 import { Text, View } from "react-native";
 import { Row, fonts, useColors, type IconName } from "./ui";
@@ -17,10 +22,16 @@ export const kindIcon: Record<Kind, IconName> = {
   collection: "folder-outline",
   contraction: "pulse-outline",
   kick_session: "footsteps-outline",
+  pumping: "water-outline",
+  medicine: "bandage-outline",
+  temperature: "thermometer-outline",
+  growth: "trending-up-outline",
   milestone: "ribbon-outline",
   custom: "medkit-outline",
   event: "calendar-outline",
 };
+/** Its tracker's icon. A shot has none, and keeps the medical cross. */
+export const recordIcon = (record: Pick<BabyRecord, "kind" | "data">): IconName => (record.kind === "custom" && trackerFor(record)?.icon) || kindIcon[record.kind];
 /** Journal entries and doctor questions lead with their date, not the same glyph on every row. Decorative: the row says the time. */
 export function DateBlock({ iso }: { iso: string }) {
   const c = useColors(), date = new Date(iso);
@@ -35,13 +46,24 @@ export function DateBlock({ iso }: { iso: string }) {
 }
 /** `now` lets a screen share one clock between rows and its summary so durations agree. */
 export function RecordRow({ record, pending = false, now }: { record: BabyRecord; pending?: boolean; now?: Date }) {
-  const children = useBaby().state.bootstrap?.children ?? [],
-    care = isCare(record.kind),
+  const bootstrap = useBaby().state.bootstrap, children = bootstrap?.children ?? [],
+    tracker = trackerFor(record), dated = datedOnly(record),
+    // Logs read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
+    clock = tracker ? bootstrap?.profile.timezone : undefined,
+    summary = careSummary(record.kind, record.data, record.occurred_at, now, clock),
+    quick = tracker?.opens === "quick-log",
     label = record.title && record.title !== kindName[record.kind] ? record.title : "",
+    // A shot or milestone goes by its own name, and its noon is only how the date is stored.
+    title = dated ? record.title : summary || record.data.label || label || kindWord(record.kind),
     child = children.length > 1 ? children.find((c) => c.id === record.child_id)?.name : undefined;
   const details = [
-    care ? label : record.data.provenance === "clinician_instruction" ? "Clinician instruction" : kindName[record.kind],
-    friendlyTime(record.occurred_at, now),
+    dated ? record.data.label ?? kindWord(record.kind)
+      : quick ? label
+      : tracker ? (summaryHoldsTitle(record.kind, record.title, summary) || record.title === title ? "" : record.title)
+      : record.data.provenance === "clinician_instruction" ? "Clinician instruction" : kindWord(record.kind),
+    !tracker || quick ? "" : record.kind === "contraction" ? contractionDetail(record, now) : record.kind === "kick_session" ? kickDetail(record, now) : record.body.trim().split("\n")[0],
+    dated ? keyDate(recordDay(record.occurred_at, bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : friendlyTime(record.occurred_at, now, clock),
+    whoseLog(record),
     child,
     pending ? "Saved on this device" : record.kind === "source" ? String(record.data.status ?? "") : null,
   ]
@@ -50,11 +72,11 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
   if (record.kind === "source") return <SavedPostRow record={record} pending={pending} />;
   return (
     <Row
-      title={care ? careSummary(record.kind, record.data, record.occurred_at, now) : label || kindName[record.kind]}
+      title={title}
       detail={details}
-      numericTitle={care}
+      numericTitle={!!summary}
       numericDetail
-      icon={kindIcon[record.kind]}
+      icon={recordIcon(record)}
       leading={record.kind === "journal" || record.kind === "question" ? <DateBlock iso={record.occurred_at} /> : undefined}
       onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     />

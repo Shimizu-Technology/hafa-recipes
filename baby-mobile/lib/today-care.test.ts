@@ -1,6 +1,6 @@
 import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBabyApi } from "./api";
 import { emptyState, optimisticRecord, type DeviceState } from "./models";
 import { carePollMs, todayCareRows, useTodayCare } from "./today-care";
@@ -192,6 +192,12 @@ it("looks for the other phone's care every 15 seconds while focused, quietly, an
     expect(result.error).toBe("");
     expect(result.loading).toBe(false);
     expect(result.all.map((row) => row.id)).toEqual(["other-phone", "mine"]);
+    // But a panel showing a "Last" can say it may be behind, until a look gets through.
+    expect(result.stale).toBe(true);
+    transport.mockImplementation(async () => page([care("mine"), care("other-phone", null, "2026-10-20T00:00:00Z")]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+    expect(result.stale).toBe(false);
+    transport.mockImplementation(async () => { throw new TypeError("offline"); });
     scope.appState = "background";
     const calls = transport.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs * 2); });
@@ -202,4 +208,124 @@ it("looks for the other phone's care every 15 seconds while focused, quietly, an
     await vi.advanceTimersByTimeAsync(carePollMs * 2);
     expect(transport).toHaveBeenCalledTimes(calls);
   } finally { vi.useRealTimers(); scope.appState = "active"; }
+});
+
+describe("how long a log saved on this phone outlives a look that doesn't have it", () => {
+  const dose = (id: string, at: string) => ({ ...care(id, "baby", at), kind: "medicine" as const, title: "Tylenol", data: { name: "Tylenol" } });
+  const older = dose("older-dose", "2026-11-03T00:00:00Z"), recent = dose("recent-dose", "2026-11-04T00:00:00Z");
+  const save = (record: ReturnType<typeof dose>) => ({ id: `save-${record.id}`, generation: 1, type: "save" as const, record, files: [] });
+  function Medicine() { result = useTodayCare({ kinds: ["medicine"], child: "baby" }); return null; }
+  const mountMedicine = () => act(async () => { renderer = TestRenderer.create(React.createElement(Medicine)); });
+  const rerender = () => act(async () => renderer!.update(React.createElement(Medicine)));
+  const poll = () => act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+  const ids = () => result.all.map((row) => row.id);
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("lets go once a look begun after the save finished doesn't have it: another phone deleted it", async () => {
+    let remote = [older];
+    const account = setup(async () => page(remote as never));
+    account.state = { ...account.state, records: [older], outbox: [save(recent)] };
+    await mountMedicine();
+    expect(ids()).toEqual(["recent-dose", "older-dose"]);
+    // It lands, and another phone removes it before any look sees it.
+    account.state = { ...account.state, records: [older, { ...recent, revision: 1 }], outbox: [] };
+    await rerender();
+    await poll();
+    expect(ids()).toEqual(["older-dose"]);
+    await poll();
+    expect(ids()).toEqual(["older-dose"]);
+  });
+  it("keeps a save still queued, however many looks don't have it", async () => {
+    const account = setup(async () => page([older] as never));
+    account.state = { ...account.state, records: [older], outbox: [save(recent)] };
+    await mountMedicine();
+    await poll();
+    await poll();
+    expect(ids()).toEqual(["recent-dose", "older-dose"]);
+  });
+  it("keeps a save that landed during a look begun before it did: that look can't know", async () => {
+    let answer!: (response: Response) => void;
+    const transport = vi.fn(async (_url: string) => page([older] as never));
+    const account = setup(transport);
+    account.state = { ...account.state, records: [older], outbox: [save(recent)] };
+    await mountMedicine();
+    // A look begins while it's queued, and is still out when the save lands.
+    transport.mockImplementationOnce(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    await poll();
+    account.state = { ...account.state, records: [older, { ...recent, revision: 1 }], outbox: [] };
+    await rerender();
+    await act(async () => { answer(page([older] as never)); await vi.advanceTimersByTimeAsync(0); });
+    expect(ids()).toEqual(["recent-dose", "older-dose"]);
+    // The next look began after it landed, so it has the last word, whichever way that goes.
+    transport.mockImplementation(async () => page([{ ...recent, revision: 1 }, older] as never));
+    await poll();
+    expect(ids()).toEqual(["recent-dose", "older-dose"]);
+    transport.mockImplementation(async () => page([older] as never));
+    await poll();
+    expect(ids()).toEqual(["older-dose"]);
+  });
+  it("keeps a save queued and landed entirely inside one look", async () => {
+    let answer!: (response: Response) => void;
+    const transport = vi.fn(async (_url: string) => page([older] as never));
+    const account = setup(transport);
+    account.state = { ...account.state, records: [older] };
+    await mountMedicine();
+    transport.mockImplementationOnce(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    await poll();
+    account.state = { ...account.state, outbox: [save(recent)] };
+    await rerender();
+    account.state = { ...account.state, records: [older, { ...recent, revision: 1 }], outbox: [] };
+    await rerender();
+    await act(async () => { answer(page([older] as never)); await vi.advanceTimersByTimeAsync(0); });
+    expect(ids()).toEqual(["recent-dose", "older-dose"]);
+    await poll();
+    expect(ids()).toEqual(["older-dose"]);
+  });
+  it("doesn't let a failed look retire anything", async () => {
+    const transport = vi.fn(async (_url: string) => page([older] as never));
+    const account = setup(transport);
+    account.state = { ...account.state, records: [older], outbox: [save(recent)] };
+    await mountMedicine();
+    account.state = { ...account.state, records: [older, { ...recent, revision: 1 }], outbox: [] };
+    await rerender();
+    transport.mockImplementation(async () => { throw new TypeError("offline"); });
+    await poll();
+    expect(ids()).toEqual(["recent-dose", "older-dose"]);
+    expect(result.stale).toBe(true);
+  });
+});
+
+it("reads every page with the real hook, so an old shot behind a hundred newer custom logs is still found", async () => {
+  const shot = { ...care("old-shot", "baby", "2026-10-01T00:00:00Z"), kind: "custom" as const, title: "Hep B", data: { label: "Shot" } };
+  const newer = Array.from({ length: 100 }, (_, index) => ({ ...care(`custom-${index}`, "baby"), kind: "custom" as const, data: { label: "Bath" } }));
+  const transport = vi.fn(async (url: string) => Response.json({ items: new URL(url).searchParams.has("offset") ? [shot] : newer, total: 101, has_more: !new URL(url).searchParams.has("offset") }));
+  setup(transport);
+  function Paged() { result = useTodayCare({ kinds: ["custom"], pages: 50, limit: 5000, child: "baby" }); return null; }
+  await act(async () => { renderer = TestRenderer.create(React.createElement(Paged)); });
+  expect(transport).toHaveBeenCalledTimes(2);
+  expect(new URL(transport.mock.calls[1][0]).searchParams.get("offset")).toBe("100");
+  expect(result.all.find((row) => row.id === "old-shot")).toMatchObject({ title: "Hep B" });
+});
+
+it("doesn't carry a failed look's staleness to another baby's view", async () => {
+  vi.useFakeTimers();
+  try {
+    let child = "first", failing = false;
+    const transport = vi.fn(async (_url: string) => { if (failing) throw new TypeError("offline"); return page([care("a", child)]); });
+    setup(transport);
+    function View() { result = useTodayCare({ child }); return null; }
+    await act(async () => { renderer = TestRenderer.create(React.createElement(View)); });
+    failing = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+    expect(result.stale).toBe(true);
+    // Another baby's view has had no failed look of its own yet, whatever its first look then finds.
+    child = "second";
+    let held!: (response: Response) => void;
+    transport.mockImplementationOnce(() => new Promise<Response>((resolve) => { held = resolve; }));
+    await act(async () => renderer!.update(React.createElement(View)));
+    expect(result.stale).toBe(false);
+    await act(async () => { held(page([care("b", "second")])); await vi.advanceTimersByTimeAsync(0); });
+    expect(result.stale).toBe(false);
+  } finally { vi.useRealTimers(); }
 });

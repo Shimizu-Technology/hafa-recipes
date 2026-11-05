@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "milestone" | "custom" | "event";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "pumping" | "medicine" | "temperature" | "growth" | "milestone" | "custom" | "event";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -12,6 +12,8 @@ export interface Child {
   name: string;
   birth_date?: string | null;
   due_date?: string | null;
+  /** Optional setup answers, from the API once J1b ships. Any of them may be missing. */
+  details?: { sex?: string | null };
   revision: number;
 }
 export interface Bootstrap {
@@ -268,6 +270,7 @@ export interface EventEdit {
   original_start: string;
   series: Pick<BabyRecord, "title" | "body" | "child_id" | "occurred_at" | "data">;
 }
+export type LogFormDraft = import("./more-logs").LogForm;
 export interface EditorDraft {
   id: string;
   kind: Kind;
@@ -280,6 +283,8 @@ export interface EditorDraft {
   files: LocalFile[];
   existing?: boolean;
   base?: SaveBase;
+  /** What she's typed into a log's fields, kept even while it can't be saved. Never sent to the API. */
+  log_form?: LogFormDraft;
   event_edit?: EventEdit;
 }
 export type Mutation = { localOnly?: boolean } & (
@@ -296,7 +301,7 @@ export type Mutation = { localOnly?: boolean } & (
       error?: string;
       conflict?: boolean;
     }
-  | { id: string; generation: number; type: "delete"; record: BabyRecord; error?: string; conflict?: boolean }
+  | { id: string; generation: number; type: "delete"; record: BabyRecord; hold_until?: string; attempts?: number; error?: string; conflict?: boolean }
   | {
       /** "All future" from a later date. One change, so the series can't end unless the next one starts. The id is the new event's, which makes a retry the same split. */
       id: string;
@@ -421,10 +426,16 @@ export const kindName: Record<Kind, string> = {
   collection: "Collection",
   contraction: "Contraction",
   kick_session: "Kick count",
+  pumping: "Pumping",
+  medicine: "Medicine",
+  temperature: "Temperature",
+  growth: "Growth",
   milestone: "Milestone",
   custom: "Entry",
   event: "Event",
 };
+/** A kind's name, for words built around it. A kind from a newer build has none yet, and must not crash the screen. */
+export const kindWord = (kind: Kind) => kindName[kind] ?? "Entry";
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {
   return error instanceof Error ? error.message : "Something interrupted this step. Your draft is safe. Try again.";
