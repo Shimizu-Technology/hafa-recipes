@@ -394,7 +394,9 @@ async def bootstrap_state(user, db, *, create, request):
     }
     if push_enabled():
         # Only with the flag on, so a phone reads nothing else about it and asks nothing of it until then.
-        result["reminders"] = {"push": True}
+        from app.domains.baby.push import device_routines_ready
+
+        result["reminders"] = {"push": True, **({"routines": True} if await device_routines_ready(db) else {})}
     if access and access.client == "3":
         families = [g.id for g in access.spaces if g.space.status == "active" and g.space.kind == "family"]
         # Everyone who has been in this account's families, since what someone logged stays after they leave.

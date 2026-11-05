@@ -47,7 +47,7 @@ from app.domains.baby.models import (
     BabyRecord,
     BabySpaceMember,
 )
-from app.domains.baby.push import Prefs, load_prefs, quiet_until
+from app.domains.baby.push import Prefs, held_routines, load_prefs, quiet_until
 from app.domains.baby.reminders import (
     CANCELLED,
     CLEARED,
@@ -109,6 +109,7 @@ class Standing(NamedTuple):
     collapse_id: str
     break_through: bool
     owed: dict | None  # Only these phones, when others have already taken it.
+    held_as: tuple | None = None  # A routine: phones holding exactly this fire it themselves.
 
 
 class Prepared(NamedTuple):
@@ -426,7 +427,7 @@ class BabyPushWorker:
             else:
                 return Standing(
                     row.id, row.app_user_id, row.space_id, row.kind, row.collapse_id, pref.break_through,
-                    ticket_state(row).get("retry"),
+                    ticket_state(row).get("retry"), words.held_as,
                 )
             await db.commit()
             return None
@@ -457,10 +458,15 @@ class BabyPushWorker:
                 .order_by(BabyPushDevice.id)
             ):
                 phones[device.app_user_id].append(device)
+            holdings = await held_routines(db, [device.id for reminder in standing if reminder.held_as for device in phones[reminder.owner]])
             for reminder in standing:
                 devices = phones[reminder.owner]
                 if reminder.owed is not None:
                     devices = [device for device in devices if str(device.id) in reminder.owed]
+                if reminder.held_as:
+                    # A phone that has never reported may still have its old schedule, so it gets no second copy.
+                    record, schedule = reminder.held_as
+                    devices = [device for device in devices if device.id in holdings and holdings[device.id].get(record) != schedule]
                 if not devices:
                     no_phone.append(reminder.row_id)
                 elif len(devices) > room:

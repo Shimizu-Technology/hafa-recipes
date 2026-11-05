@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.domains.baby import push_worker, triggers
 from app.domains.baby.lifecycle import now
@@ -508,3 +508,62 @@ async def test_membership_row_changes_wake_the_planner(family):
                                         headers=records.headers(family.space, "sitter", 1))
     assert response.status_code == 200, response.text
     assert family.space in family.worker.spaces
+
+
+# Routines: a family's goes to each parent who doesn't hold it, a private one only to its owner, and a caregiver keeps their own schedule.
+
+
+async def family_routine(api, space, actor="owner", title="Family vitamins"):
+    body = {
+        "id": str(uuid4()), "kind": "routine", "title": title, "occurred_at": now().isoformat(),
+        "data": {"routine_type": "schedule", "reminder_at": (now() + timedelta(hours=1)).isoformat(), "repeat": "none", "timezone": "UTC", "enabled": True},
+    }
+    response = await api.client.post(API + "/records", headers=records.headers(space, actor, 1), json=body)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def report_routines(api, actor, personal, holds=None):
+    from importlib import import_module
+
+    async with api.engine.connect() as connection:
+        ready = await connection.scalar(text("SELECT to_regclass('public.baby_device_routines') IS NOT NULL"))
+    if not ready:
+        await import_module("migrations.061_add_baby_device_routines").run_migration(configured=api.settings, migration_engine=api.engine)
+    response = await api.client.put(f"{API}/push/devices/install-{actor}/routines", headers=records.headers(personal, actor, 1), json={"holds": holds or {}})
+    assert response.status_code == 200, response.text
+    api.worker.people.add(actor)
+
+
+async def due_routines(api):
+    await api.worker.maintain()
+    async with api.sessions() as db:
+        rows = list(await db.scalars(select(BabyNotification).where(BabyNotification.kind == "routine")))
+        for row in rows:
+            row.due_at = now() - timedelta(seconds=5)
+        await db.commit()
+    return rows
+
+
+@pytest.mark.parametrize("baby_api", [60], indirect=True)
+async def test_a_family_routine_reaches_each_parent_who_doesnt_hold_it_and_no_caregiver(family):
+    await family_routine(family, family.space)
+    await report_routines(family, "owner", family.owner_personal)
+    await report_routines(family, "other", family.other_personal)
+    await report_routines(family, "sitter", family.sitter_personal)
+    rows = await due_routines(family)
+    assert {row.app_user_id for row in rows} == {"owner", "other"}
+    await family.worker.tick()
+    assert {message["to"] for message in family.expo.messages} == {phone("owner"), phone("other")}
+
+
+@pytest.mark.parametrize("baby_api", [60], indirect=True)
+async def test_a_private_routine_never_reaches_the_other_parent(family):
+    await family_routine(family, family.owner_personal, title="Mine alone")
+    await report_routines(family, "owner", family.owner_personal)
+    await report_routines(family, "other", family.other_personal)
+    rows = await due_routines(family)
+    assert {row.app_user_id for row in rows} == {"owner"}
+    await family.worker.tick()
+    assert {message["to"] for message in family.expo.messages} == {phone("owner")}
+    assert all("Mine alone" not in str(message) for message in family.expo.messages)

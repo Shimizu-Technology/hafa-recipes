@@ -135,6 +135,8 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     registered = await call("PUT", phone, 200, json={"token": f"ExponentPushToken[{actor}]", "platform": "ios"})
     assert (await call("GET", API + "/push/prefs", 200)).json()["kinds"]["event"]["enabled"] is False
     await call("PATCH", API + "/push/prefs", 200, json={"kinds": {"event": {"enabled": True}}})
+    # Each phone's own report. Before migration 061 there's no such thing to report.
+    await call("PUT", phone + "/routines", 404, json={"holds": {}})
     await call("DELETE", f"{phone}?registration={registered.json()['registration']}", 204)
     # Reminders are per person too: another person's can be neither read nor dismissed.
     async with api.sessions() as db:

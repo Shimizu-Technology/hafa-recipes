@@ -36,6 +36,7 @@ class Words:
     detail: str  # Shown in the app, on the person's own Today. Never sent to a provider.
     data: dict = field(default_factory=dict)  # Identifiers for Today to link to. Never sent to a provider.
     due_at: datetime | None = None  # When it is due by today's settings and zone, for kinds that depend on them.
+    held_as: tuple | None = None  # A routine's (record id, schedule): a phone holding exactly this fires it itself.
 
     def not_yet(self, moment):
         return self.due_at is not None and self.due_at > moment

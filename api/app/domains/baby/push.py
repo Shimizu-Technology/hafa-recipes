@@ -6,6 +6,7 @@ turns it on. Quiet hours belong to the person rather than a reminder type, so th
 under the reserved kind ``PERSON_ROW``.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
@@ -15,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import Field, StrictBool, ValidationError, field_validator, model_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
@@ -34,7 +35,7 @@ REGISTRATION_WINDOWS = (QuotaWindow(seconds=600, limit=30),)
 PERSON_ROW = "_person"
 ReminderKind = Literal[
     "event", "visit_prep", "import", "feed_interval", "running_timer", "pregnancy_week",
-    "milestone_window", "well_visit",
+    "milestone_window", "well_visit", "routine",
 ]
 REMINDER_KINDS = ReminderKind.__args__
 TOKEN = re.compile(r"Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,160}\]")
@@ -43,6 +44,7 @@ Registration = Annotated[str, Query(pattern=r"^\d{1,17}$")]
 # Half-hour steps. Chosen by the person, or their doctor: no value here is a recommendation.
 Hours = Annotated[float, Field(ge=0.5, le=24, multiple_of=0.5)]
 ClockTime = Annotated[str, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
+HeldSchedule = Annotated[str, Field(max_length=200)]
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 MICROSECOND = timedelta(microseconds=1)
 
@@ -181,6 +183,56 @@ async def store_pref(db, owner, space_id, kind, enabled, settings):
             set_={"enabled": enabled, "settings": settings},
         )
     )
+
+
+class RoutineReport(DomainModel):
+    holds: dict[UUID, HeldSchedule] = Field(default_factory=dict, max_length=500)
+
+
+async def device_routines_ready(db):
+    """Whether migration 061 has run. Until it has, nothing here is offered or read."""
+    return await db.scalar(text("SELECT to_regclass('public.baby_device_routines') IS NOT NULL"))
+
+
+async def held_routines(db, devices):
+    """What each phone last said it holds: {device_id: {record_id: schedule}}. No row means it has never said."""
+    if not devices or not await device_routines_ready(db):
+        return {}
+    rows = await db.execute(
+        text("SELECT device_id, holds FROM baby_device_routines WHERE device_id = ANY(:ids)"), {"ids": list(devices)}
+    )
+    return {device: holds for device, holds in rows.all()}
+
+
+@router.put("/push/devices/{installation_id}/routines")
+async def report_routines(installation_id: InstallationId, body: RoutineReport, user: User, db: Database):
+    """What this phone has scheduled for itself, replacing what it said before. It keeps firing those, and the API
+    leaves them to it. Anything it doesn't hold, the API pushes. So a phone changes nothing by reporting, and a phone
+    that never does just carries on as it was. The first report from any of a person's phones starts planning them.
+    """
+    if not await device_routines_ready(db):
+        raise HTTPException(404, "Not found")
+    device = await db.scalar(select(BabyPushDevice.id).where(
+        BabyPushDevice.app_user_id == user.id, BabyPushDevice.installation_id == installation_id,
+    ))
+    if device is None:
+        raise HTTPException(404, "Not found")
+    member = await membership_for(db, user.id)
+    await db.execute(text("""
+        INSERT INTO baby_device_routines (device_id, holds, reported_at) VALUES (:device, CAST(:holds AS jsonb), now())
+        ON CONFLICT (device_id) DO UPDATE SET holds = EXCLUDED.holds, reported_at = EXCLUDED.reported_at
+    """), {"device": device, "holds": json.dumps({str(key): value for key, value in body.holds.items()})})
+    # Only the first time: someone who turned it off on the API stays off.
+    await db.execute(
+        insert(BabyNotificationPref)
+        .values(space_id=member.personal_space_id, app_user_id=user.id, kind="routine", enabled=True, settings={})
+        .on_conflict_do_nothing(index_elements=["space_id", "app_user_id", "kind"])
+    )
+    await db.commit()
+    from app.domains.baby.push_worker import baby_push_worker
+
+    baby_push_worker.plan_soon(user.id)
+    return {"held": len(body.holds)}
 
 
 @router.put("/push/devices/{installation_id}")
@@ -346,6 +398,7 @@ async def upcoming_reminders(user: User, db: Database, client: Client = None, li
             BabyNotification.app_user_id == user.id,
             BabyNotification.status == "queued",
             BabyNotification.provider_ticket.is_(None),
+            BabyNotification.kind != "routine",  # A phone keeps those on its own schedule, and that schedule isn't a copy.
             BabyNotification.due_at > moment,
             BabyNotification.dismissed_at.is_(None),
         )
