@@ -13,7 +13,9 @@ export interface StatsDay extends Omit<CareDay, "dots" | "feeding" | "sleep"> {
   /** Her own logs that day. From this release of the API on. */
   own?: { count: number };
 }
-export interface OwnLog { label: string; count: number; latest_title: string; latest_at: string }
+export interface OwnLog { label: string; count: number; latest_title: string; latest_at: string; latest_value?: number | null; latest_unit?: string | null }
+/** The newest one as she entered it: a weight's number and unit, or the words in the title. */
+export const ownLatest = ({ latest_title, latest_value, latest_unit }: OwnLog) => (typeof latest_value === "number" ? [latest_value, latest_unit].filter(Boolean).join(" ") : latest_title);
 export interface CareStats {
   range: { kind: string; start: string; end: string };
   complete: boolean;

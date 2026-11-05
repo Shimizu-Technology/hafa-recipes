@@ -3,7 +3,7 @@ import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { summaryMaxDays } from "@/lib/doctor-summary";
-import { basedOn, blankStats, customProblem, nothingYet, statsNote, statsRanges, waitingEntries, type CareStats, type StatsChoice, type StatsDay } from "@/lib/care-stats";
+import { basedOn, blankStats, customProblem, nothingYet, ownLatest, statsNote, statsRanges, waitingEntries, type CareStats, type StatsChoice, type StatsDay } from "@/lib/care-stats";
 import { duration } from "@/lib/care-format";
 import { secondsWords } from "@/lib/contractions";
 import { addDays, clockIn, keyDate } from "@/lib/tracker";
@@ -140,7 +140,7 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, on, now
         <Card>
           {/* The newest word for word, and how many. Nothing here reads a number or compares it to anything. */}
           {[...ownLogs].sort((x, y) => ownOrder.indexOf(x.label) - ownOrder.indexOf(y.label)).map((log) => {
-            const name = trackers.find((tracker) => tracker.dataLabel === log.label)?.label ?? log.label, latest = `Latest: ${log.latest_title}, ${labels(log.latest_at.slice(0, 10))[1]}`, count = words(log.count, "entry", "entries");
+            const name = trackers.find((tracker) => tracker.dataLabel === log.label)?.label ?? log.label, latest = `Latest: ${ownLatest(log)}, ${labels(log.latest_at.slice(0, 10))[1]}`, count = words(log.count, "entry", "entries");
             return <View key={log.label} accessible accessibilityLabel={`${name}: ${count}. ${latest}`} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", columnGap: 12 }}>
               <View style={{ flexShrink: 1 }}>
                 <Copy kind="label">{name}</Copy>

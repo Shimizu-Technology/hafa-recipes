@@ -216,7 +216,7 @@ describe("following the stage", () => {
   const logged = (over: Partial<ReturnType<typeof day>> = {}) => { const days = week(); days[5] = day("2026-11-03", false, over); return days; };
   const kicked = () => { const stats = answer(logged({ kicks: { sessions: 2, movements: 21 } } as never)); stats.kicks = { sessions: 2, movements: 21 }; return stats; };
   const own = (stats: CareStats) => { stats.days = stats.days.map((one) => ({ ...one, own: { count: one.date === "2026-11-03" ? 3 : 0 } }));
-    stats.own = { count: 3, logs: [{ label: "My weight", count: 2, latest_title: "152 lb", latest_at: "2026-11-03T10:00:00+10:00" }, { label: "Blood pressure", count: 1, latest_title: "118/76", latest_at: "2026-11-03T09:00:00+10:00" }] };
+    stats.own = { count: 3, logs: [{ label: "My weight", count: 2, latest_title: "My weight", latest_value: 152, latest_unit: "lb", latest_at: "2026-11-03T10:00:00+10:00" }, { label: "Blood pressure", count: 1, latest_title: "118/76", latest_at: "2026-11-03T09:00:00+10:00" }] };
     return stats; };
 
   it("expecting, a blank range talks about what she can log now", async () => {
