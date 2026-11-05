@@ -245,6 +245,16 @@ describe("joining with a code", () => {
     expect(b.api.acceptInvite).toHaveBeenCalledWith(code, 1);
     expect(b.refresh).toHaveBeenCalled();
   });
+  it("says something that isn't a code isn't one, without asking the API", async () => {
+    const b = setup();
+    f.paste.mockResolvedValue("the grocery list");
+    await open();
+    await press("I have a code");
+    await press("Paste");
+    expect(b.api.previewInvite).not.toHaveBeenCalled();
+    expect(text()).toMatch(/doesn’t look like/);
+    expect(text()).not.toMatch(/expired/);
+  });
   it.each([[409, /expired or been used/], [404, /aren’t open yet/], [422, /doesn’t look like/]])("explains a %i", async (status, message) => {
     setup([own], { previewInvite: vi.fn(async () => { throw new ApiError("x", status as number); }) });
     await open();
@@ -341,7 +351,7 @@ describe("as a caregiver", () => {
     setup([own], { previewInvite: vi.fn(async () => ({ role: "caregiver", expires_at: "2026-11-12T00:00:00Z", disclosure: "Caregivers log care." })) });
     await open();
     await press("I have a code");
-    await act(async () => all("Field").find((n) => n.props.label === "Code")!.props.onChange("hfbi_v1_code"));
+    await act(async () => all("Field").find((n) => n.props.label === "Code")!.props.onChange(code));
     await press("Check the code");
     expect(text()).toMatch(/Ask isn’t part of helping/);
   });

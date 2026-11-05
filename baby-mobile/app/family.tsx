@@ -8,7 +8,7 @@ import { exportFile } from "@/lib/files";
 import { installationId, nativeSharingAvailable } from "@/modules/hafa-baby-share/src";
 import { Button, Card, Choice, Copy, Field, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { ApiError, PhonesNotReady } from "../lib/api";
-import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
+import { codeFrom, looksLikeCode, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
 import { babyLabel, familySpaces, herLog, rowFence, spacesLive } from "../lib/spaces";
 import { askForShareSession } from "@/lib/share-session-state";
 import { friendlyDay } from "../lib/family-format";
@@ -22,12 +22,13 @@ const everyPage = async (read: (offset: number) => Promise<{ items: BabyRecord[]
   }
   return rows;
 };
+const notACode = "That doesn’t look like a family code. Check you copied all of it.";
 /** Fixed words for what a code can come back with. */
 function codeProblem(failure: unknown) {
   if (!(failure instanceof ApiError) || failure.local) return messageFor(failure);
   if (failure.status === 404) return "Family invites aren’t open yet. Nothing has changed.";
   if (failure.status === 409) return "This code has expired or been used. Ask for a new one.";
-  if (failure.status === 422) return "That doesn’t look like a family code. Check you copied all of it.";
+  if (failure.status === 422) return notACode;
   if (failure.status === 403) return "Update Håfa Baby to join a family.";
   return messageFor(failure);
 }
@@ -151,7 +152,10 @@ function Join({ onBack }: { onBack: () => void }) {
   const b = useBaby(), [code, setCode] = useState(""), [preview, setPreview] = useState<InvitePreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""),
     { readiness, setReadiness, failed, checking, check, confirmPhones } = usePhones(setError);
   async function look(text = code) {
-    setBusy(true); setError(""); setPreview(null);
+    setError(""); setPreview(null);
+    // The API answers anything unknown the same way, so "expired" would send them asking for a new code they don't need.
+    if (!looksLikeCode(text)) return setError(notACode);
+    setBusy(true);
     try {
       setPreview(await b.api.previewInvite(codeFrom(text)));
       await check();
