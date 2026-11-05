@@ -12,7 +12,7 @@ from app.domains.baby import ask_gate, ask_tools, ask_v2, budget, provider
 from app.domains.baby.ask_gate import ASK_CONSENT_VERSION
 from app.domains.baby.ask_tools import AskTools
 from app.domains.baby.ask_v2 import effort_for, response_text
-from app.domains.baby.models import BabyAIAdmission, BabyMessage
+from app.domains.baby.models import BabyAIAdmission, BabyMembership, BabyMessage
 from app.models.ai import AIInvocation
 from tests import test_baby_integration as shared
 
@@ -283,10 +283,14 @@ def test_only_output_text_counts_as_the_answer():
 
 async def test_tools_read_with_access_as_of_each_round(baby_api, stub):
     await enable(baby_api)
-    tools = AskTools(user_id="owner", client="2", personal_space_id=None, family=False, generation=1,
-                     zone=None, tracked={"records": {}, "children": {}})
     async with baby_api.sessions() as db:
-        assert await tools.scope(db) == "owner"
+        personal = (await db.get(BabyMembership, "owner")).personal_space_id
+    family_on = baby_api.settings.baby_family_enabled
+    tools = AskTools(user_id="owner", client="2", personal_space_id=personal if family_on else None, family=family_on,
+                     generation=1, zone=None, tracked={"records": {}, "children": {}})
+    async with baby_api.sessions() as db:
+        scope = await tools.scope(db)
+    assert getattr(scope, "actor", scope) == "owner"
 
 
 # Consent is checked before every read and every call, and a paid reply keeps its accounting.
