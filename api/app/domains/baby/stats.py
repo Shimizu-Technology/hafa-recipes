@@ -17,6 +17,8 @@ from app.domains.baby.queries import row_scope
 from app.domains.baby.sessions import SESSION_KINDS
 
 CARE_KINDS = ("feeding", "sleep", "diaper")
+# Logs about the person, not a baby: `about: "her"` in baby-mobile/lib/trackers.ts.
+HER_LOG_LABELS = frozenset({"How I'm feeling", "My weight", "Blood pressure", "Vitamins and medicine"})
 MAX_CUSTOM_DAYS = 92
 ROW_LIMIT = 5000  # Over 50 logs a day across the longest range; beyond it the result says so.
 # How far before a range to look for a sleep still running into it.
@@ -149,6 +151,41 @@ async def session_stats(db, owner, generation, child_id, zone, result, stats_ran
         )
     )
     add_sessions(result, rows[:ROW_LIMIT], zone, complete=len(rows) <= ROW_LIMIT)
+    return result
+
+
+async def own_log_stats(db, owner, generation, zone, result, stats_range):
+    """Adds what she keeps about herself. Hers alone, whichever baby is on screen and whoever else shares that baby."""
+    rows = list(
+        await db.execute(
+            kind_query(owner, generation, ("custom",), BabyRecord.title, BabyRecord.occurred_at, BabyRecord.data)
+            .where(
+                BabyRecord.app_user_id == getattr(owner, "actor", owner),
+                BabyRecord.child_id.is_(None),
+                BabyRecord.data["label"].astext.in_(HER_LOG_LABELS),
+                BabyRecord.occurred_at >= stats_range.start,
+                BabyRecord.occurred_at < stats_range.end,
+            )
+            .order_by(BabyRecord.occurred_at.desc())
+            .limit(ROW_LIMIT + 1)
+        )
+    )
+    return add_own_logs(result, rows[:ROW_LIMIT], zone, complete=len(rows) <= ROW_LIMIT)
+
+
+def add_own_logs(result, rows, zone, *, complete=True):
+    """How many, and the newest word for word. Rows come newest first. A number here is never read or compared."""
+    days = {day["date"]: day for day in result["days"]}
+    for day in days.values():
+        day["own"] = {"count": 0}
+    logs = {}
+    for row in rows:
+        at = row.occurred_at.astimezone(zone)
+        days[at.date().isoformat()]["own"]["count"] += 1
+        log = logs.setdefault(row.data["label"], {"label": row.data["label"], "count": 0, "latest_title": row.title, "latest_at": at.isoformat()})
+        log["count"] += 1
+    result["own"] = {"count": len(rows), "logs": [logs[label] for label in sorted(logs)]}
+    result["complete"] = result["complete"] and complete
     return result
 
 

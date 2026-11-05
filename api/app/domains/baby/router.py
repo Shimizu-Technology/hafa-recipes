@@ -88,6 +88,7 @@ from app.domains.baby.stats import (
     custom_days,
     last_days,
     number_in,
+    own_log_stats,
     rolling_24h,
     session_stats,
 )
@@ -973,7 +974,8 @@ async def care_range_stats(
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
     result = await care_stats(db, access, member.generation, child_id, zone, stats_range, spans=True)
-    return await session_stats(db, access, member.generation, child_id, zone, result, stats_range)
+    result = await session_stats(db, access, member.generation, child_id, zone, result, stats_range)
+    return await own_log_stats(db, access, member.generation, zone, result, stats_range)
 
 
 @router.get("/records/{identifier}")
