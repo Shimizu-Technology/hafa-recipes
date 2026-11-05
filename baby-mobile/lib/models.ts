@@ -12,6 +12,8 @@ export interface Child {
   name: string;
   birth_date?: string | null;
   due_date?: string | null;
+  /** Optional setup answers, from the API once J1b ships. Any of them may be missing. */
+  details?: { sex?: string | null };
   revision: number;
 }
 export interface Bootstrap {
