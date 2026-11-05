@@ -756,3 +756,15 @@ async def test_saved_books_are_not_told_they_cannot_be_found(baby_api, stub):  #
     post = await add(baby_api, HEADERS, kind="source", title="Board books", data={"source_text": "A list of board books"})
     stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("You saved a list.", citation_ids=[post])]
     assert TRUSTED_SITES_ONLY not in (await ask(baby_api, "What books did I save?")).json()["message"]
+
+
+@needs_database
+async def test_her_own_vitamin_log_is_the_records_line_too(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"timezone": "Pacific/Guam"})
+    baby_api.settings.baby_new_kinds_enabled = True
+    entry = await add(baby_api, HEADERS, kind="custom", title="Prenatal", occurred_at="2026-11-04T08:00:00+10:00",
+                      data={"label": "Vitamins and medicine", "value": 1, "unit": "tablet"})
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": entry})), answered("You logged 1 tablet.", citation_ids=[entry])]
+    body = (await ask(baby_api, "Did I take my meds?")).json()
+    assert body["message"].startswith("You logged Prenatal 1 tablet on") and body["message"].endswith("at 8:00 AM.")

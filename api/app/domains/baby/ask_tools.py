@@ -259,13 +259,17 @@ def search_terms(text):
 
 def logged_line(row, tools):
     """A medicine she logged, in the record's own values, so what's shown can only be what was saved."""
-    if row.kind != "medicine":
+    if row.kind == "medicine":
+        name, amount = row.data.get("name") or row.title, row.data.get("dose")
+    elif row.kind == "custom" and row.data.get("label") == "Vitamins and medicine":
+        value = row.data.get("value")
+        name, amount = row.title, f"{value:g} {row.data.get('unit') or ''}".strip() if value is not None else None
+    else:
         return None
-    amount = f" {row.data['dose']}" if row.data.get("dose") else ""
     at = row.occurred_at.astimezone(tools.zone)
     when = at.strftime("at %-I:%M %p") if at.date() == now().astimezone(tools.zone).date() else at.strftime("on %b %-d at %-I:%M %p")
     who = "You logged" if row.app_user_id == tools.user_id else "Logged"
-    return f"{who} {row.data.get('name') or row.title}{amount} {when}."
+    return f"{who} {name}{f' {amount}' if amount else ''} {when}."
 
 
 async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, total=24_000):
