@@ -251,6 +251,7 @@ class Settings(BaseSettings):
     baby_new_kinds_enabled: bool = False
     # Push registration, settings and delivery. Off means no routes, no worker and no new queries.
     baby_push_enabled: bool = False
+    expo_access_token: SecretStr | None = None
 
     @field_validator("workouts_ai_budget_database_url", mode="before")
     @classmethod

@@ -58,6 +58,11 @@ def push_enabled():
     return getattr(settings, "baby_api_enabled", False) and getattr(settings, "baby_push_enabled", False)
 
 
+def push_access_token():
+    secret = getattr(get_settings(), "expo_access_token", None)
+    return secret.get_secret_value() if secret else ""
+
+
 # Per-owner admission prevents one caller from monopolizing all process slots.
 # The process cap also bounds concurrent multipart buffers to four uploads.
 _upload_ingress = threading.Lock()

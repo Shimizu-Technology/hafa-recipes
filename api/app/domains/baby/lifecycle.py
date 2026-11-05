@@ -233,6 +233,14 @@ async def erase_push_data(db, owner):
             await db.execute(delete(model).where(model.app_user_id == owner))
 
 
+async def retire_reminders(db, person, space_id):
+    """Nothing more goes out about a space someone left, and its reminders leave their Today."""
+    if await push_tables_exist(db):
+        from app.domains.baby.reminders import cancel
+
+        await cancel(db, BabyNotification.app_user_id == person, BabyNotification.space_id == space_id)
+
+
 async def erase_account_data(db, owner):
     """Caller holds shared AppUser lock; cleanup survives all local cascades."""
     if not await db.scalar(text("SELECT to_regclass('public.baby_memberships') IS NOT NULL")):
@@ -375,6 +383,7 @@ async def end_family_membership(db, actor, grant, grants, *, removed=False, allo
                 BabySpaceInvite.revoked_at.is_(None)).values(revoked_at=now()))
             if link.status != "removed":
                 link.status, link.access_version = "removed", link.access_version + 1
+            await retire_reminders(db, actor, grant.id)
             await db.flush()
         return []
     parents = list(await db.scalars(select(BabySpaceMember.app_user_id).where(
@@ -412,6 +421,7 @@ async def end_family_membership(db, actor, grant, grants, *, removed=False, allo
             asset.state = "deleted"
             await touch(asset, grant)
     link.status, link.access_version = "removed" if removed else "left", link.access_version + 1
+    await retire_reminders(db, actor, grant.id)
     await db.flush()
     return prefixes
 

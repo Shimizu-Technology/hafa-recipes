@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from typing import Annotated, Literal
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
@@ -18,10 +19,11 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
-from app.domains.baby.dependencies import Client, Database, Generation, User
+from app.domains.baby.dependencies import Client, Database, Generation, Limit, User
 from app.domains.baby.lifecycle import membership_for, now
-from app.domains.baby.models import BabyNotificationPref, BabyPushDevice
+from app.domains.baby.models import BabyNotification, BabyNotificationPref, BabyPushDevice
 from app.domains.baby.queries import legacy_client
+from app.domains.baby.reminders import dismiss, reminder_access, resolve
 from app.domains.baby.schemas import DomainModel, Profile
 from app.domains.baby.security import BabyRoute, push_enabled
 from app.rate_limit import QuotaWindow, RateLimitExceeded, push_registration_limiter
@@ -277,3 +279,48 @@ async def patch_prefs(body: PrefsPatch, user: User, db: Database, generation: Ge
         await store_pref(db, user.id, space_id, kind, pref.enabled, settings)
     await db.commit()
     return (await load_prefs(db, user.id, space_id)).response()
+
+
+@router.get("/reminders/due")
+async def due_reminders(user: User, db: Database, client: Client = None, limit: Limit = 50):
+    """What Today shows: due and not dismissed, its reason still standing, however delivery went."""
+    access = await reminder_access(db, user.id, client=client)
+    prefs = await load_prefs(db, user.id, access.personal_space_id)
+    # An older build only reads its personal space, so a family's reminders stay off its Today too.
+    spaces = [grant.id for grant in access.spaces] if access.enabled else [access.personal_space_id]
+    rows = await db.scalars(
+        select(BabyNotification)
+        .where(
+            BabyNotification.space_id.in_(spaces),
+            BabyNotification.app_user_id == user.id,
+            BabyNotification.due_at <= now(),
+            BabyNotification.dismissed_at.is_(None),
+        )
+        .order_by(BabyNotification.due_at.desc(), BabyNotification.id)
+        .limit(200)
+    )
+    items = []
+    for row in rows:
+        if len(items) == limit:
+            break
+        words = await resolve(db, row, access, prefs)
+        if words and not words.not_yet(now()):
+            items.append({
+                "id": row.id,
+                "kind": row.kind,
+                "space_id": row.space_id,
+                "text": words.detail,  # This is the person's own screen, not their lock screen.
+                "due_at": row.due_at,
+                "delivery": row.status,
+                "identity": row.collapse_id,
+                "data": words.data,
+            })
+    return {"items": items}
+
+
+@router.post("/reminders/{identifier}/dismiss", status_code=204)
+async def dismiss_reminder(identifier: UUID, user: User, db: Database):
+    """Off Today, and never sent if it was still waiting. Repeating it changes nothing."""
+    await dismiss(db, BabyNotification.id == identifier, BabyNotification.app_user_id == user.id)
+    await db.commit()
+    return Response(status_code=204)
