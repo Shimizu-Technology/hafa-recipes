@@ -10,9 +10,11 @@ import { trackerOn, trackersFor, trackingKey, type Tracker } from "../lib/tracke
 
 function Line({ tracker, on, onChange }: { tracker: Tracker; on: boolean; onChange: (on: boolean) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
-  return <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 8, paddingHorizontal: 16 }}>
-    <Icon name={tracker.icon} size={20} color={c.placeholderInk} />
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ flex: 1, minWidth: 0, ...typeScale.headline, fontFamily: fonts.semibold, color: c.text }}>{tracker.label}</Text>
+  // At the largest sizes a long name needs the whole row, so the switch goes under it.
+  const stacked = fontScale >= 2;
+  return <View style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: stacked ? 8 : 12, minHeight: 56, paddingVertical: 8, paddingHorizontal: 16 }}>
+    {!stacked && <Icon name={tracker.icon} size={20} color={c.placeholderInk} />}
+    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...(stacked ? {} : { flex: 1, minWidth: 0 }), ...typeScale.headline, fontFamily: fonts.semibold, color: c.text }}>{tracker.label}</Text>
     <Switch accessibilityLabel={tracker.label} value={on} onValueChange={onChange} trackColor={{ true: c.action }} />
   </View>;
 }

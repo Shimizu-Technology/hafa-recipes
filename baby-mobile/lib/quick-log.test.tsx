@@ -30,6 +30,7 @@ vi.mock("../components/ui", () => ({ PressTarget: "Pressable", Icon: "Icon", But
   fonts: {}, radii: {}, typeScale: { footnote: { fontSize: 14 } }, useColors: () => ({}), useToast: () => scope.toast, tap: (kind = "select") => scope.taps.push(kind) }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 import { QuickLog, quickTarget } from "../components/quick-log";
+import type { Tracker } from "./trackers";
 import { amendCare, careWrite } from "./quick-care";
 import { router } from "expo-router";
 import { boundFeed, feedWrite, finishFeed, finishTimer, startFeed, switchFeed, undoWindow } from "./running-feed";
@@ -626,6 +627,16 @@ it("drops a half-written note when the entry itself is undone, and doesn't bring
   await press("Undo Poo");
   expect(pendingRecords(b.state)).toEqual([]);
   expect(b.state.outbox.map((m) => m.type)).toEqual(["save", "delete"]);
+});
+
+it("keeps a one-word tile label whole, and lets a longer one wrap between its words", async () => {
+  setup();
+  const tile = (id: string, label: string) => ({ id, label, icon: "thermometer-outline", opens: "/more" }) as unknown as Tracker;
+  await act(async () => { renderer = create(<QuickLog child={child} rows={[]} now={new Date()} tiles={[tile("temperature", "Temperature"), tile("vitamins", "Vitamins & medicine")]} />); });
+  const text = (label: string) => renderer!.root.findAll((n) => String(n.type) === "Text" && n.props.children === label)[0].props;
+  expect(text("Temperature")).toMatchObject({ numberOfLines: 1, adjustsFontSizeToFit: true });
+  expect(text("Vitamins & medicine").numberOfLines).toBeUndefined();
+  expect(text("Vitamins & medicine").adjustsFontSizeToFit).toBe(false);
 });
 
 it("gives each tile its own row at the largest text sizes, so no word breaks in half", async () => {
