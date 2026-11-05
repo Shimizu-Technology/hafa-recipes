@@ -96,6 +96,9 @@ export default function Today() {
         <Button title="Add the birth date" onPress={addBirth} />
       </Card>}
       {tiles.length ? <MoreLogs child={child} now={now} shown={tiles} title="" big onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} /> : whatShows}
+      {/* Right under the tiles, so in labour she needn't scroll for it. */}
+      {pregnant && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
+        hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
@@ -104,8 +107,6 @@ export default function Today() {
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
       </Grouped>
-      {pregnant && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
-        hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
     </Screen>
   );
   const feedsShow = showing("breast", "bottle"),
