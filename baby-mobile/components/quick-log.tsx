@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { AccessibilityInfo, Animated, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord, type Child } from "@/lib/models";
@@ -24,7 +25,16 @@ export const quickTarget = 56;
 
 export type Saved = { key: number; label: string; undo?: () => Promise<unknown>; recordId?: string; at?: string; follow?: "note" | "color";
   /** A held tap: Undo goes at this moment, whatever else happens on screen, so it never outlasts the hold. */
-  until?: number };
+  until?: number;
+  /** Faded out, but still holding its place, so the tiles under it don't jump. See `keepPlace`. */
+  faded?: boolean };
+/** The row's time is up, where tiles sit right under it: it fades and they stay put, in case a thumb is on its way to one. */
+export const keepPlace = (saved: Saved) => (current: Saved | null) => (current?.key === saved.key ? { ...current, faded: true } : current);
+const placeBack = (current: Saved | null) => (current?.faded ? null : current);
+/** She's gone, so it can give its place back without moving anything under her. */
+export function usePlaceBackOnLeaving(setSaved: (change: typeof placeBack) => void) {
+  useFocusEffect(useCallback(() => () => setSaved(placeBack), []));
+}
 type PoopColor = NonNullable<BabyRecord["data"]["color"]>;
 const swatches: { label: string; value?: PoopColor; fill?: string }[] = [
   { label: "Black", value: "black", fill: "#1A1512" }, { label: "Green", value: "green", fill: "#5E6B38" }, { label: "Yellow", value: "yellow", fill: "#D8AE3F" },
@@ -138,6 +148,7 @@ export function SavedRow({ saved, compact, color, now, day, timeZone, onUndo, on
     undone = useRef(false),
     touch = () => setTouched((value) => value + 1);
   useEffect(() => {
+    if (saved.faded) { fade.setValue(0); return; }
     let active = true, timer: ReturnType<typeof setTimeout> | undefined;
     fade.setValue(1);
     void AccessibilityInfo.isScreenReaderEnabled().then((reader) => {
@@ -151,8 +162,9 @@ export function SavedRow({ saved, compact, color, now, day, timeZone, onUndo, on
       }, saved.until ? Math.max(0, saved.until - Date.now()) : reader ? 20000 : saved.follow ? 9000 : 6000);
     });
     return () => { active = false; if (timer) clearTimeout(timer); fade.stopAnimation(); };
-  }, [saved.key, holding, choosing, touched, compact]);
-  return <Animated.View style={{ opacity: fade, borderRadius: radii.toast, backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline }}>
+  }, [saved.key, saved.faded, holding, choosing, touched, compact]);
+  return <Animated.View pointerEvents={saved.faded ? "none" : undefined} accessibilityElementsHidden={saved.faded ? true : undefined} importantForAccessibility={saved.faded ? "no-hide-descendants" : undefined}
+    style={{ opacity: fade, borderRadius: radii.toast, backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: quickTarget, paddingLeft: 12 }}>
       <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: c.addFill }}>
         <Icon name="checkmark" size={17} color={c.onAdd} />
@@ -299,6 +311,7 @@ export function useLogFlow<P extends string>(pastDay?: PastDay,
     views.current++;
     setAt(null);
     setNeedTime(false);
+    setSaved(placeBack);
     setPanel(panel === name ? null : name);
   }
   /** Something else opened, or the baby changed. */
@@ -307,6 +320,7 @@ export function useLogFlow<P extends string>(pastDay?: PastDay,
     setPanel(null);
     setAt(null);
     setNeedTime(false);
+    setSaved(placeBack);
   }
   return { panel, at, saved, setSaved, needTime, when, change, save, amend, undo, toggle, close };
 }
@@ -407,12 +421,14 @@ export function quickFace({ running, legacyTimer, openSleep, openSleeps, pastDay
 }
 
 /** What just saved, a running feed, and whichever quick panel is open. Its tiles can be anywhere. */
-export function QuickPanels({ quick }: { quick: Quick }) {
+export function QuickPanels({ quick, keepsPlace }: { quick: Quick;
+  /** The tiles are right under this, rather than docked at the bottom where it can't move them. */
+  keepsPlace?: boolean }) {
   const b = useBaby(), { child, rows, now, pastDay, who, flow, timeZone, running, next, openSleep, openSleeps, last, savedRow, side, bottle, diaper, sleepFor, sleep, heldTap } = quick,
     { panel, at, saved, setSaved, needTime, change, amend, undo } = flow, whose = who ? `For ${who}` : undefined;
   return <>
     {!!saved && <SavedRow key={saved.key} saved={saved} compact={!!panel} now={now} day={pastDay} timeZone={timeZone} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
-      onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
+      onGone={() => setSaved(keepsPlace ? keepPlace(saved) : (current) => (current?.key === saved.key ? null : current))}
       onMove={(iso) => {
         const moved = iso ?? new Date().toISOString();
         setSaved({ ...saved, at: moved });
@@ -453,15 +469,18 @@ export function QuickPanels({ quick }: { quick: Quick }) {
   </>;
 }
 
+/** From this size the pages show the tiles in the page rather than docked. */
+const tilesInline = 1.5;
 export function QuickLog({ tilesAside, tiles = quickTiles, ...props }: QuickProps & {
   /** Another log on the page is open, and may need the keyboard: the tiles step out of its way. A running feed stays. */
   tilesAside?: boolean;
   /** What this baby has on. A tile with no quick panel goes where it goes. */
   tiles?: readonly Tracker[];
 }) {
-  const quick = useQuickLog(props);
+  const quick = useQuickLog(props), { fontScale } = useWindowDimensions();
+  usePlaceBackOnLeaving(quick.flow.setSaved);
   return <View style={{ gap: 8 }}>
-    <QuickPanels quick={quick} />
+    <QuickPanels quick={quick} keepsPlace={fontScale >= tilesInline} />
     {!tilesAside && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {tiles.map((tracker, at) => tracker.opens === "quick-log"
         ? <Tile key={tracker.id} primary={at === 0} many={tiles.length > 4} {...quickFace(quick, tracker)} open={quick.flow.panel === tracker.id} onPress={() => quick.toggle(tracker.id as QuickPanelName)} />

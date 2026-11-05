@@ -9,7 +9,7 @@ import { messageFor, type Child, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
 import { Button, Field, KeyboardSave, OnSurface, tap, typeScale, useColors } from "./ui";
 import { LogFields, sideWords } from "./log-fields";
-import { AmountStepper, Option, Panel, SavedRow, type useLogFlow } from "./quick-log";
+import { AmountStepper, Option, Panel, SavedRow, keepPlace, usePlaceBackOnLeaving, type useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
 
 type Flow = ReturnType<typeof useLogFlow<string>>;
@@ -21,8 +21,10 @@ const notAhead = (iso: string | null) => (iso && new Date(iso).getTime() > Date.
 /** What just saved, with Undo, wherever the panel was opened from. */
 export function SavedLog({ flow, now, day, timeZone }: { flow: Flow; now: Date; day?: PastDay; timeZone?: string | null }) {
   const { saved, setSaved, panel, amend, undo } = flow;
+  usePlaceBackOnLeaving(setSaved);
   return saved ? <SavedRow key={saved.key} saved={saved} compact={!!panel} now={now} day={day} timeZone={timeZone} onUndo={() => void undo()}
-    onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
+    // The tiles sit right under this one.
+    onGone={() => setSaved(keepPlace(saved))}
     onMove={(iso) => { const moved = notAhead(iso) ?? new Date().toISOString(); setSaved({ ...saved, at: moved }); amend(() => ({ occurred_at: moved })); }}
     onColor={() => undefined} onNote={(body) => amend((row) => (row.body === body ? {} : { body }))} /> : null;
 }
