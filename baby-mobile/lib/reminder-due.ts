@@ -1,7 +1,7 @@
 import type { BabyApi } from "./api";
 import { ApiError } from "./api";
 import type { DeviceState, DueReminder } from "./models";
-import { remindersOn } from "./spaces";
+import { remindersOn, spacesLive } from "./spaces";
 
 type Commit = (change: (s: DeviceState) => DeviceState) => Promise<void>;
 type Account = { commit: Commit; sync: () => Promise<void> };
@@ -15,11 +15,20 @@ function answeredHere(state: Pick<DeviceState, "outbox">, item: DueReminder) {
   return false;
 }
 
+/** What a caregiver hears, as on the API. Everything else is for parents. */
+const caregiverHears = new Set(["event", "running_timer"]);
+/** This phone's list is only as old as its last fetch, and a fetch can fail. What it shows goes by the access it has now. */
+function stillHers(bootstrap: DeviceState["bootstrap"], item: DueReminder) {
+  if (bootstrap?.active === false) return false;
+  if (!spacesLive(bootstrap)) return true;
+  const space = bootstrap!.spaces!.find((known) => known.id === (item.space_id ?? bootstrap!.personal_space_id));
+  return !!space && (space.role !== "caregiver" || caregiverHears.has(item.kind));
+}
 /** Today's list: from the API, whatever delivery did. Nothing shows with its flag off, whatever this phone kept. */
 export function shownDue(state: Pick<DeviceState, "bootstrap" | "dueReminders" | "dismissing" | "outbox">): DueReminder[] {
   if (!remindersOn(state.bootstrap)) return [];
   const dismissing = new Set(state.dismissing ?? []);
-  return (state.dueReminders ?? []).filter((item) => !dismissing.has(item.id) && !answeredHere(state, item));
+  return (state.dueReminders ?? []).filter((item) => stillHers(state.bootstrap, item) && !dismissing.has(item.id) && !answeredHere(state, item));
 }
 
 /** Quiet whichever way it goes: without an answer Today keeps what it was last told. */

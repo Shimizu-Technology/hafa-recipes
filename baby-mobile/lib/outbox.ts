@@ -126,7 +126,7 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, ...rest } = state,
+    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, dueReminders: ____, dismissing: _____, ...rest } = state,
       kept = (id?: string) => !!id && surviving.has(id),
       familyBaby = (id?: string | null) => kept(state.bootstrap?.children?.find((child) => child.id === id)?.space_id),
       outbox = state.outbox.filter((m) => kept(m.space_id)),
@@ -154,6 +154,7 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
       ...state,
       records: state.records.filter((row) => !gone(row.space_id)),
       outbox: state.outbox.filter((m) => !gone(m.space_id)),
+      ...(state.dueReminders ? { dueReminders: state.dueReminders.filter((item) => !gone(item.space_id)) } : {}),
       ...(state.changes ? { changes: { cursor: Object.fromEntries(Object.entries(state.changes.cursor).filter(([id]) => !gone(id))), access: Object.fromEntries(Object.entries(state.changes.access).filter(([id]) => !gone(id))) } } : {}),
     };
   }
@@ -276,6 +277,7 @@ export function withoutFamily(state: DeviceState, space: string, uuid: () => str
     ...(state.bootstrap ? { bootstrap: { ...state.bootstrap, children: state.bootstrap.children.filter((child) => child.space_id !== space) } } : {}),
     records: state.records.filter((row) => row.space_id !== space),
     imports: state.imports.filter((job) => job.space_id !== space),
+    ...(state.dueReminders ? { dueReminders: state.dueReminders.filter((item) => item.space_id !== space) } : {}),
     outbox: [...state.outbox.map((m) => (m.space_id === space ? { ...m, error: notSentMessage, conflict: false, left_space: space } : m)), ...stopped],
     ...(state.changes ? { changes: { cursor, access } } : {}),
   }, leftFamilyNotice);

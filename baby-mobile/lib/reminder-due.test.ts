@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
 import { emptyState, type DeviceState, type DueReminder, type Mutation } from "./models";
+import { fencedState, withoutFamily } from "./outbox";
 import { dismissReminder, refreshDue, sendDismissals, shownDue } from "./reminder-due";
 
 const due = (id: string, extra: Partial<DueReminder> = {}): DueReminder => ({
@@ -84,5 +85,46 @@ describe("sending dismissals", () => {
     b.api.dismissReminder = vi.fn(async () => { throw new ApiError("Not found", 404); });
     await sendDismissals(b.api, b.commit, () => b.state);
     expect(b.state.dismissing).toEqual([]);
+  });
+});
+
+describe("cached words and access", () => {
+  const family = { id: "family", kind: "family", role: "parent", generation: 1, access_version: 1 };
+  const personal = { ...family, id: "personal", kind: "personal" };
+  const withSpaces = (spaces: unknown[], items: DueReminder[], extra: Partial<DeviceState> = {}) => ({
+    ...emptyState(), dueReminders: items, ...extra,
+    bootstrap: { generation: 1, children: [], ai_available: false, profile: {}, active: true, reminders: { push: true }, personal_space_id: "personal", spaces },
+  }) as unknown as DeviceState;
+  it("what's listed for a space she's no longer in doesn't show, even with nothing fetched since", () => {
+    const state = withSpaces([personal], [due("a", { space_id: "family" }), due("b", { space_id: "personal" })]);
+    expect(shownDue(state).map((item) => item.id)).toEqual(["b"]);
+  });
+  it("a caregiver sees only what a caregiver hears, as soon as the role changes", () => {
+    const state = withSpaces([personal, { ...family, role: "caregiver" }], [
+      due("feed", { kind: "feed_interval", space_id: "family" }), due("event", { kind: "event", space_id: "family" }),
+      due("timer", { kind: "running_timer", space_id: "family" }), due("own", { kind: "feed_interval", space_id: "personal" }),
+    ]);
+    expect(shownDue(state).map((item) => item.id)).toEqual(["event", "timer", "own"]);
+  });
+  it("nothing shows on a space that's been cleared", () => {
+    const state = withSpaces([personal], [due("a", { space_id: "personal" })]);
+    state.bootstrap!.active = false;
+    expect(shownDue(state)).toEqual([]);
+  });
+  it("leaving a family takes its words off this phone, not just off the screen", () => {
+    const state = withSpaces([personal, family], [due("a", { space_id: "family" }), due("b", { space_id: "personal" })], { dismissing: ["a"] });
+    const left = withoutFamily(state, "family", () => "id");
+    expect(left.dueReminders!.map((item) => item.id)).toEqual(["b"]);
+  });
+  it("a family's generation changing takes that family's words with it", () => {
+    const state = withSpaces([personal, family], [due("a", { space_id: "family" }), due("b", { space_id: "personal" })]);
+    const fenced = fencedState(state, { generation: 1, spaces: [personal, { ...family, generation: 2 }] } as any);
+    expect(fenced.dueReminders!.map((item) => item.id)).toEqual(["b"]);
+  });
+  it("the personal generation changing takes all of them and what she'd dismissed", () => {
+    const state = withSpaces([personal], [due("a", { space_id: "personal" })], { dismissing: ["a"] });
+    const fenced = fencedState(state, 2);
+    expect(fenced.dueReminders).toBeUndefined();
+    expect(fenced.dismissing).toBeUndefined();
   });
 });

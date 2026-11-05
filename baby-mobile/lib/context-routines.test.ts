@@ -1869,6 +1869,7 @@ describe("reminder settings while the flag is off", () => {
     await act(async () => { await baby.refreshPrefs(); });
     expect(mock.api.pushPrefs).not.toHaveBeenCalled();
   });
+});
 describe("what Today shows from the API", () => {
   const item = { id: "r", kind: "event", text: "Visit at 3", due_at: "2026-11-06T00:00:00Z", delivery: "accepted", identity: "i", data: {} };
   it("with the flag off it asks nothing", async () => {
