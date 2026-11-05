@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { todayStage, trackerStage } from "./timing";
 import { otherStage, trackerById, trackerForKey, trackerOn, trackers, trackersFor, trackingKey } from "./trackers";
 
 const on = (id: string, stage: "expecting" | "born", details?: Parameters<typeof trackerOn>[2]) => trackerOn(trackerById(id)!, stage, details);
@@ -51,5 +52,25 @@ describe("which trackers are on", () => {
     const others = (stage: "expecting" | "born") => trackersFor(stage).filter((tracker) => otherStage(tracker, stage)).map((tracker) => tracker.id);
     expect(others("born")).toEqual(["kicks", "contractions"]);
     expect(others("expecting")).toEqual(["breast", "bottle", "diaper", "sleep"]);
+  });
+});
+
+describe("stages through birth and its reversal", () => {
+  const today = new Date(2026, 10, 5), expected = { due_date: "2026-12-10", birth_date: null as string | null },
+    details = { tracking: { expecting_kicks: false, expecting_diaper: true, diaper: false } };
+  it("birth selects a new set of defaults and undo restores the expecting overrides", () => {
+    expect(on("diaper", trackerStage(expected, today), details)).toBe(true);
+    expect(on("diaper", trackerStage({ ...expected, birth_date: "2026-11-05" }, today), details)).toBe(false);
+    expect(on("diaper", trackerStage(expected, today), details)).toBe(true);
+    expect(on("kicks", trackerStage(expected, today), details)).toBe(false);
+  });
+  it("a stale due date stays expecting until she supplies the birth", () => {
+    const overdue = { due_date: "2026-01-01" };
+    expect(todayStage(overdue, today)).toBe("needs_birth");
+    expect(trackerStage(overdue, today)).toBe("expecting");
+  });
+  it("no dates has born tracker defaults without claiming a birth", () => {
+    expect(todayStage({}, today)).toBe("none");
+    expect(trackerStage({}, today)).toBe("born");
   });
 });

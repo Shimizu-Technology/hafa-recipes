@@ -256,6 +256,13 @@ describe("a What shows switch with no signal", () => {
     expect(mock.api.child).not.toHaveBeenCalled();
     expect(baby.state.outbox).toEqual([]);
   });
+  it("an offline switch preserves another phone's different switch", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [{ ...child, revision: 7, details: { sex: "girl", tracking: { kicks: true, bottle: false } } }] }));
+    mock.api.child = vi.fn(async (v: any) => ({ ...child, revision: v.revision + 1, details: { sex: "girl", tracking: { kicks: true, bottle: false, ...v.details.tracking } } }));
+    await mount(); await flush();
+    expect(shown().details!.tracking).toMatchObject({ diaper: false, bottle: false, kicks: true });
+    expect(mock.api.child.mock.calls[0][0]).toMatchObject({ revision: 7, details: { tracking: { diaper: false } } });
+  });
   it("says so when the baby's profile has gone", async () => {
     mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [] }));
     await mount(); await flush();

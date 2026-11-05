@@ -288,6 +288,16 @@ describe("Add", () => {
       await press("Sleeping"); await press("End");
       expect(saves().at(-1)!.record).toMatchObject({ id: "s", data: { end_at: expect.any(String) } });
     });
+    it("a switched-off sleep and breast tracker can still finish from Add", async () => {
+      const b = setup([{ ...newborn, details: { tracking: { sleep: false, breast: false } } }]);
+      const at = new Date(now.getTime() - 60_000).toISOString();
+      scope.care = [open("s", 1), { ...feedWrite("baby", "left", new Date(at)), revision: 1, created_at: at, updated_at: at } as unknown as BabyRecord];
+      b.state.records = scope.care;
+      await mount();
+      expect(tile("Done")).toBeDefined();
+      await press("Sleeping"); await press("End");
+      expect(saves().at(-1)!.record).toMatchObject({ id: "s", data: { end_at: expect.any(String) } });
+    });
     it("a sleep under way can still be ended from Add while expecting, when Sleep isn't one of her tiles", async () => {
       const b = setup([expected]), sleep = { ...open("s", 1), child_id: "due" };
       scope.care = [sleep]; b.state.records = scope.care;
