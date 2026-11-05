@@ -55,7 +55,7 @@ beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mock.push.mockClear(); mock.back.mockClear(); mock.replace.mockClear(); mock.canGoBack = false; mock.options = []; mock.scrollToTop = [];
   mock.fontScale = 1; mock.reduced = false; mock.scheme = "light"; mock.timings = [];
-  mock.baby = { online: true, syncing: false, error: "", state: { outbox: [] } };
+  mock.baby = { online: true, unreachable: false, syncing: false, error: "", state: { outbox: [] } };
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
 it("uses short native press feedback and honours a live Reduce Motion change", async () => {
