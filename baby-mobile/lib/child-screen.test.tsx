@@ -20,7 +20,7 @@ vi.mock("@/lib/context", () => ({ useBaby: () => ({
   api: { child: f.child, request: f.request, deleteChild: async () => undefined },
 }) }));
 vi.mock("@/components/ui", () => ({
-  Button: "Button", Chips: "Chips", Copy: "Copy", Field: "Field", Notice: "Notice", Screen: "Screen", useToast: () => f.toast,
+  Button: "Button", Chips: "Chips", Copy: "Copy", Field: "Field", Notice: "Notice", Row: "Row", Screen: "Screen", useToast: () => f.toast,
 }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/stage-options", () => ({ StageOptions: "StageOptions" }));
@@ -487,6 +487,15 @@ describe("drafts by baby", () => {
   });
 });
 
+it("reaches What shows from a saved baby's profile, and not before there is one", async () => {
+  f.children = [saved({ due_date: "2026-12-10" })]; f.params = { id: "kid" };
+  await open();
+  expect(view.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toContain("What shows");
+  await act(async () => view.unmount());
+  f.children = []; f.params = { stage: "expecting" };
+  await open();
+  expect(view.root.findAll((n) => String(n.type) === "Row")).toHaveLength(0);
+});
 it("keeps the profile-removal flow, and removing a profile takes its draft with it", async () => {
   f.children = [saved({ due_date: "2026-12-10" })]; f.params = { id: "kid" };
   await open();

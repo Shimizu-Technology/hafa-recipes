@@ -240,7 +240,7 @@ export function switchTooLate(action: { action: string; at: string }, result: Ba
   return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
 }
 /** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
-export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "save" | "event_split" | "delete" }>>(change: T, now = Date.now()): T {
+export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "child_tracking" | "save" | "event_split" | "delete" }>>(change: T, now = Date.now()): T {
   const attempts = (change.attempts ?? 0) + 1;
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
 }
@@ -255,7 +255,7 @@ export const unresolvedAttempts = 5;
 /** All operations on a record share one durable order, including source imports.
  * An unresolved ancestor holds only its own record, never the entire outbox. */
 export function mutationRecordId(change: Mutation) {
-  if (change.type === "child_birth") return change.child_id;
+  if (change.type === "child_birth" || change.type === "child_tracking") return change.child_id;
   if (change.type === "event_split") return change.series.id;
   return change.type === "save" || change.type === "delete" ? change.record.id : change.record_id;
 }
@@ -302,6 +302,35 @@ export function birthStep(server: Child | undefined, m: Extract<Mutation, { type
   if (!server) return "gone";
   const saved = server.birth_date ?? null;
   return saved === m.birth_date ? "done" : saved === m.previous ? "send" : "different";
+}
+
+/** A switch shows everywhere as soon as it's tapped, and stays through every refresh until it lands. */
+export function withPendingTracking(state: DeviceState): DeviceState {
+  if (!state.bootstrap || !state.outbox.some((m) => m.type === "child_tracking")) return state;
+  let changed = false;
+  const children = state.bootstrap.children.map((child) => {
+    const chosen = Object.assign({}, ...state.outbox.map((m) => (m.type === "child_tracking" && m.child_id === child.id ? m.tracking : {}))) as Record<string, boolean>;
+    if (Object.entries(chosen).every(([key, on]) => child.details?.tracking?.[key] === on)) return child;
+    changed = true;
+    return { ...child, details: { ...child.details, tracking: { ...child.details?.tracking, ...chosen } } };
+  });
+  return changed ? { ...state, bootstrap: { ...state.bootstrap, children } } : state;
+}
+/** What a removed switch leaves behind: what the API said, or else what it saw before. */
+export function withoutTracking(state: DeviceState, m: Extract<Mutation, { type: "child_tracking" }>, server?: Child): DeviceState {
+  if (!state.bootstrap) return state;
+  return { ...state, bootstrap: { ...state.bootstrap, children: state.bootstrap.children.map((child) => {
+    if (child.id !== m.child_id) return child;
+    if (server) return server;
+    const tracking = { ...child.details?.tracking };
+    for (const [key, was] of Object.entries(m.previous)) { if (was === null) delete tracking[key]; else tracking[key] = was; }
+    return { ...child, details: { ...child.details, tracking } };
+  }) } };
+}
+/** What to do with a switch, from the API's copy. It merges key by key, so whichever phone's tap came last stands. */
+export function trackingStep(server: Child | undefined, m: Extract<Mutation, { type: "child_tracking" }>): "gone" | "done" | "send" {
+  if (!server) return "gone";
+  return Object.entries(m.tracking).every(([key, on]) => server.details?.tracking?.[key] === on) ? "done" : "send";
 }
 
 /** Admission is not completion: an import may still replace source fields. */

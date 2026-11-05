@@ -10,10 +10,11 @@ import { Image } from "expo-image";
 import { Copy, Grouped, Icon, PressTarget, Section, fonts, radii, typeScale, useColors } from "./ui";
 import { Monogram, SavedPostRow, safeThumbnail } from "./saved-post-row";
 import { FadeUp } from "./motion";
-import { AgeFacts, WeekFacts } from "./week-facts";
+import { weekContent } from "@/lib/weekly-content";
+import { AgeFacts, WeekFacts, weekWaiting } from "./week-facts";
 
-const weekStyle = { fontFamily: fonts.display, fontSize: 52, lineHeight: 58, fontVariant: ["tabular-nums" as const] };
-const dayStyle = { fontFamily: fonts.displayItalic, fontSize: 22, lineHeight: 28 };
+const weekStyle = { fontFamily: fonts.display, fontSize: 40, lineHeight: 46, fontVariant: ["tabular-nums" as const] };
+const dayStyle = { fontFamily: fonts.displayItalic, fontSize: 20, lineHeight: 26 };
 const TOTAL_WEEKS = 40;
 
 /** A saved tip as a compact row inside the hero: photo (or monogram on the card colour), title and topic. */
@@ -39,11 +40,11 @@ function MiniTip({ row, topic }: { row: BabyRecord; topic: string }) {
 }
 
 /**
- * Today's moment before the birth: one blush card with "Week 34 Day 5" in Newsreader, a soft 34-of-40 bar, the due
- * date, and the tips she saved for this week, so "find what's relevant now" is the first thing she sees.
+ * Today's moment before the birth: a small blush card with "Week 34 Day 5" in Newsreader, a soft 34-of-40 bar and the due
+ * date. It stays small so her trackers are on the first screen; what's more about this week follows them, in `WeekDetails`.
  */
-export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Date; tips?: BabyRecord[] }) {
-  const c = useColors(), { fontScale, width } = useWindowDimensions(), collections = useBaby().records.filter((row) => row.kind === "collection"),
+export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
+  const c = useColors(), { fontScale, width } = useWindowDimensions(),
     progress = pregnancyProgress(child.due_date!, now)!, due = dueLine(child.due_date!, now),
     fraction = Math.min(1, (progress.week + progress.day / 7) / TOTAL_WEEKS);
   // "Week 34 Day 5" stays on one line when it fits. When the numeral grows too wide, "Day 5" moves to its own
@@ -52,9 +53,9 @@ export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Da
   const [stackedFor, setStackedFor] = useState<string | null>(null);
   const stacked = stackedFor === layout;
   return <FadeUp>
-    <View style={{ backgroundColor: c.hero, borderRadius: radii.hero, padding: 22, gap: 16 }}>
-      <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}. ${progress.week} of ${TOTAL_WEEKS} weeks.`} style={{ gap: 12 }}>
-        {/* The 52pt numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
+    <View style={{ backgroundColor: c.hero, borderRadius: radii.hero, paddingHorizontal: 20, paddingVertical: 14, gap: 8 }}>
+      <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}. ${progress.week} of ${TOTAL_WEEKS} weeks.`} style={{ gap: 8 }}>
+        {/* The numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
         {stacked ? <View style={{ gap: 2 }}>
           <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...weekStyle, color: c.text }}>Week {progress.week}</Text>
           <Text key={`day:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...dayStyle, color: c.muted }}>Day {progress.day}</Text>
@@ -65,23 +66,27 @@ export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Da
         <View style={{ height: 8, borderRadius: 4, backgroundColor: c.progressTrack, overflow: "hidden" }}>
           <View style={{ width: `${fraction * 100}%`, height: 8, borderRadius: 4, backgroundColor: c.progressFill }} />
         </View>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", columnGap: 12, rowGap: 2 }}>
-          <Text key={`due:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.medium, color: c.text, fontVariant: ["tabular-nums"] }}>{due}</Text>
-          <Copy numeric kind="small" tone="muted">{`${progress.week} of ${TOTAL_WEEKS} weeks`}</Copy>
-        </View>
+        <Text key={`due:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.medium, color: c.text, fontVariant: ["tabular-nums"] }}>{due}</Text>
       </View>
-      <WeekFacts week={progress.week} />
-      <View style={{ height: 1, backgroundColor: c.border }} />
-      <View style={{ gap: 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <View style={{ flex: 1 }}><Copy kind="heading" numeric>{`Saved for week ${progress.week}`}</Copy></View>
-          {tips.length > 0 && <SeeAll view="now" title={`Saved for week ${progress.week}`} />}
-        </View>
-        {tips.length ? tips.slice(0, 3).map((row) => <MiniTip key={row.id} row={row} topic={tipTopic(row, collections)} />)
-          : <Copy kind="small" tone="muted">Tips you save for this point in your pregnancy show up here.</Copy>}
-      </View>
+      {!weekContent(progress.week) && <Copy kind="small" tone="muted">{weekWaiting}</Copy>}
     </View>
   </FadeUp>;
+}
+
+/** What's more about this week, below her trackers: its facts once they're approved, and the tips she saved for it, if any. */
+export function WeekDetails({ child, now, tips = [] }: { child: Child; now: Date; tips?: BabyRecord[] }) {
+  const c = useColors(), collections = useBaby().records.filter((row) => row.kind === "collection"),
+    { week } = pregnancyProgress(child.due_date!, now)!;
+  return <>
+    <WeekFacts week={week} waiting={false} />
+    {tips.length > 0 && <View style={{ backgroundColor: c.hero, borderRadius: radii.hero, padding: 22, gap: 4 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1 }}><Copy kind="heading" numeric>{`Saved for week ${week}`}</Copy></View>
+        <SeeAll view="now" title={`Saved for week ${week}`} />
+      </View>
+      {tips.slice(0, 3).map((row) => <MiniTip key={row.id} row={row} topic={tipTopic(row, collections)} />)}
+    </View>}
+  </>;
 }
 
 /**

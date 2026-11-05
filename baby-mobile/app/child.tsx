@@ -11,7 +11,7 @@ import {
   changesAnything, changeUnit, childWrite, chooseDue, dueSaid, formFor, measureProblem, noEdits, progressProblem, sameSpace, saveProblem, shownForm,
   startingUnit, touch, typeProgress, withChildDraft, type ChildForm,
 } from "@/lib/child-setup";
-import { Button, Chips, Copy, Field, Notice, Screen, useToast } from "@/components/ui";
+import { Button, Chips, Copy, Field, Notice, Row, Screen, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { Disclosure } from "@/components/disclosure";
 import { StageOptions } from "@/components/stage-options";
@@ -225,6 +225,7 @@ export default function ChildEditor() {
         </Disclosure>}
         {!!error && <Notice error>{error}</Notice>}
         <Button title="Save profile" size="lg" busy={busy} onPress={() => void save()} />
+        {child && <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
       </>}
       {child && (
         <Button

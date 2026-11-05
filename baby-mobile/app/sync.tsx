@@ -8,6 +8,7 @@ import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/li
 import { laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { recordDay } from "@/lib/tracker";
+import { trackerForKey } from "../lib/trackers";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
 function rebase(row: Mutation, revision: number): Mutation {
   if (row.type !== "save" && row.type !== "delete") return row;
@@ -41,7 +42,7 @@ export default function Sync() {
         throw unread;
       });
       await b.discardQueued(m.id, row);
-    } else if (m.type === "child_birth" && m.sent) {
+    } else if ((m.type === "child_birth" || m.type === "child_tracking") && m.sent) {
       const fresh = await b.api.bootstrap().catch(() => { throw unread; });
       await b.discardQueued(m.id, undefined, fresh.children.find((child) => child.id === m.child_id));
     } else await b.discardQueued(m.id, remote[m.id]);
@@ -88,6 +89,8 @@ export default function Sync() {
                   ? "Timer update"
                   : m.type === "child_birth"
                   ? "Birth date"
+                  : m.type === "child_tracking"
+                  ? "What shows"
                   : m.type === "event_split"
                   ? m.event.title
                   : m.type === "delete"
@@ -111,6 +114,8 @@ export default function Sync() {
                 <Copy>{`Saved at ${new Date(m.action.at).toLocaleTimeString()}.`}</Copy>
               ) : m.type === "child_birth" ? (
                 <Copy>{m.birth_date ? `Born ${friendlyDate(m.birth_date)}.` : "Taking the birth date back."}</Copy>
+              ) : m.type === "child_tracking" ? (
+                <Copy>{`${Object.entries(m.tracking).filter(([id]) => trackerForKey(id)).map(([id, on]) => `${trackerForKey(id)!.label} ${on ? "on" : "off"}`).join(", ") || "A suggestion answered"}.`}</Copy>
               ) : m.type === "event_split" ? (
                 <Copy>{`Changes ${m.series.title} from ${friendlyDate(recordDay(m.from_start, m.series.data.timezone))} on. Discarding this keeps every date as it was.`}</Copy>
               ) : (

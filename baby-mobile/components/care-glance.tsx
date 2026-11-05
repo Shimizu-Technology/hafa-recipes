@@ -20,11 +20,13 @@ export function useMinuteClock() {
 const sideWord = { left: "Left", right: "Right", both: "Both sides" } as const;
 
 /** Readable from across a dark room: when she last fed, and which side is next, with no tap. */
-export function CareGlance({ child, rows, now, running, timeZone }: { child: Child; rows: BabyRecord[]; now: Date; running?: RunningFeed; timeZone?: string | null }) {
+export function CareGlance({ child, rows, now, running, timeZone, sides = true }: { child: Child; rows: BabyRecord[]; now: Date; running?: RunningFeed; timeZone?: string | null;
+  /** Nursing is switched on, so which side is next means something. */
+  sides?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     feed = careGlance(rows, child.id, now, timeZone).lastFeed,
     // Only with nothing running: "Feeding now Right, Next side Right" reads like a contradiction.
-    next = running ? undefined : nextSide(rows, child.id),
+    next = running || !sides ? undefined : nextSide(rows, child.id),
     elapsed = feed ? Math.max(0, Math.floor((now.getTime() - new Date(feed.occurred_at).getTime()) / 60_000)) : 0,
     value = elapsed < 60 ? `${elapsed}m` : elapsed < 2880 ? `${Math.floor(elapsed / 60)}h ${elapsed % 60}m` : `${Math.floor(elapsed / 1440)}d`,
     side = running?.segments[running.segments.length - 1]?.side,

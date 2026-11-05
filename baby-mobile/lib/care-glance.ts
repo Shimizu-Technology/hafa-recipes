@@ -44,17 +44,19 @@ export function glanceChild(state: Pick<DeviceState, "bootstrap" | "selectedChil
 
 export interface CareGlance {
   lastFeed?: BabyRecord;
+  /** The newest of `openSleeps`. */
   openSleep?: BabyRecord;
+  /** More than one when two phones each started one. Every one of them can be ended, newest first. */
+  openSleeps: BabyRecord[];
   lastSleep?: BabyRecord;
   diapers: { total: number; wet: number; dirty: number };
   feeds: number;
 }
 
-/** A sleep counts as happening now only if it is her newest sleep and began within a day;
+/** A sleep counts as happening now if nobody has ended it and it began within a day, whatever came after it;
  * an old one nobody ended is left for the editor rather than ended as a days-long sleep. */
-function currentSleep(newestFirst: BabyRecord[], now: Date) {
-  const newest = newestFirst.find((row) => row.kind === "sleep");
-  return newest && !newest.data.end_at && now.getTime() - new Date(newest.occurred_at).getTime() < day ? newest : undefined;
+function currentSleeps(newestFirst: BabyRecord[], now: Date) {
+  return newestFirst.filter((row) => row.kind === "sleep" && !row.data.end_at && now.getTime() - new Date(row.occurred_at).getTime() < day);
 }
 
 /** Newest-first care rows for one baby reduced to what a parent checks at a glance. */
@@ -62,11 +64,13 @@ export function careGlance(rows: BabyRecord[], childId: string | null, now = new
   const { from, to } = dayRange(recordDay(now.toISOString(), timeZone), timeZone),
     start = new Date(from).getTime(), end = new Date(to).getTime(),
     mine = rows.filter((row) => row.child_id === childId).sort(newestFirst),
+    openSleeps = currentSleeps(mine, now),
     today = mine.filter((row) => { const at = new Date(row.occurred_at).getTime(); return at >= start && at < end; }),
     diapers = today.filter((row) => row.kind === "diaper");
   return {
     lastFeed: mine.find((row) => row.kind === "feeding"),
-    openSleep: currentSleep(mine, now),
+    openSleep: openSleeps[0],
+    openSleeps,
     lastSleep: mine.find((row) => row.kind === "sleep" && !!row.data.end_at),
     diapers: {
       total: diapers.length,

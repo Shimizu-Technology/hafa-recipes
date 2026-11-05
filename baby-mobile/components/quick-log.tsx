@@ -14,9 +14,9 @@ import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
 import { TimeChip, TimeChoices, type PastDay } from "./quick-time";
 import { zonedInstant } from "@/lib/tracker";
-import { trackerById } from "../lib/trackers";
+import { trackerRoute, trackers, type Tracker } from "../lib/trackers";
 
-const [breast, bottleTile, diaperTile, sleepTile] = ["breast", "bottle", "diaper", "sleep"].map((id) => trackerById(id)!);
+const quickTiles = trackers.filter((tracker) => tracker.opens === "quick-log");
 const word = { left: "Left", right: "Right", both: "Both" } as const;
 const other = (side: FeedSide): FeedSide => (side === "left" ? "right" : "left");
 /** Every night target is at least this tall. */
@@ -45,10 +45,12 @@ export function Option({ label, detail, hint, strong, height = 76, onPress }: { 
 }
 
 /** The dock's four tiles, in the thumb's reach just above the tab bar. */
-function Tile({ icon, label, hint, primary, open, onPress }: { icon: IconName; label: string; hint: string; primary?: boolean; open?: boolean; onPress: () => void }) {
+function Tile({ icon, label, hint, primary, open, many, onPress }: { icon: IconName; label: string; hint?: string; primary?: boolean; open?: boolean;
+  /** More than a row's worth, so they wrap rather than squeeze. */
+  many?: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ expanded: !!open }} onPress={onPress}
-    style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : fontScale >= 1.3 ? "45%" : 0, minWidth: 0, minHeight: 76, paddingVertical: 10, paddingHorizontal: 4, borderRadius: radii.tile,
+    style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : fontScale >= 1.3 ? "45%" : many ? "22%" : 0, minWidth: 0, minHeight: 76, paddingVertical: 10, paddingHorizontal: 4, borderRadius: radii.tile,
       alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: primary ? c.action : c.surface,
       borderWidth: 2, borderColor: open ? c.accent : "transparent" }}>
     <Icon name={icon} size={24} color={primary ? c.onAction : c.accentText} />
@@ -209,10 +211,10 @@ export function AmountStepper({ amount, onChange, note, steps }: { amount: Pick<
 }
 
 /** The amount, the unit, and the two milks. Choosing a milk saves it. */
-function BottlePanel({ start, at, now, day, timeZone, needTime, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; day?: PastDay; timeZone?: string | null; needTime?: boolean; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
+function BottlePanel({ start, detail, at, now, day, timeZone, needTime, onTime, onSave }: { start: BottleChoice; detail?: string; at: string | null; now: Date; day?: PastDay; timeZone?: string | null; needTime?: boolean; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
   const [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
     same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit;
-  return <Panel title="Bottle" at={at} now={now} day={day} timeZone={timeZone} needTime={needTime} onTime={onTime}>
+  return <Panel title="Bottle" detail={detail} at={at} now={now} day={day} timeZone={timeZone} needTime={needTime} onTime={onTime}>
     <AmountStepper amount={bottle} onChange={setBottle} note={same ? "Same as last time" : undefined} />
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {(["breast_milk", "formula"] as const).map((contents) => <Option key={contents} label={contentWords[contents]} strong={start.contents === contents} height={64}
@@ -222,7 +224,9 @@ function BottlePanel({ start, at, now, day, timeZone, needTime, onTime, onSave }
 }
 
 /** What a log's buttons share: its open panel, when it happened, and the row that says it saved. */
-export function useLogFlow<P extends string>(pastDay?: PastDay) {
+export function useLogFlow<P extends string>(pastDay?: PastDay,
+  /** Takes over from the row that says it saved, for a page that closes when something's logged. `current` is whether she's still on what she saved from. */
+  afterSave?: (saved: Saved, current: boolean) => void) {
   const b = useBaby(), toast = useToast(),
     [panel, setPanel] = useState<P | null>(null),
     [at, setAt] = useState<string | null>(null),
@@ -231,6 +235,8 @@ export function useLogFlow<P extends string>(pastDay?: PastDay) {
     // A ref, not state, so two taps in the same frame cannot both start a write.
     writing = useRef(false),
     keys = useRef(0),
+    /** Moves on whenever what's open changes, so a save finishing late leaves what she's doing now alone. */
+    views = useRef(0),
     /** When this entry happened. On another day only she can say, so until she has, nothing saves. */
     when = () => {
       if (at) return new Date(at);
@@ -243,13 +249,17 @@ export function useLogFlow<P extends string>(pastDay?: PastDay) {
   async function save(label: string, action: () => Promise<() => Promise<unknown>>, details: Pick<Saved, "recordId" | "at" | "follow" | "until"> = {}) {
     if (writing.current) return;
     writing.current = true;
+    const view = views.current;
     try {
-      const undo = await action();
+      const undo = await action(), current = view === views.current;
       tap("success");
-      setPanel(null);
-      setAt(null);
-      setNeedTime(false);
-      setSaved({ key: ++keys.current, label, undo, ...details });
+      if (current) {
+        setPanel(null);
+        setAt(null);
+        setNeedTime(false);
+      }
+      const done = { key: ++keys.current, label, undo, ...details };
+      if (afterSave) afterSave(done, current); else setSaved(done);
     } catch (e) { toast(messageFor(e)); }
     finally { writing.current = false; }
   }
@@ -266,35 +276,50 @@ export function useLogFlow<P extends string>(pastDay?: PastDay) {
   }
   function toggle(name: P) {
     tap();
+    views.current++;
     setAt(null);
     setNeedTime(false);
     setPanel(panel === name ? null : name);
   }
-  return { panel, at, saved, setSaved, needTime, when, change, save, amend, undo, toggle };
+  /** Something else opened, or the baby changed. */
+  function close() {
+    views.current++;
+    setPanel(null);
+    setAt(null);
+    setNeedTime(false);
+  }
+  return { panel, at, saved, setSaved, needTime, when, change, save, amend, undo, toggle, close };
 }
 
-export function QuickLog({ child, rows, now, pastDay, tilesAside }: {
+type QuickProps = {
   child: Child;
   rows: BabyRecord[];
   now: Date;
-  /** Another log on the page is open, and may need the keyboard: the tiles step out of its way. A running feed stays. */
-  tilesAside?: boolean;
   /** Logging a day that isn't today: entries get that day's time, and nothing runs. */
   pastDay?: PastDay;
-}) {
+  /** Where the page doesn't already say whose log this is: the panel and what saved both name the baby. */
+  who?: string;
+  afterSave?: (saved: Saved, current: boolean) => void;
+};
+type QuickPanelName = "breast" | "bottle" | "diaper" | "sleep";
+
+/** What the breast, bottle, diaper and sleep panels know and do, so anywhere that shows `QuickPanels` logs the same way. */
+export function useQuickLog({ child, rows, now, pastDay, who, afterSave }: QuickProps) {
   const b = useBaby(), toast = useToast(),
-    { panel, at, saved, setSaved, needTime, when, change, save, amend, undo, toggle: open } = useLogFlow<"breast" | "bottle" | "diaper" | "sleep">(pastDay),
+    flow = useLogFlow<QuickPanelName>(pastDay, afterSave),
+    { when } = flow,
+    save: typeof flow.save = (label, action, details) => flow.save(who ? `${label}, for ${who}` : label, action, details),
     timeZone = b.state.bootstrap!.profile.timezone,
     // A timer started on an older build is still running; it finishes on its own card first.
     legacyTimer = activeTimer(b.state)?.child_id === child.id,
     running = pastDay ? undefined : runningFeed(rows, child.id, now),
     next = running ? undefined : nextSide(rows, child.id),
-    openSleep = pastDay ? undefined : careGlance(rows, child.id, now, timeZone).openSleep,
+    openSleeps = pastDay ? [] : careGlance(rows, child.id, now, timeZone).openSleeps, openSleep = openSleeps[0],
     last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
-    savedRow = saved?.recordId ? b.records.find((row) => row.id === saved.recordId) : undefined;
-  function toggle(name: NonNullable<typeof panel>) {
+    savedRow = flow.saved?.recordId ? b.records.find((row) => row.id === flow.saved!.recordId) : undefined;
+  function toggle(name: QuickPanelName) {
     if (name === "breast" && legacyTimer && !pastDay) return toast("A feeding timer is running. Finish it from the timer above.");
-    open(name);
+    flow.toggle(name);
   }
   function side(choice: FeedSide | "both") {
     const time = when();
@@ -334,11 +359,13 @@ export function QuickLog({ child, rows, now, pastDay, tilesAside }: {
     const time = when();
     if (!time) return;
     if (openSleep) {
-      const started = new Date(openSleep.occurred_at).getTime(),
-        // A sleep can't end before it began, even if the chosen time says so.
-        end_at = new Date(Math.max(time.getTime(), started)).toISOString(),
-        data = { ...openSleep.data, end_at };
-      return save(careSummary("sleep", data, openSleep.occurred_at), () => updateCare(b, openSleep, data));
+      // A sleep can't end before it began, even if the chosen time says so.
+      const ending = openSleeps.map((row) => ({ row, data: { ...row.data, end_at: new Date(Math.max(time.getTime(), new Date(row.occurred_at).getTime())).toISOString() } }));
+      return save(ending.length > 1 ? `${ending.length} sleeps ended` : careSummary("sleep", ending[0].data, openSleep.occurred_at), async () => {
+        const undos: (() => Promise<unknown>)[] = [];
+        for (const { row, data } of ending) undos.push(await updateCare(b, row, data));
+        return async () => { for (const undo of undos) await undo(); };
+      });
     }
     const record = careWrite("sleep", child.id, {}, time);
     return save("Sleep started", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
@@ -348,7 +375,22 @@ export function QuickLog({ child, rows, now, pastDay, tilesAside }: {
     const shown = undoShown(await AccessibilityInfo.isScreenReaderEnabled().catch(() => false));
     return save(label, () => action(shown + 500), { until: Date.now() + shown });
   }
-  return <View style={{ gap: 8 }}>
+  return { child, rows, now, pastDay, who, flow, timeZone, legacyTimer, running, next, openSleep, openSleeps, last, savedRow, toggle, side, bottle, diaper, sleepFor, sleep, heldTap };
+}
+type Quick = ReturnType<typeof useQuickLog>;
+
+/** A quick tile says what's under way, so it reads the same wherever it's shown. */
+export function quickFace({ running, legacyTimer, openSleep, openSleeps, pastDay }: Quick, tracker: Tracker): { icon: IconName; label: string; hint: string } {
+  if (tracker.id === "breast" && (running || legacyTimer) && !pastDay) return { icon: tracker.icon, label: "Feeding", hint: tracker.detail! };
+  if (tracker.id === "sleep" && openSleep) return { icon: "moon", label: "Sleeping", hint: openSleeps.length > 1 ? `${openSleeps.length} sleeps are running. Ends them` : "Ends the current sleep" };
+  return { icon: tracker.icon, label: tracker.label, hint: tracker.detail! };
+}
+
+/** What just saved, a running feed, and whichever quick panel is open. Its tiles can be anywhere. */
+export function QuickPanels({ quick }: { quick: Quick }) {
+  const b = useBaby(), { child, rows, now, pastDay, who, flow, timeZone, running, next, openSleep, openSleeps, last, savedRow, side, bottle, diaper, sleepFor, sleep, heldTap } = quick,
+    { panel, at, saved, setSaved, needTime, change, amend, undo } = flow, whose = who ? `For ${who}` : undefined;
+  return <>
     {!!saved && <SavedRow key={saved.key} saved={saved} compact={!!panel} now={now} day={pastDay} timeZone={timeZone} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
       onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
       onMove={(iso) => {
@@ -370,30 +412,40 @@ export function QuickLog({ child, rows, now, pastDay, tilesAside }: {
           done = withFeedAction(running.record.data, { id: "preview", action: "finish", at: at.toISOString() });
         void heldTap(careSummary("feeding", done, running.started_at), (hold) => finishFeed(b, running, at, hold));
       }} />}
-    {panel === "breast" && <Panel title="Which side?" detail={last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now, timeZone)}` : undefined} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
+    {panel === "breast" && <Panel title="Which side?" detail={[whose, last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now, timeZone)}` : ""].filter(Boolean).join(" · ") || undefined} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {(["left", "right", "both"] as const).map((choice) => <Option key={choice} label={word[choice]} strong={choice === next} detail={choice === next ? "Next" : undefined}
           onPress={() => void side(choice)} />)}
       </View>
     </Panel>}
-    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change} onSave={(choice) => void bottle(choice)} />}
-    {panel === "diaper" && <Panel title="Diaper" at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
+    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} detail={whose} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change} onSave={(choice) => void bottle(choice)} />}
+    {panel === "diaper" && <Panel title="Diaper" detail={whose} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {diaperChoices.map((choice) => <Option key={choice.type} label={choice.label} onPress={() => void diaper(choice.label, choice.type)} />)}
       </View>
     </Panel>}
-    {panel === "sleep" && <Panel title={openSleep ? `Sleeping since ${friendlyTime(openSleep.occurred_at, now, timeZone)}` : pastDay ? "Sleep, how long?" : "Sleep"} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
+    {panel === "sleep" && <Panel title={openSleeps.length > 1 ? `${openSleeps.length} sleeps running` : openSleep ? `Sleeping since ${friendlyTime(openSleep.occurred_at, now, timeZone)}` : pastDay ? "Sleep, how long?" : "Sleep"} detail={whose} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {pastDay ? ([["30 min", 30], ["1 hr", 60], ["2 hr", 120], ["3 hr", 180]] as const).map(([label, minutes]) => <Option key={label} label={label} onPress={() => void sleepFor(minutes)} />)
-          : <Option label={openSleep ? "End" : "Start"} strong onPress={() => void sleep()} />}
+          : <Option label={openSleeps.length === 2 ? "End both" : openSleeps.length > 2 ? `End all ${openSleeps.length}` : openSleep ? "End" : "Start"} strong onPress={() => void sleep()} />}
       </View>
     </Panel>}
+  </>;
+}
+
+export function QuickLog({ tilesAside, tiles = quickTiles, ...props }: QuickProps & {
+  /** Another log on the page is open, and may need the keyboard: the tiles step out of its way. A running feed stays. */
+  tilesAside?: boolean;
+  /** What this baby has on. A tile with no quick panel goes where it goes. */
+  tiles?: readonly Tracker[];
+}) {
+  const quick = useQuickLog(props);
+  return <View style={{ gap: 8 }}>
+    <QuickPanels quick={quick} />
     {!tilesAside && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      <Tile primary icon={breast.icon} label={(running || legacyTimer) && !pastDay ? "Feeding" : breast.label} open={panel === "breast"}
-        hint={breast.detail!} onPress={() => toggle("breast")} />
-      <Tile icon={bottleTile.icon} label={bottleTile.label} open={panel === "bottle"} hint={bottleTile.detail!} onPress={() => toggle("bottle")} />
-      <Tile icon={diaperTile.icon} label={diaperTile.label} open={panel === "diaper"} hint={diaperTile.detail!} onPress={() => toggle("diaper")} />
-      <Tile icon={openSleep ? "moon" : sleepTile.icon} label={openSleep ? "Sleeping" : sleepTile.label} open={panel === "sleep"} hint={openSleep ? "Ends the current sleep" : sleepTile.detail!} onPress={() => toggle("sleep")} />
+      {tiles.map((tracker, at) => tracker.opens === "quick-log"
+        ? <Tile key={tracker.id} primary={at === 0} many={tiles.length > 4} {...quickFace(quick, tracker)} open={quick.flow.panel === tracker.id} onPress={() => quick.toggle(tracker.id as QuickPanelName)} />
+        : <Tile key={tracker.id} many={tiles.length > 4} icon={tracker.icon} label={tracker.label} hint={tracker.detail} onPress={() => { tap(); router.push(trackerRoute(tracker)); }} />)}
     </View>}
   </View>;
 }

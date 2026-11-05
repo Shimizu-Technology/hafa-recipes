@@ -1,5 +1,5 @@
 import type { IconName } from "../components/ui";
-import type { BabyRecord, Kind } from "./models";
+import type { BabyRecord, ChildDetails, Kind } from "./models";
 
 export type Stage = "expecting" | "born";
 export interface Tracker {
@@ -47,12 +47,12 @@ export const trackers: readonly Tracker[] = [
 ];
 
 /** Things to keep rather than track, for Add. */
-export const keepItems: readonly { kind: Kind; title: string; detail: string }[] = [
-  { kind: "source", title: "Save a video or link", detail: "Video, link, screenshot, or document" },
-  { kind: "journal", title: "Write in your journal", detail: "A thought, a memory, or a photo" },
-  { kind: "event", title: "Add to the calendar", detail: "An appointment, baptism or family visit" },
-  { kind: "question", title: "Keep a doctor question", detail: "Bring your questions to the next visit" },
-  { kind: "routine", title: "Make a list", detail: "A checklist or a routine you review first" },
+export const keepItems: readonly { kind: Kind; label: string; detail: string }[] = [
+  { kind: "source", label: "Video or link", detail: "Video, link, screenshot, or document" },
+  { kind: "journal", label: "Journal", detail: "A thought, a memory, or a photo" },
+  { kind: "event", label: "Calendar", detail: "An appointment, baptism or family visit" },
+  { kind: "question", label: "Doctor question", detail: "Bring your questions to the next visit" },
+  { kind: "routine", label: "List", detail: "A checklist or a routine you review first" },
 ];
 
 const unique = (kinds: Kind[]) => [...new Set(kinds)];
@@ -66,6 +66,26 @@ export const trackersFor = (stage: Stage) => trackers.filter((tracker) => tracke
 /** The ones with a `TrackerPanel` of their own, for a stage. */
 export const panelTrackers = (stage: Stage) => trackersFor(stage).filter((tracker) => tracker.opens === "panel");
 export const shotLabel = "Shot";
+/** It belongs to the baby's other stage, the way a kick counter does after the birth. Add leaves it out unless it's on. Hers stay either way. */
+export const otherStage = (tracker: Tracker, stage: Stage) => tracker.about === "baby" && tracker.defaultOn.length > 0 && !tracker.defaultOn.includes(stage);
+/**
+ * Where a switch is kept in `details.tracking`. One changed before the birth has its own key, so it ends with that stage:
+ * the API can't take a key back out, and a kick counter flipped off and on mustn't still be on after the birth.
+ */
+export const trackingKey = (id: string, stage: Stage) => (stage === "expecting" ? `expecting_${id}` : id);
+/** The tracker a key is about. Other keys in there remember something else, as a suggestion's do. */
+export const trackerForKey = (key: string) => trackerById(key.replace(/^expecting_/, ""));
+/** Whether a tracker is on: what she chose at this stage, or else how she's feeding, or else the stage's default. */
+export function trackerOn(tracker: Tracker, stage: Stage, details?: ChildDetails | null) {
+  const chosen = details?.tracking?.[trackingKey(tracker.id, stage)];
+  if (typeof chosen === "boolean") return chosen;
+  if (stage === "born" && details?.feeding && tracker.id === "breast") return details.feeding !== "bottle";
+  if (stage === "born" && details?.feeding && tracker.id === "bottle") return details.feeding !== "nursing";
+  return tracker.defaultOn.includes(stage);
+}
+
+/** Where a tile goes when it can't open a panel in place. Add has them all, with room for the keyboard. */
+export const trackerRoute = (tracker: Tracker) => (tracker.opens === "panel" || tracker.opens === "quick-log" ? { pathname: "/add" as const, params: { open: tracker.id } } : tracker.opens);
 
 /** Which tracker a saved entry came from. A label nobody listed is one she made up. */
 export function trackerFor({ kind, data }: Pick<BabyRecord, "kind" | "data">) {

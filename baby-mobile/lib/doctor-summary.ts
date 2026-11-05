@@ -1,3 +1,4 @@
+import { birthWords } from "./growth-chart";
 import type { BabyApi } from "./api";
 import { basedOn, type CareStats, type StatsDay } from "./care-stats";
 import { duration, weightText } from "./care-format";
@@ -113,7 +114,9 @@ function totals(stats: CareStats) {
 export interface SummaryPage {
   /** None means a page of only her questions and notes, which needs no network. */
   stats: CareStats | null;
-  child: Pick<Child, "name" | "birth_date" | "due_date"> | null;
+  child: Pick<Child, "name" | "birth_date" | "due_date" | "details"> | null;
+  /** The full page: its Growth section starts with what setup says at birth. */
+  atBirth?: boolean;
   timezone: string;
   prepared: Date;
   questions: BabyRecord[];
@@ -181,19 +184,24 @@ function pumpingDays(rows: BabyRecord[], timezone: string) {
   }
   return [...days].map(([key, day]) => ({ key, ...day }));
 }
-function logSections(logs: BabyRecord[], timezone: string, limit: { notes: number; letters: number }) {
+function logSections(logs: BabyRecord[], timezone: string, limit: { notes: number; letters: number }, birth: string[] = []) {
   const of = (kind: BabyRecord["kind"]) => logs.filter((row) => row.kind === kind),
     custom = of("custom"), shots = custom.filter((row) => trackerFor(row)?.id === "shot"), others = custom.filter((row) => !shots.includes(row));
   return [
     listSection("Medicine", of("medicine"), limit.notes, (row) => { const d = row.data as LogData; return logLine(row, timezone, limit.letters, [d.name, d.dose].filter(Boolean).join(", ")); }),
     listSection("Temperature", of("temperature"), limit.notes, (row) => { const d = row.data as LogData; return logLine(row, timezone, limit.letters, [`${d.value} °${d.unit === "c" ? "C" : "F"}`, d.method].filter(Boolean).join(", ")); }),
-    listSection("Growth", of("growth"), limit.notes, (row) => logLine(row, timezone, limit.letters, measures(row.data as LogData))),
+    // First, and past the limit: it's the one a doctor has nowhere else, and only ever one line.
+    listSection("Growth", [...(birth.length ? [birth] : []), ...of("growth")], limit.notes + (birth.length ? 1 : 0), (row) => "kind" in row
+      ? logLine(row, timezone, limit.letters, measures(row.data as LogData)) : `<li><b>At birth.</b> ${escape(row.join(", "))}</li>`),
     listSection("Pumping", pumpingDays(of("pumping"), timezone), limit.notes, (day) => `<li><b>${escape(shortDay(day.key))}.</b> ${escape([plural(day.sessions, "session"), day.oz && `${Math.round(day.oz * 10) / 10} oz`, day.ml && `${Math.round(day.ml)} mL`].filter(Boolean).join(", "))}</li>`),
     // A name and a date: its noon is only how the date is stored.
     listSection("Shots", shots, limit.notes, (row) => `<li><b>${escape(row.title)}</b> ${escape(longDay(recordDay(row.occurred_at, timezone)))}</li>`),
     listSection("Other logs", others, limit.notes, (row) => { const d = row.data as LogData; return logLine(row, timezone, limit.letters, [d.label, row.title !== d.label && row.title, typeof d.value === "number" && `${d.value}${d.unit ? ` ${d.unit}` : ""}`].filter((part) => part !== false && part !== undefined && part !== "").join(": ")); }),
   ].join("");
 }
+/** Whether a full page will open its Growth section with the birth measurement, for the same line. */
+export const atBirthWords = (child: Pick<Child, "birth_date" | "details"> | null | undefined, logs: BabyRecord[], timezone?: string | null) =>
+  (child && birthWords(child, logs, timezone).length ? "measurements at birth" : "");
 /** What else a full page will carry, in a line for the screen. */
 export function logCounts(logs: BabyRecord[]) {
   const shot = (row: BabyRecord) => trackerFor(row)?.id === "shot", many = (rows: BabyRecord[], one: string, more = `${one}s`) => (rows.length ? `${rows.length} ${rows.length === 1 ? one : more}` : "");
@@ -208,7 +216,7 @@ const herLine = (row: BabyRecord, timezone: string, letters: number) => {
 };
 
 /** One page, in black on white so it survives a photocopier. No colour, no images, no links out, and every word escaped. */
-export function summaryHtml({ stats, child, timezone, prepared, questions, notes, logs = [], her = [] }: SummaryPage, level = 0) {
+export function summaryHtml({ stats, child, timezone, prepared, questions, notes, logs = [], her = [], atBirth }: SummaryPage, level = 0) {
   const limit = levels[Math.min(level, lastSummaryLevel)], first = stats?.days[0]?.date, last = stats?.days[stats.days.length - 1]?.date,
     // A month of rows takes the space notes would, so its table gets tighter before any note is cut short.
     tight = !!stats && stats.days.filter(logged).length > 14, what = stats ? "care summary" : "questions and notes";
@@ -227,7 +235,7 @@ td{text-align:right;border-bottom:.5pt solid #777;padding:${tight ? ".5pt" : "1p
 <p>${first ? `${escape(longDay(first))} to ${escape(longDay(last!))}. ` : ""}Prepared ${escape(prepared.toLocaleDateString(undefined, { timeZone: timezone, month: "long", day: "numeric", year: "numeric" }))}. Times are ${escape(timezone)}.</p></div>
 ${stats ? `<h2>Totals</h2>${totals(stats) || "<p>Nothing logged in these days.</p>"}
 <h2>Day by day</h2>${dayTable(stats.days)}` : `<p class="small">Care totals aren’t on this page.</p>`}
-${logSections(logs, timezone, limit)}
+${logSections(logs, timezone, limit, atBirth && child ? birthWords(child, logs, timezone) : [])}
 ${child?.birth_date ? "" : listSection("Her own logs", her, limit.notes, (row) => herLine(row, timezone, limit.letters))}
 ${listSection("Questions for the doctor", questions, limit.questions, (row) => `<li>${escape(questionLine(row, limit.letters))}</li>`)}
 ${listSection("Notes", notes, limit.notes, (row) => noteLine(row, timezone, limit.letters))}

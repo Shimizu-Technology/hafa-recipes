@@ -44,12 +44,13 @@ function Routes() {
       </Stack.Protected>
       <Stack.Protected guard={!!isSignedIn}>
         <Stack.Screen name="(tabs)" options={{ title: "Back" }} />
-        <Stack.Screen name="add" options={{ presentation: "modal", headerShown: true, title: "What’s on your mind?" }} />
+        <Stack.Screen name="add" options={{ presentation: "modal", headerShown: true, title: "Add" }} />
         <Stack.Screen name="edit" />
         <Stack.Screen name="record/[id]" />
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="child" />
+        <Stack.Screen name="what-shows" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="sync" />
         <Stack.Screen name="routines" />

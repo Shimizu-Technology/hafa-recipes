@@ -51,11 +51,12 @@ it("summarizes today's care for one baby only", () => {
   expect(glance.diapers).toEqual({ total: 2, wet: 2, dirty: 1 });
   expect(glance.openSleep?.occurred_at).toBe(at(20, 17));
   expect(glance.lastSleep?.data.end_at).toBe(at(20, 15));
-  expect(careGlance([], "a", now)).toEqual({ diapers: { total: 0, wet: 0, dirty: 0 }, feeds: 0 });
-  // A forgotten open sleep from days ago, or one older than a newer finished sleep, is not "now".
+  expect(careGlance([], "a", now)).toEqual({ diapers: { total: 0, wet: 0, dirty: 0 }, feeds: 0, openSleeps: [] });
+  // A forgotten open sleep from days ago is not "now".
   expect(careGlance([row("sleep", at(18, 20))], "a", now).openSleep).toBeUndefined();
-  expect(careGlance([row("sleep", at(20, 9)), row("sleep", at(20, 12), { end_at: at(20, 13) })], "a", now).openSleep)
-    .toBeUndefined();
+  // One today still is, even behind a newer finished sleep: it would otherwise be stranded with no way to end it.
+  const stranded = row("sleep", at(20, 9));
+  expect(careGlance([stranded, row("sleep", at(20, 12), { end_at: at(20, 13) })], "a", now).openSleep).toBe(stranded);
 });
 
 it("picks the selected baby or falls back to the first profile", () => {
@@ -99,4 +100,11 @@ it("takes the next side as the opposite of the newest one-sided breastfeed, past
 it("suggests no next side when there is no one-sided feed to go on", () => {
   expect(nextSide([], "baby")).toBeUndefined();
   expect(nextSide([breastfeed("both", "2026-11-04T04:00:00Z", { method: "breast", side: "both" })], "baby")).toBeUndefined();
+});
+
+it("knows about every sleep still open for this baby, newest first", () => {
+  const older = row("sleep", at(20, 9)), newer = row("sleep", at(20, 12)), done = row("sleep", at(20, 10), { end_at: at(20, 11) }), forgotten = row("sleep", at(18, 20));
+  const glance = careGlance([older, done, newer, forgotten, { ...row("sleep", at(20, 8)), child_id: "other" }], "a", now);
+  expect(glance.openSleeps).toEqual([newer, older]);
+  expect(glance.openSleep).toBe(newer);
 });

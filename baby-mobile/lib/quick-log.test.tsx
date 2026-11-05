@@ -316,6 +316,9 @@ it("says Just now rather than 0m ago", async () => {
 });
 it("has no next side to show before the first feed, and says so plainly", async () => {
   setup();
+  await act(async () => { renderer = create(<CareGlance child={child} rows={[breast("last", "left")]} now={new Date()} sides={false} />); });
+  expect(texts().join(" ")).not.toContain("Next side");
+  act(() => renderer!.unmount());
   await act(async () => { renderer = create(<CareGlance child={child} rows={[]} now={new Date()} />); });
   expect(texts()).not.toContain("Next side");
 });
@@ -442,6 +445,56 @@ it("starts and ends sleep from one panel, and undoes the end", async () => {
   expect(pendingRecords(b.state)[0].data.end_at).toBeUndefined();
 });
 
+it("two phones' sleeps: says both are running, ends both at the chosen time in one tap, and Undo restores both", async () => {
+  const b = setup();
+  const sleep = (id: string, at: string) => ({ id, kind: "sleep", title: "Sleep", body: "", child_id: "baby", occurred_at: at, data: {}, revision: 1, created_at: at, updated_at: at }) as BabyRecord;
+  const rows = [sleep("a", "2026-11-04T16:30:00.000Z"), sleep("b", "2026-11-04T15:00:00.000Z")];
+  b.state = { ...b.state, records: rows };
+  await mount();
+  await press("Sleeping");
+  expect(target("Start")).toBeUndefined();
+  expect(texts().join(" ")).toContain("2 sleeps running");
+  await press("End both");
+  const ended = pendingRecords(b.state).filter((row) => row.kind === "sleep");
+  expect(ended.map((row) => row.data.end_at)).toEqual([start.toISOString(), start.toISOString()]);
+  await press("Undo 2 sleeps ended");
+  expect(pendingRecords(b.state).filter((row) => row.kind === "sleep" && !row.data.end_at)).toHaveLength(2);
+});
+it("ends a sleep at its own start if the chosen time is earlier, not before it began", async () => {
+  const b = setup();
+  const late = { id: "late", kind: "sleep", title: "Sleep", body: "", child_id: "baby", occurred_at: start.toISOString(), data: {}, revision: 1, created_at: start.toISOString(), updated_at: start.toISOString() } as BabyRecord,
+    early = { ...late, id: "early", occurred_at: "2026-11-04T15:00:00.000Z" };
+  vi.setSystemTime(start.getTime() - 60_000);
+  b.state = { ...b.state, records: [late, early] };
+  await mount();
+  await press("Sleeping");
+  await press("End both");
+  const end = (id: string) => pendingRecords(b.state).find((row) => row.id === id)!.data.end_at;
+  expect(end("late")).toBe(start.toISOString());
+  expect(end("early")).toBe(new Date(start.getTime() - 60_000).toISOString());
+});
+it("still starts offline with no sleep open, whatever the other phone may have", async () => {
+  setup();
+  await mount();
+  await press("Sleep");
+  expect(target("Start")).toBeDefined();
+  await press("Start");
+  expect(lastSave()).toMatchObject({ kind: "sleep", data: {} });
+});
+it("a save finishing late leaves a panel she's since opened alone, and still shows it saved", async () => {
+  const b = setup(); let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  b.queue = vi.fn(async (m: Mutation) => { await wait; b.state = { ...b.state, outbox: [...b.state.outbox, m] }; });
+  await mount();
+  await press("Diaper");
+  await act(async () => { target("Pee")!.props.onPress(); await Promise.resolve(); });
+  await press("Bottle");
+  expect(target("Formula")).toBeDefined();
+  await act(async () => { release(); await wait; });
+  await refresh();
+  expect(target("Formula")).toBeDefined();
+  expect(target("Undo Pee")).toBeDefined();
+});
 it("stamps a log now by default, and the time chip changes it before or after saving", async () => {
   const b = setup();
   await mount();

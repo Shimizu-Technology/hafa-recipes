@@ -191,6 +191,33 @@ it.each([1, 3.1])("keeps Undo above the native tab bar through a live fontScale 
   expect(controls().some(n => n.props.accessibilityLabel === "Undo")).toBe(true);
 });
 
+it("takes a toast's Undo away at its own expiry, whatever else the toast is doing", async () => {
+  vi.useFakeTimers();
+  const undo = vi.fn();
+  let show: ReturnType<typeof useToast>;
+  const Host = () => { show = useToast(); return null; };
+  await mount(<ToastProvider><Host /></ToastProvider>);
+  await act(async () => { show("Saved: Right", { label: "Undo", onPress: undo, until: Date.now() + 3000 }); await Promise.resolve(); await Promise.resolve(); });
+  const offered = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).filter(n => n.props.accessibilityLabel === "Undo");
+  expect(offered()).toHaveLength(1);
+  await act(async () => { vi.advanceTimersByTime(2900); });
+  expect(offered()).toHaveLength(1);
+  const late = offered()[0].props.onPress;
+  await act(async () => { vi.advanceTimersByTime(200); });
+  expect(offered()).toHaveLength(0);
+  // A tap already on its way when it went does nothing.
+  await act(async () => { late(); });
+  expect(undo).not.toHaveBeenCalled();
+  vi.useRealTimers();
+});
+it("offers no Undo at all when its expiry passed before the toast could show", async () => {
+  const undo = vi.fn();
+  let show: ReturnType<typeof useToast>;
+  const Host = () => { show = useToast(); return null; };
+  await mount(<ToastProvider><Host /></ToastProvider>);
+  await act(async () => { show("Saved: Right", { label: "Undo", onPress: undo, until: Date.now() - 1 }); });
+  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).filter(n => n.props.accessibilityLabel === "Undo")).toHaveLength(0);
+});
 it("caps the toast's text so a short word beside Undo isn't split at the largest size", async () => {
   mock.fontScale = 3.1;
   function Trigger() {

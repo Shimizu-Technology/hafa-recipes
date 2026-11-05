@@ -143,3 +143,18 @@ it("plots every dot in the chart's unit, whichever unit it was saved in", async 
   const [birth, later] = renderer!.root.findAll((n) => String(n.type) === "Circle").map((n) => n.props.cy as number);
   expect(birth).toBeGreaterThan(later);
 });
+
+it("marks the birth measurement on the chart and the list, and its row opens the profile that holds it", async () => {
+  setup("girl");
+  m.account.state.bootstrap.children[0].details = { sex: "girl", weight_at_birth_g: 3345 };
+  await mount();
+  const row = rows().find((one) => one.title === "7 lb 6 oz")!;
+  expect(row.detail).toContain("At birth");
+  await act(async () => row.onPress());
+  expect(m.push).toHaveBeenCalledWith({ pathname: "/child", params: { id: "kid" } });
+  const chart = renderer!.root.findAll((n) => n.props.accessibilityRole === "image")[0];
+  await act(async () => chart.props.onLayout({ nativeEvent: { layout: { width: 340 } } }));
+  const labels = renderer!.root.findAll((n) => String(n.type) === "SvgText").map((n) => n.props.children);
+  expect(labels).toContain("Birth");
+  expect(chart.props.accessibilityLabel).toContain("7 lb 6 oz");
+});

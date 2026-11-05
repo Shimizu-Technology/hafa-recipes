@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { ScrollView, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
-import { careLogsStarted, profileToday, timingChild, todayStage } from "@/lib/timing";
+import { careLogsStarted, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
 import { dayKey, dayRange, summaryLine, keyDate, addDays, onDay, timelineKinds, weekOf } from "@/lib/tracker";
 import { dayOverlay } from "@/lib/care-summary";
@@ -19,7 +19,7 @@ import { SyncStatus } from "@/components/sync-status";
 import { useMinuteClock } from "@/components/care-glance";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
-import { trackerById } from "../../../lib/trackers";
+import { panelTrackers, trackerOn, trackersFor, trackingKey } from "../../../lib/trackers";
 import { LegacyTimer } from "@/components/feed-timer";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
 import { TrackerMonth } from "@/components/tracker-month";
@@ -54,6 +54,12 @@ export default function Tracker() {
     children = b.state.bootstrap!.children,
     logging = careLogsStarted(children, keyDate(today)) && !!child && todayStage(child, keyDate(today)) === "baby",
     expecting = !!child && !logging && todayStage(child, keyDate(today)) !== "none",
+    stage = child ? trackerStage(child, keyDate(today)) : "born",
+    onNow = child ? trackersFor(stage).filter((tracker) => trackerOn(tracker, stage, child.details)) : [],
+    timers = onNow.filter((tracker) => tracker.opens === "/contractions" || tracker.opens === "/kicks").reverse(),
+    // Add logs today, so another day keeps a way to log the rest, short of what she's turned off.
+    moreShown = day !== today ? panelTrackers(stage).filter((tracker) => child?.details?.tracking?.[trackingKey(tracker.id, stage)] !== false)
+      : onNow.filter((tracker) => tracker.opens !== "quick-log" || !logging).filter((tracker) => logging || !timers.includes(tracker)),
     // Before the birth there's nothing to log by the day yet, so she lands on the calendar and the tools.
     view = chosenView ?? (expecting ? "month" : "day"),
     stats = useCareStats(view === "stats" ? statsChoice : null, scope),
@@ -76,15 +82,15 @@ export default function Tracker() {
   }, [params.day, params.at]);
   const addEvent = (key: string) => router.push({ pathname: "/edit", params: { kind: "event", day: key } }),
     pick = (key: string) => setPicked(key === today ? null : key),
-    quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} tilesAside={moreOpen} /> : null;
+    quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} tilesAside={moreOpen} tiles={onNow.filter((tracker) => tracker.opens === "quick-log")} /> : null;
   return (
     <Screen title="Tracker" scrollRef={scroller} onRefresh={() => Promise.all([care.refresh(), recent.refresh(), stats.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
       <Stack.Screen options={{ title: "Tracker" }} />
       <SyncStatus />
       {children.length > 1 && <ChildFilter only={scope ?? undefined} />}
       <FilterChips label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }, { label: "Stats", value: "stats" }]} />
-      {expecting && view !== "stats" && <Grouped>
-        {[trackerById("contractions")!, trackerById("kicks")!].map((tracker) => <Row key={tracker.id} title={tracker.label} detail={tracker.detail} icon={tracker.icon} onPress={() => router.push(tracker.opens as "/kicks")} />)}
+      {expecting && view !== "stats" && !!timers.length && <Grouped>
+        {timers.map((tracker) => <Row key={tracker.id} title={tracker.label} detail={tracker.detail} icon={tracker.icon} onPress={() => router.push(tracker.opens as "/kicks")} />)}
       </Grouped>}
       {view === "month" ? <>
         <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date} onOpen={(key) => { pick(key); setView("day"); }} />
@@ -123,13 +129,14 @@ export default function Tracker() {
         )}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}
-      {(logging || expecting) && !future && <MoreLogs key={`more:${day}`} child={child!} now={now} stage={logging ? "born" : "expecting"} pastDay={day === today ? undefined : { key: day, timezone }} onOpen={(open, y) => { setMoreOpen(open); if (open) scroller.current?.scrollTo({ y, animated: true }); }} />}
+      {(logging || expecting) && !future && <MoreLogs key={`more:${day}`} child={child!} now={now} shown={moreShown} pastDay={day === today ? undefined : { key: day, timezone }} onOpen={(open, y) => { setMoreOpen(open); if (open) scroller.current?.scrollTo({ y, animated: true }); }} />}
       <Button secondary size="lg" icon="add" title="Add event" onPress={() => addEvent(day)} />
       </>}
       <Grouped>
         <Row title="Doctor summary" detail="One page to bring to an appointment" icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: scope ?? undefined } })} />
         {logging && <Row title="Growth" detail="Your measurements on CDC’s WHO charts" icon="trending-up-outline" onPress={() => router.push("/growth")} />}
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
+        {!!child && <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
       </Grouped>
     </Screen>
   );

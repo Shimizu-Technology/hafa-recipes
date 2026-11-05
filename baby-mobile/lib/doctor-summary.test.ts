@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord, type Mutation } from "./models";
-import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryWords, type SummaryPage } from "./doctor-summary";
+import { atBirthWords, lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryWords, type SummaryPage } from "./doctor-summary";
 
 const row = (id: string, kind: BabyRecord["kind"], occurred_at: string, body = "", changes: Partial<BabyRecord> = {}) =>
   ({ ...optimisticRecord({ id, kind, title: kind === "journal" ? `Entry ${id}` : "", body, child_id: "baby", occurred_at, data: {} }), revision: 1, ...changes });
@@ -244,5 +244,35 @@ describe("the extra logs on the page", () => {
     await expect(summaryEntries({ records } as never, state([]), "baby", "2026-11-03", "2026-11-03", "Pacific/Guam")).rejects.toBeInstanceOf(SummaryTooLong);
     const asked = records.mock.calls.map(([filters]) => filters.kinds ?? []).find((kinds) => kinds.includes("medicine"))!;
     for (const kind of ["medicine", "temperature", "growth", "pumping", "custom", "journal"]) expect(asked).toContain(kind);
+  });
+});
+
+describe("the measurement at birth on the page", () => {
+  const baby = { name: "Noa", birth_date: "2026-11-01", details: { weight_at_birth_g: 3345, length_at_birth_cm: 50.8 } },
+    logged = (data: Record<string, unknown>, at = "2026-11-01T03:00:00.000Z") => ({ id: at, kind: "growth", title: "Growth", body: "", child_id: "baby", occurred_at: at, data, revision: 1, created_at: at, updated_at: at }) as any;
+  it("leads the growth section, in plain words", () => {
+    const html = summaryHtml(page({ child: baby, atBirth: true }));
+    expect(html).toContain("<h2>Growth</h2>");
+    expect(html).toContain("<b>At birth.</b> 7 lb 6 oz, 20 in");
+  });
+  it("sits above what she logged, and stays when the page runs short", () => {
+    const rows = Array.from({ length: 20 }, (_, at) => logged({ weight: 9, weight_unit: "lb" }, `2026-12-${String(at + 1).padStart(2, "0")}T03:00:00.000Z`)),
+      html = summaryHtml(page({ child: baby, atBirth: true, logs: rows }), lastSummaryLevel);
+    expect(html.indexOf("At birth.")).toBeLessThan(html.indexOf("9 lb"));
+  });
+  it("says only what she didn't also log that day", () => {
+    expect(summaryHtml(page({ child: baby, atBirth: true, logs: [logged({ weight: 7.4, weight_unit: "lb" })] }))).toContain("<b>At birth.</b> 20 in");
+    expect(summaryHtml(page({ child: baby, atBirth: true, logs: [logged({ weight: 7.4, weight_unit: "lb", length: 20, length_unit: "in" })] }))).not.toContain("At birth.");
+  });
+  it("uses the unit she logs in", () => {
+    expect(summaryHtml(page({ child: baby, atBirth: true, logs: [logged({ weight: 5, weight_unit: "kg", length: 55, length_unit: "cm" }, "2026-12-01T03:00:00.000Z")] }))).toContain("<b>At birth.</b> 3.35 kg, 50.8 cm");
+  });
+  it("is left out of a questions-only page, and with no answers", () => {
+    expect(summaryHtml(page({ child: baby }))).not.toContain("At birth.");
+    expect(summaryHtml(page({ child: { name: "Noa", birth_date: "2026-11-01" }, atBirth: true }))).not.toContain("At birth.");
+  });
+  it("says it's on the page, on the screen before she shares it", () => {
+    expect(atBirthWords(baby, [])).toBe("measurements at birth");
+    expect(atBirthWords({ birth_date: "2026-11-01" }, [])).toBe("");
   });
 });

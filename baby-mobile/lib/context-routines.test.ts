@@ -213,6 +213,63 @@ describe("from the review of #543: when the queue meets a failure", () => {
     expect(baby.state.outbox.map((m) => m.id)).toEqual(["m"]);
   });
 });
+describe("a What shows switch with no signal", () => {
+  const child = { id: "baby", name: "Mia", revision: 3, birth_date: "2026-11-01", details: { sex: "girl", tracking: { kicks: true } } },
+    server = { ...bootstrap, children: [child] },
+    off = { id: "off", generation: 1, type: "child_tracking" as const, child_id: "baby", tracking: { diaper: false }, previous: { diaper: null } };
+  beforeEach(() => {
+    mock.api = { bootstrap: vi.fn(async () => server), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined,
+      child: vi.fn(async (value: any) => ({ ...child, revision: value.revision + 1, details: { ...child.details, tracking: { ...child.details.tracking, ...value.details.tracking } } })) };
+    mock.saved = { ...emptyState(), bootstrap: server, outbox: [off] } as unknown as DeviceState;
+  });
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const shown = () => baby.state.bootstrap!.children[0];
+  it("sends only that switch, at the revision the API has", async () => {
+    await mount(); await flush();
+    expect(mock.api.child).toHaveBeenCalledExactlyOnceWith({ id: "baby", details: { tracking: { diaper: false } }, revision: 3 }, 1);
+    expect(baby.state.outbox).toEqual([]);
+    expect(shown().details!.tracking).toEqual({ kicks: true, diaper: false });
+  });
+  it("keeps it through a refresh while the request fails", async () => {
+    mock.api.child = vi.fn(async () => { throw new ApiError("Offline", 0); });
+    await mount(); await flush();
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(shown().details!.tracking).toEqual({ kicks: true, diaper: false });
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["off"]);
+  });
+  it("sends it again at the new revision after a conflict", async () => {
+    let onServer: any = { ...child };
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [onServer] }));
+    mock.api.child = vi.fn().mockRejectedValueOnce(new ApiError("Changed", 409)).mockImplementation(async (value: any) => (onServer = { ...onServer, revision: value.revision + 1, details: { tracking: { ...onServer.details.tracking, ...value.details.tracking } } }));
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([expect.objectContaining({ id: "off", attempts: 1 })]);
+    onServer = { ...child, name: "Mia Rose", revision: 7 };
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
+    await flush();
+    expect(mock.api.child).toHaveBeenLastCalledWith({ id: "baby", details: { tracking: { diaper: false } }, revision: 7 }, 1);
+    expect(baby.state.outbox).toEqual([]);
+    expect(shown()).toMatchObject({ name: "Mia Rose", revision: 8 });
+  });
+  it("is done without a write when the API already has it", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [{ ...child, details: { tracking: { diaper: false } } }] }));
+    await mount(); await flush();
+    expect(mock.api.child).not.toHaveBeenCalled();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("an offline switch preserves another phone's different switch", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [{ ...child, revision: 7, details: { sex: "girl", tracking: { kicks: true, bottle: false } } }] }));
+    mock.api.child = vi.fn(async (v: any) => ({ ...child, revision: v.revision + 1, details: { sex: "girl", tracking: { kicks: true, bottle: false, ...v.details.tracking } } }));
+    await mount(); await flush();
+    expect(shown().details!.tracking).toMatchObject({ diaper: false, bottle: false, kicks: true });
+    expect(mock.api.child.mock.calls[0][0]).toMatchObject({ revision: 7, details: { tracking: { diaper: false } } });
+  });
+  it("says so when the baby's profile has gone", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [] }));
+    await mount(); await flush();
+    expect(mock.api.child).not.toHaveBeenCalled();
+    expect(baby.state.outbox).toEqual([expect.objectContaining({ id: "off", error: expect.stringContaining("removed") })]);
+  });
+});
 describe("Baby's here with no signal", () => {
   const child = { id: "baby", name: "Mia", revision: 3, due_date: "2026-12-10", birth_date: null },
     server = { ...bootstrap, children: [child] },
