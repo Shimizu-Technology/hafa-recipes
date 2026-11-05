@@ -374,10 +374,6 @@ async def bootstrap_state(user, db, *, create, request):
     if create and access:
         personal = next(g for g in access.spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
-        if access.client != "3":
-            from app.domains.baby.invites import note_older_build
-
-            note_older_build(member)
     await db.commit()
     return result
 

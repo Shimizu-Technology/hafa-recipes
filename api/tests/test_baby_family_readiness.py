@@ -112,22 +112,7 @@ async def test_a_signed_out_phone_doesnt_count(baby_api, gate):
 
 
 async def test_no_known_phone_isnt_a_reason_to_stop(baby_api, gate):
-    assert (await readiness(baby_api, gate)) == {"ready": True, "phones": [], "older_build_seen": False}
-
-
-async def test_an_older_build_opening_after_a_new_one_reported_blocks_even_with_no_credential(baby_api, gate):
-    await phone(baby_api, gate)
-    assert (await baby_api.client.post(API + "/bootstrap", headers={"X-Test-Owner": "owner", "X-Baby-Client": "2"})).status_code == 200
-    state = await readiness(baby_api, gate)
-    assert state["ready"] is False and state["older_build_seen"] is True
-    assert (await create(baby_api, gate)).status_code == 409
-
-
-async def test_a_phone_that_just_updated_isnt_held_up_by_its_own_last_old_request(baby_api, gate):
-    installation, _ = await phone(baby_api, gate, client="2")
-    assert (await baby_api.client.post(API + "/bootstrap", headers={"X-Test-Owner": "owner", "X-Baby-Client": "2"})).status_code == 200
-    await phone(baby_api, gate, installation=installation)
-    assert (await readiness(baby_api, gate))["ready"] is True
+    assert (await readiness(baby_api, gate)) == {"ready": True, "phones": []}
 
 
 async def test_only_the_first_invite_is_gated_since_nothing_moves_after_that(baby_api, gate):

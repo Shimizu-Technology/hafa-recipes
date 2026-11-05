@@ -1,7 +1,7 @@
 """Hashed, single-use family invitations. No token is stored or returned on list."""
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -101,33 +101,20 @@ def note_phone_ready(member, installation):
     member.profile = {**member.profile, "family_phones": {key: phones[key] for key in newest}}
 
 
-def note_older_build(member):
-    """An older build opened. Noted at most every few minutes, as it asks every 15 seconds."""
-    seen = member.profile.get("older_build_at")
-    if not seen or datetime.fromisoformat(seen) < now() - timedelta(minutes=5):
-        member.profile = {**member.profile, "older_build_at": now().isoformat()}
-
-
 async def family_readiness(db, access, installation=None):
     """Whether every phone signed in to this account can follow its baby into a family.
 
     Every iOS build asks for a share credential when it opens, so its credential is how a phone is
     known. One that hasn't asked as client 3 is outdated. One whose credential expired hasn't opened
-    in a month, so nobody can say. Either blocks, until it updates or she says it's not in use. A
-    phone with no credential shows up by its requests: an older build seen since the last new one
-    reported blocks too, and a phone that just updated isn't held up by its own last old request.
+    in a month, so nobody can say. Either blocks, until it updates or she says it's not in use.
     """
     rows = await db.scalars(select(BabyShareCredential).where(
         BabyShareCredential.app_user_id == access.actor, BabyShareCredential.revoked_at.is_(None)))
-    profile = access.member.profile
-    ready = profile.get("family_phones", {})
+    ready = access.member.profile.get("family_phones", {})
     phones = [{"id": str(row.id), "state": "unknown" if row.expires_at <= now() else "ready" if row.installation_hash in ready else "outdated",
                "last_seen": row.expires_at - timedelta(days=CREDENTIAL_DAYS),
                "this_phone": row.installation_hash == installation} for row in rows]
-    older = profile.get("older_build_at")
-    older_seen = bool(older) and (not ready or older > max(ready.values()))
-    return {"ready": not older_seen and all(phone["state"] == "ready" for phone in phones),
-            "phones": phones, "older_build_seen": older_seen}
+    return {"ready": all(phone["state"] == "ready" for phone in phones), "phones": phones}
 
 
 async def check_invite_creation(db, access, body, generation):

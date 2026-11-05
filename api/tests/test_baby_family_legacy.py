@@ -75,7 +75,9 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
             ("POST", "/api/v1/baby/family/invites/accept", {"code": "hfbi_v1.synthetic", "disclosure_version": 1}),
             ("GET", f"/api/v1/baby/family/{family}/invites", None),
             ("GET", f"/api/v1/baby/family/{family}/members", None),
-            ("DELETE", f"/api/v1/baby/family/{family}/invites/{uuid4()}", None)):
+            ("DELETE", f"/api/v1/baby/family/{family}/invites/{uuid4()}", None),
+            ("GET", "/api/v1/baby/family/readiness", None),
+            ("POST", f"/api/v1/baby/family/phones/{uuid4()}/forget", {})):
         await call(method, path, expected=403 if enabled and method != "POST" else 404,
                    **({"json": body} if body is not None else {}))
     await call("GET", "/api/v1/baby/changes", expected=403 if enabled else 404)
