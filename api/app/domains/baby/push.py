@@ -23,7 +23,7 @@ from app.domains.baby.dependencies import Client, Database, Generation, Limit, U
 from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyNotification, BabyNotificationPref, BabyPushDevice
 from app.domains.baby.queries import legacy_client
-from app.domains.baby.reminders import dismiss, reminder_access, resolve
+from app.domains.baby.reminders import dismiss, lock_screen, reminder_access, resolve
 from app.domains.baby.schemas import DomainModel, Profile
 from app.domains.baby.security import BabyRoute, push_enabled
 from app.rate_limit import QuotaWindow, RateLimitExceeded, push_registration_limiter
@@ -328,6 +328,46 @@ async def due_reminders(user: User, db: Database, client: Client = None, limit: 
         words = await resolve(db, row, access, prefs)
         if words and not words.not_yet(now()):
             items.append(reminder_item(row, words))
+    return {"items": items}
+
+
+@router.get("/reminders/upcoming")
+async def upcoming_reminders(user: User, db: Database, client: Client = None, limit: Limit = 30):
+    """What a phone can hold as its offline copy: the same identity, at the time it would go, in lock-screen words."""
+    from app.domains.baby import triggers  # noqa: F401  (each kind's wording registers itself)
+
+    access = await reminder_access(db, user.id, client=client)
+    prefs = await load_prefs(db, user.id, access.personal_space_id)
+    moment = now()
+    rows = await db.scalars(
+        select(BabyNotification)
+        .where(
+            BabyNotification.space_id.in_(readable_spaces(access)),
+            BabyNotification.app_user_id == user.id,
+            BabyNotification.status == "queued",
+            BabyNotification.provider_ticket.is_(None),
+            BabyNotification.due_at > moment,
+            BabyNotification.dismissed_at.is_(None),
+        )
+        .order_by(BabyNotification.due_at, BabyNotification.id)
+        .limit(limit)
+    )
+    items = []
+    for row in rows:
+        words = await resolve(db, row, access, prefs)
+        if not words:
+            continue
+        due, through = words.due_at or row.due_at, prefs.kind(row.kind).break_through
+        items.append({
+            "id": row.id,
+            "kind": row.kind,
+            "space_id": row.space_id,
+            "identity": row.collapse_id,
+            "fire_at": (not through and quiet_until(prefs.quiet_hours, due)) or due,
+            "text": lock_screen(row.kind),
+            "time_sensitive": through,
+            "data": words.data,
+        })
     return {"items": items}
 
 
