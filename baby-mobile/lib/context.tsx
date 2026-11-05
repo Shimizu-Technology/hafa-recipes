@@ -56,6 +56,9 @@ import {
   waitingForImport,
   withNotice,
   withPendingBirths,
+  withPendingTracking,
+  withoutTracking,
+  trackingStep,
   withSettled,
   withoutBirth,
   withoutChain,
@@ -154,7 +157,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           throw Error("Restore your private device data before saving. Existing files have not been overwritten.");
         api.assertLease(lease);
         const before = ref.current;
-        const value = withPendingBirths(trackRoutineIntents(before, change(before), ownerRef.current));
+        const value = withPendingTracking(withPendingBirths(trackRoutineIntents(before, change(before), ownerRef.current)));
         if (deleting.current && value.bootstrap) throw Error("Baby data deletion is in progress.");
         if (value.outbox.some((m) => m.generation !== value.bootstrap?.generation))
           throw Error("Older changes cannot be saved after Baby data is cleared.");
@@ -365,6 +368,33 @@ export function BabyProvider({ children }: PropsWithChildren) {
             await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id),
               bootstrap: s.bootstrap && { ...s.bootstrap, children: s.bootstrap.children.map((child) => (child.id === saved.id ? saved : child)) } }));
             continue;
+          } else if (next.type === "child_tracking") {
+            const server = serverChildren.find((child) => child.id === next.child_id), step = trackingStep(server, next);
+            if (step === "gone") {
+              await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id ? { ...m, error: "This baby’s profile was removed." } : m)) }));
+              continue;
+            }
+            let taken = false;
+            await commit((s) => {
+              taken = s.outbox.some((m) => m.id === next.id);
+              return { ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "child_tracking" ? { ...m, sent: true } : m)) };
+            });
+            if (!taken) continue;
+            let saved = server!;
+            if (step === "send") {
+              try {
+                saved = await api.child({ id: server!.id, details: { tracking: next.tracking }, revision: server!.revision }, next.generation);
+              } catch (failure) {
+                if (!(failure instanceof ApiError && !failure.local && failure.status === 409) || !current()) throw failure;
+                // Something else on this child moved. The next pass reads it again and sends the switch at its new revision.
+                await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "child_tracking" ? retryLater(m) : m)) }));
+                continue;
+              }
+              serverChildren = serverChildren.map((child) => (child.id === saved.id ? saved : child));
+            }
+            await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id),
+              bootstrap: s.bootstrap && { ...s.bootstrap, children: s.bootstrap.children.map((child) => (child.id === saved.id ? saved : child)) } }));
+            continue;
           } else if (next.type === "feed_action" || next.type === "session_action") {
             // Once the request begins the API may have it, whatever comes back. Undo sees this before it can take it back.
             let taken = false;
@@ -484,7 +514,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             noteFailure(e);
             break;
           }
-          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
+          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "child_tracking" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
             await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type !== "import" ? retryLater(m) : m)) }));
             continue;
           }
@@ -706,7 +736,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             const removed = s.outbox.find((m) => m.id === id);
             if (!removed) return s;
             const left = withoutChain(s, removed, server);
-            return removed.type === "child_birth" ? withoutBirth(left, removed, child) : left;
+            return removed.type === "child_birth" ? withoutBirth(left, removed, child) : removed.type === "child_tracking" ? withoutTracking(left, removed, child) : left;
           });
           void funcs.current.sync();
         },

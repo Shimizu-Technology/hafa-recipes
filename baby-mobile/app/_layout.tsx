@@ -50,6 +50,7 @@ function Routes() {
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="child" />
+        <Stack.Screen name="what-shows" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="sync" />
         <Stack.Screen name="routines" />

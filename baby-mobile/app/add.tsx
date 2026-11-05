@@ -49,7 +49,7 @@ function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage
     tap();
     router.replace(tracker.opens);
   }
-  const on = listed.filter((tracker) => trackerOn(tracker, stage)),
+  const on = listed.filter((tracker) => trackerOn(tracker, stage, child.details)),
     rest = listed.filter((tracker) => !on.includes(tracker) && (!otherStage(tracker, stage) || (tracker.id === "sleep" && !!quick.openSleep))),
     tile = (tracker: Tracker, big: boolean) => <TrackerTile key={tracker.id} tracker={tracker} big={big} {...(tracker.opens === "quick-log" ? quickFace(quick, tracker) : {})}
       open={tracker.opens === "quick-log" || tracker.opens === "panel" ? panel === tracker.id : undefined} onPress={() => open(tracker)} />,
@@ -69,6 +69,7 @@ function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage
     <Keep />
     {group(`For ${child.name}`, rest.filter((tracker) => tracker.about === "baby"))}
     {group("For you", rest.filter((tracker) => tracker.about === "her"))}
+    <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.replace({ pathname: "/what-shows", params: { child: child.id } })} />
   </>;
 }
 

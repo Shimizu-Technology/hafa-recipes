@@ -117,6 +117,17 @@ it("asks the API about a sent birth date too, and names it", async () => {
   expect(renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => [n.props.children].flat().join("")).join()).toContain("Birth date");
 });
 
+it("names a waiting switch, and asks the API about a sent one before showing the old copy", async () => {
+  const child = { id: "baby", name: "Mia", revision: 4, birth_date: "2026-11-01" }, off: Mutation = { id: "t", generation: 1, type: "child_tracking", child_id: "baby", tracking: { diaper: false, breast: false }, previous: { diaper: null, breast: null }, sent: true };
+  const b = setup([off]);
+  b.api.bootstrap = vi.fn(async () => ({ children: [child] }));
+  await discard();
+  expect(b.discardQueued).toHaveBeenCalledWith("t", undefined, child);
+  const words = renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => [n.props.children].flat().join("")).join();
+  expect(words).toContain("What shows");
+  expect(words).toContain("Diaper off, Breastfeed off.");
+});
+
 it("names a refused split in plain words, and says what discarding it takes along", async () => {
   const event = (id: string, title: string) => ({ id, kind: "event" as const, title, body: "", child_id: null, occurred_at: "2026-11-16T00:00:00.000Z", data: { timezone: "Pacific/Guam" } }),
     split: Mutation = { id: "next", generation: 1, type: "event_split", series: { ...event("class", "Class"), revision: 4 }, event: event("next", "New class"), from_start: "2026-11-16T00:00:00.000Z", files: [], conflict: true, error: "This event changed somewhere else" },

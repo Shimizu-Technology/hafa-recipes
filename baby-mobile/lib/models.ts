@@ -405,6 +405,21 @@ export type Mutation = { localOnly?: boolean } & (
       conflict?: boolean;
     }
   | {
+      /** A "What shows" switch: only these keys change, and the API merges them key by key. */
+      id: string;
+      generation: number;
+      type: "child_tracking";
+      child_id: string;
+      tracking: Record<string, boolean>;
+      /** What each key was, for when it's discarded. Null means it was following its default. */
+      previous: Record<string, boolean | null>;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
       id: string;
       generation: number;
       type: "import";

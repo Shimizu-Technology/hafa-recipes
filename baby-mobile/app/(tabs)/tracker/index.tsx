@@ -130,6 +130,7 @@ export default function Tracker() {
         <Row title="Doctor summary" detail="One page to bring to an appointment" icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: scope ?? undefined } })} />
         {logging && <Row title="Growth" detail="Your measurements on CDC’s WHO charts" icon="trending-up-outline" onPress={() => router.push("/growth")} />}
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
+        {!!child && <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
       </Grouped>
     </Screen>
   );

@@ -21,6 +21,9 @@ import {
   birthStep,
   queueRemovedUploads,
   withPendingBirths,
+  withPendingTracking,
+  withoutTracking,
+  trackingStep,
   withSettled,
   withoutChain,
   queuedChain,
@@ -289,6 +292,39 @@ describe("a change waiting behind its record", () => {
   it("leaves records without actions alone, and ordinary saves don't rebase", () => {
     const opened = withFeedAction(feedRow(1).data, end);
     expect((advancePending(edit(1, opened), saved(1), { ...accepted(2), data: { ...accepted(2).data, duration_minutes: 9 } }) as any).record.data.duration_minutes).toBe(1.02);
+  });
+});
+
+describe("a switch waiting on this phone", () => {
+  const baby = { id: "baby", name: "Mia", revision: 3, details: { sex: "girl" as const, tracking: { kicks: true } } },
+    bootstrap = { generation: 1, active: true, ai_available: false, children: [baby], profile: { display_name: "", timezone: "UTC", ai_consent: false } },
+    off = { id: "t", generation: 1, type: "child_tracking" as const, child_id: "baby", tracking: { diaper: false }, previous: { diaper: null } };
+  it("shows through a fresh bootstrap, on top of what the API says, keeping the other details", () => {
+    expect(withPendingTracking({ ...emptyState(), bootstrap, outbox: [off] }).bootstrap!.children[0].details).toEqual({ sex: "girl", tracking: { kicks: true, diaper: false } });
+  });
+  it("follows the last change, and is the same state with nothing to show", () => {
+    const back = { ...off, id: "u", tracking: { diaper: true } };
+    expect(withPendingTracking({ ...emptyState(), bootstrap, outbox: [off, back] }).bootstrap!.children[0].details!.tracking).toEqual({ kicks: true, diaper: true });
+    const none = { ...emptyState(), bootstrap }, same = withPendingTracking({ ...emptyState(), bootstrap, outbox: [off] });
+    expect(withPendingTracking(none)).toBe(none);
+    expect(withPendingTracking(same)).toBe(same);
+  });
+  it("copes with a baby with no details, as an older API sends", () => {
+    const plain = { ...bootstrap, children: [{ id: "baby", name: "Mia", revision: 3 }] };
+    expect(withPendingTracking({ ...emptyState(), bootstrap: plain, outbox: [off] }).bootstrap!.children[0].details).toEqual({ tracking: { diaper: false } });
+  });
+  it("goes back to what the API said, or else what it saw, when it's discarded", () => {
+    const shown = withPendingTracking({ ...emptyState(), bootstrap, outbox: [off] });
+    expect(withoutTracking(shown, off).bootstrap!.children[0].details!.tracking).toEqual({ kicks: true });
+    const fresh = { ...baby, revision: 9 };
+    expect(withoutTracking(shown, off, fresh).bootstrap!.children[0]).toBe(fresh);
+    const was = { ...off, tracking: { kicks: false }, previous: { kicks: true } };
+    expect(withoutTracking(withPendingTracking({ ...emptyState(), bootstrap, outbox: [was] }), was).bootstrap!.children[0].details!.tracking).toEqual({ kicks: true });
+  });
+  it("is decided by the switches: nothing to send once the API has them", () => {
+    expect(trackingStep(undefined, off)).toBe("gone");
+    expect(trackingStep(baby, off)).toBe("send");
+    expect(trackingStep({ ...baby, revision: 8, details: { tracking: { kicks: true, diaper: false } } }, off)).toBe("done");
   });
 });
 

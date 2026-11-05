@@ -1,5 +1,5 @@
 import type { IconName } from "../components/ui";
-import type { BabyRecord, Kind } from "./models";
+import type { BabyRecord, ChildDetails, Kind } from "./models";
 
 export type Stage = "expecting" | "born";
 export interface Tracker {
@@ -68,8 +68,14 @@ export const panelTrackers = (stage: Stage) => trackersFor(stage).filter((tracke
 export const shotLabel = "Shot";
 /** It belongs to the baby's other stage, the way a kick counter does after the birth. Add leaves it out unless it's on. Hers stay either way. */
 export const otherStage = (tracker: Tracker, stage: Stage) => tracker.about === "baby" && tracker.defaultOn.length > 0 && !tracker.defaultOn.includes(stage);
-/** Whether a tracker is on: its stage's default. */
-export const trackerOn = (tracker: Tracker, stage: Stage) => tracker.defaultOn.includes(stage);
+/** Whether a tracker is on: what she chose, or else how she's feeding, or else its stage's default. */
+export function trackerOn(tracker: Tracker, stage: Stage, details?: ChildDetails | null) {
+  const chosen = details?.tracking?.[tracker.id];
+  if (typeof chosen === "boolean") return chosen;
+  if (stage === "born" && details?.feeding && tracker.id === "breast") return details.feeding !== "bottle";
+  if (stage === "born" && details?.feeding && tracker.id === "bottle") return details.feeding !== "nursing";
+  return tracker.defaultOn.includes(stage);
+}
 
 /** Which tracker a saved entry came from. A label nobody listed is one she made up. */
 export function trackerFor({ kind, data }: Pick<BabyRecord, "kind" | "data">) {

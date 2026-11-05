@@ -236,7 +236,7 @@ it("before the birth, opens on the calendar and the tools, with no quick log, an
   expect(screen().props.footer).toBeFalsy();
   expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(1);
   const rows = () => renderer!.root.findAll((n) => String(n.type) === "Row");
-  expect(rows().map((n) => n.props.title)).toEqual(["Contraction timer", "Kick counter", "Doctor summary", "Care history"]);
+  expect(rows().map((n) => n.props.title)).toEqual(["Contraction timer", "Kick counter", "Doctor summary", "Care history", "What shows"]);
   await act(async () => rows()[0].props.onPress());
   expect(mock.push).toHaveBeenCalledWith("/contractions");
   await act(async () => rows()[1].props.onPress());
@@ -253,7 +253,7 @@ it("goes straight to the day and the log once she's born, with nothing else to c
   await act(async () => renderer!.update(<Tracker />));
   expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(0);
   expect(screen().props.footer).toBeTruthy();
-  expect(renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toEqual(["Doctor summary", "Growth", "Care history"]);
+  expect(renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toEqual(["Doctor summary", "Growth", "Care history", "What shows"]);
 });
 
 it("moves the quick log into the page at the largest text sizes", async () => {
