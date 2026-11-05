@@ -22,7 +22,8 @@ vi.mock("../components/ui", () => ({
   useColors: () => ({ accentText: "clay", text: "cocoa", muted: "grey", hero: "blush", border: "line", progressTrack: "track", progressFill: "fill" }),
 }));
 vi.mock("@/lib/timing", () => import("./timing"));
-import { BabyAgeCard, PregnancyHero } from "../components/tips";
+import { BabyAgeCard, PregnancyHero, WeekDetails } from "../components/tips";
+import { weekWaiting } from "../components/week-facts";
 
 const child = { id: "isla", name: "Isla", due_date: "2026-12-10", revision: 1 } as Child;
 const now = new Date(2026, 10, 1);
@@ -64,21 +65,27 @@ it("keeps one spoken label whichever way it lays out", async () => {
   expect(label()).toBe(before);
   expect(before).toMatch(/^Week 34, day 3\./);
 });
-it("shows a 34-of-40 bar and the tips saved for this week, three at most, with See all", async () => {
-  const tip = (id: string) => ({ id, kind: "source", title: `Tip ${id}`, data: {} }) as never;
-  await act(async () => { renderer = create(React.createElement(PregnancyHero, { child, now, tips: ["a", "b", "c", "d"].map(tip) })); });
+it("is compact: week, progress, the due line and one short waiting line, whatever's saved", async () => {
+  await act(async () => { renderer = create(React.createElement(PregnancyHero, { child, now })); });
   const copy = renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
-  expect(copy).toContain("Saved for week 34");
-  expect(copy).toContain("34 of 40 weeks");
-  const buttons = renderer!.root.findAll((n) => (n.type as unknown) === "PressTarget");
-  expect(buttons.map((n) => n.props.accessibilityLabel)).toEqual(["See all, Saved for week 34", "Tip a", "Tip b", "Tip c"]);
+  expect(copy).toEqual([weekWaiting]);
+  expect(weekWaiting.length).toBeLessThanOrEqual(46);
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("Saved for week");
   const fill = renderer!.root.findAll((n) => (n.type as unknown) === "View" && n.props.style?.backgroundColor === "fill")[0];
   expect(parseFloat(fill.props.style.width)).toBeCloseTo(((34 + 3 / 7) / 40) * 100);
+  expect(renderer!.root.findAll((n) => n.props.accessible === true)[0].props.accessibilityLabel).toContain("34 of 40 weeks");
 });
-it("says where this week's tips will appear when none are saved yet", async () => {
-  await act(async () => { renderer = create(React.createElement(PregnancyHero, { child, now, tips: [] })); });
+it("shows the tips saved for this week, three at most, with See all, in their own card", async () => {
+  const tip = (id: string) => ({ id, kind: "source", title: `Tip ${id}`, data: {} }) as never;
+  await act(async () => { renderer = create(React.createElement(WeekDetails, { child, now, tips: ["a", "b", "c", "d"].map(tip) })); });
   const copy = renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
-  expect(copy).toContain("Tips you save for this point in your pregnancy show up here.");
+  expect(copy).toContain("Saved for week 34");
+  const buttons = renderer!.root.findAll((n) => (n.type as unknown) === "PressTarget");
+  expect(buttons.map((n) => n.props.accessibilityLabel)).toEqual(["See all, Saved for week 34", "Tip a", "Tip b", "Tip c"]);
+});
+it("has no Saved heading at all with nothing saved", async () => {
+  await act(async () => { renderer = create(React.createElement(WeekDetails, { child, now, tips: [] })); });
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("Saved for week");
   expect(renderer!.root.findAll((n) => (n.type as unknown) === "PressTarget")).toHaveLength(0);
 });
 

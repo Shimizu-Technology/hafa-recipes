@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { ageContent, ageHasDraft, canPreview, factSources, sourceName, weekContent, weekHasDraft, type BabyAge } from "@/lib/weekly-content";
-import { Copy, PressTarget, useColors } from "./ui";
+import { Copy, PressTarget, radii, useColors } from "./ui";
 import { Disclosure } from "./disclosure";
 import { MedicalSource } from "./medical-source";
 
@@ -17,17 +17,21 @@ function PreviewToggle({ preview, onPress, noun }: { preview: boolean; onPress: 
  * This week's size and three facts, on the week card. They come only from an approved batch. Until one covers this week
  * she sees the line below and no fact or number; a development build can look ahead, and a release build can't.
  */
-export function WeekFacts({ week }: { week: number }) {
-  const [preview, setPreview] = useState(false), found = weekContent(week, { preview }),
+export const weekWaiting = "Weekly facts coming after a doctor’s review.";
+export function WeekFacts({ week, waiting = true }: { week: number;
+  /** The week card says it instead, so here is only what's beyond it. */
+  waiting?: boolean }) {
+  const c = useColors(), [preview, setPreview] = useState(false), found = weekContent(week, { preview }),
     previewing = preview && !!found && !found.batch.approved;
   const toggle = canPreview() && weekHasDraft(week) && !found?.batch.approved && <PreviewToggle preview={preview} noun="facts" onPress={() => setPreview(!preview)} />;
-  if (!found) return <View style={{ gap: 8 }}>
-    <Copy kind="small" tone="muted">Weekly facts are coming once a doctor has reviewed them.</Copy>
+  if (!found) return waiting || toggle ? <View style={{ gap: 8 }}>
+    {waiting && <Copy kind="small" tone="muted">{weekWaiting}</Copy>}
     {toggle}
-  </View>;
+  </View> : null;
   const { batch, content } = found, comparison = content.size_comparison,
     links = [...new Set([...content.facts.flatMap(factSources), ...(comparison.source_url ? [comparison.source_url] : [])])];
-  return <View style={{ gap: 12 }}>
+  // Off the week card, it's a card of its own.
+  return <View style={{ gap: 12, ...(waiting ? {} : { backgroundColor: c.hero, borderRadius: radii.hero, padding: 22 }) }}>
     {toggle}
     {previewing && <Copy kind="label" tone="error">Development only. Not reviewed by a doctor.</Copy>}
     <View style={{ gap: 2 }}>

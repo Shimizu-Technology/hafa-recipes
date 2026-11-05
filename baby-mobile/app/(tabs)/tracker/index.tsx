@@ -19,7 +19,7 @@ import { SyncStatus } from "@/components/sync-status";
 import { useMinuteClock } from "@/components/care-glance";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
-import { panelTrackers, trackerOn, trackersFor } from "../../../lib/trackers";
+import { panelTrackers, trackerOn, trackersFor, trackingKey } from "../../../lib/trackers";
 import { LegacyTimer } from "@/components/feed-timer";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
 import { TrackerMonth } from "@/components/tracker-month";
@@ -58,7 +58,7 @@ export default function Tracker() {
     onNow = child ? trackersFor(stage).filter((tracker) => trackerOn(tracker, stage, child.details)) : [],
     timers = onNow.filter((tracker) => tracker.opens === "/contractions" || tracker.opens === "/kicks").reverse(),
     // Add logs today, so another day keeps a way to log the rest, short of what she's turned off.
-    moreShown = day !== today ? panelTrackers(stage).filter((tracker) => child?.details?.tracking?.[tracker.id] !== false)
+    moreShown = day !== today ? panelTrackers(stage).filter((tracker) => child?.details?.tracking?.[trackingKey(tracker.id, stage)] !== false)
       : onNow.filter((tracker) => tracker.opens !== "quick-log" || !logging).filter((tracker) => logging || !timers.includes(tracker)),
     // Before the birth there's nothing to log by the day yet, so she lands on the calendar and the tools.
     view = chosenView ?? (expecting ? "month" : "day"),

@@ -316,6 +316,9 @@ it("says Just now rather than 0m ago", async () => {
 });
 it("has no next side to show before the first feed, and says so plainly", async () => {
   setup();
+  await act(async () => { renderer = create(<CareGlance child={child} rows={[breast("last", "left")]} now={new Date()} sides={false} />); });
+  expect(texts().join(" ")).not.toContain("Next side");
+  act(() => renderer!.unmount());
   await act(async () => { renderer = create(<CareGlance child={child} rows={[]} now={new Date()} />); });
   expect(texts()).not.toContain("Next side");
 });

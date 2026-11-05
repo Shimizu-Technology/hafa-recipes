@@ -49,9 +49,12 @@ export function ComingUp({ childId, today }: { childId: string | null; today: st
   </View> : null;
 }
 /** The next thing on the calendar, or the way to add one. It's on Today before and after the birth. */
-export function NextEvent({ childId, today, now, drafts }: { childId: string | null; today: string; now: Date; drafts: ReturnType<typeof useVisitDrafts> }) {
+export function NextEvent({ childId, today, now, drafts, quiet }: { childId: string | null; today: string; now: Date; drafts: ReturnType<typeof useVisitDrafts>;
+  /** With nothing coming up, say nothing: Add has the calendar. */
+  quiet?: boolean }) {
   const b = useBaby(), timeZone = b.state.bootstrap?.profile.timezone, { items } = useUpcomingEvents(childId, today), next = nextEvent(items, now, timeZone);
   const appointment = next?.category === "appointment";
+  if (!next && quiet) return null;
   if (!next) return <Row title="Add to the calendar" detail="An appointment, baptism or family visit" icon="calendar-outline"
     onPress={() => router.push({ pathname: "/edit", params: { kind: "event", day: today } })} />;
   return <View style={{ gap: 8 }}>

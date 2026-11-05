@@ -19,11 +19,18 @@ let renderer: ReactTestRenderer | undefined;
 async function mount(week = 35) { await act(async () => { renderer = create(<WeekFacts week={week} />); }); }
 const words = () => JSON.stringify(renderer!.toJSON());
 const devButton = () => renderer!.root.findAll((n) => String(n.type) === "PressTarget").find((n) => String(n.props.accessibilityLabel).startsWith("Development only"));
-const waiting = "Weekly facts are coming once a doctor has reviewed them.";
+const waiting = "Weekly facts coming after a doctor’s review.";
 
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); mock.approved = false; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+describe("below the week card", () => {
+  it("leaves the waiting line to the card, and has nothing to add in a release build", async () => {
+    vi.stubGlobal("__DEV__", false);
+    await act(async () => { renderer = create(<WeekFacts week={35} waiting={false} />); });
+    expect(renderer!.toJSON()).toBeNull();
+  });
+});
 describe("while the batch isn't approved", () => {
   it("shows the waiting line and no fact or number, with no way to preview in a release build", async () => {
     vi.stubGlobal("__DEV__", false);

@@ -22,7 +22,7 @@ import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
 import { trackerOn, trackersFor } from "../../../lib/trackers";
-import { BabyAgeCard, PregnancyHero, TipSection } from "@/components/tips";
+import { BabyAgeCard, PregnancyHero, TipSection, WeekDetails } from "@/components/tips";
 import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
 import { dueLine, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
@@ -88,12 +88,13 @@ export default function Today() {
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
       <LegacyTimer />
-      {pregnant ? <PregnancyHero child={child} now={today} tips={tipsNow.rows} /> : <Card tone="hero" style={{ gap: 12 }}>
+      {pregnant ? <PregnancyHero child={child} now={today} /> : <Card tone="hero" style={{ gap: 12 }}>
         <Copy kind="label">Add the birth date</Copy>
         <Copy numeric kind="small" tone="muted">{`${dueLine(child.due_date!, today)}. Add the birth date to start feeding, sleep and diaper logs and see tips for this age.`}</Copy>
         <Button title="Add the birth date" onPress={addBirth} />
       </Card>}
       {tiles.length ? <MoreLogs child={child} now={now} shown={tiles} title="" big onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} /> : whatShows}
+      {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
       <Grouped>
@@ -118,7 +119,7 @@ export default function Today() {
       {children.length > 1 && <ChildFilter />}
       {stage === "none" && <BabySetupCard child={child} />}
       {timer ? <LegacyTimer />
-        : child && showCare ? (!feedsShow && !running ? null : <CareGlance child={child} rows={latestCare.all} now={now} running={running} timeZone={timezone} />) : null}
+        : child && showCare ? (!feedsShow && !running ? null : <CareGlance child={child} rows={latestCare.all} now={now} running={running} timeZone={timezone} sides={showing("breast")} />) : null}
       {showCare && !!todayWords && <PressTarget accessibilityRole="button" accessibilityLabel={todayLine} accessibilityHint="Opens today in Tracker"
         onPress={() => router.navigate({ pathname: "/tracker", params: { day: dayKey(today), at: String(Date.now()) } })}
         style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingHorizontal: 4 }}>
@@ -128,7 +129,7 @@ export default function Today() {
       {fontScale >= dockBelow && quickLog}
       {stage === "none" && !showCare && <Copy kind="small" tone="muted">In the meantime</Copy>}
       {showCare && !tiles.length && whatShows}
-      <NextEvent childId={child?.id ?? null} today={todayKey} now={now} drafts={visitDrafts} />
+      <NextEvent childId={child?.id ?? null} today={todayKey} now={now} drafts={visitDrafts} quiet={showCare} />
       {!!child && !!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />

@@ -286,7 +286,7 @@ describe("Tracker follows the trackers", () => {
     expect(shown).not.toContain("medicine");
   });
   it("before the birth, its tool rows and panels follow the switches too", async () => {
-    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10", details: { tracking: { kicks: false, blood_pressure: false } } }];
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10", details: { tracking: { expecting_kicks: false, expecting_blood_pressure: false } } }];
     await mount();
     const rows = renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title);
     expect(rows).toContain("Contraction timer");

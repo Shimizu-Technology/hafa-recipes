@@ -70,7 +70,7 @@ vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => undefined }));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: false }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
-vi.mock("@/components/tips", () => ({ BabyAgeCard: "BabyAgeCard", PregnancyHero: "PregnancyHero", TipSection: "TipSection" }));
+vi.mock("@/components/tips", () => ({ BabyAgeCard: "BabyAgeCard", PregnancyHero: "PregnancyHero", TipSection: "TipSection", WeekDetails: "WeekDetails" }));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/components/event-row", () => ({ NextEvent: "NextEvent" }));
 vi.mock("@/components/visit-sections", async () => {
@@ -235,7 +235,7 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("StackScreen", () => true)[0].props.options.title).toBe("Mia");
   // This week's saved tips live inside the hero; "Coming up" follows it.
   expect(find("PregnancyHero", () => true)).toHaveLength(1);
-  expect(find("PregnancyHero", () => true)[0].props.tips).toBeDefined();
+  expect(find("WeekDetails", () => true)[0].props.tips).toBeDefined();
   expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["Coming up"]);
   expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0);
@@ -432,17 +432,35 @@ describe("Today follows the trackers", () => {
   it("while expecting, leads with the week, then that stage's trackers as tiles, then the next event", async () => {
     expecting();
     await render();
-    const seen = renderer!.root.findAll((n) => ["PregnancyHero", "NextEvent", "TipSection"].includes(String(n.type)) || (String(n.type) === "Pressable" && !!n.props.accessibilityLabel))
+    const seen = renderer!.root.findAll((n) => ["PregnancyHero", "WeekDetails", "NextEvent", "TipSection"].includes(String(n.type)) || (String(n.type) === "Pressable" && !!n.props.accessibilityLabel))
       .map((n) => n.props.accessibilityLabel ?? String(n.type));
-    expect(seen).toEqual(["PregnancyHero", "Kick counter", "Contraction timer", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine", "NextEvent", "TipSection"]);
+    expect(seen).toEqual(["PregnancyHero", "Kick counter", "Contraction timer", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine", "WeekDetails", "NextEvent", "TipSection"]);
   });
   it("takes a tracker off expecting Today when it's off, and adds one when it's on", async () => {
-    expecting({ tracking: { my_weight: false, diaper: true } });
+    expecting({ tracking: { expecting_my_weight: false, expecting_diaper: true } });
     await render();
     expect(tiles()).not.toContain("My weight");
     expect(tiles()).toContain("Diaper");
     (find("Pressable", (p) => p.accessibilityLabel === "Diaper")[0].props.onPress as () => void)();
     expect(scope.push).toHaveBeenCalledWith({ pathname: "/add", params: { open: "diaper" } });
+  });
+  it("leaves the calendar to Add once the baby's here, unless something's coming up, and keeps it while expecting", async () => {
+    baby({});
+    await render();
+    expect(find("NextEvent", () => true)[0].props.quiet).toBe(true);
+    await act(async () => renderer!.unmount()); renderer = undefined;
+    expecting();
+    await render();
+    expect(find("NextEvent", () => true)[0].props.quiet).toBeFalsy();
+  });
+  it("keeps the feed card when only diapers are off, and drops Next side when nursing is off", async () => {
+    baby({ tracking: { diaper: false } });
+    await render();
+    expect(find("CareGlance", () => true)[0].props.sides).toBe(true);
+    await act(async () => renderer!.unmount()); renderer = undefined;
+    baby({ tracking: { breast: false } });
+    await render();
+    expect(find("CareGlance", () => true)[0].props.sides).toBe(false);
   });
   it("is the same docked log as before by default", async () => {
     baby({});
