@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allDayChanged, dayName, dayTimeline, eventOccurrences, eventsByDay, eventWhen, eventWrite, newEvent, nextEvent, occurrenceAt, occurrenceDraft, onNewDay, quickEvent, seriesFull, splitEvent, startingAt, visibleEvents, withEventRows, withoutDate, withoutFuture } from "./events";
+import { allDayChanged, dayName, dayTimeline, eventOccurrences, eventsByDay, eventWhen, eventWrite, newEvent, nextEvent, occurrenceAt, occurrenceDraft, onNewDay, quickEvent, seriesFull, splitEvent, startingAt, visibleEvents, withEventRows, withoutDate, withoutFuture , movesAwayFromDateChanges } from "./events";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type EventOccurrence, type Mutation, type RecordData } from "./models";
 import { advancePending, pendingRecords, producedRevision, queuedChain, settledDraft, settledSplit, waitingForEarlier, withoutChain } from "./outbox";
 import { recordDay } from "./tracker";
@@ -265,5 +265,16 @@ describe("the phone's copy of events", () => {
     expect(withEventRows(state, [fresh], true).records.map((row) => row.id)).toEqual(["fresh", "queued", "care"]);
     expect(withEventRows(state, [fresh], false).records.map((row) => row.id)).toEqual(["fresh", "queued", "gone", "care"]);
     expect(pendingRecords(withEventRows(state, [fresh], true)).some((row) => row.id === "gone")).toBe(false);
+  });
+});
+
+describe("moving a whole repeat", () => {
+  const edit = (exceptions: unknown[]) => ({ scope: "future", original_start: "2026-11-02T00:00:00.000Z", series: { title: "Class", body: "", child_id: null, occurred_at: "2026-11-02T00:00:00.000Z", data: { timezone: "Pacific/Guam", recurrence: { frequency: "weekly" }, exceptions } } });
+  const draft = (at: string, exceptions: unknown[]) => ({ occurred_at: at, data: { timezone: "Pacific/Guam" }, event_edit: edit(exceptions) }) as unknown as EditorDraft;
+  it("warns only when it leaves changes to single dates behind", () => {
+    const changed = [{ original_start: "2026-11-16T00:00:00.000Z", overrides: { title: "Renamed" } }];
+    expect(movesAwayFromDateChanges(draft("2026-11-03T00:00:00.000Z", changed))).toBe(true);
+    expect(movesAwayFromDateChanges(draft("2026-11-02T00:00:00.000Z", changed))).toBe(false);
+    expect(movesAwayFromDateChanges(draft("2026-11-03T00:00:00.000Z", []))).toBe(false);
   });
 });
