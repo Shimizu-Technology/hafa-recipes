@@ -610,9 +610,32 @@ async def test_her_own_logs_are_found_when_she_asks_about_herself_with_a_baby_se
     assert feeling in await ids("How have I been feeling?")
     # A question about the baby stays on the baby, even with the same words.
     assert weight not in await ids("What was her weight?")
+    # Naming the baby is asking about the baby, however it's said.
+    for question in ("What is my daughter's weight?", "What is my son’s weight?", "Did I give my baby medicine?"):
+        assert weight not in await ids(question) and vitamin not in await ids(question)
+
     assert weight not in await ids("What is my baby's weight?")
     assert pressure not in await ids("How was her sleep?")
     assert diaper in await ids("Any diapers?")
+
+
+@needs_database
+async def test_bp_finds_blood_pressure_past_a_busy_day(baby_api, frozen, new_kinds):
+    child = await new_child(baby_api)
+    pressure = await log_new(baby_api, "custom", "118/76", guam(4, 8), {"label": "Blood pressure"})
+    for minute in range(35):
+        await log(baby_api, "diaper", "Diaper", guam(4, 9, minute), data={"type": "wet"}, child=child)
+    assert pressure in [item["id"] for item in (await ask(baby_api, "What was my bp?", child_id=child))[0]]
+
+
+@needs_database
+async def test_a_dated_question_leaves_out_her_older_logs(baby_api, frozen, new_kinds):
+    child = await new_child(baby_api)
+    older = await log_new(baby_api, "custom", "118/76", guam(1, 9), {"label": "Blood pressure"})
+    saved = await log(baby_api, "journal", "Blood pressure at the visit", guam(1, 9, 5), child=child)
+    found = [item["id"] for item in (await ask(baby_api, "What was my blood pressure yesterday?", child_id=child))[0]]
+    assert older not in found and saved in found
+
 
 
 @needs_database
