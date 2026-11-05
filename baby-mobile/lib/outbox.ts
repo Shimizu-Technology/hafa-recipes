@@ -3,7 +3,7 @@ import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
 import { withSessionAction } from "./session-actions";
 import { careKinds } from "./models";
 import { trackedKinds } from "./trackers";
-import { familySpaces, generationOf, goneBabyMessage, spaceForNew, spacesLive, stuckTapMessage, unavailableMessage } from "./spaces";
+import { familySpaces, remindersOn, generationOf, goneBabyMessage, spaceForNew, spacesLive, stuckTapMessage, unavailableMessage } from "./spaces";
 import type { BabyRecord, Bootstrap, Child, DeviceState, EditorDraft, ImportJob, Kind, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
@@ -503,6 +503,10 @@ export function birthStep(server: Child | undefined, m: Extract<Mutation, { type
   const saved = server.birth_date ?? null;
   return saved === m.birth_date ? "done" : saved === m.previous ? "send" : "different";
 }
+
+/** What's on its way. Reminder settings kept while the API's flag is off aren't: they're not going anywhere until it's back. */
+export const waitingToSend = (state: Pick<DeviceState, "outbox" | "bootstrap">) =>
+  state.outbox.filter((m) => m.type !== "reminder_prefs" || remindersOn(state.bootstrap));
 
 /** A switch shows everywhere as soon as it's tapped, and stays through every refresh until it lands. */
 export function withPendingTracking(state: DeviceState): DeviceState {

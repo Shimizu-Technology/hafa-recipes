@@ -1779,7 +1779,11 @@ describe("this phone and the push flag", () => {
 describe("reminder settings saved with no signal", () => {
   const change = { id: "prefs", generation: 1, type: "reminder_prefs" as const, patch: { kinds: { event: { enabled: true } } } },
     saved = { quiet_hours: null, kinds: { event: { enabled: true, break_through: false, hours: null, feed_hours: null, sleep_hours: null } } };
-  const holding = (extra = {}) => { mock.saved = { ...emptyState(), bootstrap, outbox: [{ ...change, ...extra }] } as unknown as DeviceState; };
+  const holding = (extra = {}) => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => saved);
+    mock.saved = { ...emptyState(), bootstrap, outbox: [{ ...change, ...extra }] } as unknown as DeviceState;
+  };
   it("goes when it can, and keeps what the API answered", async () => {
     holding();
     mock.api.savePushPrefs = vi.fn(async () => saved);
@@ -1806,14 +1810,6 @@ describe("reminder settings saved with no signal", () => {
     expect(baby.state.outbox[0].error).toBeUndefined();
     expect((baby.state.outbox[0] as { hold_until?: string }).hold_until).toBeTruthy();
   });
-  it("the flag going off drops it quietly: nothing offers it now", async () => {
-    holding();
-    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Not found", 404); });
-    await mount();
-    await act(async () => { await baby.sync(); await settle(); });
-    expect(baby.state.outbox).toEqual([]);
-    expect(baby.error).toBe("");
-  });
   it("reads the settings once with the flag on, and never with it off", async () => {
     mock.api.pushPrefs = vi.fn(async () => saved);
     await mount();
@@ -1831,5 +1827,46 @@ describe("reminder settings saved with no signal", () => {
     await mount();
     await act(async () => { await baby.sync(); await settle(); });
     expect(baby.error).toBe("");
+  });
+});
+describe("reminder settings while the flag is off", () => {
+  const change = { id: "prefs", generation: 1, type: "reminder_prefs" as const, patch: { kinds: { event: { enabled: true } } } };
+  it("a queued change isn't sent, and isn't lost", async () => {
+    mock.saved = { ...emptyState(), bootstrap, outbox: [change] } as unknown as DeviceState;
+    mock.api.savePushPrefs = vi.fn();
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.savePushPrefs).not.toHaveBeenCalled();
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["prefs"]);
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    expect(baby.error).toBe("");
+  });
+  it("it goes when the flag comes back", async () => {
+    mock.saved = { ...emptyState(), bootstrap, outbox: [change] } as unknown as DeviceState;
+    mock.api.savePushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.savePushPrefs).toHaveBeenCalledOnce();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("the flag going off between the bootstrap and the request keeps it too", async () => {
+    mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, reminders: { push: true } }, outbox: [change] } as unknown as DeviceState;
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["prefs"]);
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    expect(baby.error).toBe("");
+  });
+  it("reading the settings is refused here too, so no caller can ask with the flag off", async () => {
+    mock.api.pushPrefs = vi.fn();
+    await mount();
+    await act(async () => { await baby.refreshPrefs(); });
+    expect(mock.api.pushPrefs).not.toHaveBeenCalled();
   });
 });

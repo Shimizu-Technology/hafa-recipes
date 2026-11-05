@@ -94,3 +94,12 @@ describe("Reminders", () => {
     expect(view.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toContain("Open notification settings");
   });
 });
+
+describe("with the flag off", () => {
+  it("opening it asks the API for nothing", async () => {
+    const b = account();
+    b.state.bootstrap.reminders = undefined;
+    await render();
+    expect(b.refreshPrefs).not.toHaveBeenCalled();
+  });
+});

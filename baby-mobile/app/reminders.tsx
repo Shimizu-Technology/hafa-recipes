@@ -39,13 +39,15 @@ export default function Reminders() {
   const b = useBaby(), bootstrap = b.state.bootstrap!, prefs = shownPrefs(b.state), [denied, setDenied] = useState(false),
     [choosingHours, setChoosingHours] = useState(false), [opening, setOpening] = useState(""),
     zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  useEffect(() => { void b.refreshPrefs(); }, []);
+  const live = remindersOn(bootstrap);
+  useEffect(() => { if (live) void b.refreshPrefs(); }, [live]);
   useEffect(() => {
+    if (!live) return;
     const look = () => { if (Platform.OS !== "web") void Notifications.getPermissionsAsync().then((now) => setDenied(!now.granted && !now.canAskAgain)).catch(() => undefined); };
     look();
     const app = AppState.addEventListener("change", (status) => { if (status === "active") look(); });
     return () => app.remove();
-  }, []);
+  }, [live]);
   if (!remindersOn(bootstrap)) return <Screen title="Reminders" back><Notice>Reminders aren’t available yet.</Notice></Screen>;
   const kinds = kindsFor(bootstrap, bootstrap.children), anyOn = kinds.some((kind) => prefs.kinds[kind]?.enabled);
   const on = async (kind: ReminderKind, details: Partial<KindPref> = {}) => {

@@ -79,7 +79,7 @@ import { clearReminders, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
 import { forgetInvite } from "./family";
 import { nativePushDevice } from "./push-native";
-import { accessKey, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
+import { accessKey, remindersOn, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
@@ -312,6 +312,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     }
   }
   async function refreshPrefs() {
+    if (!remindersOn(ref.current.bootstrap)) return;
     const lease = api.lease();
     try {
       const saved = await api.pushPrefs();
@@ -429,6 +430,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
               bootstrap: s.bootstrap && { ...s.bootstrap, children: s.bootstrap.children.map((child) => (child.id === saved.id ? saved : child)) } }));
             continue;
           } else if (next.type === "reminder_prefs") {
+            // With the flag off there's nothing to send it to. It waits on this phone, and goes if the flag comes back.
+            if (!latest.reminders?.push) continue;
             let taken = false;
             await commit((s) => {
               taken = s.outbox.some((m) => m.id === next.id);
@@ -598,9 +601,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
             noteFailure(e);
             break;
           }
-          // The flag went off while this waited: there's nothing to save it to, and nothing offers it now.
+          // The flag went off just now. The API refused it, so it can still take later changes and go when the flag's back.
           if (status === 404 && next.type === "reminder_prefs") {
-            await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
+            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "reminder_prefs" ? { ...retryLater(m), sent: false } : m)) }));
             continue;
           }
           if ((next.type === "reminder_prefs" || next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "child_tracking" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
