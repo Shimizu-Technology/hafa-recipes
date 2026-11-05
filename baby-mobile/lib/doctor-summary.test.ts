@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord, type Mutation } from "./models";
-import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, type SummaryPage } from "./doctor-summary";
+import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryWords, type SummaryPage } from "./doctor-summary";
 
 const row = (id: string, kind: BabyRecord["kind"], occurred_at: string, body = "", changes: Partial<BabyRecord> = {}) =>
   ({ ...optimisticRecord({ id, kind, title: kind === "journal" ? `Entry ${id}` : "", body, child_id: "baby", occurred_at, data: {} }), revision: 1, ...changes });
@@ -62,6 +62,19 @@ describe("the page", () => {
     const month = answer(Array.from({ length: 31 }, (_, n) => day(`2026-10-${String(n + 1).padStart(2, "0")}`, false, { feeding: { ...day("x").feeding, count: 8 } })));
     expect(summaryHtml(page({ stats: month }))).toContain("font-size:7.5pt");
     expect(summaryHtml(page())).toContain("font-size:8.5pt");
+  });
+  it("says a question or note typed straight on a visit once, whatever its length", () => {
+    const words = "Is a tarry poo normal at three weeks, and should I bring a photo of it next time?";
+    const typed = { title: `${[...words].slice(0, 59).join("").trimEnd()}…`, body: words };
+    const html = summaryHtml(page({
+      questions: [row("q", "question", "2026-11-03T00:00:00Z", "Is it normal?", { title: "Is it normal?" }), row("l", "question", "2026-11-03T00:00:00Z", words, typed)],
+      notes: [row("n", "journal", "2026-11-03T00:00:00Z", "Come back in four weeks.", { title: "Come back in four weeks." })],
+    }));
+    expect(html.split("Is it normal?")).toHaveLength(2);
+    expect(html.split("Is a tarry poo")).toHaveLength(2);
+    expect(html.split("Come back in four weeks.")).toHaveLength(2);
+    expect(summaryWords(typed)).toEqual({ title: words, detail: "" });
+    expect(summaryWords({ title: "Rash", body: "Since Monday" })).toEqual({ title: "Rash", detail: "Since Monday" });
   });
   it("reads as sentences: no doubled punctuation", () => {
     const html = summaryHtml(page({ questions: [row("q", "question", "2026-11-03T00:00:00Z", "After feeds.", { title: "Is this rash fine?" }), row("r", "question", "2026-11-03T00:00:00Z", "Since Monday", { title: "Rash" })] }));

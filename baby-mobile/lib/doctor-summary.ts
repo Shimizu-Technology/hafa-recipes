@@ -124,9 +124,19 @@ function clipped(text: string, letters: number) {
   const body = text.trim();
   return body.length > letters ? `${body.slice(0, letters).trimEnd()}…` : body;
 }
+/** A question or note typed straight on a visit takes its first line as its title, so the words needn't be said twice. */
+export const repeatsTitle = ({ title, body }: Pick<BabyRecord, "title" | "body">) => {
+  const start = title.trim().replace(/…$/, "");
+  return !!start && body.trim().startsWith(start);
+};
+/** What a row on the screen says: the words once, or a title and what's under it. */
+export const summaryWords = (row: Pick<BabyRecord, "title" | "body">) => {
+  const body = row.body.trim().slice(0, 160);
+  return repeatsTitle(row) ? { title: body, detail: "" } : { title: row.title, detail: body };
+};
 function noteLine(row: BabyRecord, timezone: string, letters: number) {
   const body = clipped(row.body, letters),
-    title = row.kind === "journal" || row.kind === "question" ? row.title.trim() : kindName[row.kind],
+    title = row.kind === "journal" || row.kind === "question" ? (repeatsTitle(row) ? "" : row.title.trim()) : kindName[row.kind],
     when = `${shortDay(recordDay(row.occurred_at, timezone))}, ${clockIn(new Date(row.occurred_at), timezone)}`,
     colour = row.kind === "diaper" && row.data.color ? ` (colour: ${row.data.color})` : "",
     from = row.data.provenance === "clinician_instruction" ? " <i>Clinician instruction, labelled by the parent.</i>" : "";
@@ -134,7 +144,7 @@ function noteLine(row: BabyRecord, timezone: string, letters: number) {
 }
 /** The question, then her notes on it. A title that ends in its own punctuation needs no colon. */
 function questionLine(row: BabyRecord, letters: number) {
-  const title = row.title.trim(), body = clipped(row.body, letters);
+  const title = repeatsTitle(row) ? "" : row.title.trim(), body = clipped(row.body, letters);
   return title && body ? `${title}${/[?!.:]$/.test(title) ? " " : ": "}${body}` : title || body;
 }
 function listSection(title: string, rows: BabyRecord[], limit: number, line: (row: BabyRecord) => string) {
