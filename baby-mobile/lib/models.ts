@@ -337,6 +337,9 @@ export interface EventEdit {
 export type LogFormDraft = import("./more-logs").LogForm;
 export interface EditorDraft {
   id: string;
+  /** An existing entry's space, copied with it into the draft. */
+  space_id?: string;
+  generation?: number;
   kind: Kind;
   title: string;
   body: string;
@@ -355,6 +358,10 @@ export type Mutation = {
   localOnly?: boolean;
   /** The space it's for, and `generation` is that space's. None with the API's family flag off, or from an older build. */
   space_id?: string;
+  /** The family it was for, once this account is out of it. It's kept to copy or discard, and never sent. */
+  left_space?: string;
+  /** How many times the API has said its row moved. */
+  retargets?: number;
 } & (
   | {
       id: string;

@@ -148,11 +148,11 @@ describe("updating from a build with no spaces", () => {
     drafts: { d: { id: "d", kind: "journal", title: "draft", body: "typed", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [] } },
     outbox: [{ ...save("q", "diaper", "baby") }, { ...save("gone", "diaper"), error: unavailableMessage }] });
   it("keeps drafts, queue, records, uploads and a running timer, and sends a 404'd item again", () => {
-    const next = upgradedState(old());
+    const before = old(), next = upgradedState(before);
     expect(next.version).toBe(deviceVersion);
     expect(next.feedTimer).toEqual(running);
-    expect(next.drafts).toEqual(old().drafts);
-    expect(next.records).toEqual(old().records);
+    expect(next.drafts).toEqual(before.drafts);
+    expect(next.records).toEqual(before.records);
     expect(next.fileUploads).toEqual({ f: "u" });
     expect(next.selectedChild).toBe("baby");
     expect(next.outbox.map((m) => m.id)).toEqual(["m-q", "m-gone"]);

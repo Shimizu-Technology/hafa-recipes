@@ -13,6 +13,8 @@ export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
 export function pendingRecords(state: DeviceState) {
   let rows = state.records;
   for (const change of state.outbox) {
+    // From a family this account has left. It's not an entry here any more, only something to keep or discard.
+    if (change.left_space) continue;
     if (change.type === "save") {
       const prior = rows.find((r) => r.id === change.record.id);
       rows = replaceRecord(rows, {
@@ -160,6 +162,96 @@ export function withKnownSpaces(state: DeviceState, bootstrap: Bootstrap): Devic
 export function retryUnavailable(state: DeviceState): DeviceState {
   const gone = new Set([unavailableMessage, goneBabyMessage, stuckTapMessage]);
   return state.outbox.some((m) => m.error && gone.has(m.error)) ? { ...state, outbox: state.outbox.map((m) => (m.error && gone.has(m.error) && !m.localOnly ? retryMutation(m) : m)) } : state;
+}
+/** Where the API says a row went: `409 {code: "moved"}`. For new care it's the baby that moved, and `record` is the baby. */
+export interface Moved {
+  space_id: string;
+  generation: number;
+  revision: number | null;
+  record: Partial<BabyRecord> & { id: string };
+}
+const moveFields = new Set(["just_me", "attachment_ids", "record_ids", "event_id", "suggested_category"]);
+const moveData = (data: object = {}) => Object.fromEntries(Object.entries(data).filter(([key]) => !moveFields.has(key)));
+/** The row reads as this phone last saw it, so the move is all that happened to it. */
+const onlyMoved = (seen: BabyRecord, row: Moved["record"]) => (["title", "body", "child_id"] as const).every((key) => seen[key] === row[key]) &&
+  // The same moment can be written two ways: the API writes `Z` in a response and `+00:00` in this one.
+  !!row.occurred_at && instant(seen.occurred_at) === instant(row.occurred_at) && same(moveData(seen.data), moveData(row.data));
+const bounces = 4;
+/**
+ * A queued change follows its row to another space, with what's queued after it. A move adds a revision of its own, so
+ * the change moves up that one step if the move is all that's happened. Anything else keeps its revision, and the API
+ * sends it to review. A file goes up again in the new space, because a record's files must be in its own.
+ */
+export function retargeted(state: DeviceState, change: Mutation, moved: Moved, uuid: () => string): DeviceState {
+  const chain = new Set(queuedChain(state.outbox, change).map((m) => m.id)), id = mutationRecordId(change),
+    isRow = moved.record.id === id && "kind" in moved.record,
+    seen = isRow ? state.records.find((row) => row.id === id) : undefined,
+    from = seen && moved.revision && onlyMoved(seen, moved.record) ? seen.revision : undefined,
+    follow = <T extends { revision?: number }>(row: T): T => (from !== undefined && moved.revision && row.revision === from ? { ...row, revision: moved.revision } : row),
+    fileUploads = { ...state.fileUploads };
+  const outbox = state.outbox.map((m): Mutation => {
+    if (!chain.has(m.id)) return m;
+    const retargets = (m.retargets ?? 0) + 1,
+      next: Mutation = { ...m, space_id: moved.space_id, generation: moved.generation, retargets, ...(retargets > bounces ? { error: unavailableMessage } : {}) };
+    if (next.type === "delete") return { ...next, record: follow(next.record) };
+    if (next.type === "event_split") return { ...next, series: follow(next.series) };
+    if (next.type !== "save") return next;
+    for (const file of next.files) delete fileUploads[file.id];
+    return { ...next, record: follow(next.record), files: m.space_id === moved.space_id ? next.files : next.files.map(({ uploaded_id: _, ...file }) => ({ ...file, id: uuid() })) };
+  });
+  return { ...state, outbox, fileUploads: outbox.some((m) => chain.has(m.id) && m.type === "save" && m.files.length) ? fileUploads : state.fileUploads,
+    drafts: from === undefined ? state.drafts : Object.fromEntries(Object.entries(state.drafts).map(([slot, draft]) => [slot, draft.id === id ? follow(draft) : draft])),
+    records: isRow ? replaceRecord(state.records, moved.record as BabyRecord) : state.records };
+}
+export const notSentMessage = "Not sent: you’re no longer in this family.";
+export const leftFamilyNotice = "You’re no longer in this family, so its entries have left this phone. Anything not sent is in Sync & recovery.";
+/**
+ * Leaving or removal. The family's rows go from this phone at once. What's queued for it stops, and says why, to be kept
+ * or discarded: nothing is lost and nothing is sent. A draft of one of its entries joins that, so what she typed stays.
+ */
+export function withoutFamily(state: DeviceState, space: string, uuid: () => string): DeviceState {
+  const lost = new Set(state.bootstrap?.children.filter((child) => child.space_id === space).map((child) => child.id)),
+    stopped: Mutation[] = [], drafts: DeviceState["drafts"] = {};
+  for (const [slot, draft] of Object.entries(state.drafts)) {
+    if (draft.space_id === space) {
+      const { id, kind, title, body, child_id, occurred_at, data, revision } = draft;
+      stopped.push({ id: uuid(), generation: draft.generation ?? 1, space_id: space, left_space: space, error: notSentMessage, type: "save", files: draft.files,
+        record: { id, kind, title, body, child_id, occurred_at, data, ...(revision ? { revision } : {}) } });
+    } else drafts[slot] = draft.child_id && lost.has(draft.child_id) ? { ...draft, child_id: null } : draft;
+  }
+  const { [space]: _, ...cursor } = state.changes?.cursor ?? {}, { [space]: __, ...access } = state.changes?.access ?? {};
+  return withNotice({ ...state, drafts,
+    records: state.records.filter((row) => row.space_id !== space),
+    imports: state.imports.filter((job) => job.space_id !== space),
+    outbox: [...state.outbox.map((m) => (m.space_id === space ? { ...m, error: notSentMessage, conflict: false, left_space: space } : m)), ...stopped],
+    ...(state.changes ? { changes: { cursor, access } } : {}),
+  }, leftFamilyNotice);
+}
+/** Back in a family this phone had stopped writing to: what was waiting for it goes again. */
+export function rejoined(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces">): DeviceState {
+  const back = (m: Mutation) => !!m.left_space && bootstrap.spaces?.some((space) => space.id === m.left_space);
+  return state.outbox.some(back) ? { ...state, outbox: state.outbox.map((m) => (back(m) ? retryMutation(m) : m)) } : state;
+}
+/**
+ * Copies what a former family's queue held into the personal space, under a new id, and takes its chain out. The last
+ * edit is the one she meant. Links into the family go, and so do uploads there: those were retired, and using one again
+ * would be refused. A file still on this phone goes up again, and one that isn't she's asked for.
+ */
+export function keepInPersonal(state: DeviceState, change: Mutation, uuid: () => string): DeviceState {
+  const chain = queuedChain(state.outbox, change), last = [...chain].reverse().find((m): m is Extract<Mutation, { type: "save" }> => m.type === "save"), bootstrap = state.bootstrap;
+  if (!last || !bootstrap) return state;
+  const { attachment_ids, event_id: _, record_ids: __, suggested_category: ___, just_me: ____, ...data } = last.record.data,
+    held = new Set(last.files.map((file) => file.uploaded_id ?? state.fileUploads[file.id])),
+    missing = (attachment_ids ?? []).filter((id) => !held.has(id)).length,
+    fileUploads = { ...state.fileUploads },
+    child = bootstrap.children.some((known) => known.id === last.record.child_id && known.space_id !== last.left_space) ? last.record.child_id : null;
+  for (const file of last.files) delete fileUploads[file.id];
+  const gone = new Set(chain.map((m) => m.id)), kept: Mutation = { id: uuid(), generation: bootstrap.generation, space_id: bootstrap.personal_space_id, type: "save",
+    files: last.files.map(({ uploaded_id: _, ...file }) => ({ ...file, id: uuid() })),
+    record: { id: uuid(), kind: last.record.kind, title: last.record.title, body: last.record.body, child_id: child, occurred_at: last.record.occurred_at,
+      data: { ...data, ...(last.record.kind === "routine" ? { enabled: false } : {}), ...(last.record.kind === "source" ? { status: "saved" } : {}) } } };
+  const next: DeviceState = { ...state, fileUploads, outbox: [...state.outbox.filter((m) => !gone.has(m.id)), kept] };
+  return missing ? withNotice(next, `Saved to your own space. Add its ${missing === 1 ? "file" : `${missing} files`} again.`) : next;
 }
 export const deviceVersion = 2;
 /** One step for what an older build saved: everything's kept, including drafts, the queue and a running timer. */
@@ -329,7 +421,7 @@ export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
     .some((m) => mutationRecordIds(m).some((id) => ids.includes(id)));
 }
 export function retryMutation<T extends Mutation>(change: T): T {
-  return { ...change, error: undefined, conflict: false, localOnly: false };
+  return { ...change, error: undefined, conflict: false, localOnly: false, left_space: undefined };
 }
 
 /** A pending birth date shows everywhere as soon as it's tapped, and stays through every refresh until it lands. */

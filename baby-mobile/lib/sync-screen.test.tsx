@@ -1,6 +1,6 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type BabyRecord, type DeviceState, type Mutation } from "./models";
 
 const scope = vi.hoisted(() => ({ account: null as any, alerts: [] as { message: string; buttons: { text: string; onPress?: () => void }[] }[], toast: vi.fn() }));
@@ -147,4 +147,32 @@ it("names a refused split in plain words, and says what discarding it takes alon
   expect(words.join(" ")).toMatch(/Changes Class from November 16, 2026 on\. Discarding this keeps every date as it was\./);
   await act(async () => { await scope.alerts.at(-1)!.buttons.find((button) => button.text === "Discard change")!.onPress!(); });
   expect(b.discardQueued).toHaveBeenCalledWith("next", undefined);
+});
+
+describe("what a former family's queue offers", () => {
+  const stopped = (over: object = {}) => save("q", "entry", { space_id: "f", left_space: "f", error: "Not sent: you’re no longer in this family.", ...over });
+  const titles = () => renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.title);
+  it("offers Keep and Discard, and never Retry", async () => {
+    setup([stopped()]);
+    await act(async () => { renderer = create(<Sync />); });
+    expect(titles()).toEqual(expect.arrayContaining(["Keep in my personal space", "Discard this queued change"]));
+    expect(titles()).not.toContain("Retry");
+    expect(titles()).not.toContain("Keep on this phone");
+    expect(notices()).toContain("Not sent: you’re no longer in this family.");
+  });
+  it("offers only Discard for a tap, which has nothing to copy", async () => {
+    setup([action({ space_id: "f", left_space: "f", error: "Not sent: you’re no longer in this family." })]);
+    await act(async () => { renderer = create(<Sync />); });
+    expect(titles()).not.toContain("Keep in my personal space");
+    expect(titles()).toContain("Discard this queued change");
+  });
+  it("copies it when she chooses Keep", async () => {
+    const b = setup([stopped()]);
+    await act(async () => { renderer = create(<Sync />); });
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "Button").find((n) => n.props.title === "Keep in my personal space")!.props.onPress());
+    const changed = b.commit.mock.calls[0][0]({ ...b.state, bootstrap: { generation: 1, personal_space_id: "p", children: [] } });
+    expect(changed.outbox).toMatchObject([{ space_id: "p", record: { title: "q" } }]);
+    expect(changed.outbox[0].record.id).not.toBe("entry");
+    expect(b.sync).toHaveBeenCalled();
+  });
 });

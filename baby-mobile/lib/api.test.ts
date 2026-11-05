@@ -516,3 +516,18 @@ describe("the client level", () => {
     });
   });
 });
+
+describe("a 409 that says where a row went", () => {
+  const moved = { code: "moved", space_id: "f", generation: 1, revision: 4, record: { id: "a", kind: "diaper", revision: 4 } };
+  const on = (status: number, body: unknown) => createBabyApi("https://api.test", async () => "token", () => true, async () => new Response(JSON.stringify(body), { status }));
+  const row = { id: "a", kind: "diaper", title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00Z", data: {} } as never;
+  it("says so, with the row, as the API really sends it: the body itself, not under detail", async () => {
+    await expect(on(409, moved).save(row, 1)).rejects.toMatchObject({ status: 409, moved: { space_id: "f", generation: 1, revision: 4 } });
+  });
+  it("leaves an ordinary conflict as it was", async () => {
+    const failure = await on(409, { detail: "This entry changed" }).save(row, 1).catch((e) => e);
+    expect(failure.status).toBe(409);
+    expect(failure.moved).toBeUndefined();
+    expect(failure.message).toMatch(/changed elsewhere/);
+  });
+});

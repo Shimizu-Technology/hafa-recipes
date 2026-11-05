@@ -19,6 +19,7 @@ import type {
 import type { CareDay } from "./tracker";
 import type { CareStats, StatsChoice } from "./care-stats";
 import type { ChangesAnswer } from "./changes";
+import type { Moved } from "./outbox";
 import { rowFence, spacesLive, unavailableMessage } from "./spaces";
 import { dailyAiLimitMessage } from "./import-status";
 /**
@@ -77,6 +78,12 @@ export class ApiError extends Error {
     readonly local = false
   ) {
     super(message);
+  }
+}
+/** The row isn't in the space this write named. `moved` says where it went, so the write can follow it. */
+export class MovedError extends ApiError {
+  constructor(readonly moved: Moved) {
+    super("This entry moved. It’s being sent to where it lives now.", 409);
   }
 }
 export function createBabyApi(
@@ -171,6 +178,20 @@ export function createBabyApi(
           } catch (failure) {
             if (failure instanceof ApiError) throw failure;
           }
+        }
+        if (response.status === 409) {
+          let detail: { code?: string } & Partial<Moved> = {};
+          try {
+            // A move comes back as the body itself. Any other coded refusal is under `detail`.
+            const body = await response.json();
+            detail = body?.code ? body : body?.detail ?? {};
+            check();
+            assertLease(captured);
+          } catch (failure) {
+            if (failure instanceof ApiError) throw failure;
+          }
+          if (detail.code === "moved" && detail.space_id && detail.generation !== undefined && detail.record)
+            throw new MovedError({ space_id: detail.space_id, generation: detail.generation, revision: detail.revision ?? null, record: detail.record });
         }
         const safe =
           response.status === 409

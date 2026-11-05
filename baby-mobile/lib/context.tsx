@@ -14,7 +14,7 @@ import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import NetInfo from "@react-native-community/netinfo";
 import { configuration } from "./config";
-import { ApiError, createBabyApi, type BabyApi } from "./api";
+import { ApiError, MovedError, createBabyApi, type BabyApi } from "./api";
 import { createVault, storageKey, type SecretStorage } from "./vault";
 import { createDeviceVault } from "./device-vault";
 import {
@@ -30,9 +30,12 @@ import {
 import {
   addMutation,
   fencedState,
+  rejoined,
+  retargeted,
   retryUnavailable,
   upgradedState,
   withKnownSpaces,
+  withoutFamily,
   heldUntil,
   mutationRecordId,
   settledSplit,
@@ -229,7 +232,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
     await commit((s) => {
       const fenced = fencedState(s, bootstrap),
         grew = familySpaces(bootstrap).some((space) => !familySpaces(s.bootstrap).some((known) => known.id === space.id)),
-        next = withKnownSpaces(grew ? retryUnavailable(fenced) : fenced, bootstrap);
+        // With no spaces listed the API has stopped saying, which isn't the same as this account being out of one.
+        lost = spacesLive(bootstrap) ? familySpaces(s.bootstrap).filter((space) => !bootstrap.spaces!.some((known) => known.id === space.id)) : [],
+        left = lost.reduce((rows, space) => withoutFamily(rows, space.id, Crypto.randomUUID), fenced),
+        next = withKnownSpaces(grew ? retryUnavailable(rejoined(left, bootstrap)) : left, bootstrap);
       return {
         ...next,
         bootstrap,
@@ -354,7 +360,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             try {
               done = await api.splitEvent(next.series.id, { revision: next.series.revision ?? 0, from_start: next.from_start, event: next.event }, fenceOf(next));
             } catch (failure) {
-              if (!(failure instanceof ApiError) || failure.local || !current() || (failure.status !== 409 && failure.status !== 410)) throw failure;
+              if (!(failure instanceof ApiError) || failure instanceof MovedError || failure.local || !current() || (failure.status !== 409 && failure.status !== 410)) throw failure;
               // Gone means it landed once and the new event was removed since. Refused means nothing changed: the old dates all stay.
               await commit((s) => ({ ...s, outbox: failure.status === 410 ? s.outbox.filter((m) => m.id !== next.id)
                 : s.outbox.map((m) => (m.id === next.id ? { ...m, conflict: true, error: "This event changed somewhere else, so nothing was changed. Discard this and make your change again." } : m)) }));
@@ -437,13 +443,18 @@ export function BabyProvider({ children }: PropsWithChildren) {
                 ? await api.feedAction(next.record_id, next.action, fenceOf(next))
                 : await api.sessionAction(next.record_id, next.action, fenceOf(next));
             } catch (failure) {
-              if (!(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409)) || !current()) throw failure;
+              if (failure instanceof MovedError || !(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409)) || !current()) throw failure;
               let row: BabyRecord | null = null;
               try { row = await api.record(next.record_id); }
               catch (reading) {
                 if (!(reading instanceof ApiError && !reading.local && reading.status === 404)) throw reading;
               }
-              const outcome = rejectedAction(row, next.action);
+              let outcome = rejectedAction(row, next.action);
+              if (outcome === "removed" && spacesLive(latest)) {
+                // Not readable isn't the same as gone. The tap only goes once the API has said this row was removed.
+                await pullChanges();
+                if (ref.current.records.some((known) => known.id === next.record_id)) outcome = "unresolved";
+              }
               if (outcome === "unresolved") {
                 // The feed still takes taps, so this was a passing race. It's kept, and asks her if it doesn't clear.
                 const tries = (next.attempts ?? 0) + 1;
@@ -529,6 +540,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
         } catch (e) {
           if (!alive.current) break;
           if (e instanceof ApiError && e.local) break;
+          if (e instanceof MovedError) {
+            // The same change, to where its row lives now. It goes again straight after this pass.
+            await commit((s) => { const held = s.outbox.find((m) => m.id === next.id); return held ? retargeted(s, held, e.moved, Crypto.randomUUID) : s; });
+            rerun.current = true;
+            continue;
+          }
           const status = e instanceof ApiError ? e.status : -1;
           // A replayed save whose entry was removed elsewhere. It would refuse every pass, and hold everything behind it. With a file, the upload may be what expired.
           if (status === 410 && next.type === "save" && !next.files.length) {
@@ -557,7 +574,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
       }
       for (const id of ref.current.fileReleases ?? []) {
         if (uploadedReferences(ref.current).has(id)) continue;
-        await api.releaseAttachment(id, latest.generation);
+        try {
+          await api.releaseAttachment(id, latest.generation);
+        } catch (failure) {
+          // It moved with its record, or was retired when someone left. Either way there's nothing here to release.
+          if (!(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure instanceof MovedError))) throw failure;
+        }
         await commit((s) => ({
           ...s,
           fileReleases: (s.fileReleases ?? []).filter((pending) => pending !== id),

@@ -67,7 +67,9 @@ vi.mock("./reminders", () => ({
 }));
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 import { BabyProvider, useBaby } from "./context";
-import { ApiError } from "./api";
+import { ApiError, MovedError } from "./api";
+import { notSentMessage } from "./outbox";
+import { unavailableMessage } from "./spaces";
 import { uploadFile } from "./files";
 import { runningFeed } from "./feed-reducer";
 import { switchFeed } from "./running-feed";
@@ -1382,5 +1384,89 @@ describe("fetching the other phone's changes", () => {
     await mount(); await flush();
     expect(baby.error).toBe("");
     expect(baby.state.bootstrap).toMatchObject({ generation: 1 });
+  });
+});
+
+describe("a family's protocol, through the sync loop", () => {
+  const personal = "p", family = "f";
+  const spaces = [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }];
+  const live = { ...bootstrap, personal_space_id: personal, spaces, children: [{ id: "baby", name: "Baby", revision: 2, space_id: family, generation: 1 }] };
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const none = { spaces: [], cursor: {}, has_more: false, removed_space_ids: [] };
+  const feed = (revision = 3, space_id = personal) => ({ ...optimisticRecord({ id: "feed", kind: "feeding", title: "Feed", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: { method: "breast", state: "running", actions: [{ id: "s", action: "start", at: "2026-11-05T00:00:00.000Z", side: "left" }] } }), revision, space_id, generation: 1 });
+  const tap = { id: "tap", generation: 1, space_id: personal, type: "feed_action" as const, record_id: "feed", action: { id: "tap", action: "finish" as const, at: "2026-11-05T00:10:00.000Z" } };
+  const setup = (answer: any, saved: Partial<DeviceState>, extra: object = {}) => {
+    mock.api = { bootstrap: vi.fn(async () => answer), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes: vi.fn(async () => none), ...extra };
+    mock.saved = { ...emptyState(), bootstrap: answer, version: 2, ...saved } as unknown as DeviceState;
+  };
+  const movedError = () => new MovedError({ space_id: family, generation: 1, revision: 4, record: feed(4, family) });
+  it("retargets a tap whose feed moved, and sends the same action id to the new space", async () => {
+    const applied = { ...feed(5, family), data: { ...feed().data, actions: [...feed().data.actions!, { ...tap.action, revision: 5 }] } };
+    const feedAction = vi.fn().mockRejectedValueOnce(movedError()).mockResolvedValue(applied);
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction });
+    await mount(); await flush(); await flush();
+    expect(feedAction).toHaveBeenCalledTimes(2);
+    expect(feedAction.mock.calls[0]).toEqual(["feed", tap.action, { generation: 1, space_id: personal }]);
+    expect(feedAction.mock.calls[1]).toEqual(["feed", tap.action, { generation: 1, space_id: family }]);
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.records[0]).toMatchObject({ space_id: family, revision: 5 });
+  });
+  it("keeps a tap that got 404 when the row is still known here: same action id, later, and never drops the feed", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toHaveLength(1);
+    expect(baby.state.outbox[0]).toMatchObject({ id: "tap" });
+    expect(baby.state.records.map((row) => row.id)).toContain("feed");
+    expect(baby.state.feedNotices ?? []).toEqual([]);
+    expect(mock.api.changes).toHaveBeenCalled();
+  });
+  it("only believes a feed is gone once /changes says it was removed", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    const changes = vi.fn(async () => ({ ...none, spaces: [{ id: personal, generation: 1, access_version: 1, cursor: 9, has_more: false, reset: false, items: [{ id: "feed", removed: true, seq: 9 }] }] }));
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction, record, changes });
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.feedNotices).toEqual(["This feed was removed."]);
+  });
+  it("with the flag off, a tap's 404 still means the feed was removed, as before", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    const { space_id: _, ...plain } = tap;
+    setup(bootstrap, { records: [optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: { state: "running" } })], outbox: [plain] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.feedNotices).toEqual(["This feed was removed."]);
+  });
+  it("sends items an older build gave up on after a 404, once, on updating", async () => {
+    const save = { id: "old", generation: 1, type: "save" as const, files: [], error: unavailableMessage, record: { id: "e", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, revision: 2 } };
+    const saved = { ...optimisticRecord(save.record), revision: 3 }, saveCall = vi.fn(async () => saved);
+    setup(bootstrap, { outbox: [save], version: undefined }, { save: saveCall });
+    await mount(); await flush();
+    expect(saveCall).toHaveBeenCalledTimes(1);
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("on removal purges the family's rows, stops its queue, and leaves the rest working", async () => {
+    const shared = feed(3, family), save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), mine = { id: "mine", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "mine", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+    const queued = { ...tap, space_id: family };
+    setup({ ...live, spaces: [spaces[0]], children: [] }, { bootstrap: live, records: [shared], outbox: [queued, mine] } as never, { save, feedAction: vi.fn() });
+    await mount(); await flush();
+    expect(baby.state.records.map((row) => row.id)).toEqual(["mine"]);
+    expect(mock.api.feedAction).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: family, error: notSentMessage }]);
+  });
+  it("purges nothing when the flag goes off, since the API has stopped saying", async () => {
+    const shared = feed(3, family);
+    setup(bootstrap, { bootstrap: live, records: [shared] } as never);
+    await mount(); await flush();
+    expect(baby.state.records.map((row) => row.id)).toEqual(["feed"]);
+  });
+  it("treats a release of an upload that's already gone as done, so it can't hold up the pass", async () => {
+    const releaseAttachment = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { fileReleases: ["retired"], fileUploads: { f: "retired" } }, { releaseAttachment });
+    await mount(); await flush();
+    expect(baby.state.fileReleases).toEqual([]);
+    expect(mock.api.changes).toHaveBeenCalled();
+    expect(baby.error).toBe("");
   });
 });
