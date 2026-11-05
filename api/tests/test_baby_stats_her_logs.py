@@ -25,8 +25,8 @@ zone = ZoneInfo("Pacific/Guam")
 needs_database = pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 
 
-def log(label, title, at):
-    return SimpleNamespace(data={"label": label}, title=title, occurred_at=at)
+def log(label, title, at, **data):
+    return SimpleNamespace(data={"label": label, **data}, title=title, occurred_at=at)
 
 
 def added(rows, first=1, last=0):
@@ -36,12 +36,12 @@ def added(rows, first=1, last=0):
 
 def test_counts_by_hand_with_the_newest_as_typed():
     today, yesterday = NOW - timedelta(hours=1), NOW - timedelta(days=1)
-    rows = [log("My weight", "152 lb", today), log("Blood pressure", "118/76", today), log("My weight", "151.5 lb", yesterday)]
+    rows = [log("My weight", "My weight", today, value=152, unit="lb"), log("Blood pressure", "118/76", today), log("My weight", "My weight", yesterday, value=151.5, unit="lb")]
     result = added(rows)
     assert result["own"]["count"] == 3
     assert result["own"]["logs"] == [
-        {"label": "Blood pressure", "count": 1, "latest_title": "118/76", "latest_at": today.astimezone(zone).isoformat()},
-        {"label": "My weight", "count": 2, "latest_title": "152 lb", "latest_at": today.astimezone(zone).isoformat()},
+        {"label": "Blood pressure", "count": 1, "latest_title": "118/76", "latest_at": today.astimezone(zone).isoformat(), "latest_value": None, "latest_unit": None},
+        {"label": "My weight", "count": 2, "latest_title": "My weight", "latest_at": today.astimezone(zone).isoformat(), "latest_value": 152, "latest_unit": "lb"},
     ]
     assert [day["own"]["count"] for day in result["days"]] == [1, 2]
 
@@ -54,9 +54,13 @@ def test_a_day_is_the_parents_calendar_day():
 
 def test_says_nothing_about_a_number():
     result = added([log("Blood pressure", "190/120", NOW - timedelta(hours=1))])
-    assert set(result["own"]["logs"][0]) == {"label", "count", "latest_title", "latest_at"}
+    assert set(result["own"]["logs"][0]) == {"label", "count", "latest_title", "latest_at", "latest_value", "latest_unit"}
     for word in ("high", "low", "normal", "range", "flag", "risk"):
         assert word not in str(result["own"]).lower()
+
+
+def test_a_value_in_an_old_row_that_is_not_a_number_is_no_value():
+    assert added([log("My weight", "My weight", NOW - timedelta(hours=1), value={"odd": 1})])["own"]["logs"][0]["latest_value"] is None
 
 
 def test_nothing_logged_is_an_empty_list():

@@ -182,7 +182,11 @@ def add_own_logs(result, rows, zone, *, complete=True):
     for row in rows:
         at = row.occurred_at.astimezone(zone)
         days[at.date().isoformat()]["own"]["count"] += 1
-        log = logs.setdefault(row.data["label"], {"label": row.data["label"], "count": 0, "latest_title": row.title, "latest_at": at.isoformat()})
+        # A weight keeps its number in data, and a blood pressure or a feeling keeps its words in the title.
+        log = logs.setdefault(row.data["label"], {
+            "label": row.data["label"], "count": 0, "latest_title": row.title, "latest_at": at.isoformat(),
+            "latest_value": number_in(row.data.get("value")), "latest_unit": text_in(row.data, "unit"),
+        })
         log["count"] += 1
     result["own"] = {"count": len(rows), "logs": [logs[label] for label in sorted(logs)]}
     result["complete"] = result["complete"] and complete
