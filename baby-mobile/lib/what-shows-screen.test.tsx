@@ -87,14 +87,14 @@ describe("What shows", () => {
     await flip("Sleep", false);
     expect(queued().map((m: any) => m.tracking)).toEqual([{ diaper: false }, { sleep: false }]);
   });
-  it("says it's on this phone while it's offline", async () => {
+  it("keeps moving with no signal, under the status line that says so", async () => {
     const b = setup([newborn]);
     b.online = false;
     await mount();
-    expect(words()).not.toContain("on this phone");
+    expect(renderer!.root.findAll((n) => String(n.type) === "SyncStatus")).toHaveLength(1);
     await flip("Diaper", false);
-    expect(words()).toContain("Saved on this phone");
     expect(named("Diaper").props.value).toBe(false);
+    expect(queued()).toHaveLength(1);
   });
   it("shows the baby it was opened for, and lets her choose with two", async () => {
     setup([newborn, { ...newborn, id: "two", name: "Kai", details: { tracking: { diaper: false } } }]);
