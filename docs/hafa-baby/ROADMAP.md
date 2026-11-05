@@ -252,7 +252,7 @@ No partition switching. One actor vault, as today.
 - Every write locks its space row (`access_for`) and stamps the row with `change_seq` from `UPDATE baby_spaces SET change_seq = change_seq + 1`. The row lock makes the sequence commit-ordered per space, so a cursor can't skip a late commit.
 - One helper, `touch(row, space)`, does this for routes **and workers**, and also fixes the worker branch that changes data without advancing it (`runtime.py:331`). A test asserts every mutation path goes through it.
 - `GET /changes?cursor={space: seq}` returns rows above the cursor, soft deletes as `{id, removed: true}`, moves via `baby_moved_out`, and each space's `access_version`. Paged by seq, with `has_more`. Starting from 0 is the first snapshot.
-- If `access_version` changed, the client resets from a fresh snapshot.
+- If `access_version` changed, the client resets from a fresh snapshot. Removing an attachment reference also advances access versions: discard the old snapshot so formerly readable upload metadata is evicted without disclosing never-readable upload IDs.
 - **Baseline:** F3's rerun gives every existing row a positive `change_seq`, so a snapshot from 0 includes them. R1 ships only after every writer in F4 uses `touch()`.
 - Called every 15 seconds in the foreground, on open, on reconnect and on silent push.
 
@@ -288,11 +288,11 @@ A running feed stores its actions, and everything else is derived by one pure re
 - **Create replays** look up the row by its original ID, check the caller can read its current space, and return the current row with its space. Generation is only compared for brand-new creates. This applies equally to children, imports and captures.
 - **Edits and deletes** to a moved row get `409 {code: "moved", space_id, generation, revision, record}`. The client updates the queued item's space and generation and retries; a real edit conflict falls into the existing review flow.
 - **New care for a moved child:** the same response, and the client retargets it to the child's space automatically.
-- **Other queued personal items stay personal.** Pending private content is never published automatically.
+- **Other queued personal items stay personal.** Pending private content is never published automatically. A question or import with a personal upload stays personal and clears a child link that moved to the family.
 - Moves increment `revision` and `change_seq`. Personal generation doesn't change, so `fencedState` doesn't wipe pending work.
 - The Invite screen lists what becomes shared before Create family runs. That disclosure is the only automatic publish.
 
-**Imports caught mid-move.** `move_record()` clears the job's lease and requeues it with the new space and generation, keeping the original and the actor's consent. The worker's gates and completion verify stored space, generation, lease and authorization, discard stale results and validate generated relations. Requeued work reloads the destination's categories, so private category names can't reach a family source.
+**Imports caught mid-move.** Before a post moves into personal space, another actor's jobs are cancelled in their original space; they never enter the creator's personal space. `move_record()` clears the moving actor's job lease and requeues it with the new space and generation, keeping the original and the actor's consent. The worker's gates and completion verify stored space, generation, lease and authorization, discard stale results and validate generated relations. Requeued work reloads the destination's categories, so private category names can't reach a family source.
 
 **Lock order, everywhere:** discover what's affected; lock `app_users` rows in ascending order; lock `baby_spaces` in ascending order; lock records and assets; re-check what was discovered, and retry if it changed. No space lock is held during media processing or AI calls: the worker keeps short claim and completion transactions.
 
@@ -410,3 +410,10 @@ Keep `BABY_FAMILY_ENABLED=false` in production while deploying this stack. The l
 4. Exercise a synthetic client-3 snapshot from cursor 0 and a worker update. Only after the baseline and privacy matrix pass may the lead enable `BABY_INVITES_ENABLED` through `render.yaml`, verify it on every instance, and begin the 48-hour synthetic rehearsal. Invite creation, preview and acceptance require this flag on; use synthetic accounts only. No real accounts join until the rehearsal passes and every signed-in phone is updated. If rehearsal fails, disable invites through the Blueprint and stop the rollout.
 
 `GET /changes` is client-3-only and returns 404 with the family gate off. `cursor` and optional `access_version` are JSON maps of space UUIDs to integers (at most eight spaces); `limit` is 1–100 per space. The response has `spaces`, the next `cursor` map, `has_more`, and `removed_space_ids`. Each space page includes `id`, `generation`, `access_version`, `cursor`, `has_more`, `reset`, and `items`. Items carry `seq` and `entity`; removals carry `id`, `removed: true`, and `seq`. No raw import requests, capability hashes or tokens are returned. Pass the last access versions on subsequent pages: `reset: true` requires a fresh snapshot from zero. A missing former space must be purged locally. Pages release their access locks before returning the response and never hold locks during external processing.
+
+### F7a recovery and F10 phone-update gate
+
+| Plan row | Required acceptance |
+|---|---|
+| F7a | Retry outbox items previously marked as errors after a 404 so the server can return `moved` and the client can retarget them. A feed/session tap that receives 404 must remain durable; refresh or resolve the record and retry the same action ID instead of deleting the local record and losing the tap. On a capture 401, refresh the share credential and rebind pending captures non-destructively; preserve the original capture ID and receipt. After leave/removal, Keep in my personal space preserves the draft text but drops retired/unreadable attachment IDs and asks the user to reattach the files. |
+| F10 | Before a real Create family, verify that every signed-in phone has updated to the family-capable build and rebound its share credential. Enforce this as an admission gate, not disclosure copy alone; block family activation while any phone is outdated or its readiness is unknown. Rehearse queued edits/imports, 404-error recovery, a pending feed/session tap and 401 capture recovery across two signed-in phones before admitting real accounts. |

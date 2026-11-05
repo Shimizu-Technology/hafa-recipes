@@ -155,7 +155,9 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
             BabySpaceMember.space_id.in_(lock_ids))))
         for identifier in sorted({actor, *actor_ids, *affected}):
             if await db.scalar(select(AppUser.id).where(AppUser.id == identifier).with_for_update(key_share=poll)) is None:
-                raise HTTPException(404, "Account unavailable")
+                if identifier == actor:
+                    raise HTTPException(404, "Account unavailable")
+                raise AccessChanged()
         for identifier in lock_ids:
             space = await db.scalar(select(BabySpace).where(BabySpace.id == identifier).with_for_update())
             if space is not None:

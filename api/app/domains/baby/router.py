@@ -27,6 +27,7 @@ from app.domains.baby.lifecycle import (
     membership_for,
     now,
     owned,
+    personal_child_link,
     readable_journal_children,
     settle_running_feeds,
     validate_relations,
@@ -934,11 +935,7 @@ async def create_record(
             raise HTTPException(410, "This entry was removed; create a new entry")
         return await record_reply(db, prior, access)
     access.check_generation(generation)
-    child_id = body.child_id
-    if access.enabled and child_id and body.kind in {"source", "collection"} and access.target.space.kind == "personal":
-        child = await access.row(db, BabyChild, child_id)
-        if child.space_id != access.target.id:
-            child_id = None
+    child_id = await personal_child_link(db, access, body.child_id, body.kind, body.data.get("attachment_ids", []))
     await validate_relations(db, access, generation, child_id, body.data, record_id=body.id, kind=body.kind)
     if body.kind == "event":
         await check_series_cap(db, access, generation, body.data, record_id=body.id)
@@ -1003,6 +1000,7 @@ async def patch_record(
     if access.enabled and row.kind == "journal" and valid.child_id == row.child_id:
         if row.child_id not in await readable_journal_children(db, [row], access):
             valid.child_id = None
+    valid.child_id = await personal_child_link(db, access, valid.child_id, row.kind, valid.data.get("attachment_ids", []))
     await validate_relations(db, access, generation, valid.child_id, valid.data,
                              record_id=row.id, kind=row.kind)
     if row.kind == "event":
@@ -1205,28 +1203,37 @@ async def delete_data(
 
     grants = await lock_family_data(db, user.id)
     member = await membership_for(db, user.id, write=True, active=False)
+    replay = member.status == "deleted" and member.generation == generation + 1
     if family_enabled() and request.headers.get("X-Baby-Client") == "3":
-        raw_space = request.headers.get("X-Baby-Space")
-        try:
-            requested = UUID(raw_space) if raw_space else None
-        except ValueError:
-            raise HTTPException(422, "Choose a valid Baby space") from None
-        if requested is None:
-            raise HTTPException(422, "X-Baby-Space is required")
-        if requested != member.personal_space_id:
-            raise HTTPException(422, "Use Delete family to erase a family; data erasure targets your personal space")
-    if family_enabled() and request.headers.get("X-Baby-Client") == "3":
+        if not replay:
+            raw_space = request.headers.get("X-Baby-Space")
+            try:
+                requested = UUID(raw_space) if raw_space else None
+            except ValueError:
+                raise HTTPException(422, "Choose a valid Baby space") from None
+            if requested is None:
+                raise HTTPException(422, "X-Baby-Space is required")
+            if requested != member.personal_space_id:
+                raise HTTPException(422, "Use Delete family to erase a family; data erasure targets your personal space")
         from app.domains.baby.models import BabySpaceMember
 
         if await db.scalar(select(BabySpaceMember.space_id).where(
             BabySpaceMember.app_user_id == user.id, BabySpaceMember.status == "active",
             BabySpaceMember.space_id != member.personal_space_id).limit(1)):
             raise HTTPException(409, {"code": "family_exit_required"})
-    if member.status == "deleted" and member.generation == generation + 1:
+    if replay:
         return {"deleted": True, "generation": member.generation}
     if member.status != "active" or member.generation != generation:
         raise HTTPException(409, "Baby data changed; refresh before deleting")
     if grants is not None:
+        from app.domains.baby.share_models import BabyShareCredential
+
+        for credential in await db.scalars(select(BabyShareCredential).where(
+            BabyShareCredential.app_user_id == user.id, BabyShareCredential.revoked_at.is_(None))):
+            credential.revoked_at = now()
+            grant = next((g for g in grants if g.id == credential.space_id), None)
+            if grant is not None:
+                await touch(credential, grant)
         personal_id = member.personal_space_id
         member.personal_space_id = None
         await erase_conversations(db, grants, actor=user.id)
