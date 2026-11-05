@@ -5,6 +5,7 @@ import { useBaby } from "@/lib/context";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { messageFor, type BabyRecord } from "@/lib/models";
+import { spaceFence, spaceForNew } from "../lib/spaces";
 import { Button, Copy, Field, Loading, Notice, Row, Screen } from "./ui";
 
 export function CategoryPicker({ sourceIds, onClose, onSaved }: {
@@ -22,10 +23,12 @@ export function CategoryPicker({ sourceIds, onClose, onSaved }: {
       if (!b.online) throw Error("Connect to organize these saved posts. Your selection is kept.");
       if (sourceIds.some((id) => b.state.outbox.some((m) => m.type === "save" && m.record.id === id)))
         throw Error("These posts are still syncing. Your selection is kept; try again after they sync.");
-      const generation = b.state.bootstrap!.generation;
+      const generation = b.state.bootstrap!.generation,
+        // A new category goes where the posts it's for are, since a category only holds its own space's.
+        space = b.records.find((row) => row.id === sourceIds[0])?.space_id ?? spaceForNew(b.state, { kind: "collection", child_id: null, data: {} });
       const result = categoryId ? await changeCategory(b.api, categoryId, sourceIds, generation) : {
         record: await b.api.save({ id, kind: "collection", title: name.trim(), body: "", child_id: null,
-          occurred_at: occurredAt, data: { record_ids: sourceIds } }, generation), added: sourceIds,
+          occurred_at: occurredAt, data: { record_ids: sourceIds } }, spaceFence(b.state.bootstrap!, space)), added: sourceIds,
       };
       if (b.current()) onSaved(result.record, result.added);
     } catch (failure) { if (b.current()) setError(messageFor(failure)); }

@@ -68,3 +68,43 @@ describe("routine cache persistence migration", () => {
     expect(await vault.read()).toEqual({ ...state, routine_sync: marker });
   });
 });
+
+describe("where a family save lives", () => {
+  it("sits outside the directory and key names build 35 deletes when it signs out", async () => {
+    vi.resetModules();
+    const held = new Map<string, string>(), disk = new Map<string, string>();
+    vi.doMock("react-native", () => ({ Platform: { OS: "ios" } }));
+    vi.doMock("expo-file-system/legacy", () => ({
+      documentDirectory: "file:///docs/",
+      makeDirectoryAsync: async () => undefined,
+      writeAsStringAsync: async (name: string, value: string) => { disk.set(name, value); },
+      readAsStringAsync: async (name: string) => disk.get(name)!,
+      deleteAsync: async (name: string) => { for (const key of [...disk.keys()]) if (key.startsWith(name)) disk.delete(key); },
+    }));
+    vi.doMock("expo-crypto", () => {
+      const key = { encoded: async () => "k" };
+      return {
+        AESEncryptionKey: { generate: async () => key, import: async () => key },
+        AESSealedData: { fromCombined: (value: string) => value },
+        aesEncryptAsync: async (bytes: Uint8Array) => ({ combined: () => new TextDecoder().decode(bytes) }),
+        aesDecryptAsync: async (value: string) => new TextEncoder().encode(value),
+      };
+    });
+    const { createDeviceVault } = await import("./device-vault"), { storageKey } = await import("./vault"), { emptyState } = await import("./models");
+    const secret = { getItemAsync: async (k: string) => held.get(k) ?? null, setItemAsync: async (k: string, v: string) => { held.set(k, v); }, deleteItemAsync: async (k: string) => { held.delete(k); } };
+    let id = 0;
+    const make = () => createDeviceVault(secret, "n", () => String(++id));
+    const family = { ...emptyState(), bootstrap: { generation: 1, personal_space_id: "p", spaces: [{ id: "p", kind: "personal" }, { id: "f", kind: "family" }], children: [] }, outbox: [{ id: "tap", space_id: "f" }] };
+    await make().write(family);
+    // What build 35's own sign-out removes, by name.
+    const name = storageKey("n");
+    expect([...disk.keys()].filter((key) => key.startsWith(`file:///docs/baby-vault/${name}/`))).toEqual([]);
+    expect(held.has(name + ".key")).toBe(false);
+    held.delete(name + ".manifest");
+    expect(await make().read()).toMatchObject({ outbox: [{ id: "tap" }], feedNotices: [expect.stringContaining("signed out on an older version")] });
+    await make().clear();
+    expect(disk.size).toBe(0);
+    expect(held.size).toBe(0);
+    vi.doUnmock("react-native"); vi.doUnmock("expo-file-system/legacy"); vi.doUnmock("expo-crypto");
+  });
+});

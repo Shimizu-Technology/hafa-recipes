@@ -55,6 +55,51 @@ struct BabyShareStoreTests {
     }
 
     do {
+      // A build-34 phone updates, then a family is created: nothing of its older captures goes.
+      let (_, defaults, store, suite) = try fixture("rebind")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let family = "11111111-1111-4111-8111-111111111111", other = "22222222-2222-4222-8222-222222222222"
+      let waiting = UUID().uuidString, received = UUID().uuidString, shared = UUID().uuidString
+      try store.bind("owner-a:1", automaticEpoch: 3)
+      try store.publish(["no receipt yet"], id: waiting)
+      try store.publish(["its receipt came back"], id: received)
+      let open = try store.published(received)!
+      try check(try store.accept(open.token, receipt: ["status": "deferred", "import_id": received]), "an older build's receipt is written")
+      try store.release(open.token)
+      try store.bind("owner-a:1:personal")
+      try check(store.scope() == "owner-a:1:personal", "the destination now says it's personal")
+      try check(try store.pending()?.token.hasPrefix(waiting) == true, "the update keeps a pending capture")
+      try store.bind("owner-a:1:\(family)")
+      var seen = try store.pending()
+      try check(seen?.token.hasPrefix(waiting) == true && seen?.scope == "owner-a:1", "Create family keeps a pending capture with its own destination")
+      try check(seen?.automaticEpoch == 3, "and what it was allowed to do then")
+      try check(try store.acknowledge(seen!.token), "the host can still hand it off")
+      seen = try store.pending()
+      try check(seen?.token.hasPrefix(received) == true && seen?.receipt?["status"] == "deferred" && seen?.receipt?["import_id"] == received, "the receipt survives with its id")
+      try check(try store.acknowledge(seen!.token), "and that one too")
+      try store.publish(["new capture"], id: shared)
+      try check(try store.pending()?.scope == "owner-a:1:\(family)", "a new capture is tagged with the new destination")
+      // Leaving rebinds to personal, and what was bound for the family stays until the host routes it.
+      try store.bind("owner-a:1:personal")
+      try check(try store.pending()?.token.hasPrefix(shared) == true, "leaving keeps a capture made for the family")
+      try store.bind("owner-a:1:\(other)")
+      try check(try store.pending()?.token.hasPrefix(shared) == true, "so does joining another")
+    }
+    do {
+      // Rebinding stops at privacy: another account's phone, or this space's own data being cleared.
+      let family = "11111111-1111-4111-8111-111111111111"
+      for (first, second, label) in [("owner-a:1", "owner-b:1", "another account"), ("owner-a:1:\(family)", "owner-b:1:\(family)", "another account in the family"),
+        ("owner-a:1", "owner-a:2:personal", "a cleared personal space, from a legacy tag"), ("owner-a:1:personal", "owner-a:2:personal", "a cleared personal space"),
+        ("owner-a:1:\(family)", "owner-a:2:\(family)", "a cleared family")] {
+        let (_, defaults, store, suite) = try fixture("rebind-clears" + label)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try store.bind(first)
+        try store.publish(["private"], id: UUID().uuidString)
+        try store.bind(second)
+        try check(try store.pending() == nil, label + " retires captures")
+      }
+    }
+    do {
       let (root, defaults, store, suite) = try fixture("receipt")
       defer { defaults.removePersistentDomain(forName: suite) }
       let a = UUID().uuidString, b = UUID().uuidString

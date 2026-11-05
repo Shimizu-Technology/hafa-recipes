@@ -3,7 +3,8 @@ import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
 import { withSessionAction } from "./session-actions";
 import { careKinds } from "./models";
 import { trackedKinds } from "./trackers";
-import type { BabyRecord, Child, DeviceState, EditorDraft, ImportJob, Kind, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
+import { familySpaces, generationOf, goneBabyMessage, spaceForNew, spacesLive, stuckTapMessage, unavailableMessage } from "./spaces";
+import type { BabyRecord, Bootstrap, Child, DeviceState, EditorDraft, ImportJob, Kind, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
     b.occurred_at.localeCompare(a.occurred_at)
@@ -12,6 +13,8 @@ export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
 export function pendingRecords(state: DeviceState) {
   let rows = state.records;
   for (const change of state.outbox) {
+    // From a family this account has left. It's not an entry here any more, only something to keep or discard.
+    if (change.left_space) continue;
     if (change.type === "save") {
       const prior = rows.find((r) => r.id === change.record.id);
       rows = replaceRecord(rows, {
@@ -19,11 +22,12 @@ export function pendingRecords(state: DeviceState) {
         revision: change.record.revision ?? 0,
         created_at: prior?.created_at ?? change.record.occurred_at,
         updated_at: change.record.occurred_at,
+        ...(change.space_id ? { space_id: change.space_id } : {}),
       });
     } else if (change.type === "event_split") {
       for (const record of [change.series, change.event]) {
         const prior = rows.find((r) => r.id === record.id);
-        rows = replaceRecord(rows, { ...record, revision: record.revision ?? 0, created_at: prior?.created_at ?? record.occurred_at, updated_at: record.occurred_at });
+        rows = replaceRecord(rows, { ...record, revision: record.revision ?? 0, created_at: prior?.created_at ?? record.occurred_at, updated_at: record.occurred_at, ...(change.space_id ? { space_id: change.space_id } : {}) });
       }
     } else if (change.type === "delete") rows = rows.filter((r) => r.id !== change.record.id);
     else if (change.type === "feed_action")
@@ -33,10 +37,23 @@ export function pendingRecords(state: DeviceState) {
   }
   return rows;
 }
+/** Where a queued change is going. Whatever touches a row goes where that row lives, and only a new one gets to choose. */
+function targetOf(state: DeviceState, m: Mutation) {
+  const home = (id?: string | null) => (id ? state.records.find((r) => r.id === id)?.space_id ?? state.outbox.find((q) => q.space_id && mutationRecordIds(q).includes(id))?.space_id : undefined),
+    personal = state.bootstrap?.personal_space_id;
+  if (m.type === "save") return home(m.record.id) ?? spaceForNew(state, m.record);
+  if (m.type === "event_split") return home(m.series.id) ?? spaceForNew(state, m.series);
+  if (m.type === "delete") return m.record.space_id ?? home(m.record.id) ?? personal;
+  if (m.type === "child_birth" || m.type === "child_tracking") return state.bootstrap?.children.find((child) => child.id === m.child_id)?.space_id ?? personal;
+  if (m.type === "import") return home(m.record_id) ?? spaceForNew(state, { kind: "source", child_id: m.child_id ?? null, data: {} });
+  return home(m.record_id) ?? personal;
+}
 export function addMutation(state: DeviceState, mutation: Mutation) {
   if (state.outbox.some((m) => m.id === mutation.id)) return state;
-  const shown = mutation.type === "save" && !mutation.base && pendingRecords(state).some((r) => r.id === mutation.record.id);
-  return { ...state, outbox: [...state.outbox, shown ? { ...mutation, base: baseOf(state, mutation.record.id) } : mutation] };
+  const space = spacesLive(state.bootstrap) ? mutation.space_id ?? targetOf(state, mutation) : undefined,
+    stamped = space ? { ...mutation, space_id: space, generation: generationOf(state.bootstrap, space) ?? mutation.generation } : mutation,
+    shown = stamped.type === "save" && !stamped.base && pendingRecords(state).some((r) => r.id === stamped.record.id);
+  return { ...state, outbox: [...state.outbox, shown && stamped.type === "save" ? { ...stamped, base: baseOf(state, stamped.record.id) } : stamped] };
 }
 /** The queued changes already in the copy she sees. An editor keeps this from the moment it opens. */
 export function baseOf(state: DeviceState, id: string): SaveBase {
@@ -95,24 +112,205 @@ export function settledDraft(draft: EditorDraft, state: DeviceState): EditorDraf
   }
   return { ...draft, revision: revision || draft.revision, base: { after } };
 }
-export function fencedState(state: DeviceState, generation: number) {
+/**
+ * Pending work belongs to its space. A cleared personal space takes its own work and leaves a family's, and a family's
+ * generation changing takes only that family's. Joining a space, moving a row, or the flag turning on changes neither.
+ */
+export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "generation" | "spaces">) {
+  const generation = typeof next === "number" ? next : next.generation, spaces = typeof next === "number" ? undefined : next.spaces,
+    families = familySpaces(state.bootstrap),
+    retired = new Set(families.filter((space) => spaces?.some((now) => now.id === space.id && now.generation !== space.generation)).map((space) => space.id)),
+    surviving = new Set(families.filter((space) => !retired.has(space.id) && spaces?.some((now) => now.id === space.id)).map((space) => space.id));
   if (
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer: __, feedNotices: ___, settled: ____, childDrafts: _____, ...rest } = state;
+    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, ...rest } = state,
+      kept = (id?: string) => !!id && surviving.has(id),
+      familyBaby = (id?: string | null) => kept(state.bootstrap?.children?.find((child) => child.id === id)?.space_id),
+      outbox = state.outbox.filter((m) => kept(m.space_id)),
+      drafts = Object.fromEntries(Object.entries(state.drafts).filter(([, draft]) => kept(draft.space_id))),
+      fileIds = new Set([...Object.values(drafts).flatMap((draft) => draft.files), ...outbox.flatMap((m) => ("files" in m ? m.files : []))].map((file) => file.id)),
+      babyDrafts = Object.entries(childDrafts ?? {}).filter(([id]) => familyBaby(id));
     return {
       ...rest,
-      records: [],
-      fileUploads: {},
+      records: state.records.filter((row) => kept(row.space_id)),
+      fileUploads: Object.fromEntries(Object.entries(state.fileUploads).filter(([id]) => fileIds.has(id))),
       fileReleases: [],
-      drafts: {},
-      outbox: [],
-      imports: [],
-      selectedChild: null,
+      drafts,
+      outbox,
+      imports: state.imports.filter((job) => kept(job.space_id)),
+      selectedChild: familyBaby(state.selectedChild) ? state.selectedChild : null,
+      ...(feedTimer && familyBaby(feedTimer.child_id) ? { feedTimer } : {}),
+      ...(settled && surviving.size ? { settled } : {}),
+      ...(babyDrafts.length ? { childDrafts: Object.fromEntries(babyDrafts) } : {}),
+      ...(changes && surviving.size ? { changes: { cursor: Object.fromEntries(Object.entries(changes.cursor).filter(([id]) => kept(id))), access: Object.fromEntries(Object.entries(changes.access).filter(([id]) => kept(id))) } } : {}),
+    };
+  }
+  if (retired.size) {
+    const gone = (id?: string) => !!id && retired.has(id);
+    return {
+      ...state,
+      records: state.records.filter((row) => !gone(row.space_id)),
+      outbox: state.outbox.filter((m) => !gone(m.space_id)),
+      ...(state.changes ? { changes: { cursor: Object.fromEntries(Object.entries(state.changes.cursor).filter(([id]) => !gone(id))), access: Object.fromEntries(Object.entries(state.changes.access).filter(([id]) => !gone(id))) } } : {}),
     };
   }
   return state;
+}
+/** An older build saved no spaces, and all of it was personal. The first bootstrap that lists them says so, and nothing else moves. */
+export function withKnownSpaces(state: DeviceState, bootstrap: Bootstrap): DeviceState {
+  const personal = bootstrap.personal_space_id;
+  if (!spacesLive(bootstrap) || !personal || (state.records.every((row) => row.space_id) && state.outbox.every((m) => m.space_id))) return state;
+  return { ...state,
+    records: state.records.map((row) => (row.space_id ? row : { ...row, space_id: personal, generation: bootstrap.generation })),
+    outbox: state.outbox.map((m) => (m.space_id ? m : { ...m, space_id: personal, generation: bootstrap.generation })) };
+}
+/**
+ * Drafts from before there was a family stay personal, whatever a new one of that kind would do. She can still choose
+ * Shared when she saves one. Pending private content is never published by a family appearing.
+ */
+export function draftsBeforeFamily(state: DeviceState, bootstrap: Bootstrap): DeviceState {
+  const personal = bootstrap.personal_space_id;
+  if (!personal || Object.values(state.drafts).every((draft) => draft.space_id)) return state;
+  return { ...state, drafts: Object.fromEntries(Object.entries(state.drafts).map(([slot, draft]) => [slot, draft.space_id ? draft : { ...draft, space_id: personal, generation: bootstrap.generation }])) };
+}
+export const recoveredNotice = "This phone was signed out on an older version. What was saved here is back. If a photo is missing, add it again.";
+/** An older build signed out around a family save. The save comes back, with anything that build has queued since, and she's told. */
+export function recoveredState(saved: DeviceState, older: DeviceState | null): DeviceState {
+  const known = new Set(saved.outbox.map((m) => m.id));
+  return withNotice({
+    ...saved,
+    outbox: [...saved.outbox, ...(older?.outbox ?? []).filter((m) => !known.has(m.id))],
+    drafts: { ...older?.drafts, ...saved.drafts },
+  }, recoveredNotice);
+}
+/**
+ * Spaces this phone holds work for that the API no longer lists. It reads them off the work itself, so a flag-off
+ * bootstrap in between, which says nothing about spaces, can't lose track of one.
+ */
+export function retiredSpaces(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces" | "personal_space_id">) {
+  if (!spacesLive(bootstrap)) return [];
+  const listed = new Set(bootstrap.spaces!.map((space) => space.id));
+  return [...new Set([
+    ...familySpaces(state.bootstrap).map((space) => space.id),
+    ...state.records.map((row) => row.space_id),
+    ...state.outbox.filter((m) => !m.left_space).map((m) => m.space_id),
+    ...Object.values(state.drafts).map((draft) => draft.space_id),
+    ...state.imports.map((job) => job.space_id),
+    ...(state.bootstrap?.children ?? []).map((child) => child.space_id),
+  ])].filter((id): id is string => !!id && !listed.has(id) && id !== bootstrap.personal_space_id && id !== state.bootstrap?.personal_space_id);
+}
+/** Files on this phone that pending work still needs. */
+export const localFileUris = (state: DeviceState) =>
+  new Set([...Object.values(state.drafts).flatMap((draft) => draft.files), ...state.outbox.flatMap((m) => ("files" in m ? m.files : []))].map((file) => file.uri));
+/** Sends again what was refused only because its row or baby couldn't be seen, as now it might: the API can say where it moved. */
+export function retryUnavailable(state: DeviceState): DeviceState {
+  const gone = new Set([unavailableMessage, goneBabyMessage, stuckTapMessage]);
+  return state.outbox.some((m) => m.error && gone.has(m.error)) ? { ...state, outbox: state.outbox.map((m) => (m.error && gone.has(m.error) && !m.localOnly ? retryMutation(m) : m)) } : state;
+}
+/** Where the API says a row went: `409 {code: "moved"}`. For new care it's the baby that moved, and `record` is the baby. */
+export interface Moved {
+  space_id: string;
+  generation: number;
+  revision: number | null;
+  record: Partial<BabyRecord> & { id: string };
+}
+/** Just me is the one thing a move itself changes. A file, category or link that differs could be someone's edit. */
+const moveData = ({ just_me: _, ...data }: BabyRecord["data"] = {}) => data;
+/** Exactly one step, and it reads as this phone last saw it, so the move is all that happened to it. Anything else goes to review. */
+const onlyMoved = (seen: BabyRecord, row: Moved["record"], revision: number) => revision === seen.revision + 1 && (["title", "body", "child_id"] as const).every((key) => seen[key] === row[key]) &&
+  // The same moment can be written two ways: the API writes `Z` in a response and `+00:00` in this one.
+  !!row.occurred_at && instant(seen.occurred_at) === instant(row.occurred_at) && same(moveData(seen.data), moveData(row.data));
+const bounces = 4;
+/**
+ * A queued change follows its row to another space, with what's queued after it. A move adds a revision of its own, so
+ * the change moves up that one step if the move is all that's happened. Anything else keeps its revision, and the API
+ * sends it to review. A file goes up again in the new space, because a record's files must be in its own.
+ */
+export function retargeted(state: DeviceState, change: Mutation, moved: Moved, uuid: () => string): DeviceState {
+  const chain = new Set(queuedChain(state.outbox, change).map((m) => m.id)), id = mutationRecordId(change),
+    isRow = moved.record.id === id && "kind" in moved.record,
+    seen = isRow ? state.records.find((row) => row.id === id) : undefined,
+    from = seen && moved.revision && onlyMoved(seen, moved.record, moved.revision) ? seen.revision : undefined,
+    follow = <T extends { revision?: number }>(row: T): T => (from !== undefined && moved.revision && row.revision === from ? { ...row, revision: moved.revision } : row),
+    fileUploads = { ...state.fileUploads };
+  const outbox = state.outbox.map((m): Mutation => {
+    if (!chain.has(m.id)) return m;
+    const retargets = (m.retargets ?? 0) + 1,
+      next: Mutation = { ...m, space_id: moved.space_id, generation: moved.generation, retargets, ...(retargets > bounces ? { error: unavailableMessage } : {}) };
+    if (next.type === "delete") return { ...next, record: follow(next.record) };
+    if (next.type === "event_split") return { ...next, series: follow(next.series) };
+    if (next.type !== "save" && next.type !== "import") return next;
+    for (const file of next.files) delete fileUploads[file.id];
+    const files = m.space_id === moved.space_id ? next.files : next.files.map(({ uploaded_id: _, ...file }) => ({ ...file, id: uuid() }));
+    // An import's files are the moved source's now. An id from the old space is one the new space would refuse.
+    if (next.type === "import") return { ...next, files, ...(m.space_id !== moved.space_id ? { attachment_ids: isRow ? (moved.record.data?.attachment_ids ?? []) : [] } : {}) };
+    return { ...next, record: follow(next.record), files };
+  });
+  return { ...state, outbox, fileUploads: outbox.some((m) => chain.has(m.id) && (m.type === "save" || m.type === "import") && m.files.length) ? fileUploads : state.fileUploads,
+    drafts: from === undefined ? state.drafts : Object.fromEntries(Object.entries(state.drafts).map(([slot, draft]) => [slot, draft.id === id ? follow(draft) : draft])),
+    records: isRow ? replaceRecord(state.records, moved.record as BabyRecord) : state.records };
+}
+/** What a notice is about. Most are a tap, and these two aren't. */
+export const noticeTitle = (notice: string) => (notice === recoveredNotice ? "Back on this phone" : notice === leftFamilyNotice ? "Your family" : notice.startsWith("Saved to your own space") ? "Kept in your space" : "A tap wasn’t added");
+export const notSentMessage = "Not sent: you’re no longer in this family.";
+export const leftFamilyNotice = "You’re no longer in this family, so its entries have left this phone. Anything not sent is in Sync & recovery.";
+/**
+ * Leaving or removal. The family's rows go from this phone at once. What's queued for it stops, and says why, to be kept
+ * or discarded: nothing is lost and nothing is sent. A draft of one of its entries joins that, so what she typed stays.
+ */
+export function withoutFamily(state: DeviceState, space: string, uuid: () => string): DeviceState {
+  const lost = new Set(state.bootstrap?.children.filter((child) => child.space_id === space).map((child) => child.id)),
+    stopped: Mutation[] = [], drafts: DeviceState["drafts"] = {};
+  for (const [slot, draft] of Object.entries(state.drafts)) {
+    if (draft.space_id === space) {
+      const { id, kind, title, body, child_id, occurred_at, data, revision } = draft;
+      stopped.push({ id: uuid(), generation: draft.generation ?? 1, space_id: space, left_space: space, error: notSentMessage, type: "save", files: draft.files,
+        record: { id, kind, title, body, child_id, occurred_at, data, ...(revision ? { revision } : {}) } });
+    } else drafts[slot] = draft.child_id && lost.has(draft.child_id) ? { ...draft, child_id: null } : draft;
+  }
+  const { [space]: _, ...cursor } = state.changes?.cursor ?? {}, { [space]: __, ...access } = state.changes?.access ?? {};
+  return withNotice({ ...state, drafts,
+    ...(state.bootstrap ? { bootstrap: { ...state.bootstrap, children: state.bootstrap.children.filter((child) => child.space_id !== space) } } : {}),
+    records: state.records.filter((row) => row.space_id !== space),
+    imports: state.imports.filter((job) => job.space_id !== space),
+    outbox: [...state.outbox.map((m) => (m.space_id === space ? { ...m, error: notSentMessage, conflict: false, left_space: space } : m)), ...stopped],
+    ...(state.changes ? { changes: { cursor, access } } : {}),
+  }, leftFamilyNotice);
+}
+/** Back in a family this phone had stopped writing to: what was waiting for it goes again. */
+export function rejoined(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces">): DeviceState {
+  const back = (m: Mutation) => !!m.left_space && bootstrap.spaces?.some((space) => space.id === m.left_space),
+    // "You're no longer in this family" isn't true any more, in this family or a new one.
+    notices = state.feedNotices?.filter((notice) => notice !== leftFamilyNotice);
+  return { ...state, ...(notices ? { feedNotices: notices } : {}), outbox: state.outbox.map((m) => (back(m) ? retryMutation(m) : m)) };
+}
+/**
+ * Copies what a former family's queue held into the personal space, under a new id, and takes its chain out. The last
+ * edit is the one she meant. Links into the family go, and so do uploads there: those were retired, and using one again
+ * would be refused. A file still on this phone goes up again, and one that isn't she's asked for.
+ */
+export function keepInPersonal(state: DeviceState, change: Mutation, uuid: () => string): DeviceState {
+  const chain = queuedChain(state.outbox, change), last = [...chain].reverse().find((m): m is Extract<Mutation, { type: "save" }> => m.type === "save"), bootstrap = state.bootstrap;
+  if (!last || !bootstrap) return state;
+  const { attachment_ids, event_id: _, record_ids: __, suggested_category: ___, just_me: ____, ...data } = last.record.data,
+    held = new Set(last.files.map((file) => file.uploaded_id ?? state.fileUploads[file.id])),
+    missing = (attachment_ids ?? []).filter((id) => !held.has(id)).length,
+    fileUploads = { ...state.fileUploads },
+    child = bootstrap.children.some((known) => known.id === last.record.child_id && known.space_id !== last.left_space) ? last.record.child_id : null;
+  for (const file of last.files) delete fileUploads[file.id];
+  const gone = new Set(chain.map((m) => m.id)), kept: Mutation = { id: uuid(), generation: bootstrap.generation, space_id: bootstrap.personal_space_id, type: "save",
+    files: last.files.map(({ uploaded_id: _, ...file }) => ({ ...file, id: uuid() })),
+    record: { id: uuid(), kind: last.record.kind, title: last.record.title, body: last.record.body, child_id: child, occurred_at: last.record.occurred_at,
+      data: { ...data, ...(last.record.kind === "routine" ? { enabled: false } : {}), ...(last.record.kind === "source" ? { status: "saved" } : {}) } } };
+  const next: DeviceState = { ...state, fileUploads, outbox: [...state.outbox.filter((m) => !gone.has(m.id)), kept] };
+  return missing ? withNotice(next, `Saved to your own space. Add its ${missing === 1 ? "file" : `${missing} files`} again.`) : next;
+}
+export const deviceVersion = 2;
+/** One step for what an older build saved: everything's kept, including drafts, the queue and a running timer. */
+export function upgradedState(saved: DeviceState): DeviceState {
+  return (saved.version ?? 1) >= deviceVersion ? saved : { ...retryUnavailable(saved), version: deviceVersion };
 }
 export function shouldRetry(status: number) {
   return status === 0 || status === 408 || status === 429 || status >= 500;
@@ -277,7 +475,7 @@ export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
     .some((m) => mutationRecordIds(m).some((id) => ids.includes(id)));
 }
 export function retryMutation<T extends Mutation>(change: T): T {
-  return { ...change, error: undefined, conflict: false, localOnly: false };
+  return { ...change, error: undefined, conflict: false, localOnly: false, left_space: undefined };
 }
 
 /** A pending birth date shows everywhere as soon as it's tapped, and stays through every refresh until it lands. */

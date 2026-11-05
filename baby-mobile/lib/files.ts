@@ -4,13 +4,22 @@ import * as Crypto from "expo-crypto";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
-import type { BabyApi } from "./api";
+import type { BabyApi, Fence } from "./api";
 import type { LocalFile } from "./models";
 import { storageKey } from "./vault";
 import { fileExtension, supportedFileMime } from "./file-type";
 export function directory(owner: string) {
   return `${FileSystem.documentDirectory}baby/${storageKey(owner)}/`;
 }
+/** Making a file and clearing them take turns, so a clear decides what's staying knowing about every file made before it. */
+let fileTurn: Promise<unknown> = Promise.resolve();
+function inTurn<T>(work: () => Promise<T>) {
+  const run = fileTurn.then(work, work);
+  fileTurn = run.catch(() => undefined);
+  return run;
+}
+/** Made since the last clear, and maybe still on the way into a draft, where a clear can't see them yet. */
+const justMade = new Set<string>();
 export async function preserveFile(
   owner: string,
   file: { uri: string; name?: string; mimeType?: string; size?: number }
@@ -24,17 +33,20 @@ export async function preserveFile(
   const id = Crypto.randomUUID(),
     name = (file.name ?? "attachment").replace(/[^a-zA-Z0-9._-]/g, "_");
   if (Platform.OS === "web") return { id, uri: file.uri, name, mime_type: mime, size };
-  await FileSystem.makeDirectoryAsync(directory(owner), { intermediates: true });
   const uri = directory(owner) + id + "-" + name;
-  try {
-    await FileSystem.copyAsync({ from: file.uri, to: uri });
-  } catch (error) {
-    await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
-    throw error;
-  }
+  await inTurn(async () => {
+    await FileSystem.makeDirectoryAsync(directory(owner), { intermediates: true });
+    try {
+      await FileSystem.copyAsync({ from: file.uri, to: uri });
+      justMade.add(uri);
+    } catch (error) {
+      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+      throw error;
+    }
+  });
   return { id, uri, name, mime_type: mime, size };
 }
-export async function uploadFile(api: BabyApi, file: LocalFile, generation: number) {
+export async function uploadFile(api: BabyApi, file: LocalFile, generation: Fence) {
   const body = new FormData();
   if (Platform.OS === "web") {
     const blob = await (await fetch(file.uri)).blob();
@@ -55,8 +67,16 @@ export async function removeLocal(owner: string, uri: string) {
   if (Platform.OS !== "web" && uri.startsWith(directory(owner)))
     await FileSystem.deleteAsync(uri, { idempotent: true });
 }
-export async function clearFiles(owner: string) {
-  if (Platform.OS !== "web") await FileSystem.deleteAsync(directory(owner), { idempotent: true });
+/** Everything under this account, or everything but what pending work needs, read when its turn comes. */
+export function clearFiles(owner: string, staying?: () => ReadonlySet<string>) {
+  if (Platform.OS === "web") return Promise.resolve();
+  return inTurn(async () => {
+    const keep = new Set([...(staying?.() ?? []), ...(staying ? justMade : [])]);
+    justMade.clear();
+    if (!keep.size) return FileSystem.deleteAsync(directory(owner), { idempotent: true });
+    const names = await FileSystem.readDirectoryAsync(directory(owner)).catch(() => [] as string[]);
+    await Promise.all(names.filter((name) => !keep.has(directory(owner) + name)).map((name) => FileSystem.deleteAsync(directory(owner) + name, { idempotent: true })));
+  });
 }
 export async function openAttachment(
   api: BabyApi,
@@ -76,7 +96,7 @@ export async function openAttachment(
   await FileSystem.makeDirectoryAsync(directory(owner), { intermediates: true });
   try {
     const result = await FileSystem.downloadAsync(api.attachmentUrl(id), target, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, ...api.fileHeaders() },
     });
     api.assertLease(lease);
     if (!current()) throw Error("Your account changed.");

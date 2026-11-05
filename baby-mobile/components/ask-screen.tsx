@@ -6,6 +6,7 @@ import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal } from "@/lib/models";
+import { babyLabel, isCaregiver } from "../lib/spaces";
 import { Button, Card, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
 /** Where an older conversation from History searches; new chats always search everything. */
@@ -37,7 +38,13 @@ export function AiNotice({ service, consent }: { service: boolean; consent: bool
     </PressTarget>}
   </View>;
 }
+/** Ask isn't part of helping as a caregiver, whichever link lands here. Her own chats stay stored, for when she leaves. */
 export default function AskScreen({ back = false }: { back?: boolean }) {
+  return isCaregiver(useBaby().state.bootstrap)
+    ? <Screen title="Ask" back={back}><Notice>Ask isn’t part of helping as a caregiver. Your own chats are kept, and they’re here again if you leave the family.</Notice></Screen>
+    : <AskChat back={back} />;
+}
+function AskChat({ back }: { back: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
   const b = useBaby(),
@@ -46,7 +53,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
     composerMinimum = Math.max(46, Math.ceil(17 * fontScale * 1.45 + 24)),
     chat = useAskSession(params.record_id, screenFocused),
     { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
-  const focused = !!chat.context.record_id;
+  const focused = !!chat.context.record_id, askedAbout = b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id);
   async function review(proposal: Proposal) {
     const result = await chat.review(proposal);
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
@@ -126,7 +133,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </>
       )}
       <Copy kind="small" tone="muted">
-        {[chat.context.child_id ? "For " + (b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id)?.name ?? "the conversation’s child profile") : "",
+        {[chat.context.child_id ? "For " + (askedAbout ? babyLabel(askedAbout, b.state.bootstrap) : "the conversation’s child profile") : "",
           // A conversation keeps searching where it began, so it says so next to the child.
           focused ? (chat.context.child_id ? "" : "General / personal entry") : scopeLine[chat.context.scope]].filter(Boolean).join(" · ")}
       </Copy>

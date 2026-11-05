@@ -22,6 +22,8 @@ import { MoreLogs } from "@/components/more-logs";
 import { panelTrackers, trackerOn, trackersFor, trackingKey } from "../../../lib/trackers";
 import { LegacyTimer } from "@/components/feed-timer";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
+import { familyLine } from "../../../lib/logged-by";
+import { canChangeBaby } from "../../../lib/spaces";
 import { TrackerMonth } from "@/components/tracker-month";
 import { TrackerStats } from "@/components/tracker-stats";
 import { useCareStats } from "@/lib/use-care-stats";
@@ -128,7 +130,7 @@ export default function Tracker() {
         </View>
         <Grouped separatorInset={0}>{timeline.map((entry) => "event_id" in entry
           ? <EventRow key={`${entry.event_id}:${entry.original_start}`} item={entry} day={day} />
-          : <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />
+          : <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} logged={familyLine(entry, care.all, b.state.bootstrap, b.owner)} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />
         )}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}
@@ -139,7 +141,7 @@ export default function Tracker() {
         <Row title="Doctor summary" detail="One page to bring to an appointment" icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: scope ?? undefined } })} />
         {logging && <Row title="Growth" detail="Your measurements on CDC’s WHO charts" icon="trending-up-outline" onPress={() => router.push("/growth")} />}
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
-        {!!child && <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
+        {!!child && canChangeBaby(b.state.bootstrap, child) && <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
       </Grouped>
     </Screen>
   );

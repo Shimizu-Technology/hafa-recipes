@@ -18,13 +18,25 @@ import type {
 } from "./models";
 import type { CareDay } from "./tracker";
 import type { CareStats, StatsChoice } from "./care-stats";
+import type { ChangesAnswer } from "./changes";
+import { disclosureVersion, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "./family";
+import type { Moved } from "./outbox";
+import { rowFence, spacesLive, unavailableMessage } from "./spaces";
 import { dailyAiLimitMessage } from "./import-status";
 /**
  * What this build tells the API it understands, as `X-Baby-Client`. 2 reads and writes every current kind and field, in
- * the personal space only, with no space header. Client 3 is for builds that know about family spaces.
+ * the personal space only, with no space header. Client 3 is every space, and writes name theirs.
+ *
+ * The API decides which applies. With its family flag off it treats client 3 as a legacy client, with no calendar, so a
+ * build can't just send 3. Bootstrap is the one request that always does, as it answers the same either way and lists
+ * spaces only with the flag on. Everything else follows the last answer this phone kept, so the build works on both
+ * sides of the flag and takes up the change on its next bootstrap. Until then client 2 still reads and writes personal.
  */
-export const babyClient = 2 as 2 | null;
-export const sendsCareDetails = babyClient === 2;
+export const babyClient = 2 as const;
+export const familyClient = 3 as const;
+export const sendsCareDetails = true;
+/** What a write is fenced by: a generation, and the space it's for. A bare generation is the personal space's. */
+export type Fence = number | { generation: number; space_id?: string | null };
 const seriesLimit = "You can keep up to 200 repeating events";
 export const seriesLimitMessage = `${seriesLimit}. Delete one you no longer need, or save this one without repeating.`;
 /** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
@@ -69,14 +81,30 @@ export class ApiError extends Error {
     super(message);
   }
 }
+/** The row isn't in the space this write named. `moved` says where it went, so the write can follow it. */
+export class MovedError extends ApiError {
+  constructor(readonly moved: Moved) {
+    super("This entry moved. It’s being sent to where it lives now.", 409);
+  }
+}
+/** Create family was refused because a phone signed in to this account hasn't updated. */
+export class PhonesNotReady extends ApiError {
+  constructor(readonly readiness: FamilyReadiness) {
+    super("Update your other phones first. Nothing has moved.", 409);
+  }
+}
 export function createBabyApi(
   base: string,
   getToken: () => Promise<string | null>,
   current: () => boolean,
-  transport: (input: string, init?: RequestInit) => Promise<Response> = fetch
+  transport: (input: string, init?: RequestInit) => Promise<Response> = fetch,
+  /** The bootstrap this phone holds, saved or fresh, which sets the client level. */
+  known: () => Pick<Bootstrap, "spaces" | "personal_space_id"> | undefined = () => undefined
 ) {
   let epoch = 0,
     knownGeneration: number | undefined;
+  /** By space, so joining one takes nothing away and only that space's own change ends what's under way. */
+  const knownGenerations = new Map<string, number>();
   const lease = () => epoch;
   const assertLease = (captured: number) => {
     if (captured !== epoch)
@@ -89,11 +117,17 @@ export function createBabyApi(
     path: string,
     method = "GET",
     body?: unknown,
-    generation?: number,
+    fence?: Fence,
     idempotencyKey?: string
   ): Promise<T> {
     check();
-    const captured = epoch;
+    const captured = epoch,
+      generation = typeof fence === "object" ? fence.generation : fence,
+      held = known(),
+      live = spacesLive(held),
+      // A bootstrap names no space. A route outside Baby has none.
+      space = live && method !== "GET" && path !== "/bootstrap" && !path.startsWith("/api/")
+        ? (typeof fence === "object" && fence.space_id) || held?.personal_space_id : undefined;
     if (!base) throw new ApiError("This build needs its Håfa service configuration.", 0);
     let token: string | null;
     try {
@@ -116,7 +150,9 @@ export function createBabyApi(
           headers: {
             Authorization: `Bearer ${token}`,
             ...(body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-            ...(babyClient ? { "X-Baby-Client": String(babyClient) } : {}),
+            // Bootstrap asks as 3 to hear what's on. A credential asks as 3 so this build is never counted as an old phone: the API treats a client below 3 asking as one, and takes back its readiness.
+            "X-Baby-Client": String(live || path === "/bootstrap" || path === "/share/session" ? familyClient : babyClient),
+            ...(space ? { "X-Baby-Space": space } : {}),
             ...(generation === undefined ? {} : { "X-Baby-Generation": String(generation) }),
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },
@@ -151,6 +187,22 @@ export function createBabyApi(
             if (failure instanceof ApiError) throw failure;
           }
         }
+        if (response.status === 409) {
+          let detail: { code?: string; phones?: FamilyReadiness["phones"]; older_client_at?: string | null } & Partial<Moved> = {};
+          try {
+            // A move comes back as the body itself. Any other coded refusal is under `detail`.
+            const body = await response.json();
+            detail = body?.code ? body : body?.detail ?? {};
+            check();
+            assertLease(captured);
+          } catch (failure) {
+            if (failure instanceof ApiError) throw failure;
+          }
+          if (detail.code === "moved" && detail.space_id && detail.generation !== undefined && detail.record)
+            throw new MovedError({ space_id: detail.space_id, generation: detail.generation, revision: detail.revision ?? null, record: detail.record });
+          if (detail.code === "phones_not_ready") throw new PhonesNotReady({ ready: false, phones: detail.phones ?? [], older_client_at: detail.older_client_at });
+          if (detail.code === "family_exit_required") throw new ApiError("Leave your family first. Your family’s data isn’t erased from here.", 409);
+        }
         const safe =
           response.status === 409
             ? "This record or account changed elsewhere. Your local version is safe. Review it before saving again."
@@ -169,7 +221,7 @@ export function createBabyApi(
                           ? dailyAiLimitMessage
                           : "Please wait a moment before trying again."
                         : response.status === 404
-                          ? "This item is no longer available. Keep your local copy or discard this change."
+                          ? unavailableMessage
                           : response.status >= 500
                             ? path === "/attachments"
                               ? "Håfa Baby could not upload this attachment. It is safe on this phone. Retry the upload later."
@@ -182,13 +234,21 @@ export function createBabyApi(
       check();
       assertLease(captured);
       if (path === "/bootstrap" || path === "/enroll") {
-        const generation = (value as Bootstrap).generation;
-        if (knownGeneration !== undefined && generation < knownGeneration)
-          throw new ApiError("An older account response was stopped.", 410, true);
-        if (generation !== knownGeneration) {
-          knownGeneration = generation;
-          epoch++;
+        const answer = value as Bootstrap, generation = answer.generation, stale = new ApiError("An older account response was stopped.", 410, true);
+        if (knownGeneration !== undefined && generation < knownGeneration) throw stale;
+        let ended = generation !== knownGeneration;
+        for (const { id, generation: now } of answer.spaces ?? []) {
+          const before = knownGenerations.get(id);
+          if (before !== undefined && now < before) throw stale;
+          ended ||= before !== undefined && before !== now;
         }
+        if (path === "/bootstrap") {
+          ended ||= !![...knownGenerations.keys()].some((id) => !answer.spaces?.some((space) => space.id === id));
+          knownGenerations.clear();
+          for (const { id, generation: now } of answer.spaces ?? []) knownGenerations.set(id, now);
+        }
+        knownGeneration = generation;
+        if (ended) epoch++;
       }
       return value;
     } catch (e) {
@@ -222,21 +282,19 @@ export function createBabyApi(
       epoch++;
       return request<Bootstrap>("/enroll", "POST", {}, g);
     },
-    profile: (value: Profile, g: number) => {
+    profile: (value: Profile, g: Fence) => {
       const { auto_process_epoch: _, ...patch } = value;
       return request<Profile>("/profile", "PATCH", patch, g);
     },
-    child: (value: Partial<Child>, g: number) =>
+    child: (value: Partial<Child>, g: Fence) =>
       request<Child>(
         value.revision !== undefined ? `/children/${value.id}` : "/children",
         value.revision !== undefined ? "PATCH" : "POST",
-        value.revision !== undefined
-          ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "id"))
-          : value,
+        Object.fromEntries(Object.entries(value).filter(([key]) => key !== "space_id" && key !== "generation" && (value.revision === undefined || key !== "id"))),
         g
       ),
-    deleteChild: (child: Child, g: number) =>
-      request<void>(`/children/${child.id}?revision=${child.revision}`, "DELETE", undefined, g),
+    deleteChild: (child: Child, g: Fence) =>
+      request<void>(`/children/${child.id}?revision=${child.revision}`, "DELETE", undefined, typeof g === "number" ? rowFence(child, g) : g),
     records: (filters: RecordFilters = {}) =>
       request<RecordPage>("/records?" + query({ ...filters })),
     search: (q: string, kind?: Kind, child_id?: string | null,
@@ -252,11 +310,13 @@ export function createBabyApi(
     events: (from: string, to: string, child_id?: string | null) =>
       request<{ items: EventOccurrence[]; complete: boolean }>("/events?" + query({ from, to, child_id })),
     /** Ends a repeat before this date and starts the next: both or neither. Sending it again gets the same answer. */
-    splitEvent: (series: string, { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }: { revision: number; from_start: string; event: RecordWrite }, g: number) =>
+    splitEvent: (series: string, { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }: { revision: number; from_start: string; event: RecordWrite }, g: Fence) =>
       request<{ series: BabyRecord | null; event: BabyRecord }>(`/events/${encodeURIComponent(series)}/split`, "POST",
         { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }, g),
-    save: (value: RecordWrite, g: number) => {
+    save: (value: RecordWrite, g: Fence) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
+      // A row read from the API says where it lives, and a write has to go there.
+      if (typeof g === "number") g = rowFence(value as { generation?: number; space_id?: string }, g);
       // Repair optional links at the wire boundary, including durable outbox
       // retries created by earlier share capture code. Keep nonblank bytes intact
       // so an accepted create with a lost response keeps the same replay hash.
@@ -277,17 +337,17 @@ export function createBabyApi(
         g
       );
     },
-    feedAction: (recordId: string, value: FeedAction, g: number) =>
+    feedAction: (recordId: string, value: FeedAction, g: Fence) =>
       request<BabyRecord>(`/records/${recordId}/feed-action`, "POST",
         { action_id: value.id, action: value.action, at: value.at, ...(value.side ? { side: value.side } : {}) }, g),
-    sessionAction: (recordId: string, value: SessionAction, g: number) =>
+    sessionAction: (recordId: string, value: SessionAction, g: Fence) =>
       request<BabyRecord>(`/records/${recordId}/session-action`, "POST",
         { action_id: value.id, action: value.action, at: value.at, ...(value.target ? { target: value.target } : {}) }, g),
     /** Accept or dismiss suggested categories; each item reports its own result. */
-    decideSuggestions: (items: { record_id: string; revision: number }[], g: number, action: "accept" | "dismiss" = "accept") =>
+    decideSuggestions: (items: { record_id: string; revision: number }[], g: Fence, action: "accept" | "dismiss" = "accept") =>
       request<SuggestionResult>("/suggested-categories", "POST", { action, items }, g),
-    remove: (value: BabyRecord, g: number) =>
-      request<void>(`/records/${value.id}?revision=${value.revision}`, "DELETE", undefined, g),
+    remove: (value: BabyRecord, g: Fence) =>
+      request<void>(`/records/${value.id}?revision=${value.revision}`, "DELETE", undefined, typeof g === "number" ? rowFence(value, g) : g),
     import: (
       value: {
         id: string;
@@ -299,15 +359,17 @@ export function createBabyApi(
         child_id?: string | null;
         topics?: string[];
       },
-      g: number
+      g: Fence
     ) => request<ImportJob>("/imports", "POST", value, g),
     job: (id: string) => request<ImportJob>(`/imports/${id}`),
-    retryJob: (id: string, g: number) => request<ImportJob>(`/imports/${id}/retry`, "POST", {}, g),
-    cancelJob: (id: string, g: number) => request<ImportJob>(`/imports/${id}/cancel`, "POST", {}, g),
-    upload: (body: FormData, g: number, id: string) => request<Attachment>("/attachments", "POST", body, g, id),
+    retryJob: (id: string, g: Fence) => request<ImportJob>(`/imports/${id}/retry`, "POST", {}, g),
+    cancelJob: (id: string, g: Fence) => request<ImportJob>(`/imports/${id}/cancel`, "POST", {}, g),
+    upload: (body: FormData, g: Fence, id: string) => request<Attachment>("/attachments", "POST", body, g, id),
     attachment: (id: string) => request<Attachment>(`/attachments/${encodeURIComponent(id)}/metadata`),
-    releaseAttachment: (id: string, g: number) =>
+    releaseAttachment: (id: string, g: Fence) =>
       request<void>(`/attachments/${encodeURIComponent(id)}/release`, "POST", {}, g),
+    /** A file comes by its own download, not `request`, and the API needs the same client level to find a family's. */
+    fileHeaders: () => ({ "X-Baby-Client": String(spacesLive(known()) ? familyClient : babyClient) }),
     attachmentUrl: (id: string) => `${base.replace(/\/$/, "")}/api/v1/baby/attachments/${id}`,
     chat: (
       body: {
@@ -322,6 +384,27 @@ export function createBabyApi(
     ) => request<ChatResult>("/chat", "POST", body, g),
     conversations: () => request<{ items: Conversation[] }>("/conversations"),
     conversation: (id: string) => request<Conversation>(`/conversations/${id}`),
+    /** What's changed in each space since these cursors. A bigger access version than the last means start again. */
+    changes: (cursor: Record<string, number>, access: Record<string, number>) =>
+      request<ChangesAnswer>("/changes?" + query({ cursor: JSON.stringify(cursor), access_version: JSON.stringify(access) })),
+    readiness: (installation_id?: string) => request<FamilyReadiness>("/family/readiness?" + query({ installation_id })),
+    /** She says the older phone is updated or gone. This phone's own credential stays. */
+    confirmPhones: (installation_id?: string) => request<unknown>("/family/phones/confirm", "POST", installation_id ? { installation_id } : {}),
+    /** The first one creates the family, and only with `publish` set: she's seen what becomes shared. */
+    createInvite: (role: "parent" | "caregiver", publish: boolean, g: Fence) =>
+      request<FamilyInvite>("/family/invites", "POST", { role, publish_shared: publish, disclosure_version: disclosureVersion }, g),
+    previewInvite: (code: string) => request<InvitePreview>("/family/invites/preview", "POST", { code }),
+    acceptInvite: (code: string, g: Fence) =>
+      request<{ space_id: string; generation: number; role: string; access_version: number }>("/family/invites/accept", "POST", { code, disclosure_version: disclosureVersion }, g),
+    familyMembers: (space: string) => request<{ items: FamilyMember[] }>(`/family/${encodeURIComponent(space)}/members`),
+    familyInvites: (space: string) => request<{ items: FamilyInvite[] }>(`/family/${encodeURIComponent(space)}/invites`),
+    revokeInvite: (space: string, id: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}/invites/${encodeURIComponent(id)}`, "DELETE", undefined, g),
+    removeMember: (space: string, actor: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}/members/${encodeURIComponent(actor)}`, "DELETE", undefined, g),
+    leaveFamily: (space: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}/leave`, "POST", {}, g),
+    deleteFamily: (space: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}`, "DELETE", undefined, g),
+    /** Shared with family or Just me. The row goes to `destination`, and the fence is where it lives now. */
+    moveRecord: (row: BabyRecord, destination: string, g: Fence) =>
+      request<BabyRecord>(`/records/${encodeURIComponent(row.id)}/move`, "POST", { space_id: destination, revision: row.revision }, g),
     export: () => request<unknown>("/export"),
     erase: (g: number) => {
       epoch++;

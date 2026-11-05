@@ -40,3 +40,15 @@ it("still shows an answer when a newer question is slow, rather than waiting on 
   await act(async () => { answers[1](day(2)); });
   expect(mock.days["2026-11-05"].feeding.count).toBe(2);
 });
+
+it("reads when changes arrive instead of on a timer, once the app fetches changes", async () => {
+  const careSummary = vi.fn(async () => day(1));
+  mock.baby = { owner: "o", changeTick: 0, state: { outbox: [], bootstrap: { generation: 1, spaces: [{ id: "p" }] } }, api: { careSummary } };
+  await act(async () => { renderer = create(<Probe />); });
+  expect(careSummary).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(summaryPollMs * 2); });
+  expect(careSummary).toHaveBeenCalledTimes(1);
+  mock.baby = { ...mock.baby, changeTick: 1 };
+  await act(async () => { renderer!.update(<Probe />); });
+  expect(careSummary).toHaveBeenCalledTimes(2);
+});

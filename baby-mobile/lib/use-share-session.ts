@@ -8,9 +8,12 @@ import {
   beginShareSessionSync,
   isShareSessionCurrent,
   isShareSessionSuspended,
+  onShareSessionAsked,
   revokeShareAuthority,
   serializeShareSession,
 } from "./share-session-state";
+import { sessionScope, shareDestination, shareOwner } from "./share-scope";
+import { accessKey, generationOf, spaceFence, spacesLive } from "./spaces";
 export { revokeShareSession } from "./share-session-state";
 
 export function ShareSessionGuard() {
@@ -25,6 +28,9 @@ export function useShareSession() {
   const generation = b.state.bootstrap?.generation;
   const automaticEpoch = b.state.bootstrap?.profile.auto_process_epoch ?? 0;
   const active = b.state.bootstrap?.active !== false;
+  // Create family, joining and leaving each revoke the credential, so they each get a new one, for where captures now go.
+  // The flag turning on is the same: this phone is ready for a family once it's asked as client 3.
+  const access = `${spacesLive(b.state.bootstrap)}:${accessKey(b.state.bootstrap)}`;
   useEffect(() => {
     if (Platform.OS !== "ios" || !Share.nativeSharingAvailable || !b.owner || !generation || !active) return;
     let alive = true, running = false;
@@ -36,15 +42,17 @@ export function useShareSession() {
       try {
         await serializeShareSession(async () => {
           if (!current()) return;
+          // Only another account's retires what's here. A new credential for this one rebinds, and captures keep their ids and receipts.
           const previous = await Share.sessionOwner();
-          if (previous && previous !== `${b.owner}:${generation}`) await Share.clearSession();
+          if (previous && shareOwner(previous) !== b.owner) await Share.clearSession();
         });
         if (!current()) return;
+        const bootstrap = b.state.bootstrap!, destination = shareDestination(bootstrap);
         const session = await b.api.request<Share.ShareSession>("/share/session", "POST",
-          { installation_id: await Share.installationId() }, generation);
+          { installation_id: await Share.installationId() }, spaceFence(bootstrap, destination));
         await serializeShareSession(async () => {
-          if (!current() || session.generation !== generation) return;
-          await Share.configureSession(session, configuration.apiBase, b.owner);
+          if (!current() || session.generation !== generationOf(bootstrap, destination)) return;
+          await Share.configureSession(session, configuration.apiBase, b.owner, sessionScope(bootstrap, session));
           // Permission-version refreshes replace this effect without retiring
           // same-account captures. Account cleanup is serialized separately.
           if (!current() && (isShareSessionSuspended() || !b.current())) await Share.clearSession(true);
@@ -56,6 +64,7 @@ export function useShareSession() {
     };
     void sync();
     const listener = AppState.addEventListener("change", state => { if (state === "active") void sync(); });
-    return () => { alive = false; listener.remove(); };
-  }, [b.api, b.owner, generation, active, automaticEpoch]);
+    const stopAsking = onShareSessionAsked(() => void sync());
+    return () => { alive = false; listener.remove(); stopAsking(); };
+  }, [b.api, b.owner, generation, active, automaticEpoch, access]);
 }

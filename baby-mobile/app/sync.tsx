@@ -5,8 +5,10 @@ import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
 import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { keepInPersonal, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
+import { PrivateAttachment } from "@/components/private-attachment";
+import { savedDetails } from "../lib/saved-details";
 import { recordDay } from "@/lib/tracker";
 import { trackerForKey } from "../lib/trackers";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
@@ -98,7 +100,9 @@ export default function Sync() {
                     : m.record.title}
               </Copy>
               <Copy kind="small" tone="muted">
-                {m.localOnly
+                {m.left_space
+                  ? "Not sent"
+                  : m.localOnly
                   ? "Kept on this phone · not syncing"
                   : m.conflict
                   ? "Needs a conflict review"
@@ -122,6 +126,20 @@ export default function Sync() {
                 <Copy>{m.record.body || "Care details and attachments are saved with this change."}</Copy>
               )}
               {m.error && <Notice error>{m.error}</Notice>}
+              {!!m.left_space && queuedChain(b.state.outbox, m).some((row) => row.type === "save") && (
+                <Button
+                  secondary
+                  title="Keep in my personal space"
+                  disabled={b.syncing || busy}
+                  onPress={() =>
+                    void run(async () => {
+                      await b.commit((s) => { const held = s.outbox.find((row) => row.id === m.id); return held ? keepInPersonal(s, held, Crypto.randomUUID) : s; });
+                      toast("Kept in your personal space.");
+                      await b.sync();
+                    })
+                  }
+                />
+              )}
               {m.conflict && (m.type === "save" || m.type === "delete") && (
                 <>
                   <Button
@@ -142,6 +160,8 @@ export default function Sync() {
                       </Copy>
                       <Copy kind="heading">{remote[m.id].title}</Copy>
                       <Copy>{remote[m.id].body || "No written notes."}</Copy>
+                      {savedDetails(remote[m.id].data as Record<string, unknown>).map((line) => <Copy key={line} kind="small">{line}</Copy>)}
+                      {(remote[m.id].data?.attachment_ids ?? []).map((id) => <PrivateAttachment key={id} id={id} />)}
                       <Copy kind="small" tone="muted">
                         Updated {new Date(remote[m.id].updated_at).toLocaleString()}
                       </Copy>
@@ -229,13 +249,13 @@ export default function Sync() {
                   }
                 />
               )}
-              {!m.localOnly && (m.error || m.conflict) && (
+              {!m.left_space && !m.localOnly && (m.error || m.conflict) && (
                 <Button secondary title="Keep on this phone" disabled={b.syncing || busy}
                   onPress={() => void run(async () => {
                     await b.commit(s => ({ ...s, outbox: s.outbox.map(row => row.id === m.id ? { ...row, localOnly: true } : row) }));
                   })} />
               )}
-              {!m.conflict && (m.error || m.localOnly) && (
+              {!m.left_space && !m.conflict && (m.error || m.localOnly) && (
                 <Button secondary title="Retry" busy={busy} onPress={() => void run(() => retry(m))} />
               )}
               <Button

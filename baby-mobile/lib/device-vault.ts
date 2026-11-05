@@ -2,8 +2,10 @@ import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import { AESEncryptionKey, AESSealedData, aesEncryptAsync, aesDecryptAsync } from "expo-crypto";
 import { createVault, storageKey, type SecretStorage } from "./vault";
-import { createPartitionVault } from "./partition-vault";
-import type { BabyRecord } from "./models";
+import { createPartitionVault, type EncryptedFiles } from "./partition-vault";
+import { recoveredState } from "./outbox";
+import type { BabyRecord, DeviceState } from "./models";
+import { holdsFamilyWork } from "./spaces";
 const encoder = new TextEncoder(),
   decoder = new TextDecoder();
 export function persistedCache(section: string, value: unknown) {
@@ -28,26 +30,21 @@ export function persistedCache(section: string, value: unknown) {
 }
 export function createDeviceVault(secret: SecretStorage, namespace: string, uuid: () => string) {
   if (Platform.OS === "web") return createVault(secret, namespace, uuid);
-  const base = `${FileSystem.documentDirectory}baby-vault/${storageKey(namespace)}/`,
-    keyName = storageKey(namespace) + ".key";
-  let cached: AESEncryptionKey | null = null;
-  async function key(create = false) {
-    if (cached) return cached;
-    const saved = await secret.getItemAsync(keyName);
-    if (saved) {
-      cached = await AESEncryptionKey.import(saved, "base64");
+  const encrypted = (base: string, keyName: string): EncryptedFiles => {
+    let cached: AESEncryptionKey | null = null;
+    async function key(create = false) {
+      if (cached) return cached;
+      const saved = await secret.getItemAsync(keyName);
+      if (saved) {
+        cached = await AESEncryptionKey.import(saved, "base64");
+        return cached;
+      }
+      if (!create) throw Error("Your private device key is unavailable. Saved files have not been replaced.");
+      cached = await AESEncryptionKey.generate();
+      await secret.setItemAsync(keyName, await cached.encoded("base64"));
       return cached;
     }
-    if (!create) throw Error("Your private device key is unavailable. Saved files have not been replaced.");
-    cached = await AESEncryptionKey.generate();
-    await secret.setItemAsync(keyName, await cached.encoded("base64"));
-    return cached;
-  }
-  return createPartitionVault(
-    secret,
-    namespace,
-    uuid,
-    {
+    return {
       read: (name) => FileSystem.readAsStringAsync(base + name),
       write: async (name, value) => {
         await FileSystem.makeDirectoryAsync(base, { intermediates: true });
@@ -71,7 +68,18 @@ export function createDeviceVault(secret: SecretStorage, namespace: string, uuid
         });
         return decoder.decode(bytes);
       },
-    },
-    persistedCache
+    };
+  };
+  const name = storageKey(namespace);
+  return createPartitionVault(
+    secret,
+    namespace,
+    uuid,
+    encrypted(`${FileSystem.documentDirectory}baby-vault/${name}/`, name + ".key"),
+    persistedCache,
+    (state) => (holdsFamilyWork({ records: [], outbox: [], ...(state as Partial<DeviceState>) }) ? 2 : 1),
+    // Builds 34 and 35 delete the directory and key above when they sign out. These names are outside what they know.
+    encrypted(`${FileSystem.documentDirectory}baby-vault-family/${name}/`, name + ".family-key"),
+    (saved, older) => recoveredState(saved as unknown as DeviceState, older as unknown as DeviceState | null) as unknown as Record<string, unknown>
   );
 }

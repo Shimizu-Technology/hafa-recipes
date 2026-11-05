@@ -93,10 +93,30 @@ final class BabyShareStore {
     let value = UUID(); try write(value, to: url); return value
   }
   func scope() -> String? { try? read(String.self, root.appendingPathComponent("scope.json")) }
+  // A capture's tag is identity, generation and destination: `owner:generation:personal` or
+  // `owner:generation:<family uuid>`. A build before spaces wrote `owner:generation`, and all it
+  // had was personal, so reading it that way is the whole migration: nothing on disk has to change.
+  private static func tag(_ scope: String) -> (owner: String, generation: String, destination: String) {
+    var parts = scope.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+    let destination = parts.count > 2 && (parts.last == "personal" || UUID(uuidString: parts.last ?? "") != nil) ? parts.removeLast() : "personal"
+    let generation = parts.count > 1 ? parts.removeLast() : ""
+    return (parts.joined(separator: ":"), generation, destination)
+  }
+  private static func sameOwner(_ a: String?, _ b: String?) -> Bool {
+    guard let a, let b else { return false }
+    return tag(a).owner == tag(b).owner
+  }
+  // The rebind is the ordinary case. Create family, leaving and rotating a credential all change
+  // where new captures go, and older ones keep their own tag. Only another account, or this same
+  // destination's data having been cleared, retires them. Erasure and sign-out call `clear`.
+  private static func retires(_ previous: String, _ next: String) -> Bool {
+    let old = tag(previous), new = tag(next)
+    return old.owner != new.owner || (old.destination == new.destination && old.generation != new.generation)
+  }
   func bind(_ value: String, automaticEpoch: Int = 0, install: () throws -> Void = {}) throws {
     guard automaticEpoch >= 0 else { throw Failure.invalid }
     try locked {
-      if let previous = scope(), previous != value { try clearLocked() }
+      if let previous = scope(), previous != value, Self.retires(previous, value) { try clearLocked() }
       try install()
       try write(value, to: root.appendingPathComponent("scope.json"))
       // The Keychain install and this non-sensitive sidecar share the store lock.
@@ -196,7 +216,7 @@ final class BabyShareStore {
       let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
       let published: [Manifest] = folders.compactMap { try? manifest($0.lastPathComponent) }
       let values = published.filter { $0.payload != nil && $0.epoch == generation &&
-        (currentScope == nil || $0.scope == currentScope) }
+        (currentScope == nil || $0.scope == currentScope || Self.sameOwner($0.scope, currentScope)) }
         .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
       if let value = values.first { return try snapshot(value) }
       // Only an upgrade from the old store can migrate compatibility keys. Once

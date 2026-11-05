@@ -11,6 +11,7 @@ import { Button, Field, KeyboardSave, OnSurface, tap, typeScale, useColors } fro
 import { LogFields, sideWords } from "./log-fields";
 import { AmountStepper, Option, Panel, SavedRow, keepPlace, usePlaceBackOnLeaving, type useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
+import { babyLabel } from "../lib/spaces";
 
 type Flow = ReturnType<typeof useLogFlow<string>>;
 type PanelProps = Omit<React.ComponentProps<typeof Panel>, "title" | "detail" | "children">;
@@ -110,7 +111,7 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
     care = useTodayCare({ kinds: [tracker.kind], poll: true, child: child.id }), rows = care.all,
     behind = !!care.error || !!care.stale || b.online === false,
     // A dose on the wrong baby would make both babies' Last wrong, so with two she can see which this is.
-    baby = tracker.about === "baby" && b.state.bootstrap!.children.length > 1 ? child.name : "",
+    baby = tracker.about === "baby" && b.state.bootstrap!.children.length > 1 ? babyLabel(child, b.state.bootstrap) : "",
     who = baby ? `For ${baby}` : undefined,
     panelProps = { at: flow.at, now, day: pastDay, timeZone, needTime: flow.needTime, onTime: (iso: string | null) => flow.change(notAhead(iso)) },
     // Kept whole, so a narrow chip can't leave "3" on one line and "h ago" on the next.

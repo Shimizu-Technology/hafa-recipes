@@ -3,6 +3,7 @@ import type { BabyRecord, Kind } from "@/lib/models";
 import { kindName, kindWord } from "@/lib/models";
 import { careSummary, friendlyTime, summaryHoldsTitle } from "@/lib/care-format";
 import { trackerFor, whoseLog } from "../lib/trackers";
+import { familyLine } from "../lib/logged-by";
 import { datedOnly } from "../lib/well-visits";
 import { contractionDetail } from "../lib/contractions";
 import { kickDetail } from "../lib/kicks";
@@ -46,7 +47,7 @@ export function DateBlock({ iso }: { iso: string }) {
 }
 /** `now` lets a screen share one clock between rows and its summary so durations agree. */
 export function RecordRow({ record, pending = false, now }: { record: BabyRecord; pending?: boolean; now?: Date }) {
-  const bootstrap = useBaby().state.bootstrap, children = bootstrap?.children ?? [],
+  const baby = useBaby(), bootstrap = baby.state.bootstrap, children = bootstrap?.children ?? [],
     tracker = trackerFor(record), dated = datedOnly(record),
     // Logs read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
     clock = tracker ? bootstrap?.profile.timezone : undefined,
@@ -65,6 +66,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
     dated ? keyDate(recordDay(record.occurred_at, bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : friendlyTime(record.occurred_at, now, clock),
     whoseLog(record),
     child,
+    familyLine(record, baby.records ?? [], bootstrap, baby.owner),
     pending ? "Saved on this device" : record.kind === "source" ? String(record.data.status ?? "") : null,
   ]
     .filter(Boolean)

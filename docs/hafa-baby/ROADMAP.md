@@ -218,10 +218,11 @@ Everyone has one **personal space**. A **family space** is separate and is creat
 In this order:
 
 1. **Share credentials and background jobs** use their stored `space_id`. A conflicting header fails.
-2. **Requests with `X-Baby-Client: 2`:**
+2. **Requests with `X-Baby-Client: 3`, with the family flag on:**
    - Reads return everything across the caller's spaces.
    - Writes must send `X-Baby-Space`, or they fail with 422. It must be a space the caller is an active member of, or 403.
    - Bootstrap never needs a space. It returns `spaces: [{id, kind, role, generation, access_version}]`, plus `personal_space_id`.
+   - Below client 3, reads and writes stay in the caller's personal space, and any other `X-Baby-Space` gets 403.
 3. **Requests with no client header (build 32):** served from the personal space only, with v1 kinds, and with new data fields kept when omitted (the `SOURCE_ADDITIONS` pattern). Bootstrap's `generation` is the personal space's, so it never decreases (`api.ts:159`). Build 32 can't see or write family data at all.
 
 `X-Baby-Generation` is compared to the resolved space's generation, never `baby_memberships.generation`.
@@ -417,6 +418,10 @@ Keep `BABY_FAMILY_ENABLED=false` in production while deploying this stack. The l
 4. Exercise a synthetic client-3 snapshot from cursor 0 and a worker update. Only after the baseline and privacy matrix pass may the lead enable `BABY_INVITES_ENABLED` through `render.yaml`, verify it on every instance, and begin the 48-hour synthetic rehearsal. Invite creation, preview and acceptance require this flag on; use synthetic accounts only. No real accounts join until the rehearsal passes and every signed-in phone is updated. If rehearsal fails, disable invites through the Blueprint and stop the rollout.
 
 `GET /changes` is client-3-only and returns 404 with the family gate off. `cursor` and optional `access_version` are JSON maps of space UUIDs to integers (at most eight spaces); `limit` is 1–100 per space. The response has `spaces`, the next `cursor` map, `has_more`, and `removed_space_ids`. Each space page includes `id`, `generation`, `access_version`, `cursor`, `has_more`, `reset`, and `items`. Items carry `seq` and `entity`; removals carry `id`, `removed: true`, and `seq`. No raw import requests, capability hashes or tokens are returned. Pass the last access versions on subsequent pages: `reset: true` requires a fresh snapshot from zero. A missing former space must be purged locally. Pages release their access locks before returning the response and never hold locks during external processing.
+
+### Which client level a build sends
+
+The API decides. With `BABY_FAMILY_ENABLED` off it treats client 3 as a legacy client (no calendar, v1 kinds), so a family-capable build can't simply send 3. Bootstrap is the one request that always goes as client 3: it answers the same either way, and lists `spaces` only with the flag on. Every other request follows the bootstrap this phone holds: no `spaces`, client 2, the 15-second care timer and no `/changes`; `spaces`, client 3, `X-Baby-Space` on writes, and `/changes` in place of the timer. A build therefore works on both sides of the flag and takes up a flip on its next bootstrap, and client 2 still reads and writes the personal space in the seconds until then. Turning the flag off again drops a phone back to client 2 on its next bootstrap; family rows stop being readable, which is why rollback goes through `BABY_INVITES_ENABLED` instead.
 
 ### F7a recovery and F10 phone-update gate
 

@@ -60,14 +60,16 @@ vi.mock("./device-vault", () => ({
   }),
 }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearPendingShares: () => mock.clearShares() }));
-vi.mock("./files", () => ({ clearFiles: async () => {}, removeLocal: async () => {}, uploadFile: vi.fn() }));
+vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: async () => {}, uploadFile: vi.fn() }));
 vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
 }));
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 import { BabyProvider, useBaby } from "./context";
-import { ApiError } from "./api";
+import { ApiError, MovedError } from "./api";
+import { notSentMessage } from "./outbox";
+import { unavailableMessage } from "./spaces";
 import { uploadFile } from "./files";
 import { runningFeed } from "./feed-reducer";
 import { switchFeed } from "./running-feed";
@@ -1309,4 +1311,418 @@ it("checks Ask draft write leases inside the serialized commit (M3)", async () =
     await Promise.all([preceding, saving]);
   });
   expect(baby.state.drafts["chat:v2:guarded"]).toBeUndefined();
+});
+
+describe("fetching the other phone's changes", () => {
+  const live = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] };
+  const diaper = { ...optimisticRecord({ id: "theirs", kind: "diaper", title: "Diaper", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: { type: "wet" } }), revision: 1, space_id: "p" };
+  const quiet = { spaces: [{ id: "p", generation: 1, access_version: 1, cursor: 3, has_more: false, reset: false, items: [] }], cursor: { p: 3 }, has_more: false, removed_space_ids: [] };
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const setup = (answer: any, extra: object = {}) => {
+    mock.api = { bootstrap: vi.fn(async () => answer), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes: vi.fn(async () => quiet), ...extra };
+    mock.saved = { ...emptyState(), bootstrap: answer } as unknown as DeviceState;
+  };
+  it("doesn't call /changes while the API doesn't list spaces, which is the flag off", async () => {
+    setup(bootstrap);
+    await mount(); await flush();
+    expect(mock.api.changes).not.toHaveBeenCalled();
+    expect(baby.error).toBe("");
+  });
+  it("carries on from its saved cursor, keeps what arrived, and tells screens to read again", async () => {
+    setup(live);
+    mock.saved!.changes = { cursor: { p: 2 }, access: { p: 1 } };
+    mock.api.changes.mockResolvedValueOnce({ ...quiet, spaces: [{ ...quiet.spaces[0], items: [{ ...diaper, seq: 3, entity: "record" }] }] });
+    await mount(); await flush();
+    expect(mock.api.changes.mock.calls[0]).toEqual([{ p: 2 }, { p: 1 }]);
+    expect(baby.state.records.map((row) => row.id)).toContain("theirs");
+    expect(baby.state.changes?.cursor.p).toBe(3);
+    expect(baby.changeTick).toBe(1);
+  });
+  it("reads every page of a first snapshot in one go, up to a limit, and comes back for the rest", async () => {
+    setup(live);
+    let at = 0;
+    mock.api.changes.mockImplementation(async () => { at++; const more = at < 25; return { ...quiet, has_more: more, cursor: { p: at }, spaces: [{ ...quiet.spaces[0], has_more: more, cursor: at }] }; });
+    await mount(); await flush(); await flush();
+    expect(at).toBe(25);
+    expect(baby.state.changes?.cursor.p).toBe(25);
+  });
+  it("drops a read from before her access changed, so it can't put a family's rows back", async () => {
+    const family = { id: "family-space", kind: "family", role: "parent", generation: 1, access_version: 1 };
+    setup({ ...live, spaces: [...live.spaces, family] });
+    await mount(); await flush();
+    let answer: (value: RecordPage) => void = () => undefined;
+    const usual = mock.api.records.getMockImplementation();
+    mock.api.records.mockImplementation((filters: { kind?: string }) => filters.kind ? usual!(filters) : new Promise<RecordPage>((resolve) => { answer = resolve; }));
+    let done: Promise<void> | undefined;
+    await act(async () => { done = baby.refresh(); await flush(); });
+    mock.api.records.mockImplementation(usual!);
+    await act(async () => { await baby.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, spaces: live.spaces } }) as DeviceState); });
+    await act(async () => { answer(page([{ ...row("hers-no-more"), kind: "journal", space_id: "family-space" }])); await done; });
+    expect(baby.state.records.some((r: BabyRecord) => r.id === "hers-no-more")).toBe(false);
+  });
+  it("still takes a read when her access hasn't changed", async () => {
+    setup(live);
+    await mount(); await flush();
+    const usual = mock.api.records.getMockImplementation();
+    mock.api.records.mockImplementation(async (filters: { kind?: string }) => filters.kind ? usual!(filters) : page([{ ...row("fresh"), kind: "journal" }]));
+    await act(async () => { await baby.refresh(); });
+    mock.api.records.mockImplementation(usual!);
+    expect(baby.state.records.some((r: BabyRecord) => r.id === "fresh")).toBe(true);
+  });
+  it("still fetches the other phone's changes when a release keeps failing", async () => {
+    setup(live, { releaseAttachment: vi.fn(async () => { throw new ApiError("Unavailable", 503); }) });
+    mock.saved = { ...mock.saved, fileReleases: ["stuck"], fileUploads: { f: "stuck" } } as unknown as DeviceState;
+    await mount(); await flush();
+    expect(mock.api.changes).toHaveBeenCalled();
+    expect(baby.state.fileReleases).toEqual(["stuck"]);
+  });
+  it("stops paging once the app goes to the background during a first snapshot", async () => {
+    setup(live);
+    const { AppState } = await import("react-native");
+    let at = 0;
+    mock.api.changes.mockImplementation(async () => {
+      at++;
+      if (at === 1) (AppState as { currentState: string }).currentState = "background";
+      return { ...quiet, has_more: true, cursor: { p: at }, spaces: [{ ...quiet.spaces[0], has_more: true, cursor: at }] };
+    });
+    try {
+      await mount(); await flush(); await flush();
+      expect(at).toBe(1);
+      expect(baby.state.changes?.cursor.p).toBe(1);
+    } finally { (AppState as { currentState: string }).currentState = "active"; }
+  });
+  it("stops paging when the account has changed", async () => {
+    setup(live);
+    let at = 0;
+    mock.api.changes.mockImplementation(async () => {
+      at++;
+      if (at === 1) await act(async () => { renderer?.unmount(); });
+      return { ...quiet, has_more: true, cursor: { p: at }, spaces: [{ ...quiet.spaces[0], has_more: true, cursor: at }] };
+    });
+    await mount(); await flush();
+    expect(at).toBe(1);
+    renderer = undefined;
+  });
+  it("stops rather than spinning if an answer says there's more without moving on", async () => {
+    setup(live);
+    mock.api.changes.mockImplementation(async () => ({ ...quiet, has_more: true, spaces: [{ ...quiet.spaces[0], has_more: true }] }));
+    await mount(); await flush(); await flush();
+    expect(mock.api.changes.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+  it("keeps quiet if the fetch fails: everything stays on this phone and the next pass asks again", async () => {
+    setup(live, { changes: vi.fn(async () => { throw new ApiError("Offline", 0); }) });
+    await mount(); await flush();
+    expect(baby.error).toBe("");
+    expect(baby.state.bootstrap).toMatchObject({ generation: 1 });
+  });
+});
+
+describe("a family's protocol, through the sync loop", () => {
+  const personal = "p", family = "f";
+  const spaces = [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }];
+  const live = { ...bootstrap, personal_space_id: personal, spaces, children: [{ id: "baby", name: "Baby", revision: 2, space_id: family, generation: 1 }] };
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const none = { spaces: [], cursor: {}, has_more: false, removed_space_ids: [] };
+  const feed = (revision = 3, space_id = personal) => ({ ...optimisticRecord({ id: "feed", kind: "feeding", title: "Feed", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: { method: "breast", state: "running", actions: [{ id: "s", action: "start", at: "2026-11-05T00:00:00.000Z", side: "left" }] } }), revision, space_id, generation: 1 });
+  const tap = { id: "tap", generation: 1, space_id: personal, type: "feed_action" as const, record_id: "feed", action: { id: "tap", action: "finish" as const, at: "2026-11-05T00:10:00.000Z" } };
+  const setup = (answer: any, saved: Partial<DeviceState>, extra: object = {}) => {
+    mock.api = { bootstrap: vi.fn(async () => answer), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes: vi.fn(async () => none), ...extra };
+    mock.saved = { ...emptyState(), bootstrap: answer, version: 2, ...saved } as unknown as DeviceState;
+  };
+  const movedError = () => new MovedError({ space_id: family, generation: 1, revision: 4, record: feed(4, family) });
+  it("retargets a tap whose feed moved, and sends the same action id to the new space", async () => {
+    const applied = { ...feed(5, family), data: { ...feed().data, actions: [...feed().data.actions!, { ...tap.action, revision: 5 }] } };
+    const feedAction = vi.fn().mockRejectedValueOnce(movedError()).mockResolvedValue(applied);
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction });
+    await mount(); await flush(); await flush();
+    expect(feedAction).toHaveBeenCalledTimes(2);
+    expect(feedAction.mock.calls[0]).toEqual(["feed", tap.action, { generation: 1, space_id: personal }]);
+    expect(feedAction.mock.calls[1]).toEqual(["feed", tap.action, { generation: 1, space_id: family }]);
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.records[0]).toMatchObject({ space_id: family, revision: 5 });
+  });
+  it("keeps a tap that got 404 when the row is still known here: same action id, later, and never drops the feed", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toHaveLength(1);
+    expect(baby.state.outbox[0]).toMatchObject({ id: "tap" });
+    expect(baby.state.records.map((row) => row.id)).toContain("feed");
+    expect(baby.state.feedNotices ?? []).toEqual([]);
+    expect(mock.api.changes).toHaveBeenCalled();
+  });
+  it("keeps the tap if the row was never cached here and nothing says it was removed", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { records: [], outbox: [tap] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toMatchObject([{ id: "tap", action: { id: "tap" } }]);
+    expect(baby.state.feedNotices ?? []).toEqual([]);
+  });
+  it("keeps the tap through an access reset, which empties the cache but says nothing about this row", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    const changes = vi.fn(async () => ({ ...none, spaces: [{ id: personal, generation: 1, access_version: 2, cursor: 0, has_more: false, reset: true, items: [] }] }));
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction, record, changes });
+    await mount(); await flush();
+    expect(baby.state.outbox).toMatchObject([{ id: "tap" }]);
+    expect(baby.state.feedNotices ?? []).toEqual([]);
+  });
+  it("believes a removal /changes reported on an earlier pass", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { records: [], outbox: [tap], removed: [`${personal}:feed`] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.feedNotices).toEqual(["This feed was removed."]);
+  });
+  it("only believes a feed is gone once /changes says it was removed", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    const changes = vi.fn(async () => ({ ...none, spaces: [{ id: personal, generation: 1, access_version: 1, cursor: 9, has_more: false, reset: false, items: [{ id: "feed", removed: true, seq: 9 }] }] }));
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction, record, changes });
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.feedNotices).toEqual(["This feed was removed."]);
+  });
+  it("with the flag off, a tap's 404 still means the feed was removed, as before", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    const { space_id: _, ...plain } = tap;
+    setup(bootstrap, { records: [optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: { state: "running" } })], outbox: [plain] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.feedNotices).toEqual(["This feed was removed."]);
+  });
+  it("sends items an older build gave up on after a 404, once, on updating", async () => {
+    const save = { id: "old", generation: 1, type: "save" as const, files: [], error: unavailableMessage, record: { id: "e", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, revision: 2 } };
+    const saved = { ...optimisticRecord(save.record), revision: 3 }, saveCall = vi.fn(async () => saved);
+    setup(bootstrap, { outbox: [save], version: undefined }, { save: saveCall });
+    await mount(); await flush();
+    expect(saveCall).toHaveBeenCalledTimes(1);
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("on removal purges the family's rows, stops its queue, and leaves the rest working", async () => {
+    const shared = feed(3, family), save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), mine = { id: "mine", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "mine", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+    const queued = { ...tap, space_id: family };
+    setup({ ...live, spaces: [spaces[0]], children: [] }, { bootstrap: live, records: [shared], outbox: [queued, mine] } as never, { save, feedAction: vi.fn() });
+    await mount(); await flush();
+    expect(baby.state.records.map((row) => row.id)).toEqual(["mine"]);
+    expect(mock.api.feedAction).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: family, error: notSentMessage }]);
+  });
+  it("finishes a removal it learned of after the flag was off, when it had no list to compare", async () => {
+    const shared = feed(3, family);
+    setup({ ...live, spaces: [spaces[0]], children: [] }, { bootstrap: bootstrap, records: [shared], outbox: [{ ...tap, space_id: family }] } as never, { feedAction: vi.fn() });
+    await mount(); await flush();
+    expect(baby.state.records.map((row) => row.id)).toEqual([]);
+    expect(mock.api.feedAction).not.toHaveBeenCalled();
+    expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: family, error: notSentMessage }]);
+  });
+  describe("on joining a family", () => {
+    const own = { id: "mine", name: "Mia", revision: 1, space_id: personal, generation: 1 }, theirs = { id: "fam", name: "Mia", revision: 1, space_id: family, generation: 1 };
+    const before = { ...live, spaces: [spaces[0]], children: [own] }, after = { ...live, children: [own, theirs] };
+    it("picks the family's baby for what she logs next, and leaves queued work and drafts where they were going", async () => {
+      const save = vi.fn(async (value: any, _fence?: unknown) => ({ ...optimisticRecord(value), revision: 1 }));
+      const queued = { id: "q", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "q", kind: "diaper" as const, title: "", body: "", child_id: "mine", occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+      const draft = { id: "d", kind: "diaper" as const, title: "", body: "half typed", child_id: "mine", occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [] };
+      setup(after, { bootstrap: before, selectedChild: "mine", outbox: [queued], drafts: { "new:diaper": draft } } as never, { save });
+      await mount(); await flush();
+      expect(baby.state.selectedChild).toBe("fam");
+      expect(save.mock.calls[0][0]).toMatchObject({ id: "q", child_id: "mine" });
+      expect(save.mock.calls[0][1]).toEqual({ generation: 1, space_id: personal });
+      expect(baby.state.drafts["new:diaper"]).toMatchObject({ child_id: "mine", space_id: personal, body: "half typed" });
+    });
+    it("doesn't change her choice on an ordinary refresh", async () => {
+      setup(after, { bootstrap: after, selectedChild: "mine" } as never);
+      await mount(); await flush();
+      expect(baby.state.selectedChild).toBe("mine");
+    });
+  });
+  it("forgets a held invite code when the account signs out", async () => {
+    const family_ = await import("./family");
+    family_.holdInvite({ id: "i", code: "hfbi_v1.x", role: "parent", expires_at: "2026-11-12T00:00:00Z", space_id: family }, "owner");
+    setup(live, {});
+    await mount(); await flush();
+    await act(async () => { await baby.signOut(); });
+    expect(family_.heldInvite("owner", family)).toBeNull();
+  });
+  it("purges nothing when the flag goes off, since the API has stopped saying", async () => {
+    const shared = feed(3, family);
+    setup(bootstrap, { bootstrap: live, records: [shared] } as never);
+    await mount(); await flush();
+    expect(baby.state.records.map((row) => row.id)).toEqual(["feed"]);
+  });
+  it("still sends a stamped change if the flag goes off, and doesn't refuse every save over a family's generation", async () => {
+    const save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), row = { id: "m", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "m", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+    const shared = { ...row, id: "s", generation: 9, space_id: family, record: { ...row.record, id: "s" } };
+    setup({ ...bootstrap }, { bootstrap: { ...bootstrap }, outbox: [row, shared] } as never, { save });
+    await mount(); await flush();
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => { await baby.commit((s) => ({ ...s, askNoticeSeen: true })); });
+    expect(baby.state.askNoticeSeen).toBe(true);
+  });
+  describe("when the personal space is erased from another phone", () => {
+    const cleared = { ...live, generation: 2, spaces: [{ ...spaces[0], generation: 2 }, spaces[1]] };
+    const familyDraft = { id: "fd", kind: "journal", title: "", body: "family words", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [{ id: "f", uri: "file:///family.jpg", name: "family.jpg", mime_type: "image/jpeg" }], space_id: family };
+    const queued = { ...tap, space_id: family, id: "fam", action: { ...tap.action, id: "fam" } };
+    it("keeps the family's drafts and queue, its files, and pending captures", async () => {
+      const { clearFiles } = await import("./files");
+      vi.mocked(clearFiles).mockClear();
+      mock.clearShares.mockClear();
+      setup(cleared, { bootstrap: live, records: [feed(3, family)], outbox: [queued], drafts: { "record:fd": familyDraft, "new:journal": { ...familyDraft, id: "p", space_id: personal } } } as never, { feedAction: vi.fn(async () => feed(4, family)) });
+      await mount(); await flush();
+      expect(Object.keys(baby.state.drafts)).toEqual(["record:fd"]);
+      expect(mock.clearShares).not.toHaveBeenCalled();
+      expect((vi.mocked(clearFiles).mock.calls.at(-1)![1] as () => ReadonlySet<string>)()).toEqual(new Set(["file:///family.jpg"]));
+    });
+    it("doesn't refuse every save while the personal space waits to be started again", async () => {
+      setup({ ...cleared, active: false, spaces: [spaces[1]] }, { bootstrap: live, records: [feed(3, family)], outbox: [queued] } as never, { feedAction: vi.fn() });
+      await mount(); await flush();
+      expect(baby.state.outbox.map((m) => m.id)).toEqual(["fam"]);
+      expect(baby.state.bootstrap?.active).toBe(false);
+      expect(baby.error).toBe("");
+    });
+    it("still clears everything with no family", async () => {
+      mock.clearShares.mockClear();
+      setup({ ...bootstrap, generation: 2 }, { bootstrap, outbox: [] } as never);
+      await mount(); await flush();
+      expect(mock.clearShares).toHaveBeenCalled();
+    });
+  });
+  it("treats a release of an upload that's already gone as done, so it can't hold up the pass", async () => {
+    const releaseAttachment = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { fileReleases: ["retired"], fileUploads: { f: "retired" } }, { releaseAttachment });
+    await mount(); await flush();
+    expect(baby.state.fileReleases).toEqual([]);
+    expect(mock.api.changes).toHaveBeenCalled();
+    expect(baby.error).toBe("");
+  });
+});
+describe("the recheck: drafts, removal proof and files", () => {
+  const p = "p", f = "f", own = { id: p, kind: "personal", role: "parent", generation: 1, access_version: 1 }, fam = { id: f, kind: "family", role: "parent", generation: 1, access_version: 1 };
+  const quiet = { spaces: [], cursor: {}, has_more: false, removed_space_ids: [] };
+  const settled = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const account = (over: object) => { mock.api = { bootstrap: vi.fn(async () => over), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes: vi.fn(async () => quiet) }; };
+  const source = (over: object = {}) => ({ id: "draft", kind: "source", title: "T", body: "Keep these words", child_id: null, occurred_at: "2026-11-05T00:00:00Z", data: { topics: [], status: "saved" }, files: [], ...over }) as never;
+  it("a new Shared draft is stamped when it's saved, so erasing the personal space leaves it", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] }, after = { ...before, generation: 2, spaces: [{ ...own, generation: 2 }, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source({ shared: true })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: f, generation: 1, shared: true });
+    mock.api.bootstrap = vi.fn(async () => after);
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ body: "Keep these words", space_id: f });
+  });
+  it("a new draft she made Just me is stamped personal, and erasure takes it", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] }, after = { ...before, generation: 2, spaces: [{ ...own, generation: 2 }, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source({ shared: false })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: p });
+    mock.api.bootstrap = vi.fn(async () => after);
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(baby.state.drafts["new:source"]).toBeUndefined();
+  });
+  it("changing her mind moves the stamp with the choice", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source({ shared: true })); await settle(); });
+    await act(async () => { await baby.saveDraft("new:source", source({ ...baby.state.drafts["new:source"], shared: false })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: p, shared: false });
+    await act(async () => { await baby.saveDraft("new:source", source({ ...baby.state.drafts["new:source"], shared: true })); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: f, shared: true });
+  });
+  it("a late save from an editor opened before joining can't overwrite the destination joining gave it", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before, drafts: { "new:source": source() } } as never;
+    await mount(); await settled();
+    const lateSave = baby.saveDraft;
+    mock.api.bootstrap = vi.fn(async () => ({ ...before, spaces: [own, fam] }));
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(baby.state.drafts["new:source"].space_id).toBe(p);
+    await act(async () => { await lateSave("new:source", source({ body: "Last private words" })); await settle(); });
+    const { choiceFor } = await import("./spaces");
+    expect(baby.state.drafts["new:source"]).toMatchObject({ body: "Last private words", space_id: p });
+    expect(choiceFor(baby.state.bootstrap, baby.state.drafts["new:source"])?.space_id).toBe(p);
+  });
+  it("with no family yet, a new draft is stamped personal, and joining leaves it there", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source()); await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ space_id: p, generation: 1 });
+  });
+  it("an edit of a saved entry keeps its own space", async () => {
+    const before = { ...bootstrap, personal_space_id: p, spaces: [own, fam] };
+    account(before);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: before } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("edit:x", source({ existing: true, space_id: f, generation: 1 })); await settle(); });
+    expect(baby.state.drafts["edit:x"]).toMatchObject({ space_id: f });
+    expect(baby.state.drafts["edit:x"].shared).toBeUndefined();
+  });
+  it("with the flag off, a draft is left unstamped", async () => {
+    account(bootstrap);
+    mock.saved = { ...emptyState(), version: 2, bootstrap } as never;
+    await mount(); await settled();
+    await act(async () => { await baby.saveDraft("new:source", source()); await settle(); });
+    expect(baby.state.drafts["new:source"].space_id).toBeUndefined();
+  });
+  describe("a removal only counts in its own space", () => {
+    const live = { ...bootstrap, personal_space_id: p, spaces: [own, fam], children: [] };
+    const feed = { ...optimisticRecord({ id: "feed", kind: "feeding", title: "Feed", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00Z", data: { method: "breast", state: "running", actions: [{ id: "start", action: "start", side: "left", at: "2026-11-05T00:00:00Z" }] } as never }), revision: 2, space_id: f, generation: 1 };
+    const tap = { id: "tap", type: "feed_action", record_id: "feed", space_id: f, generation: 1, action: { id: "tap", action: "finish", at: "2026-11-05T00:10:00Z" } };
+    const refused = () => ({ feedAction: vi.fn(async () => { throw new ApiError("Unavailable", 404); }), record: vi.fn(async () => { throw new ApiError("Unavailable", 404); }) });
+    const answer = (items: object[], removed: string[] = [], space = p) => ({ spaces: [{ id: space, generation: 1, access_version: 1, cursor: 10, has_more: false, reset: false, items }], cursor: { [space]: 10 }, has_more: false, removed_space_ids: removed });
+    it("an old personal move tombstone can't discard a family tap when removal happens after bootstrap", async () => {
+      const changes = vi.fn(async () => answer([{ id: "feed", seq: 10, removed: true }], [f]));
+      mock.api = { bootstrap: vi.fn(async () => live), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes, ...refused() };
+      mock.saved = { ...emptyState(), version: 2, bootstrap: live, records: [feed], outbox: [tap] } as never;
+      await mount(); await settled();
+      expect(changes).toHaveBeenCalled();
+      expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: f, error: expect.stringContaining("no longer in this family") }]);
+      expect(baby.state.feedNotices ?? []).not.toContain("This feed was removed.");
+    });
+    it("a tombstone from the personal space alone doesn't discard a family tap, even with the family still here", async () => {
+      const changes = vi.fn(async () => answer([{ id: "feed", seq: 10, removed: true }]));
+      mock.api = { bootstrap: vi.fn(async () => live), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes, ...refused() };
+      mock.saved = { ...emptyState(), version: 2, bootstrap: live, records: [feed], outbox: [tap] } as never;
+      await mount(); await settled();
+      expect(baby.state.outbox).toMatchObject([{ id: "tap" }]);
+      expect(baby.state.outbox[0]).not.toHaveProperty("left_space");
+      expect(baby.state.feedNotices ?? []).toEqual([]);
+    });
+    it("a removal from the family's own space still settles the tap", async () => {
+      const changes = vi.fn(async () => answer([{ id: "feed", seq: 10, removed: true }], [], f));
+      mock.api = { bootstrap: vi.fn(async () => live), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined, changes, ...refused() };
+      mock.saved = { ...emptyState(), version: 2, bootstrap: live, records: [feed], outbox: [tap] } as never;
+      await mount(); await settled();
+      expect(baby.state.outbox).toEqual([]);
+      expect(baby.state.feedNotices).toContain("This feed was removed.");
+    });
+  });
+  it("erasure racing a new family draft keeps that draft's file", async () => {
+    const { clearFiles } = await import("./files");
+    const live = { ...bootstrap, personal_space_id: p, spaces: [own, fam] };
+    account(live);
+    mock.saved = { ...emptyState(), version: 2, bootstrap: live } as never;
+    await mount(); await settled();
+    let release = () => undefined as void;
+    mock.clear.mockImplementationOnce(() => new Promise<void>((yes) => { release = yes; }));
+    mock.api.bootstrap = vi.fn(async () => ({ ...live, generation: 2, spaces: [{ ...own, generation: 2 }, fam] }));
+    let refreshing: Promise<void> | undefined;
+    await act(async () => { refreshing = baby.refresh(); await settle(); });
+    const file = { id: "new-file", uri: "file:///new-family.jpg", name: "photo.jpg", mime_type: "image/jpeg" };
+    const draft = source({ id: "new-draft", space_id: f, generation: 1, shared: true, files: [file] });
+    await act(async () => { await baby.saveDraft("new:source", draft); await settle(); });
+    vi.mocked(clearFiles).mockClear();
+    await act(async () => { release(); await refreshing; await settle(); });
+    expect(baby.state.drafts["new:source"]).toMatchObject({ id: "new-draft", files: [file] });
+    const keep = vi.mocked(clearFiles).mock.calls.at(-1)?.[1] as () => ReadonlySet<string>;
+    expect(keep().has(file.uri)).toBe(true);
+  });
 });

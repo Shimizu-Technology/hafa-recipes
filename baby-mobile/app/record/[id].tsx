@@ -21,7 +21,11 @@ import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
 import { RecordVisit } from "@/components/visit-sections";
+import { ShareToggle } from "@/components/share-toggle";
+import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
 import { ensureAiConsent } from "../../lib/ai-consent";
+import { babyLabel, isCaregiver } from "../../lib/spaces";
+import { ApiError } from "../../lib/api";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -32,24 +36,28 @@ export default function RecordDetail() {
     [editingTiming, setEditingTiming] = useState(false),
     record = b.records.find((r) => r.id === id),
     pending = b.state.outbox.some((m) => mutationRecordId(m) === id && m.type !== "import");
-  useEffect(() => {
-    if (record && !record.cache_partial) return;
-    let active = true;
-    void b.api
-      .record(id)
+  /** Reads it from the service, and says plainly when it's gone: deleted, or the other parent made it private. */
+  function load(active = () => true) {
+    return b.api.record(id)
       .then((row) => {
-        if (active) void b.commit((s) => ({ ...s, records: replaceRecord(s.records, row) }));
+        if (active()) void b.commit((s) => ({ ...s, records: replaceRecord(s.records, row) }));
       })
       .catch((e) => {
-        if (active) {
-          setError(messageFor(e));
+        if (active()) {
+          setError(e instanceof ApiError && e.status === 404 ? "This entry isn’t here any more. It may have been deleted, or someone made it private." : messageFor(e));
           setMissing(true);
         }
       });
+  }
+  // A row can go while it's open, so this also runs when it leaves the list.
+  useEffect(() => {
+    if (record && !record.cache_partial) return;
+    let active = true;
+    void load(() => active);
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, !!record]);
   async function update(data: BabyRecord["data"]) {
     if (!record) return;
     setError("");
@@ -76,10 +84,7 @@ export default function RecordDetail() {
           onPress={() => {
             setMissing(false);
             setError("");
-            void b.api
-              .record(id)
-              .then((row) => b.commit((s) => ({ ...s, records: replaceRecord(s.records, row) })))
-              .catch((e) => setError(messageFor(e)));
+            void load();
           }}
         />
       </Screen>
@@ -101,7 +106,7 @@ export default function RecordDetail() {
       back
       numericSubtitle
       subtitle={(dateOnly ? keyDate(recordDay(record.occurred_at, b.state.bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
-        : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + child.name : "")}
+        : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + babyLabel(child, b.state.bootstrap) : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
         : !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
@@ -225,6 +230,10 @@ export default function RecordDetail() {
         </Section>
       )}
       {(record.kind === "question" || !!data.event_id) && <RecordVisit record={record} />}
+      {!!loggedByName(record, b.state.bootstrap, b.owner) && <Copy kind="small" tone="muted">{`Logged by ${loggedByName(record, b.state.bootstrap, b.owner)}`}</Copy>}
+      {(() => { const other = duplicateOf(record, b.records, b.owner), name = other && loggedByName(other, b.state.bootstrap, b.owner);
+        return !!other && !!name && name !== loggedByName(record, b.state.bootstrap, b.owner) && <Notice>{duplicateHint(other, b.state.bootstrap, b.owner)}</Notice>; })()}
+      <ShareToggle record={record} />
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
         onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
       <Grouped>
@@ -234,11 +243,11 @@ export default function RecordDetail() {
         icon="pencil-outline"
         onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: record.kind } })}
       />
-      <Row
+      {!isCaregiver(b.state.bootstrap) && <Row
         title="Ask about this entry"
         icon="sparkles-outline"
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
-      />
+      />}
       </Grouped>
       {record.kind === "source" && <Disclosure title="Process this post again">
         <Button

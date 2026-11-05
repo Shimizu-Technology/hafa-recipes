@@ -1,11 +1,13 @@
 import React, { useEffect } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   fontScale: 1, ask: {} as any, keyboard: {} as Record<string, () => void>, removed: [] as string[],
   params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[], picker: null as any, toasts: [] as any[],
 }));
 vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
+vi.mock("@/lib/share-session-state", () => ({ revokeShareSession: vi.fn() }));
+vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion: vi.fn() }));
 vi.mock("react-native", () => ({
   RefreshControl: "RefreshControl", View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
@@ -42,6 +44,7 @@ vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));
 vi.mock("@/components/motion", () => ({ Swell: ({ children }: { children: React.ReactNode }) => children, FadeUp: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: {} }));
 vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateAttachment" }));
+vi.mock("@/components/share-toggle", () => ({ ShareToggle: () => null }));
 vi.mock("@/components/source-content", () => ({ SourceContent: "SourceContent" }));
 vi.mock("@/lib/use-ask-session", () => ({ useAskSession: (record_id: string) => ({
   context: { scope: "all", record_id, child_id: null }, focusedTitle: "Saved source", question: "", messages: [],
@@ -81,6 +84,7 @@ import Journal, { JournalContent } from "../app/journal";
 import RecordDetail from "../app/record/[id]";
 import { Grouped, Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
+import { ApiError } from "./api";
 import { emptyState, optimisticRecord } from "./models";
 import { getDockedFooterHeight } from "./bottom-overlay";
 let renderer: ReactTestRenderer | undefined;
@@ -124,6 +128,94 @@ it("sends Doctor questions to the one-page summary, for the selected baby", asyn
   await press("Doctor summary");
   expect(mock.stack.at(-1)!.pathname).toBe("/doctor-summary");
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
+});
+describe("an entry that goes away while it's open", () => {
+  const titled = () => renderer!.root.findAll((n) => typeof n.props.title === "string").map((n) => n.props.title);
+  const said = () => renderer!.root.findAll((n) => typeof n.props.children === "string").map((n) => n.props.children).join(" | ");
+  it("says so, instead of opening it forever, when the other parent makes it private", async () => {
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    mock.baby.api.record = vi.fn(async () => { throw new ApiError("Item unavailable", 404); });
+    mock.baby.records = mock.baby.records.filter((r: { id: string }) => r.id !== "Saved source");
+    await act(async () => renderer!.update(<RecordDetail />));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    expect(mock.baby.api.record).toHaveBeenCalledWith("Saved source");
+    expect(titled()).toContain("Entry unavailable");
+    expect(titled()).not.toContain("Opening your entry");
+    expect(said()).toMatch(/isn’t here any more/);
+    expect(said()).not.toMatch(/local copy/);
+  });
+  it("stays unavailable when Try again gets the same answer", async () => {
+    mock.params = { id: "Gone" };
+    mock.baby.api.record = vi.fn(async () => { throw new ApiError("Item unavailable", 404); });
+    await mount(<RecordDetail />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    await press("Try again");
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    expect(mock.baby.api.record).toHaveBeenCalledTimes(2);
+    expect(titled()).toContain("Entry unavailable");
+    expect(said()).toMatch(/isn’t here any more/);
+  });
+});
+it.each(["personal", "family"])("Ask says which Nora a %s conversation is for", async (which) => {
+  const b = mock.baby.state.bootstrap;
+  mock.baby.state = { ...mock.baby.state, bootstrap: { ...b, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "f", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+    children: [{ id: "personal", name: "Nora", space_id: "p" }, { id: "family", name: "Nora", space_id: "f" }] } };
+  mock.ask = { context: { scope: "all", record_id: null, child_id: which } };
+  await mount(<AskEntry />);
+  const said = renderer!.root.findAllByType("Text" as React.ElementType).map((n) => [n.props.children].flat().join("")).join(" | ");
+  expect(said).toContain(which === "personal" ? "Nora · Personal" : "Nora · Family");
+});
+describe("signing out from the recovery screen", () => {
+  it("says what it would clear before it does, and the screen stays if she says no", async () => {
+    const { AccountGate } = await import("../components/account-gate");
+    const { Alert } = await import("react-native");
+    mock.baby.ready = false; mock.baby.error = "Private device data needs recovery. It has not been overwritten."; mock.baby.signOut = vi.fn(async () => undefined);
+    await mount(<AccountGate>inside</AccountGate>);
+    await press("Sign out");
+    expect(mock.baby.signOut).not.toHaveBeenCalled();
+    const [title, message, buttons] = vi.mocked(Alert.alert).mock.calls.at(-1)! as [string, string, { text: string; onPress?: () => void }[]];
+    expect(`${title} ${message}`).toMatch(/haven’t sent/);
+    expect(`${title} ${message}`).toMatch(/Update/);
+    await act(async () => buttons.find((one) => one.text === "Sign out and clear")!.onPress!());
+    expect(mock.baby.signOut).toHaveBeenCalledOnce();
+  });
+  it("is one tap on an ordinary failure, with nothing to lose", async () => {
+    const { AccountGate } = await import("../components/account-gate");
+    mock.baby.ready = false; mock.baby.error = "Could not connect."; mock.baby.signOut = vi.fn(async () => undefined);
+    await mount(<AccountGate>inside</AccountGate>);
+    await press("Sign out");
+    expect(mock.baby.signOut).toHaveBeenCalledOnce();
+  });
+});
+describe("a caregiver and Ask", () => {
+  const caregiver = () => { mock.baby.state = { ...mock.baby.state, bootstrap: { ...mock.baby.state.bootstrap, spaces: [{ id: "own", kind: "personal", role: "owner" }, { id: "fam", kind: "family", role: "caregiver" }] } }; };
+  const said = () => renderer!.root.findAll((n) => typeof n.props.children === "string" || typeof n.props.title === "string").map((n) => n.props.title ?? n.props.children).join(" | ");
+  it("isn't offered Ask on an entry", async () => {
+    caregiver();
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    expect(said()).not.toContain("Ask about this entry");
+    expect(said()).toContain("Edit this entry");
+  });
+  it("gets a plain explanation if a link lands on it, without opening a chat", async () => {
+    caregiver();
+    let asked = 0;
+    mock.ask = { get question() { asked += 1; return ""; } };
+    mock.params = { record_id: "Saved source" };
+    await mount(<AskEntry />);
+    expect(said()).toMatch(/caregiver/i);
+    expect(said()).toMatch(/kept/i);
+    expect(said()).not.toContain("Ask about this");
+    expect(asked).toBe(0);
+    expect(renderer!.root.findAllByType("TextInput" as React.ElementType)).toHaveLength(0);
+  });
+  it("gets Ask back with no change for a parent", async () => {
+    mock.baby.state = { ...mock.baby.state, bootstrap: { ...mock.baby.state.bootstrap, spaces: [{ id: "own", kind: "personal", role: "owner" }, { id: "fam", kind: "family", role: "parent" }] } };
+    mock.params = { record_id: "Saved source" };
+    await mount(<AskEntry />);
+    expect(said()).toContain("Ask about this");
+  });
 });
 it("pushes focused Ask from a saved entry and its real Back control returns to that entry", async () => {
   mock.params = { id: "Saved source" };

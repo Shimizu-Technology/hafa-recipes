@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { Switch, Text, View, useWindowDimensions } from "react-native";
-import { Chips, Copy, Grouped, Icon, Row, Screen, fonts, typeScale, useColors } from "@/components/ui";
+import { Chips, Copy, Grouped, Icon, Row, Screen, fonts, typeScale, useColors , Notice } from "@/components/ui";
 import { SyncStatus } from "@/components/sync-status";
 import { useBaby } from "@/lib/context";
 import { setTracking } from "@/lib/quick-care";
 import { profileToday, timingChild, trackerStage } from "@/lib/timing";
 import { trackerOn, trackersFor, trackingKey, type Tracker } from "../lib/trackers";
+import { babyLabel, canAddBaby, canChangeBaby } from "../lib/spaces";
 
 function Line({ tracker, on, onChange }: { tracker: Tracker; on: boolean; onChange: (on: boolean) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
@@ -25,6 +26,8 @@ export default function WhatShows() {
     today = profileToday(new Date(), bootstrap.profile.timezone),
     [picked, setPicked] = useState(params.child),
     child = children.find((one) => one.id === picked) ?? timingChild(b.state, today);
+  // The API takes a switch only from a parent of that baby, so this doesn't offer it.
+  if (child ? !canChangeBaby(bootstrap, child) : !canAddBaby(bootstrap)) return <Screen title="What shows" back><Notice>A parent chooses what shows for this baby.</Notice></Screen>;
   if (!child) return <Screen title="What shows" back>
     <Row title="Set up your baby" detail="Then choose what shows" icon="person-add-outline" onPress={() => router.push("/child")} />
   </Screen>;
@@ -37,8 +40,8 @@ export default function WhatShows() {
     <Copy tone="muted">What’s on gets a button on Today and Tracker. Off only hides the button: everything logged stays in Tracker, Stats, the doctor summary and history, and Add always has it all.</Copy>
     {/* Says "Saved on this phone" with no signal, and carries her to a change the API refused. */}
     <SyncStatus />
-    {children.length > 1 && <Chips label="Baby" value={child.id} options={children.map((one) => ({ label: one.name, value: one.id }))} onChange={setPicked} />}
-    {group(`For ${child.name}`, listed.filter((tracker) => tracker.about === "baby"))}
+    {children.length > 1 && <Chips label="Baby" value={child.id} options={children.map((one) => ({ label: babyLabel(one, bootstrap), value: one.id }))} onChange={setPicked} />}
+    {group(`For ${babyLabel(child, bootstrap)}`, listed.filter((tracker) => tracker.about === "baby"))}
     {group("For you", listed.filter((tracker) => tracker.about === "her"))}
   </Screen>;
 }

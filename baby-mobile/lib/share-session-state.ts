@@ -34,3 +34,11 @@ export function revokeShareSession(): Promise<void> {
 export function revokeShareAuthority(): Promise<void> {
   return revoke(true);
 }
+
+let asked: (() => void) | null = null;
+/** The Family screen wants a fresh answer about this phone, and getting a credential as client 3 is how it gives one. */
+export const askForShareSession = () => asked?.();
+export const onShareSessionAsked = (listener: () => void) => {
+  asked = listener;
+  return () => { if (asked === listener) asked = null; };
+};

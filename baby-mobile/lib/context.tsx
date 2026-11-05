@@ -14,7 +14,7 @@ import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import NetInfo from "@react-native-community/netinfo";
 import { configuration } from "./config";
-import { ApiError, createBabyApi, type BabyApi } from "./api";
+import { ApiError, MovedError, createBabyApi, type BabyApi } from "./api";
 import { createVault, storageKey, type SecretStorage } from "./vault";
 import { createDeviceVault } from "./device-vault";
 import {
@@ -29,7 +29,16 @@ import {
 } from "./models";
 import {
   addMutation,
+  draftsBeforeFamily,
   fencedState,
+  localFileUris,
+  retiredSpaces,
+  rejoined,
+  retargeted,
+  retryUnavailable,
+  upgradedState,
+  withKnownSpaces,
+  withoutFamily,
   heldUntil,
   mutationRecordId,
   settledSplit,
@@ -67,6 +76,10 @@ import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
+import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
+import { forgetInvite } from "./family";
+import { accessKey, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
+const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
   Platform.OS === "web"
@@ -96,6 +109,8 @@ interface BabyContext {
   online: boolean;
   /** The last sync or refresh couldn't reach Håfa. Nothing has gone wrong with her work, which waits on this phone. */
   unreachable: boolean;
+  /** Moves on when another phone's changes arrive, so a screen showing what the API worked out reads again. */
+  changeTick: number;
   refresh: () => Promise<void>;
   sync: () => Promise<void>;
   commit: (change: (s: DeviceState) => DeviceState) => Promise<void>;
@@ -125,7 +140,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     liveBinding = useRef(binding);
   liveBinding.current = binding;
   const current = () => alive.current && liveBinding.current === binding;
-  const api = useMemo(() => createBabyApi(configuration.apiBase, () => token.current(), current), [binding]);
+  const api = useMemo(() => createBabyApi(configuration.apiBase, () => token.current(), current, fetch, () => ref.current.bootstrap), [binding]);
   const identityVault = useMemo(() => createVault(secret, "identity:" + binding, Crypto.randomUUID), [binding]);
   const [owner, setOwner] = useState(""),
     [state, setState] = useState<DeviceState>(emptyState),
@@ -133,7 +148,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
     [error, setError] = useState(""),
     [syncing, setSyncing] = useState(false),
     [online, setOnline] = useState(true),
-    [unreachable, setUnreachable] = useState(false);
+    [unreachable, setUnreachable] = useState(false),
+    [changeTick, setChangeTick] = useState(0);
   const ref = useRef(state),
     vault = useRef<ReturnType<typeof createDeviceVault> | null>(null),
     serialized = useRef<Promise<unknown>>(Promise.resolve()),
@@ -159,9 +175,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const before = ref.current;
         const value = withPendingTracking(withPendingBirths(trackRoutineIntents(before, change(before), ownerRef.current)));
         if (deleting.current && value.bootstrap) throw Error("Baby data deletion is in progress.");
-        if (value.outbox.some((m) => m.generation !== value.bootstrap?.generation))
+        // A space this account has left answers nothing here: its work waits to be kept or discarded.
+        if (value.outbox.some((m) => { const known = generationOf(value.bootstrap, m.space_id); return known !== undefined && m.generation !== known && !(m.space_id && !spacesLive(value.bootstrap)); }) || (!value.bootstrap && value.outbox.length))
           throw Error("Older changes cannot be saved after Baby data is cleared.");
-        if (value.bootstrap?.active === false && (value.outbox.length || Object.keys(value.drafts).length || Object.keys(value.childDrafts ?? {}).length))
+        // A family's own work can wait here while the personal space is started again.
+        if (value.bootstrap?.active === false && (value.outbox.some((m) => !familyWork(value, m.space_id)) || Object.values(value.drafts).some((draft) => !familyWork(value, draft.space_id)) || Object.keys(value.childDrafts ?? {}).length))
           throw Error("Start a new Baby space deliberately before saving.");
         await vault.current.write(value);
         api.assertLease(lease);
@@ -207,22 +225,28 @@ export function BabyProvider({ children }: PropsWithChildren) {
   async function mergeBootstrap(bootstrap: Bootstrap) {
     if (!current() || closing.current || deleting.current) return false;
     const lease = api.lease();
-    if (
-      bootstrap.active === false ||
-      (ref.current.bootstrap && ref.current.bootstrap.generation !== bootstrap.generation) ||
-      (ref.current.routine_sync && ref.current.routine_sync.generation !== bootstrap.generation)
-    ) {
+    const staying = fencedState(ref.current, bootstrap);
+    if (bootstrap.active === false || staying !== ref.current) {
       setReady(false);
-      clearPendingShares();
+      // Only what's retiring goes. With a family this account is still in, captures and its files can still go there.
+      if (!familySpaces(bootstrap).length) clearPendingShares();
       await clearReminders(ownerRef.current);
-      await clearFiles(ownerRef.current);
+      await clearFiles(ownerRef.current, () => localFileUris(fencedState(ref.current, bootstrap)));
     }
     await commit((s) => {
-      const next = fencedState(s, bootstrap.generation);
+      const fenced = fencedState(s, bootstrap),
+        grew = familySpaces(bootstrap).some((space) => !familySpaces(s.bootstrap).some((known) => known.id === space.id)),
+        // With no spaces listed the API has stopped saying, which isn't the same as this account being out of one.
+        left = retiredSpaces(fenced, bootstrap).reduce((rows, space) => withoutFamily(rows, space, Crypto.randomUUID), fenced),
+        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap),
+        familyBaby = bootstrap.children.find((child) => familySpaces(bootstrap).some((space) => space.id === child.space_id));
       return {
         ...next,
         bootstrap,
-        selectedChild: bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
+        selectedChild: grew && familyBaby && !familySpaces(bootstrap).some((space) => space.id === bootstrap.children.find((child) => child.id === next.selectedChild)?.space_id)
+          // Joining: what she logs next is for the family's baby. Her own stays, and queued work and drafts keep their destinations.
+          ? familyBaby.id
+          : bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
       };
     }, lease);
     if (!current() || closing.current || deleting.current) return false;
@@ -250,8 +274,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const saved = await vault.current.read<DeviceState>();
         if (!current() || closing.current || deleting.current) return;
         if (saved) {
-          ref.current = saved;
-          setState(saved);
+          const upgraded = upgradedState(saved);
+          ref.current = upgraded;
+          setState(upgraded);
         }
         storageReady.current = true;
         setReady(true);
@@ -263,11 +288,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
       setError("");
       if (old !== undefined && old !== fresh.generation) await clearReminders(ownerRef.current);
       if (fresh.active === false) return;
-      const lease = api.lease();
+      const lease = api.lease(), access = accessKey(fresh);
       const page = await api.records({ limit: 100 });
       const recent = page.items.filter((r) => r.kind !== "routine");
       await commit(
-        (s) => ({
+        // A read from before she lost access can't put rows back.
+        (s) => (accessKey(s.bootstrap) !== access ? s : {
           ...s,
           records: [...recent, ...s.records.filter((r) => !recent.some((f) => f.id === r.id))],
         }),
@@ -279,6 +305,23 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (opening) throw e;
       if (alive.current) noteFailure(e);
     }
+  }
+  /** What other phones did. A failure is quiet: everything here stays as it is and the next pass asks from the same place. */
+  async function pullChanges() {
+    const lease = api.lease();
+    try {
+      for (let page = 0; page < changePagesPerPass; page++) {
+        // A long first snapshot doesn't carry on once she's left, or under another account.
+        if (!current() || closing.current || deleting.current || AppState.currentState === "background") return;
+        const held = ref.current.changes, answer = await api.changes(held?.cursor ?? {}, held?.access ?? {});
+        let result: ReturnType<typeof applyChanges> | undefined;
+        await commit((s) => { result = applyChanges(s, answer, Crypto.randomUUID); return result.state; }, lease);
+        if (result?.changed && current()) setChangeTick((tick) => tick + 1);
+        // An answer that says there's more without moving on would only ask the same thing forever.
+        if (!result?.more || JSON.stringify(result.state.changes) === JSON.stringify(held)) return;
+      }
+      rerun.current = true;
+    } catch { /* The next pass carries on from the saved cursor. */ }
   }
   async function sync() {
     // A change queued mid-sync (for example Undo right after a quick log) runs on the next pass.
@@ -308,7 +351,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const next = ref.current.outbox.find((m) => m.id === pending.id);
         if (!next) continue;
         if (!alive.current || !onlineRef.current) break;
-        if (next.generation !== latest.generation || next.conflict || next.error || next.localOnly) continue;
+        if (next.generation !== generationOf(latest, next.space_id) || next.conflict || next.error || next.localOnly) continue;
         if (next.type === "import" && next.automatic &&
           (!(latest.profile.ai_consent && latest.profile.auto_process_shares) ||
             (next.automatic_epoch ?? 0) !== (latest.profile.auto_process_epoch ?? 0))) {
@@ -323,9 +366,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
           if (next.type === "event_split") {
             let done: Awaited<ReturnType<typeof api.splitEvent>>;
             try {
-              done = await api.splitEvent(next.series.id, { revision: next.series.revision ?? 0, from_start: next.from_start, event: next.event }, next.generation);
+              done = await api.splitEvent(next.series.id, { revision: next.series.revision ?? 0, from_start: next.from_start, event: next.event }, fenceOf(next));
             } catch (failure) {
-              if (!(failure instanceof ApiError) || failure.local || !current() || (failure.status !== 409 && failure.status !== 410)) throw failure;
+              if (!(failure instanceof ApiError) || failure instanceof MovedError || failure.local || !current() || (failure.status !== 409 && failure.status !== 410)) throw failure;
               // Gone means it landed once and the new event was removed since. Refused means nothing changed: the old dates all stay.
               await commit((s) => ({ ...s, outbox: failure.status === 410 ? s.outbox.filter((m) => m.id !== next.id)
                 : s.outbox.map((m) => (m.id === next.id ? { ...m, conflict: true, error: "This event changed somewhere else, so nothing was changed. Discard this and make your change again." } : m)) }));
@@ -339,12 +382,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
               }) }));
             continue;
           } else if (next.type === "delete") {
-            await api.remove(next.record, next.generation);
+            await api.remove(next.record, fenceOf(next));
           } else if (next.type === "child_birth") {
             const server = serverChildren.find((child) => child.id === next.child_id), step = birthStep(server, next);
             if (step === "gone" || step === "different") {
               await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id !== next.id ? m : { ...m,
-                error: step === "gone" ? "This baby’s profile was removed." : "Another phone saved a different birth date. Discard this to keep that one." })) }));
+                error: step === "gone" ? goneBabyMessage : "Another phone saved a different birth date. Discard this to keep that one." })) }));
               continue;
             }
             let taken = false;
@@ -356,7 +399,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             let saved = server!;
             if (step === "send") {
               try {
-                saved = await api.child({ id: server!.id, birth_date: next.birth_date, revision: server!.revision }, next.generation);
+                saved = await api.child({ id: server!.id, birth_date: next.birth_date, revision: server!.revision }, rowFence(server!, next.generation));
               } catch (failure) {
                 if (!(failure instanceof ApiError && !failure.local && failure.status === 409) || !current()) throw failure;
                 // Something else on this child moved. The next pass reads it again and sends the date at its new revision.
@@ -371,7 +414,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           } else if (next.type === "child_tracking") {
             const server = serverChildren.find((child) => child.id === next.child_id), step = trackingStep(server, next);
             if (step === "gone") {
-              await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id ? { ...m, error: "This baby’s profile was removed." } : m)) }));
+              await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id ? { ...m, error: goneBabyMessage } : m)) }));
               continue;
             }
             let taken = false;
@@ -383,7 +426,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             let saved = server!;
             if (step === "send") {
               try {
-                saved = await api.child({ id: server!.id, details: { tracking: next.tracking }, revision: server!.revision }, next.generation);
+                saved = await api.child({ id: server!.id, details: { tracking: next.tracking }, revision: server!.revision }, rowFence(server!, next.generation));
               } catch (failure) {
                 if (!(failure instanceof ApiError && !failure.local && failure.status === 409) || !current()) throw failure;
                 // Something else on this child moved. The next pass reads it again and sends the switch at its new revision.
@@ -405,22 +448,30 @@ export function BabyProvider({ children }: PropsWithChildren) {
             if (!taken) continue;
             try {
               result = next.type === "feed_action"
-                ? await api.feedAction(next.record_id, next.action, next.generation)
-                : await api.sessionAction(next.record_id, next.action, next.generation);
+                ? await api.feedAction(next.record_id, next.action, fenceOf(next))
+                : await api.sessionAction(next.record_id, next.action, fenceOf(next));
             } catch (failure) {
-              if (!(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409)) || !current()) throw failure;
+              if (failure instanceof MovedError || !(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409)) || !current()) throw failure;
               let row: BabyRecord | null = null;
               try { row = await api.record(next.record_id); }
               catch (reading) {
                 if (!(reading instanceof ApiError && !reading.local && reading.status === 404)) throw reading;
               }
-              const outcome = rejectedAction(row, next.action);
+              let outcome = rejectedAction(row, next.action);
+              if (outcome === "removed" && spacesLive(latest)) {
+                // Not readable isn't the same as gone, and nor is not being on this phone. The tap only goes once the API has said this row was removed.
+                await pullChanges();
+                // That pull may have ended her time in the family, which holds this as Not sent. It's hers to decide about.
+                const held = ref.current.outbox.find((m) => m.id === next.id);
+                if (!held || held.left_space) continue;
+                if (!removedFrom(ref.current, next.space_id ?? ref.current.bootstrap?.personal_space_id, next.record_id)) outcome = "unresolved";
+              }
               if (outcome === "unresolved") {
                 // The feed still takes taps, so this was a passing race. It's kept, and asks her if it doesn't clear.
                 const tries = (next.attempts ?? 0) + 1;
                 await commit((s) => ({ ...s, records: row ? replaceRecord(s.records, row) : s.records,
                   outbox: s.outbox.map((m) => m.id !== next.id || (m.type !== "feed_action" && m.type !== "session_action") ? m
-                    : tries >= unresolvedAttempts ? { ...m, error: "This tap couldn’t be added to the feed. It’s safe on this phone." } : retryLater(m)) }));
+                    : tries >= unresolvedAttempts ? { ...m, error: stuckTapMessage } : retryLater(m)) }));
                 continue;
               }
               await commit((s) => ({ ...(outcome === "applied" ? s : withNotice(s, outcome === "plain" ? plainFeedNotice : next.type === "feed_action" ? removedFeedNotice : removedSessionNotice)),
@@ -437,7 +488,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             }));
             for (const file of files) {
               if (file.uploaded_id) continue;
-              const uploaded = await uploadFile(api, file, next.generation);
+              const uploaded = await uploadFile(api, file, fenceOf(next));
               files = files.map((f) => (f.id === file.id ? { ...f, uploaded_id: uploaded.id } : f));
               await commit((s) => ({
                 ...s,
@@ -459,7 +510,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                     : {}),
                 },
               };
-              result = await api.save(feedEdit(value), next.generation);
+              result = await api.save(feedEdit(value), fenceOf(next));
             } else {
               // Persist before the request: a lost admission response can replay
               // an already-completed job after a relaunch.
@@ -479,7 +530,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                   topics: next.topics,
                   attachment_ids,
                 },
-                next.generation
+                fenceOf(next)
               );
               await commit((s) => ({ ...s, imports: [{ ...job, baseline, automatic: next.automatic, reconciled: false },
                 ...s.imports.filter((j) => j.id !== job.id)] }));
@@ -500,6 +551,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
         } catch (e) {
           if (!alive.current) break;
           if (e instanceof ApiError && e.local) break;
+          if (e instanceof MovedError) {
+            // The same change, to where its row lives now. It goes again straight after this pass.
+            await commit((s) => { const held = s.outbox.find((m) => m.id === next.id); return held ? retargeted(s, held, e.moved, Crypto.randomUUID) : s; });
+            rerun.current = true;
+            continue;
+          }
           const status = e instanceof ApiError ? e.status : -1;
           // A replayed save whose entry was removed elsewhere. It would refuse every pass, and hold everything behind it. With a file, the upload may be what expired.
           if (status === 410 && next.type === "save" && !next.files.length) {
@@ -526,9 +583,16 @@ export function BabyProvider({ children }: PropsWithChildren) {
           }));
         }
       }
+      // Before the releases: one that keeps failing mustn't stop the other phone's changes arriving.
+      if (spacesLive(latest)) await pullChanges();
       for (const id of ref.current.fileReleases ?? []) {
         if (uploadedReferences(ref.current).has(id)) continue;
-        await api.releaseAttachment(id, latest.generation);
+        try {
+          await api.releaseAttachment(id, latest.generation);
+        } catch (failure) {
+          // It moved with its record, or was retired when someone left. Either way there's nothing here to release.
+          if (!(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure instanceof MovedError))) throw failure;
+        }
         await commit((s) => ({
           ...s,
           fileReleases: (s.fileReleases ?? []).filter((pending) => pending !== id),
@@ -629,8 +693,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
         storageReady.current = true;
         closing.current = false;
         if (saved) {
-          ref.current = saved;
-          setState(saved);
+          const upgraded = upgradedState(saved);
+          ref.current = upgraded;
+          setState(upgraded);
         }
         setReady(true);
         await openingAccount(() => funcs.current.refresh(true), () => !cancelled && current());
@@ -688,6 +753,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     };
   }, [state, owner, ready]);
   async function clean() {
+    forgetInvite();
     await revokeShareSession();
     clearPendingShares();
     await clearReminders(ownerRef.current);
@@ -725,6 +791,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         syncing,
         online,
         unreachable: unreachable && !!error,
+        changeTick,
         refresh,
         sync,
         commit,
@@ -752,7 +819,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => {
             if (valid && !valid()) return s;
             const drafts = { ...s.drafts };
-            if (draft) drafts[key] = draft;
+            if (draft) drafts[key] = stampedDraft(s, s.drafts[key], draft);
             else delete drafts[key];
             return queueRemovedUploads(s, { ...s, drafts });
           });

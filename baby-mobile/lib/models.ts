@@ -59,13 +59,30 @@ export interface Child {
   due_date?: string | null;
   details?: ChildDetails | null;
   revision: number;
+  /** Where it lives, once the API lists spaces. Until then everything is personal. */
+  space_id?: string;
+  generation?: number;
+}
+/** One of this account's spaces: its own personal one, and a family it's in. */
+export interface BabySpace {
+  id: string;
+  kind: "personal" | "family";
+  role: "parent" | "caregiver";
+  generation: number;
+  access_version: number;
 }
 export interface Bootstrap {
   profile: Profile;
   children: Child[];
+  /** The personal space's. */
   generation: number;
   ai_available: boolean;
   active?: boolean;
+  /** Only with the API's family stack on. */
+  personal_space_id?: string;
+  spaces?: BabySpace[];
+  /** Names of everyone who has been in this account's families. */
+  people?: Record<string, string>;
 }
 export interface Attachment {
   id: string;
@@ -239,6 +256,11 @@ export interface BabyRecord {
   revision: number;
   created_at: string;
   updated_at: string;
+  /** Where it lives, once the API lists spaces. Until then everything is personal. */
+  space_id?: string;
+  generation?: number;
+  /** Who logged it, with spaces listed. Null once that account is gone, and missing while it's still queued here. */
+  created_by?: string | null;
 }
 export type RecordWrite = Pick<BabyRecord, "id" | "kind" | "title" | "body" | "child_id" | "occurred_at" | "data"> & {
   revision?: number;
@@ -265,6 +287,8 @@ export interface ImportJob {
   baseline?: BabyRecord | null;
   automatic?: boolean;
   reconciled?: boolean;
+  space_id?: string;
+  generation?: number;
 }
 export interface Citation {
   id: string;
@@ -317,6 +341,11 @@ export interface EventEdit {
 export type LogFormDraft = import("./more-logs").LogForm;
 export interface EditorDraft {
   id: string;
+  /** An existing entry's space, copied with it into the draft. */
+  space_id?: string;
+  generation?: number;
+  /** Shared with family or Just me, as she chose on a new entry. */
+  shared?: boolean;
   kind: Kind;
   title: string;
   body: string;
@@ -331,7 +360,15 @@ export interface EditorDraft {
   log_form?: LogFormDraft;
   event_edit?: EventEdit;
 }
-export type Mutation = { localOnly?: boolean } & (
+export type Mutation = {
+  localOnly?: boolean;
+  /** The space it's for, and `generation` is that space's. None with the API's family flag off, or from an older build. */
+  space_id?: string;
+  /** The family it was for, once this account is out of it. It's kept to copy or discard, and never sent. */
+  left_space?: string;
+  /** How many times the API has said its row moved. */
+  retargets?: number;
+} & (
   | {
       id: string;
       generation: number;
@@ -467,6 +504,14 @@ export interface DeviceState {
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
+  /** Her own babies she's chosen to keep alongside a family's, so she's only asked once. */
+  personalBabiesKept?: string[];
+  /** What the API said was removed, newest last. It's the only proof a row is gone: not being here proves nothing. */
+  removed?: string[];
+  /** Which storage shape this was saved in. None means a build before spaces. */
+  version?: number;
+  /** How far `/changes` has come in each space, and the access versions that came with it. */
+  changes?: { cursor: Record<string, number>; access: Record<string, number> };
 }
 export const emptyState = (): DeviceState => ({
   fileUploads: {},

@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
+import { canAddBaby, canChangeBaby, rowFence, spaceFence, spaceForChild } from "../lib/spaces";
 import { messageFor, type Child, type ChildEdits, type ChildField } from "@/lib/models";
 import { dayKey } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
@@ -95,14 +96,16 @@ export default function ChildEditor() {
   }
   /** A first try can land with its answer lost. If she changed something since, the same id now conflicts, so it becomes an edit of just that. */
   async function send(write: Partial<Child>) {
+    // An existing baby's write goes where they live, and a new one's where this account adds babies.
+    const fence = child ? rowFence(child, generation) : spaceFence(b.state.bootstrap!, spaceForChild(b.state));
     try {
-      return await b.api.child(write, generation);
+      return await b.api.child(write, fence);
     } catch (failure) {
       if (child || !(failure instanceof ApiError) || failure.status !== 409) throw failure;
       const landed = (await b.api.request<{ items: Child[] }>("/children")).items.find((row) => row.id === creationId),
         retry = landed && childWrite(form, edits.since, landed, creationId, today);
       if (!retry || "error" in retry) throw failure;
-      return changesAnything(retry.write) ? b.api.child(retry.write, generation) : landed;
+      return changesAnything(retry.write) ? b.api.child(retry.write, rowFence(landed, generation)) : landed;
     }
   }
   async function save() {
@@ -157,6 +160,9 @@ export default function ChildEditor() {
       } },
     ]);
   }
+  if (child ? !canChangeBaby(b.state.bootstrap, child) : !canAddBaby(b.state.bootstrap)) return (
+    <Screen title="Baby profile" back><Notice>Only a parent can add a baby or change a profile. You can still log for them.</Notice></Screen>
+  );
   if (removed) return (
     <Screen key="removed" title="Baby profile" back>
       <Notice>This baby’s profile was removed, so there’s nothing to edit here.</Notice>

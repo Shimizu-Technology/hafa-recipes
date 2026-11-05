@@ -2,6 +2,8 @@ import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type DeviceState, type EditorDraft, type LocalFile } from "./models";
+import { ApiError } from "./api";
+import { keepInPersonal, notSentMessage } from "./outbox";
 const scope = vi.hoisted(() => ({
   account: null as unknown, foreground: null as null | ((state: string) => void),
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
@@ -473,4 +475,109 @@ it("persists queued native progress before acknowledging a durable receipt", asy
   await act(async () => { gate.release(); await account.drain(); });
   expect(account.state.imports).toEqual([{ id: "capture-A", record_id: "capture-A", status: "queued" }]);
   expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A");
+});
+
+describe("a draft from before the family", () => {
+  it("stays personal when it's saved after joining", async () => {
+    const account = setup(), personal = "personal-space", family = "family-space";
+    Object.assign(account.state.bootstrap!, { personal_space_id: personal, spaces: [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }] });
+    account.state.drafts["new:source"] = { id: "kept", kind: "source", title: "", body: "Private words", child_id: null, occurred_at: "2026-10-21T00:00:00.000Z", data: {}, files: [], space_id: personal, generation: 1 };
+    const before = scope.params;
+    scope.params = { kind: "source" };
+    await mount(Edit);
+    const save = renderer!.root.findAll((n) => String(n.type) === "Button").find((n) => n.props.title === "Save post")!;
+    await act(async () => { await save.props.onPress(); await vi.advanceTimersByTimeAsync(0); });
+    expect(account.state.outbox[0]).toMatchObject({ space_id: personal, record: { id: "kept" } });
+    scope.params = before;
+  });
+});
+
+describe("captures from an older build, after the update and after Create family", () => {
+  const family = "11111111-1111-4111-8111-111111111111", personal = "22222222-2222-4222-8222-222222222222";
+  const shared = (spaces: object[]) => ({ personal_space_id: personal, spaces: [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, ...spaces] });
+  const capture = (over: object = {}) => ({ token: "capture-a:hash", capture_id: "capture-a", record_id: "capture-a", scope: "disposable-local-parent:1", occurred_at: "2026-10-21T07:50:00.123Z", url: "https://example.test/advice", text: "Saved tip", files: [], ...over });
+  const drain = async (account: ReturnType<typeof setup>) => {
+    await act(async () => { renderer = TestRenderer.create(React.createElement(ShareCapture)); await vi.advanceTimersByTimeAsync(0); });
+    await account.drain();
+  };
+  it("keeps a capture made before spaces personal, under its own id, once there's a family", async () => {
+    const account = setup();
+    Object.assign(account.state.bootstrap!, shared([{ id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }]));
+    scope.pending.mockResolvedValueOnce(capture()).mockResolvedValue(null);
+    await drain(account);
+    expect(account.state.outbox[0]).toMatchObject({ id: "share-save:capture-a", space_id: personal, record: { id: "capture-a" } });
+    expect(scope.acknowledge).toHaveBeenCalledWith("capture-a:hash");
+  });
+  it("stays personal even if bootstrap lists the family while the capture is being saved", async () => {
+    const account = setup(), commit = account.commit;
+    // The drain starts on what this phone saved before spaces. The answer lands before its write runs.
+    account.commit = vi.fn((update: (state: DeviceState) => DeviceState) => {
+      Object.assign(account.state.bootstrap!, shared([{ id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }]));
+      return commit(update);
+    }) as typeof account.commit;
+    scope.pending.mockResolvedValueOnce(capture()).mockResolvedValue(null);
+    await drain(account);
+    expect(account.state.outbox[0]).toMatchObject({ id: "share-save:capture-a", space_id: personal, record: { id: "capture-a" } });
+  });
+  it("says nothing when the first bootstrap ends a lease mid-write, and saves it on the next go", async () => {
+    const account = setup(), commit = account.commit;
+    let first = true;
+    account.commit = vi.fn((update: (state: DeviceState) => DeviceState) => {
+      if (first) { first = false; return Promise.reject(new ApiError("This request belongs to an earlier Baby space and was stopped.", 410, true)); }
+      return commit(update);
+    }) as typeof account.commit;
+    scope.pending.mockResolvedValue(capture());
+    scope.acknowledge.mockImplementation(() => { scope.pending.mockResolvedValue(null); return true; });
+    await drain(account);
+    expect(scope.alerts).toEqual([]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    await account.drain();
+    expect(account.state.outbox[0]).toMatchObject({ id: "share-save:capture-a" });
+    expect(scope.acknowledge).toHaveBeenCalledWith("capture-a:hash");
+  });
+  it("takes a capture tagged for an earlier destination of this account, which only a build before this couldn't read", async () => {
+    const account = setup();
+    Object.assign(account.state.bootstrap!, shared([{ id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }]));
+    scope.pending.mockResolvedValueOnce(capture({ scope: `disposable-local-parent:1:${family}` })).mockResolvedValue(null);
+    await drain(account);
+    expect(account.state.outbox[0]).toMatchObject({ space_id: family, generation: 1, record: { id: "capture-a" } });
+  });
+  it("holds one made for a family she's left as Not sent, under its id, since the family may already have it", async () => {
+    const account = setup();
+    Object.assign(account.state.bootstrap!, shared([]));
+    account.state.bootstrap!.profile.ai_consent = true;
+    (account.state.bootstrap!.profile as { auto_process_shares?: boolean }).auto_process_shares = true;
+    scope.pending.mockResolvedValueOnce(capture({ scope: `disposable-local-parent:1:${family}` })).mockResolvedValue(null);
+    await drain(account);
+    expect(account.state.outbox).toHaveLength(1);
+    expect(account.state.outbox[0]).toMatchObject({ id: "share-save:capture-a", space_id: family, left_space: family, error: notSentMessage, record: { id: "capture-a" } });
+    expect(scope.acknowledge).toHaveBeenCalledWith("capture-a:hash");
+    // Keep is what copies it, under a new id.
+    const kept = keepInPersonal(account.state, account.state.outbox[0], () => "copy");
+    expect(kept.outbox[0]).toMatchObject({ space_id: personal, record: { id: "copy" } });
+    expect(kept.outbox[0].left_space).toBeUndefined();
+  });
+  it("retires one from before her space was cleared, so a later capture isn't stuck behind it", async () => {
+    const account = setup();
+    account.state.bootstrap!.generation = 2;
+    scope.pending.mockResolvedValueOnce(capture({ scope: "disposable-local-parent:1" })).mockResolvedValueOnce(capture({ scope: "disposable-local-parent:2", token: "capture-b:hash", capture_id: "capture-b", record_id: "capture-b" })).mockResolvedValue(null);
+    await drain(account);
+    expect(scope.acknowledge).toHaveBeenCalledWith("capture-a:hash");
+    expect(account.state.outbox.map((m) => m.id)).toEqual(["share-save:capture-b"]);
+  });
+  it("keeps a receipt's job and retires it only after that's saved", async () => {
+    const account = setup();
+    Object.assign(account.state.bootstrap!, shared([{ id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }]));
+    scope.pending.mockResolvedValueOnce(capture({ status: "queued", import_id: "capture-a" })).mockResolvedValue(null);
+    await drain(account);
+    expect(account.state.imports).toMatchObject([{ id: "capture-a", record_id: "capture-a", status: "queued" }]);
+    expect(scope.acknowledge).toHaveBeenCalledWith("capture-a:hash");
+  });
+  it("still leaves another account's capture alone", async () => {
+    const account = setup();
+    scope.pending.mockResolvedValueOnce(capture({ scope: "someone-else:1" }));
+    await drain(account);
+    expect(account.state.outbox).toEqual([]);
+    expect(scope.acknowledge).not.toHaveBeenCalled();
+  });
 });

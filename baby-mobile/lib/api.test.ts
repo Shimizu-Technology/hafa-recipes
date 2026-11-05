@@ -378,7 +378,7 @@ it("distinguishes server upload failure from offline without reflecting private 
   await expect(api.save(row, 1)).rejects.toMatchObject({ status: 0, message: expect.stringContaining("offline") });
 });
 
-it("sends X-Baby-Client from one constant, and only when it is set", async () => {
+it("sends client 2 until bootstrap says the family stack is on", async () => {
   const { babyClient, createBabyApi: create } = await import("./api");
   const seen: Record<string, string>[] = [];
   const api = create("https://api.test", async () => "token", () => true, async (_url, init) => {
@@ -420,5 +420,133 @@ describe("feed actions on the wire", () => {
     // A sleep's end is not a feed's.
     await api.save({ ...write, kind: "sleep", data: { end_at: "2026-11-04T13:00:00Z" }, revision: 3 }, 2);
     expect(calls[2].body.data.end_at).toBe("2026-11-04T13:00:00Z");
+  });
+});
+
+describe("the client level", () => {
+  const personal = "11111111-1111-4111-8111-111111111111", family = "22222222-2222-4222-8222-222222222222";
+  const spaces = [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }];
+  const live = { generation: 1, children: [], ai_available: false, profile: {}, personal_space_id: personal, spaces };
+  function wire(known: () => any = () => undefined) {
+    const calls: { url: string; method?: string; headers: Record<string, string> }[] = [];
+    let answer: unknown = { items: [], total: 0, has_more: false };
+    const api = createBabyApi("https://api.test", async () => "token", () => true, async (url, init) => {
+      calls.push({ url, method: init?.method, headers: init!.headers as Record<string, string> });
+      return new Response(JSON.stringify(answer), { status: 200 });
+    }, known);
+    return { api, calls, last: () => calls[calls.length - 1], answers: (value: unknown) => { answer = value; } };
+  }
+  const row = { id: "a", kind: "diaper", title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00Z", data: {} } as never;
+  it("always asks bootstrap as client 3, which is how it hears the family stack is on, and it answers the same as 2 while it's off", async () => {
+    const { api, last, answers } = wire();
+    answers({ generation: 1, children: [], ai_available: false, profile: {} });
+    await api.bootstrap();
+    expect(last().headers["X-Baby-Client"]).toBe("3");
+    expect(last().headers["X-Baby-Space"]).toBeUndefined();
+  });
+  it("stays client 2 everywhere else while bootstrap doesn't list spaces: with the flag off the API treats client 3 as legacy, without events", async () => {
+    const { api, last } = wire(() => ({ generation: 1, children: [], ai_available: false, profile: {} }));
+    await api.records({});
+    expect(last().headers["X-Baby-Client"]).toBe("2");
+    await api.save(row, 1);
+    expect(last().headers["X-Baby-Client"]).toBe("2");
+    expect(last().headers["X-Baby-Space"]).toBeUndefined();
+  });
+  it("becomes client 3 as soon as this account's bootstrap lists spaces, including what was saved on this phone before it reconnects", async () => {
+    const { api, last } = wire(() => live);
+    await api.records({});
+    expect(last().headers["X-Baby-Client"]).toBe("3");
+    expect(last().headers["X-Baby-Space"]).toBeUndefined();
+  });
+  it("asks for a share credential as client 3 whatever it holds: an older client asking would read as an old phone", async () => {
+    const { api, last } = wire(() => ({ generation: 1, children: [], ai_available: false, profile: {} }));
+    await api.request("/share/session", "POST", { installation_id: "i" }, 1);
+    expect(last().headers["X-Baby-Client"]).toBe("3");
+    expect(last().headers["X-Baby-Space"]).toBeUndefined();
+  });
+  it("names the personal space on a write unless it's told the row's own", async () => {
+    const { api, last } = wire(() => live);
+    await api.save(row, 1);
+    expect(last().headers["X-Baby-Space"]).toBe(personal);
+    expect(last().headers["X-Baby-Generation"]).toBe("1");
+    await api.save(row, { generation: 4, space_id: family });
+    expect(last().headers["X-Baby-Space"]).toBe(family);
+    expect(last().headers["X-Baby-Generation"]).toBe("4");
+  });
+  it("drops back to client 2 if the flag is turned off, and ignores a space it was told about", async () => {
+    const { api, last } = wire(() => ({ generation: 1, children: [], ai_available: false, profile: {} }));
+    await api.save(row, { generation: 1, space_id: family });
+    expect(last().headers["X-Baby-Client"]).toBe("2");
+    expect(last().headers["X-Baby-Space"]).toBeUndefined();
+  });
+  it("sends its cursor and access versions as JSON maps to /changes", async () => {
+    const { api, last, answers } = wire(() => live);
+    answers({ spaces: [], cursor: {}, has_more: false, removed_space_ids: [] });
+    await api.changes({ [personal]: 5 }, { [personal]: 2 });
+    const url = new URL(last().url);
+    expect(url.pathname).toBe("/api/v1/baby/changes");
+    expect(JSON.parse(url.searchParams.get("cursor")!)).toEqual({ [personal]: 5 });
+    expect(JSON.parse(url.searchParams.get("access_version")!)).toEqual({ [personal]: 2 });
+  });
+  describe("the generation map", () => {
+    const answer = (familySpaces: object[], generation = 1) => ({ ...live, generation, spaces: [...spaces, ...familySpaces] });
+    const familySpace = (generation = 1) => ({ id: family, kind: "family", role: "parent", generation, access_version: 1 });
+    it("joining a space doesn't end the lease on work under way", async () => {
+      const { api, answers } = wire(() => live);
+      answers(answer([]));
+      await api.bootstrap();
+      const lease = api.lease();
+      answers(answer([familySpace()]));
+      await api.bootstrap();
+      expect(api.lease()).toBe(lease);
+    });
+    it("a space's generation changing, or a space going, ends the lease", async () => {
+      const { api, answers } = wire(() => live);
+      answers(answer([familySpace()]));
+      await api.bootstrap();
+      let lease = api.lease();
+      answers(answer([familySpace(2)]));
+      await api.bootstrap();
+      expect(api.lease()).toBe(lease + 1);
+      lease = api.lease();
+      answers(answer([]));
+      await api.bootstrap();
+      expect(api.lease()).toBe(lease + 1);
+    });
+    it("refuses an older answer for any one space", async () => {
+      const { api, answers } = wire(() => live);
+      answers(answer([familySpace(3)]));
+      await api.bootstrap();
+      answers(answer([familySpace(2)]));
+      await expect(api.bootstrap()).rejects.toMatchObject({ status: 410, local: true });
+    });
+  });
+});
+
+describe("a 409 that says where a row went", () => {
+  const moved = { code: "moved", space_id: "f", generation: 1, revision: 4, record: { id: "a", kind: "diaper", revision: 4 } };
+  const on = (status: number, body: unknown) => createBabyApi("https://api.test", async () => "token", () => true, async () => new Response(JSON.stringify(body), { status }));
+  const row = { id: "a", kind: "diaper", title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00Z", data: {} } as never;
+  it("says so, with the row, as the API really sends it: the body itself, not under detail", async () => {
+    await expect(on(409, moved).save(row, 1)).rejects.toMatchObject({ status: 409, moved: { space_id: "f", generation: 1, revision: 4 } });
+  });
+  it("reads other coded refusals from detail", async () => {
+    await expect(on(409, { detail: { code: "phones_not_ready", ready: false, phones: [{ id: "p", state: "outdated", last_seen: null, this_phone: false }] } }).createInvite("parent", true, 1))
+      .rejects.toMatchObject({ readiness: { phones: [{ id: "p" }] } });
+    await expect(on(409, { detail: { code: "family_exit_required" } }).erase(1)).rejects.toMatchObject({ message: expect.stringContaining("Leave your family") });
+  });
+  it("leaves an ordinary conflict as it was", async () => {
+    const failure = await on(409, { detail: "This entry changed" }).save(row, 1).catch((e) => e);
+    expect(failure.status).toBe(409);
+    expect(failure.moved).toBeUndefined();
+    expect(failure.message).toMatch(/changed elsewhere/);
+  });
+});
+
+describe("opening a private file", () => {
+  const api = (known: () => any) => createBabyApi("https://api.test", async () => "token", () => true, async () => new Response("{}"), known);
+  it("asks at the client level everything else does, or the API answers a family file with 404", () => {
+    expect(api(() => ({ spaces: [{ id: "p" }], personal_space_id: "p" })).fileHeaders()).toEqual({ "X-Baby-Client": "3" });
+    expect(api(() => ({})).fileHeaders()).toEqual({ "X-Baby-Client": "2" });
   });
 });

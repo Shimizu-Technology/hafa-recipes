@@ -47,12 +47,13 @@ enum BabyShareSession {
     config.timeoutIntervalForRequest = 7; config.timeoutIntervalForResource = 8
     return URLSession(configuration: config, delegate: BabyShareNetworkDelegate(), delegateQueue: nil)
   }
-  static func configure(storage: BabyShareStore, token: String, base: String, expires: String, owner: String, generation: Int, automaticEpoch: Int = 0) throws {
+  static func configure(storage: BabyShareStore, token: String, base: String, expires: String, owner: String, generation: Int, automaticEpoch: Int = 0, destination: String? = nil) throws {
     let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let expiry = format.date(from: expires) ?? ISO8601DateFormatter().date(from: expires)
     guard token.hasPrefix("hfbs_v1."), baseURL(base) != nil, !owner.isEmpty, generation > 0, automaticEpoch >= 0,
-      let expiry, expiry > Date() else { throw BabyShareStore.Failure.invalid }
-    let scope = "\(owner):\(generation)"
+      let expiry, expiry > Date(), destination == nil || destination == "personal" || UUID(uuidString: destination ?? "") != nil
+    else { throw BabyShareStore.Failure.invalid }
+    let scope = destination.map { "\(owner):\(generation):\($0)" } ?? "\(owner):\(generation)"
     try storage.bind(scope, automaticEpoch: automaticEpoch) {
       try write(["token": token, "base": base, "expires": expiry.timeIntervalSince1970,
         "scope": scope, "generation": generation, "auto_process_epoch": automaticEpoch])
