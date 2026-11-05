@@ -184,7 +184,6 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
   async function send() {
     const snapshot = current.current, account = live.current.b;
     if (!live.current.active || !owned.current || owned.current.entry.owner !== token.current || working.current || snapshot.resolving || !snapshot.question.trim() || activeKey.current !== live.current.key) return;
-    if (!account.state.bootstrap?.profile.ai_consent) { setError("Enable optional AI processing in Settings first."); return; }
     const operation = ticket(), requestId = snapshot.requestId ?? Crypto.randomUUID(), text = snapshot.question.trim(),
       sent = { ...snapshot, question: text, requestId };
     setShowHistory(false);
@@ -202,8 +201,11 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
       const entry = owned.current!.entry; entry.question = ""; entry.requestId = undefined;
       activate(snapshot.context, result.conversation_id ?? undefined, [...snapshot.messages, { role: "user", content: text },
         { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal, sources: result.sources, help: result.help }], snapshot.focusedTitle);
-    } catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
-    finally { if (operation.valid()) { working.current = false; setBusy(false); } }
+    } catch (failure) {
+      // Anything urgent was already answered. With AI off, everything else is what ends up here.
+      if (operation.valid()) setError(account.state.bootstrap?.profile.ai_consent ? messageFor(failure)
+        : "Ask needs AI processing turned on in Settings. If this is urgent, open Help.");
+    } finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
   async function openHistory() {
     if (!live.current.active) return;

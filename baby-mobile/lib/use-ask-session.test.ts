@@ -472,3 +472,24 @@ it("reopening a day's chat picks its day back up", async () => {
   await act(async () => { await result.send(); });
   expect(account.api.chat.mock.calls[0][0]).toMatchObject({ focus_date: "2026-11-03", conversation_id: "day-chat" });
 });
+
+it("with AI off, a question still goes to the server, which answers anything urgent", async () => {
+  const account = setup();
+  account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!, profile: { ...account.state.bootstrap!.profile, ai_consent: false } } };
+  account.api.chat.mockResolvedValueOnce({ conversation_id: "c", message: "Call 911", citations: [], help: "baby_unwell" } as never);
+  await mount();
+  await question("My baby is not breathing");
+  await act(async () => { await result.send(); });
+  expect(account.api.chat).toHaveBeenCalledTimes(1);
+  expect(result.messages[1]).toMatchObject({ content: "Call 911", help: "baby_unwell" });
+});
+
+it("with AI off, anything else explains itself and points to Help", async () => {
+  const account = setup();
+  account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!, profile: { ...account.state.bootstrap!.profile, ai_consent: false } } };
+  account.api.chat.mockRejectedValueOnce(new Error("Request failed"));
+  await mount();
+  await question("How was today?");
+  await act(async () => { await result.send(); });
+  expect(result.error).toMatch(/turned on in Settings.*urgent.*Help/);
+});

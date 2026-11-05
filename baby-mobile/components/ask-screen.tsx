@@ -23,8 +23,8 @@ const suggestions = [
 ];
 
 /**
- * Why Ask can't send yet, as one compact line above the question box. Consent still gates sending: the composer
- * stays read-only and Send disabled until AI processing is allowed in Settings.
+ * Why Ask can't answer most questions yet, as one compact line above the question box. The box itself always works:
+ * the server answers anything urgent with the AI off, and a person shouldn't have to find that out in Settings.
  */
 export function AiNotice({ service, consent }: { service: boolean; consent: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
@@ -80,7 +80,7 @@ function AskChat({ back }: { back: boolean }) {
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
   }
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
-    canSend = available && !busy && !chat.resolving && !!question.trim(),
+    canSend = !busy && !chat.resolving && !!question.trim(),
     c = useColors(),
     answered = messages.some((m) => m.role === "assistant"),
     seen = !!b.state.askNoticeSeen,
@@ -121,9 +121,9 @@ function AskChat({ back }: { back: boolean }) {
             value={question}
             onChangeText={chat.setQuestion}
             placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…"
-              : !b.state.bootstrap!.ai_available ? "Ask isn’t available yet" : "Turn on AI in Settings to ask"}
+              : "Something urgent? Ask here or open Help"}
             placeholderTextColor={c.muted}
-            editable={available && !busy && !chat.resolving}
+            editable={!busy && !chat.resolving}
             multiline
             maxLength={4000}
             maxFontSizeMultiplier={0}
@@ -233,7 +233,10 @@ function AskChat({ back }: { back: boolean }) {
           </View>
         )
       )}
-      {!!error && <Notice error>{error}</Notice>}
+      {!!error && <>
+        <Notice error>{error}</Notice>
+        <Button secondary title="Open Help" onPress={() => router.push("/help")} />
+      </>}
       {busy && <Loading label="Looking through your saved entries…" />}
       {!showHistory && showNotice && (
         <Copy kind="small" tone="muted">
