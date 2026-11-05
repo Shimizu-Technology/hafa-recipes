@@ -58,6 +58,7 @@ BABY_MIGRATIONS = (
     "migrations.058_contract_baby_spaces",
     "migrations.059_add_baby_child_details",
     "migrations.060_add_baby_reminder_indexes",
+    "migrations.061_add_baby_device_routines",
 )
 
 
