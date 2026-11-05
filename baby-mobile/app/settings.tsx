@@ -73,7 +73,7 @@ export default function Settings() {
         </Copy>
       </Section>
       {spacesLive(b.state.bootstrap) && <Section title="Family">
-        <Grouped><Row title="Family" detail={familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} /></Grouped>
+        <Grouped><Row title="Family" detail={familySpaces(b.state.bootstrap)[0]?.role === "caregiver" ? "You’re helping as a caregiver" : familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} /></Grouped>
       </Section>}
       <Section title="Your little ones">
         <Grouped>{b.state.bootstrap!.children.map((child) => (

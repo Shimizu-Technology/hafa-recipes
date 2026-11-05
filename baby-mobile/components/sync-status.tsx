@@ -1,10 +1,11 @@
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
+import { noticeTitle } from "../lib/outbox";
 import { Copy, PressTarget, Row } from "./ui";
 export function SyncStatus() {
   const b = useBaby();
   const notice = b.state.feedNotices?.[0];
-  if (notice) return <Row title="A tap wasn’t added" detail={notice} icon="information-circle-outline" hint="Dismisses this"
+  if (notice) return <Row title={noticeTitle(notice)} detail={notice} icon="information-circle-outline" hint="Dismisses this"
     onPress={() => void b.commit((state) => ({ ...state, feedNotices: state.feedNotices?.slice(1) }))} />;
   const failed = b.state.outbox.filter(m => (m.error || m.conflict) && !m.localOnly).length;
   // Not reaching Håfa isn't a problem to fix: her work waits here, and goes when it can.

@@ -66,7 +66,7 @@ export function timelineDetail(record: BabyRecord, { rows = [record], day, timeZ
 }
 
 /** One thing that happened: when, what, and a way in to change it. */
-export function TimelineRow({ record, rows, day, timeZone, pending, now }: { record: BabyRecord; rows?: readonly BabyRecord[]; day?: string; timeZone?: string | null; pending?: boolean; now: Date }) {
+export function TimelineRow({ record, rows, day, timeZone, pending, now, logged }: { record: BabyRecord; rows?: readonly BabyRecord[]; day?: string; timeZone?: string | null; pending?: boolean; now: Date; logged?: string }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), when = datedOnly(record) ? "" : timeOf(record.occurred_at, timeZone), stacked = fontScale >= 1.5,
     summary = careSummary(record.kind, record.data, record.occurred_at, now, timeZone),
     title = summary || (record.data.label ?? kindName[record.kind]),
@@ -74,7 +74,7 @@ export function TimelineRow({ record, rows, day, timeZone, pending, now }: { rec
     typed = summaryHoldsTitle(record.kind, record.title, summary) || record.title === title ? "" : record.title,
     said = timelineDetail(record, { rows, day, timeZone, now }),
     // A note or question with one line has that line as its title too, and says it once.
-    detail = [typed, said === typed.trim() ? "" : said, whoseLog(record), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
+    detail = [typed, said === typed.trim() ? "" : said, whoseLog(record), logged, pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
   return <PressTarget accessibilityRole="button" accessibilityLabel={`${when ? `${when}, ` : ""}${title}${detail ? `. ${detail}` : ""}`} accessibilityHint="Opens this entry to change it"
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: stacked ? 4 : 10, minHeight: 62, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: c.surface }}>

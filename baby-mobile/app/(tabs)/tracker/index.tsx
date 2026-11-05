@@ -22,6 +22,7 @@ import { MoreLogs } from "@/components/more-logs";
 import { panelTrackers, trackerOn, trackersFor, trackingKey } from "../../../lib/trackers";
 import { LegacyTimer } from "@/components/feed-timer";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
+import { familyLine } from "../../../lib/logged-by";
 import { TrackerMonth } from "@/components/tracker-month";
 import { TrackerStats } from "@/components/tracker-stats";
 import { useCareStats } from "@/lib/use-care-stats";
@@ -128,7 +129,7 @@ export default function Tracker() {
         </View>
         <Grouped separatorInset={0}>{timeline.map((entry) => "event_id" in entry
           ? <EventRow key={`${entry.event_id}:${entry.original_start}`} item={entry} day={day} />
-          : <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />
+          : <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} logged={familyLine(entry, care.all, b.state.bootstrap, b.owner)} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />
         )}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}

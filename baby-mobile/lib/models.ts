@@ -81,6 +81,8 @@ export interface Bootstrap {
   /** Only with the API's family stack on. */
   personal_space_id?: string;
   spaces?: BabySpace[];
+  /** Names of everyone who has been in this account's families. */
+  people?: Record<string, string>;
 }
 export interface Attachment {
   id: string;
@@ -257,6 +259,8 @@ export interface BabyRecord {
   /** Where it lives, once the API lists spaces. Until then everything is personal. */
   space_id?: string;
   generation?: number;
+  /** Who logged it, with spaces listed. Null once that account is gone, and missing while it's still queued here. */
+  created_by?: string | null;
 }
 export type RecordWrite = Pick<BabyRecord, "id" | "kind" | "title" | "body" | "child_id" | "occurred_at" | "data"> & {
   revision?: number;

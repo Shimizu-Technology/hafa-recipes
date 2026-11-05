@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepInPersonal, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved } from "./outbox";
+import { keepInPersonal, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved } from "./outbox";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -116,8 +116,11 @@ describe("leaving a family, or being removed", () => {
     expect(pendingRecords(edited).map((r) => r.id)).toContain("new-care");
     expect(pendingRecords(withoutFamily(edited, family, uuid)).map((r) => r.id)).not.toContain("new-care");
   });
-  it("tells her", () => {
-    expect(withoutFamily(before(), family, uuid).feedNotices?.[0]).toMatch(/no longer in this family/i);
+  it("tells her, and doesn't call it a tap", () => {
+    const notice = withoutFamily(before(), family, uuid).feedNotices![0];
+    expect(notice).toMatch(/no longer in this family/i);
+    expect(noticeTitle(notice)).toBe("Your family");
+    expect(noticeTitle("This feed was removed.")).toBe("A tap wasn’t added");
   });
   it("turns a draft of a family entry into something she can keep, with the words she typed", () => {
     const draft = { ...write("shared"), body: "half typed", revision: 3, space_id: family, files: [], existing: true } as EditorDraft;
