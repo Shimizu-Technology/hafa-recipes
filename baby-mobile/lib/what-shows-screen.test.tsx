@@ -108,6 +108,13 @@ describe("What shows", () => {
     await flip("Sleep", false);
     expect(queued()[0].child_id).toBe("baby");
   });
+  it("writes a switch for the stage she's in, so it ends with that stage", async () => {
+    setup([{ id: "due", name: "Lani", revision: 1, due_date: "2026-12-10" }]);
+    await mount();
+    await flip("My weight", false);
+    expect(queued()[0].tracking).toEqual({ expecting_my_weight: false });
+    expect(named("My weight").props.value).toBe(false);
+  });
   it("has no chooser with one baby", async () => {
     setup([newborn]);
     await mount();

@@ -8,7 +8,7 @@ import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/li
 import { laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { recordDay } from "@/lib/tracker";
-import { trackerById } from "../lib/trackers";
+import { trackerForKey } from "../lib/trackers";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
 function rebase(row: Mutation, revision: number): Mutation {
   if (row.type !== "save" && row.type !== "delete") return row;
@@ -115,7 +115,7 @@ export default function Sync() {
               ) : m.type === "child_birth" ? (
                 <Copy>{m.birth_date ? `Born ${friendlyDate(m.birth_date)}.` : "Taking the birth date back."}</Copy>
               ) : m.type === "child_tracking" ? (
-                <Copy>{`${Object.entries(m.tracking).map(([id, on]) => `${trackerById(id)?.label ?? id} ${on ? "on" : "off"}`).join(", ")}.`}</Copy>
+                <Copy>{`${Object.entries(m.tracking).map(([id, on]) => `${trackerForKey(id)?.label ?? id} ${on ? "on" : "off"}`).join(", ")}.`}</Copy>
               ) : m.type === "event_split" ? (
                 <Copy>{`Changes ${m.series.title} from ${friendlyDate(recordDay(m.from_start, m.series.data.timezone))} on. Discarding this keeps every date as it was.`}</Copy>
               ) : (

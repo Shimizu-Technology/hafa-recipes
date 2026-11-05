@@ -118,7 +118,7 @@ it("asks the API about a sent birth date too, and names it", async () => {
 });
 
 it("names a waiting switch, and asks the API about a sent one before showing the old copy", async () => {
-  const child = { id: "baby", name: "Mia", revision: 4, birth_date: "2026-11-01" }, off: Mutation = { id: "t", generation: 1, type: "child_tracking", child_id: "baby", tracking: { diaper: false, breast: false }, previous: { diaper: null, breast: null }, sent: true };
+  const child = { id: "baby", name: "Mia", revision: 4, birth_date: "2026-11-01" }, off: Mutation = { id: "t", generation: 1, type: "child_tracking", child_id: "baby", tracking: { diaper: false, expecting_breast: false }, previous: { diaper: null, expecting_breast: null }, sent: true };
   const b = setup([off]);
   b.api.bootstrap = vi.fn(async () => ({ children: [child] }));
   await discard();

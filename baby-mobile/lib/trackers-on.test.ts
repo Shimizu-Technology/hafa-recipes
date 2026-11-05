@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { trackerById, trackerOn, trackers, trackersFor } from "./trackers";
+import { otherStage, trackerById, trackerForKey, trackerOn, trackers, trackersFor, trackingKey } from "./trackers";
 
 const on = (id: string, stage: "expecting" | "born", details?: Parameters<typeof trackerOn>[2]) => trackerOn(trackerById(id)!, stage, details);
 
@@ -27,7 +27,29 @@ describe("which trackers are on", () => {
     expect(on("diaper", "born", null)).toBe(true);
     expect(on("diaper", "born", { tracking: null })).toBe(true);
   });
-  it("gives every tracker a key the API accepts", () => {
-    for (const tracker of trackers) expect(tracker.id).toMatch(/^[a-z][a-z0-9_]{0,39}$/);
+  it("gives every tracker a key the API accepts, at both stages, within its limit of 40", () => {
+    const keys = [...trackersFor("expecting").map((tracker) => trackingKey(tracker.id, "expecting")), ...trackersFor("born").map((tracker) => trackingKey(tracker.id, "born"))];
+    for (const key of keys) expect(key).toMatch(/^[a-z][a-z0-9_]{0,39}$/);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.length).toBeLessThanOrEqual(38);
+    expect(trackers.every((tracker) => trackerForKey(trackingKey(tracker.id, "expecting")) === tracker && trackerForKey(tracker.id) === tracker)).toBe(true);
+    expect(trackerForKey("asked_diaper")).toBeUndefined();
+  });
+  it("lets a switch changed before the birth end at the birth, so the new stage's default stands", () => {
+    // Off then back on while she's expecting.
+    const before = { tracking: { [trackingKey("kicks", "expecting")]: true, [trackingKey("breast", "expecting")]: false } };
+    expect(on("kicks", "expecting", before)).toBe(true);
+    expect(on("kicks", "born", before)).toBe(false);
+    expect(on("breast", "born", before)).toBe(true);
+  });
+  it("keeps what she chose after the birth, and goes back to what she chose before it if the birth date's undone", () => {
+    const both = { tracking: { kicks: true, [trackingKey("kicks", "expecting")]: false } };
+    expect(on("kicks", "born", both)).toBe(true);
+    expect(on("kicks", "expecting", both)).toBe(false);
+  });
+  it("knows which belong to the baby's other stage, and never counts hers", () => {
+    const others = (stage: "expecting" | "born") => trackersFor(stage).filter((tracker) => otherStage(tracker, stage)).map((tracker) => tracker.id);
+    expect(others("born")).toEqual(["kicks", "contractions"]);
+    expect(others("expecting")).toEqual(["breast", "bottle", "diaper", "sleep"]);
   });
 });

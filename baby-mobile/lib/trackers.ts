@@ -68,9 +68,16 @@ export const panelTrackers = (stage: Stage) => trackersFor(stage).filter((tracke
 export const shotLabel = "Shot";
 /** It belongs to the baby's other stage, the way a kick counter does after the birth. Add leaves it out unless it's on. Hers stay either way. */
 export const otherStage = (tracker: Tracker, stage: Stage) => tracker.about === "baby" && tracker.defaultOn.length > 0 && !tracker.defaultOn.includes(stage);
-/** Whether a tracker is on: what she chose, or else how she's feeding, or else its stage's default. */
+/**
+ * Where a switch is kept in `details.tracking`. One changed before the birth has its own key, so it ends with that stage:
+ * the API can't take a key back out, and a kick counter flipped off and on mustn't still be on after the birth.
+ */
+export const trackingKey = (id: string, stage: Stage) => (stage === "expecting" ? `expecting_${id}` : id);
+/** The tracker a key is about. Other keys in there remember something else, as a suggestion's do. */
+export const trackerForKey = (key: string) => trackerById(key.replace(/^expecting_/, ""));
+/** Whether a tracker is on: what she chose at this stage, or else how she's feeding, or else the stage's default. */
 export function trackerOn(tracker: Tracker, stage: Stage, details?: ChildDetails | null) {
-  const chosen = details?.tracking?.[tracker.id];
+  const chosen = details?.tracking?.[trackingKey(tracker.id, stage)];
   if (typeof chosen === "boolean") return chosen;
   if (stage === "born" && details?.feeding && tracker.id === "breast") return details.feeding !== "bottle";
   if (stage === "born" && details?.feeding && tracker.id === "bottle") return details.feeding !== "nursing";

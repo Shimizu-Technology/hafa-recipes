@@ -98,7 +98,7 @@ describe("Add", () => {
     expect(shown()).toEqual(["Track", "Breastfeed", "Bottle", "Diaper", "Sleep",
       "Keep", ...keepItems.map((item) => item.label),
       "For Mia", "Pumping", "Medicine", "Temperature", "Growth", "Note", "Custom", "Shots", "Milestones",
-      "For you", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]);
+      "For you", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine", "What shows"]);
   });
   it("makes Keep the same tiles, saying more to VoiceOver as a hint", async () => {
     setup([newborn]);
@@ -117,7 +117,13 @@ describe("Add", () => {
     setup([expected]);
     await mount();
     expect(shown()).toEqual(["Track", "Kick counter", "Contraction timer", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine",
-      "Keep", ...keepItems.map((item) => item.label)]);
+      "Keep", ...keepItems.map((item) => item.label), "What shows"]);
+  });
+  it("brings in a tracker from another stage only when it's on, and What shows still has it", async () => {
+    setup([{ ...expected, details: { tracking: { expecting_diaper: true } } }]);
+    await mount();
+    expect(shown().slice(1, shown().indexOf("Keep"))).toContain("Diaper");
+    expect(shown()).not.toContain("Sleep");
   });
   it("logs a feed in two taps, closes, and offers Undo on the screen beneath", async () => {
     const b = setup([newborn]);
