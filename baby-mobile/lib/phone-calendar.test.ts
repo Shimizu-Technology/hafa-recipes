@@ -69,7 +69,16 @@ describe("a repeating event", () => {
   });
   it("warns that a phone can skip short months", () => {
     const record = row({ recurrence: { frequency: "monthly" } }, "2026-10-31T00:00:00.000Z");
-    expect(phoneEventLine(record, shown(record), "2026-10-01")).toContain("skip");
+    expect(phoneEventLine(record, shown(record), "2026-10-01")).toContain("skip months");
+  });
+  it("doesn't warn about a date that always comes round", () => {
+    const yearly = row({ recurrence: { frequency: "yearly" } }, "2026-11-29T14:00:00.000Z"), early = row({ recurrence: { frequency: "monthly" } }, "2026-11-01T00:00:00.000Z");
+    expect(phoneEventLine(yearly, shown(yearly), "2026-11-04")).not.toContain("skip");
+    expect(phoneEventLine(early, shown(early), "2026-11-01")).not.toContain("skip");
+  });
+  it("warns about a leap day", () => {
+    const leap = row({ recurrence: { frequency: "yearly" } }, "2028-02-29T00:00:00.000Z");
+    expect(phoneEventLine(leap, shown(leap), "2028-02-01")).toContain("skip years");
   });
 });
 describe("a one-off", () => {

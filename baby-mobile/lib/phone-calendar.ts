@@ -34,8 +34,10 @@ export function phoneEventLine(row: Pick<BabyRecord, "data">, shown: EventOccurr
   const rule = row.data.recurrence, when = dayName(recordDay(shown.occurrence_start, shown.timezone), today), copied = "Only the title, time and place are copied.";
   if (!rule) return copied;
   if (!carriesRule(row, shown)) return `Only ${when}, since it’s changed. ${copied}`;
-  const day = Number(recordDay(shown.occurrence_start, shown.timezone).slice(8)), short = rule.frequency !== "daily" && rule.frequency !== "weekly" && day > 28;
-  return [`${repeatName(rule)} from ${when}.`, row.data.exceptions?.length ? "Changes to single dates stay in Håfa." : "", short ? "Your phone’s calendar may skip months without this date." : "", copied].filter(Boolean).join(" ");
+  const key = recordDay(shown.occurrence_start, shown.timezone), day = Number(key.slice(8)),
+    // Only where this date doesn't always exist. Håfa lands on the last day; a phone's calendar can skip it.
+    short = rule.frequency === "monthly" && day > 28 ? "months" : rule.frequency === "yearly" && key.endsWith("-02-29") ? "years" : "";
+  return [`${repeatName(rule)} from ${when}.`, row.data.exceptions?.length ? "Changes to single dates stay in Håfa." : "", short ? `Your phone’s calendar may skip ${short} without this date.` : "", copied].filter(Boolean).join(" ");
 }
 
 /** Whether this binary has the native sheet. A build from before it was added has no way to open one. */
