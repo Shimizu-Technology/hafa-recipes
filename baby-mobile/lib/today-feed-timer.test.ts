@@ -242,7 +242,10 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("CareGlance", () => true)).toHaveLength(0);
   // Add has these now: nothing here says it twice.
   for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(0);
-  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Lists & routines", "Baby’s here?"]);
+  // Under the tiles, above everything else, so she needn't scroll for it in labour.
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Lists & routines"]);
+  const order = renderer!.root.findAll((n) => ["PregnancyHero", "Row", "WeekDetails"].includes(String(n.type)) || String(n.props.accessibilityLabel) === "Vitamins & medicine").map((n) => String(n.type) === "Row" ? n.props.title : n.props.accessibilityLabel ?? String(n.type));
+  expect([...new Set(order)].slice(0, 4)).toEqual(["PregnancyHero", "Vitamins & medicine", "Baby’s here?", "WeekDetails"]);
   await act(async () => (find("Row", p => p.title === "Baby’s here?")[0].props.onPress as () => void)());
   child.birth_date = "2026-11-02"; await render();
   expect(find("PregnancyHero", () => true)).toHaveLength(1);
