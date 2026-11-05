@@ -57,7 +57,7 @@ export default function Reminders() {
   const off = (kind: ReminderKind) => savePrefs(b, { kinds: { [kind]: { enabled: false } } });
   const feed = prefs.kinds.feed_interval, showHours = kinds.includes("feed_interval") && (choosingHours || !!feed?.enabled);
   return <Screen title="Reminders" back>
-    <Copy tone="muted">These are yours, on every phone you’re signed in on. Anyone else in your family chooses their own. Reminders also show on Today until you dismiss them.</Copy>
+    <Copy tone="muted">Just for you, on every phone you use. They also show on Today until you dismiss them.</Copy>
     {/* Says "Saved on this phone" with no signal, and carries her to a change the API refused. */}
     <SyncStatus />
     {denied && anyOn && <View style={{ gap: 8 }}>
