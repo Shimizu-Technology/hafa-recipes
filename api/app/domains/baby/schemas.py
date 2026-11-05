@@ -405,6 +405,7 @@ EventCategory = Literal["appointment", "family", "celebration", "milestone", "re
 # Outside these years a date is a typo, and calendar maths would overflow.
 EVENT_YEARS = range(2000, 2101)
 MAX_EVENT_DAYS = 366
+MAX_CATEGORY_LABEL = 60
 
 
 def labels(values):
@@ -436,7 +437,7 @@ class EventRecurrence(DomainModel):
 class EventOverrides(DomainModel):
     """What one occurrence changes. A new ``all_day`` needs a new ``start``.
 
-    A field left out keeps the series' value. Null clears an ``end``, ``category`` or ``location``;
+    A field left out keeps the series' value. Null clears an ``end``, ``category``, ``category_label`` or ``location``;
     the others always have a value, so null is refused (clear ``attendees`` with an empty list).
     """
 
@@ -445,6 +446,7 @@ class EventOverrides(DomainModel):
     all_day: StrictBool | None = None
     title: str | None = Field(default=None, min_length=1, max_length=240)
     category: EventCategory | None = None
+    category_label: str | None = Field(default=None, max_length=MAX_CATEGORY_LABEL)
     location: str | None = Field(default=None, max_length=240)
     attendees: list[Label] | None = Field(default=None, max_length=30)
 
@@ -462,7 +464,7 @@ class EventOverrides(DomainModel):
             raise ValueError("Enter a title")
         return value.strip()
 
-    @field_validator("location")
+    @field_validator("location", "category_label")
     @classmethod
     def trimmed_location(cls, value):
         return value and value.strip()
@@ -509,6 +511,9 @@ class EventData(DomainModel):
     all_day: StrictBool = False
     timezone: str = Field(max_length=80)
     category: EventCategory | None = None
+    # Her own name for the kind of event, typed once. Only a category of "other" or none shows it, so an older
+    # build that changes the category changes what shows. Omitted when empty, as reminder_minutes is.
+    category_label: str | None = Field(default=None, max_length=MAX_CATEGORY_LABEL, exclude_if=lambda value: value is None)
     location: str | None = Field(default=None, max_length=240)
     attendees: list[Label] = Field(default_factory=list, max_length=30)
     recurrence: EventRecurrence | None = None
@@ -520,7 +525,7 @@ class EventData(DomainModel):
         default_factory=list, max_length=5, exclude_if=lambda value: not value
     )
 
-    @field_validator("location")
+    @field_validator("location", "category_label")
     @classmethod
     def trimmed_location(cls, value):
         return value.strip() or None if value is not None else None

@@ -263,7 +263,7 @@ async def test_events_in_a_range_and_their_shape(baby_api):
         "items": [{
             "event_id": one["id"], "original_start": "2026-11-10T09:00:00+10:00",
             "occurrence_start": "2026-11-10T09:00:00+10:00", "occurrence_end": "2026-11-10T10:00:00+10:00",
-            "all_day": False, "timezone": "Pacific/Guam", "title": "Check-up", "category": "appointment",
+            "all_day": False, "timezone": "Pacific/Guam", "title": "Check-up", "category": "appointment", "category_label": None,
             "location": "Clinic", "attendees": ["Kami"], "child_id": None, "repeats": False,
             "changed": False, "revision": 1,
         }],

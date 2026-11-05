@@ -103,6 +103,7 @@ class Occurrence(NamedTuple):
             "timezone": event.timezone,
             "title": self.changes.get("title", self.row.title),
             "category": self.changes.get("category", event.category),
+            "category_label": self.changes.get("category_label", event.category_label),
             "location": self.changes.get("location", event.location),
             "attendees": self.changes.get("attendees", event.attendees),
             "child_id": self.row.child_id,
