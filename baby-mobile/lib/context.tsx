@@ -636,7 +636,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         await openingAccount(() => funcs.current.refresh(true), () => !cancelled && current());
         await funcs.current.sync();
       } catch (e) {
-        if (!cancelled) setError(messageFor(e));
+        if (!cancelled) noteFailure(e);
       }
     };
     initializer.current = initialize;
