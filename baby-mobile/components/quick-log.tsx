@@ -34,10 +34,12 @@ const diaperChoices = [{ label: "Pee", type: "wet" }, { label: "Poo", type: "dir
 type DiaperType = (typeof diaperChoices)[number]["type"];
 
 /** One big choice inside a panel or running card. `strong` marks the suggested one. */
-export function Option({ label, detail, hint, strong, height = 76, onPress }: { label: string; detail?: string; hint?: string; strong?: boolean; height?: number; onPress: () => void }) {
+export function Option({ label, detail, hint, strong, height = 76, wraps, onPress }: { label: string; detail?: string; hint?: string; strong?: boolean; height?: number;
+  /** One of too many for a row, so it wraps rather than splitting a word. */
+  wraps?: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={detail ? `${label}, ${detail}` : label} accessibilityHint={hint} onPress={onPress}
-    style={{ flexGrow: 1, flexBasis: fontScale >= 1.5 ? "100%" : 0, minWidth: 0, minHeight: Math.max(quickTarget, height), borderRadius: 20, paddingVertical: 8, paddingHorizontal: 6,
+    style={{ flexGrow: 1, flexBasis: fontScale >= 1.5 ? "100%" : wraps ? "30%" : 0, minWidth: 0, minHeight: Math.max(quickTarget, height), borderRadius: 20, paddingVertical: 8, paddingHorizontal: 6,
       alignItems: "center", justifyContent: "center", backgroundColor: strong ? c.action : c.tile }}>
     <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 18, lineHeight: 23, textAlign: "center", color: strong ? c.onAction : c.text }}>{label}</Text>
     {!!detail && <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 12, lineHeight: 15, textAlign: "center", color: strong ? c.onAction : c.muted }}>{detail}</Text>}

@@ -191,6 +191,7 @@ export function Copy({
   align,
   lines,
   numeric = false,
+  limit = 0,
 }: {
   children: React.ReactNode;
   kind?: "body" | "small" | "heading" | "title" | "label";
@@ -198,6 +199,8 @@ export function Copy({
   align?: "left" | "center";
   lines?: number;
   numeric?: boolean;
+  /** How far it grows with text size. By default as far as she's set it. */
+  limit?: number;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     style = type[kind];
@@ -205,7 +208,7 @@ export function Copy({
     <Text
       key={`${kind}:${fontScale}`}
       numberOfLines={lines}
-      maxFontSizeMultiplier={0}
+      maxFontSizeMultiplier={limit}
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
         ...style,
@@ -555,8 +558,10 @@ export function HeaderAction({ title, onPress, disabled = false }: { title: stri
   </PressTarget>;
 }
 let accessoryCount = 0;
+/** A panel's Save, for its fields to carry above the keyboard: on a long panel the keyboard covers the one in the panel. */
+export const KeyboardSave = createContext<{ label: string; onPress: () => void } | null>(null);
 /** Number pads have no return key on iOS; a Done bar keeps Save reachable. */
-function KeyboardDone({ id }: { id: string }) {
+function KeyboardDone({ id, save }: { id: string; save?: { label: string; onPress: () => void } | null }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   if (Platform.OS !== "ios") return null;
   return (
@@ -564,7 +569,7 @@ function KeyboardDone({ id }: { id: string }) {
       <View
         style={{
           flexDirection: "row",
-          justifyContent: "flex-end",
+          justifyContent: save ? "space-between" : "flex-end",
           backgroundColor: c.surface,
           borderTopWidth: 1,
           borderColor: c.border,
@@ -579,6 +584,11 @@ function KeyboardDone({ id }: { id: string }) {
         >
           <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 17, lineHeight: 22, color: c.action }}>Done</Text>
         </PressTarget>
+        {/* What it says if something's wrong sits in the panel, so the keyboard gets out of its way first. */}
+        {!!save && <PressTarget accessibilityRole="button" accessibilityLabel={save.label} onPress={() => { Keyboard.dismiss(); save.onPress(); }}
+          style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
+          <Text key={`s:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.bold, fontSize: 17, lineHeight: 22, color: c.accentText }}>Save</Text>
+        </PressTarget>}
       </View>
     </InputAccessoryView>
   );
@@ -617,6 +627,7 @@ export function Field({
   const c = useColors(), { fontScale } = useWindowDimensions(), onSurface = useContext(OnSurfaceContext),
     traits = inputTraits(purpose, Platform.OS, numeric),
     pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
+    save = useContext(KeyboardSave),
     [accessory] = useState(() => `field-done-${++accessoryCount}`);
   return (
     <View style={{ gap: 7 }}>
@@ -638,7 +649,7 @@ export function Field({
         maxLength={maxLength ?? traits.maxLength ?? (multiline ? 30000 : 1000)}
         onSubmitEditing={onSubmit}
         returnKeyType={returnKeyType}
-        inputAccessoryViewID={pad || multiline ? accessory : undefined}
+        inputAccessoryViewID={pad || multiline || save ? accessory : undefined}
         textAlignVertical={multiline ? "top" : "center"}
         maxFontSizeMultiplier={0}
         style={{
@@ -654,7 +665,7 @@ export function Field({
           minHeight: multiline ? 150 : 52,
         }}
       />
-      {(pad || multiline) && <KeyboardDone id={accessory} />}
+      {(pad || multiline || !!save) && <KeyboardDone id={accessory} save={save} />}
     </View>
   );
 }
@@ -844,6 +855,8 @@ export function Empty({
     </View>
   );
 }
+/** As big as the largest body text. Beyond that a long word in a section's name splits, "Emotion/al". */
+export const sectionHeadingLimit = 2.2;
 export function Section({
   title,
   action,
@@ -858,7 +871,7 @@ export function Section({
     <View style={{ gap: 12, ...(grouped ? { padding: 16, borderRadius: radii.grouped, backgroundColor: c.surface } : {}) }}>
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
         <View style={{ flex: 1 }}>
-          <Copy kind="heading">{title}</Copy>
+          <Copy kind="heading" limit={sectionHeadingLimit}>{title}</Copy>
         </View>
         {action}
       </View>
@@ -900,7 +913,13 @@ export function Row({
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   const firstLineHeight = typeScale.headline.lineHeight * fontScale;
-  const firstLineTop = icon || leading ? Math.max(0, (44 - firstLineHeight) / 2) : 0;
+  // At the largest sizes the words take the whole width, under the icon, or "calendar" is cut mid-word.
+  const stacked = fontScale >= 2,
+    firstLineTop = !stacked && (icon || leading) ? Math.max(0, (44 - firstLineHeight) / 2) : 0,
+    iconTop = stacked ? 0 : Math.max(0, (firstLineHeight - 44) / 2),
+    chevron = <View style={{ marginLeft: stacked ? "auto" : 0, paddingTop: stacked ? 13 : firstLineTop + Math.max(0, (firstLineHeight - 17) / 2) }}>
+      {trailing ?? <Icon name="chevron-forward" size={17} color={c.muted} />}
+    </View>;
   return (
     <PressTarget
       accessibilityRole="button"
@@ -922,13 +941,14 @@ export function Row({
       })}
     >
       {/* A blush tile around the glyph, the same family as the monogram tiles on saved posts. */}
-      {leading ? <View style={{ marginTop: Math.max(0, (firstLineHeight - 44) / 2) }}>{leading}</View>
-        : icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}>
+      {leading ? <View style={{ marginTop: iconTop }}>{leading}</View>
+        : icon && <View style={{ width: 44, minHeight: 44, marginTop: iconTop, alignItems: "center", justifyContent: "center" }}>
         <View style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: c.placeholder, alignItems: "center", justifyContent: "center" }}>
           <Icon name={icon} size={20} color={c.placeholderInk} />
         </View>
       </View>}
-      <View style={{ flex: 1, minWidth: 0, gap: 2, paddingTop: firstLineTop }}>
+      {stacked && chevron}
+      <View style={{ ...(stacked ? { flexBasis: "100%" } : { flex: 1 }), minWidth: 0, gap: 2, paddingTop: firstLineTop }}>
         <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
         {detail && (
           <Copy numeric={numericDetail} kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 2}>
@@ -936,9 +956,7 @@ export function Row({
           </Copy>
         )}
       </View>
-      <View style={{ paddingTop: firstLineTop + Math.max(0, (firstLineHeight - 17) / 2) }}>
-        {trailing ?? <Icon name="chevron-forward" size={17} color={c.muted} />}
-      </View>
+      {!stacked && chevron}
     </PressTarget>
   );
 }

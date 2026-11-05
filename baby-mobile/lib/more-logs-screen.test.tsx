@@ -29,7 +29,7 @@ vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 vi.mock("../components/feed-timer", () => ({ useSecondClock: () => new Date() }));
 const ui = vi.hoisted(() => ({ PressTarget: "Pressable", Icon: "Icon", Chips: "Chips", easeOut: () => 0, fonts: {}, radii: {}, typeScale: { footnote: {}, caption: {} },
-  useColors: () => ({}), useToast: () => scope.toast, tap: () => undefined, Button: "Button", Field: "Field", OnSurface: "OnSurface" }));
+  useColors: () => ({}), useToast: () => scope.toast, tap: () => undefined, Button: "Button", Field: "Field", OnSurface: "OnSurface", KeyboardSave: { Provider: "KeyboardSave" } }));
 vi.mock("../components/ui", () => ui);
 vi.mock("@/components/ui", () => ui);
 import { MoreLogs } from "../components/more-logs";
@@ -60,6 +60,27 @@ const saved = () => scope.account.state.outbox.filter((m: Mutation) => m.type ==
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); scope.toast.mockReset(); scope.push.mockReset(); scope.rows = []; scope.care = {}; scope.options = []; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
 
+it("hands a form's Save to the bar above the keyboard, doing what its own Save does", async () => {
+  setup();
+  await mount();
+  await press("Temperature");
+  const bar = renderer!.root.findAll((n) => String(n.type) === "KeyboardSave")[0], save = renderer!.root.findAll((n) => String(n.type) === "Button")[0];
+  expect(bar.props.value.label).toBe(save.props.accessibilityLabel);
+  await act(async () => bar.props.value.onPress());
+  // Nothing typed: it says so in the panel, as its own Save does.
+  expect(saved()).toHaveLength(0);
+  expect(renderer!.root.findAll((n) => n.props.accessibilityLiveRegion === "polite")).toHaveLength(1);
+  await press("Note");
+  const note = renderer!.root.findAll((n) => String(n.type) === "KeyboardSave")[0];
+  expect(note.props.value.label).toBe("Save note");
+});
+it("wraps five feelings rather than squeezing them until 'Rough' splits", async () => {
+  setup();
+  await mount();
+  await press("How I’m feeling");
+  const rough = renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => n.props.accessibilityLabel === "Rough")!;
+  expect(Object.assign({}, ...[rough.props.style].flat()).flexBasis).toBe("30%");
+});
 it("offers each stage its own trackers, from the list", async () => {
   setup();
   await mount();

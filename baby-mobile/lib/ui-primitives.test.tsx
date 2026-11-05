@@ -46,7 +46,7 @@ import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
 import * as uiForIcon from "../components/ui";
 import { AccountButton, HeaderIconButton, HeaderPill, TabStack, headerActions, initials } from "../components/tab-stack";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, FilterChips, Card, Field } from "../components/ui";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, FilterChips, Card, Field, KeyboardSave, Section, sectionHeadingLimit } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -83,6 +83,48 @@ it("remeasures visible text after a live scale change without clipping line heig
   expect(large.props.style.lineHeight).toBe(38);
   expect(large.props.maxFontSizeMultiplier).toBe(0);
 });
+it("gives a row's words the full width at the largest text, so 'calendar' isn't cut mid-word", async () => {
+  mock.fontScale = 3.1;
+  await mount(<Row title="Add to the calendar" detail="An appointment" icon="book-outline" onPress={() => {}} />);
+  const pressable = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
+  const views = pressable.findAllByType("View" as React.ElementType);
+  const words = views.find(v => v.props.style?.gap === 2)!, kids = pressable.findAll(n => n.parent === words.parent && String(n.type) === "View");
+  expect(words.props.style).toMatchObject({ flexBasis: "100%", paddingTop: 0 });
+  // Icon and chevron share the line above, so the words take the whole row.
+  expect(kids.at(-1)).toBe(words);
+  mock.fontScale = 1.9;
+  await act(async () => renderer!.update(<Row title="Add to the calendar" icon="book-outline" onPress={() => {}} />));
+  expect(renderer!.root.findByType("AnimatedPressable" as React.ElementType).findAllByType("View" as React.ElementType).find(v => v.props.style?.gap === 2)!.props.style.flex).toBe(1);
+});
+it("stops a Section heading growing past where a long word would split, and leaves other headings alone", async () => {
+  mock.fontScale = 3.1;
+  await mount(<Section title="Social/Emotional Milestones"><Copy kind="heading">An entry's own title</Copy></Section>);
+  const [section, own] = renderer!.root.findAllByType("Text" as React.ElementType);
+  expect(section.props.maxFontSizeMultiplier).toBe(sectionHeadingLimit);
+  expect(section.props.style.fontSize * sectionHeadingLimit).toBeLessThanOrEqual(53);
+  expect(own.props.maxFontSizeMultiplier).toBe(0);
+});
+it("puts a panel's Save on the bar above the keyboard, for every field in it, and only there", async () => {
+  const save = vi.fn(), { Keyboard } = await import("react-native");
+  await mount(<KeyboardSave.Provider value={{ label: "Save growth", onPress: save }}>
+    <Field label="Weight" value="" onChange={() => {}} />
+    <Field numeric label="Length" value="" onChange={() => {}} />
+  </KeyboardSave.Provider>);
+  const inputs = renderer!.root.findAllByType("TextInput" as React.ElementType);
+  expect(inputs.every(i => !!i.props.inputAccessoryViewID)).toBe(true);
+  const bars = renderer!.root.findAllByType("InputAccessoryView" as React.ElementType);
+  expect(bars.map(bar => bar.props.nativeID)).toEqual(inputs.map(i => i.props.inputAccessoryViewID));
+  const button = bars[0].findAll(n => String(n.type) === "AnimatedPressable" && n.props.accessibilityLabel === "Save growth")[0];
+  expect(Object.assign({}, ...[button.props.style].flat()).minHeight).toBeGreaterThanOrEqual(44);
+  await act(async () => button.props.onPress());
+  // What it says if something's wrong sits in the panel, so the keyboard has to be out of its way.
+  expect(Keyboard.dismiss).toHaveBeenCalled();
+  expect(save).toHaveBeenCalledOnce();
+  await act(async () => renderer!.unmount());
+  await mount(<Field label="Weight" value="" onChange={() => {}} />);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.inputAccessoryViewID).toBeUndefined();
+  expect(renderer!.root.findAllByType("InputAccessoryView" as React.ElementType)).toHaveLength(0);
+});
 it("keeps full row labels and wrapping choices reachable at large text", async () => {
   mock.fontScale = 3.1;
   await mount(<><Row title="A long entry for this child's care" detail="A full description" onPress={() => {}} />
@@ -93,7 +135,7 @@ it("keeps full row labels and wrapping choices reachable at large text", async (
   const choice = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).find(c => c.props.accessibilityRole === "radio")!;
   expect(choice.props.accessibilityState).toEqual({ selected: true, checked: true });
 });
-it.each([1, 3.1])("keeps long row text and first-line alignment at font scale %s", async fontScale => {
+it.each([1, 1.9])("keeps long row text and first-line alignment at font scale %s", async fontScale => {
   mock.fontScale = fontScale;
   await mount(<Row title="A long journal title about the first weeks and the support we will need"
     detail="A longer date and description that needs room to wrap" icon="book-outline" onPress={() => {}} />);
