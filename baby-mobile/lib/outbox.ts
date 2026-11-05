@@ -255,7 +255,7 @@ export function retargeted(state: DeviceState, change: Mutation, moved: Moved, u
 /** What a notice is about. Most are a tap, and these two aren't. */
 export const noticeTitle = (notice: string) => (notice === recoveredNotice ? "Back on this phone" : notice === leftFamilyNotice ? "Your family" : notice.startsWith("Saved to your own space") ? "Kept in your space" : "A tap wasn’t added");
 export const notSentMessage = "Not sent: you’re no longer in this family.";
-export const leftFamilyNotice = "You’re no longer in this family, so its entries have left this phone. Anything not sent is in Sync & recovery.";
+export const leftFamilyNotice = "No longer in this family. Anything not sent is in Sync & recovery.";
 /**
  * Leaving or removal. The family's rows go from this phone at once. What's queued for it stops, and says why, to be kept
  * or discarded: nothing is lost and nothing is sent. A draft of one of its entries joins that, so what she typed stays.
