@@ -22,6 +22,13 @@ def family_enabled():
     return getattr(get_settings(), "baby_family_enabled", False)
 
 
+def family_open_to(actor):
+    """BABY_FAMILY_TEST_USERS, a rollout gate for the rehearsal. Unset or blank is open to everyone."""
+    listed = {item.strip() for item in (getattr(get_settings(), "baby_family_test_users", "") or "").split(",")}
+    listed.discard("")
+    return not listed or actor in listed
+
+
 class AccessChanged(HTTPException):
     def __init__(self):
         super().__init__(409, "Baby access changed; retry before saving")

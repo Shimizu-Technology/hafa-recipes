@@ -6,14 +6,14 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import Field
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.domains.baby import security
-from app.domains.baby.access import SpaceAccess, access_for, family_enabled, touch
+from app.domains.baby.access import SpaceAccess, access_for, family_enabled, family_open_to, touch
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.family_router import FamilyAccess, require_family_client
 from app.domains.baby.lifecycle import now
@@ -23,8 +23,8 @@ from app.domains.baby.schemas import DomainModel
 from app.domains.baby.share_models import BabyShareCredential
 
 logger = logging.getLogger(__name__)
-DISCLOSURE_VERSION = 1
-DISCLOSURE = "Shared family entries are available to every parent and to each parent's Ask when AI is enabled. Your personal journal and chats stay private. Update Baby on every signed-in phone before creating a family."
+DISCLOSURE_VERSION = 2
+DISCLOSURE = "Shared family entries are available to every parent and to each parent’s Ask when AI is enabled. Your own journal and anything marked Just me stay private."
 
 
 class InviteRoute(security.BabyRoute):
@@ -44,10 +44,20 @@ class InviteRoute(security.BabyRoute):
 router = APIRouter(tags=["baby"], route_class=InviteRoute)
 
 
+async def invites_open(user: User):
+    """Someone outside BABY_FAMILY_TEST_USERS gets what invites off gives everyone."""
+    if not family_open_to(user.id):
+        raise HTTPException(404, "Not found")
+
+
+LISTED_ONLY = [Depends(invites_open)]
+
+
 class InviteCreate(DomainModel):
     role: Literal["parent", "caregiver"] = "parent"
     publish_shared: bool = False
-    disclosure_version: Literal[1] = 1
+    # 1 is a build from before version 2. It shows the words the API sends, so it's still answering the current ones.
+    disclosure_version: Literal[1, 2] = DISCLOSURE_VERSION
 
 
 class InviteCode(DomainModel):
@@ -55,7 +65,7 @@ class InviteCode(DomainModel):
 
 
 class InviteAccept(InviteCode):
-    disclosure_version: Literal[1]
+    disclosure_version: Literal[1, 2]
 
 
 def token_hash(code):
@@ -171,7 +181,7 @@ async def check_invite_creation(db, access, body, generation):
     return existing
 
 
-@router.post("/family/invites", status_code=201)
+@router.post("/family/invites", status_code=201, dependencies=LISTED_ONLY)
 async def create_invite(body: InviteCreate, user: User, db: Database, generation: Generation,
                         access: FamilyAccess = None):
     existing = await check_invite_creation(db, access, body, generation)
@@ -206,7 +216,7 @@ class PhonesConfirmed(DomainModel):
     installation_id: UUID | None = None
 
 
-@router.post("/family/phones/confirm")
+@router.post("/family/phones/confirm", dependencies=LISTED_ONLY)
 async def confirm_phones(body: PhonesConfirmed, user: User, db: Database, access: FamilyAccess = None):
     """She says the older phone is updated or gone. Its credential stops, and so does the sighting, until a new one."""
     require_family_client(access)
@@ -224,15 +234,19 @@ async def confirm_phones(body: PhonesConfirmed, user: User, db: Database, access
     return {"confirmed": True}
 
 
-@router.post("/family/invites/preview")
+@router.post("/family/invites/preview", dependencies=LISTED_ONLY)
 async def preview_invite(body: InviteCode, user: User, db: Database):
     row = await db.scalar(select(BabySpaceInvite).where(BabySpaceInvite.token_hash == token_hash(body.code)))
     available(row)
+    name = await db.scalar(select(BabyMembership.profile["display_name"].as_string())
+                           .where(BabyMembership.app_user_id == row.created_by)) if row.created_by else None
+    name = (name or "").strip()
     return {"role": row.role, "expires_at": row.expires_at,
+            "invitation": f"{name} invited you to their family." if name else "You’ve been invited to a family.",
             "disclosure_version": DISCLOSURE_VERSION, "disclosure": DISCLOSURE}
 
 
-@router.post("/family/invites/accept")
+@router.post("/family/invites/accept", dependencies=LISTED_ONLY)
 async def accept_invite(body: InviteAccept, request: Request, user: User, db: Database, generation: Generation):
     row = await db.scalar(select(BabySpaceInvite).where(BabySpaceInvite.token_hash == token_hash(body.code)))
     available(row)

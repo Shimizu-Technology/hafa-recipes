@@ -242,6 +242,8 @@ class Settings(BaseSettings):
     baby_api_enabled: bool = False
     baby_family_enabled: bool = False
     baby_invites_enabled: bool = False
+    # Rehearsal gate: comma-separated application user ids. While set, only these accounts can make or take an invite.
+    baby_family_test_users: str = ""
     baby_worker_enabled: bool = False
     baby_ai_enabled: bool = False
     baby_ai_model: str = ""

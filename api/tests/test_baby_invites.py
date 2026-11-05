@@ -63,13 +63,13 @@ async def test_first_invite_creates_family_and_acceptance_records_disclosure(bab
         assert (await db.get(BabyRecord, source["id"])).space_id == family
         assert (await db.get(BabyRecord, journal["id"])).space_id == invites
     preview = await c.post("/api/v1/baby/family/invites/preview", headers={"X-Baby-Client": "3"}, json={"code": invitation["code"]})
-    assert preview.status_code == 200 and preview.json()["disclosure_version"] == 1
+    assert preview.status_code == 200 and preview.json()["disclosure_version"] == 2
     joined = await accept(baby_api, invitation)
     assert joined.status_code == 200 and joined.json()["space_id"] == str(family), joined.text
     async with baby_api.sessions() as db:
         member = await db.get(BabyMembership, "other")
         disclosure = member.profile["family_disclosures"][-1]
-        assert disclosure["invite_id"] == invitation["id"] and disclosure["version"] == 1
+        assert disclosure["invite_id"] == invitation["id"] and disclosure["version"] == 2
         assert disclosure["action"] == "accept" and disclosure["accepted_at"]
         assert not member.profile.get("ai_consent")
     h = records.headers(family, generation=1)

@@ -11,7 +11,13 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import AwareDatetime, ValidationError
 from sqlalchemy import func, or_, select
 
-from app.domains.baby.access import CAREGIVER_KINDS, access_for, family_enabled, touch
+from app.domains.baby.access import (
+    CAREGIVER_KINDS,
+    access_for,
+    family_enabled,
+    family_open_to,
+    touch,
+)
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
@@ -396,6 +402,9 @@ async def bootstrap_state(user, db, *, create, request):
             "id": str(g.id), "kind": g.space.kind, "role": g.role,
             "generation": g.generation, "access_version": g.access_version,
         } for g in access.spaces if g.space.status == "active"], people={actor: name or "" for actor, name in people})
+        # Someone already in a family keeps its row, whatever the rehearsal's list says.
+        if not families and not family_open_to(user.id):
+            result["family_available"] = False
     if create and access:
         personal = next(g for g in access.spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
