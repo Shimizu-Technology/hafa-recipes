@@ -291,6 +291,9 @@ async def no_plan():
 
 def freeze(monkeypatch):
     moment = now().astimezone(GUAM).replace(hour=10, minute=0, second=0, microsecond=0)
+    # Never ahead of the worker's own clock, or a reminder it should send isn't due yet before 10am in Guam.
+    if moment > now():
+        moment -= timedelta(days=1)
     monkeypatch.setattr(triggers, "now", lambda: moment)
     return moment
 
