@@ -49,16 +49,20 @@ function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, 
   </Panel>;
 }
 
-/** The amount from last time, and a side. Choosing a side saves it. */
+/** What the API holds at most. */
+const pumpMost = 10000;
+/** The amount from last time, stepped or typed, and a side. Choosing a side saves it. */
 function PumpPanel({ start, detail, panelProps, onSave }: { start: BottleChoice; detail?: string; panelProps: PanelProps; onSave: (side: keyof typeof sideWords, amount: Pick<BottleChoice, "amount" | "unit">) => void }) {
   // Follows `start` until she changes it, since the last amount can arrive after the panel opens.
   const [changed, setAmount] = useState<Pick<BottleChoice, "amount" | "unit"> | null>(null), amount = changed ?? { amount: start.amount, unit: start.unit },
-    same = start.fromLast && amount.amount === start.amount && amount.unit === start.unit;
+    same = start.fromLast && amount.amount === start.amount && amount.unit === start.unit,
+    [empty, setEmpty] = useState(false), c = useColors(), { fontScale } = useWindowDimensions();
   return <Panel title="Pumping" detail={detail} {...panelProps}>
-    <AmountStepper amount={amount} onChange={setAmount} steps={pumpStep} note={same ? "Same as last time" : undefined} />
+    <AmountStepper typing amount={amount} onChange={(next) => { setAmount(next); setEmpty(false); }} steps={pumpStep} note={same ? "Same as last time" : undefined} />
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {(["left", "right", "both"] as const).map((side) => <Option key={side} height={64} label={sideWords[side]} onPress={() => onSave(side, amount)} />)}
+      {(["left", "right", "both"] as const).map((side) => <Option key={side} height={64} label={sideWords[side]} onPress={() => { if (amount.amount > 0 && amount.amount <= pumpMost) onSave(side, amount); else setEmpty(true); }} />)}
     </View>
+    {empty && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>Enter the amount first.</Text>}
   </Panel>;
 }
 

@@ -561,7 +561,7 @@ let accessoryCount = 0;
 /** A panel's Save, for its fields to carry above the keyboard: on a long panel the keyboard covers the one in the panel. */
 export const KeyboardSave = createContext<{ label: string; onPress: () => void } | null>(null);
 /** Number pads have no return key on iOS; a Done bar keeps Save reachable. */
-function KeyboardDone({ id, save }: { id: string; save?: { label: string; onPress: () => void } | null }) {
+export function KeyboardDone({ id, save }: { id: string; save?: { label: string; onPress: () => void } | null }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   if (Platform.OS !== "ios") return null;
   return (

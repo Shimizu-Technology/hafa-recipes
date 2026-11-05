@@ -28,7 +28,7 @@ vi.mock("@/lib/trackers", () => import("./trackers"));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 vi.mock("../components/feed-timer", () => ({ useSecondClock: () => new Date() }));
-const ui = vi.hoisted(() => ({ PressTarget: "Pressable", Icon: "Icon", Chips: "Chips", easeOut: () => 0, fonts: {}, radii: {}, typeScale: { footnote: {}, caption: {} },
+const ui = vi.hoisted(() => ({ KeyboardDone: "KeyboardDone", PressTarget: "Pressable", Icon: "Icon", Chips: "Chips", easeOut: () => 0, fonts: {}, radii: {}, typeScale: { footnote: {}, caption: {} },
   useColors: () => ({}), useToast: () => scope.toast, tap: () => undefined, Button: "Button", Field: "Field", OnSurface: "OnSurface", KeyboardSave: { Provider: "KeyboardSave" } }));
 vi.mock("../components/ui", () => ui);
 vi.mock("@/components/ui", () => ui);
@@ -199,6 +199,55 @@ it("lets her change the dose a chip filled in, and a typed name replaced by anot
   await press("Tylenol");
   expect(field("Name").value).toBe("Tylenol");
   expect(field("Dose (optional)").value).toBe("");
+});
+
+describe("typing a pumping amount", () => {
+  const amount = (unit = "oz") => renderer!.root.findAll((n) => String(n.type) === "TextInput").find((n) => n.props.accessibilityLabel === `Amount in ${unit}`)!;
+  const typeAmount = async (text: string, unit?: string) => { await act(async () => amount(unit).props.onChangeText(text)); };
+  it("saves exactly what she typed, in the unit she chose, with no steps to get there", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await press("oz");
+    await typeAmount("7", "mL");
+    await press("Left");
+    expect(saved()[0]).toMatchObject({ kind: "pumping", data: { side: "left", amount: 7, unit: "ml" } });
+    expect(scope.toast).not.toHaveBeenCalled();
+  });
+  it("keeps a decimal in ounces, and the buttons carry on from what she typed", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await typeAmount("1.5");
+    expect(amount().props.value).toBe("1.5");
+    await press("More");
+    expect(amount().props.value).toBe("1.75");
+    await press("Both");
+    expect(saved()[0]).toMatchObject({ data: { side: "both", amount: 1.75, unit: "oz" } });
+  });
+  it("won't save with no amount, and says so", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    for (const nothing of ["", "0", "."]) {
+      await typeAmount(nothing);
+      await press("Left");
+      expect(saved()).toHaveLength(0);
+    }
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Enter the amount first.");
+    await typeAmount("2");
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain("Enter the amount first.");
+    await press("Left");
+    expect(saved()).toHaveLength(1);
+  });
+  it("won't save more than the service can hold", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await typeAmount("10001");
+    await press("Left");
+    expect(saved()).toHaveLength(0);
+  });
 });
 
 it("says what's wrong with a temperature, saves nothing, and adds no reading of it", async () => {
