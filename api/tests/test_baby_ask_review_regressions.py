@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import delete, func, select
 
 from app.domains.baby import ask_tools, ask_v2, budget
-from app.domains.baby.models import BabyAIAdmission, BabyConversation, BabyMessage
+from app.domains.baby.models import BabyAIAdmission, BabyConversation, BabyMembership, BabyMessage
 from tests import test_baby_access as foundation
 from tests import test_baby_family_records as records
 from tests.test_baby_ask_tools import HEADERS, add, family_setup
@@ -143,7 +143,8 @@ async def test_erasing_and_rejoining_does_not_reset_spending(baby_api, stub):  #
 async def test_a_chats_history_is_bounded(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     async with baby_api.sessions() as db:
-        conversation = BabyConversation(app_user_id="owner", generation=1, title="history", scope="all")
+        personal = (await db.get(BabyMembership, "owner")).personal_space_id
+        conversation = BabyConversation(app_user_id="owner", space_id=personal, generation=1, title="history", scope="all")
         db.add(conversation)
         await db.flush()
         db.add_all(BabyMessage(app_user_id="owner", generation=1, conversation_id=conversation.id, role="assistant", content={"message": "h" * 5000}) for _ in range(20))
