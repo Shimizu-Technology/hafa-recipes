@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 
 from app.domains.baby.events import (
     Window,
@@ -25,9 +25,10 @@ from app.domains.baby.events import (
     occurrences_of,
     window_for,
 )
-from app.domains.baby.lifecycle import now
-from app.domains.baby.models import BabyImport, BabyNotification, BabyRecord
+from app.domains.baby.lifecycle import FEED_START_TOLERANCE, now
+from app.domains.baby.models import BabyChild, BabyImport, BabyNotification, BabyRecord
 from app.domains.baby.push import REMINDER_KINDS, load_prefs, quiet_until
+from app.domains.baby.queries import child_timing, records_query, timing_filter
 from app.domains.baby.reminders import (
     LOCK_SCREEN,
     QUIET_HELD,
@@ -40,7 +41,7 @@ from app.domains.baby.reminders import (
     schedule,
 )
 from app.domains.baby.schemas import EventData, Profile
-from app.domains.baby.stats import kind_query
+from app.domains.baby.stats import care_query, kind_query, sleep_end
 from app.models.identity import AppUser
 
 PLAN_AHEAD = timedelta(days=2)  # Far longer than the gap between sweeps, in case some are missed.
@@ -51,10 +52,18 @@ PREP_HOUR = time(18)  # The evening before a visit.
 MAX_OCCURRENCES = 100  # Per event and plan; daily repeats at the longest lead time stay below it.
 IMPORT_DONE = ("ready", "incomplete", "failed")
 IMPORT_NOTICE = timedelta(hours=6)  # Older than this, a restart isn't a reason to mention it.
+FEED_TOO_LATE = timedelta(hours=12)  # Turning this on is not a reason to mention last week's feed.
+RUNNING_RECENT = timedelta(hours=36)  # An older timer was forgotten, not running.
+# Not advice: how long a timer can be left on before someone probably wants to know.
+RUNNING_FEED_HOURS, RUNNING_SLEEP_HOURS = 1, 4
+WEEK_HOUR = time(9)
 
+# Pregnancy weeks and visit prep use the plain line: a lock screen shouldn't announce either.
 LOCK_SCREEN.update({
     "event": "You have something on your calendar.",
     "import": "A saved post has an update.",
+    "feed_interval": "Feed reminder.",
+    "running_timer": "A timer is still running.",
 })
 
 
@@ -258,8 +267,189 @@ async def import_words(db, row, access, prefs):
     return Words(f"{title} couldn't finish. Your original is kept.", data)
 
 
-RESOLVERS.update({"event": event_words, "visit_prep": visit_prep_words, "import": import_words})
-PLANNERS = {"event": plan_events, "visit_prep": plan_visit_prep, "import": plan_imports}
+# Feed reminder: hours after the last feed, moved by every feed on any phone. Each parent has their
+# own setting and their own row, and care rows can only be read through the space they are in.
+
+
+def duration_words(elapsed):
+    """Rounded down to the half hour, so it never claims more time than has passed."""
+    halves = int(elapsed.total_seconds() // 1800)
+    if halves < 2:
+        return "30 minutes"
+    hours = halves / 2
+    return "1 hour" if hours == 1 else f"{hours:g} hours"
+
+
+def newest_feed(access, space_id, child_id, moment):
+    """The feed the clock runs from. One dated ahead has not happened yet, as for running feeds."""
+    return (
+        care_query(access, access.member.generation, child_id, BabyRecord)
+        .where(BabyRecord.kind == "feeding", BabyRecord.space_id == space_id,
+               BabyRecord.occurred_at <= moment + FEED_START_TOLERANCE)
+        .order_by(BabyRecord.occurred_at.desc(), BabyRecord.id.desc())
+        .limit(1)
+        .execution_options(populate_existing=True)
+    )
+
+
+async def plan_feeds(db, plan, access, prefs, moment):
+    """One reminder for each child, always from the newest feed; a running one has none yet."""
+    plan.owned.add("feed_interval")
+    hours = prefs.kind("feed_interval").hours
+    clocks = await db.execute(
+        kind_query(access, access.member.generation, ("feeding",), BabyRecord.space_id, BabyRecord.child_id).distinct()
+    )
+    for space_id, child_id in clocks.all():
+        if not may_hear(access, "feed_interval", space_id):
+            continue
+        feed = await db.scalar(newest_feed(access, space_id, child_id, moment))
+        if feed is None or feed.data.get("state") == "running":
+            continue
+        due = feed.occurred_at + timedelta(hours=hours)
+        if moment - due <= FEED_TOO_LATE:
+            plan.add("feed_interval", f"{feed.id}:{int(feed.occurred_at.timestamp())}:{hours:g}", space_id, due, {
+                "record_id": str(feed.id), "child_id": str(child_id) if child_id else None,
+            })
+
+
+async def child_name(db, access, child_id):
+    child = child_id and await readable(db, access, BabyChild, child_id)
+    return clipped(child.name) if child else None
+
+
+async def feed_words(db, row, access, prefs):
+    feed = await readable(db, access, BabyRecord, UUID(row.payload["record_id"]))
+    if feed is None or feed.kind != "feeding" or feed.data.get("state") == "running":
+        return None
+    moment = now()
+    newest = await db.scalar(newest_feed(access, feed.space_id, feed.child_id, moment))
+    due = feed.occurred_at + timedelta(hours=prefs.kind("feed_interval").hours)
+    if newest is None or newest.id != feed.id or moment - due > FEED_TOO_LATE:
+        return None
+    elapsed = duration_words(moment - feed.occurred_at)
+    name = await child_name(db, access, feed.child_id)
+    return Words(
+        f"It's been {elapsed} since {name}'s last feed." if name else f"It's been {elapsed} since the last feed.",
+        {"record_id": str(feed.id), "child_id": str(feed.child_id) if feed.child_id else None},
+        due,
+    )
+
+
+# A timer left running: a feed still going, or a sleep with no end.
+
+
+def still_running(row):
+    return row.data.get("state") == "running" if row.kind == "feeding" else sleep_end(row.data) is None
+
+
+def running_hours(pref, kind):
+    return (pref.feed_hours or RUNNING_FEED_HOURS) if kind == "feeding" else (pref.sleep_hours or RUNNING_SLEEP_HOURS)
+
+
+async def plan_running(db, plan, access, prefs, moment):
+    plan.owned.add("running_timer")
+    pref = prefs.kind("running_timer")
+    rows = await db.scalars(
+        kind_query(access, access.member.generation, ("feeding", "sleep"), BabyRecord)
+        .where(BabyRecord.occurred_at >= moment - RUNNING_RECENT, BabyRecord.occurred_at <= moment)
+        .order_by(BabyRecord.occurred_at)
+        .execution_options(populate_existing=True)
+    )
+    for row in rows:
+        if not still_running(row) or not may_hear(access, "running_timer", row.space_id):
+            continue
+        hours = running_hours(pref, row.kind)
+        plan.add("running_timer", f"{row.id}:{int(row.occurred_at.timestamp())}:{hours:g}", row.space_id,
+                 row.occurred_at + timedelta(hours=hours), {"record_id": str(row.id)})
+
+
+async def running_words(db, row, access, prefs):
+    record = await readable(db, access, BabyRecord, UUID(row.payload["record_id"]))
+    if record is None or record.kind not in {"feeding", "sleep"} or not still_running(record):
+        return None
+    hours = running_hours(prefs.kind("running_timer"), record.kind)
+    name = await child_name(db, access, record.child_id)
+    what = "feed" if record.kind == "feeding" else "sleep"
+    subject = f"{name}'s {what} timer" if name else f"The {what} timer"
+    return Words(
+        f"{subject} has been running for {duration_words(now() - record.occurred_at)}.",
+        {"record_id": str(record.id), "child_id": str(record.child_id) if record.child_id else None},
+        record.occurred_at + timedelta(hours=hours),
+    )
+
+
+# A new pregnancy week, and what the person saved for it. Timing is ``queries.py``'s, as on Saved.
+
+
+def week_start(child, week):
+    return child.due_date - timedelta(days=280 - week * 7)
+
+
+async def plan_pregnancy_weeks(db, plan, access, prefs, moment):
+    plan.owned.add("pregnancy_week")
+    zone = local_zone(access)
+    today = moment.astimezone(zone).date()
+    children = await db.scalars(select(BabyChild).where(
+        access.condition(BabyChild), BabyChild.deleted_at.is_(None), BabyChild.due_date.is_not(None),
+    ).execution_options(populate_existing=True))
+    for child in children:
+        timing = child_timing(child, today)
+        if not timing or timing["stage"] != "pregnancy" or not may_hear(access, "pregnancy_week", child.space_id):
+            continue
+        # This week's stays on Today once sent; next week's is what gets queued.
+        for week in (timing["pregnancy_week"], timing["pregnancy_week"] + 1):
+            if week < 1:
+                continue
+            first_day = week_start(child, week)
+            key = f"{child.id}:{week}:{child.due_date.isoformat()}"
+            plan.keep("pregnancy_week", key)
+            due = datetime.combine(first_day, WEEK_HOUR, zone).astimezone(UTC)
+            if moment - GRACE <= due <= moment + PLAN_AHEAD:
+                plan.add("pregnancy_week", key, child.space_id, due, {
+                    "child_id": str(child.id), "week": week,
+                    "expires_at": datetime.combine(first_day + timedelta(days=7), time(), zone).isoformat(),
+                })
+
+
+async def pregnancy_week_words(db, row, access, prefs):
+    child = await readable(db, access, BabyChild, UUID(row.payload["child_id"]))
+    if child is None or child.due_date is None:
+        return None
+    zone, moment, week = local_zone(access), now(), row.payload["week"]
+    due = datetime.combine(week_start(child, week), WEEK_HOUR, zone).astimezone(UTC)
+    if due > moment:  # Its first morning hasn't come where this person is now, so it waits rather than stops.
+        return Words(f"Week {week} is here.", {"child_id": str(child.id), "week": week}, due)
+    timing = child_timing(child, moment.astimezone(zone).date())
+    if not timing or timing.get("pregnancy_week") != week:
+        return None
+    saved = await db.scalar(
+        select(func.count()).select_from(
+            records_query(access, access.member.generation)
+            .where(timing_filter("now", "pregnancy", week)).subquery()
+        )
+    )
+    tips = f", and you saved {'a tip' if saved == 1 else f'{saved} tips'} for it" if saved else ""
+    return Words(f"Week {week} is here{tips}.", {"child_id": str(child.id), "week": week}, due)
+
+
+# STUB until K4a (milestones) and K4b (well visits) land with approved content. The settings exist so
+# the app can show them; nothing is scheduled, and no window or age may be written here without that review.
+STUB_KINDS = ("milestone_window", "well_visit")
+
+
+async def nothing_yet(db, row, access, prefs):
+    return None
+
+
+RESOLVERS.update({
+    "event": event_words, "visit_prep": visit_prep_words, "import": import_words, "feed_interval": feed_words,
+    "running_timer": running_words, "pregnancy_week": pregnancy_week_words,
+    **dict.fromkeys(STUB_KINDS, nothing_yet),
+})
+PLANNERS = {
+    "event": plan_events, "visit_prep": plan_visit_prep, "import": plan_imports, "feed_interval": plan_feeds,
+    "running_timer": plan_running, "pregnancy_week": plan_pregnancy_weeks,
+}
 
 
 # Entry points for the worker.
