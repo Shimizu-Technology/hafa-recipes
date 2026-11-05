@@ -13,7 +13,6 @@ from sqlalchemy import or_, select
 from app.domains.baby.ask_research import (
     TOOL_RULES,
     clean_query,
-    needs_trusted_sites,
     research_for,
     strings_in,
 )
@@ -139,6 +138,7 @@ class AskTools:
         self.read_texts, self.names = [], set()
         self.web_sources, self.research_failed = [], False
         self.history, self.searched = list(history), None
+        self.search_query, self.search_frozen = None, False
 
     def instructions(self, base):
         return base + " " + TOOL_GUIDE + TOOL_RULES
@@ -200,12 +200,20 @@ class AskTools:
                 continue
             # A fresh look for each read: what was allowed a moment ago may not be now.
             async with AsyncSessionLocal() as db:
-                result = await self.call(db, await self.scope(db), call)
+                owner = await self.scope(db)
+                await self.freeze_search(db, owner)
+                result = await self.call(db, owner, call)
             # Everything read is closed by now: nothing holds a session across a paid call.
             if isinstance(result, PendingResearch):
                 result = await self.research(result, count)
             outputs.append(self.output(call, result))
         return outputs
+
+    async def freeze_search(self, db, owner):
+        """Her question, cleaned, before the first read. What's read after this can only stop the search."""
+        if not self.search_frozen:
+            self.search_query = clean_query(self.question, names=await people_names(self, db, owner), private_texts=self.history)
+            self.search_frozen = True
 
     async def research(self, pending, count):
         # One search per question: asking again gets the same findings, at no cost.
@@ -214,7 +222,7 @@ class AskTools:
         return self.searched
 
     async def search_once(self, pending, count):
-        result, sources = await research_for(self.provider, count, query=pending.query, health=pending.health)
+        result, sources = await research_for(self.provider, count, query=pending.query)
         if result["status"] != "ok":
             self.research_failed = True
             return result
@@ -289,7 +297,6 @@ def child_item(tools, child):
 
 class PendingResearch(NamedTuple):
     query: str
-    health: bool
 
 
 class ChoiceNeeded(Exception):
@@ -555,14 +562,14 @@ async def people_names(tools, db, owner):
 
 @tool(
     "research_trusted",
-    "Search online for the parent's own question, as she asked it. Takes nothing from you. Health questions search only "
-    "trusted medical sites; a few plainly non-health requests, like gift ideas, search the open web.",
+    "Search trusted health sites for the parent's own question, as she asked it. Takes nothing from you.",
     DomainModel,
     {},
 )
 async def research_tool(tools, db, owner, arguments):
-    # Built only from her current question, so nothing read or remembered can be carried out in it.
-    query = clean_query(tools.question, names=await people_names(tools, db, owner), private_texts=[*tools.read_texts, *tools.history])
-    if not query:
+    # Frozen before anything was read, so nothing read or remembered can be carried out in it. A later concern refuses.
+    query = tools.search_query
+    if not query or clean_query(query, names=tools.names, private_texts=tools.read_texts) != query:
+        tools.research_failed = True
         return unavailable("query_had_private_details")
-    return PendingResearch(query, needs_trusted_sites(query))
+    return PendingResearch(query)

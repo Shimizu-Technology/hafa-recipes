@@ -17,13 +17,12 @@ from app.domains.baby.ask_research import (
     clean_query,
     domain_of,
     is_trusted,
-    needs_trusted_sites,
     strings_in,
 )
 from app.domains.baby.models import BabyMessage
 from app.models.ai import AIInvocation
 from tests import test_baby_integration as shared
-from tests.test_baby_ask_tools import HEADERS, add, add_child
+from tests.test_baby_ask_tools import HEADERS, add, add_child, make_tools, run
 from tests.test_baby_ask_v2 import USAGE, answered, enable, stub, tool_call  # noqa: F401
 
 baby_api = shared.baby_api
@@ -91,13 +90,13 @@ def research_call(arguments="{}"):
         ("https://www.cdc.gov/x#https://evil.example", False),
         ("https://www.cdc.gov/r?url=https%253A%252F%252Fevil.example", False),
         # A link onward to another listed site, or an ordinary query, is fine.
-        ("https://www.cdc.gov/redirect?url=https%3A%2F%2Fwww.nih.gov%2Fx", True),
+        ("https://www.cdc.gov/redirect?url=https%3A%2F%2Fwww.nih.gov%2Fx", False),
         ("https://www.cdc.gov/search?q=safe+sleep&page=2", True),
     ],
 )
 def test_a_link_is_trusted_only_by_where_it_really_goes(url, trusted):
     assert is_trusted(url) is trusted
-    assert (checked_result("A source claim", [{"url": url, "title": "Claim"}], health=True)[0]["status"] == "ok") is trusted
+    assert (checked_result("A source claim", [{"url": url, "title": "Claim"}])[0]["status"] == "ok") is trusted
 
 
 def test_the_list_is_the_packets_and_fits_the_providers_limit():
@@ -153,74 +152,27 @@ def test_words_copied_from_what_ask_read_or_heard_are_removed():
 
 
 # The whole request has to be one the open web is for. Anything else stays on the list.
-@pytest.mark.parametrize(
-    "question",
-    [
-        "What toys help when she is gasping and her lips look dusky?",
-        "What should I buy for a newborn with a temp of 38.5?",
-        "What products help with preeclampsia?",
-        "What products help when nene is malångu?",
-        "Which products help fevr and brthing problems?",
-        "How much Tylenol while nursing?",
-        "Is honey safe for infants?",
-        "Is this stroller safe?",
-        "When do babies get vaccines",
-        "What helps colic?",
-        "Tell me about croup",
-        "Gift ideas for a mom with a fever",
-        "Book about breastfeeding",
-        "Baptism gift ideas and what to do about a rash",
-        "Books on sleep training",
-        "asdf qwer",
-        "",
-    ],
-)
-def test_anything_short_of_a_supported_request_stays_on_the_trusted_list(question):
-    assert needs_trusted_sites(question) is True
-
-
-@pytest.mark.parametrize(
-    "question",
-    [
-        "Good baptism gift ideas",
-        "What are some nice baptism gift ideas?",
-        "Books to read aloud to a baby",
-        "Which stroller brands are popular?",
-        "What are good birthday party ideas for a baby?",
-        "Any nice nursery decor ideas",
-    ],
-)
-def test_the_open_web_is_for_these_requests(question):
-    assert needs_trusted_sites(question) is False
-
-
 def test_health_findings_citing_anything_off_the_list_are_dropped_whole():
     good = [{"type": "url_citation", "url": CDC, "title": "CDC"}]
     bad = [*good, {"type": "url_citation", "url": "https://blog.example.com/x", "title": "Blog"}]
-    assert checked_result("Back to sleep.", good, health=True)[0]["status"] == "ok"
-    assert checked_result("Back to sleep.", bad, health=True) == ({"status": "rejected_source"}, [])
-    assert checked_result("See https://blog.example.com/x", good, health=True)[0]["status"] == "rejected_source"
+    assert checked_result("Back to sleep.", good)[0]["status"] == "ok"
+    assert checked_result("Back to sleep.", bad) == ({"status": "rejected_source"}, [])
+    assert checked_result("See https://blog.example.com/x", good)[0]["status"] == "rejected_source"
     # The open web is allowed for other questions, and labeled.
-    result, sources = checked_result("Gift ideas.", bad, health=False)
-    assert result["kind"] == "web" and {source["kind"] for source in sources} == {"web"}
-
-
-def test_a_broken_link_is_refused_on_the_open_web_too():
-    assert checked_result("Gifts", [{"url": "https://evil.example\\@shop.test/x", "title": "x"}], health=False)[0]["status"] == "rejected_source"
 
 
 def test_findings_with_no_citation_cannot_be_used():
-    assert checked_result("It says so.", [], health=True)[0]["status"] == "no_sources"
+    assert checked_result("It says so.", [])[0]["status"] == "no_sources"
 
 
 def test_tracking_parameters_and_fragments_are_removed_from_links():
-    result, sources = checked_result("x", [{"url": CDC + "?utm_source=openai&a=1", "title": None}], health=True)
+    result, sources = checked_result("x", [{"url": CDC + "?utm_source=openai&a=1", "title": None}])
     assert sources[0]["url"] == CDC + "?a=1" and sources[0]["title"] == "www.cdc.gov" and domain_of(sources[0]["url"])
 
 
 def test_an_answer_keeps_only_the_links_it_was_given():
-    offered = [{"url": CDC, "ref": "S1", "title": "CDC", "domain": "www.cdc.gov", "kind": "trusted"},
-               {"url": "https://www.aap.org/y", "ref": "S2", "title": "AAP", "domain": "www.aap.org", "kind": "trusted"}]
+    offered = [{"url": CDC, "ref": "S1", "title": "CDC", "domain": "www.cdc.gov"},
+               {"url": "https://www.aap.org/y", "ref": "S2", "title": "AAP", "domain": "www.aap.org"}]
     message, sources = checked_answer(
         f"Back to sleep [S1] and see [this](https://evil.example/x) or https://evil.example/y and {CDC} [S9].",
         [CDC, "https://evil.example/x", "https://evil.example\\@cdc.gov/x"], offered,
@@ -255,19 +207,13 @@ def settings(monkeypatch):
 
 async def test_the_request_holds_only_the_query_and_the_allowlist(settings):
     provider = Provider(search_reply())
-    await ask_research.search(provider, query="How should babies sleep?", health=True)
+    await ask_research.search(provider, query="How should babies sleep?")
     body = provider.bodies[0]
     assert body["input"] == "How should babies sleep?"
     assert set(body) == {"instructions", "input", "tools", "tool_choice", "max_tool_calls", "max_output_tokens", "reasoning", "include"}
     assert body["tools"] == [{"type": "web_search", "filters": {"allowed_domains": list(TRUSTED_HEALTH_DOMAINS)}}]
     assert body["tool_choice"] == "required" and body["max_tool_calls"] == 2
     assert provider.searches == [("baby_research", 2)]
-
-
-async def test_a_general_question_has_no_domain_filter(settings):
-    provider = Provider(search_reply())
-    await ask_research.search(provider, query="Baptism gift ideas", health=False)
-    assert provider.bodies[0]["tools"] == [{"type": "web_search"}]
 
 
 async def test_a_research_model_can_differ_from_the_ask_model(settings):
@@ -279,7 +225,7 @@ async def test_a_research_model_can_differ_from_the_ask_model(settings):
             seen.update(model=kwargs["model"], effort=kwargs["body"]["reasoning"]["effort"])
             return search_reply()
 
-    await ask_research.search(Recording(), query="How should babies sleep?", health=True, effort="none")
+    await ask_research.search(Recording(), query="How should babies sleep?", effort="none")
     assert seen == {"model": "gpt-6-astra", "effort": "low"}
 
 
@@ -388,17 +334,6 @@ async def test_a_short_follow_up_sends_only_itself(baby_api, stub):  # noqa: F81
     assert research_bodies(stub)[0]["input"] == "Research coping ideas"
 
 
-@pytest.mark.parametrize("question", ["What products help with preeclampsia?", "What products help when nene is cranky?", "Which products help fevr and brthing problems?"])
-async def test_a_health_question_cannot_reach_the_open_web(baby_api, stub, question):  # noqa: F811
-    await enable(baby_api)
-    url = "https://offlist.example/health-advice"
-    stub.replies = [research_call(), search_reply("Off-list advice", urls=[url]), answered("Nothing found.")]
-    response = await post_question(baby_api, question)
-    assert response.status_code == 200, response.text
-    assert research_bodies(stub)[0]["tools"][0]["filters"]["allowed_domains"] == list(TRUSTED_HEALTH_DOMAINS)
-    assert response.json()["sources"] == [] and "offlist" not in json.dumps(response.json())
-
-
 async def test_a_backslash_link_is_never_shown_as_trusted(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     url = "https://evil.example\\@cdc.gov/x"
@@ -412,7 +347,7 @@ async def test_sources_are_saved_and_come_back_with_the_conversation(baby_api, s
     await enable(baby_api)
     stub.replies = [research_call(), search_reply(urls=[CDC]), answered("Back to sleep [S1].", source_urls=[CDC])]
     result = (await post_question(baby_api, "How should babies sleep?")).json()
-    assert result["sources"] == [{"url": CDC, "title": "Title 0", "domain": "www.cdc.gov", "kind": "trusted", "ref": "S1"}]
+    assert result["sources"] == [{"url": CDC, "title": "Title 0", "domain": "www.cdc.gov", "ref": "S1"}]
     assert result["message"] == "Back to sleep [S1]."
     detail = await baby_api.client.get(f"/api/v1/baby/conversations/{result['conversation_id']}", headers=HEADERS)
     assert detail.json()["messages"][-1]["sources"] == result["sources"]
@@ -484,3 +419,105 @@ async def test_a_research_failure_does_not_hide_a_withdrawal(baby_api, stub, mon
     result = await post_question(baby_api, "How should babies sleep?")
     assert result.status_code == 403
     assert len(stub.sent) == 1
+
+
+# Round two: one policy, set before anything is read, and later concerns can only refuse.
+def test_the_open_web_path_is_gone():
+    for name in ("needs_trusted_sites", "OPEN_WEB_TOPICS", "OPEN_WEB_FRAME"):
+        assert not hasattr(ask_research, name)
+    result, sources = checked_result("Back to sleep.", [{"url": CDC, "title": "CDC"}])
+    assert result == {"status": "ok", "findings": "Back to sleep."}
+    assert sources == [{"url": CDC, "title": "CDC", "domain": "www.cdc.gov"}]
+
+
+@pytest.mark.parametrize("question", [
+    "What are some nice baptism gift ideas?", "Should I give my newborn a shower?", "What books for a baby?", "Which stroller brand is best?",
+])
+@needs_database
+async def test_every_search_uses_the_trusted_list(baby_api, stub, question):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [research_call(), search_reply("Off-list advice.", urls=["https://offlist.example/x"]), answered("From what I found.")]
+    result = await post_question(baby_api, question)
+    assert result.status_code == 200
+    body = research_bodies(stub)[0]
+    assert body["tools"][0]["filters"] == {"allowed_domains": list(TRUSTED_HEALTH_DOMAINS)}
+    assert result.json()["sources"] == []
+
+
+@needs_database
+async def test_what_was_read_first_cannot_change_the_search(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    question = "What books for a baby with reflux and colic?"
+    unrelated = await add(baby_api, HEADERS, kind="source", title="Tea", data={"source_text": "something else entirely"})
+    stub.replies = [research_call(), search_reply(), answered("Sources [S1]")]
+    assert (await post_question(baby_api, question)).status_code == 200
+    direct = research_bodies(stub)[0]
+    stub.sent.clear()
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": unrelated})), research_call(), search_reply(), answered("Sources [S1]")]
+    assert (await post_question(baby_api, question)).status_code == 200
+    assert research_bodies(stub)[0]["input"] == direct["input"] == question
+    assert research_bodies(stub)[0]["tools"] == direct["tools"]
+
+
+@needs_database
+async def test_a_privacy_concern_after_reading_refuses_the_search_and_never_changes_it(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    post = await add(baby_api, HEADERS, kind="source", title="A saved post", data={"source_text": "with reflux and colic"})
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), research_call(), answered("From your entries.")]
+    result = await post_question(baby_api, "What books for a baby with reflux and colic?")
+    assert result.status_code == 200
+    assert research_bodies(stub) == []
+    assert json.loads(stub.sent[-1]["input"][-1]["output"]) == {"untrusted_data": {"error": "query_had_private_details"}}
+    assert UNAVAILABLE_NOTICE in result.json()["message"]
+
+
+@needs_database
+async def test_a_name_learned_while_reading_refuses_the_search(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    tools = make_tools(question="What do sources say about Lani and colic?")
+    await run(baby_api, tools, "baby_profile")
+    tools.names.add("Lani")
+    assert await run(baby_api, tools, "research_trusted") == {"error": "query_had_private_details"}
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.cdc.gov/redirect?next=https://cdc.gov@evil.example/x",
+    "https://www.cdc.gov/redirect?next=https%3A%5C%5Cevil.example",
+    "https://www.cdc.gov/redirect?next=https%253A%252F%252Fevil.example",
+    "https://www.cdc.gov/redirect?next=//evil.example",
+    "https://www.cdc.gov/redirect?next=evil.example/x",
+    "https://www.cdc.gov/redirect?next=https://www.cdc.gov/x",
+    "https://cdc.gov//evil.example/x",
+])
+def test_a_trusted_link_cannot_carry_another_address(url):
+    assert is_trusted(url) is False
+    assert checked_result("A claim.", [{"url": url, "title": "x"}])[0]["status"] == "rejected_source"
+
+
+@pytest.mark.parametrize("url", [CDC, CDC + "?a=1&next=2", "https://www.cdc.gov/a%20b", "HTTPS://WWW.CDC.GOV/x"])
+def test_an_ordinary_trusted_link_stays_trusted(url):
+    assert is_trusted(url) is True
+
+
+@pytest.mark.parametrize("mode", ["incomplete", "withdrawn"])
+@needs_database
+async def test_a_discarded_search_keeps_its_fees_in_usage(baby_api, stub, mode):  # noqa: F811
+    await enable(baby_api)
+    reply = search_reply(searches=2)
+    if mode == "incomplete":
+        reply["status"] = "incomplete"
+    stub.replies = [research_call(), reply, answered("From your entries.")]
+    inner = stub.handler
+
+    async def withdrawing(request):
+        result = inner(request)
+        if mode == "withdrawn" and isinstance(json.loads(request.content).get("input"), str):
+            assert (await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})).status_code == 200
+        return result
+
+    stub.handler = withdrawing
+    assert (await post_question(baby_api, "What do sources say about safe sleep?")).status_code in {200, 403}
+    async with baby_api.sessions() as db:
+        row = await db.scalar(select(AIInvocation).where(AIInvocation.capability == "baby_research"))
+    assert row.status == "failed" and row.input_tokens == USAGE["input_tokens"]
+    assert row.estimated_cost_microusd >= 2 * 10_000

@@ -187,14 +187,14 @@ class BabyProvider:
                 response.raise_for_status()
                 # Paid for from here on, so even a reply that's discarded keeps its usage and request ID.
                 data = response.json()
+                invocation.extra_cost_microusd = SEARCH_CALL_MICROUSD * sum(
+                    item.get("type") == "web_search_call" for item in data.get("output", [])
+                )
                 if data.get("status") != "completed" or data.get("error"):
                     raise ValueError("Incomplete response")
                 if self.gate:
                     await self.gate()  # A revoked result never reaches the next round.
                 invocation.succeed(data)
-                invocation.extra_cost_microusd = SEARCH_CALL_MICROUSD * sum(
-                    item.get("type") == "web_search_call" for item in data.get("output", [])
-                )
                 return data
             except asyncio.CancelledError:
                 invocation.fail("cancelled", data)
