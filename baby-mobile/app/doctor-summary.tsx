@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { customProblem, waitingEntries, type CareStats } from "@/lib/care-stats";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { friendlyTime } from "@/lib/care-format";
-import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryMaxDays } from "@/lib/doctor-summary";
+import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryMaxDays, summaryWords } from "@/lib/doctor-summary";
 import { exportOnePagePdf } from "@/lib/files";
 import { profileToday, timingChild } from "@/lib/timing";
 import { addDays, dayKey } from "@/lib/tracker";
@@ -131,14 +131,14 @@ export default function DoctorSummary() {
     </>}
     {!!rows && <>
       <Section title="Questions for the doctor">
-        {rows.questions.length ? list(rows.questions, (row) => row.body.trim().slice(0, 160), (row) => row.title) : <Copy kind="small" tone="muted">No questions saved yet.</Copy>}
+        {rows.questions.length ? list(rows.questions, (row) => summaryWords(row).detail, (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">No questions saved yet.</Copy>}
       </Section>
       {rows.logNotes.length > 0 && <Section title="Notes on your logs">
         {list(rows.logNotes, (row) => `${when(row)}. ${row.body.trim().slice(0, 160)}`, (row) => kindName[row.kind])}
       </Section>}
       <Section title="Your journal">
         <Copy kind="small" tone="muted">Private. Only what you tick goes on the page.</Copy>
-        {rows.journal.length ? list(rows.journal, (row) => `${when(row)}. ${row.body.trim().slice(0, 160)}`, (row) => row.title) : <Copy kind="small" tone="muted">Nothing in these dates.</Copy>}
+        {rows.journal.length ? list(rows.journal, (row) => [when(row), summaryWords(row).detail].filter(Boolean).join(". "), (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">Nothing in these dates.</Copy>}
       </Section>
     </>}
   </Screen>;
