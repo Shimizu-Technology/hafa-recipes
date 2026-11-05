@@ -33,7 +33,7 @@ router = APIRouter(tags=["baby"], route_class=BabyRoute)
 SCOPE_KINDS = {
     "library": ("source", "collection"),
     "journal": ("journal", "question"),
-    "care": ("feeding", "sleep", "diaper", "routine", "medicine"),
+    "care": ("feeding", "sleep", "diaper", "routine", "medicine", "pumping", "temperature", "growth", "contraction", "kick_session", "custom"),
 }
 STOPWORDS = frozenset(
     "a an and are as at be been by can could did do does for from had has have how i in is it me my of on or our should that the their them there these they this to us was we were what when where which who why will with would you your about please saved find show tell "
