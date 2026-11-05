@@ -159,17 +159,46 @@ it("logs pumping in two taps, at now, with its baby, and Undo takes it back", as
   expect(pendingRecords(b.state).filter((row) => row.kind === "pumping")).toEqual([]);
 });
 
-it("logs a medicine she has given before in one tap more", async () => {
+it("fills the form from a medicine she has given before, and only Save records the dose", async () => {
+  const field = (label: string) => renderer!.root.findAll((n) => String(n.type) === "Field").find((n) => n.props.label === label)!.props;
   setup();
   await mount();
   await press("Medicine");
   await type("Name", "Vitamin D");
   await type("Dose (optional)", "1 mL");
   await save("Save medicine");
+  expect(saved()).toHaveLength(1);
   expect(saved()[0]).toMatchObject({ kind: "medicine", title: "Vitamin D", data: { name: "Vitamin D", dose: "1 mL" } });
   await press("Medicine");
   await press("Vitamin D");
+  // A half-asleep tap can't be a second dose.
+  expect(saved()).toHaveLength(1);
+  expect(field("Name").value).toBe("Vitamin D");
+  expect(field("Dose (optional)").value).toBe("1 mL");
+  const words = JSON.stringify(renderer!.toJSON());
+  expect(words).toContain("1 mL · Last");
+  await save("Save medicine");
+  expect(saved()).toHaveLength(2);
   expect(saved()[1]).toMatchObject({ kind: "medicine", title: "Vitamin D", data: { name: "Vitamin D", dose: "1 mL" } });
+});
+it("lets her change the dose a chip filled in, and a typed name replaced by another chip keeps nothing of the first", async () => {
+  const field = (label: string) => renderer!.root.findAll((n) => String(n.type) === "Field").find((n) => n.props.label === label)!.props;
+  setup();
+  scope.rows = [
+    { id: "a", kind: "medicine", title: "Vitamin D", body: "", child_id: "baby", occurred_at: "2026-11-04T01:00:00.000Z", revision: 1, data: { name: "Vitamin D", dose: "1 mL" } },
+    { id: "b", kind: "medicine", title: "Tylenol", body: "", child_id: "baby", occurred_at: "2026-11-03T01:00:00.000Z", revision: 1, data: { name: "Tylenol" } },
+  ] as any;
+  await mount();
+  await press("Medicine");
+  await press("Vitamin D");
+  await type("Dose (optional)", "2 mL");
+  await save("Save medicine");
+  expect(saved()[0]).toMatchObject({ title: "Vitamin D", data: { name: "Vitamin D", dose: "2 mL" } });
+  await press("Medicine");
+  await press("Vitamin D");
+  await press("Tylenol");
+  expect(field("Name").value).toBe("Tylenol");
+  expect(field("Dose (optional)").value).toBe("");
 });
 
 it("says what's wrong with a temperature, saves nothing, and adds no reading of it", async () => {
