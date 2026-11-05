@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
 
-const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), open: vi.fn(async () => undefined), push: vi.fn() }));
+const scope = vi.hoisted(() => ({ careError: "", account: null as any, toast: vi.fn(), open: vi.fn(async () => undefined), push: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Linking: { openURL: scope.open },
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } }));
 vi.mock("expo-router", () => ({ router: { push: scope.push }, useFocusEffect: () => undefined }));
@@ -19,7 +19,7 @@ vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/running-feed", () => ({ finishTimer: vi.fn() }));
-vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: pendingRecords(scope.account.state), rows: [], loading: false, error: "", refresh: vi.fn() }) }));
+vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: pendingRecords(scope.account.state), rows: [], loading: false, error: scope.careError ?? "", refresh: vi.fn() }) }));
 const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", Row: "Row", Screen: "Screen", Section: "Section",
   fonts: {}, radii: {}, tap: () => undefined, typeScale: {}, useColors: () => ({}), useToast: () => scope.toast }));
 vi.mock("@/components/ui", () => ui);
@@ -211,4 +211,23 @@ it("saves a note she leaves mid-typing, and finds one from another phone", async
   await act(async () => renderer!.unmount());
   renderer = undefined;
   expect(saves()[0].record).toMatchObject({ id: "note", body: "Changed, then left" });
+});
+
+it("leaves being offline to the one calm line, and still says when something else went wrong", async () => {
+  const account = setup() as ReturnType<typeof setup> & { unreachable?: boolean; online?: boolean };
+  scope.careError = "Could not connect.";
+  account.unreachable = true;
+  await mount();
+  const notices = () => JSON.stringify(renderer!.toJSON());
+  expect(notices()).not.toContain("Could not connect.");
+  await act(async () => renderer!.unmount());
+  account.unreachable = false; account.online = false;
+  await mount();
+  expect(notices()).not.toContain("Could not connect.");
+  await act(async () => renderer!.unmount());
+  account.online = true;
+  scope.careError = "Something else went wrong.";
+  await mount();
+  expect(notices()).toContain("Something else went wrong.");
+  scope.careError = "";
 });

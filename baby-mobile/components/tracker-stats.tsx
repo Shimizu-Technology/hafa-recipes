@@ -64,7 +64,7 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
       <DateField dateOnly label="To" value={draft.to} onChange={(to) => edit({ ...draft, to })} />
       {!!problem && <Notice>{problem}</Notice>}
     </View>}
-    {!!answer.error && !stats && <Empty icon="cloud-offline-outline" title="No numbers to show yet" body={`${answer.error} Stats come from Håfa, so they’ll show here once it can be reached.`}
+    {!!answer.error && !stats && <Empty icon="cloud-offline-outline" title="No numbers to show yet" body={`${b.online === false || b.unreachable ? "" : `${answer.error} `}Stats come from Håfa, so they’ll show here once it can be reached.`}
       action={<Button secondary title="Try again" onPress={() => void answer.refresh()} />} />}
     {answer.loading && !stats && <Copy kind="small" tone="muted">Adding it up…</Copy>}
     {!!stats && <>
