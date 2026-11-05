@@ -61,9 +61,14 @@ export function timingChild(state: Pick<DeviceState, "bootstrap" | "selectedChil
   const children = state.bootstrap?.children ?? [], selected = children.find((child) => child.id === state.selectedChild);
   if (selected) return selected;
   const expecting = children.filter((child) => todayStage(child, now) === "pregnancy"),
-    dated = children.filter((child) => localDay(child.birth_date) || localDay(child.due_date));
+    dated = children.filter((child) => localDay(child.birth_date) || localDay(child.due_date)),
+    born = children.filter((child) => { const birth = localDay(child.birth_date); return !!birth && birth <= now; }),
+    newborns = born.filter((child) => { const birth = localDay(child.birth_date)!; return now < new Date(birth.getFullYear() + 1, birth.getMonth(), birth.getDate()); });
+  if (expecting.length === 1) return expecting[0];
+  // A baby under a year and an older one: the baby is who she's here to log for.
+  if (newborns.length === 1 && born.length > 1) return newborns[0];
   // Where the API would ask which child, keep the child Today already shows.
-  return expecting.length === 1 ? expecting[0] : dated.length === 1 ? dated[0] : glanceChild(state);
+  return dated.length === 1 ? dated[0] : glanceChild(state);
 }
 
 /** "Due Dec 10 · 39 days to go". */

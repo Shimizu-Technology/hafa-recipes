@@ -32,6 +32,13 @@ export function MoreLogs({ child, now, pastDay, shown, title = "More to log", bi
   const b = useBaby(), c = useColors(), { fontScale } = useWindowDimensions(),
     flow = useLogFlow<string>(pastDay), top = useRef(0), open = shown.find((tracker) => tracker.id === flow.panel);
   useEffect(() => { onOpen?.(!!open, Math.max(0, top.current - headerClear)); }, [open?.id]);
+  // A tap meant for one baby can't land on the other. A log about her isn't either baby's, so what she's typing carries on.
+  const shownFor = useRef(child.id);
+  useEffect(() => {
+    if (shownFor.current === child.id) return;
+    shownFor.current = child.id;
+    if (open?.about !== "her") flow.close();
+  }, [child.id]);
   if (!shown.length && !flow.saved) return null;
   return <View onLayout={(event) => { top.current = event.nativeEvent.layout.y; }} style={{ gap: 8 }}>
     {!!title && <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.muted }}>{title}</Text>}

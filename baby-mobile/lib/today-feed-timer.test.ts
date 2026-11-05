@@ -426,6 +426,21 @@ it("keeps a half-typed question across a due baby's layout and a born baby's, wh
   expect(drafts().typed["visit:noa"]).toBe("Half typed");
 });
 
+it("names the baby on a panel when there's more than one, and keeps a lone baby's panel plain", async () => {
+  const account = setup(), first = account.state.bootstrap!.children[0];
+  first.birth_date = "2026-10-20";
+  const tile = () => act(async () => { (find("Pressable", (p) => p.accessibilityLabel === "Diaper")[0].props.onPress as () => void)(); }),
+    whose = () => find("Text", () => true).map((n) => [n.props.children].flat().join("")).join(" | ");
+  await render();
+  await tile();
+  expect(whose()).not.toContain("For Mia");
+  await tile();
+  account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!, children: [first, { ...first, id: "two", name: "Noa" }] } };
+  await render();
+  await tile();
+  expect(whose()).toContain("For Mia");
+});
+
 describe("Today follows the trackers", () => {
   const tiles = () => find("Pressable", () => true).map((node) => node.props.accessibilityLabel);
   const baby = (details: object, birth_date = "2026-10-01") => { const account = setup(); Object.assign(account.state.bootstrap!.children[0], { birth_date, details }); return account; };

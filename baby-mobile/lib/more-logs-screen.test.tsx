@@ -302,6 +302,7 @@ describe("from the re-check of #543", () => {
     await press("Medicine");
     await type("Name", "Draft meant for Mia");
     await again(other);
+    await press("Medicine");
     await save("Save medicine");
     expect(saved()).toEqual([]);
     expect(renderer!.root.findAll((n) => String(n.type) === "Field").find((n) => n.props.label === "Name")!.props.value).toBe("");
@@ -312,6 +313,7 @@ describe("from the re-check of #543", () => {
     await press("Pumping");
     await press("More");
     await again(other);
+    await press("Pumping");
     await press("Left");
     expect(saved()[0]).toMatchObject({ child_id: "other", data: { amount: 3 } });
   });
@@ -322,6 +324,7 @@ describe("from the re-check of #543", () => {
     await press("Change time, Now");
     await press("5 min ago");
     await again(other);
+    await press("Pumping");
     const before = Date.now();
     await press("Left");
     expect(new Date(saved()[0].occurred_at).getTime()).toBeGreaterThanOrEqual(before - 1000);
@@ -334,6 +337,14 @@ describe("from the re-check of #543", () => {
     await act(async () => renderer!.update(<MoreLogs child={other} now={now} shown={panelTrackers("expecting")} />));
     await save("Save my weight");
     expect(saved()[0]).toMatchObject({ child_id: null, data: { value: 145.5 } });
+  });
+  it("closes an open panel when she changes baby", async () => {
+    setup();
+    await mount();
+    await press("Temperature");
+    expect(renderer!.root.findAll((n) => String(n.type) === "Field").some((n) => n.props.label === "Temperature")).toBe(true);
+    await act(async () => renderer!.update(<MoreLogs child={other} now={now} shown={panelTrackers("born")} />));
+    expect(renderer!.root.findAll((n) => String(n.type) === "Field")).toHaveLength(0);
   });
   it("pumping can go down to 5 mL and 0.25 oz", async () => {
     setup();

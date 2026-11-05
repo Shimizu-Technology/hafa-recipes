@@ -111,7 +111,7 @@ export default function Today() {
   const feedsShow = showing("breast", "bottle"),
     todayWords = summaryLine(dayOverlay(b.state, child?.id ?? null, timezone, now)(summary?.[todayKey], todayKey), { feeds: feedsShow, diapers: showing("diaper"), sleep: showing("sleep") }),
     todayLine = `Today: ${todayWords}`;
-  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} tiles={tiles} /> : null;
+  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} tiles={tiles} who={children.length > 1 ? child.name : undefined} /> : null;
   return (
     <Screen title={titleText} subtitle={child && showCare ? babyAge(child, today) : undefined} numericSubtitle={showCare}
       footer={fontScale < dockBelow ? quickLog : undefined}>

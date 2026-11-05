@@ -429,6 +429,16 @@ it("keeps Formula and the colour chips she picked, with Other storing no colour"
   expect(lastSave().data).toEqual({ method: "bottle", amount: 3, unit: "oz", contents: "formula" });
 });
 
+it("closes an open panel when she changes baby, so a tap can't land on the other one", async () => {
+  setup();
+  await mount();
+  await press("Diaper");
+  expect(target("Pee")).toBeDefined();
+  await act(async () => renderer!.update(<QuickLog child={{ ...child, id: "other", name: "Noa" }} rows={[]} now={new Date()} />));
+  expect(target("Pee")).toBeUndefined();
+  expect(target("Diaper")).toBeDefined();
+});
+
 it("starts and ends sleep from one panel, and undoes the end", async () => {
   const b = setup();
   await mount();
