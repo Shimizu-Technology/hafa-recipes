@@ -1,5 +1,6 @@
 """Hashed, single-use family invitations. No token is stored or returned on list."""
 import hashlib
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Literal
@@ -9,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import Field
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.domains.baby import security
 from app.domains.baby.access import SpaceAccess, access_for, family_enabled, touch
@@ -20,6 +22,7 @@ from app.domains.baby.moves import create_family, require_contract, rotate_crede
 from app.domains.baby.schemas import DomainModel
 from app.domains.baby.share_models import BabyShareCredential
 
+logger = logging.getLogger(__name__)
 DISCLOSURE_VERSION = 1
 DISCLOSURE = "Shared family entries are available to every parent and to each parent's Ask when AI is enabled. Your personal journal and chats stay private. Update Baby on every signed-in phone before creating a family."
 
@@ -105,20 +108,25 @@ def note_phone_ready(member, installation):
 
 
 async def note_older_client(db, member):
-    """This account was just seen on a client below 3: at a bootstrap or a credential request.
+    """This account was just seen on a client below 3: at a POST bootstrap or a credential request.
 
     It takes back any readiness and any answer she gave, since neither can speak for a phone seen
-    since. It asks every 15 seconds, so an unchanged sighting is only written hourly. A single
-    statement, so a read route or a racing profile edit can't lose the note or be lost to it.
+    since. It asks every 15 seconds, so an unchanged sighting is only written hourly. Callers hold the
+    owner lock, so a racing profile edit can't lose the note. A failure here mustn't cost her the
+    request, and the phone will be seen again on its next one.
     """
     profile, stamp = member.profile, now()
     seen = profile.get("older_client_at")
     if (seen and datetime.fromisoformat(seen) > stamp - OLDER_CLIENT_NOTE_EVERY
             and not profile.get("family_phones") and not profile.get("older_client_confirmed_at")):
         return
-    await db.execute(text("UPDATE baby_memberships SET profile = (profile - 'family_phones' - 'older_client_confirmed_at')"
-                          " || jsonb_build_object('older_client_at', cast(:stamp as text)) WHERE app_user_id = :actor"),
-                     {"stamp": stamp.isoformat(), "actor": member.app_user_id})
+    try:
+        async with db.begin_nested():
+            await db.execute(text("UPDATE baby_memberships SET profile = (profile - 'family_phones' - 'older_client_confirmed_at')"
+                                  " || jsonb_build_object('older_client_at', cast(:stamp as text)) WHERE app_user_id = :actor"),
+                             {"stamp": stamp.isoformat(), "actor": member.app_user_id})
+    except SQLAlchemyError:
+        logger.warning("Couldn't note an older Baby client", exc_info=False)
 
 
 def recent_older_client(profile):
@@ -238,6 +246,9 @@ async def accept_invite(body: InviteAccept, request: Request, user: User, db: Da
         raise HTTPException(422, "Accept an invitation from your personal space")
     if any(g.space.kind == "family" for g in access.spaces):
         raise HTTPException(409, "Leave your current family before joining another")
+    state = await family_readiness(db, access)
+    if not state["ready"]:
+        raise HTTPException(409, jsonable_encoder({"code": "phones_not_ready", **state}))
     row = await db.get(BabySpaceInvite, identifier, populate_existing=True, with_for_update=True)
     available(row)
     family = next((g for g in access.locked_spaces if g.id == family_id and g.space.status == "active"), None)
