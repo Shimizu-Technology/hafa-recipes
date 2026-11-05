@@ -127,13 +127,13 @@ class WorldTools:
 
     async def research(self, count):
         """The production cleaner and checks, from her question alone. A real search runs, on the model under test."""
-        from app.domains.baby.ask_research import clean_query, research_for
+        from app.domains.baby.ask_research import clean_query, overlaps, research_for
 
         if self.searched is not None:
             return self.searched
         names = [self.actor["display_name"], *self.actor.get("known_names", []), *(child["name"] for child in self.actor["children"])]
-        query = clean_query(self.question, names=names, private_texts=self.history)
-        if not query or clean_query(query, private_texts=self.read_texts) != query:
+        query = clean_query(self.question, names=names)
+        if not query or overlaps(query, [*self.history, *self.read_texts]):
             return {"error": "query_had_private_details"}
         self.outbound.append(query)
         result, sources = await research_for(self.provider, count, query=query, model=self.research_model, effort=self.research_effort)

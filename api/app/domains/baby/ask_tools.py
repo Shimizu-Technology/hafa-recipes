@@ -13,6 +13,7 @@ from sqlalchemy import or_, select
 from app.domains.baby.ask_research import (
     TOOL_RULES,
     clean_query,
+    overlaps,
     research_for,
     strings_in,
 )
@@ -212,7 +213,7 @@ class AskTools:
     async def freeze_search(self, db, owner):
         """Her question, cleaned, before the first read. What's read after this can only stop the search."""
         if not self.search_frozen:
-            self.search_query = clean_query(self.question, names=await people_names(self, db, owner), private_texts=self.history)
+            self.search_query = clean_query(self.question, names=await people_names(self, db, owner))
             self.search_frozen = True
 
     async def research(self, pending, count):
@@ -569,7 +570,7 @@ async def people_names(tools, db, owner):
 async def research_tool(tools, db, owner, arguments):
     # Frozen before anything was read, so nothing read or remembered can be carried out in it. A later concern refuses.
     query = tools.search_query
-    if not query or clean_query(query, names=tools.names, private_texts=tools.read_texts) != query:
+    if not query or clean_query(query, names=tools.names) != query or overlaps(query, [*tools.history, *tools.read_texts]):
         tools.research_failed = True
         return unavailable("query_had_private_details")
     return PendingResearch(query)

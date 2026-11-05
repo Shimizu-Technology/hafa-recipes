@@ -124,28 +124,28 @@ def strings_in(value):
     return []
 
 
-def clean_query(query, *, names=(), private_texts=()):
-    """The only text that leaves. None when too little of it was the parent's general question."""
+def clean_query(query, *, names=()):
+    """The only text that leaves: her question without names or identifiers. None if too little is left."""
     text = query
     for pattern in STRIPPED:
         text = pattern.sub(" ", text)
     for name in sorted(name_tokens(names), key=len, reverse=True):
         text = re.sub(rf"\b{re.escape(name)}(?:['’]s)?(?!\w)", " ", text, flags=re.I)
     tokens = re.findall(r"[\w'’-]+|[?]", text)
-    plain = [token.lower() for token in tokens]
-    private = set()
-    for source in private_texts:
-        words = words_of(source)
-        private.update(" ".join(words[index:index + PRIVATE_RUN]) for index in range(len(words) - PRIVATE_RUN + 1))
-    drop = set()
-    for start in range(len(plain) - PRIVATE_RUN + 1):
-        if " ".join(plain[start:start + PRIVATE_RUN]) in private:
-            drop.update(range(start, start + PRIVATE_RUN))
-    kept = [token for index, token in enumerate(tokens) if index not in drop]
-    words = [token for token in kept if token != "?"]
-    if len(words) < 2 or (drop and len(drop) >= len(tokens) / 2):
+    if len([token for token in tokens if token != "?"]) < 2:
         return None
-    return re.sub(r"\s+\?", "?", " ".join(kept))[:QUERY_CHARS].strip()
+    return re.sub(r"\s+\?", "?", " ".join(tokens))[:QUERY_CHARS].strip()
+
+
+def overlaps(query, texts):
+    """A run of words the query shares with something Ask read or heard. That refuses the search; it never edits it."""
+    words = words_of(query)
+    runs = {" ".join(words[index:index + PRIVATE_RUN]) for index in range(len(words) - PRIVATE_RUN + 1)}
+    for text in texts:
+        other = words_of(text)
+        if any(" ".join(other[index:index + PRIVATE_RUN]) in runs for index in range(len(other) - PRIVATE_RUN + 1)):
+            return True
+    return False
 
 
 def findings_from(data):

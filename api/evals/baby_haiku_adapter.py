@@ -51,7 +51,8 @@ def request_for(model: str, body: dict[str, Any]) -> dict[str, Any]:
     system = body["instructions"] + (JSON_ONLY if body.get("text") else "")
     request: dict[str, Any] = {
         "model": model, "max_tokens": body["max_output_tokens"], "system": system,
-        "messages": messages_for(body["input"]),
+        # A search's input is just her question.
+        "messages": [{"role": "user", "content": body["input"]}] if isinstance(body["input"], str) else messages_for(body["input"]),
     }
     # This model has no "none" effort; low is the nearest setting.
     request["output_config"] = {"effort": effort if effort and effort != "none" else "low"}

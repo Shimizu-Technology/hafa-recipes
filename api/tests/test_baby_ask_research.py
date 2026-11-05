@@ -17,8 +17,10 @@ from app.domains.baby.ask_research import (
     clean_query,
     domain_of,
     is_trusted,
+    overlaps,
     strings_in,
 )
+from app.domains.baby.budget import QuestionBudget
 from app.domains.baby.models import BabyMessage
 from app.models.ai import AIInvocation
 from tests import test_baby_integration as shared
@@ -137,18 +139,9 @@ def test_a_query_that_is_mostly_a_name_goes_nowhere():
 
 
 def test_private_text_is_compared_as_written_not_as_escaped_json():
-    assert strings_in({"a": ["One\n\nTwo"], "b": {"c": "Three"}, "d": 4}) == ["One\n\nTwo", "Three"]
-    private = strings_in({"excerpt": "Night\n\nMYPRIVATEWORD I am so scared"})
-    assert clean_query("MYPRIVATEWORD I am so scared and what helps babies at night", private_texts=private) == "and what helps babies at night"
-
-
-def test_words_copied_from_what_ask_read_or_heard_are_removed():
-    private = ["Exhausted tonight and scared about the birth plan with my mother in law"]
-    query = "Why am I scared about the birth plan and how do people usually cope with fear"
-    assert clean_query(query, private_texts=private) == "Why am I and how do people usually cope with fear"
-    # Most of the question being her words means it isn't a general question.
-    assert clean_query("scared about the birth plan", private_texts=private) is None
-    assert clean_query("How long does colic last", private_texts=private) == "How long does colic last"
+    assert strings_in({"a": ["line one\nline two", {"b": "three"}], "c": 4}) == ["line one\nline two", "three"]
+    assert overlaps("I am so scared and what helps babies at night", ["Night. I am so scared about tonight"]) is True
+    assert overlaps("How long does colic last", ["Night. I am so scared about tonight"]) is False
 
 
 # The whole request has to be one the open web is for. Anything else stays on the list.
@@ -318,10 +311,10 @@ async def test_words_from_earlier_in_the_chat_do_not_go_out(baby_api, stub):  # 
     stub.replies = [answered("I hear you.")]
     first = (await post_question(baby_api, "Here is my journal thought: " + secret)).json()
     question = f"What helps when {secret} and I worry about the future in general?"
-    stub.replies = [research_call(), search_reply(), answered("Done [S1].", source_urls=[CDC])]
+    stub.replies = [research_call(), answered("From your entries.")]
     response = await post_question(baby_api, question, conversation_id=first["conversation_id"])
     assert response.status_code == 200, response.text
-    assert "purple canoe" not in research_bodies(stub)[0]["input"]
+    assert research_bodies(stub) == []
 
 
 async def test_a_short_follow_up_sends_only_itself(baby_api, stub):  # noqa: F811
@@ -521,3 +514,72 @@ async def test_a_discarded_search_keeps_its_fees_in_usage(baby_api, stub, mode):
         row = await db.scalar(select(AIInvocation).where(AIInvocation.capability == "baby_research"))
     assert row.status == "failed" and row.input_tokens == USAGE["input_tokens"]
     assert row.estimated_cost_microusd >= 2 * 10_000
+
+
+# The question is cleaned of names and identifiers only. Overlap with anything else refuses the search and never edits it.
+QUESTION = "What do trusted sources say about reflux and colic in babies?"
+
+
+@needs_database
+async def test_an_earlier_answer_cannot_edit_the_next_search(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [research_call(), search_reply(), answered("Sources [S1]")]
+    assert (await post_question(baby_api, QUESTION)).status_code == 200
+    assert research_bodies(stub)[0]["input"] == QUESTION
+    stub.sent.clear()
+    stub.replies = [answered("Your saved post mentioned reflux and colic in babies.")]
+    first = await post_question(baby_api, "What did I save?")
+    stub.replies = [research_call(), answered("From your entries.")]
+    response = await post_question(baby_api, QUESTION, conversation_id=first.json()["conversation_id"])
+    assert response.status_code == 200, response.text
+    assert research_bodies(stub) == []
+    assert json.loads(stub.sent[-1]["input"][-1]["output"]) == {"untrusted_data": {"error": "query_had_private_details"}}
+    assert UNAVAILABLE_NOTICE in response.json()["message"]
+
+
+def test_cleaning_only_removes_names_and_identifiers():
+    assert clean_query(QUESTION, names=["Mia"]) == QUESTION
+    assert clean_query("What do sources say about Mia and reflux?", names=["Mia"]) == "What do sources say about and reflux?"
+    with pytest.raises(TypeError):
+        clean_query(QUESTION, private_texts=["reflux and colic in babies"])
+
+
+def test_overlap_is_a_yes_or_no_and_never_a_new_query():
+    assert overlaps(QUESTION, ["Your saved post mentioned reflux and colic in babies."]) is True
+    assert overlaps(QUESTION, ["reflux and colic"]) is False
+    assert overlaps(QUESTION, []) is False
+
+
+async def test_the_eval_refuses_the_same_way():
+    from evals.baby_ask_eval import WorldTools
+
+    actor = {"display_name": "Mina", "children": [{"name": "Sunny"}]}
+    tools = WorldTools(actor, None, question=QUESTION, history=["Your saved post mentioned reflux and colic in babies."])
+    assert await tools.research(SimpleNamespace()) == {"error": "query_had_private_details"}
+    assert tools.outbound == []
+
+
+# Haiku has to run the real research request, since the paid comparison needs it.
+class FakeAnthropic:
+    def __init__(self):
+        self.requests = []
+        self.messages = SimpleNamespace(create=self.create)
+
+    async def create(self, **request):
+        self.requests.append(request)
+        return SimpleNamespace(model_dump=lambda: {
+            "id": "m1", "stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 5},
+            "content": [{"type": "server_tool_use", "id": "s1", "name": "web_search", "input": {}},
+                        {"type": "text", "text": "The CDC says to place babies on their back.", "citations": [{"url": CDC, "title": "CDC"}]}],
+        })
+
+
+async def test_haiku_runs_the_real_research_request():
+    from evals.baby_haiku_adapter import HaikuProvider
+
+    client = FakeAnthropic()
+    result, sources = await ask_research.research_for(HaikuProvider("unused", client=client), QuestionBudget(), query="How should babies sleep?", model="claude-haiku-5-5", effort="low")
+    assert result["status"] == "ok" and sources[0]["url"] == CDC
+    request = client.requests[0]
+    assert request["messages"] == [{"role": "user", "content": "How should babies sleep?"}]
+    assert request["tools"][0]["allowed_domains"] == list(TRUSTED_HEALTH_DOMAINS)
