@@ -4,14 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
 
-const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), push: vi.fn(), rows: [] as unknown[], care: {} as Record<string, unknown>, options: [] as any[] }));
+const scope = vi.hoisted(() => ({ focus: (() => () => undefined) as () => unknown, account: null as any, toast: vi.fn(), push: vi.fn(), rows: [] as unknown[], care: {} as Record<string, unknown>, options: [] as any[] }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", TextInput: "TextInput", ScrollView: "ScrollView", useWindowDimensions: () => ({ fontScale: 1 }),
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) }, Alert: { alert() {} },
   AccessibilityInfo: { isScreenReaderEnabled: async () => false, announceForAccessibility() {} },
-  Animated: { View: "AnimatedView", Value: class { setValue() {} stopAnimation() {} }, timing: () => ({ start() {} }) },
+  Animated: { View: "AnimatedView", Value: class { setValue() {} stopAnimation() {} }, timing: () => ({ start(done?: (result: { finished: boolean }) => void) { done?.({ finished: true }); } }) },
 }));
-vi.mock("expo-router", () => ({ router: { push: scope.push }, useFocusEffect: () => undefined }));
+vi.mock("expo-router", () => ({ router: { push: scope.push }, useFocusEffect: (effect: () => () => void) => { scope.focus = effect; } }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id}` }; });
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: unknown) => { scope.options.push(options); return { all: [...pendingRecords(scope.account.state), ...scope.rows], rows: [], loading: false, error: "", stale: false, refresh: vi.fn(), ...scope.care }; } }));
@@ -59,6 +59,47 @@ const saved = () => scope.account.state.outbox.filter((m: Mutation) => m.type ==
 
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); scope.toast.mockReset(); scope.push.mockReset(); scope.rows = []; scope.care = {}; scope.options = []; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+
+describe("the saved row beside tiles that don't move", () => {
+  const row = () => renderer!.root.findAll((n) => String(n.type) === "AnimatedView")[0];
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  const logged = async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await press("Left");
+    expect(row().props.pointerEvents).toBeUndefined();
+    await act(async () => { await vi.advanceTimersByTimeAsync(9100); });
+  };
+  it("fades but keeps its place, so the tiles stay under her thumb, and can't be pressed or heard", async () => {
+    await logged();
+    expect(row()).toBeDefined();
+    expect(row().props.pointerEvents).toBe("none");
+    expect(row().props.accessibilityElementsHidden).toBe(true);
+    expect(row().props.importantForAccessibility).toBe("no-hide-descendants");
+  });
+  it("gives its place back when she opens the next tile, which moves them anyway", async () => {
+    await logged();
+    await press("Temperature");
+    expect(labels().some((label) => label?.startsWith("Undo"))).toBe(false);
+    expect(renderer!.root.findAll((n) => String(n.type) === "AnimatedView")).toHaveLength(0);
+  });
+  it("gives its place back when she leaves the screen, so she doesn't come back to a gap", async () => {
+    await logged();
+    await act(async () => { (scope.focus() as () => void)(); });
+    expect(renderer!.root.findAll((n) => String(n.type) === "AnimatedView")).toHaveLength(0);
+  });
+  it("leaves a row still showing alone when she leaves the screen", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await press("Left");
+    await act(async () => { (scope.focus() as () => void)(); });
+    expect(row()).toBeDefined();
+    expect(labels().some((label) => label?.startsWith("Undo"))).toBe(true);
+  });
+});
 
 it("hands a form's Save to the bar above the keyboard, doing what its own Save does", async () => {
   setup();

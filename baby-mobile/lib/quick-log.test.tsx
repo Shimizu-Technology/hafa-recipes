@@ -276,6 +276,28 @@ it("clears what saved on its own, and Undo goes with it", async () => {
   expect(pendingRecords(b.state)).toHaveLength(1);
 });
 
+it("keeps the saved row's place when the tiles sit right under it, and lets it go in the dock, where they don't move", async () => {
+  vi.useFakeTimers();
+  const rowCount = () => renderer!.root.findAll((n) => String(n.type) === "AnimatedView").length;
+  setup();
+  scope.fontScale = 1.5;
+  await mount();
+  await press("Diaper");
+  await press("Pee");
+  await act(async () => { await vi.advanceTimersByTimeAsync(9100); });
+  expect(rowCount()).toBe(1);
+  expect(renderer!.root.findAll((n) => String(n.type) === "AnimatedView")[0].props.pointerEvents).toBe("none");
+  await act(async () => renderer!.unmount());
+  setup();
+  scope.fontScale = 1;
+  await mount();
+  await press("Diaper");
+  await press("Pee");
+  await act(async () => { await vi.advanceTimersByTimeAsync(9100); });
+  expect(rowCount()).toBe(0);
+  vi.useRealTimers();
+});
+
 it("keeps a saved row up long enough to reach Undo with VoiceOver, and says what saved", async () => {
   const { AccessibilityInfo } = await import("react-native");
   vi.spyOn(AccessibilityInfo, "isScreenReaderEnabled").mockResolvedValue(true);
