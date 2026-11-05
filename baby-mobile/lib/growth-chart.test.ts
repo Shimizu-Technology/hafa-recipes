@@ -140,3 +140,34 @@ it("converts a measurement to the chart's unit for plotting", () => {
   expect(plottedIn(point, "lb")).toBeCloseTo(7.5, 6);
   expect(plottedIn(point, "kg")).toBeCloseTo(3.40194, 4);
 });
+
+describe("the measurement at birth", () => {
+  const kid = (details: object) => ({ id: "baby", birth_date: "2026-11-01", details }), born = { weight_at_birth_g: 3345, length_at_birth_cm: 50.8 };
+  it("comes first, from her setup answers, marked as the birth measurement, with no entry behind it", () => {
+    const [first, later] = measuredOn([row({ weight: 10, weight_unit: "lb" }, "2026-12-01T03:00:00.000Z")], kid(born), "girls", "weight", "UTC", "2027-01-01");
+    expect(first).toMatchObject({ atBirth: true, record: null, months: 0, day: "2026-11-01", onChart: true, unit: "lb", text: "7 lb 6 oz" });
+    expect(first.metric).toBeCloseTo(3.345);
+    expect(first.percentile).toBeCloseTo(percentile("girls", "weight", 0, 3.345)!);
+    expect(later.atBirth).toBeFalsy();
+  });
+  it("reads in the unit she logs in, or else pounds and inches", () => {
+    const logged = measuredOn([row({ length: 60, length_unit: "cm" }, "2026-12-01T03:00:00.000Z")], kid(born), "girls", "length", "UTC", "2027-01-01");
+    expect(logged[0]).toMatchObject({ unit: "cm", text: "50.8 cm" });
+    expect(measuredOn([], kid(born), "girls", "length", "UTC", "2027-01-01")[0]).toMatchObject({ unit: "in", text: "20 in" });
+    expect(measuredOn([row({ weight: 4, weight_unit: "kg" }, "2026-12-01T03:00:00.000Z")], kid(born), null, "weight", "UTC", "2027-01-01")[0]).toMatchObject({ text: "3.35 kg", percentile: null });
+  });
+  it("isn't drawn twice when she also logged that measure on the birth day", () => {
+    const same = row({ weight: 7.4, weight_unit: "lb" }, "2026-11-01T22:00:00.000Z");
+    const points = measuredOn([same], kid(born), "girls", "weight", "UTC", "2027-01-01");
+    expect(points).toHaveLength(1);
+    expect(points[0].record).toBe(same);
+    // A length logged that day says nothing about the weight.
+    expect(measuredOn([row({ length: 51, length_unit: "cm" }, "2026-11-01T22:00:00.000Z")], kid(born), "girls", "weight", "UTC", "2027-01-01")[0].atBirth).toBe(true);
+  });
+  it("has nothing to add without an answer, a birth date, or for head", () => {
+    expect(measuredOn([], kid({}), "girls", "weight", "UTC", "2027-01-01")).toEqual([]);
+    expect(measuredOn([], { id: "baby", birth_date: null, details: born }, "girls", "weight", "UTC", "2027-01-01")).toEqual([]);
+    expect(measuredOn([], kid(born), "girls", "head", "UTC", "2027-01-01")).toEqual([]);
+    expect(measuredOn([], { id: "baby", birth_date: "2026-11-01" }, "girls", "weight", "UTC", "2027-01-01")).toEqual([]);
+  });
+});

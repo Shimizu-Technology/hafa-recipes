@@ -1,7 +1,7 @@
 import who from "../content/who_growth.json";
 import notes from "../content/growth_notes.json";
 import { weightText } from "./care-format";
-import type { BabyRecord } from "./models";
+import type { BabyRecord, ChildDetails } from "./models";
 import { keyDate, recordDay } from "./tracker";
 
 /**
@@ -76,13 +76,34 @@ export function curve(sex: ChartSex, measure: Measure, line: (typeof percentileL
 /** Where a measurement sits on a chart reading in this unit, whatever unit it was saved in. */
 export const plottedIn = (point: Pick<GrowthPoint, "metric">, unit: ChartUnit) => fromMetric(point.metric, unit);
 
-export interface GrowthPoint { record: BabyRecord; day: string; months: number; metric: number; shown: number; unit: ChartUnit; text: string; onChart: boolean; percentile: number | null }
+export interface GrowthPoint { /** Null for the measurement at birth, which comes from her setup answers rather than an entry. */ record: BabyRecord | null; atBirth?: boolean; day: string; months: number; metric: number; shown: number; unit: ChartUnit; text: string; onChart: boolean; percentile: number | null }
 
 // The units the API allows. A record with anything else is left off rather than read as metric.
 const unitsFor: Record<Measure, readonly ChartUnit[]> = { weight: ["kg", "lb"], length: ["cm", "in"], head: ["cm", "in"] };
 
+type AtBirth = Pick<ChildDetails, "weight_at_birth_g" | "length_at_birth_cm">;
+/** What setup says for one measure, in CDC's units. Head isn't asked. */
+const birthMetric = (details: AtBirth | null | undefined, measure: Measure) =>
+  (measure === "weight" ? (details?.weight_at_birth_g ? details.weight_at_birth_g / 1000 : null) : measure === "length" ? details?.length_at_birth_cm ?? null : null);
+/** Grams and centimetres typed once, in the words a logged measurement of that unit would use. */
+function birthText(metric: number, measure: Measure, unit: ChartUnit) {
+  if (measure !== "weight") return `${Math.round(fromMetric(metric, unit) * 10) / 10} ${unit}`;
+  return weightText(unit === "lb" ? fromMetric(metric, unit) : Math.round(metric * 100 + 1e-6) / 100, unit);
+}
+/** A logged measure on the birth day is the same moment, so the page and the chart have it once. */
+const birthDay = (child: { birth_date?: string | null }, day: string) => child.birth_date === day;
+/** The words for what setup says at birth, less what's logged on the birth day. Pounds and inches unless she logs in another. */
+export function birthWords(child: { birth_date?: string | null; details?: AtBirth | null }, logs: readonly BabyRecord[], timeZone?: string | null) {
+  const newest = (key: "weight_unit" | "length_unit") => logs.map((row) => (row.data as Record<string, unknown>)[key]).find(Boolean) as ChartUnit | undefined;
+  return (["weight", "length"] as const).flatMap((measure) => {
+    const metric = birthMetric(child.details, measure),
+      logged = logs.some((row) => row.kind === "growth" && typeof (row.data as Record<string, unknown>)[measure] === "number" && birthDay(child, recordDay(row.occurred_at, timeZone)));
+    return metric && child.birth_date && !logged ? [birthText(metric, measure, newest(`${measure}_unit`) ?? (measure === "weight" ? "lb" : "in"))] : [];
+  });
+}
+
 /** This baby's measurements of one kind, oldest first. The value stays in the unit she entered, and is compared in CDC's. */
-export function measuredOn(rows: readonly BabyRecord[], child: { id: string; birth_date?: string | null }, sex: ChartSex | null, measure: Measure, timeZone?: string | null, today?: string) {
+export function measuredOn(rows: readonly BabyRecord[], child: { id: string; birth_date?: string | null; details?: AtBirth | null }, sex: ChartSex | null, measure: Measure, timeZone?: string | null, today?: string) {
   const points: GrowthPoint[] = [];
   for (const record of rows) {
     const data = record.data as Record<string, unknown>, value = data[measure], unit = data[`${measure}_unit`] as ChartUnit | undefined;
@@ -91,7 +112,14 @@ export function measuredOn(rows: readonly BabyRecord[], child: { id: string; bir
     points.push({ record, day, months, metric, shown: value, unit, onChart, text: measure === "weight" ? weightText(value, unit) : `${value} ${unit}`,
       percentile: sex && onChart ? percentile(sex, measure, months, metric) : null });
   }
-  return points.sort((a, b) => a.months - b.months || a.record.occurred_at.localeCompare(b.record.occurred_at));
+  points.sort((a, b) => a.months - b.months || a.record!.occurred_at.localeCompare(b.record!.occurred_at));
+  const metric = birthMetric(child.details, measure);
+  if (metric && child.birth_date && !points.some((point) => point.day === child.birth_date)) {
+    const unit = points[points.length - 1]?.unit ?? (measure === "weight" ? "lb" : "in");
+    points.unshift({ record: null, atBirth: true, day: child.birth_date, months: 0, metric, shown: fromMetric(metric, unit), unit, onChart: true,
+      text: birthText(metric, measure, unit), percentile: sex ? percentile(sex, measure, 0, metric) : null });
+  }
+  return points;
 }
 
 /**

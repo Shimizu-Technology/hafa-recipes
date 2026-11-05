@@ -39,7 +39,8 @@ export function GrowthChart({ sex, measure, unit, points, label }: { sex: ChartS
       {lines.map(({ line, values }) => <Path key={line} d={path(values)} fill="none" stroke={c.muted} strokeWidth={line === 50 ? 1.5 : 0.75} opacity={line === 50 ? 0.9 : 0.6} />)}
       {lines.map(({ line, values }) => <SvgText key={`l${line}`} x={width - right + 4} y={y(values[values.length - 1].value) + text / 3} fontSize={text * 0.9} fontFamily={fonts.regular} fill={c.muted}>{String(line)}</SvgText>)}
       {plotted.length > 1 && <Path d={path(plotted.map((point) => ({ months: point.months, value: plottedIn(point, unit) })))} fill="none" stroke={c.accent} strokeWidth={2} />}
-      {plotted.map((point) => <Circle key={point.record.id} cx={x(point.months)} cy={y(plottedIn(point, unit))} r={4.5} fill={c.accent} stroke={c.surface} strokeWidth={1.5} />)}
+      {plotted.filter((point) => point.atBirth).map((point) => <SvgText key="birth" x={x(point.months) + 8} y={y(plottedIn(point, unit)) - 8} fontSize={text} fontFamily={fonts.semibold} fill={c.text}>Birth</SvgText>)}
+      {plotted.map((point) => <Circle key={point.record?.id ?? "birth"} cx={x(point.months)} cy={y(plottedIn(point, unit))} r={4.5} fill={point.atBirth ? c.surface : c.accent} stroke={point.atBirth ? c.accent : c.surface} strokeWidth={point.atBirth ? 2 : 1.5} />)}
     </Svg>}
   </View>;
 }

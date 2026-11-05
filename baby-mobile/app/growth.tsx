@@ -57,9 +57,9 @@ export default function Growth() {
           : <Button secondary size="lg" icon="add" title="Add a measurement" onPress={() => flow.toggle(tracker.id)} />}
       </View>
       {points.length ? <Grouped>
-        {[...points].reverse().map((point) => <Row key={point.record.id} numericTitle numericDetail title={point.text}
-          detail={[keyDate(point.day).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }), point.months >= 0 ? ageWords(point.months) : "", point.percentile !== null ? percentileWords(point.percentile) : point.onChart ? "" : "Outside this chart"].filter(Boolean).join(" · ")}
-          icon="trending-up-outline" onPress={() => router.push({ pathname: "/record/[id]", params: { id: point.record.id } })} />)}
+        {[...points].reverse().map((point) => <Row key={point.record?.id ?? "birth"} numericTitle numericDetail title={point.text}
+          detail={[point.atBirth && "At birth", keyDate(point.day).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }), point.months >= 0 && !point.atBirth ? ageWords(point.months) : "", point.percentile !== null ? percentileWords(point.percentile) : point.onChart ? "" : "Outside this chart"].filter(Boolean).join(" · ")}
+          icon="trending-up-outline" onPress={() => router.push(point.record ? { pathname: "/record/[id]", params: { id: point.record.id } } : { pathname: "/child", params: { id: child.id } })} />)}
       </Grouped> : <Copy kind="small" tone="muted">Measurements you log show up here, and on that day in Tracker.</Copy>}
       {!!sex && chooser}
       <Section title="About these charts">
