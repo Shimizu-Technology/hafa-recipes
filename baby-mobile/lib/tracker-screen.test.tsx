@@ -309,6 +309,20 @@ it("describes a timeline row with what the title doesn't say", () => {
   expect(timelineDetail(row("x", "sleep", started, { end_at: "2026-11-04T03:45:00.000Z" }), { now })).toMatch(/to/);
 });
 
+it("says a one-line note or question once, and keeps a title that adds something", async () => {
+  const label = async (record: BabyRecord) => {
+    let view: ReactTestRenderer;
+    await act(async () => { view = create(React.createElement(TimelineRow, { record, now })); });
+    const text = view!.root.findAll((n) => String(n.type) === "Pressable")[0].props.accessibilityLabel as string;
+    await act(async () => view!.unmount());
+    return text;
+  };
+  const line = "Felt the first real hiccups today.", at = "2026-11-04T02:45:00.000Z";
+  expect((await label(optimisticRecord({ id: "j", kind: "journal", title: line, body: line, child_id: null, occurred_at: at, data: {} }))).split(line)).toHaveLength(2);
+  expect(await label(optimisticRecord({ id: "q", kind: "question", title: "Head down yet?", body: "Head down yet?", child_id: null, occurred_at: at, data: {} }))).not.toContain("· Head down yet?");
+  expect(await label(optimisticRecord({ id: "n", kind: "journal", title: "What my doctor told me", body: "Call at 5-1-1", child_id: null, occurred_at: at, data: {} }))).toContain("What my doctor told me · Call at 5-1-1");
+});
+
 it("opens a day from the calendar, back in the Day view with its quick log", async () => {
   await mount();
   const chips = () => renderer!.root.findAll((n) => String(n.type) === "FilterChips")[0];
