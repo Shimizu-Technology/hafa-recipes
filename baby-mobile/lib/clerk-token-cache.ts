@@ -4,43 +4,30 @@ import type { TokenCache } from "@clerk/expo";
 
 /** The same keychain access as the package's own cache, so a sign-in it saved is found here. */
 const options = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
+/** Well inside the second Clerk's native sync gives a read. */
+const retries = [100, 300];
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * `@clerk/expo`'s cache deletes the credential when a read fails, and a read can fail for reasons that pass, so that would
- * sign her out for good. This one answers null for now and leaves it there. Until a read has worked again, nothing can
- * replace it either: Clerk answers a request with no credential by handing out a new empty client, and its native sync
- * clears what it thinks is gone. She may see sign-in on that one launch, and the next one finds her session.
+ * `@clerk/expo`'s cache deletes the credential when a read fails. This one tries again briefly and then answers null,
+ * leaving it there. It doesn't throw instead: Clerk's load treats that as fatal, and she'd be left on a spinner. Saves and
+ * clears go straight through, so a new empty client answering a tokenless request does replace the credential. That means
+ * a sign-in prompt, and it takes a keychain failure in the foreground that lasts through the retries.
  */
-export function createClerkTokenCache(): TokenCache {
-  const unread = new Set<string>();
+export function createClerkTokenCache(wait = pause): TokenCache {
   return {
     getToken: async (key) => {
-      try {
-        const token = await SecureStore.getItemAsync(key, options);
-        unread.delete(key);
-        return token;
-      } catch {
-        unread.add(key);
-        return null;
-      }
-    },
-    saveToken: async (key, token) => {
-      if (unread.has(key)) {
-        let held: string | null;
+      for (const delay of retries) {
         try {
-          held = await SecureStore.getItemAsync(key, options);
+          return await SecureStore.getItemAsync(key, options);
         } catch {
-          return;
+          await wait(delay);
         }
-        if (held) return;
-        unread.delete(key);
       }
-      await SecureStore.setItemAsync(key, token, options);
+      return SecureStore.getItemAsync(key, options).catch(() => null);
     },
-    clearToken: async (key) => {
-      if (unread.has(key)) return;
-      await SecureStore.deleteItemAsync(key, options);
-    },
+    saveToken: (key, token) => SecureStore.setItemAsync(key, token, options),
+    clearToken: (key) => SecureStore.deleteItemAsync(key, options),
   };
 }
 /** Undefined on web, as with the package's: Clerk keeps it in memory there. */
