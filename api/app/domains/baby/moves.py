@@ -222,15 +222,16 @@ async def move_record(db, access, row, destination, *, just_me=False, batch_ids=
             data["just_me"] = True
         else:
             data.pop("just_me", None)
-    target = replace(access, target=destination)
-    # During Create family, batch relations are validated after the final move.
-    if not batch_ids:
-        await validate_relations(db, target, destination.generation, child_id, data,
-                                 record_id=row.id, kind=row.kind)
     await moved_out(db, row.id, source)
     row.space_id, row.generation, row.data, row.child_id = destination.id, destination.generation, data, child_id
     row.revision, row.updated_at = row.revision + 1, now()
     await touch(row, destination)
+    # The finished move is what's checked: a file the other parent supplied only becomes readable here once its
+    # record is. A refusal raises and nothing commits. During Create family, batch relations are checked after the last move.
+    if not batch_ids:
+        await db.flush()
+        await validate_relations(db, replace(access, target=destination), destination.generation, child_id, data,
+                                 record_id=row.id, kind=row.kind)
     for job in jobs:
         await moved_out(db, job.id, source)
         request = dict(job.request)
