@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
+const mock = vi.hoisted(() => ({ phone: { available: true, added: [] as unknown[], result: "saved" }, title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
 vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
@@ -26,6 +26,7 @@ vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile", openEve
 vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections", VisitLinks: "VisitLinks" }));
 vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
 vi.mock("@/lib/visits", () => import("./visits"));
+vi.mock("@/lib/phone-calendar", () => ({ phoneCalendarAvailable: () => mock.phone.available, phoneEvent: () => ({ title: "from-helper" }), phoneEventLine: () => "Only the title, time and place are copied.", addToPhoneCalendar: async (event: unknown) => { mock.phone.added.push(event); return mock.phone.result; } }));
 vi.mock("@/components/event-fields", () => import("../components/event-fields"));
 const ui = vi.hoisted(() => ({ fonts: {}, typeScale: {}, tap: () => undefined, FilterChips: "FilterChips", Icon: "Icon", PressTarget: "PressTarget", Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
   Screen: ({ children, footer, title }: { children: unknown; footer?: unknown; title?: string }) => { mock.title = title; return [children, footer]; }, useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
@@ -598,5 +599,41 @@ describe("any event works", () => {
     await act(async () => nameField().props.onChange("Baptism"));
     await press("Button", "Save event");
     expect(b.state.outbox[0].space_id).toBeUndefined();
+  });
+});
+
+describe("adding to the phone's calendar", () => {
+  const open = async () => { setup([event({ recurrence: null }, "e")]); mock.params = { id: "e" }; await mount(EventDetail); };
+  const buttons = () => renderer!.root.findAll((n) => n.props.title === "Add to my phone’s calendar");
+  beforeEach(() => { mock.phone = { available: true, added: [], result: "saved" }; });
+  it("is one tap, and says so when it's saved", async () => {
+    await open();
+    await press("Button", "Add to my phone’s calendar");
+    expect(mock.phone.added).toEqual([{ title: "from-helper" }]);
+    expect(mock.toast).toHaveBeenCalledWith("Added to your phone’s calendar.");
+  });
+  it("says nothing when she cancels the sheet, or the phone can't tell", async () => {
+    for (const result of ["canceled", "done"]) {
+      await open();
+      mock.phone.result = result; mock.toast.mockClear();
+      await press("Button", "Add to my phone’s calendar");
+      expect(mock.toast).not.toHaveBeenCalled();
+      await act(async () => renderer!.unmount());
+    }
+  });
+  it("says so plainly when the sheet won't open", async () => {
+    mock.phone.result = "unavailable";
+    await open();
+    await press("Button", "Add to my phone’s calendar");
+    expect(mock.toast).toHaveBeenCalledWith("Your phone’s calendar couldn’t open.");
+  });
+  it("isn't there on a binary without it", async () => {
+    mock.phone.available = false;
+    await open();
+    expect(buttons()).toHaveLength(0);
+  });
+  it("copies nothing until she taps", async () => {
+    await open();
+    expect(mock.phone.added).toEqual([]);
   });
 });

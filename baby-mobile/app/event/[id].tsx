@@ -14,6 +14,7 @@ import { VisitLinks, VisitSections } from "@/components/visit-sections";
 import { useUpcomingEvents } from "@/lib/use-events";
 import { visitAfter, visitNotes, visitQuestions } from "@/lib/visits";
 import { familySpaces } from "../../lib/spaces";
+import { addToPhoneCalendar, phoneCalendarAvailable, phoneEvent, phoneEventLine } from "@/lib/phone-calendar";
 
 /** One event, on the date she opened. A repeating event says which dates a change reaches before making it. */
 export default function EventDetail() {
@@ -41,6 +42,11 @@ export default function EventDetail() {
   async function remove(change: () => Promise<void>, message: string) {
     setError("");
     try { await change(); toast(message); router.back(); } catch (e) { setError(messageFor(e)); }
+  }
+  async function addToPhone() {
+    const result = await addToPhoneCalendar(phoneEvent(row!, shown));
+    if (result === "saved") toast("Added to your phone’s calendar.");
+    if (result === "unavailable") toast("Your phone’s calendar couldn’t open.");
   }
   const deleteAll = () => b.queue({ id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "delete", record: row });
   const scopes = asking && <Card tone="soft" style={{ gap: 8 }}>
@@ -76,6 +82,10 @@ export default function EventDetail() {
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
     {booked && <Row numericDetail title="Next visit" detail={eventWhen(booked, today, timezone)} icon="calendar-outline" onPress={() => openEvent(booked)} />}
     {appointment ? <VisitSections visit={row} /> : <VisitLinks visit={row} />}
+    {phoneCalendarAvailable() && <View style={{ gap: 6 }}>
+      <Button secondary icon="calendar-outline" title="Add to my phone’s calendar" onPress={() => void addToPhone()} />
+      <Copy numeric kind="small" tone="muted">{phoneEventLine(row, shown, today)}</Copy>
+    </View>}
     {asking === "edit" ? scopes : <Button secondary size="lg" icon="pencil-outline" title="Edit event" onPress={() => repeating ? setAsking("edit") : edit()} />}
     {asking === "delete" ? scopes : <Button variant="destructive" title="Delete event" onPress={() => repeating ? setAsking("delete") : Alert.alert("Delete this event?", appointment || visitQuestions(b.records, row.id).length + visitNotes(b.records, row.id).length > 0 ? "This removes it from your calendar. Its questions and notes stay in your Journal." : "This removes it from your calendar.", [
       { text: "Keep it", style: "cancel" },

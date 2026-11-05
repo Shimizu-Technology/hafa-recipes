@@ -24,7 +24,8 @@ const config: ExpoConfig = {
     infoPlist: { ITSAppUsesNonExemptEncryption: false },
     icon: { light: "./assets/icon.png", dark: "./assets/icon-dark.png", tinted: "./assets/icon-tinted.png" },
   },
-  android: { package: "com.shimizutechnology.hafababy", allowBackup: false, predictiveBackGestureEnabled: true },
+  // The calendar module's plugin applies by itself and would ask for these. The add-event sheet needs neither.
+  android: { package: "com.shimizutechnology.hafababy", allowBackup: false, predictiveBackGestureEnabled: true, blockedPermissions: ["android.permission.READ_CALENDAR", "android.permission.WRITE_CALENDAR"] },
   web: { bundler: "metro", output: "single" },
   plugins: [
     "expo-router",
@@ -63,6 +64,8 @@ const config: ExpoConfig = {
     "expo-document-picker",
     "expo-sharing",
     "expo-notifications",
+    // Its plugin applies by itself if it isn't listed, with usage strings for access this app never asks for.
+    ["expo-calendar", { calendarPermission: false, remindersPermission: false }],
     "@react-native-community/datetimepicker",
     ["expo-build-properties", { ios: { deploymentTarget: "17.0" }, android: { minSdkVersion: 26 } }],
     "./plugins/with-baby-share.cjs",
