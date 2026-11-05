@@ -4,6 +4,8 @@ import { AppState, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import { router, useNavigationContainerRef, usePathname, useSegments } from "expo-router";
 import { useBaby } from "@/lib/context";
+import { ApiError } from "@/lib/api";
+import { openPlace, placeReminder } from "@/lib/reminder-open";
 import { useToast } from "./ui";
 import {
   createReminderTapController,
@@ -65,6 +67,17 @@ export function NotificationResponseHandler() {
         fallback: () => {
           if (live.current.pathname !== "/routines") router.push(reminderRoutes.routines);
           live.current.toast("Could not open that reminder. Your saved routines are here.");
+        },
+        lookup: (id) => live.current.baby.api.tappedReminder(id).catch((failure) => {
+          // An answer means it's gone or isn't hers. No answer means this phone can't tell yet.
+          if (failure instanceof ApiError && !failure.local && failure.status !== 0 && failure.status < 500) return null;
+          throw failure;
+        }),
+        place: (item, place) => placeReminder(() => live.current.baby, item, place),
+        openReminder: (place) => openPlace(place, live.current.pathname),
+        today: (message) => {
+          if (live.current.pathname !== "/") router.navigate("/(tabs)/(today)");
+          live.current.toast(message);
         },
         retry: () => live.current.toast("Open Routines to find your reminder, or try this notification again."),
         acknowledge: (key) => {

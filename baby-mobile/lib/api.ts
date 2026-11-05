@@ -22,6 +22,7 @@ import type { CareDay } from "./tracker";
 import type { CareStats, StatsChoice } from "./care-stats";
 import type { ChangesAnswer } from "./changes";
 import { disclosureVersion, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "./family";
+import type { TappedReminder } from "./notification-route";
 import type { Moved } from "./outbox";
 import { rowFence, spacesLive, unavailableMessage } from "./spaces";
 import { dailyAiLimitMessage } from "./import-status";
@@ -394,6 +395,7 @@ export function createBabyApi(
       request<{ registration: string }>(`/push/devices/${encodeURIComponent(installation)}`, "PUT", { token, platform }, generation),
     unregisterPushDevice: (installation: string, registration: string) =>
       request<void>(`/push/devices/${encodeURIComponent(installation)}?` + query({ registration }), "DELETE"),
+    tappedReminder: (id: string) => request<TappedReminder>(`/reminders/${encodeURIComponent(id)}/tap`),
     pushPrefs: () => request<ReminderPrefs>("/push/prefs"),
     savePushPrefs: (patch: PrefsPatch, g: Fence) => request<ReminderPrefs>("/push/prefs", "PATCH", patch, g),
     readiness: (installation_id?: string) => request<FamilyReadiness>("/family/readiness?" + query({ installation_id })),
