@@ -107,7 +107,7 @@ export function reminderDestination(item: Pick<TappedReminder, "kind" | "data">)
     const record = id(data.record_id);
     return record ? { path: `/record/${record}`, pathname: "/record/[id]", params: { id: record } } : null;
   }
-  if (kind === "visit_prep") return typeof data.date === "string" ? { path: "/tracker", pathname: "/tracker", params: { day: data.date } } : null;
+  if (kind === "visit_prep") return typeof data.date === "string" ? { path: "/tracker", pathname: "/tracker", params: { day: data.date, at: String(Date.now()) } } : null;
   if (kind === "feed_interval" || kind === "running_timer" || kind === "pregnancy_week") return today(data.child_id);
   if (kind === "milestone_window") return { path: "/milestones", pathname: "/milestones" };
   if (kind === "well_visit") return { path: "/well-visits", pathname: "/well-visits" };
