@@ -9,7 +9,9 @@ const native = vi.hoisted(() => ({
 }));
 vi.mock("expo-notifications", () => native);
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
+vi.mock("expo-crypto", () => ({ randomUUID: () => "id" }));
 import { clearReminders, reconcileCopies, cancelCopy } from "./reminders";
+import { fencedState, withoutFamily } from "./outbox";
 import { reminderPresentation, wantedCopies } from "./reminder-copies";
 
 const now = new Date("2026-11-06T00:00:00Z");
@@ -119,5 +121,60 @@ describe("a reminder with the app open", () => {
     expect(reminderPresentation({ babyOwner: "o", recordId: "r" })).toEqual(silent);
     expect(reminderPresentation({ refresh: true })).toEqual(silent);
     expect(reminderPresentation(undefined)).toEqual(silent);
+  });
+});
+
+describe("what's changed on this phone since the list came", () => {
+  const off = { enabled: false, break_through: false, hours: null, feed_hours: null, sleep_hours: null };
+  const queued = (patch: object) => ({ id: "off", generation: 1, type: "reminder_prefs" as const, patch });
+  it("turning a kind off with no signal drops its copy", () => {
+    const state = held([up("e"), up("t", { kind: "running_timer" })], { outbox: [queued({ kinds: { event: { enabled: false } } })] });
+    expect(wantedCopies(state, true, now).map((item) => item.identity)).toEqual(["t"]);
+  });
+  it("one the API's copy already has off stays off", () => {
+    const state = held([up("e")], { reminderPrefs: { quiet_hours: null, kinds: { event: off } } });
+    expect(wantedCopies(state, true, now)).toEqual([]);
+  });
+  it("turned back on before it went, it stays", () => {
+    const state = held([up("e")], { reminderPrefs: { quiet_hours: null, kinds: { event: off } }, outbox: [queued({ kinds: { event: { enabled: true } } })] });
+    expect(wantedCopies(state, true, now).map((item) => item.identity)).toEqual(["e"]);
+  });
+  it("with no settings kept at all it goes by what the API listed", () => {
+    expect(wantedCopies(held([up("e")]), true, now).map((item) => item.identity)).toEqual(["e"]);
+  });
+  it("new hours with no signal move the feed copy from that feed", () => {
+    const fed = later(-1);
+    const state = held([up("f", { kind: "feed_interval", data: { record_id: "feed", child_id: "baby" }, fire_at: later(2) })], {
+      reminderPrefs: { quiet_hours: null, kinds: { feed_interval: { ...off, enabled: true, hours: 3 } } },
+      records: [{ id: "feed", kind: "feeding", occurred_at: fed } as any],
+      outbox: [queued({ kinds: { feed_interval: { hours: 5 } } })],
+    });
+    expect(wantedCopies(state, true, now)[0].fire_at).toBe(later(4));
+  });
+  it("quiet hours set with no signal hold a copy until they end", () => {
+    const state = held([up("e", { fire_at: "2026-11-06T02:00:00.000Z" }), up("urgent", { fire_at: "2026-11-06T02:00:00.000Z", time_sensitive: true })], {
+      outbox: [queued({ quiet_hours: { start: "01:00", end: "03:00", timezone: "UTC" } })],
+    });
+    const copies = wantedCopies(state, true, now);
+    expect(copies.find((item) => item.identity === "e")?.fire_at).toBe("2026-11-06T03:00:00.000Z");
+    expect(copies.find((item) => item.identity === "urgent")?.fire_at).toBe("2026-11-06T02:00:00.000Z");
+  });
+  it("one for a space she's left, or a kind a caregiver doesn't hear, isn't held", () => {
+    const bootstrap = { personal_space_id: "personal", spaces: [{ id: "personal", kind: "personal", role: "parent" }, { id: "fam", kind: "family", role: "caregiver" }] } as any;
+    const state = held([up("gone", { space_id: "left" }), up("feed", { kind: "feed_interval", space_id: "fam" }), up("event", { space_id: "fam" })], { bootstrap });
+    expect(wantedCopies(state, true, now).map((item) => item.identity)).toEqual(["event"]);
+  });
+});
+describe("copies and lost access", () => {
+  const family = { id: "family", kind: "family", role: "parent", generation: 1, access_version: 1 }, personal = { ...family, id: "personal", kind: "personal" };
+  const state = () => held([up("f", { space_id: "family" }), up("p", { space_id: "personal" })], { bootstrap: { generation: 1, children: [], personal_space_id: "personal", spaces: [personal, family] } as any });
+  it("leaving a family takes its copies' list with it", () => {
+    expect(withoutFamily(state(), "family", () => "id").upcomingReminders!.map((item) => item.identity)).toEqual(["p"]);
+  });
+  it("a family's generation changing does too", () => {
+    expect(fencedState(state(), { generation: 1, spaces: [personal, { ...family, generation: 2 }] } as any).upcomingReminders!.map((item) => item.identity)).toEqual(["p"]);
+  });
+  it("the personal generation changing clears the list", () => {
+    expect(fencedState(state(), 2).upcomingReminders).toBeUndefined();
   });
 });

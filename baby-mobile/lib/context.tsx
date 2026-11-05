@@ -804,7 +804,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     // Off, with nothing kept, is a phone that has never heard of any of this: it doesn't even look.
     if (!ready || !owner || closing.current || (!remindersOn(state.bootstrap) && !state.upcomingReminders)) return;
     void reconcileCopies(owner, remindersOn(state.bootstrap) && state.bootstrap?.active !== false ? wantedCopies(state, offlineNow, new Date()) : []);
-  }, [state.upcomingReminders, state.outbox, state.dismissing, state.bootstrap?.reminders?.push, offlineNow, owner, ready]);
+  }, [state.upcomingReminders, state.outbox, state.dismissing, state.reminderPrefs, state.bootstrap?.spaces, state.bootstrap?.reminders?.push, offlineNow, owner, ready]);
   async function clean() {
     // First, while it can still reach the API as this person.
     await pushDevice.end();
