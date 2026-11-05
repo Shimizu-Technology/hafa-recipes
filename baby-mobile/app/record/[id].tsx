@@ -229,7 +229,7 @@ export default function RecordDetail() {
       )}
       {(record.kind === "question" || !!data.event_id) && <RecordVisit record={record} />}
       {!!loggedByName(record, b.state.bootstrap, b.owner) && <Copy kind="small" tone="muted">{`Logged by ${loggedByName(record, b.state.bootstrap, b.owner)}`}</Copy>}
-      {(() => { const other = duplicateOf(record, b.records), name = other && loggedByName(other, b.state.bootstrap, b.owner);
+      {(() => { const other = duplicateOf(record, b.records, b.owner), name = other && loggedByName(other, b.state.bootstrap, b.owner);
         return !!other && !!name && name !== loggedByName(record, b.state.bootstrap, b.owner) && <Notice>{duplicateHint(other, b.state.bootstrap, b.owner)}</Notice>; })()}
       <ShareToggle record={record} />
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}

@@ -28,29 +28,43 @@ describe("who logged it", () => {
 describe("the same thing logged twice", () => {
   const mine = row("mine", "me"), theirs = (minutes: number, over: Partial<BabyRecord> = {}, data?: RecordData) => row("theirs", "them", { occurred_at: at(minutes), ...over }, data);
   it("finds the other parent's within ten minutes, either side", () => {
-    expect(duplicateOf(mine, [mine, theirs(7)])?.id).toBe("theirs");
-    expect(duplicateOf({ ...mine, occurred_at: at(9) }, [theirs(0)])?.id).toBe("theirs");
+    expect(duplicateOf(mine, [mine, theirs(7)], "me")?.id).toBe("theirs");
+    expect(duplicateOf({ ...mine, occurred_at: at(9) }, [theirs(0)], "me")?.id).toBe("theirs");
   });
-  it("leaves two logged further apart alone", () => expect(duplicateOf(mine, [mine, theirs(11)])).toBeUndefined());
-  it("leaves two by the same person alone: that's a second diaper", () => expect(duplicateOf(mine, [mine, row("again", "me", { occurred_at: at(1) })])).toBeUndefined());
-  it("leaves another baby's alone", () => expect(duplicateOf(mine, [theirs(1, { child_id: "other" })])).toBeUndefined());
-  it("leaves another kind alone", () => expect(duplicateOf(mine, [theirs(1, { kind: "sleep" })])).toBeUndefined());
+  it("leaves two logged further apart alone", () => expect(duplicateOf(mine, [mine, theirs(11)], "me")).toBeUndefined());
+  it("leaves two by the same person alone: that's a second diaper", () => expect(duplicateOf(mine, [mine, row("again", "me", { occurred_at: at(1) })], "me")).toBeUndefined());
+  it("leaves another baby's alone", () => expect(duplicateOf(mine, [theirs(1, { child_id: "other" })], "me")).toBeUndefined());
+  it("leaves another kind alone", () => expect(duplicateOf(mine, [theirs(1, { kind: "sleep" })], "me")).toBeUndefined());
   it("tells a bottle from a breastfeed, and one custom log from another", () => {
     const feed = row("f", "me", { kind: "feeding" }, { method: "breast" });
-    expect(duplicateOf(feed, [row("g", "them", { kind: "feeding", occurred_at: at(1) }, { method: "bottle" })])).toBeUndefined();
-    expect(duplicateOf(feed, [row("g", "them", { kind: "feeding", occurred_at: at(1) }, { method: "breast" })])).toBeDefined();
+    expect(duplicateOf(feed, [row("g", "them", { kind: "feeding", occurred_at: at(1) }, { method: "bottle" })], "me")).toBeUndefined();
+    expect(duplicateOf(feed, [row("g", "them", { kind: "feeding", occurred_at: at(1) }, { method: "breast" })], "me")).toBeDefined();
     const dose = row("d", "me", { kind: "medicine" }, { label: "A" } as RecordData);
-    expect(duplicateOf(dose, [row("e", "them", { kind: "medicine", occurred_at: at(1) }, { label: "B" } as RecordData)])).toBeUndefined();
+    expect(duplicateOf(dose, [row("e", "them", { kind: "medicine", occurred_at: at(1) }, { label: "B" } as RecordData)], "me")).toBeUndefined();
   });
   it("tells a dry diaper from a dirty one", () => {
-    expect(duplicateOf(mine, [theirs(1, {}, { type: "dirty" })])).toBeUndefined();
+    expect(duplicateOf(mine, [theirs(1, {}, { type: "dirty" })], "me")).toBeUndefined();
+  });
+  it("tells formula from breast milk in a bottle", () => {
+    const bottle = row("b", "me", { kind: "feeding" }, { method: "bottle", contents: "formula" });
+    expect(duplicateOf(bottle, [row("c", "them", { kind: "feeding", occurred_at: at(1) }, { method: "bottle", contents: "breast_milk" })], "me")).toBeUndefined();
+    expect(duplicateOf(bottle, [row("c", "them", { kind: "feeding", occurred_at: at(1) }, { method: "bottle", contents: "formula" })], "me")).toBeDefined();
+  });
+  it("doesn't let her own queued log, matching her own saved one, hide the other parent's", () => {
+    const queued = row("queued", undefined);
+    const mine2 = row("saved", "me", { occurred_at: at(1) }), theirs2 = row("theirs", "them", { occurred_at: at(2) });
+    expect(duplicateOf(queued, [mine2, theirs2], "me")?.id).toBe("theirs");
+    expect(duplicateOf(mine2, [queued, theirs2], "me")?.id).toBe("theirs");
+  });
+  it("counts her queued log as hers, so it isn't a duplicate of her saved one", () => {
+    expect(duplicateOf(row("queued", undefined), [row("saved", "me", { occurred_at: at(1) })], "me")).toBeUndefined();
   });
   it("has nothing to say outside the family", () => {
-    expect(duplicateOf({ ...mine, space_id: personal }, [theirs(1, { space_id: personal })], new Set([family]))).toBeUndefined();
-    expect(duplicateOf(mine, [theirs(1)], new Set([family]))).toBeDefined();
+    expect(duplicateOf({ ...mine, space_id: personal }, [theirs(1, { space_id: personal })], "me", new Set([family]))).toBeUndefined();
+    expect(duplicateOf(mine, [theirs(1)], "me", new Set([family]))).toBeDefined();
   });
   it("doesn't count a kick session, event or note, where two at once are two", () => {
-    for (const kind of ["kick_session", "event", "journal", "source"] as const) expect(duplicateOf(row("a", "me", { kind }), [row("b", "them", { kind, occurred_at: at(1) })])).toBeUndefined();
+    for (const kind of ["kick_session", "event", "journal", "source"] as const) expect(duplicateOf(row("a", "me", { kind }), [row("b", "them", { kind, occurred_at: at(1) })], "me")).toBeUndefined();
   });
   it("asks rather than says, and says nothing about what's normal", () => {
     expect(duplicateHint(theirs(3), boot(), "me")).toBe("Leon logged one too, at about the same time. If it’s the same one, you can delete this one.");

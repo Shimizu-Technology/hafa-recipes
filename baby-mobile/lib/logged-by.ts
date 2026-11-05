@@ -14,11 +14,12 @@ export function loggedByName(row: Pick<BabyRecord, "space_id" | "created_by">, b
 const duplicable = new Set<Kind>(["feeding", "sleep", "diaper", "pumping", "medicine", "temperature"]);
 const windowMs = 10 * 60_000;
 /** The other parent's entry for what looks like the same moment. It's only ever a hint: nothing is merged or removed. */
-export function duplicateOf(row: BabyRecord, rows: readonly BabyRecord[], families?: ReadonlySet<string>) {
+export function duplicateOf(row: BabyRecord, rows: readonly BabyRecord[], owner: string, families?: ReadonlySet<string>) {
   if (!duplicable.has(row.kind) || (families && !families.has(row.space_id ?? ""))) return undefined;
-  const at = new Date(row.occurred_at).getTime();
+  // Still queued here means hers, so her own two never look like two people's.
+  const at = new Date(row.occurred_at).getTime(), author = (one: BabyRecord) => (one.created_by === undefined ? owner : one.created_by);
   return rows.find((other) => other.id !== row.id && other.kind === row.kind && other.child_id === row.child_id && other.space_id === row.space_id &&
-    (other.created_by ?? null) !== (row.created_by ?? null) && other.data.method === row.data.method && other.data.label === row.data.label && other.data.type === row.data.type &&
+    author(other) !== author(row) && other.data.method === row.data.method && other.data.contents === row.data.contents && other.data.label === row.data.label && other.data.type === row.data.type &&
     (row.kind !== "medicine" || other.title === row.title) && Math.abs(new Date(other.occurred_at).getTime() - at) <= windowMs);
 }
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -29,6 +30,6 @@ export const duplicateHint = (other: BabyRecord, bootstrap: Bootstrap | undefine
 export function familyLine(row: BabyRecord, rows: readonly BabyRecord[], bootstrap: Bootstrap | undefined, owner: string) {
   const name = loggedByName(row, bootstrap, owner);
   if (!name) return "";
-  const other = duplicateOf(row, rows), twice = other && loggedByName(other, bootstrap, owner);
+  const other = duplicateOf(row, rows, owner), twice = other && loggedByName(other, bootstrap, owner);
   return [name === "you" ? "" : `Logged by ${name}`, twice && twice !== name ? `${capital(twice)} logged one too` : ""].filter(Boolean).join(" · ");
 }
