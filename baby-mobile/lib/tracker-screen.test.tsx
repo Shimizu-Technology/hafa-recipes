@@ -346,6 +346,9 @@ describe("the extra logs on the timeline", () => {
     expect(label({ ...entry("x", "custom", at, { label: "Note" }, "Spit up"), title: "Note" } as never)).toBe("12:30 PM, Note. Spit up");
     expect(label({ ...entry("x", "medicine", at, { name: "Tylenol" }, "after a feed"), title: "Tylenol" } as never)).toBe("12:30 PM, Medicine · Tylenol. after a feed");
   });
+  it("keeps a custom entry's own title beside its numbers", () => {
+    expect(label({ ...entry("x", "custom", at, { label: "Bath", value: 2, unit: "min" }), title: "First bath with Dad" } as never)).toBe("12:30 PM, Bath · 2 min. First bath with Dad");
+  });
   it("11, 13: says whose it is when that isn't the baby on screen", () => {
     expect(label({ ...entry("x", "custom", at, { label: "Blood pressure" }), title: "118/76", child_id: null } as never)).toBe("12:30 PM, Blood pressure. 118/76 · For you");
     expect(label({ ...entry("x", "medicine", at, { name: "Tylenol" }), title: "Tylenol", child_id: null } as never)).toBe("12:30 PM, Medicine · Tylenol. From a removed profile");

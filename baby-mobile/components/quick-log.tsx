@@ -190,17 +190,17 @@ export function Panel({ title, detail, at, now, day, timeZone, needTime, onTime,
 }
 
 /** An amount to step up or down, whose middle changes the unit. */
-export function AmountStepper({ amount, onChange, note }: { amount: Pick<BottleChoice, "amount" | "unit">; onChange: (next: Pick<BottleChoice, "amount" | "unit">) => void; note?: string }) {
+export function AmountStepper({ amount, onChange, note, steps }: { amount: Pick<BottleChoice, "amount" | "unit">; onChange: (next: Pick<BottleChoice, "amount" | "unit">) => void; note?: string; steps?: Record<"oz" | "ml", number> }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     unitWord = amount.unit === "oz" ? "oz" : "mL",
-    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); onChange({ ...amount, amount: stepAmount(amount, direction) }); }}
+    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); onChange({ ...amount, amount: stepAmount(amount, direction, steps) }); }}
       style={{ width: 64, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
       <Icon name={direction > 0 ? "add" : "remove"} size={24} color={c.text} />
     </PressTarget>;
   return <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: c.tile }}>
     {step(-1, "Less")}
     <PressTarget accessibilityRole="button" accessibilityLabel={`${amount.amount} ${unitWord}`} accessibilityHint={`Changes to ${amount.unit === "oz" ? "milliliters" : "ounces"}`}
-      onPress={() => { tap(); onChange(changeUnit(amount)); }} style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
+      onPress={() => { tap(); onChange(changeUnit(amount, steps)); }} style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
       <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{`${amount.amount} ${unitWord}`}</Text>
       <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{note ?? "Tap to change unit"}</Text>
     </PressTarget>

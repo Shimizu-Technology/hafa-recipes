@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
-import { careSummary } from "@/lib/care-format";
+import { careSummary, summaryHoldsTitle } from "@/lib/care-format";
 import { kindName, type BabyRecord } from "@/lib/models";
 import { feedProgress } from "@/lib/feed-reducer";
 import { addDays, clockIn, keyDate, recordDay, weekOf } from "@/lib/tracker";
@@ -71,7 +71,7 @@ export function TimelineRow({ record, rows, day, timeZone, pending, now }: { rec
     summary = careSummary(record.kind, record.data, record.occurred_at, now, timeZone),
     title = summary || (record.data.label ?? kindName[record.kind]),
     // What she typed and any note on it, both, so a note never hides a reading.
-    detail = [summary || record.title === title ? "" : record.title, timelineDetail(record, { rows, day, timeZone, now }), whoseLog(record), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
+    detail = [summaryHoldsTitle(record.kind, record.title, summary) || record.title === title ? "" : record.title, timelineDetail(record, { rows, day, timeZone, now }), whoseLog(record), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
   return <PressTarget accessibilityRole="button" accessibilityLabel={`${when ? `${when}, ` : ""}${title}${detail ? `. ${detail}` : ""}`} accessibilityHint="Opens this entry to change it"
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: stacked ? 4 : 10, minHeight: 62, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: c.surface }}>

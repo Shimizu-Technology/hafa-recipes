@@ -286,3 +286,30 @@ describe("editing one of the extra logs", () => {
     expect(saved(account)).toMatchObject({ title: "Hep B dose 2", child_id: "baby", data: { label: "Shot" } });
   });
 });
+
+describe("from the re-check of #543: typed log input outlives the editor", () => {
+  const bp = () => ({ ...optimisticRecord({ id: "bp", kind: "custom", title: "118/76", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00Z", data: { label: "Blood pressure" } }), revision: 1 });
+  const top = () => found("Field", (p) => p.label === "Top number");
+  it("brings back a cleared number, and still won't save it", async () => {
+    const account = setup([bp()]);
+    mock.params = { id: "bp", kind: "custom" };
+    await mount(Edit);
+    await act(async () => top().props.onChange(""));
+    await act(async () => renderer!.unmount());
+    await mount(Edit);
+    expect(top().props.value).toBe("");
+    await press("Button", "Save changes");
+    expect(account.state.outbox).toEqual([]);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Enter both numbers");
+  });
+  it("never sends the typed form to the API", async () => {
+    const account = setup([bp()]);
+    mock.params = { id: "bp", kind: "custom" };
+    await mount(Edit);
+    await act(async () => top().props.onChange("120"));
+    await press("Button", "Save changes");
+    const record = account.state.outbox.find((m: Mutation) => m.type === "save")?.record;
+    expect(record).toMatchObject({ title: "120/76", data: { label: "Blood pressure" } });
+    expect(record).not.toHaveProperty("log_form");
+  });
+});

@@ -107,6 +107,9 @@ export function careSummary(kind: Kind, data: RecordData, occurredAt: string, no
   return "";
 }
 
+/** Whether a row's one-line summary already says its title. Most do. A custom entry's numbers don't, so its own title still shows. */
+export const summaryHoldsTitle = (kind: Kind, title: string, summary: string) => !!summary && (kind !== "custom" || summary.includes(title));
+
 export function isCare(kind: Kind) {
   return kind === "feeding" || kind === "sleep" || kind === "diaper";
 }

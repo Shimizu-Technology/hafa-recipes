@@ -257,3 +257,125 @@ describe("from the review of #543", () => {
     expect(new Date(saved()[0].occurred_at).getTime()).toBeLessThan(before + 60_000);
   });
 });
+
+describe("from the re-check of #543", () => {
+  const now = new Date("2026-11-04T17:00:00.000Z");
+  const other = { id: "other", name: "Noa", revision: 1, birth_date: "2026-11-01" };
+  const history = (kind: string, data: object) => ({ id: "history", kind, title: kind, body: "", child_id: "baby", occurred_at: "2026-11-04T15:00:00Z", data, revision: 1, created_at: "", updated_at: "" });
+  const again = (who = child) => act(async () => renderer!.update(<MoreLogs child={who} now={now} stage="born" />));
+  it("High: a medicine typed for one baby can't be saved on another after switching", async () => {
+    setup();
+    await mount();
+    await press("Medicine");
+    await type("Name", "Draft meant for Mia");
+    await again(other);
+    await save("Save medicine");
+    expect(saved()).toEqual([]);
+    expect(renderer!.root.findAll((n) => String(n.type) === "Field").find((n) => n.props.label === "Name")!.props.value).toBe("");
+  });
+  it("High: an amount set for one baby isn't what gets saved for the other", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await press("More");
+    await again(other);
+    await press("Left");
+    expect(saved()[0]).toMatchObject({ child_id: "other", data: { amount: 3 } });
+  });
+  it("High: a time picked for one baby doesn't carry to the other", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await press("Change time, Now");
+    await press("5 min ago");
+    await again(other);
+    const before = Date.now();
+    await press("Left");
+    expect(new Date(saved()[0].occurred_at).getTime()).toBeGreaterThanOrEqual(before - 1000);
+  });
+  it("High: her own log keeps what she typed when the baby on screen changes, since it isn't that baby's", async () => {
+    setup();
+    await mount(undefined, "expecting");
+    await press("My weight");
+    await type("Weight", "145.5");
+    await act(async () => renderer!.update(<MoreLogs child={other} now={now} stage="expecting" />));
+    await save("Save my weight");
+    expect(saved()[0]).toMatchObject({ child_id: null, data: { value: 145.5 } });
+  });
+  it("pumping can go down to 5 mL and 0.25 oz", async () => {
+    setup();
+    scope.rows = [history("pumping", { side: "both", amount: 20, unit: "ml" })];
+    await mount();
+    await press("Pumping");
+    await press("Less");
+    await press("Less");
+    await press("Less");
+    await press("Less");
+    await press("Left");
+    expect(saved()[0].data).toMatchObject({ amount: 5, unit: "ml" });
+    await act(async () => renderer!.unmount());
+    setup();
+    scope.rows = [history("pumping", { side: "both", amount: 0.75, unit: "oz" })];
+    await mount();
+    await press("Pumping");
+    await press("Less");
+    await press("Less");
+    await press("Less");
+    await press("Left");
+    expect(saved()[0].data).toMatchObject({ amount: 0.25, unit: "oz" });
+  });
+  it("a bottle keeps its coarser steps", async () => {
+    const { stepAmount } = await import("./quick-care");
+    expect(stepAmount({ amount: 20, unit: "ml" }, -1)).toBe(10);
+    expect(stepAmount({ amount: 10, unit: "ml" }, -1)).toBe(10);
+    expect(stepAmount({ amount: 1, unit: "oz" }, -1)).toBe(0.5);
+  });
+  it("history arriving after the panel opens seeds an untouched amount", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    scope.rows = [history("pumping", { side: "both", amount: 35, unit: "ml" })];
+    await again();
+    await press("Left");
+    expect(saved()[0].data).toMatchObject({ amount: 35, unit: "ml" });
+  });
+  it("history arriving after the panel opens leaves an amount she changed alone", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await press("More");
+    scope.rows = [history("pumping", { side: "both", amount: 35, unit: "ml" })];
+    await again();
+    await press("Left");
+    expect(saved()[0].data).toMatchObject({ amount: 3.25, unit: "oz" });
+  });
+  it("history arriving after the panel opens seeds an untouched temperature scale", async () => {
+    setup();
+    await mount();
+    await press("Temperature");
+    scope.rows = [history("temperature", { value: 37, unit: "c" })];
+    await again();
+    await type("Temperature", "37.5");
+    await save("Save temperature");
+    expect(saved()[0]?.data).toMatchObject({ value: 37.5, unit: "c" });
+  });
+  it("history arriving after she typed leaves what she typed alone", async () => {
+    setup();
+    await mount();
+    await press("Temperature");
+    await type("Temperature", "99.1");
+    scope.rows = [history("temperature", { value: 37, unit: "c" })];
+    await again();
+    await save("Save temperature");
+    expect(saved()[0]?.data).toMatchObject({ value: 99.1, unit: "f" });
+  });
+  it("replacing one open panel with another brings the new one into view", async () => {
+    setup();
+    const onOpen = vi.fn();
+    await act(async () => { renderer = create(<MoreLogs child={child} now={now} stage="born" onOpen={onOpen} />); });
+    await press("Growth");
+    onOpen.mockClear();
+    await press("Medicine");
+    expect(onOpen).toHaveBeenCalledWith(true, expect.any(Number));
+  });
+});

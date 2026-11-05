@@ -137,14 +137,17 @@ export function pumpStart(rows: BabyRecord[], childId: string | null): BottleCho
   return typeof amount === "number" && amount > 0 ? { amount, unit, fromLast: true } : { amount: firstAmount[unit], unit, fromLast: false };
 }
 
-export function stepAmount(choice: Pick<BottleChoice, "amount" | "unit">, direction: 1 | -1) {
-  const step = bottleStep[choice.unit];
+/** Pumping can be a small amount, especially early on. */
+export const pumpStep = { oz: 0.25, ml: 5 } as const;
+
+export function stepAmount(choice: Pick<BottleChoice, "amount" | "unit">, direction: 1 | -1, steps: Record<"oz" | "ml", number> = bottleStep) {
+  const step = steps[choice.unit];
   return Math.max(step, Math.round((choice.amount + direction * step) / step) * step);
 }
 
 /** The same bottle in the other unit, on the nearest step. */
-export function changeUnit(choice: Pick<BottleChoice, "amount" | "unit">): Pick<BottleChoice, "amount" | "unit"> {
-  const unit = choice.unit === "oz" ? "ml" : "oz", step = bottleStep[unit],
+export function changeUnit(choice: Pick<BottleChoice, "amount" | "unit">, steps: Record<"oz" | "ml", number> = bottleStep): Pick<BottleChoice, "amount" | "unit"> {
+  const unit = choice.unit === "oz" ? "ml" : "oz", step = steps[unit],
     converted = choice.unit === "oz" ? choice.amount * ozToMl : choice.amount / ozToMl;
   return { unit, amount: Math.max(step, Math.round(converted / step) * step) };
 }

@@ -566,3 +566,15 @@ it("keeps Ask history named and the composer scalable at accessibility sizes", a
   await act(async () => renderer!.update(<AskEntry />));
   expect(renderer!.root.findByType("TextInput" as React.ElementType)).not.toBe(input);
 });
+
+it("shows a custom entry's own title beside its numbers, and doesn't repeat a medicine's name", async () => {
+  const bath = optimisticRecord({ id: "bath", kind: "custom", title: "First bath with Dad", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00Z", data: { label: "Bath", value: 2, unit: "min" } as never });
+  mock.baby.records = [bath]; mock.baby.state = { ...mock.baby.state, records: [bath] }; mock.params = { id: bath.id };
+  await mount(<RecordDetail />);
+  expect(JSON.stringify(renderer!.toJSON())).toContain("First bath with Dad");
+  await act(async () => renderer!.unmount());
+  const dose = optimisticRecord({ id: "dose", kind: "medicine", title: "Vitamin D", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00Z", data: { name: "Vitamin D" } as never });
+  mock.baby.records = [dose]; mock.baby.state = { ...mock.baby.state, records: [dose] }; mock.params = { id: dose.id };
+  await mount(<RecordDetail />);
+  expect((JSON.stringify(renderer!.toJSON()).match(/Vitamin D/g) ?? []).length).toBe(1);
+});

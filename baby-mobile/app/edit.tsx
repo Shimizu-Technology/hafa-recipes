@@ -279,7 +279,7 @@ export default function Edit() {
       const splitId = Crypto.randomUUID();
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
         const from = given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records);
-        const { files, existing: _, revision, base, event_edit: __, ...record } = from;
+        const { files, existing: _, revision, base, event_edit: __, log_form: ___, ...record } = from;
         return {
           id, generation, type: "save",
           record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindWord(from.kind)),
@@ -387,10 +387,19 @@ export default function Edit() {
     try {
       const id = openedAs.current!.tracker!.id, made = dataFrom(id, form, base);
       logFormProblem.current = "";
-      change({ data: made, title: logTitle(id, form) });
-    } catch (e) { logFormProblem.current = messageFor(e); }
+      change({ data: made, title: logTitle(id, form), log_form: form });
+    } catch (e) {
+      // Kept with the draft, so a half-typed or cleared number comes back as she left it.
+      logFormProblem.current = messageFor(e);
+      change({ log_form: form });
+    }
   }
-  if (draft && openedAs.current?.id !== draft.id) openedAs.current = { id: draft.id, tracker: trackerFor(draft) };
+  if (draft && openedAs.current?.id !== draft.id) {
+    const opened = trackerFor(draft);
+    openedAs.current = { id: draft.id, tracker: opened };
+    // A form that couldn't be saved when it was left still can't.
+    if (draft.log_form && opened) { try { dataFrom(opened.id, draft.log_form, draft.data); logFormProblem.current = ""; } catch (e) { logFormProblem.current = messageFor(e); } }
+  }
   const log = draft ? openedAs.current?.tracker : undefined, isLog = log?.opens === "panel";
   const notesField = draft && ((!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
         <Field
@@ -462,7 +471,7 @@ export default function Edit() {
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}
       {writing && <Button variant="ghost" title={showDetails ? "Hide optional details" : "Add photo, title or details"} onPress={() => setShowDetails(!showDetails)} />}
-      {isLog && log!.id !== "note" && <LogFields id={log!.id} start={formFrom(log!.id, draft.data, draft.title)} onChange={(form) => logForm(form, draft.data)} />}
+      {isLog && log!.id !== "note" && <LogFields id={log!.id} start={draft.log_form ?? formFrom(log!.id, draft.data, draft.title)} onChange={(form) => logForm(form, draft.data)} />}
       {!isLog && ((!["feeding", "sleep", "diaper", "journal", "question", "source"].includes(draft.kind)) || showDetails) && (
         <Field
           label={["feeding", "sleep", "diaper"].includes(draft.kind) ? "Label (optional)" : writing ? "Title (optional)" : "Title"}

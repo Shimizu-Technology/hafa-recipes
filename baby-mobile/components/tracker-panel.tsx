@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
-import { careWrite, logCare, pumpStart, type BottleChoice } from "@/lib/quick-care";
+import { careWrite, logCare, pumpStart, pumpStep, type BottleChoice } from "@/lib/quick-care";
 import { friendlyTime, timeAgo } from "@/lib/care-format";
 import { dataFrom, feelingWords, lastDose, lastLog, logTitle, noteLabel, recentCustomLabels, recentMedicines, recentVitamins, startForm, type LogForm } from "@/lib/more-logs";
 import type { Tracker } from "@/lib/trackers";
@@ -32,10 +32,11 @@ function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, 
   /** A line under the fields that follows what she's typing. */
   hint?: (form: LogForm) => string | undefined;
   panelProps: PanelProps; saveAs: (form: LogForm) => void }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), [form, setForm] = useState(start), [problem, setProblem] = useState("");
+  // Follows `start` until she changes something, since what she last used can arrive after the panel opens.
+  const c = useColors(), { fontScale } = useWindowDimensions(), [typed, setTyped] = useState<LogForm | null>(null), [problem, setProblem] = useState(""), form = typed ?? start;
   return <Panel title={title} detail={detail} {...panelProps}>
     {children}
-    <OnSurface><LogFields id={id} start={start} autoFocus={autoFocus} onChange={(next) => { setForm(next); setProblem(""); }} /></OnSurface>
+    <OnSurface><LogFields id={id} start={start} autoFocus={autoFocus} onChange={(next) => { setTyped(next); setProblem(""); }} /></OnSurface>
     {!!hint?.(form) && <Text key={`h:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{hint(form)}</Text>}
     {!!problem && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>{problem}</Text>}
     <Button size="lg" icon="checkmark" title="Save" accessibilityLabel={`Save ${title.toLowerCase()}`} onPress={() => { try { saveAs(form); } catch (e) { setProblem(messageFor(e)); } }} />
@@ -44,10 +45,11 @@ function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, 
 
 /** The amount from last time, and a side. Choosing a side saves it. */
 function PumpPanel({ start, detail, panelProps, onSave }: { start: BottleChoice; detail?: string; panelProps: PanelProps; onSave: (side: keyof typeof sideWords, amount: Pick<BottleChoice, "amount" | "unit">) => void }) {
-  const [amount, setAmount] = useState({ amount: start.amount, unit: start.unit }),
+  // Follows `start` until she changes it, since the last amount can arrive after the panel opens.
+  const [changed, setAmount] = useState<Pick<BottleChoice, "amount" | "unit"> | null>(null), amount = changed ?? { amount: start.amount, unit: start.unit },
     same = start.fromLast && amount.amount === start.amount && amount.unit === start.unit;
   return <Panel title="Pumping" detail={detail} {...panelProps}>
-    <AmountStepper amount={amount} onChange={setAmount} note={same ? "Same as last time" : undefined} />
+    <AmountStepper amount={amount} onChange={setAmount} steps={pumpStep} note={same ? "Same as last time" : undefined} />
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {(["left", "right", "both"] as const).map((side) => <Option key={side} height={64} label={sideWords[side]} onPress={() => onSave(side, amount)} />)}
     </View>
@@ -71,11 +73,23 @@ function OnThisPhone() {
 
 const Choices = ({ children }: { children: React.ReactNode }) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{children}</View>;
 
+type TrackerPanelProps = { tracker: Tracker; child: Child; now: Date; pastDay?: PastDay; flow: Flow };
 /**
  * One tracker's quick panel, as quick as a diaper: the time defaults to now, nothing goes back anywhere, and it works
  * offline. It only needs a `useLogFlow`, so it opens the same from Today, Tracker or Add. Show `SavedLog` beside it for Undo.
+ *
+ * What's typed belongs to the baby it was typed for. Change baby and it starts again, so a dose can't land on the other
+ * baby. A log about her isn't either baby's, so it carries on.
  */
-export function TrackerPanel({ tracker, child, now, pastDay, flow }: { tracker: Tracker; child: Child; now: Date; pastDay?: PastDay; flow: Flow }) {
+export function TrackerPanel(props: TrackerPanelProps) {
+  const owner = props.tracker.about === "her" ? "her" : props.child.id, was = useRef(owner);
+  useEffect(() => {
+    if (was.current !== owner) { was.current = owner; props.flow.change(null); }
+  }, [owner]);
+  return <PanelFor key={`${props.tracker.id}:${owner}`} {...props} />;
+}
+
+function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
   const b = useBaby(), timeZone = b.state.bootstrap!.profile.timezone, id = tracker.id,
     // What she logs about herself has no baby on it, and stays with her.
     childId = tracker.about === "her" ? null : child.id,

@@ -49,3 +49,7 @@ it("lists kicks and contractions by what they were", async () => {
   expect(seen.title).toBe("Kick count");
   expect(seen.detail).toContain("10");
 });
+
+it("keeps a custom entry's own title beside its numbers", async () => {
+  expect(await shown(row("custom", { label: "Bath", value: 2, unit: "min" }, "First bath with Dad"))).toEqual(expect.objectContaining({ title: "Bath · 2 min", detail: "First bath with Dad · 2:14 PM" }));
+});

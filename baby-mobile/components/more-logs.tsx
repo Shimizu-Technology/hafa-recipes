@@ -27,11 +27,11 @@ export function MoreLogs({ child, now, pastDay, stage, onOpen }: { child: Child;
   onOpen?: (open: boolean, y: number) => void }) {
   const b = useBaby(), c = useColors(), { fontScale } = useWindowDimensions(), shown = panelTrackers(stage),
     flow = useLogFlow<string>(pastDay), top = useRef(0), open = shown.find((tracker) => tracker.id === flow.panel);
-  useEffect(() => { onOpen?.(!!open, Math.max(0, top.current - headerClear)); }, [!!open]);
+  useEffect(() => { onOpen?.(!!open, Math.max(0, top.current - headerClear)); }, [open?.id]);
   return <View onLayout={(event) => { top.current = event.nativeEvent.layout.y; }} style={{ gap: 8 }}>
     <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.muted }}>More to log</Text>
     <SavedLog flow={flow} now={now} day={pastDay} timeZone={b.state.bootstrap!.profile.timezone} />
-    {open && <TrackerPanel key={open.id} tracker={open} child={child} now={now} pastDay={pastDay} flow={flow} />}
+    {open && <TrackerPanel tracker={open} child={child} now={now} pastDay={pastDay} flow={flow} />}
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {shown.map((tracker) => <Tile key={tracker.id} tracker={tracker} open={open === tracker} onPress={() => flow.toggle(tracker.id)} />)}
     </View>

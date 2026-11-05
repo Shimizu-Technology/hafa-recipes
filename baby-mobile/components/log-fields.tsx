@@ -8,8 +8,9 @@ export const sideWords = { left: "Left", right: "Right", both: "Both" } as const
 
 /** The fields for one kind of log. It holds what she has typed; the panel and the editor each decide what to do with it. */
 export function LogFields({ id, start, autoFocus, onChange }: { id: string; start: LogForm; autoFocus?: boolean; onChange?: (form: LogForm) => void }) {
-  const [form, setForm] = useState(start),
-    set = (change: Partial<LogForm>) => { const next = { ...form, ...change }; setForm(next); onChange?.(next); },
+  // Follows `start` until she changes something.
+  const [typed, setTyped] = useState<LogForm | null>(null), form = typed ?? start,
+    set = (change: Partial<LogForm>) => { const next = { ...form, ...change }; setTyped(next); onChange?.(next); },
     unit = (value: string, options: [string, string][], change: (one: string) => void, label: string) =>
     <Chips label={label} value={value} onChange={change} options={options.map(([id, word]) => ({ value: id, label: word }))} />;
   if (id === "pumping") return <>

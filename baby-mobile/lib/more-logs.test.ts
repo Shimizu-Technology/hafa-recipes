@@ -236,3 +236,27 @@ describe("from the review of #543", () => {
     expect(retriedSave({ id: "m", generation: 1, type: "save", files: [], record: row("diaper", {}) })).toBe(false);
   });
 });
+
+describe("from the re-check of #543", () => {
+  it("finds each growth unit on its own, so a head-only entry doesn't reset the others", () => {
+    const rows = [row("growth", { head: 35, head_unit: "cm" }, "2026-11-04T10:00:00Z"), row("growth", { weight: 3.4, weight_unit: "kg", length: 51, length_unit: "cm" }, "2026-11-03T10:00:00Z")];
+    expect(startForm("growth", rows, "baby")).toMatchObject({ weightUnit: "kg", lengthUnit: "cm", headUnit: "cm" });
+    const inches = [row("growth", { length: 20, length_unit: "in" }, "2026-11-04T10:00:00Z"), row("growth", { head: 35, head_unit: "cm", length: 51, length_unit: "cm" }, "2026-11-03T10:00:00Z")];
+    expect(startForm("growth", inches, "baby")).toMatchObject({ lengthUnit: "in", headUnit: "cm" });
+  });
+  it("editing only the length keeps a saved weight exactly", () => {
+    const data = { weight: 7.5156, weight_unit: "lb", length: 20, length_unit: "in" };
+    const next = dataFrom("growth", { ...formFrom("growth", data as never), length: "21" }) as unknown as typeof data;
+    expect(next.weight).toBe(7.5156);
+    expect(next.length).toBe(21);
+  });
+  it("editing the weight itself takes what she typed", () => {
+    const data = { weight: 7.5156, weight_unit: "lb" };
+    const next = dataFrom("growth", { ...formFrom("growth", data as never), oz: "9" }) as unknown as typeof data;
+    expect(next.weight).toBe(7.5625);
+  });
+  it("still lets a saved weight carry over to kg", () => {
+    const form = changeWeightUnit(formFrom("growth", { weight: 7.5156, weight_unit: "lb" } as never), "kg");
+    expect(dataFrom("growth", form)).toMatchObject({ weight: 3.41, weight_unit: "kg" });
+  });
+});

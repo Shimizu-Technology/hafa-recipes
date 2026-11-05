@@ -5,7 +5,7 @@ import { Image } from "expo-image";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
-import { careSummary, duration, friendlyTime, isCare } from "@/lib/care-format";
+import { careSummary, duration, friendlyTime, isCare, summaryHoldsTitle } from "@/lib/care-format";
 import { feedProgress } from "@/lib/feed-reducer";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { moreKinds } from "../../lib/more-logs";
@@ -104,7 +104,7 @@ export default function RecordDetail() {
         : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + child.name : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
-        : !summary && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
+        : !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>

@@ -16,6 +16,8 @@ export interface LogForm {
   label: string;
   myWeight: string; myWeightUnit: "lb" | "kg";
   top: string; bottom: string;
+  /** A saved weight and how it reads, so editing something else can't round it. */
+  savedWeight?: { value: number; lb: string; oz: string };
 }
 const blank: LogForm = { side: "both", amount: "", amountUnit: "oz", minutes: "", name: "", dose: "", value: "", unit: "f", method: "",
   weightUnit: "lb", lb: "", oz: "", kg: "", length: "", lengthUnit: "in", head: "", headUnit: "in", label: "", myWeight: "", myWeightUnit: "lb", top: "", bottom: "" };
@@ -27,11 +29,13 @@ export const lastLog = (rows: readonly BabyRecord[], id: string, childId: string
 
 /** Blank, in the units she last used. Ounces, pounds and inches until she uses something else. */
 export function startForm(id: string, rows: readonly BabyRecord[], childId: string | null): LogForm {
-  const data = (lastLog(rows, id, childId)?.data ?? {}) as Record<string, unknown>;
+  const data = (lastLog(rows, id, childId)?.data ?? {}) as Record<string, unknown>,
+    // Each from the newest entry that has it, so a head-only entry doesn't reset the others.
+    lastUnit = (field: string) => newestOf(rows, id, childId).map((row) => (row.data as Record<string, unknown>)[field]).find(Boolean);
   return { ...blank,
     ...(id === "temperature" && data.unit === "c" ? { unit: "c" as const } : {}),
     ...(id === "my_weight" && data.unit === "kg" ? { myWeightUnit: "kg" as const } : {}),
-    ...(id === "growth" ? { weightUnit: data.weight_unit === "kg" ? "kg" as const : "lb" as const, lengthUnit: data.length_unit === "cm" ? "cm" as const : "in" as const, headUnit: data.head_unit === "cm" ? "cm" as const : "in" as const } : {}),
+    ...(id === "growth" ? { weightUnit: lastUnit("weight_unit") === "kg" ? "kg" as const : "lb" as const, lengthUnit: lastUnit("length_unit") === "cm" ? "cm" as const : "in" as const, headUnit: lastUnit("head_unit") === "cm" ? "cm" as const : "in" as const } : {}),
   };
 }
 
@@ -47,8 +51,9 @@ export function formFrom(id: string, data: RecordData, title = ""): LogForm {
   if (id === "my_weight") return { ...blank, myWeight: text(d.value), myWeightUnit: d.unit === "kg" ? "kg" : "lb" };
   if (id === "blood_pressure") { const [top = "", bottom = ""] = title.split("/"); return { ...blank, top, bottom }; }
   const ounces = typeof d.weight === "number" && d.weight_unit === "lb" ? Math.round(d.weight * 160) / 10 : null, pounds = ounces === null ? null : Math.floor(ounces / 16);
-  return { ...blank, weightUnit: d.weight_unit === "kg" ? "kg" : "lb", kg: d.weight_unit === "kg" ? text(d.weight) : "",
-    lb: pounds === null ? "" : String(pounds), oz: pounds === null ? "" : String(Math.round((ounces! - pounds * 16) * 10) / 10),
+  const lb = pounds === null ? "" : String(pounds), oz = pounds === null ? "" : String(Math.round((ounces! - pounds * 16) * 10) / 10);
+  return { ...blank, weightUnit: d.weight_unit === "kg" ? "kg" : "lb", kg: d.weight_unit === "kg" ? text(d.weight) : "", lb, oz,
+    ...(pounds === null ? {} : { savedWeight: { value: d.weight, lb, oz } }),
     length: text(d.length), lengthUnit: d.length_unit === "cm" ? "cm" : "in", head: text(d.head), headUnit: d.head_unit === "cm" ? "cm" : "in" };
 }
 
@@ -128,7 +133,8 @@ export function dataFrom(id: string, form: LogForm, base: Record<string, unknown
     else {
       const ounces = form.oz.trim() ? decimal(form.oz) : 0, pounds = form.lb.trim() ? decimal(form.lb) : 0;
       if (!(ounces >= 0 && ounces < 16)) throw Error("Keep the ounces under 16.");
-      made.weight = Math.round(measured(String(pounds + ounces / 16), 500) * 10000) / 10000;
+      const saved = form.savedWeight;
+      made.weight = saved && saved.lb === form.lb && saved.oz === form.oz ? saved.value : Math.round(measured(String(pounds + ounces / 16), 500) * 10000) / 10000;
     }
     made.weight_unit = form.weightUnit;
   }

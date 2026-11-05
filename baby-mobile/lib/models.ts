@@ -268,6 +268,7 @@ export interface EventEdit {
   original_start: string;
   series: Pick<BabyRecord, "title" | "body" | "child_id" | "occurred_at" | "data">;
 }
+export type LogFormDraft = import("./more-logs").LogForm;
 export interface EditorDraft {
   id: string;
   kind: Kind;
@@ -280,6 +281,8 @@ export interface EditorDraft {
   files: LocalFile[];
   existing?: boolean;
   base?: SaveBase;
+  /** What she's typed into a log's fields, kept even while it can't be saved. Never sent to the API. */
+  log_form?: LogFormDraft;
   event_edit?: EventEdit;
 }
 export type Mutation = { localOnly?: boolean } & (
