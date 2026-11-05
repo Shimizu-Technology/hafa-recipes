@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+import { Switch, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { customProblem, waitingEntries, type CareStats } from "@/lib/care-stats";
@@ -10,7 +10,7 @@ import { exportOnePagePdf } from "@/lib/files";
 import { profileToday, timingChild } from "@/lib/timing";
 import { addDays, dayKey } from "@/lib/tracker";
 import { useCareStats } from "@/lib/use-care-stats";
-import { Button, Chips, Choice, Copy, Grouped, Notice, Screen, Section } from "@/components/ui";
+import { Button, Chips, Choice, Copy, Grouped, Notice, Screen, Section, useColors } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { SyncStatus } from "@/components/sync-status";
 
@@ -19,7 +19,7 @@ type Entries = ReturnType<typeof localEntries>;
 
 /** Choose dates and a baby, and get one page for the doctor. Open it from Tracker, Journal or `?child=&from=&to=` on an appointment. */
 export default function DoctorSummary() {
-  const b = useBaby(), params = useLocalSearchParams<{ child?: string; from?: string; to?: string }>(),
+  const b = useBaby(), c = useColors(), params = useLocalSearchParams<{ child?: string; from?: string; to?: string }>(),
     { generation, children, profile: { timezone } } = b.state.bootstrap!, nowDate = new Date(),
     today = dayKey(profileToday(nowDate, timezone)),
     [childId, setChild] = useState<string | null>(params.child || (timingChild(b.state, profileToday(nowDate, timezone))?.id ?? null)),
@@ -32,6 +32,8 @@ export default function DoctorSummary() {
     [entries, setEntries] = useState<{ key: string; rows: Entries; server: boolean; failed: boolean; tooLong?: string } | null>(null),
     // Questions and log notes start ticked. A journal entry is private, so it's only on the page if she ticks it.
     [picks, setPicks] = useState<Record<string, boolean>>({}),
+    // After the birth the page is the baby's, so hers stay off it until she asks, for this baby only: it may go to the pediatrician.
+    [mineFor, setMineFor] = useState<string | null>(null),
     [busy, setBusy] = useState<"full" | "picked" | null>(null),
     [retrying, setRetrying] = useState(false), [attempt, setAttempt] = useState(0),
     [error, setError] = useState(""), [outcome, setOutcome] = useState(""),
@@ -57,6 +59,7 @@ export default function DoctorSummary() {
     on = (row: BabyRecord) => picks[row.id] ?? row.kind !== "journal",
     flip = (row: BabyRecord) => setPicks((prior) => ({ ...prior, [row.id]: !on(row) })),
     child = children.find((one) => one.id === childId) ?? null,
+    mineOnPage = !child?.birth_date || (!!childId && mineFor === childId),
     picked = rows ? { questions: rows.questions.filter(on), notes: [...rows.journal, ...rows.logNotes].filter(on) } : null,
     waiting = stats ? waitingEntries(b.state, childId, stats, timezone) : 0,
     // Why the totals can't go on a page right now. A wrong total is worse than no page.
@@ -70,14 +73,15 @@ export default function DoctorSummary() {
         <Choice label={title(row) || "Untitled"} detail={detail(row)} selected={on(row)} onPress={() => flip(row)} />
       </View>)}
     </Grouped>,
-    when = (row: BabyRecord) => friendlyTime(row.occurred_at, nowDate, timezone);
+    when = (row: BabyRecord) => friendlyTime(row.occurred_at, nowDate, timezone),
+    herList = (items: BabyRecord[]) => list(items, (row) => `${when(row)}. ${[typeof row.data.value === "number" ? `${row.data.value} ${row.data.unit ?? ""}`.trim() : row.title, row.body.trim().slice(0, 160)].filter(Boolean).join(" · ")}`, (row) => row.data.label ?? kindWord(row.kind));
   async function send(numbers: CareStats | null) {
     const page = { stats: numbers, child, timezone, prepared: new Date(),
         questions: picked!.questions,
         // What she ticked herself goes first, so a full page never drops it for a log note.
         notes: picked!.notes,
         // The full page only: the API has them all, and this phone may not.
-        logs: numbers ? rows!.logs : [], her: numbers ? rows!.her.filter(on) : [], atBirth: !!numbers },
+        logs: numbers ? rows!.logs : [], her: numbers && mineOnPage ? rows!.her.filter(on) : [], atBirth: !!numbers },
       result = await exportOnePagePdf((level) => summaryHtml(page, level), lastSummaryLevel, b.owner, summaryFileName(from, to, numbers ? undefined : "questions-and-notes"));
     if (!result.fits) setOutcome("This one runs past a page, so it wasn’t shared. Choose fewer days or untick some notes, then share again.");
     else if (result.level > 0) setOutcome("Some notes were shortened or left out to fit one page. The page says how many.");
@@ -143,7 +147,17 @@ export default function DoctorSummary() {
       </Section>}
       {!child?.birth_date && rows.her.length > 0 && <Section title="Your own logs">
         <Copy kind="small" tone="muted">As you typed them. Untick any you’d rather leave off.</Copy>
-        {list(rows.her, (row) => `${when(row)}. ${[typeof row.data.value === "number" ? `${row.data.value} ${row.data.unit ?? ""}`.trim() : row.title, row.body.trim().slice(0, 160)].filter(Boolean).join(" · ")}`, (row) => row.data.label ?? kindWord(row.kind))}
+        {herList(rows.her)}
+      </Section>}
+      {!!child?.birth_date && <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 }}>
+        <View style={{ flex: 1, minWidth: 0 }}><Copy kind="label">Include my own logs</Copy></View>
+        <Switch accessibilityLabel="Include my own logs" value={mineOnPage} onValueChange={(on) => setMineFor(on ? childId : null)} trackColor={{ true: c.action }} />
+      </View>}
+      {!!child?.birth_date && mineOnPage && <Section title="Mom">
+        {rows.her.length ? <>
+          <Copy kind="small" tone="muted">On the full page, as you typed them. Untick any you’d rather leave off.</Copy>
+          {herList(rows.her)}
+        </> : <Copy kind="small" tone="muted">Nothing in these dates.</Copy>}
       </Section>}
       <Section title="Your journal">
         <Copy kind="small" tone="muted">Private. Only what you tick goes on the page.</Copy>
