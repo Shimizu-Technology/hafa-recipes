@@ -7,7 +7,7 @@ import { dataFrom, feelingWords, lastDose, lastLog, logTitle, noteLabel, recentC
 import type { Tracker } from "@/lib/trackers";
 import { messageFor, type Child, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { Button, Field, KeyboardSave, OnSurface, typeScale, useColors } from "./ui";
+import { Button, Field, KeyboardSave, OnSurface, tap, typeScale, useColors } from "./ui";
 import { LogFields, sideWords } from "./log-fields";
 import { AmountStepper, Option, Panel, SavedRow, type useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
@@ -28,16 +28,21 @@ export function SavedLog({ flow, now, day, timeZone }: { flow: Flow; now: Date; 
 }
 
 /** Fields and a Save, for what can't be one tap. A wrong entry is said here and nothing is queued. */
-function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, hint, saveAs }: { id: string; title: string; detail?: string; start: LogForm; autoFocus?: boolean; children?: React.ReactNode;
+function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, offers, hint, saveAs }: { id: string; title: string; detail?: string; start: LogForm; autoFocus?: boolean; children?: React.ReactNode;
+  /** What she can fill the form with in one tap. Save still records it. */
+  offers?: (form: LogForm, fill: (change: Partial<LogForm>) => void) => React.ReactNode;
   /** A line under the fields that follows what she's typing. */
   hint?: (form: LogForm) => string | undefined;
   panelProps: PanelProps; saveAs: (form: LogForm) => void }) {
   // Follows `start` until she changes something, since what she last used can arrive after the panel opens.
-  const c = useColors(), { fontScale } = useWindowDimensions(), [typed, setTyped] = useState<LogForm | null>(null), [problem, setProblem] = useState(""), form = typed ?? start,
-    label = `Save ${title.toLowerCase()}`, onSave = () => { try { saveAs(form); } catch (e) { setProblem(messageFor(e)); } };
+  const c = useColors(), { fontScale } = useWindowDimensions(), [typed, setTyped] = useState<LogForm | null>(null), [problem, setProblem] = useState(""), [fills, setFills] = useState(0), form = typed ?? start,
+    label = `Save ${title.toLowerCase()}`, onSave = () => { try { saveAs(form); } catch (e) { setProblem(messageFor(e)); } },
+    // A new key, since the fields hold what she has typed and this replaces it.
+    fill = (change: Partial<LogForm>) => { tap(); setTyped({ ...form, ...change }); setProblem(""); setFills(fills + 1); };
   return <Panel title={title} detail={detail} {...panelProps}>
     {children}
-    <OnSurface><KeyboardSave.Provider value={{ label, onPress: onSave }}><LogFields id={id} start={start} autoFocus={autoFocus} onChange={(next) => { setTyped(next); setProblem(""); }} /></KeyboardSave.Provider></OnSurface>
+    {offers?.(form, fill)}
+    <OnSurface><KeyboardSave.Provider value={{ label, onPress: onSave }}><LogFields key={fills} id={id} start={form} autoFocus={autoFocus} onChange={(next) => { setTyped(next); setProblem(""); }} /></KeyboardSave.Provider></OnSurface>
     {!!hint?.(form) && <Text key={`h:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{hint(form)}</Text>}
     {!!problem && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>{problem}</Text>}
     <Button size="lg" icon="checkmark" title="Save" accessibilityLabel={label} onPress={onSave} />
@@ -124,10 +129,10 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
       <Choices>{feelingWords.map((word) => <Option key={word} height={64} wraps label={word} onPress={() => void log(dataFrom(id, { ...start, name: word }), word, word)} />)}</Choices>
     </Panel>
     : id === "medicine" ? <FormPanel id={id} title={tracker.label} detail={who} start={start} panelProps={panelProps} autoFocus={!recentMedicines(rows, childId).length} saveAs={(form) => saveForm(form, (data) => data.name)}
-      hint={(form) => { const typed = lastDose(rows, childId, form.name); return typed && [typed.dose, lastWords(typed.at)].filter(Boolean).join(" · "); }}>
-      {!!recentMedicines(rows, childId).length && <Choices>{recentMedicines(rows, childId).map((one) => <Option key={one.name.toLowerCase()} height={64} label={one.name} detail={[one.dose, lastWords(one.at)].filter(Boolean).join(" · ")}
-        onPress={() => void log({ name: one.name, ...(one.dose ? { dose: one.dose } : {}) } as unknown as RecordData, one.name, one.name)} />)}</Choices>}
-    </FormPanel>
+      hint={(form) => { const typed = lastDose(rows, childId, form.name); return typed && [typed.dose, lastWords(typed.at)].filter(Boolean).join(" · "); }}
+      // Never one tap: half asleep, a tap could be a second dose. It fills the form, with the Last under it, and Save records it.
+      offers={(form, fill) => !!recentMedicines(rows, childId).length && <Choices>{recentMedicines(rows, childId).map((one) => <Option key={one.name.toLowerCase()} height={64} label={one.name} detail={[one.dose, lastWords(one.at)].filter(Boolean).join(" · ")}
+        strong={form.name.trim().toLowerCase() === one.name.trim().toLowerCase()} onPress={() => fill({ name: one.name, dose: one.dose })} />)}</Choices>} />
     : id === "vitamins" ? <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!recentVitamins(rows, childId).length} saveAs={(form) => saveForm(form, () => form.name.trim())}>
       {!!recentVitamins(rows, childId).length && <Choices>{recentVitamins(rows, childId).map((one) => <Option key={one.name} height={64} label={one.name} detail={lastWords(one.at)}
         onPress={() => void log(dataFrom(id, { ...start, name: one.name }), one.name, one.name)} />)}</Choices>}
