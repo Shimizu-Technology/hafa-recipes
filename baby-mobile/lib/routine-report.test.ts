@@ -23,11 +23,6 @@ describe("what this phone can say it holds", () => {
     const a = row("a"), newer = { ...a, revision: 4 };
     expect(heldRoutines([scheduled(a)], "owner", 1, state([newer]))).toEqual({});
   });
-  it("one with an edit still waiting on this phone isn't claimed: the API doesn't have that time yet", () => {
-    const a = row("a");
-    const outbox = [{ id: "m", generation: 1, type: "save" as const, files: [], record: { ...a, data: { ...a.data, reminder_at: "2027-01-01T11:00:00Z" } } }];
-    expect(heldRoutines([scheduled(a)], "owner", 1, state([a], { outbox }))).toEqual({});
-  });
   it("not another account's, an old generation's or an offline copy", () => {
     const a = row("a");
     expect(heldRoutines([scheduled(a, 1, "someone-else"), scheduled(a, 0), { content: { data: { copyOwner: "owner", notification_id: "x" } } }], "owner", 1, state([a]))).toEqual({});
@@ -38,5 +33,29 @@ describe("what this phone can say it holds", () => {
   it("the schedule leaves out what doesn't change when it fires", () => {
     expect(routineSchedule({ reminder_at: "x", timezone: "UTC" })).toBe("x|none|UTC");
     expect(routineSchedule({ reminder_at: "x", repeat: "weekly", timezone: undefined, items: [{ id: "a", label: "A", done: true }] } as Parameters<typeof routineSchedule>[0])).toBe("x|weekly|");
+  });
+});
+
+describe("an edit still waiting on this phone", () => {
+  const save = (record: BabyRecord) => ({ id: "m", generation: 1, type: "save" as const, files: [], record });
+  it("a new title changes nothing about what it holds, so it still says so", () => {
+    const a = row("a"), renamed = { ...a, title: "A better name" };
+    expect(heldRoutines([scheduled(a)], "owner", 1, state([a], { outbox: [save(renamed)] }))).toEqual({ a: routineSchedule(a.data) });
+  });
+  it("a schedule rebuilt from the waiting copy still counts, if the time is the same", () => {
+    const a = row("a"), ticked = { ...a, data: { ...a.data, items: [{ id: "x", label: "X", done: true }] } };
+    expect(heldRoutines([scheduled(ticked)], "owner", 1, state([a], { outbox: [save(ticked)] }))).toEqual({ a: routineSchedule(a.data) });
+  });
+  it("a new time isn't claimed: the API doesn't have that schedule yet", () => {
+    const a = row("a"), moved = { ...a, data: { ...a.data, reminder_at: "2027-01-01T11:00:00Z" } };
+    expect(heldRoutines([scheduled(moved)], "owner", 1, state([a], { outbox: [save(moved)] }))).toEqual({});
+  });
+  it("one waiting to be deleted isn't claimed", () => {
+    const a = row("a");
+    expect(heldRoutines([scheduled(a)], "owner", 1, state([a], { outbox: [{ id: "d", generation: 1, type: "delete" as const, record: a }] }))).toEqual({});
+  });
+  it("a schedule held from before a time change that's still waiting isn't claimed either", () => {
+    const a = row("a"), moved = { ...a, data: { ...a.data, reminder_at: "2027-01-01T11:00:00Z" } };
+    expect(heldRoutines([scheduled(a)], "owner", 1, state([a], { outbox: [save(moved)] }))).toEqual({});
   });
 });
