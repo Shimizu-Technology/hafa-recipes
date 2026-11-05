@@ -48,6 +48,9 @@ class Profile(DomainModel):
     model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
     family_disclosures: list[dict] = Field(default_factory=list, exclude_if=lambda value: not value)
+    # The F10 gate's own notes: which installations reported from a family-capable build, and when an older one last opened.
+    family_phones: dict[str, str] = Field(default_factory=dict, exclude_if=lambda value: not value)
+    older_build_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
     display_name: str = Field(default="", max_length=120)
     timezone: str = Field(default="Pacific/Guam", max_length=80)
     ai_consent: StrictBool = False
@@ -62,6 +65,10 @@ class Profile(DomainModel):
         except (ZoneInfoNotFoundError, ValueError):
             raise ValueError("Choose a valid timezone") from None
         return value
+
+
+# Stored with the profile and never sent back: a client that saves what it read can't touch them.
+SERVER_PROFILE_FIELDS = {"family_disclosures", "family_phones", "older_build_at"}
 
 
 class ProfilePatch(DomainModel):

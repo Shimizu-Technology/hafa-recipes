@@ -169,6 +169,10 @@ async def provision(body: SessionRequest, user: User, db: Database, generation: 
         None,
     )
     await touch(row, access.target)
+    if access.enabled and request.headers.get("X-Baby-Client") == "3":
+        from app.domains.baby.invites import note_phone_ready
+
+        note_phone_ready(member, installation)
     await db.commit()
     result = {
         "credential_id": str(row.id),

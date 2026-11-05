@@ -1,11 +1,12 @@
 """Hashed, single-use family invitations. No token is stored or returned on list."""
 import hashlib
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from pydantic import Field
 from sqlalchemy import func, select
 
@@ -89,6 +90,46 @@ def summary(row):
             "used_at": row.used_at, "revoked_at": row.revoked_at}
 
 
+MAX_PHONES = 16
+CREDENTIAL_DAYS = 30
+
+
+def note_phone_ready(member, installation):
+    """This installation asked for its credential as client 3, so it's updated and rebound."""
+    phones = {**member.profile.get("family_phones", {}), installation: now().isoformat()}
+    newest = sorted(phones, key=phones.get)[-MAX_PHONES:]
+    member.profile = {**member.profile, "family_phones": {key: phones[key] for key in newest}}
+
+
+def note_older_build(member):
+    """An older build opened. Noted at most every few minutes, as it asks every 15 seconds."""
+    seen = member.profile.get("older_build_at")
+    if not seen or datetime.fromisoformat(seen) < now() - timedelta(minutes=5):
+        member.profile = {**member.profile, "older_build_at": now().isoformat()}
+
+
+async def family_readiness(db, access, installation=None):
+    """Whether every phone signed in to this account can follow its baby into a family.
+
+    Every iOS build asks for a share credential when it opens, so its credential is how a phone is
+    known. One that hasn't asked as client 3 is outdated. One whose credential expired hasn't opened
+    in a month, so nobody can say. Either blocks, until it updates or she says it's not in use. A
+    phone with no credential shows up by its requests: an older build seen since the last new one
+    reported blocks too, and a phone that just updated isn't held up by its own last old request.
+    """
+    rows = await db.scalars(select(BabyShareCredential).where(
+        BabyShareCredential.app_user_id == access.actor, BabyShareCredential.revoked_at.is_(None)))
+    profile = access.member.profile
+    ready = profile.get("family_phones", {})
+    phones = [{"id": str(row.id), "state": "unknown" if row.expires_at <= now() else "ready" if row.installation_hash in ready else "outdated",
+               "last_seen": row.expires_at - timedelta(days=CREDENTIAL_DAYS),
+               "this_phone": row.installation_hash == installation} for row in rows]
+    older = profile.get("older_build_at")
+    older_seen = bool(older) and (not ready or older > max(ready.values()))
+    return {"ready": not older_seen and all(phone["state"] == "ready" for phone in phones),
+            "phones": phones, "older_build_seen": older_seen}
+
+
 async def check_invite_creation(db, access, body, generation):
     """Run cheap admission before staging and again under the write locks."""
     access.check_generation(generation)
@@ -96,6 +137,10 @@ async def check_invite_creation(db, access, body, generation):
     existing = [g for g in access.spaces if g.space.kind == "family"]
     if not existing and not body.publish_shared:
         raise HTTPException(422, "Review what becomes shared before creating your family")
+    if not existing:
+        state = await family_readiness(db, access)
+        if not state["ready"]:
+            raise HTTPException(409, jsonable_encoder({"code": "phones_not_ready", **state}))
     return existing
 
 
@@ -120,6 +165,29 @@ async def create_invite(body: InviteCreate, user: User, db: Database, generation
     await db.commit()
     return {**summary(row), "space_id": space.id, "generation": space.generation, "code": code,
             "disclosure_version": DISCLOSURE_VERSION, "disclosure": DISCLOSURE}
+
+
+@router.get("/family/readiness")
+async def readiness(user: User, db: Database, access: FamilyAccess = None, installation_id: UUID | None = None):
+    require_family_client(access)
+    from app.domains.baby.share_router import token_hash as installation_hash
+
+    return await family_readiness(db, access, installation_hash(str(installation_id)) if installation_id else None)
+
+
+@router.post("/family/phones/{identifier}/forget")
+async def forget_phone(identifier: UUID, user: User, db: Database, access: FamilyAccess = None):
+    """She says nobody uses this phone. Its credential stops, and it would need signing in again to get another."""
+    require_family_client(access)
+    row = await db.get(BabyShareCredential, identifier, populate_existing=True, with_for_update=True)
+    if row is None or row.app_user_id != access.actor:
+        raise HTTPException(404, "Phone unavailable")
+    if row.revoked_at is None:
+        row.revoked_at = now()
+        grant = next(g for g in access.locked_spaces + access.spaces if g.id == row.space_id)
+        await touch(row, grant)
+    await db.commit()
+    return {"forgotten": True}
 
 
 @router.post("/family/invites/preview")

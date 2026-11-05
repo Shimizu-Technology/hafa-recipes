@@ -54,6 +54,7 @@ from app.domains.baby.queries import (
 from app.domains.baby.schemas import (
     MAX_TRACKERS,
     NEW_KINDS,
+    SERVER_PROFILE_FIELDS,
     V1_KINDS,
     ChildCreate,
     ChildDetails,
@@ -359,7 +360,7 @@ async def bootstrap_state(user, db, *, create, request):
         else []
     )
     result = {
-        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
+        "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
         "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
@@ -373,6 +374,10 @@ async def bootstrap_state(user, db, *, create, request):
     if create and access:
         personal = next(g for g in access.spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
+        if access.client != "3":
+            from app.domains.baby.invites import note_older_build
+
+            note_older_build(member)
     await db.commit()
     return result
 
@@ -494,7 +499,7 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
         personal = next(g for g in access.member_spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
     await db.commit()
-    return Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"})
+    return Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS)
 
 
 @router.get("/children")
@@ -1216,7 +1221,7 @@ async def export(user: User, db: Database, client: Client = None):
         "format": "hafa-baby-v1",
         "exported_at": now(),
         "generation": member.generation,
-        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
+        "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
         "children": [child_response(row, access) for row in await rows(BabyChild) if row.deleted_at is None],
         "records": [record_response(row, access, readable) for row in records],
         "attachments": [metadata(row, access) for row in await rows(BabyAttachment) if row.state == "ready"],
