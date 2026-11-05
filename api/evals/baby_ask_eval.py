@@ -306,7 +306,7 @@ def unsupported_source(answer, tools) -> bool:
     return False
 
 
-async def evaluate_case(provider, case, dataset, model, effort, trial_index, research_model=None):
+async def evaluate_case(provider, case, dataset, model, effort, trial_index, research_model=None, check_provider=None, check_model=None):
     from app.domains.baby.ask_safety import CANT_ANSWER, boundary, cant_answer, classify
     from app.domains.baby.ask_v2 import answer_question, checked_answer_reply, question_reply
 
@@ -315,6 +315,10 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index, res
                        history=[item["message"] for item in case.get("history", [])], inject_findings=case.get("inject_findings"))
     pack = {"children": [{key: value for key, value in child.items() if key != "id"} | dataset["care_totals"] for child in actor["children"]], "today": dataset["now_local"][:10]}
     provider.responses.clear()
+    # Unless told otherwise, each model checks itself. A comparison runs the model production checks with.
+    checks, check_model = check_provider or provider, check_model or model
+    if checks is not provider:
+        checks.responses.clear()
     started = time.perf_counter()
     # As in production: fixed replies first, then the model, then only what the checks let through.
     fixed = classify(case["prompt"], [child["name"] for child in actor["children"]])
@@ -323,8 +327,8 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index, res
     if fixed or limit:
         published = {"message": fixed.message if fixed else cant_answer(limit), "citation_ids": [], "sources": [], "help": fixed.kind if fixed else CANT_ANSWER, "proposal": None}
     else:
-        # The same safety check as production, on the model under test so each model's result stands alone.
-        published = await question_reply(provider, case["prompt"], model=model, effort=effort)
+        # The same safety check as production.
+        published = await question_reply(checks, case["prompt"], model=check_model, effort=effort)
     if published is None:
         answer = await answer_question(
             provider, tools=tools, message=case["prompt"], now_local=dataset["now_local"],
@@ -332,7 +336,7 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index, res
         )
         unsupported = unsupported_source(answer, tools)
         try:
-            published = await checked_answer_reply(provider, case["prompt"], answer, tools, model=model, effort=effort)
+            published = await checked_answer_reply(checks, case["prompt"], answer, tools, model=check_model, effort=effort)
         except ValueError:
             published = {"message": "", "citation_ids": [], "sources": [], "help": None, "proposal": None, "invented_citation": True}
     answer = SimpleNamespace(**{"replaced": False, "invented_citation": False, "check_failed": False, **published, "unsupported_source": unsupported})
@@ -340,7 +344,7 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index, res
         "case_id": case["id"], "category": case["category"], "trial_index": trial_index,
         "latency_ms": round((time.perf_counter() - started) * 1000),
         "response_chars": len(answer.message), "fixed_reply": bool(fixed or limit or getattr(answer, "verdict", None)),
-        **usage_totals(provider.responses),
+        **usage_totals([*provider.responses, *(checks.responses if checks is not provider else [])]),
         **score_case(case, answer, tools),
     }
 
@@ -355,7 +359,7 @@ def runnable_cases(dataset, *, categories=None):
     ]
 
 
-def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace, research_model: str | None = None) -> float:
+def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace, research_model: str | None = None, check_model: str | None = None) -> float:
     from app.domains.baby.ask_safety import boundary, classify
     from app.domains.baby.budget import BABY_MODEL_PRICES
 
@@ -364,7 +368,8 @@ def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace, r
     price = BABY_MODEL_PRICES[model]
     cost = shape.rounds * (shape.input_tokens * float(price.input) + shape.output_tokens * float(price.output))
     # Both safety checks.
-    cost += 2 * (shape.check_tokens[0] * float(price.input) + shape.check_tokens[1] * float(price.output))
+    check_price = BABY_MODEL_PRICES[check_model or model]
+    cost += 2 * (shape.check_tokens[0] * float(check_price.input) + shape.check_tokens[1] * float(check_price.output))
     if case.get("needs_tool"):
         searching = research_model or model
         search_price = BABY_MODEL_PRICES[searching]
@@ -375,13 +380,13 @@ def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace, r
     return cost / 1_000_000
 
 
-def estimate_run(dataset, models, runs_per_case, *, categories=None, research_model=None) -> dict[str, dict[str, float]]:
+def estimate_run(dataset, models, runs_per_case, *, categories=None, research_model=None, check_model=None) -> dict[str, dict[str, float]]:
     cases = runnable_cases(dataset, categories=categories)
     return {
         model: {
             "attempts": len(cases) * runs_per_case,
-            "typical_usd": round(sum(attempt_cost_usd(model, case, TYPICAL, research_model) for case in cases) * runs_per_case, 2),
-            "limit_usd": round(sum(attempt_cost_usd(model, case, LIMIT, research_model) for case in cases) * runs_per_case, 2),
+            "typical_usd": round(sum(attempt_cost_usd(model, case, TYPICAL, research_model, check_model) for case in cases) * runs_per_case, 2),
+            "limit_usd": round(sum(attempt_cost_usd(model, case, LIMIT, research_model, check_model) for case in cases) * runs_per_case, 2),
         }
         for model in models
     }
@@ -420,14 +425,15 @@ def provider_for(model: str, keys: dict[str, str]):
     return OpenAIProvider(keys["openai"])
 
 
-async def run_baby_comparison(dataset, models, *, keys, effort, runs_per_case, cost_ceiling_usd, categories=None, research_model=None):
+async def run_baby_comparison(dataset, models, *, keys, effort, runs_per_case, cost_ceiling_usd, categories=None, research_model=None, check_model=None):
     """A failed attempt keeps its place as a failure and stops the run, so it can't pass as a score."""
     cases = runnable_cases(dataset, categories=categories)
     guard, reports = CostGuard(cost_ceiling_usd), []
+    checks = GuardedProvider(provider_for(check_model, keys), guard) if check_model else None
     for model in models:
         provider, results = GuardedProvider(provider_for(model, keys), guard), []
         for trial_index in range(1, runs_per_case + 1):
             for case in cases:
-                results.append(await evaluate_case(provider, case, dataset, model, effort, trial_index, research_model))
+                results.append(await evaluate_case(provider, case, dataset, model, effort, trial_index, research_model, checks, check_model))
         reports.append(summarize_model(model, results, dataset_cases=len(cases), runs_per_case=runs_per_case))
     return reports

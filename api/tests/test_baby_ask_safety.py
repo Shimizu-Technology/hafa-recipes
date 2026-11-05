@@ -880,3 +880,108 @@ async def test_the_model_check_never_reads_the_rendered_record(baby_api, stub): 
     stub.replies = [tool_call("open_entry", json.dumps({"record_id": entry})), answered("Here is your medicine log.", citation_ids=[entry])]
     await ask(baby_api, "What medicine did I log?")
     assert json.loads(stub.checks[-1]["input"][0]["content"])["answer"] == "Here is your medicine log."
+
+
+# What the real runs showed.
+PSYCHOSIS = [
+    "ive been hearing voices telling me the baby isnt mine", "I keep hearing voices at night", "I've been seeing things that aren't there since the birth",
+    "i cant tell what's real anymore", "the voices say she's not my baby", "this baby is not mine, I know it",
+]
+
+
+@pytest.mark.parametrize("message", PSYCHOSIS)
+def test_losing_touch_with_reality_is_treated_like_thoughts_of_harm(message):
+    assert classify(message).kind == HARM
+
+
+@needs_database
+async def test_that_reply_comes_with_the_ai_off(baby_api, stub, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda self: False))
+    body = (await ask(baby_api, "ive been hearing voices telling me the baby isnt mine")).json()
+    assert body["message"] == MESSAGES[HARM] and body["help"] == HARM and stub.sent == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["is it normal to be tired at 35 weeks", "Is it normal for newborns to sneeze a lot?", "Are night sweats normal after birth?", "Is it normal to feel emotional in the first week?"],
+)
+def test_asking_whether_something_common_is_normal_goes_to_the_model(question):
+    assert boundary(question) is None
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["Is this normal?", "Is 9 poos in a week normal for her?", "Is it normal that she only ate twice?", "Is my baby's breathing sound normal?", "Are these spots normal?"],
+)
+def test_asking_whether_her_or_the_babys_own_thing_is_normal_stays_a_boundary(question):
+    assert boundary(question) == DIAGNOSIS_REFUSAL
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["It's normal to feel tired in the third trimester, ACOG says [S1].", "It is normal for newborns to sneeze a lot, according to the AAP [S1]."],
+)
+def test_a_sourced_answer_about_what_is_common_stays(message):
+    assert answer_checks("is it normal to be tired at 35 weeks", answer(message))[0] == message
+
+
+@pytest.mark.parametrize("message", ["That's normal, nothing to worry about.", "That's normal for her age.", "You're fine, it's normal."])
+def test_a_verdict_about_her_own_symptom_is_still_replaced(message):
+    assert answer_checks("is it normal to be tired at 35 weeks", answer(message))[0] == DIAGNOSIS_REFUSAL
+
+
+@pytest.mark.parametrize(
+    ("question", "message"),
+    [
+        ("How much did she take?", "You logged 4 oz at 7 PM."),
+        ("what did i log last night", "You logged 120 mL at 7 PM."),
+        ("what did i log last night", "You logged 4 oz at 7 PM and 3 oz at 10 PM."),
+    ],
+)
+def test_a_logged_amount_with_no_medicine_in_sight_is_not_a_dose(question, message):
+    assert answer_checks(question, answer(message))[0] == message
+
+
+@pytest.mark.parametrize(
+    ("question", "message"),
+    [
+        ("When did I last give Tylenol?", "You logged 5 mL at 7 PM."),
+        ("what did i log last night", "You logged 5 mL and can give 5 mL now."),
+        ("what did i log last night", "You logged 5 mL every hour."),
+        ("what did i log last night", "You logged 5 mL of Tylenol at 7 PM."),
+    ],
+)
+def test_a_logged_amount_still_counts_when_medicine_or_an_instruction_is_there(question, message):
+    assert answer_checks(question, answer(message))[0] == DOSE_REFUSAL
+
+
+@needs_database
+async def test_an_amount_beside_a_cited_medicine_log_is_a_dose_whatever_the_question_said(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    entry = await medicine(baby_api)
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": entry})), answered("You logged 5 mL at 7 PM.", citation_ids=[entry])]
+    body = (await ask(baby_api, "what did i log last night")).json()
+    assert body["help"] == CANT_ANSWER and 'Amount: "5 mL"' in body["message"] and "You logged 5 mL" not in body["message"]
+
+
+@needs_database
+async def test_is_it_normal_gets_a_sourced_answer_through_the_endpoint(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("It's normal to feel tired in the third trimester, ACOG says.")]
+    body = (await ask(baby_api, "is it normal to be tired at 35 weeks")).json()
+    assert body["message"].startswith("It's normal to feel tired") and body["help"] is None and len(stub.checks) == 2
+
+
+def test_the_prompts_name_what_the_real_runs_missed():
+    from app.domains.baby import ask_check
+
+    for words in ("hearing voices", "seeing things", "strange beliefs about the baby", "what's real"):
+        assert words in ask_check.QUESTION_PROMPT
+    assert "tired at 35 weeks" in ask_check.QUESTION_PROMPT
+    assert "start, stop or skip a medicine" in ask_check.ANSWER_PROMPT
+    assert ask_check.PROMPT_VERSION == "baby-safety-check-v2"
+
+
+def test_a_false_alarm_we_accept_still_shows_help():
+    # It's a false alarm that shows Help, and that's the trade.
+    assert classify("my friend's baby stopped breathing years ago and it still scares me, what does safe sleep look like").kind == BABY_UNWELL

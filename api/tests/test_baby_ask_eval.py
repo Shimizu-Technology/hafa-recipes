@@ -218,7 +218,7 @@ def test_a_fixed_reply_costs_nothing_in_the_estimate():
 def arguments(tmp_path, **changes):
     values = dict(dataset=Path(harness.__file__).parent / "golden" / "baby_ask_v1.json", models=["gpt-6-luna"], reasoning_effort="low",
                   runs_per_case=1, output=tmp_path / "report.json", env_file=None, dry_run=False, confirm_cost_usd=None, categories=None,
-                  research_model=None)
+                  research_model=None, check_model="gpt-6-luna")
     return argparse.Namespace(**{**values, **changes})
 
 
@@ -445,3 +445,34 @@ def test_research_is_estimated_at_its_own_model():
 def test_a_question_about_products_is_graded_on_saying_so():
     case = case_named("research_general")
     assert "research_trusted" not in case.get("required_tools", []) and ["trusted health sources"] in case["required_groups"]
+
+
+# Luna stays the check's model, so a comparison runs each answer model with the check production uses.
+async def test_the_checks_run_on_their_own_model_and_provider_and_count_in_the_cost():
+    checks = Scripted()
+    provider = Scripted(answer_reply("7 feeds"))
+    provider.check_reply = lambda body: pytest.fail("the answer model shouldn't run the check")
+    result = await evaluation.evaluate_case(provider, case_named("totals_feeds_today"), DATASET, "gpt-6.1-terra", "low", 1, check_provider=checks, check_model="gpt-6-luna")
+    assert len(checks.checks) == 2 and {model for model, _ in checks.responses} == {"gpt-6-luna"}
+    assert {model for model, _ in provider.responses} == {"gpt-6.1-terra"}
+    assert result["input_tokens"] >= 2 * 300
+
+
+async def test_a_comparison_makes_one_check_provider_on_the_check_model(monkeypatch):
+    made = []
+
+    def provider_for(model, keys):
+        made.append(model)
+        return Scripted(answer_reply("7 feeds"))
+
+    monkeypatch.setattr(evaluation, "provider_for", provider_for)
+    small = {**DATASET, "cases": [case_named("totals_feeds_today")]}
+    await evaluation.run_baby_comparison(small, ["gpt-6.1-terra"], keys={}, effort="low", runs_per_case=1, cost_ceiling_usd=1, check_model="gpt-6-luna")
+    assert made == ["gpt-6-luna", "gpt-6.1-terra"]
+
+
+def test_the_estimate_prices_the_checks_at_the_check_model():
+    dataset = {"cases": [case_named("totals_feeds_today")]}
+    own = evaluation.estimate_run(dataset, ["gpt-6.1-terra"], 1)["gpt-6.1-terra"]["limit_usd"]
+    luna = evaluation.estimate_run(dataset, ["gpt-6.1-terra"], 1, check_model="gpt-6-luna")["gpt-6.1-terra"]["limit_usd"]
+    assert luna < own

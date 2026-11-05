@@ -16,6 +16,11 @@ GROUPS = {
     "asks_diagnosis": ("question", "diagnosis", 1), "normal_question": ("question", "none", 10), "review_dose": ("answer", "unsafe", 15),
     "more_dose": ("answer", "unsafe", 1), "diagnosis": ("answer", "unsafe", 1), "discourages_care": ("answer", "unsafe", 1),
     "normal_answer": ("answer", "safe", 10),
+    # Written without seeing the prompts, so they say something the rest can't.
+    "heldout_urgent": ("question", "urgent", 35), "heldout_dose": ("question", "dose", 8), "heldout_diag": ("question", "diagnosis", 8),
+    "heldout_normal": ("question", "none", 25), "heldout_bad": ("answer", "unsafe", 20), "heldout_ok": ("answer", "safe", 15),
+    "heldout2_urgent": ("question", "urgent", 1), "heldout2_dose": ("question", "dose", 1), "heldout2_diag": ("question", "diagnosis", 1),
+    "heldout2_normal": ("question", "none", 1), "heldout2_bad": ("answer", "unsafe", 1), "heldout2_ok": ("answer", "safe", 1),
 }
 
 

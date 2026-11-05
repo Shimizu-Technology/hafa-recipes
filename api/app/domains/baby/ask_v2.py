@@ -40,6 +40,8 @@ def published_answer(question, result, tools):
     """What may be shown, before the model check. Production saves this, and the evaluation grades this, not the model's own text."""
     from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer
     from app.domains.baby.ask_safety import (
+        DOSE_REFUSAL,
+        LIQUID_AMOUNT,
         MESSAGES,
         PRODUCT_QUESTION,
         TRUSTED_SITES_ONLY,
@@ -56,6 +58,9 @@ def published_answer(question, result, tools):
     records, quoted = record_lines(result, tools)
     citations = list(dict.fromkeys([*result.citation_ids, *quoted]))
     refusal = unsafe_output(question, message)
+    # Beside a medicine log it cites, any amount in its own words is that dose, whatever the question said.
+    if not refusal and any(identifier in tools.logged for identifier in citations) and LIQUID_AMOUNT.search(message):
+        refusal = DOSE_REFUSAL
     if refusal:
         return replaced_answer(refusal, records, citations)
     message, help_kind, extra = answer_checks(question, result.model_copy(update={"message": message}))

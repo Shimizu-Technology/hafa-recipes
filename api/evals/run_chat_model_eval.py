@@ -383,7 +383,7 @@ async def run_baby(args: argparse.Namespace, dataset: dict[str, Any]) -> Path | 
     categories = set(args.categories) if args.categories else None
     cases = runnable_cases(dataset, categories=categories)
     print(f"Validated {len(dataset['cases'])} synthetic Baby cases; {len(cases)} can run with today's tools")
-    estimate = estimate_run(dataset, args.models, args.runs_per_case, categories=categories, research_model=args.research_model)
+    estimate = estimate_run(dataset, args.models, args.runs_per_case, categories=categories, research_model=args.research_model, check_model=args.check_model)
     print_estimate(estimate)
     if args.dry_run:
         return None
@@ -391,9 +391,9 @@ async def run_baby(args: argparse.Namespace, dataset: dict[str, Any]) -> Path | 
     if args.confirm_cost_usd is None or args.confirm_cost_usd <= 0:
         raise ValueError("A paid run needs --confirm-cost-usd, after reading the estimate above")
     reports = await run_baby_comparison(
-        dataset, args.models, keys=eval_keys(environment, args.models), effort=args.reasoning_effort,
+        dataset, args.models, keys=eval_keys(environment, [*args.models, args.check_model]), effort=args.reasoning_effort,
         runs_per_case=args.runs_per_case, cost_ceiling_usd=args.confirm_cost_usd, categories=categories,
-        research_model=args.research_model,
+        research_model=args.research_model, check_model=args.check_model,
     )
     report = {
         "report_version": "hafa-baby-ask-comparison-v1",
@@ -561,6 +561,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--confirm-cost-usd", type=float, help="Baby: stop a paid run at this spend")
     parser.add_argument("--categories", nargs="+", help="Baby: only these categories, such as research")
+    parser.add_argument("--check-model", default="gpt-6-luna", help="Baby: the safety check's model in a whole-Ask comparison")
     parser.add_argument("--research-model", help="Baby: research with this model instead of the one under test")
     return parser.parse_args()
 

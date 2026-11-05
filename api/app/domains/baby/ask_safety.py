@@ -73,7 +73,9 @@ HARM_WORDS = re.compile(
     r"|\b(don't|do not) want to (be here|live|wake up)\b"
     r"|\bend (my life|it all)\b"
     r"|\bbetter off without me\b"
-    r"|\bthoughts? of (harm\w*|hurt\w*|kill\w*)\b",
+    r"|\bthoughts? of (harm\w*|hurt\w*|kill\w*)\b"
+    # Losing touch with reality is an emergency after birth, and gets the same numbers.
+    r"|\b(hearing voices|voices (telling|saying|say|tell)|seeing things)\b|\bcan't tell what's real\b|\bbaby (isn't|is not) (mine|real)\b|\bnot my (real )?baby\b",
     re.I,
 )
 HIGH_TEMPERATURE = r"(?:3[89]|4[0-2]|100\.[4-9]|10[1-9])(?:\.\d)?"
@@ -134,11 +136,15 @@ CONDITIONS = (
     r"(?:eczema|rash(?:es)?|colic|reflux|jaundice|thrush|mastitis|infection|allerg\w+|hives|croup|rsv|flu|covid|preeclampsia|"
     r"sepsis|pneumonia|gas|depression|ppd)"
 )
+SOMEONES = r"(?:her|hers|his|him|she|he|my baby|my baby's|the baby|the baby's|this|that|these|those)"
 DIAGNOSIS_ASKED = re.compile(
     rf"\bis (?:this|it|that)\b[^.!?\n]{{0,15}}\b{CONDITIONS}\b"
     rf"|\b(?:does|do|could|can|might)\b[^.!?\n]{{0,20}}\bhave\b[^.!?\n]{{0,20}}\b{CONDITIONS}\b"
     r"|\bwhat(?:'s| is) wrong\b|\bdiagnos\w*"
-    r"|\b(?:is|are|does|do|was|were)\b[^.!?\n]{0,60}\b(?:normal|too (?:much|little|many|few|low|high)|concerning|worrying|dangerous|serious)\b",
+    r"|\b(?:is|are|does|do|was|were)\b[^.!?\n]{0,60}\b(?:too (?:much|little|many|few|low|high)|concerning|worrying|dangerous|serious)\b"
+    # "Normal" only about something of hers or the baby's. Whether something common is normal gets a sourced answer.
+    rf"|\b(?:is|are|does|do|was|were)\b[^.!?\n]{{0,40}}\b{SOMEONES}\b[^.!?\n]{{0,40}}\bnormal\b"
+    rf"|\b(?:is|are|does|do|was|were)\b[^.!?\n]{{0,60}}\bnormal\b[^.!?\n]{{0,40}}\b{SOMEONES}\b",
     re.I,
 )
 DOSE_ASKED = re.compile(r"\b(how much|how many|how often|dose\w*|dosage|mg|milligrams?|safe amount)\b", re.I)
@@ -170,11 +176,14 @@ DOSE_FORMS = re.compile(
 )
 # Amounts and timing are how feeding, pumping and sleep are logged, so these aren't a dose unless a medicine is named.
 CARE_NOT_MEDICINE = re.compile(r"\b(?:bottles?|milk|formula|breast\w*|nurs\w*|feed\w*|fed|pump\w*|drank|drink\w*|ate|eat\w*|sleep\w*|slept|naps?|diapers?|poo\w*|pee\w*)\b", re.I)
+LOGGED_AMOUNT = re.compile(r"^\W*you logged\b(?!.*\b(?:give|take|can|should|every|twice|daily)\b)", re.I)
 # A refusal only covers what it's a refusal of: "I can't say whether it's eczema", not "I can't diagnose, but it's eczema".
 ABOUT_THE_PREDICATE = re.compile(r"\b(?:can't|cannot|can not|won't|unable to|not able to|don't know|not sure)\b[^,;]{0,30}\b(?:if|whether|what|why)\b[^,;]*$", re.I)
+# "It's normal to feel tired" is what's common. "That's normal for her age" is a verdict.
+ON_HER_NORMAL = r"normal(?!\s+(?:to|for (?:new\w*|babies|most|many|people|pregnan\w*))\b)"
 DIAGNOSIS_GIVEN = re.compile(
-    rf"\b(?:your baby|the baby|baby|she|he|you|it|this|that|everything)(?:'s|\s+has|\s+have|\s+is|\s+are)\s+(?:\w+\s+){{0,3}}(?:{CONDITIONS}|normal|fine|healthy)\b"
-    rf"|\b(?:sounds?|looks?|seems?)(?:\s+like)?\b[^.!?\n]{{0,25}}\b(?:{CONDITIONS}|normal|fine|healthy)\b"
+    rf"\b(?:your baby|the baby|baby|she|he|you|it|this|that|everything)(?:'s|\s+has|\s+have|\s+is|\s+are)\s+(?:\w+\s+){{0,3}}(?:{CONDITIONS}|{ON_HER_NORMAL}|fine|healthy)\b"
+    rf"|\b(?:sounds?|looks?|seems?)(?:\s+like)?\b[^.!?\n]{{0,25}}\b(?:{CONDITIONS}|{ON_HER_NORMAL}|fine|healthy)\b"
     r"|\bprobably\b[^.!?\n]{0,20}\b(?:just|nothing|fine|normal)\b"
     rf"|\b(?:could|might|may|must|likely|probably|possibly)\s+(?:be\s+|have\s+)?(?:an?\s+)?{CONDITIONS}\b",
     re.I,
@@ -253,7 +262,7 @@ def states_a_dose(question, message):
         if LIQUID_AMOUNT.search(sentence) or FREQUENCY.search(sentence):
             if MEDICINE_WORDS.search(sentence):
                 return True
-            if CARE_NOT_MEDICINE.search(sentence):
+            if CARE_NOT_MEDICINE.search(sentence) or (LOGGED_AMOUNT.search(sentence) and not medicine_named):
                 continue
             if medicine_named or not CARE_NOT_MEDICINE.search(question):
                 return True
