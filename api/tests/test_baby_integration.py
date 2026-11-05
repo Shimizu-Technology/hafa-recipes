@@ -24,6 +24,7 @@ from app.domains.baby.models import (
     BabyRecord,
 )
 from app.domains.baby.provider import AnswerOutput, BabyProvider
+from app.domains.baby.push_worker import BabyPushWorker
 from app.domains.baby.router import router
 from app.domains.baby.runtime import BabyWorker, schema_complete
 from app.models.deletion import DeletionCleanupJob
@@ -69,6 +70,11 @@ async def baby_api(monkeypatch, request):
                 "ALTER TABLE baby_children ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}'::jsonb"
             ))
         sessions = async_sessionmaker(engine, expire_on_commit=False)
+        if settings.baby_push_enabled:
+            # As with the flag on in production: the listeners live on every write, with no sending here.
+            watching = BabyPushWorker(sessions)
+            watching.watch()
+            request.addfinalizer(watching.unwatch)
         async with sessions() as db:
             db.add_all([AppUser(id="owner"), AppUser(id="other")])
             await db.commit()
@@ -90,6 +96,8 @@ async def baby_api(monkeypatch, request):
         app.dependency_overrides[get_db] = database
         app.dependency_overrides[get_current_user] = identity
         monkeypatch.setattr(security, "get_settings", lambda: settings)
+        # A busy test machine isn't what the check budget is about; its own test sets it.
+        monkeypatch.setattr("app.domains.baby.push_worker.CHECK_BUDGET", timedelta(minutes=1))
         monkeypatch.setattr("app.domains.baby.access.get_settings", lambda: settings)
         # Provider gates use fresh independent sessions, just like production.
         monkeypatch.setattr("app.db.database.AsyncSessionLocal", sessions)

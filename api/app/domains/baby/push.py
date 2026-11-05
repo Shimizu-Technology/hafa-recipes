@@ -278,12 +278,17 @@ async def patch_prefs(body: PrefsPatch, user: User, db: Database, generation: Ge
         settings = pref.model_dump(exclude={"enabled"}, exclude_none=True)
         await store_pref(db, user.id, space_id, kind, pref.enabled, settings)
     await db.commit()
+    from app.domains.baby.push_worker import baby_push_worker
+
+    baby_push_worker.plan_soon(user.id)
     return (await load_prefs(db, user.id, space_id)).response()
 
 
 @router.get("/reminders/due")
 async def due_reminders(user: User, db: Database, client: Client = None, limit: Limit = 50):
     """What Today shows: due and not dismissed, its reason still standing, however delivery went."""
+    from app.domains.baby import triggers  # noqa: F401  (each kind's wording registers itself)
+
     access = await reminder_access(db, user.id, client=client)
     prefs = await load_prefs(db, user.id, access.personal_space_id)
     # An older build only reads its personal space, so a family's reminders stay off its Today too.

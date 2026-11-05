@@ -505,6 +505,11 @@ class EventData(DomainModel):
     recurrence: EventRecurrence | None = None
     exceptions: list[EventException] = Field(default_factory=list, max_length=200)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    # Minutes before the start; for an all-day event, before 9 AM on its first day. Up to 4 weeks.
+    # Omitted when empty, so a retried save of an older event keeps its creation hash.
+    reminder_minutes: list[Annotated[int, Field(strict=True, ge=0, le=40320)]] = Field(
+        default_factory=list, max_length=5, exclude_if=lambda value: not value
+    )
 
     @field_validator("location")
     @classmethod
@@ -515,6 +520,11 @@ class EventData(DomainModel):
     @classmethod
     def distinct_attendees(cls, value):
         return labels(value)
+
+    @field_validator("reminder_minutes")
+    @classmethod
+    def distinct_reminders(cls, value):
+        return sorted(set(value))
 
     @model_validator(mode="after")
     def valid_event(self):

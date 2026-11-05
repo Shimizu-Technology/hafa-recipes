@@ -174,3 +174,17 @@ async def dismiss(db, *conditions):
         )
         .execution_options(synchronize_session=False)
     )
+
+
+async def restore(db, person, wanted):
+    """Its reason is back: a delivered reminder returns to Today, as it was, and isn't sent again."""
+    table = BabyNotification
+    await db.execute(
+        update(table)
+        .where(
+            table.app_user_id == person, table.idempotency_key.in_(wanted),
+            table.dismissed_at.is_not(None), table.payload.has_key(CLEARED),
+        )
+        .values(dismissed_at=None, updated_at=now(), payload=table.payload.op("-")(CLEARED))
+        .execution_options(synchronize_session=False)
+    )

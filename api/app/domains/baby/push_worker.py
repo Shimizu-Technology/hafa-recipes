@@ -12,6 +12,10 @@ shorter than a lease, so a batch can't outlast what it holds and a late one stop
 
 A provider or lock screen only ever gets ``message_for``'s fixed text and opaque identifiers.
 
+Reminders are planned here too, from what is committed (see ``triggers.py``). A commit that changes
+something a reminder depends on wakes this worker through ``watch``'s listeners, which do nothing
+else and can't fail a write. Those listeners exist only while the worker runs.
+
 Asleep until the next known due time, at most ``IDLE_SECONDS``, so an idle day costs a query every
 ten minutes rather than keeping Neon awake.
 """
@@ -28,11 +32,21 @@ from uuid import UUID, uuid4
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import and_, delete, func, or_, select, text, update
+from sqlalchemy import and_, delete, event, func, or_, select, text, update
+from sqlalchemy.orm import Session
 
 from app.db.database import AsyncSessionLocal
 from app.domains.baby.lifecycle import now
-from app.domains.baby.models import BabyNotification, BabyPushDevice, BabySpaceMember
+from app.domains.baby.models import (
+    BabyChild,
+    BabyImport,
+    BabyMembership,
+    BabyNotification,
+    BabyNotificationPref,
+    BabyPushDevice,
+    BabyRecord,
+    BabySpaceMember,
+)
 from app.domains.baby.push import Prefs, load_prefs, quiet_until
 from app.domains.baby.reminders import (
     CANCELLED,
@@ -44,6 +58,7 @@ from app.domains.baby.reminders import (
     resolve,
 )
 from app.domains.baby.security import push_access_token, push_enabled
+from app.domains.baby.triggers import PLANNERS, plan_person
 
 logger = logging.getLogger("hafa.baby.push")
 SEND_URL = "https://exp.host/--/api/v2/push/send"
@@ -69,6 +84,10 @@ IDLE_SECONDS = 600
 RETRY_AFTER_ERROR_SECONDS = 30
 KEEP = timedelta(days=60)
 PRUNE_EVERY = timedelta(hours=6)
+SWEEP_EVERY = timedelta(minutes=15)
+PLAN_PAGE = 25  # People planned in a pass, so sending never waits on all of them.
+WATCHED = (BabyChild, BabyImport, BabyRecord, BabySpaceMember)
+QUIET_KINDS = ("journal", "collection")  # Writes no reminder depends on, so they don't wake anything.
 NOT_REGISTERED = "DeviceNotRegistered"
 RATE_LIMITED = "MessageRateExceeded"
 
@@ -156,7 +175,55 @@ class BabyPushWorker:
         self.sessions, self.transport = session_factory, transport
         self.task = self.loop = None
         self.event = asyncio.Event()
-        self.pruned_at = None
+        self.pruned_at = self.swept_at = self.sweep_after = None
+        self.spaces, self.people = set(), set()
+        self.watching = False
+
+    def watch(self):
+        if not self.watching:
+            event.listen(Session, "after_flush", self.note_changes)
+            event.listen(Session, "after_commit", self.wake_after_commit)
+            event.listen(Session, "after_rollback", self.forget_changes)
+            self.watching = True
+
+    def unwatch(self):
+        if self.watching:
+            event.remove(Session, "after_flush", self.note_changes)
+            event.remove(Session, "after_commit", self.wake_after_commit)
+            event.remove(Session, "after_rollback", self.forget_changes)
+            self.watching = False
+
+    def note_changes(self, session, context):
+        """Runs in every session's flush while the worker is on, so a problem here is only ever logged."""
+        try:
+            for row in (*session.new, *session.dirty, *session.deleted):
+                if isinstance(row, BabyMembership):  # A new time zone changes when things are due.
+                    session.info.setdefault(self, (set(), set()))[1].add(row.app_user_id)
+                elif isinstance(row, WATCHED) and getattr(row, "kind", None) not in QUIET_KINDS and row.space_id:
+                    session.info.setdefault(self, (set(), set()))[0].add(row.space_id)
+        except Exception as error:
+            logger.warning("Baby push wake lost: %s", type(error).__name__)
+
+    def wake_after_commit(self, session):
+        try:
+            changed = session.info.pop(self, None)
+            if changed:
+                self.spaces |= changed[0]
+                self.people |= changed[1]
+                self.notify()
+        except Exception as error:
+            logger.warning("Baby push wake lost: %s", type(error).__name__)
+
+    def forget_changes(self, session):
+        session.info.pop(self, None)
+
+    def plan_soon(self, person):
+        """A person changed their settings. The sweep catches this if a wake is ever lost."""
+        try:
+            self.people.add(person)
+            self.notify()
+        except Exception as error:
+            logger.warning("Baby push wake lost: %s", type(error).__name__)
 
     def notify(self):
         # A commit can land on another thread; Event itself isn't safe there.
@@ -171,10 +238,12 @@ class BabyPushWorker:
         if not push_access_token():
             logger.warning("Baby push: no Expo access token, so reminders show on Today but aren't sent")
         if self.task is None or self.task.done():
+            self.watch()
             self.loop = asyncio.get_running_loop()
             self.task = asyncio.create_task(self.run(), name="baby-push-worker")
 
     async def stop(self):
+        self.unwatch()
         if self.task:
             self.task.cancel()
             with suppress(asyncio.CancelledError):
@@ -206,7 +275,12 @@ class BabyPushWorker:
 
     async def tick(self):
         """One pass. True when there may be more to do right away."""
-        busy = await self.maintain()
+        try:
+            busy = await self.maintain()
+        except Exception as error:
+            # What is already planned still goes.
+            logger.warning("Baby push planning deferred: %s", type(error).__name__)
+            busy = False
         if not push_access_token():
             return busy
         claimed = await self.claim()
@@ -633,10 +707,14 @@ class BabyPushWorker:
             await db.commit()
 
     async def maintain(self):
-        """Finished rows are kept long enough to explain a miss, then go."""
+        """Plans what has changed and what no write announces, then prunes. True when more is waiting.
+
+        Finished rows are kept long enough to explain a miss, then go.
+        """
         moment = now()
+        more = await self.plan_changed() or await self.sweep(moment)
         if self.pruned_at and moment - self.pruned_at < PRUNE_EVERY:
-            return False
+            return more
         self.pruned_at = moment
         table = BabyNotification
         async with self.transaction() as db:
@@ -644,7 +722,53 @@ class BabyPushWorker:
                 table.status.in_(("accepted", "failed", "unknown")), table.due_at < moment - KEEP
             ))
             await db.commit()
+        return more
+
+    async def plan_changed(self):
+        """Everyone in a space that just changed, for whom it matters. False when nothing was waiting."""
+        people, self.people = self.people, set()
+        spaces, self.spaces = self.spaces, set()
+        if spaces:
+            pref, member = BabyNotificationPref, BabySpaceMember
+            async with self.sessions() as db:
+                people |= set(await db.scalars(
+                    select(pref.app_user_id)
+                    .join(member, member.app_user_id == pref.app_user_id)
+                    .where(member.space_id.in_(spaces), member.status == "active",
+                           pref.enabled.is_(True), pref.kind.in_(PLANNERS))
+                    .distinct()
+                ))
+        waiting = sorted(people)
+        self.people |= set(waiting[PLAN_PAGE:])
+        await self.plan(waiting[:PLAN_PAGE])
+        return bool(self.people)
+
+    async def sweep(self, moment):
+        """A page of the people with something on. A full pass also catches anything a restart missed."""
+        if self.sweep_after is None and self.swept_at and moment - self.swept_at < SWEEP_EVERY:
+            return False
+        pref = BabyNotificationPref
+        query = select(pref.app_user_id).where(pref.enabled.is_(True), pref.kind.in_(PLANNERS)).distinct()
+        if self.sweep_after is not None:
+            query = query.where(pref.app_user_id > self.sweep_after)
+        async with self.sessions() as db:
+            people = list(await db.scalars(query.order_by(pref.app_user_id).limit(PLAN_PAGE)))
+        await self.plan(people)
+        if len(people) == PLAN_PAGE:
+            self.sweep_after = people[-1]
+            return True
+        self.sweep_after, self.swept_at = None, moment
         return False
+
+    async def plan(self, people):
+        for person in people:
+            try:
+                async with self.transaction() as db:
+                    await plan_person(db, person)
+                    await db.commit()
+            except Exception as error:
+                # One person's bad row, or an erased account, must not stop anyone else's reminders.
+                logger.warning("Baby push planning deferred: %s", type(error).__name__)
 
 
 baby_push_worker = BabyPushWorker()
