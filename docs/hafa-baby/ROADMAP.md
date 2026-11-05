@@ -420,6 +420,8 @@ Keep `BABY_FAMILY_ENABLED=false` in production while deploying this stack. The l
 
 ### F7a recovery and F10 phone-update gate
 
+The gate knows a phone by its share credential, which every iOS build asks for when it opens. Asking as client 3 notes that installation in `baby_memberships.profile.family_phones`, and that also means it has rebound. An unrevoked credential not noted is `outdated`, and an expired one `unknown`. Either refuses the first invite with `409 {detail: {code: "phones_not_ready", ready, phones}}`, before anything moves. `GET /family/readiness` gives the same answer to the app, and `POST /family/phones/{id}/forget` revokes a credential for a phone nobody uses. Later invites aren't gated, because only the first moves rows. A phone that has never asked for a credential isn't seen, which takes a build with no native sharing.
+
 | Plan row | Required acceptance |
 |---|---|
 | F7a | Retry outbox items previously marked as errors after a 404 so the server can return `moved` and the client can retarget them. A feed/session tap that receives 404 must remain durable; refresh or resolve the record and retry the same action ID instead of deleting the local record and losing the tap. On a capture 401, refresh the share credential and rebind pending captures non-destructively; preserve the original capture ID and receipt. After leave/removal, Keep in my personal space preserves the draft text but drops retired/unreadable attachment IDs and asks the user to reattach the files. |
