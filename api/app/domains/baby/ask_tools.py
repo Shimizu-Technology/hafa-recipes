@@ -52,7 +52,6 @@ TOOL_GUIDE = (
     "Never count entries yourself. Any total comes from care_stats or day_log's totals, which the app computes and "
     "the Stats screen also shows. For 'this week' or 'the past week' use range 7d, which is what Stats calls a week, "
     "and say which dates it covers. Report totals as what was logged. Today so far is partial. "
-    "The journal holds private writing: read it only when the question is about it, or about how she has been feeling. "
 )
 
 
@@ -409,6 +408,7 @@ def stats_range_for(arguments, zone, at):
         "to_date": DATE_PROPERTY,
         "child_id": CHILD_PROPERTY,
     },
+    permission="logs",
 )
 async def care_stats_tool(tools, db, owner, arguments):
     child = await which_child(tools, db, owner, arguments.child_id)
@@ -438,6 +438,7 @@ class EventArguments(DomainModel):
         "to_date": {"type": "string", "description": "YYYY-MM-DD"},
         "child_id": {"type": ["string", "null"], "description": "A child id from baby_profile, or null."},
     },
+    permission="logs",
 )
 async def events_tool(tools, db, owner, arguments):
     from app.domains.baby.events import check_range, occurrences, window_for
@@ -478,6 +479,7 @@ class JournalArguments(DomainModel):
     "Optionally by words and by dates; newest first.",
     JournalArguments,
     {"query": {"type": ["string", "null"]}, "from_date": DATE_PROPERTY, "to_date": DATE_PROPERTY},
+    permission="journal",
 )
 async def journal_tool(tools, db, owner, arguments):
     from app.domains.baby.chat import ranked, term_matches
