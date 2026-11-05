@@ -90,6 +90,8 @@ describe("what the app asks the phone for", () => {
     expect(config).toContain('["expo-calendar", { calendarPermission: false, remindersPermission: false }]');
     const source = readFileSync(new URL("./phone-calendar.ts", import.meta.url), "utf8");
     expect(source).not.toMatch(/requestCalendarPermissions|getCalendars|getEvents|createEventAsync/);
+    // A real phone refused this: production Metro makes import() a chunk to fetch.
+    expect(source).not.toMatch(/await import\(/);
   });
   it("blocks Android's calendar permissions, which the module's plugin would add by itself", () => {
     expect(config).toContain("android.permission.READ_CALENDAR");

@@ -43,12 +43,13 @@ export const phoneCalendarAvailable = () => !!requireOptionalNativeModule("ExpoC
 
 /**
  * Opens the phone's own add-event sheet, where she picks Apple or a Google calendar already on the phone. It's one way and
- * once: nothing reads her calendars, so it asks for no permission. Loaded here, since the module throws on a binary without it.
+ * once: nothing reads her calendars, so it asks for no permission. Loaded here, since the module throws on a binary without it,
+ * and with require: a production bundle treats `import()` as a chunk to download, which a phone has nowhere to get.
  */
 export async function addToPhoneCalendar(event: PhoneEvent): Promise<"saved" | "canceled" | "done" | "unavailable"> {
   if (!phoneCalendarAvailable()) return "unavailable";
   try {
-    const { createEventInCalendarAsync } = await import("expo-calendar/legacy"), result = await createEventInCalendarAsync(event as never);
+    const { createEventInCalendarAsync } = require("expo-calendar/legacy") as typeof import("expo-calendar/legacy"), result = await createEventInCalendarAsync(event as never);
     return result.action === "saved" ? "saved" : result.action === "canceled" ? "canceled" : "done";
   } catch { return "unavailable"; }
 }
