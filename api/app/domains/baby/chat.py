@@ -21,6 +21,7 @@ from app.domains.baby.ask_safety import (
     boundary,
     cant_answer,
     classify,
+    medical_schedule,
 )
 from app.domains.baby.dependencies import Access, Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, now, owned
@@ -73,6 +74,10 @@ MATCH_LIMIT = 12
 OUTSIDE_RANGE_LIMIT = 6
 PACK_CHILDREN = 12
 BRIEF_EXCERPT = 1500  # So one long saved video cannot crowd out a day of care logs.
+
+
+def focus_date_of(messages):
+    return next((row.content["focus_date"] for row in messages if row.role == "user" and row.content.get("focus_date")), None)
 
 
 def conversation_response(row):
@@ -552,6 +557,10 @@ async def context_pack(db, owner, generation, request, zone, *, tracked=None):
     return pack
 
 
+class MedicalSchedule(ValueError):
+    """Refused on every path: the old one drops the suggestion and keeps its answer, too."""
+
+
 def reviewed_proposal(raw, *, events=False):
     if raw is None:
         return None
@@ -563,6 +572,14 @@ def reviewed_proposal(raw, *, events=False):
     proposal = RecordCreate.model_validate({**raw, "occurred_at": raw["occurred_at"]} if is_event else {**raw, "occurred_at": now()})
     if is_event and (proposal.data.get("recurrence") or proposal.data.get("exceptions")):
         raise ValueError("A suggested event is one date; she can make it repeat while reviewing")
+    if proposal.kind in {"routine", "event"} and medical_schedule(
+        proposal.title, proposal.body, *(str(item.get("label", "")) for item in proposal.data.get("items") or [])
+    ):
+        raise MedicalSchedule("AI cannot suggest a plan for medicine or feeding")
+    if proposal.kind == "routine":
+        if proposal.data.get("repeat") not in {None, "none"}:
+            raise ValueError("AI cannot activate reminders")
+        proposal.data = {**proposal.data, "ai_origin": True}
     if proposal.kind == "routine" and (
         proposal.data.get("enabled") or proposal.data.get("reminder_at")
     ):
@@ -575,6 +592,13 @@ def reviewed_proposal(raw, *, events=False):
         **{key: getattr(proposal, key) for key in ("kind", "title", "body", "data")},
         **({"occurred_at": proposal.occurred_at.isoformat()} if is_event else {}),
     }
+
+
+def legacy_proposal(raw):
+    try:
+        return reviewed_proposal(raw)
+    except MedicalSchedule:
+        return None
 
 
 def offered_proposal(raw):
@@ -646,7 +670,7 @@ async def get_conversation(identifier: UUID, user: User, db: Database, client: C
         BabyConversation.id == identifier, conversation_scope(BabyConversation, access)))
     if row is None:
         raise HTTPException(404, "Item unavailable")
-    messages = await db.scalars(
+    messages = list(await db.scalars(
         select(BabyMessage)
         .where(
             conversation_scope(BabyMessage, access),
@@ -654,9 +678,10 @@ async def get_conversation(identifier: UUID, user: User, db: Database, client: C
         )
         .order_by(BabyMessage.created_at, BabyMessage.id)
         .limit(500)
-    )
+    ))
     return {
         **await conversation_reply(db, row, access),
+        "focus_date": focus_date_of(messages),
         "messages": [message_response(message, legacy=legacy_client(client)) for message in messages],
     }
 
@@ -983,8 +1008,13 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         for item in reversed(history_rows)
     ]
     epoch, conversation_id = member.consent_epoch, conversation.id
+    # A day's chat stays on its day when reopened, whatever the next request remembers.
+    focus_day = None
+    if use_v2:
+        focus_day = body.focus_date.isoformat() if body.focus_date else focus_date_of(history_rows)
     prior.content = {
         **prior.content,
+        **({"focus_date": focus_day} if focus_day else {}),
         "status": "processing",
         "attempts": prior.content.get("attempts", 0) + 1,
         "lease_until": (now() + timedelta(minutes=3)).isoformat(),
@@ -1042,9 +1072,11 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                         history=[item["message"] for item in history if item["message"] != body.message],
                     )
                     focus = {"kind": "entry", "record_id": str(body.record_id)} if body.record_id else (
-                        {"kind": "day", "date": body.focus_date.isoformat()} if body.focus_date else None
+                        {"kind": "day", "date": focus_day} if focus_day else None
                     )
                     tools.forced_tools[:0] = [{"entry": "open_entry", "day": "day_log"}[focus["kind"]]] if focus else []
+                    if focus and focus["kind"] == "day":
+                        tools.permissions.add("logs")
                     result = await answer_question(
                         provider, tools=tools, message=body.message, history=history,
                         now_local=now().astimezone(zone).isoformat(timespec="minutes"),
@@ -1077,7 +1109,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             }
             for identifier in dict.fromkeys(result.citation_ids)
         ]
-        proposal = offered_proposal(result.proposal) if use_v2 else reviewed_proposal(result.proposal)
+        proposal = offered_proposal(result.proposal) if use_v2 else legacy_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
         if use_v2:
             payload.update(message=published["message"], sources=published["sources"], help=published["help"])

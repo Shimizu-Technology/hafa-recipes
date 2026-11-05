@@ -1065,6 +1065,8 @@ async def patch_record(
     no_event_link_from_legacy(client, body.data)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values.update(body.model_dump(exclude_unset=True, exclude={"revision"}))
+    if row.kind == "routine" and row.data.get("ai_origin") and isinstance(values.get("data"), dict):
+        values["data"] = {**values["data"], "ai_origin": True}
     if row.kind == "source" and isinstance(body.data, dict):
         values["data"] = source_patch_data(row.data, body.data)
     elif row.kind in PATCH_ADDITIONS and isinstance(body.data, dict):

@@ -3,6 +3,7 @@
 import json
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import func, select
 
@@ -238,3 +239,127 @@ async def test_the_old_path_still_cannot_suggest_an_event(baby_api, stub):  # no
 
     with pytest.raises(ValueError):
         reviewed_proposal(EVENT)
+
+
+# No AI-proposed medical schedule, in any path, and what Ask suggests can't be switched on later.
+MEDICAL = [
+    {"kind": "routine", "title": "Give newborn Tylenol every four hours", "body": "An AI proposed medicine schedule", "data": {"routine_type": "schedule", "items": [{"id": "a", "label": "Give Tylenol", "done": False}], "enabled": False, "repeat": "none"}},
+    {"kind": "routine", "title": "Morning routine", "body": "", "data": {"routine_type": "checklist", "items": [{"id": "a", "label": "Vitamin D drops", "done": False}], "enabled": False, "repeat": "none"}},
+    {"kind": "routine", "title": "Feeding plan", "body": "Feed every three hours", "data": {"routine_type": "schedule", "items": [], "enabled": False, "repeat": "none"}},
+    {**EVENT, "title": "Take 500 mg acetaminophen"},
+]
+CHECKLIST = {"kind": "routine", "title": "Hospital bag", "body": "", "data": {"routine_type": "checklist", "items": [{"id": "a", "label": "Robe", "done": False}], "enabled": False, "repeat": "none"}}
+
+
+@pytest.mark.parametrize("proposal", MEDICAL)
+async def test_a_medical_schedule_is_never_offered_on_the_new_path(baby_api, stub, proposal):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("Here is the answer", proposal=proposal)]
+    body = (await ask_focus(baby_api)).json()
+    assert body["proposal"] is None and body["message"] == "Here is the answer"
+
+
+@pytest.mark.parametrize("proposal", MEDICAL[:3])
+async def test_a_medical_schedule_is_never_offered_on_the_old_path(baby_api, stub, proposal):  # noqa: F811
+    await enable(baby_api, acknowledge=False)
+    real = stub.handler
+
+    def medical(request):
+        response = real(request)
+        reply = response.json()
+        content = json.dumps({"message": "Old answer", "citation_ids": [], "proposal": proposal})
+        reply["choices"][0]["message"]["content"] = content
+        return httpx.Response(200, json=reply)
+
+    stub.handler = medical
+    response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()), "message": "Suggest a plan"})
+    assert response.status_code == 200, response.text
+    assert response.json()["proposal"] is None and response.json()["message"] == "Old answer"
+
+
+async def suggested_checklist(baby_api, stub, data=None):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("Review this", proposal={**CHECKLIST, "data": {**CHECKLIST["data"], **(data or {})}})]
+    return (await ask_focus(baby_api)).json()["proposal"]
+
+
+def as_record(proposal, **data):
+    return {**proposal, "id": str(uuid4()), "occurred_at": "2026-11-05T09:00:00+10:00", "data": {**proposal["data"], **data}}
+
+
+async def test_ask_marks_what_it_suggests_and_the_model_cannot_unmark_it(baby_api, stub):  # noqa: F811
+    assert (await suggested_checklist(baby_api, stub, {"ai_origin": False}))["data"]["ai_origin"] is True
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"enabled": True, "reminder_at": "2026-11-06T09:00:00+10:00", "timezone": "Pacific/Guam"},
+        {"reminder_at": "2026-11-06T09:00:00+10:00", "timezone": "Pacific/Guam"},
+        {"repeat": "daily"},
+    ],
+)
+async def test_what_ask_suggested_cannot_be_saved_as_a_reminder(baby_api, stub, change):  # noqa: F811
+    proposal = await suggested_checklist(baby_api, stub)
+    saved = await baby_api.client.post("/api/v1/baby/records", headers=HEADERS, json=as_record(proposal, **change))
+    assert saved.status_code == 422, saved.text
+
+
+async def test_what_ask_suggested_saves_as_itself_and_stays_marked_through_edits(baby_api, stub):  # noqa: F811
+    proposal = await suggested_checklist(baby_api, stub)
+    record = as_record(proposal)
+    saved = await baby_api.client.post("/api/v1/baby/records", headers=HEADERS, json=record)
+    assert saved.status_code == 200, saved.text
+    url = f"/api/v1/baby/records/{record['id']}"
+    switched_on = {"revision": 1, "data": {**record["data"], "enabled": True, "reminder_at": "2026-11-06T09:00:00+10:00", "timezone": "Pacific/Guam"}}
+    assert (await baby_api.client.patch(url, headers=HEADERS, json=switched_on)).status_code == 422
+    # Leaving the mark out of an edit doesn't remove it.
+    unmarked = {key: value for key, value in record["data"].items() if key != "ai_origin"}
+    assert (await baby_api.client.patch(url, headers=HEADERS, json={"revision": 1, "data": {**unmarked, "enabled": True, "reminder_at": "2026-11-06T09:00:00+10:00", "timezone": "Pacific/Guam"}})).status_code == 422
+    edited = await baby_api.client.patch(url, headers=HEADERS, json={"revision": 1, "title": "Bag list", "data": unmarked})
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["data"]["ai_origin"] is True
+
+
+async def test_turning_what_ask_suggested_into_a_medicine_schedule_is_refused(baby_api, stub):  # noqa: F811
+    proposal = await suggested_checklist(baby_api, stub)
+    saved = await baby_api.client.post("/api/v1/baby/records", headers=HEADERS, json={**as_record(proposal), "title": "Give Tylenol every four hours"})
+    assert saved.status_code == 422
+
+
+async def test_her_own_reminders_still_work_and_carry_no_mark(baby_api):
+    record = {"kind": "routine", "title": "Give Tylenol", "body": "", "id": str(uuid4()), "occurred_at": "2026-11-05T09:00:00+10:00",
+              "data": {"routine_type": "schedule", "items": [], "enabled": True, "reminder_at": "2026-11-06T09:00:00+10:00", "timezone": "Pacific/Guam", "repeat": "daily"}}
+    saved = await baby_api.client.post("/api/v1/baby/records", headers=HEADERS, json=record)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["data"]["enabled"] is True and "ai_origin" not in saved.json()["data"]
+
+
+# Reopening a day's chat.
+async def test_a_days_chat_keeps_its_day_when_reopened(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [tool_call("day_log", json.dumps({"date": "2026-11-03", "child_id": None})), answered("A quiet day")]
+    first = (await ask_focus(baby_api, focus_date="2026-11-03")).json()
+    detail = (await baby_api.client.get(f"{URL}/{first['conversation_id']}", headers=HEADERS)).json()
+    assert detail["focus_date"] == "2026-11-03"
+    stub.replies = [tool_call("day_log", json.dumps({"date": "2026-11-03", "child_id": None})), answered("More")]
+    # A build that only knows the conversation still gets the day.
+    follow = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={
+        "request_id": str(uuid4()), "message": "And feeds?", "ask_v2": True, "conversation_id": first["conversation_id"]})
+    assert follow.status_code == 200, follow.text
+    sent = stub.sent[-2]
+    assert json.loads(sent["input"][0]["content"])["focus"] == {"kind": "day", "date": "2026-11-03"}
+    assert sent["tool_choice"] == {"type": "function", "name": "day_log"}
+
+
+async def test_a_day_focus_offers_the_day_log_whatever_the_question_says(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [tool_call("day_log", json.dumps({"date": "2026-11-03", "child_id": None})), answered("A quiet day")]
+    await ask_focus(baby_api, focus_date="2026-11-03", message="Tell me about this")
+    assert "day_log" in {tool["name"] for tool in stub.sent[0]["tools"]}
+
+
+async def test_an_ordinary_chat_has_no_focus_date(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    identifier = await asked(baby_api)
+    assert (await baby_api.client.get(f"{URL}/{identifier}", headers=HEADERS)).json()["focus_date"] is None

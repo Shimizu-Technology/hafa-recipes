@@ -460,3 +460,15 @@ it("a suggested event opens for review on its own date, and nothing saves until 
   expect(saved.occurred_at).toBe("2026-11-12T09:30:00+10:00");
   expect(account.api.chat).not.toHaveBeenCalled();
 });
+
+it("reopening a day's chat picks its day back up", async () => {
+  const account = setup();
+  withNewAsk(account, 1);
+  account.api.conversation.mockResolvedValueOnce({ ...conversation(general, "day-chat"), focus_date: "2026-11-03" } as never);
+  await mount();
+  await act(async () => { await result.load("day-chat"); });
+  expect(result.context.focus_date).toBe("2026-11-03");
+  await question("And feeds?");
+  await act(async () => { await result.send(); });
+  expect(account.api.chat.mock.calls[0][0]).toMatchObject({ focus_date: "2026-11-03", conversation_id: "day-chat" });
+});

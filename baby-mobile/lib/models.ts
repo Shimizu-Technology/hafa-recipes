@@ -201,6 +201,8 @@ export interface EventOccurrence {
   revision: number;
 }
 export interface RecordData {
+  /** Ask suggested this. The server keeps it through every edit, and it can't become a reminder. */
+  ai_origin?: boolean;
   /** Which of CDC's milestones this records. The title keeps the words she checked, even if CDC later rewords them. */
   milestone_id?: string;
   /** What a custom entry is, such as "Shot". */
@@ -344,6 +346,8 @@ export interface Conversation {
   child_id: string | null;
   title?: string;
   updated_at?: string;
+  /** Set when this chat was opened about one day. */
+  focus_date?: string | null;
   messages?: ChatMessage[];
 }
 export interface ChatResult {

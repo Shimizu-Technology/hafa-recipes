@@ -221,7 +221,8 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     try {
       const result = await operation.account.api.conversation(id);
       if (!operation.valid()) return;
-      const context: AskContext = { scope: result.scope, record_id: result.record_id, child_id: result.child_id };
+      const context: AskContext = { scope: result.scope, record_id: result.record_id, child_id: result.child_id,
+        ...(result.focus_date ? { focus_date: result.focus_date } : {}) };
       activate(context, id, result.messages ?? [], operation.account.records.find((row) => row.id === context.record_id)?.title);
       setShowHistory(false);
     } catch (failure) { if (operation.valid()) setError(messageFor(failure)); }

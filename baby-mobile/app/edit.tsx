@@ -675,7 +675,9 @@ export default function Edit() {
               }}
             />
           </Section>
-          <Card tone="soft">
+          {draft.data.ai_origin ? <Card tone="soft">
+            <Copy tone="muted">Ask suggested this, so it can’t become a reminder. To be reminded, add a routine of your own.</Copy>
+          </Card> : <Card tone="soft">
             <Copy kind="heading">A reminder, only if you choose</Copy>
             <Copy tone="muted">
               This is your chosen routine. Saved advice does not activate reminders automatically.
@@ -719,7 +721,7 @@ export default function Edit() {
               Repeating reminders keep the timezone chosen here, even when you travel. Notifications use a private,
               general message.
             </Copy>
-          </Card>
+          </Card>}
         </>
       )}
       {draft.kind === "collection" && (

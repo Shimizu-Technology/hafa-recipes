@@ -310,6 +310,12 @@ def answer_checks(question, answer):
     return message, kind, extra
 
 
+def medical_schedule(*texts):
+    """Text that would make a checklist or reminder into a plan for medicine, doses or feeding times."""
+    text = normalized(" ".join(filter(None, texts)))
+    return any(pattern.search(text) for pattern in (MEDICINE_WORDS, PILL_AMOUNT, LIQUID_AMOUNT, FREQUENCY))
+
+
 def must_research_first(question):
     """The vaccine positions are looked up at the time of the question, never recalled."""
     return bool(VACCINE_WORDS.search(question))
