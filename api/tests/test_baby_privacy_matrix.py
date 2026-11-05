@@ -153,6 +153,9 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
         assert (await db.get(BabyNotification, reminder.id)).dismissed_at is None
     await call("GET", f"{API}/records/{rows['care']['id']}", 200 if member else hidden)
     await call("GET", f"{API}/conversations/{owner.conversation_id}", denied)
+    # Renaming and deleting someone's chat are refused whatever the role, and don't exist with the flag off.
+    await call("PATCH", f"{API}/conversations/{owner.conversation_id}", denied, json={"title": "Renamed"})
+    await call("DELETE", f"{API}/conversations/{owner.conversation_id}", denied)
     await call("POST", API + "/chat", 422 if member else hidden, json={"message": "Summarize everything"})
     await call("POST", API + "/children", 200 if parent else hidden, json={"name": "New child"})
     await call("PATCH", f"{API}/children/{child}", 200 if parent else hidden, json={"revision": 1, "name": "Edited child"})
