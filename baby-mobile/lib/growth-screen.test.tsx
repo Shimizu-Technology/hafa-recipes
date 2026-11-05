@@ -133,3 +133,13 @@ it("opens the same growth panel Tracker uses", async () => {
   expect(renderer!.root.findAll((n) => String(n.type) === "TrackerPanel")[0].props.tracker.id).toBe("growth");
   m.flow.panel = null;
 });
+
+it("plots every dot in the chart's unit, whichever unit it was saved in", async () => {
+  setup("girl");
+  // 7.5 lb at birth is 3.4 kg, well under 5.5 kg at two months: its dot must sit lower, not at "7.5".
+  m.rows = [row({ weight: 7.5, weight_unit: "lb" }, "2026-12-10T02:00:00.000Z"), row({ weight: 5.5, weight_unit: "kg" }, "2027-02-05T02:00:00.000Z")];
+  await mount();
+  await act(async () => renderer!.root.findByProps({ accessibilityRole: "image" }).props.onLayout({ nativeEvent: { layout: { width: 340 } } }));
+  const [birth, later] = renderer!.root.findAll((n) => String(n.type) === "Circle").map((n) => n.props.cy as number);
+  expect(birth).toBeGreaterThan(later);
+});

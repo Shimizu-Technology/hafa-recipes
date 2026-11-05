@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, useWindowDimensions } from "react-native";
 import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
-import { curve, lastMonth, percentileLines, type ChartSex, type ChartUnit, type GrowthPoint, type Measure } from "@/lib/growth-chart";
+import { curve, lastMonth, percentileLines, plottedIn, type ChartSex, type ChartUnit, type GrowthPoint, type Measure } from "@/lib/growth-chart";
 import { fonts, useColors } from "./ui";
 
 /** The lines drawn. CDC prints nine, which run together at this size; every one still counts in the words beside the chart. */
@@ -22,7 +22,7 @@ export function GrowthChart({ sex, measure, unit, points, label }: { sex: ChartS
     span = spans.find((months) => plotted.every((point) => point.months <= months)) ?? lastMonth,
     lines = drawn.map((line) => ({ line, values: curve(sex, measure, line, unit).filter((one) => one.months <= span) })),
     // A dot beyond the lines widens the chart rather than falling off it.
-    dots = plotted.map((point) => point.shown),
+    dots = plotted.map((point) => plottedIn(point, unit)),
     low = Math.min(...lines[0].values.map((one) => one.value), ...dots), high = Math.max(...lines[lines.length - 1].values.map((one) => one.value), ...dots),
     step = niceStep(high - low), floor = Math.floor(low / step) * step, ceiling = Math.ceil(high / step) * step,
     x = (months: number) => left + (months / span) * Math.max(width - left - right, 1),
@@ -38,8 +38,8 @@ export function GrowthChart({ sex, measure, unit, points, label }: { sex: ChartS
       <SvgText x={left + (width - left - right) / 2} y={height - text * 0.3} fontSize={text} fontFamily={fonts.regular} fill={c.muted} textAnchor="middle">{`Age in months · ${unit === "lb" ? "pounds" : unit === "kg" ? "kilograms" : unit === "in" ? "inches" : "centimeters"}`}</SvgText>
       {lines.map(({ line, values }) => <Path key={line} d={path(values)} fill="none" stroke={c.muted} strokeWidth={line === 50 ? 1.5 : 0.75} opacity={line === 50 ? 0.9 : 0.6} />)}
       {lines.map(({ line, values }) => <SvgText key={`l${line}`} x={width - right + 4} y={y(values[values.length - 1].value) + text / 3} fontSize={text * 0.9} fontFamily={fonts.regular} fill={c.muted}>{String(line)}</SvgText>)}
-      {plotted.length > 1 && <Path d={path(plotted.map((point) => ({ months: point.months, value: point.shown })))} fill="none" stroke={c.accent} strokeWidth={2} />}
-      {plotted.map((point) => <Circle key={point.record.id} cx={x(point.months)} cy={y(point.shown)} r={4.5} fill={c.accent} stroke={c.surface} strokeWidth={1.5} />)}
+      {plotted.length > 1 && <Path d={path(plotted.map((point) => ({ months: point.months, value: plottedIn(point, unit) })))} fill="none" stroke={c.accent} strokeWidth={2} />}
+      {plotted.map((point) => <Circle key={point.record.id} cx={x(point.months)} cy={y(plottedIn(point, unit))} r={4.5} fill={c.accent} stroke={c.surface} strokeWidth={1.5} />)}
     </Svg>}
   </View>;
 }

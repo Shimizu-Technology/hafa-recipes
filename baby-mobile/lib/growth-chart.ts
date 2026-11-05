@@ -73,6 +73,9 @@ export function curve(sex: ChartSex, measure: Measure, line: (typeof percentileL
   return whoGrowth.charts[sex][measure].map((row) => ({ months: row[0], value: fromMetric(row[column], unit) }));
 }
 
+/** Where a measurement sits on a chart reading in this unit, whatever unit it was saved in. */
+export const plottedIn = (point: Pick<GrowthPoint, "metric">, unit: ChartUnit) => fromMetric(point.metric, unit);
+
 export interface GrowthPoint { record: BabyRecord; day: string; months: number; metric: number; shown: number; unit: ChartUnit; text: string; onChart: boolean; percentile: number | null }
 
 // The units the API allows. A record with anything else is left off rather than read as metric.

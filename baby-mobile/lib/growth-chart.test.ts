@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("expo-crypto", () => ({ randomUUID: () => "id" }));
-import { ageMonths, chartFromChild, curve, growthNotes, lmsAt, measuredOn, normalCdf, percentile, percentileWords, visibleGrowthNotes, whoGrowth, zScore, type ChartSex, type Measure } from "./growth-chart";
+import { ageMonths, chartFromChild, curve, plottedIn, growthNotes, lmsAt, measuredOn, normalCdf, percentile, percentileWords, visibleGrowthNotes, whoGrowth, zScore, type ChartSex, type Measure } from "./growth-chart";
 import type { BabyRecord } from "./models";
 
 const row = (data: Record<string, unknown>, at: string, child = "baby") =>
@@ -133,4 +133,10 @@ describe("which chart a baby's profile points to", () => {
     expect(chartFromChild({ details: { sex: "Boy" } })).toBe("boys");
     for (const child of [{}, { details: {} }, { details: { sex: null } }, { details: { sex: "not_sure" } }, { details: { sex: "Not sure yet" } }, { details: null }]) expect(chartFromChild(child)).toBeNull();
   });
+});
+
+it("converts a measurement to the chart's unit for plotting", () => {
+  const [point] = measuredOn([row({ weight: 7.5, weight_unit: "lb" }, "2026-12-10T02:00:00.000Z")], { id: "baby", birth_date: "2026-12-10" }, "girls", "weight", "Pacific/Guam");
+  expect(plottedIn(point, "lb")).toBeCloseTo(7.5, 6);
+  expect(plottedIn(point, "kg")).toBeCloseTo(3.40194, 4);
 });
