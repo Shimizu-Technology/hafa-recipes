@@ -786,7 +786,7 @@ export function Chips({
   return scroll ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
     contentContainerStyle={{ paddingBottom: 2 }} keyboardShouldPersistTaps="handled">{choices}</ScrollView> : choices;
 }
-export interface FilterChip { label: string; value: string; icon?: IconName }
+export interface FilterChip { label: string; value: string; icon?: IconName; dot?: ColorValue }
 /**
  * The sub-navigation chip row at the top of a list: 34pt pills that scroll edge to edge and fade
  * at the trailing edge instead of clipping a word. Selected is filled cocoa; the rest are sand.
@@ -820,6 +820,7 @@ export function FilterChips({ options, value, onChange, label }: { options: Filt
             <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
               backgroundColor: on ? c.action : c.surface }}>
               {option.icon && <Icon name={option.icon} size={16} color={ink} />}
+              {!!option.dot && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }} />}
               <Text key={fontScale} maxFontSizeMultiplier={0}
                 style={{ ...typeScale.subhead, fontFamily: on ? fonts.semibold : fonts.medium, color: ink }}>{option.label}</Text>
             </View>

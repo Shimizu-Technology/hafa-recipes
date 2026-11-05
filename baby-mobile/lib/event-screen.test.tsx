@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type Mutation } from "./models";
 
 const mock = vi.hoisted(() => ({ upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
-vi.mock("react-native", () => ({ View: "View", Image: "Image", Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
+vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
 vi.mock("expo-document-picker", () => ({}));
@@ -27,7 +27,7 @@ vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections" }
 vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
 vi.mock("@/lib/visits", () => import("./visits"));
 vi.mock("@/components/event-fields", () => import("../components/event-fields"));
-const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
+const ui = vi.hoisted(() => ({ fonts: {}, typeScale: {}, tap: () => undefined, FilterChips: "FilterChips", Icon: "Icon", PressTarget: "PressTarget", Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
   Screen: ({ children, footer }: { children: unknown; footer?: unknown }) => [children, footer], useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
@@ -104,7 +104,7 @@ it("adds Baptism with a tap on its kind and Save, with no signal, and queues it 
   const b = setup([], false);
   mock.params = { kind: "event", day: "2026-12-20" };
   await mount(Edit);
-  await act(async () => { found("Chips", (p) => p.label === "What’s it for?").props.onChange("Baptism"); });
+  await act(async () => { found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Baptism"); });
   await press("Button", "Save event");
   expect(b.state.outbox).toHaveLength(1);
   expect(b.state.outbox[0]).toMatchObject({ type: "save", record: { kind: "event", title: "Baptism", child_id: null, occurred_at: "2026-12-19T14:00:00.000Z", data: { all_day: true, category: "celebration", timezone: guam } } });
@@ -125,7 +125,7 @@ it("says plainly when a new repeat would go over the limit, before she leaves th
   const rows = Array.from({ length: 200 }, (_, n) => event({}, `s${n}`)), b = setup(rows);
   mock.params = { kind: "event", day: "2026-12-20" };
   await mount(Edit);
-  await act(async () => { found("Chips", (p) => p.label === "What’s it for?").props.onChange("Birthday"); });
+  await act(async () => { found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Birthday"); });
   await press("Button", "Save event");
   expect(b.state.outbox).toEqual([]);
   expect(mock.toast.mock.calls[0][0]).toContain("You can keep up to 200 repeating events.");
@@ -149,7 +149,7 @@ it("All future can't start before the date it changes from, which the old series
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };
   await mount(Edit);
-  await act(async () => { found("DateField", (p) => p.label === "Date and time").props.onChange("2026-11-09T00:00:00.000Z"); });
+  await act(async () => { found("DateField", (p) => p.label === "When").props.onChange("2026-11-09T00:00:00.000Z"); });
   await press("Button", "Save changes");
   expect(b.state.outbox).toEqual([]);
   expect(mock.toast.mock.calls[0][0]).toContain("can’t start before the date you’re changing");
@@ -158,7 +158,7 @@ it("edits just one date as a change on the series, and offers only what one date
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "one", at: "2026-11-09T00:00:00.000Z" };
   await mount(Edit);
-  expect(renderer!.root.findAll((n) => String(n.type) === "Chips").map((n) => n.props.label)).toEqual(["Category"]);
+  expect(renderer!.root.findAll((n) => String(n.type) === "FilterChips").map((n) => n.props.label)).toEqual(["Category"]);
   await act(async () => { found("Field", (p) => p.label === "Location (optional)").props.onChange("Clinic"); });
   await press("Button", "Save changes");
   expect(b.state.outbox[0]).toMatchObject({ record: { title: "Class", occurred_at: "2026-11-02T00:00:00.000Z", revision: 4, data: { reminder_minutes: [60], exceptions: [{ original_start: "2026-11-09T00:00:00.000Z", cancelled: false, overrides: { location: "Clinic" } }] } } });
@@ -198,7 +198,7 @@ it("Book next opens a form already filled in, and saves a new visit through the 
   const b = setup([visit()], false);
   mock.params = { kind: "event", from: "class", at: "2026-11-02T00:00:00.000Z" };
   await mount(Edit);
-  expect(renderer!.root.findAll((n) => n.props.label === "What’s it for?")).toHaveLength(0);
+  expect(renderer!.root.findAll((n) => n.props.label === "Suggestions")).toHaveLength(0);
   await press("Button", "Save next visit");
   const [change] = b.state.outbox;
   expect(change).toMatchObject({ type: "save", record: { kind: "event", title: "OB visit", occurred_at: "2026-11-16T00:00:00.000Z", child_id: null,
@@ -311,5 +311,107 @@ describe("from the re-check of #543: typed log input outlives the editor", () =>
     const record = account.state.outbox.find((m: Mutation) => m.type === "save")?.record;
     expect(record).toMatchObject({ title: "120/76", data: { label: "Blood pressure" } });
     expect(record).not.toHaveProperty("log_form");
+  });
+});
+
+describe("the form opens on a name, a date and Save", () => {
+  const texts = () => renderer!.root.findAll((n) => typeof n.type === "string").flatMap((n) => n.children.filter((child) => typeof child === "string")).join(" ");
+  const nameField = () => found("Field", (p) => p.label === "Name");
+  const more = () => renderer!.root.findAll((n) => n.props.accessibilityLabel === "More details" || String(n.props.accessibilityLabel).startsWith("More details"))[0];
+  const openNew = async () => { setup([]); mock.params = { kind: "event", day: "2026-11-20" }; await mount(Edit); };
+
+  it("has nothing before the name, and everything else behind one More details", async () => {
+    await openNew();
+    expect(renderer!.root.findAll((n) => String(n.type) === "Field").map((n) => n.props.label)).toEqual(["Name"]);
+    for (const hidden of ["Repeat", "Category", "Location", "Note", "Who"]) expect(texts()).not.toContain(hidden);
+    expect(more()).toBeDefined();
+    await act(async () => more().props.onPress());
+    expect(renderer!.root.findAll((n) => String(n.type) === "Field").map((n) => n.props.label)).toEqual(expect.arrayContaining(["Name", "Location (optional)", "Who’s coming (optional)", "Note (optional)"]));
+  });
+  it("a car appointment saves with just a typed name, no kind asked for", async () => {
+    await openNew();
+    await act(async () => nameField().props.onChange("Car appointment"));
+    await press("Button", "Save event");
+    const queued = mock.baby.state.outbox[0];
+    expect(queued.record).toMatchObject({ kind: "event", title: "Car appointment" });
+    expect(queued.record.data.all_day).toBe(true);
+    expect(new Date(queued.record.occurred_at).toISOString()).toBe("2026-11-19T14:00:00.000Z");
+  });
+  it("a suggestion fills the name, and she can still change it", async () => {
+    await openNew();
+    await act(async () => found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Birthday"));
+    expect(nameField().props.value).toBe("Birthday");
+    await act(async () => nameField().props.onChange("Noa’s birthday"));
+    await press("Button", "Save event");
+    expect(mock.baby.state.outbox[0].record).toMatchObject({ title: "Noa’s birthday", data: { recurrence: { frequency: "yearly" }, category: "celebration" } });
+  });
+  it("says what a suggestion set, while More details stays shut", async () => {
+    await openNew();
+    await act(async () => found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Birthday"));
+    expect(more().props.accessibilityState.expanded).toBe(false);
+    expect(texts()).toContain("Every year");
+  });
+  it("offers the names she's used before, newest first, once each", async () => {
+    setup([{ ...event({ category: "other" }, "a"), updated_at: "2026-10-01T00:00:00.000Z" }, { ...event({}, "b"), title: "Dentist", updated_at: "2026-11-05T00:00:00.000Z" }, { ...event({}, "c"), title: "dentist", updated_at: "2026-11-01T00:00:00.000Z" }]);
+    mock.params = { kind: "event" };
+    await mount(Edit);
+    const names = found("FilterChips", (p) => p.label === "Suggestions").props.options.map((o: any) => o.label);
+    expect(names.filter((name: string) => /dentist/i.test(name))).toEqual(["Dentist"]);
+    expect(names).toContain("Class");
+    expect(names.indexOf("Dentist")).toBeLessThan(names.indexOf("Class"));
+  });
+  it("opens an existing event with what it already has showing", async () => {
+    setup([event({ location: "Clinic", attendees: ["Grandma"], reminder_minutes: [1440] })]);
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(true);
+    expect(found("Field", (p) => p.label === "Location (optional)").props.value).toBe("Clinic");
+    expect(found("Field", (p) => p.label === "Who’s coming (optional)").props.value).toBe("Grandma");
+    expect(found("FilterChips", (p) => p.label === "Reminder").props.value).toBe("1440");
+  });
+  it("opens a plain event with More details shut", async () => {
+    setup([{ ...event(), data: { timezone: guam, all_day: true, category: "other", attendees: [] } }]);
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(false);
+  });
+  it("keeps who's coming as names, and never breaks the API's rule on them", async () => {
+    await openNew();
+    await act(async () => nameField().props.onChange("Baptism"));
+    await act(async () => more().props.onPress());
+    await act(async () => found("Field", (p) => p.label === "Who’s coming (optional)").props.onChange("Grandma, grandma ,, Auntie Rose,"));
+    await press("Button", "Save event");
+    expect(mock.baby.state.outbox[0].record.data.attendees).toEqual(["Grandma", "Auntie Rose"]);
+  });
+  it("sets one reminder, and clears it", async () => {
+    await openNew();
+    await act(async () => more().props.onPress());
+    const reminder = () => found("FilterChips", (p) => p.label === "Reminder");
+    await act(async () => reminder().props.onChange("1440"));
+    expect(reminder().props.value).toBe("1440");
+    await act(async () => reminder().props.onChange(""));
+    await act(async () => nameField().props.onChange("Baptism"));
+    await press("Button", "Save event");
+    expect(mock.baby.state.outbox[0].record.data.reminder_minutes).toEqual([]);
+  });
+  it("keeps reminders it has no chip for until she picks one", async () => {
+    setup([event({ reminder_minutes: [30, 120] })]);
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    await press("Button", "Save changes");
+    expect(mock.baby.state.outbox[0].record.data.reminder_minutes).toEqual([30, 120]);
+  });
+  it("doesn't offer to discard a form nothing has been put in", async () => {
+    await openNew();
+    expect(renderer!.root.findAll((n) => n.props.title === "Discard this draft")).toHaveLength(0);
+    await act(async () => nameField().props.onChange("Dentist"));
+    expect(renderer!.root.findAll((n) => n.props.title === "Discard this draft")).toHaveLength(1);
+  });
+  it("shows who's coming and the reminder on the event", async () => {
+    setup([event({ attendees: ["Grandma", "Auntie Rose"], reminder_minutes: [1440], recurrence: null }, "party")]);
+    mock.params = { id: "party" };
+    await mount(EventDetail);
+    expect(texts()).toContain("Grandma, Auntie Rose");
+    expect(texts()).toContain("1 day before");
   });
 });

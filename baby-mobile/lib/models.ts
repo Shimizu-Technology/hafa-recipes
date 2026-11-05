@@ -242,6 +242,8 @@ export interface RecordData {
   category?: EventCategory | null;
   location?: string | null;
   attendees?: string[];
+  /** Minutes before the start; for an all-day event, before 9 AM on its first day. */
+  reminder_minutes?: number[];
   recurrence?: EventRecurrence | null;
   exceptions?: EventException[];
   [key: string]: unknown;

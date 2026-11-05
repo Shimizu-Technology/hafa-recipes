@@ -3,7 +3,7 @@ import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
-import { categoryName, dayName, eventWhen, occurrenceAt, repeatName, withoutDate, withoutFuture } from "@/lib/events";
+import { categoryName, dayName, eventWhen, occurrenceAt, reminderName, repeatName, withoutDate, withoutFuture } from "@/lib/events";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { mutationRecordIds, replaceRecord } from "@/lib/outbox";
 import { dayKey, recordDay } from "@/lib/tracker";
@@ -65,8 +65,10 @@ export default function EventDetail() {
       </View>
       <Copy numeric>{when}</Copy>
       {!!shown.location && <Copy>{shown.location}</Copy>}
+      {shown.attendees.length > 0 && <Copy>With {shown.attendees.join(", ")}</Copy>}
       <Copy kind="small" tone="muted">{child?.name ?? "Whole family"}{repeating ? ` · ${repeatName(row.data.recurrence)}` : ""}</Copy>
       {!!row.body && <Copy>{row.body}</Copy>}
+      {!!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
     </Card>
     {appointment && <Button size="lg" icon="calendar-outline" title="Book next"
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
