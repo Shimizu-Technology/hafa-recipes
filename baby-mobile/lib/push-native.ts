@@ -11,6 +11,8 @@ const installationKey = "hb.push.installation";
 const revocationKey = "hb.push.revocation";
 
 export const pushAvailable = Platform.OS === "ios" || Platform.OS === "android";
+/** It can outlast the sign-out that started it. Until it's done nobody registers: a late stop would undo that, whichever account it is. */
+let stopping: Promise<void> | null = null;
 
 /**
  * `getExpoPushTokenAsync` turns on Expo's auto-registration, which asks iOS for a token again on every launch and would
@@ -18,10 +20,13 @@ export const pushAvailable = Platform.OS === "ios" || Platform.OS === "android";
  * (SDK 57), so it rejects and changes nothing. It's still called because it cancels an update in progress. Writing what
  * Expo reads as "off" is what actually does it. Each step is separate: failing one mustn't skip the next.
  */
-export async function stopPushDelivery() {
-  await Notifications.setAutoServerRegistrationEnabledAsync(false).catch(() => undefined);
-  await ServerRegistrationModule.setRegistrationInfoAsync?.(JSON.stringify({ isEnabled: false })).catch(() => undefined);
-  await Notifications.unregisterForNotificationsAsync();
+export function stopPushDelivery() {
+  stopping ??= (async () => {
+    await Notifications.setAutoServerRegistrationEnabledAsync(false).catch(() => undefined);
+    await ServerRegistrationModule.setRegistrationInfoAsync?.(JSON.stringify({ isEnabled: false })).catch(() => undefined);
+    await Notifications.unregisterForNotificationsAsync();
+  })().finally(() => { stopping = null; });
+  return stopping;
 }
 
 export function nativePushDevice(api: Pick<BabyApi, "registerPushDevice" | "unregisterPushDevice">, secret: SecretStorage, binding: string, online: () => boolean, uuid: () => string) {
@@ -30,7 +35,7 @@ export function nativePushDevice(api: Pick<BabyApi, "registerPushDevice" | "unre
     platform: Platform.OS === "android" ? "android" : "ios",
     binding,
     online,
-    granted: async () => pushAvailable && (await Notifications.getPermissionsAsync()).granted,
+    granted: async () => pushAvailable && !stopping && (await Notifications.getPermissionsAsync()).granted,
     token: async () => (await Notifications.getExpoPushTokenAsync({ projectId: Constants.expoConfig?.extra?.eas?.projectId })).data,
     installation: async () => {
       const held = await secret.getItemAsync(installationKey);

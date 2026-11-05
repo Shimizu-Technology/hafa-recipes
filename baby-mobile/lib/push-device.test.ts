@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
 import { createPushDevice, type PushDeviceEnvironment } from "./push-device";
 
@@ -270,5 +270,104 @@ describe("a revocation left over from an earlier sign-out", () => {
     store.value = JSON.stringify({ installation: "install-1", registration: "new", token: "t" });
     await device.end();
     expect(JSON.parse(store.revocation!).registration).toBe("new");
+  });
+});
+
+describe("sign-out's one deadline", () => {
+  const holding = (overrides: Partial<PushDeviceEnvironment> = {}) => {
+    const made = fixture(overrides);
+    made.store.value = JSON.stringify({ installation: "install-1", registration: "111", token: "t" });
+    return made;
+  };
+  const never = () => new Promise<never>(() => {});
+  /** How long end() takes, on fake timers. */
+  async function timed(device: ReturnType<typeof fixture>["device"], limit = 5000) {
+    let finished = -1, clock = 0;
+    const ending = device.end(limit).then(() => { finished = clock; });
+    for (; clock <= limit * 2 && finished < 0; clock += 100) await vi.advanceTimersByTimeAsync(100);
+    await ending;
+    return finished;
+  }
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  it("a registration under way and a hung removal share it, with nothing added on top", async () => {
+    const { device, store } = fixture({ put: vi.fn(never), remove: vi.fn(never) });
+    store.value = JSON.stringify({ installation: "install-1", registration: "111", token: "t" });
+    void device.ensure(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await timed(device)).toBeLessThanOrEqual(5000);
+  });
+  it("a native unregister that stalls can't hold it past the deadline, as Android's token delete can with no network", async () => {
+    const { device } = holding({ online: () => false, stopDelivery: vi.fn(never) });
+    expect(await timed(device)).toBeLessThanOrEqual(5000);
+  });
+  it("a hung removal and a stalled unregister together still finish in time", async () => {
+    const { device, env } = holding({ remove: vi.fn(never), stopDelivery: vi.fn(never) });
+    expect(await timed(device)).toBeLessThanOrEqual(5000);
+    expect(env.stopDelivery).toHaveBeenCalled();
+  });
+  it("the revocation is saved before native cleanup starts, so a stall can't lose it", async () => {
+    let savedWhenStopped: string | null = "not called";
+    const made = holding({ online: () => false, stopDelivery: vi.fn(async () => { savedWhenStopped = made.store.revocation; return never(); }) });
+    await timed(made.device);
+    expect(JSON.parse(savedWhenStopped!).registration).toBe("111");
+  });
+  it("the held registration is forgotten before native cleanup too", async () => {
+    let heldWhenStopped: string | null = "not called";
+    const made = holding({ online: () => false, stopDelivery: vi.fn(async () => { heldWhenStopped = made.store.value; return never(); }) });
+    await timed(made.device);
+    expect(heldWhenStopped).toBeNull();
+  });
+  it("a hung removal leaves time to save the revocation inside the deadline", async () => {
+    let at = -1, clock = 0;
+    const made = holding({ remove: vi.fn(never), writeRevocation: vi.fn(async (value: string | null) => { made.store.revocation = value; at = clock; }) });
+    const ending = made.device.end(5000);
+    for (; clock <= 5000; clock += 100) await vi.advanceTimersByTimeAsync(100);
+    await ending;
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(at).toBeLessThan(5000);
+    expect(JSON.parse(made.store.revocation!).registration).toBe("111");
+  });
+  it("a keychain that stalls can't hold it either", async () => {
+    const { device } = holding({ read: vi.fn(never) });
+    expect(await timed(device)).toBeLessThanOrEqual(5000);
+  });
+  it("a keychain that fails still stops delivery, since it can't say this phone isn't registered", async () => {
+    const { device, env } = holding({ read: vi.fn(async () => { throw Error("keychain"); }) });
+    await timed(device);
+    expect(env.stopDelivery).toHaveBeenCalled();
+  });
+  it("after a stall, this phone doesn't register until the native stop is done, which then can't undo it", async () => {
+    let release = () => {};
+    const { device, env } = holding({ online: () => false, stopDelivery: vi.fn(() => new Promise<void>((resolve) => { release = resolve; })) });
+    await timed(device);
+    env.online = () => true;
+    await expect(device.ensure(1)).resolves.toBe(false);
+    expect(env.put).not.toHaveBeenCalled();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(device.ensure(1)).resolves.toBe(true);
+    expect(env.put).toHaveBeenCalled();
+  });
+  it("a second sign-out while one is stalled doesn't start another or wait any longer", async () => {
+    const { device, env } = holding({ online: () => false, stopDelivery: vi.fn(never) });
+    await timed(device);
+    expect(await timed(device)).toBeLessThanOrEqual(5000);
+    expect(env.stopDelivery).toHaveBeenCalledTimes(1);
+  });
+  it("a registration still under way stops delivery even when the older one's removal is confirmed", async () => {
+    const { device, env } = holding({ put: vi.fn(never) });
+    void device.ensure(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await timed(device)).toBeLessThanOrEqual(5000);
+    expect(env.remove).toHaveBeenCalled();
+    expect(env.stopDelivery).toHaveBeenCalled();
+  });
+  it("a confirmed removal touches nothing native", async () => {
+    const { device, env, store } = holding();
+    expect(await timed(device)).toBeLessThan(5000);
+    expect(env.stopDelivery).not.toHaveBeenCalled();
+    expect(store.revocation).toBeNull();
+    expect(store.value).toBeNull();
   });
 });

@@ -836,6 +836,24 @@ describe("feed actions in the sync loop", () => {
   });
 });
 describe("provider routine restore integration", () => {
+  it("a phone whose push cleanup hangs at every step still finishes signing out", async () => {
+    const { createPushDevice } = await vi.importActual<typeof import("./push-device")>("./push-device");
+    const never = () => new Promise<never>(() => {});
+    const hung = createPushDevice({
+      platform: "ios", binding: "b", online: () => true, granted: async () => true, token: never, installation: never,
+      read: async () => JSON.stringify({ installation: "i", registration: "1", token: "t" }), write: never, erase: never, put: never,
+      remove: never, stopDelivery: never, readRevocation: never, writeRevocation: never, now: () => 0,
+    });
+    await mount();
+    mock.pushEnd.mockImplementationOnce(() => hung.end(50).then(() => undefined));
+    await act(async () => {
+      const out = baby.signOut();
+      await vi.advanceTimersByTimeAsync(60);
+      await out;
+    });
+    expect(mock.signOut).toHaveBeenCalledOnce();
+    expect(baby.error).toBeFalsy();
+  });
   it("retries failed live sign-out cleanup without reopening the Baby space", async () => {
     await mount();
     const bootstrapCalls = mock.api.bootstrap.mock.calls.length;

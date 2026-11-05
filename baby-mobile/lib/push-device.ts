@@ -32,6 +32,12 @@ interface Revocation {
 }
 const retryAfter = 5 * 60_000;
 
+function timeout(ms: number) {
+  let timer: ReturnType<typeof setTimeout>;
+  const done = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
+  return { done, clear: () => clearTimeout(timer) };
+}
+
 function parsed<T extends { registration: string; installation: string }>(value: string | null): T | null {
   try {
     const held = value ? JSON.parse(value) : null;
@@ -43,26 +49,20 @@ function parsed<T extends { registration: string; installation: string }>(value:
 
 export function createPushDevice(env: PushDeviceEnvironment) {
   let confirmed = "", failed = { key: "", at: 0 }, running: Promise<boolean> | null = null,
-    ending = false, session = 0, revokeTried = 0;
-  /** Only a removal the API has answered counts. Anything else stops delivery here and stays to be done. */
-  async function revoke(installation: string, registration: string, limit: number) {
-    let removed = false;
-    if (env.online()) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          env.remove(installation, registration),
-          new Promise((_, reject) => { timer = setTimeout(() => reject(Error("Timed out")), limit); }),
-        ]);
-        removed = true;
-      } catch { /* Not confirmed. */ } finally {
-        if (timer) clearTimeout(timer);
-      }
+    cleaning: Promise<void> | null = null, session = 0, revokeTried = 0;
+  /** Only a removal the API has answered counts. */
+  async function removed(installation: string, registration: string, limit: Promise<unknown>) {
+    if (!env.online()) return false;
+    try {
+      return await Promise.race([env.remove(installation, registration).then(() => true), limit.then(() => false)]);
+    } catch {
+      return false;
     }
-    if (removed) return;
-    await env.stopDelivery().catch(() => undefined);
-    await env.writeRevocation(JSON.stringify({ installation, registration, binding: env.binding } satisfies Revocation)).catch(() => undefined);
   }
+  /** Saved before anything native starts, which can stall: Android's token delete needs a network. */
+  const remember = (installation: string, registration: string) =>
+    env.writeRevocation(JSON.stringify({ installation, registration, binding: env.binding } satisfies Revocation)).catch(() => undefined);
+  const stop = () => env.stopDelivery().catch(() => undefined);
   /** Left from a sign-out the API never confirmed. This account can finish it; another can't, until it registers. */
   async function settleRevocation() {
     const held = parsed<Revocation>(await env.readRevocation());
@@ -86,7 +86,12 @@ export function createPushDevice(env: PushDeviceEnvironment) {
         const { registration } = await env.put(installation, token, env.platform, generation);
         // Signed out while this was on its way, past what sign-out would wait for. It's not hers to keep.
         if (mine !== session) {
-          await revoke(installation, registration, 5000);
+          const wait = timeout(5000);
+          if (!(await removed(installation, registration, wait.done))) {
+            await remember(installation, registration);
+            await stop();
+          }
+          wait.clear();
           return false;
         }
         await env.write(JSON.stringify({ installation, registration, token } satisfies Held));
@@ -102,6 +107,19 @@ export function createPushDevice(env: PushDeviceEnvironment) {
       return false; // No token today, say on a simulator. The next pass looks again.
     }
   }
+  async function cleanUp(limit: Promise<unknown>) {
+    const settled = running ? await Promise.race([running.then(() => true), limit.then(() => false)]) : true;
+    // From here a late answer is revoked where it lands, rather than kept.
+    session++;
+    const unknown = Symbol();
+    const held = await Promise.race([env.read().then(parsed<Held>), limit.then(() => unknown)]).catch(() => unknown);
+    const known = typeof held === "object" ? held : null;
+    const gone = !!known && (await removed(known.installation, known.registration, limit));
+    if (known && !gone) await remember(known.installation, known.registration);
+    await env.erase().catch(() => undefined);
+    // Last, as the one most likely to stall. Only needed when the API may still be sending here.
+    if (!settled || held === unknown || (known && !gone)) await stop();
+  }
   return {
     installation: () => env.installation(),
     /** The API says it doesn't know this phone: it asks again on the next pass. */
@@ -110,7 +128,7 @@ export function createPushDevice(env: PushDeviceEnvironment) {
     },
     /** Registers if this phone is allowed to notify and the API doesn't have this token yet. True once it does. */
     ensure(generation: number): Promise<boolean> {
-      if (ending) return Promise.resolve(false);
+      if (cleaning) return Promise.resolve(false);
       if (running) return running;
       const work = register(generation, session).finally(() => { if (running === work) running = null; });
       running = work;
@@ -118,30 +136,18 @@ export function createPushDevice(env: PushDeviceEnvironment) {
     },
     /**
      * Sign-out. Sends back the registration it holds, so one that arrives after a newer sign-in leaves that sign-in. A
-     * registration still under way is waited for and revoked with it. Bounded and can't throw: nothing here may keep
-     * someone signed in.
+     * registration still under way is waited for and revoked with it. Always returns within `limit` and can't throw:
+     * nothing here may keep someone signed in. Anything still stalled carries on behind, and this phone doesn't register
+     * again until it's done, so a late native stop can't undo a new sign-in's registration.
      */
     async end(limit = 5000) {
-      ending = true;
       confirmed = "";
       failed = { key: "", at: 0 };
-      const deadline = env.now() + limit;
-      try {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const underway = running;
-        const settled = underway
-          ? await Promise.race([underway.then(() => true), new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), limit); })])
-          : true;
-        if (timer) clearTimeout(timer);
-        // From here a late answer is revoked where it lands, rather than kept.
-        session++;
-        const held = parsed<Held>(await env.read());
-        if (held) await revoke(held.installation, held.registration, Math.max(deadline - env.now(), 1000));
-        else if (!settled) await env.stopDelivery().catch(() => undefined);
-        await env.erase();
-      } catch { /* The next registration replaces whatever was left. */ } finally {
-        ending = false;
-      }
+      const overall = timeout(limit), network = timeout(limit * 0.9);
+      cleaning ??= cleanUp(network.done).catch(() => undefined).finally(() => { cleaning = null; });
+      await Promise.race([cleaning, overall.done]);
+      overall.clear();
+      network.clear();
     },
   };
 }
