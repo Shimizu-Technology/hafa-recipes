@@ -75,7 +75,8 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   `POST /enroll` with its current generation; reading never reactivates it.
 - `PATCH /profile`: same profile fields; explicit AI consent.
 - `GET /children`: `{items}`; `POST /children`; `PATCH /children/{id}`;
-  `DELETE /children/{id}`. Child fields: `id,name,birth_date?,due_date?,revision`.
+  `DELETE /children/{id}`. Child fields: `id,name,birth_date?,due_date?,details,revision`.
+  `details` holds optional setup answers (`sex,weight_at_birth_g,length_at_birth_cm,weeks_at_birth,feeding,tracking`). A PATCH changes only the keys it sends; null clears one, and leaving `details` out keeps them all. Needs migration 059.
   Updates and deletion require the current revision; stale requests return 409.
   Deletion removes the profile and detaches its records, queued imports and
   conversations, preserving their content and attachment links with `child_id: null`.
