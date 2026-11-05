@@ -212,8 +212,8 @@ async def test_everything_read_is_rechecked_and_a_change_mid_answer_starts_over(
 
     async def edit_after_reading(self, **kwargs):
         result = await real(self, **kwargs)
-        calls.append(1)
-        if len(calls) == 2:  # After the model read it, before the answer is saved.
+        calls.extend([1] if kwargs["capability"] == "baby_ask" else [])
+        if len(calls) == 2 and kwargs["capability"] == "baby_ask":  # After the model read it, before the answer is saved.
             response = await baby_api.client.patch(f"/api/v1/baby/records/{post}", headers=HEADERS,
                                                    json={"revision": 1, "title": "Latch, edited"})
             assert response.status_code == 200, response.text

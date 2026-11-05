@@ -31,6 +31,7 @@ QUESTION_CHARS = 120_000  # Keeps every later request well inside its admission 
 BRIEF_EXCERPT, FULL_EXCERPT = 1500, 7000
 LIST_LIMIT, DAY_LIMIT, EVENT_LIMIT = 12, 60, 60
 QUERY_INPUT_CHARS = 600
+RECORD_FIELD_CHARS = 120
 SAVED_KINDS = ("source", "collection", "question", "routine", "milestone", "custom")
 # Saved posts and journal entries have their own tools; a day's log is what was recorded that day.
 NOT_IN_DAY_LOG = ("source", "collection", "journal")
@@ -149,7 +150,7 @@ class AskTools:
         self.child_id, self.check = child_id, check
         self.question, self.focus_id = question, focus_id
         self.permissions = permissions_for(question)
-        self.citable, self.displays, self.logged = {}, {}, {}
+        self.citable, self.displays, self.logged, self.notes = {}, {}, {}, {}
         self.read_chars = 0
         self.provider = provider
         self.read_texts, self.names = [], set()
@@ -257,8 +258,14 @@ def search_terms(text):
     return query_terms(text)
 
 
+def as_data(value, chars=RECORD_FIELD_CHARS):
+    """A stored value shown as a value: one line, quoted, and nothing the app would turn into a link or a reference."""
+    plain = re.sub(r"https?://\S+|\[S?\d+\]", " ", str(value))
+    return '"' + " ".join(plain.replace('"', "'").split())[:chars] + '"'
+
+
 def logged_line(row, tools):
-    """A medicine she logged, in the record's own values, so what's shown can only be what was saved."""
+    """A medicine she logged, field by field as saved, so it reads as a record and can't read as an instruction."""
     if row.kind == "medicine":
         name, amount = row.data.get("name") or row.title, row.data.get("dose")
     elif row.kind == "custom" and row.data.get("label") == "Vitamins and medicine":
@@ -267,9 +274,9 @@ def logged_line(row, tools):
     else:
         return None
     at = row.occurred_at.astimezone(tools.zone)
-    when = at.strftime("at %-I:%M %p") if at.date() == now().astimezone(tools.zone).date() else at.strftime("on %b %-d at %-I:%M %p")
-    who = "You logged" if row.app_user_id == tools.user_id else "Logged"
-    return f"{who} {name}{f' {amount}' if amount else ''} {when}."
+    when = at.strftime("%-I:%M %p") if at.date() == now().astimezone(tools.zone).date() else at.strftime("%b %-d at %-I:%M %p")
+    who = "you" if row.app_user_id == tools.user_id else "someone you share with"
+    return f"Medicine: {as_data(name)}. Amount: {as_data(amount) if amount else 'not saved'}. Logged by {who}: {when}."
 
 
 async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, total=24_000):
@@ -299,6 +306,8 @@ async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, tota
         line = logged_line(row, tools)
         if line:
             tools.logged[item["id"]] = line
+        if row.body:
+            tools.notes[item["id"]] = row.body
         tools.displays[item["id"]] = display_excerpt(row, list(terms))
         found.append(item)
     return found

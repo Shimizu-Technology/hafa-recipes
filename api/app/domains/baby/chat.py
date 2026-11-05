@@ -27,6 +27,7 @@ from app.domains.baby.lifecycle import digest, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
 from app.domains.baby.provider import (
     DAILY_LIMIT_CODE,
+    AnswerOutput,
     BabyProvider,
     ContextChanged,
     budget_failure_message,
@@ -724,7 +725,7 @@ async def save_fixed_reply(body, user, db, generation, access, reply):
         prior = BabyMessage(
             id=body.request_id, app_user_id=user.id, space_id=access.member.personal_space_id, generation=generation,
             conversation_id=conversation.id, role="user", created_at=now(),
-            content={"hash": digest(body.model_dump(mode="json", exclude={"ask_v2"})), "message": body.message, "attempts": 0, "status": "ready"},
+            content={"hash": question_identity(body), "message": body.message, "attempts": 0, "status": "ready"},
         )
         db.add(prior)
     answer = BabyMessage(
@@ -960,21 +961,32 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         ):
             if use_v2:
                 from app.domains.baby.ask_tools import AskTools
-                from app.domains.baby.ask_v2 import answer_question
+                from app.domains.baby.ask_v2 import (
+                    answer_question,
+                    checked_answer_reply,
+                    question_reply,
+                )
 
-                tools = AskTools(
-                    user_id=user.id, client=client, personal_space_id=personal_space_id,
-                    family=access.enabled, generation=generation, zone=zone, tracked=tracked,
-                    child_id=body.child_id, check=checked_access, provider=provider, question=body.message,
-                    focus_id=body.record_id,
-                    history=[item["message"] for item in history if item["message"] != body.message],
-                )
-                result = await answer_question(
-                    provider, tools=tools, message=body.message, history=history,
-                    now_local=now().astimezone(zone).isoformat(timespec="minutes"),
-                    context_pack=pack,
-                )
-                context, displays = list(tools.citable.values()), tools.displays
+                published = await question_reply(provider, body.message)
+                if published:
+                    result, context, displays = AnswerOutput(message=published["message"]), [], {}
+                else:
+                    tools = AskTools(
+                        user_id=user.id, client=client, personal_space_id=personal_space_id,
+                        family=access.enabled, generation=generation, zone=zone, tracked=tracked,
+                        child_id=body.child_id, check=checked_access, provider=provider, question=body.message,
+                        focus_id=body.record_id,
+                        history=[item["message"] for item in history if item["message"] != body.message],
+                    )
+                    result = await answer_question(
+                        provider, tools=tools, message=body.message, history=history,
+                        now_local=now().astimezone(zone).isoformat(timespec="minutes"),
+                        context_pack=pack,
+                    )
+                    context, displays = list(tools.citable.values()), tools.displays
+                    published = await checked_answer_reply(
+                        provider, body.message, result.model_copy(update={"message": clean_assistant_message(result.message)}), tools,
+                    )
             else:
                 result = await provider.answer(
                     message=body.message,
@@ -986,9 +998,6 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                 )
         allowed = {item["id"]: item for item in context}
         if use_v2:
-            from app.domains.baby.ask_v2 import published_answer
-
-            published = published_answer(body.message, result.model_copy(update={"message": clean_assistant_message(result.message)}), tools)
             result = result.model_copy(update={"citation_ids": published["citation_ids"], "proposal": published["proposal"]})
         if any(identifier not in allowed for identifier in result.citation_ids):
             raise ValueError("Unsupported citation")

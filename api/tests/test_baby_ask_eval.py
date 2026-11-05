@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.domains.baby import ask_tools
+from app.domains.baby import ask_check, ask_tools
 from evals import baby_ask_eval as evaluation
 from evals import baby_haiku_adapter as haiku
 from evals import run_chat_model_eval as harness
@@ -25,16 +25,32 @@ def answer_reply(message, **fields):
             "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]}
 
 
+def answer_like(verdict):
+    return {"id": "check", "status": "completed", "usage": {"input_tokens": 300, "output_tokens": 20},
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps(verdict)}]}]}
+
+
 def call_reply(name, **arguments):
     return {"id": "r", "status": "completed", "usage": {"input_tokens": 1000, "output_tokens": 100},
             "output": [{"type": "function_call", "call_id": "c1", "name": name, "arguments": json.dumps(arguments)}]}
 
 
 class Scripted:
-    def __init__(self, *replies):
-        self.replies, self.responses, self.bodies = list(replies), [], []
+    def __init__(self, *replies, question_verdict=None, answer_verdict=None):
+        self.replies, self.responses, self.bodies, self.checks = list(replies), [], [], []
+        self.question_verdict, self.answer_verdict = question_verdict or {}, answer_verdict or {}
+
+    def check_reply(self, body):
+        self.checks.append(body)
+        verdict = {"urgent": "none", "asks_dose": False, "asks_diagnosis": False, **self.question_verdict} if body["instructions"] == ask_check.QUESTION_PROMPT \
+            else {"states_dose": False, "diagnoses": False, "discourages_care": False, **self.answer_verdict}
+        return answer_like(verdict)
 
     async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
+        if capability == ask_check.CAPABILITY:
+            data = self.check_reply(body)
+            self.responses.append((model, data))
+            return data
         self.bodies.append(json.loads(json.dumps(body)))
         data = self.replies.pop(0)
         self.responses.append((model, data))
@@ -48,6 +64,7 @@ def case_named(name):
 @pytest.fixture(autouse=True)
 def settings(monkeypatch):
     monkeypatch.setattr("app.domains.baby.ask_v2.get_settings", lambda: SETTINGS)
+    monkeypatch.setattr("app.domains.baby.ask_check.get_settings", lambda: SETTINGS)
 
 
 def test_the_dataset_is_synthetic_covers_every_category_and_validates():
@@ -255,6 +272,8 @@ async def test_the_ceiling_holds_across_calls_before_each_one_is_sent(monkeypatc
 
     class Costly(Scripted):
         async def responses_call(self, **kwargs):
+            if kwargs["capability"] == ask_check.CAPABILITY:
+                return await super().responses_call(**kwargs)
             calls.append(kwargs["capability"])
             reply = call_reply("baby_profile") if len(calls) == 1 else answer_reply("7 feeds")
             reply["usage"] = {"input_tokens": 10_000, "output_tokens": 0}

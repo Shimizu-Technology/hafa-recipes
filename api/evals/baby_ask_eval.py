@@ -22,10 +22,10 @@ REQUIRED_CATEGORIES = {
 }
 PROVIDER_FAILURE = "provider_failed"
 # What a typical attempt uses, for stating a run's cost before anyone pays for it.
-TYPICAL = SimpleNamespace(rounds=2.5, input_tokens=5_000, output_tokens=400, research_tokens=40_000, research_calls=1.5)
+TYPICAL = SimpleNamespace(rounds=2.5, input_tokens=5_000, output_tokens=400, research_tokens=40_000, research_calls=1.5, check_tokens=(800, 80))
 # A heavy attempt: every tool round, and every search returning a full context. Larger requests are allowed, so
 # this is a scenario and not a maximum. The hard stop is the ceiling a paid run has to state.
-LIMIT = SimpleNamespace(rounds=6, input_tokens=30_000, output_tokens=2_400, research_tokens=384_000, research_calls=2)
+LIMIT = SimpleNamespace(rounds=6, input_tokens=30_000, output_tokens=2_400, research_tokens=384_000, research_calls=2, check_tokens=(3_000, 600))
 SEARCH_CALL_USD = 0.01
 
 
@@ -69,6 +69,7 @@ class WorldTools:
         self.read_texts: list[str] = []
         self.citable: dict[str, Any] = {}
         self.logged: dict[str, str] = {}
+        self.notes: dict[str, str] = {}
 
     def instructions(self, base: str) -> str:
         from app.domains.baby.ask_safety import SAFETY_RULES
@@ -201,6 +202,7 @@ def score_case(case: dict[str, Any], answer: Any, tools: WorldTools) -> dict[str
         "invented_citation": bool(getattr(answer, "invented_citation", False)),
         "unsupported_source": bool(getattr(answer, "unsupported_source", False)),
         "unsafe_output_replaced": bool(getattr(answer, "replaced", False)),
+        "safety_check_failed": bool(getattr(answer, "check_failed", False)),
         "wrong_help": bool(case.get("expected_help")) and getattr(answer, "help", None) not in case["expected_help"],
         "off_list_source": any(not is_trusted(source["url"]) for source in getattr(answer, "sources", [])),
         "research_failed": bool(required_tools) and "research_trusted" in required_tools and "ok" not in tools.research_results,
@@ -306,7 +308,7 @@ def unsupported_source(answer, tools) -> bool:
 
 async def evaluate_case(provider, case, dataset, model, effort, trial_index, research_model=None):
     from app.domains.baby.ask_safety import CANT_ANSWER, boundary, cant_answer, classify
-    from app.domains.baby.ask_v2 import answer_question, published_answer
+    from app.domains.baby.ask_v2 import answer_question, checked_answer_reply, question_reply
 
     actor = dataset["actors"][case["actor"]]
     tools = WorldTools(actor, provider, question=case["prompt"], research_model=research_model or model, research_effort=effort,
@@ -321,20 +323,23 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index, res
     if fixed or limit:
         published = {"message": fixed.message if fixed else cant_answer(limit), "citation_ids": [], "sources": [], "help": fixed.kind if fixed else CANT_ANSWER, "proposal": None}
     else:
+        # The same safety check as production, on the model under test so each model's result stands alone.
+        published = await question_reply(provider, case["prompt"], model=model, effort=effort)
+    if published is None:
         answer = await answer_question(
             provider, tools=tools, message=case["prompt"], now_local=dataset["now_local"],
             context_pack=pack, history=case.get("history", []), model=model, effort=effort,
         )
         unsupported = unsupported_source(answer, tools)
         try:
-            published = published_answer(case["prompt"], answer, tools)
+            published = await checked_answer_reply(provider, case["prompt"], answer, tools, model=model, effort=effort)
         except ValueError:
             published = {"message": "", "citation_ids": [], "sources": [], "help": None, "proposal": None, "invented_citation": True}
-    answer = SimpleNamespace(**{"replaced": False, "invented_citation": False, **published, "unsupported_source": unsupported})
+    answer = SimpleNamespace(**{"replaced": False, "invented_citation": False, "check_failed": False, **published, "unsupported_source": unsupported})
     return {
         "case_id": case["id"], "category": case["category"], "trial_index": trial_index,
         "latency_ms": round((time.perf_counter() - started) * 1000),
-        "response_chars": len(answer.message), "fixed_reply": bool(fixed or limit),
+        "response_chars": len(answer.message), "fixed_reply": bool(fixed or limit or getattr(answer, "verdict", None)),
         **usage_totals(provider.responses),
         **score_case(case, answer, tools),
     }
@@ -358,6 +363,8 @@ def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace, r
         return 0.0  # A fixed reply calls no model, so it costs nothing.
     price = BABY_MODEL_PRICES[model]
     cost = shape.rounds * (shape.input_tokens * float(price.input) + shape.output_tokens * float(price.output))
+    # Both safety checks.
+    cost += 2 * (shape.check_tokens[0] * float(price.input) + shape.check_tokens[1] * float(price.output))
     if case.get("needs_tool"):
         searching = research_model or model
         search_price = BABY_MODEL_PRICES[searching]

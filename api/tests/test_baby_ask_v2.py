@@ -8,7 +8,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
-from app.domains.baby import ask_gate, ask_research, ask_tools, ask_v2, budget, provider
+from app.domains.baby import ask_check, ask_gate, ask_research, ask_tools, ask_v2, budget, provider
 from app.domains.baby.ask_gate import ASK_CONSENT_VERSION
 from app.domains.baby.ask_tools import AskTools
 from app.domains.baby.ask_v2 import effort_for, response_text
@@ -49,10 +49,23 @@ class Stub:
     def __init__(self):
         self.replies, self.sent, self.urls = [], [], []
         self.on_call = None
+        # The safety check answers for itself, so each test is about its own calls. These set what it says.
+        self.checks, self.question_verdict, self.answer_verdict = [], {}, {}
+
+    def check_reply(self, body):
+        self.checks.append(body)
+        safe = ({"urgent": "none", "asks_dose": False, "asks_diagnosis": False}, self.question_verdict) if body["instructions"] == ask_check.QUESTION_PROMPT \
+            else ({"states_dose": False, "diagnoses": False, "discourages_care": False}, self.answer_verdict)
+        verdict = safe[1] if isinstance(safe[1], httpx.Response) else {"id": "check", "status": "completed", "usage": USAGE, "output": [
+            {"type": "message", "content": [{"type": "output_text", "text": safe[1] if isinstance(safe[1], str) else json.dumps({**safe[0], **safe[1]})}]}]}
+        return verdict if isinstance(verdict, httpx.Response) else httpx.Response(200, json=verdict)
 
     def handler(self, request):
+        body = json.loads(request.content)
+        if body.get("text", {}).get("format", {}).get("name") == ask_check.CHECK_FORMAT:
+            return self.check_reply(body)
         self.urls.append(str(request.url))
-        self.sent.append(json.loads(request.content))
+        self.sent.append(body)
         if "chat/completions" in str(request.url):
             content = json.dumps({"message": "Old path answer", "citation_ids": [], "proposal": None})
             return httpx.Response(200, json={
@@ -73,11 +86,12 @@ async def stub(baby_api, monkeypatch):
         baby_ask_v2_enabled=True, baby_ask_model="gpt-6-luna", baby_ask_reasoning_effort="low",
         baby_ai_model="gpt-5.6-luna", recipe_chat_model="gpt-5.6-luna", openai_reasoning_effort="none",
         baby_ask_research_model="", baby_ask_research_reasoning_effort="low",
+        baby_ask_safety_model="gpt-6-luna", baby_ask_safety_reasoning_effort="low",
         ai_model_pricing={"gpt-5.6-luna": {"input_per_million": 0.2, "output_per_million": 1.2}},
         is_ai_capability_enabled=lambda _: True,
     )
     fake.settings = settings
-    for module in (provider, ask_gate, ask_v2, ask_research):
+    for module in (provider, ask_gate, ask_v2, ask_research, ask_check):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(budget, "get_settings", lambda: settings)
     monkeypatch.setattr(budget, "AsyncSessionLocal", baby_api.sessions)
@@ -128,8 +142,8 @@ async def test_usage_and_a_reservation_are_recorded_without_content(baby_api, st
     await enable(baby_api)
     assert (await ask(baby_api)).status_code == 200
     async with baby_api.sessions() as db:
-        row = await db.scalar(select(AIInvocation))
-        admission = await db.scalar(select(BabyAIAdmission))
+        row = await db.scalar(select(AIInvocation).where(AIInvocation.capability != "baby_safety"))
+        admission = await db.scalar(select(BabyAIAdmission).where(BabyAIAdmission.capability != "baby_safety"))
     assert (row.capability, row.model, row.status) == ("baby_ask", "gpt-6-luna", "success")
     assert (row.input_tokens, row.cached_input_tokens, row.output_tokens, row.reasoning_tokens) == (1000, 200, 50, 10)
     assert row.prompt_version == "baby-ask-v2-1" and row.provider_request_id == "resp_1"
@@ -197,7 +211,7 @@ async def test_tool_rounds_send_back_what_the_model_produced_and_stop_at_five(ba
     assert second[1]["encrypted_content"] == "opaque"
     assert json.loads(second[3]["output"]) == {"untrusted_data": {"found": "stub"}}
     async with baby_api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 6
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_ask")) == 6
 
 
 async def test_a_model_that_ignores_the_last_round_gets_no_answer_saved(baby_api, stub, monkeypatch):
@@ -242,7 +256,8 @@ async def test_withdrawing_mid_answer_discards_the_answer(baby_api, stub, monkey
 
     async def revoking(self, **kwargs):
         result = await real(self, **kwargs)
-        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        if kwargs["capability"] == "baby_ask":
+            await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
         return result
 
     monkeypatch.setattr(provider.BabyProvider, "responses_call", revoking)
@@ -259,7 +274,8 @@ async def test_withdrawing_between_rounds_stops_the_next_paid_call(baby_api, stu
 
     async def revoking(self, **kwargs):
         result = await real(self, **kwargs)
-        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        if kwargs["capability"] == "baby_ask":
+            await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
         return result
 
     monkeypatch.setattr(provider.BabyProvider, "responses_call", revoking)
@@ -302,7 +318,8 @@ async def test_withdrawing_stops_the_tool_read_that_was_about_to_run(baby_api, s
 
     async def revoking(self, **kwargs):
         reply = await real(self, **kwargs)
-        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        if kwargs["capability"] == "baby_ask":
+            await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
         return reply
 
     monkeypatch.setattr(provider.BabyProvider, "responses_call", revoking)
@@ -342,10 +359,10 @@ async def test_an_incomplete_reply_keeps_its_usage_and_request_id(baby_api, stub
     stub.replies = [reply]
     assert (await ask(baby_api)).status_code == 503
     async with baby_api.sessions() as db:
-        row = await db.scalar(select(AIInvocation))
+        row = await db.scalar(select(AIInvocation).where(AIInvocation.capability != "baby_safety"))
         assert (row.status, row.provider_request_id) == ("failed", "paid_incomplete")
         assert (row.input_tokens, row.output_tokens, row.reasoning_tokens) == (1000, 50, 10)
-        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 1
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_ask")) == 1
         assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
 
 
@@ -354,13 +371,14 @@ async def test_a_reply_discarded_because_consent_changed_keeps_its_usage(baby_ap
 
     async def withdrawing(request):
         response = fake(request)
-        await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
+        if ask_check.CHECK_FORMAT.encode() not in request.content:
+            await baby_api.client.patch("/api/v1/baby/profile", headers=HEADERS, json={"ai_consent": False})
         return response
 
     fake, stub.handler = stub.handler, withdrawing
     assert (await ask(baby_api)).status_code == 403
     async with baby_api.sessions() as db:
-        row = await db.scalar(select(AIInvocation))
+        row = await db.scalar(select(AIInvocation).where(AIInvocation.capability != "baby_safety"))
         assert row.status == "failed" and row.input_tokens == 1000 and row.provider_request_id == "resp_1"
         assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
 
@@ -371,5 +389,5 @@ async def test_a_provider_failure_with_no_reply_records_no_usage(baby_api, stub)
     response = await ask(baby_api)
     assert response.status_code == 503 and "PRIVATE" not in response.text
     async with baby_api.sessions() as db:
-        row = await db.scalar(select(AIInvocation))
+        row = await db.scalar(select(AIInvocation).where(AIInvocation.capability != "baby_safety"))
         assert row.status == "failed" and row.input_tokens is None and row.provider_request_id is None

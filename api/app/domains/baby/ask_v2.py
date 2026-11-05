@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 
 from app.config import get_settings
 from app.domains.baby.budget import QuestionBudget
@@ -9,9 +10,10 @@ from app.domains.baby.provider import AnswerOutput
 
 MAX_OUTPUT_TOKENS = 2_400
 MAX_QUOTES, QUOTE_CHARS = 3, 500
+RECORD_HEADING = "From your records, exactly as saved:"
 NOT_HER_WORDS = ("source", "collection")  # What someone else said, saved. Quoting it would make it look like her record.
-# Inside the three-minute answer lease, so a stale answer can never overlap its own retry.
-QUESTION_SECONDS = 150
+# With both safety checks, inside the three-minute answer lease, so a stale answer can never overlap its own retry.
+QUESTION_SECONDS = 130
 PROMPT_VERSION = "baby-ask-v2-1"
 BASE_INSTRUCTIONS = (
     "You are Håfa Baby, a warm, concise personal organizer for a parent. Answer in plain language. "
@@ -35,21 +37,19 @@ BASE_INSTRUCTIONS = (
 
 
 def published_answer(question, result, tools):
-    """What may be shown. Production saves this, and the evaluation grades this, not the model's own text."""
+    """What may be shown, before the model check. Production saves this, and the evaluation grades this, not the model's own text."""
     from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer
     from app.domains.baby.ask_safety import (
-        CANT_ANSWER,
         MESSAGES,
         PRODUCT_QUESTION,
         TRUSTED_SITES_ONLY,
         answer_checks,
-        cant_answer,
         unsafe_output,
     )
 
     if result.safety in MESSAGES:
         # Comes before citations are checked. Nothing the model wrote or read goes with a fixed reply.
-        return {"message": MESSAGES[result.safety], "citation_ids": [], "sources": [], "help": result.safety, "proposal": None}
+        return fixed_answer(MESSAGES[result.safety], result.safety)
     if any(identifier not in tools.citable for identifier in result.citation_ids):
         raise ValueError("Unsupported citation")
     message, sources = checked_answer(result.message, result.source_urls, tools.web_sources)
@@ -57,10 +57,7 @@ def published_answer(question, result, tools):
     citations = list(dict.fromkeys([*result.citation_ids, *quoted]))
     refusal = unsafe_output(question, message)
     if refusal:
-        # Her own records can still be shown, since no word of those comes from the model.
-        if records:
-            return {"message": "\n\n".join(records), "citation_ids": citations, "sources": [], "help": None, "proposal": None, "replaced": True}
-        return {"message": cant_answer(refusal), "citation_ids": [], "sources": [], "help": CANT_ANSWER, "proposal": None, "replaced": True}
+        return replaced_answer(refusal, records, citations)
     message, help_kind, extra = answer_checks(question, result.model_copy(update={"message": message}))
     if tools.research_failed and not sources:
         message = f"{message}\n\n{UNAVAILABLE_NOTICE}"
@@ -69,12 +66,75 @@ def published_answer(question, result, tools):
     known = {source["url"] for source in sources}
     return {
         "message": "\n\n".join([message, *records]), "citation_ids": citations, "help": help_kind, "proposal": result.proposal,
-        "sources": sources + [item for item in extra if item["url"] not in known],
+        "sources": sources + [item for item in extra if item["url"] not in known], "records": records,
     }
 
 
+def fixed_answer(message, help_kind, **fields):
+    return {"message": message, "citation_ids": [], "sources": [], "help": help_kind, "proposal": None, "records": [], **fields}
+
+
+def replaced_answer(refusal, records, citations):
+    """The model's words are gone. What she saved can still be shown, since none of it is the model's."""
+    from app.domains.baby.ask_safety import CANT_ANSWER, cant_answer
+
+    return fixed_answer("\n\n".join([cant_answer(refusal), *records]), CANT_ANSWER, citation_ids=citations if records else [], records=records, replaced=True)
+
+
+async def question_reply(provider, question, *, model=None, effort=None):
+    """The reply if the check says this shouldn't reach a model, or None. No verdict means no answer."""
+    from app.domains.baby.ask_check import CheckFailed, check_question
+    from app.domains.baby.ask_safety import (
+        CANT_ANSWER,
+        CHECK_FAILED,
+        DIAGNOSIS_REFUSAL,
+        DOSE_REFUSAL,
+        MESSAGES,
+        cant_answer,
+    )
+
+    try:
+        verdict = await check_question(provider, question, model=model, effort=effort)
+    except CheckFailed:
+        return fixed_answer(cant_answer(CHECK_FAILED), CANT_ANSWER, check_failed=True)
+    if verdict.urgent != "none":
+        return fixed_answer(MESSAGES[verdict.urgent], verdict.urgent, verdict=verdict.model_dump())
+    if verdict.asks_dose or verdict.asks_diagnosis:
+        return fixed_answer(cant_answer(DOSE_REFUSAL if verdict.asks_dose else DIAGNOSIS_REFUSAL), CANT_ANSWER, verdict=verdict.model_dump())
+    return None
+
+
+async def checked_answer_reply(provider, question, result, tools, *, model=None, effort=None):
+    """What publishes: the model's answer only if the check read it, and only if it passed."""
+    from app.domains.baby.ask_check import CheckFailed, check_answer
+    from app.domains.baby.ask_research import strings_in
+    from app.domains.baby.ask_safety import (
+        CANT_ANSWER,
+        CHECK_FAILED,
+        DIAGNOSIS_REFUSAL,
+        DOSE_REFUSAL,
+        MESSAGES,
+        cant_answer,
+    )
+
+    published = published_answer(question, result, tools)
+    if published["help"] in MESSAGES and result.safety in MESSAGES or published.get("replaced"):
+        return published
+    # The model's own words, and nothing rendered from her records.
+    written = "\n".join([result.message, *strings_in(result.proposal or {})])
+    try:
+        verdict = await check_answer(provider, question, written, model=model, effort=effort)
+    except CheckFailed:
+        return fixed_answer(cant_answer(CHECK_FAILED), CANT_ANSWER, check_failed=True)
+    if verdict.states_dose or verdict.diagnoses or verdict.discourages_care:
+        return replaced_answer(DOSE_REFUSAL if verdict.states_dose else DIAGNOSIS_REFUSAL, published["records"], published["citation_ids"]) | {"check_replaced": True}
+    return published
+
+
 def record_lines(result, tools):
-    """A line from each medicine log it cites, and the exact words of any note it quotes. None of this is the model's text."""
+    """Her records, as saved, under a label: a cited medicine log, or a note's complete sentence. None of this is the model's text."""
+    from app.domains.baby.ask_tools import as_data
+
     lines = [tools.logged[identifier] for identifier in dict.fromkeys(result.citation_ids) if identifier in tools.logged]
     quoted = []
     for quote in result.quotes[:MAX_QUOTES]:
@@ -82,10 +142,16 @@ def record_lines(result, tools):
         item = tools.citable.get(identifier)
         if not item or item.get("kind") in NOT_HER_WORDS or not 0 < len(words) <= QUOTE_CHARS:
             continue
-        if words in " ".join((item.get("excerpt") or "").split()):
+        # A whole sentence or the whole note, so leaving out a word can't turn "never give" into "give".
+        note = tools.notes.get(identifier) or ""
+        if words == " ".join(note.split()) or words in complete_sentences(note):
             quoted.append(identifier)
-            lines.append(f'From your entry "{item["title"]}": "{words}"')
-    return lines, quoted
+            lines.append(f"Note {as_data(item['title'])} says: {as_data(words, QUOTE_CHARS)}")
+    return (["\n".join([RECORD_HEADING, *lines])] if lines else []), quoted
+
+
+def complete_sentences(note):
+    return {" ".join(part.split()) for part in re.split(r"(?<=[.!?])\s+|\n+", note) if part.strip()}
 
 
 def effort_for(model, configured):

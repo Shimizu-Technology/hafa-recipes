@@ -413,10 +413,61 @@ async def run_baby(args: argparse.Namespace, dataset: dict[str, Any]) -> Path | 
     return output
 
 
+async def run_baby_safety_check(args: argparse.Namespace, dataset: dict[str, Any]) -> Path | None:
+    """The safety check by itself, on a real model. It states its cost first, and pays only below a stated ceiling."""
+    environment = dotenv_values(args.env_file) if args.env_file else dict(os.environ)
+    if "app.config" not in sys.modules:
+        for name, value in (
+            ("DATABASE_URL", "postgresql://evaluation:evaluation@localhost/hafa_evaluation"),
+            ("DATABASE_USE_SSL", "false"),
+            ("OPENAI_API_KEY", "evaluation-placeholder"),
+        ):
+            os.environ.setdefault(name, value)
+    from app.domains.baby.ask_check import ANSWER_PROMPT, PROMPT_VERSION, QUESTION_PROMPT
+    from evals.baby_safety_check_eval import (
+        estimate,
+        print_estimate,
+        print_summary,
+        run_comparison,
+        validate,
+    )
+
+    validate(dataset)
+    print(f"Validated {len(dataset['cases'])} synthetic safety check cases")
+    print_estimate(estimate(dataset, args.models, args.runs_per_case))
+    if args.dry_run:
+        return None
+    if args.confirm_cost_usd is None or args.confirm_cost_usd <= 0:
+        raise ValueError("A paid run needs --confirm-cost-usd, after reading the estimate above")
+    reports = await run_comparison(
+        dataset, args.models, keys=eval_keys(environment, args.models), effort=args.reasoning_effort,
+        runs_per_case=args.runs_per_case, cost_ceiling_usd=args.confirm_cost_usd,
+    )
+    print_summary(reports)
+    report = {
+        "report_version": "hafa-baby-safety-check-v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dataset_version": dataset["dataset_version"],
+        "privacy": dataset["privacy"],
+        "prompt_version": PROMPT_VERSION,
+        "prompts": {"question": QUESTION_PROMPT, "answer": ANSWER_PROMPT},
+        "reasoning_effort": args.reasoning_effort,
+        "runs_per_case": args.runs_per_case,
+        "models": reports,
+    }
+    REPORTS.mkdir(parents=True, exist_ok=True)
+    output = args.output or REPORTS / f"baby-safety-check-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.json"
+    output.write_text(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+    print(f"Wrote the safety check report: {output}")
+    return output
+
+
 async def run(args: argparse.Namespace) -> Path | None:
     dataset = json.loads(args.dataset.read_text())
     if dataset.get("product") == "baby":
         return await run_baby(args, dataset)
+    if dataset.get("product") == "baby_safety_check":
+        return await run_baby_safety_check(args, dataset)
     validate_dataset(dataset)
     if args.dry_run:
         print(
