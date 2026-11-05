@@ -109,14 +109,14 @@ export async function babyArrived(b: Account, child: Child, today: string) {
 }
 
 /** A "What shows" switch. It moves at once and waits on this phone if it must; quick taps travel as one change. */
-export async function setTracking(b: Account, child: Child, id: string, on: boolean) {
-  const previous = child.details?.tracking?.[id] ?? null;
+export async function setTracking(b: Account, child: Child, changes: Record<string, boolean>) {
+  const previous = Object.fromEntries(Object.keys(changes).map((id) => [id, child.details?.tracking?.[id] ?? null]));
   await b.commit((state) => {
     // One already on its way can't take more: it leaves the queue when it lands.
     const waiting = state.outbox.find((m) => m.type === "child_tracking" && m.child_id === child.id && !m.sent && !m.error);
     if (waiting?.type === "child_tracking") return { ...state, outbox: state.outbox.map((m) => (m.id !== waiting.id ? m
-      : { ...waiting, tracking: { ...waiting.tracking, [id]: on }, previous: { [id]: previous, ...waiting.previous } })) };
-    return addMutation(state, { id: Crypto.randomUUID(), generation: state.bootstrap!.generation, type: "child_tracking", child_id: child.id, tracking: { [id]: on }, previous: { [id]: previous } });
+      : { ...waiting, tracking: { ...waiting.tracking, ...changes }, previous: { ...previous, ...waiting.previous } })) };
+    return addMutation(state, { id: Crypto.randomUUID(), generation: state.bootstrap!.generation, type: "child_tracking", child_id: child.id, tracking: changes, previous });
   });
   void b.sync();
 }

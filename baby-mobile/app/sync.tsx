@@ -115,7 +115,7 @@ export default function Sync() {
               ) : m.type === "child_birth" ? (
                 <Copy>{m.birth_date ? `Born ${friendlyDate(m.birth_date)}.` : "Taking the birth date back."}</Copy>
               ) : m.type === "child_tracking" ? (
-                <Copy>{`${Object.entries(m.tracking).map(([id, on]) => `${trackerForKey(id)?.label ?? id} ${on ? "on" : "off"}`).join(", ")}.`}</Copy>
+                <Copy>{`${Object.entries(m.tracking).filter(([id]) => trackerForKey(id)).map(([id, on]) => `${trackerForKey(id)!.label} ${on ? "on" : "off"}`).join(", ") || "A suggestion answered"}.`}</Copy>
               ) : m.type === "event_split" ? (
                 <Copy>{`Changes ${m.series.title} from ${friendlyDate(recordDay(m.from_start, m.series.data.timezone))} on. Discarding this keeps every date as it was.`}</Copy>
               ) : (

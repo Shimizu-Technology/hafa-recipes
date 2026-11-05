@@ -142,6 +142,8 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
   return {
     rows: all.slice(0, 3),
     all,
+    /** The API has answered for this view. Before that, `all` is only what this phone had. */
+    read: page?.key === key,
     loading,
     error,
     stale,

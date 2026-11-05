@@ -128,6 +128,15 @@ it("names a waiting switch, and asks the API about a sent one before showing the
   expect(words).toContain("Diaper off, Breastfeed off.");
 });
 
+it("doesn't read out a suggestion's own memory as if it were a switch", async () => {
+  const off: Mutation = { id: "t", generation: 1, type: "child_tracking", child_id: "baby", tracking: { diaper: false, asked_diaper: true }, previous: { diaper: null, asked_diaper: null } };
+  setup([off]);
+  await act(async () => { renderer = create(<Sync />); });
+  const words = renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => [n.props.children].flat().join("")).join();
+  expect(words).toContain("Diaper off.");
+  expect(words).not.toContain("asked_diaper");
+});
+
 it("names a refused split in plain words, and says what discarding it takes along", async () => {
   const event = (id: string, title: string) => ({ id, kind: "event" as const, title, body: "", child_id: null, occurred_at: "2026-11-16T00:00:00.000Z", data: { timezone: "Pacific/Guam" } }),
     split: Mutation = { id: "next", generation: 1, type: "event_split", series: { ...event("class", "Class"), revision: 4 }, event: event("next", "New class"), from_start: "2026-11-16T00:00:00.000Z", files: [], conflict: true, error: "This event changed somewhere else" },

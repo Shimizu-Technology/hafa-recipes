@@ -21,6 +21,7 @@ import { BabySetupCard } from "@/components/stage-options";
 import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
+import { TrackerSuggestion } from "@/components/tracker-suggestion";
 import { trackerOn, trackersFor } from "../../../lib/trackers";
 import { BabyAgeCard, PregnancyHero, TipSection, WeekDetails } from "@/components/tips";
 import { NextEvent } from "@/components/event-row";
@@ -130,6 +131,7 @@ export default function Today() {
       {fontScale >= dockBelow && quickLog}
       {stage === "none" && !showCare && <Copy kind="small" tone="muted">In the meantime</Copy>}
       {showCare && !tiles.length && whatShows}
+      {!!child && stage === "baby" && <TrackerSuggestion child={child} today={today} now={now} />}
       <NextEvent childId={child?.id ?? null} today={todayKey} now={now} drafts={visitDrafts} quiet={showCare} />
       {!!child && !!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>

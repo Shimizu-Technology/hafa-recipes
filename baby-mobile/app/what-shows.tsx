@@ -29,7 +29,7 @@ export default function WhatShows() {
   const stage = trackerStage(child, today), listed = trackersFor(stage),
     group = (title: string, rows: Tracker[]) => <View style={{ gap: 8 }}>
       <Copy kind="small" tone="muted">{title}</Copy>
-      <Grouped separatorInset={48}>{rows.map((tracker) => <Line key={tracker.id} tracker={tracker} on={trackerOn(tracker, stage, child.details)} onChange={(on) => void setTracking(b, child, trackingKey(tracker.id, stage), on)} />)}</Grouped>
+      <Grouped separatorInset={48}>{rows.map((tracker) => <Line key={tracker.id} tracker={tracker} on={trackerOn(tracker, stage, child.details)} onChange={(on) => void setTracking(b, child, { [trackingKey(tracker.id, stage)]: on })} />)}</Grouped>
     </View>;
   return <Screen title="What shows" back>
     <Copy tone="muted">What’s on gets a button on Today and Tracker. Off only hides the button: everything logged stays in Tracker, Stats, the doctor summary and history, and Add always has it all.</Copy>

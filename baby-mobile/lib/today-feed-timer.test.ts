@@ -59,6 +59,7 @@ vi.mock("@/components/stage-options", () => ({ BabySetupCard: "BabySetupCard" })
 vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
 vi.mock("@/components/quick-log", () => import("../components/quick-log"));
+vi.mock("@/components/tracker-suggestion", () => ({ TrackerSuggestion: "TrackerSuggestion" }));
 vi.mock("@/components/more-logs", () => import("../components/more-logs"));
 vi.mock("@/lib/more-logs", () => import("./more-logs"));
 vi.mock("@/lib/trackers", () => import("./trackers"));
@@ -517,6 +518,15 @@ describe("Today follows the trackers", () => {
     expect(scope.push).toHaveBeenLastCalledWith("/milestones");
     // Its tile says it already, so the row steps back.
     expect(find("Row", () => true).map((n) => n.props.title)).not.toContain("Milestones");
+  });
+  it("has the suggestion card only once the baby's here", async () => {
+    baby({});
+    await render();
+    expect(find("TrackerSuggestion", () => true)).toHaveLength(1);
+    await act(async () => renderer!.unmount()); renderer = undefined;
+    expecting();
+    await render();
+    expect(find("TrackerSuggestion", () => true)).toHaveLength(0);
   });
   it("points to What shows when she's turned everything off, rather than leave no way back", async () => {
     baby({ tracking: { breast: false, bottle: false, diaper: false, sleep: false } });
