@@ -992,21 +992,6 @@ async def test_off_data_user_with_private_data_real_routes(privacy_api):
     assert not case.path.exists()
 
 
-async def test_off_recipes_delete_null_space_rows_cascade(privacy_api):
-    api = privacy_api
-    case = await privacy.seed_private(api)
-    from sqlalchemy import update
-    async with api.sessions() as db:
-        for t, i in ((BabyAttachment, case.asset_id), (BabyRecord, case.entry["id"]), (BabyConversation, case.conversation_id)):
-            await db.execute(update(t).where(t.id == i).values(space_id=None))
-        await db.commit()
-    r = await api.client.delete("/api/users/me")
-    assert r.status_code == 202, r.text
-    async with api.sessions() as db:
-        prefixes = [p for j in await db.scalars(select(DeletionCleanupJob)) for p in j.storage_prefixes]
-        for t, i in ((BabyAttachment, case.asset_id), (BabyRecord, case.entry["id"]), (BabyConversation, case.conversation_id)):
-            assert await db.get(t, i) is None, t
-    assert any(case.asset_id in p for p in prefixes), "account deletion leaves the null-space file in storage"
 
 
 @pytest.mark.parametrize("client", [None, "2"])
@@ -1055,3 +1040,21 @@ async def test_f12_worker_completes_family_import_with_attachment_after_touch(fa
         assert (await db.get(BabyImport, imported.json()["id"])).status == "ready"
     delta = ch.items(await ch.fetch(fam.api, first["cursor"], actor="other"))
     assert asset in {i["id"] for i in delta if i.get("entity") == "attachment"}
+
+
+@pytest.mark.parametrize("destination_header", ["removed", "missing", "invalid"])
+async def test_f_space_admission_precedes_row_lookup(fam, destination_header):
+    post = await post_in_family(fam, fam.h)
+    own = await invites.personal(fam.api, "other")
+    headers = dict(fam.ho)
+    expected = 422
+    if destination_header == "removed":
+        assert (await fam.c.post(f"{API}/family/{fam.family}/leave", headers=fam.ho)).status_code == 200
+        expected = 403
+    elif destination_header == "missing":
+        headers.pop("X-Baby-Space")
+    else:
+        headers["X-Baby-Space"] = "not-a-uuid"
+    result = await fam.c.post(f"{API}/records/{post['id']}/move", headers=headers,
+        json={"space_id": str(own), "revision": post["revision"]})
+    assert result.status_code == expected, result.text

@@ -24,21 +24,22 @@ async def family_access(request: Request, user: User, db: Database):
     moving = request.method == "POST" and request.url.path.endswith("/move")
     inviting = request.method == "POST" and request.url.path.endswith("/family/invites")
     if family_enabled() and request.headers.get("X-Baby-Client") == "3" and (moving or inviting):
-        discovery = await access_for(db, user.id, client="3", bootstrap=True)
+        discovery = await access_for(db, user.id, client="3",
+            space_id=request.headers.get("X-Baby-Space") if moving else None, bootstrap=not moving)
         try:
             record_id = UUID(str(request.path_params["identifier"])) if moving else None
         except ValueError:
             raise HTTPException(422, "Choose a valid Baby entry") from None
         stage = True
         if moving:
+            target = discovery.target
+            if target is None:
+                raise HTTPException(422, "X-Baby-Space is required")
             try:
                 body = MoveRequest.model_validate(await request.json())
             except ValueError:
                 raise HTTPException(422, "Enter valid move details") from None
             row = await discovery.row(db, BabyRecord, record_id)
-            target = next((g for g in discovery.spaces if str(g.id) == request.headers.get("X-Baby-Space")), None)
-            if target is None:
-                raise HTTPException(403, "Baby space unavailable")
             stage = row.space_id == target.id
             if stage:
                 if row.kind not in {"source", "collection", "journal"}:
