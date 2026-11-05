@@ -191,7 +191,7 @@ function logSections(logs: BabyRecord[], timezone: string, limit: { notes: numbe
     listSection("Pumping", pumpingDays(of("pumping"), timezone), limit.notes, (day) => `<li><b>${escape(shortDay(day.key))}.</b> ${escape([plural(day.sessions, "session"), day.oz && `${Math.round(day.oz * 10) / 10} oz`, day.ml && `${Math.round(day.ml)} mL`].filter(Boolean).join(", "))}</li>`),
     // A name and a date: its noon is only how the date is stored.
     listSection("Shots", shots, limit.notes, (row) => `<li><b>${escape(row.title)}</b> ${escape(longDay(recordDay(row.occurred_at, timezone)))}</li>`),
-    listSection("Other logs", others, limit.notes, (row) => logLine(row, timezone, limit.letters, [row.data.label, row.title !== row.data.label && row.title].filter(Boolean).join(": "))),
+    listSection("Other logs", others, limit.notes, (row) => { const d = row.data as LogData; return logLine(row, timezone, limit.letters, [d.label, row.title !== d.label && row.title, typeof d.value === "number" && `${d.value}${d.unit ? ` ${d.unit}` : ""}`].filter((part) => part !== false && part !== undefined && part !== "").join(": ")); }),
   ].join("");
 }
 /** What else a full page will carry, in a line for the screen. */

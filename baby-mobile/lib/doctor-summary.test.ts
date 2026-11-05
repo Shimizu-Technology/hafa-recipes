@@ -211,6 +211,12 @@ describe("the extra logs on the page", () => {
     expect(html).toMatch(/Note\.<\/b> Spit up/);
     expect(html).not.toContain("Entry");
   });
+  it("keeps a custom entry's numbers, with or without a title of its own", () => {
+    const html = summaryHtml(page({ logs: [log("a", "custom", 2, "Tummy time", { label: "Tummy time", value: 5, unit: "min" }), log("b", "custom", 3, "First bath", { label: "Bath", value: 2, unit: "min" }), log("c", "custom", 4, "Walk", { label: "Walk", value: 3 })] }));
+    expect(html).toContain("Tummy time: 5 min");
+    expect(html).toContain("Bath: First bath: 2 min");
+    expect(html).toContain("Walk: 3");
+  });
   it("gives her logs their own section on an expecting page, as she typed them, with nothing added", () => {
     const expecting = summaryHtml(page({ child: { name: "Noa", due_date: "2026-12-10" }, her: found().her }));
     expect(expecting).toContain("<h2>Her own logs</h2>");
