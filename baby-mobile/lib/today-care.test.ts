@@ -307,3 +307,25 @@ it("reads every page with the real hook, so an old shot behind a hundred newer c
   expect(new URL(transport.mock.calls[1][0]).searchParams.get("offset")).toBe("100");
   expect(result.all.find((row) => row.id === "old-shot")).toMatchObject({ title: "Hep B" });
 });
+
+it("doesn't carry a failed look's staleness to another baby's view", async () => {
+  vi.useFakeTimers();
+  try {
+    let child = "first", failing = false;
+    const transport = vi.fn(async (_url: string) => { if (failing) throw new TypeError("offline"); return page([care("a", child)]); });
+    setup(transport);
+    function View() { result = useTodayCare({ child }); return null; }
+    await act(async () => { renderer = TestRenderer.create(React.createElement(View)); });
+    failing = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+    expect(result.stale).toBe(true);
+    // Another baby's view has had no failed look of its own yet, whatever its first look then finds.
+    child = "second";
+    let held!: (response: Response) => void;
+    transport.mockImplementationOnce(() => new Promise<Response>((resolve) => { held = resolve; }));
+    await act(async () => renderer!.update(React.createElement(View)));
+    expect(result.stale).toBe(false);
+    await act(async () => { held(page([care("b", "second")])); await vi.advanceTimersByTimeAsync(0); });
+    expect(result.stale).toBe(false);
+  } finally { vi.useRealTimers(); }
+});

@@ -62,7 +62,9 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
     /** The last quiet look failed. What's on screen stays, and a panel showing a "Last" can say it may be behind. */
-    [stale, setStale] = useState(false);
+    [staleFor, setStaleFor] = useState<string | null>(null),
+    // Only for the view whose look failed. Another baby's hasn't had a failed look yet.
+    stale = staleFor === key;
   /** `quiet` is the background look: no spinner, and a failure leaves what's on screen alone. */
   async function refresh({ quiet = false } = {}) {
     if (!active.current) return;
@@ -106,10 +108,10 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
         // Gone from this answer means gone: another phone deleted it, and it mustn't stay as the last dose.
         for (const id of settled) if (!queuedSave(latest.current.state, id)) local.current.ids.delete(id);
         setPage({ key: capturedKey, ids: items.map((row) => row.id) });
-        setStale(false);
+        setStaleFor(null);
       }
     } catch (failure) {
-      if (valid() && quiet) setStale(true);
+      if (valid() && quiet) setStaleFor(capturedKey);
       if (valid() && !quiet) {
         setPage(null);
         setError(messageFor(failure));

@@ -487,5 +487,6 @@ it("20: draws a plain mark for a kind this build has no icon for, rather than cr
   const { Icon } = uiForIcon;
   let view: ReactTestRenderer;
   act(() => { view = create(<Icon name={undefined as never} />); });
-  expect(view!.toJSON()).toBeTruthy();
+  const drawn = view!.root.findByType("Icon" as never).props;
+  expect(drawn).toMatchObject({ name: "ellipse-outline", accessible: false, importantForAccessibility: "no", accessibilityElementsHidden: true });
 });
