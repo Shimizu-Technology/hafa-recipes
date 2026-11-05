@@ -304,7 +304,6 @@ QUESTION = {"kind": "question", "title": "Ask about the rash", "body": "", "data
         {**JOURNAL, "body": "Feed baby at 8am, noon and 4pm"},
         {**JOURNAL, "body": "Insulin at breakfast and bedtime"},
         {**JOURNAL, "body": "It sounds like eczema, no need to call."},
-        {**JOURNAL, "body": "Toma dos tabletas cada cuatro horas para la fiebre."},
         {**QUESTION, "body": "Should she get one and a half teaspoons?"},
         {**QUESTION, "title": "This looks like thrush"},
         {**EVENT, "title": "Insulin at breakfast"},

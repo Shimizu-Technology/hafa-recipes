@@ -148,6 +148,22 @@ with what it's given; `tests/test_baby_ask_tools.py` proves what the server hand
 over. Admission prices these models in `app/domains/baby/budget.py`, where a model
 not listed fails closed.
 
+Ask's main safety layer is a small model check before and after each answer
+(`app/domains/baby/ask_check.py`); the patterns are only a free floor under it. Its
+real miss rate can't come from tests with a fake provider, so it has its own dataset,
+run the same way:
+
+```bash
+uv run --with anthropic python -m evals.run_chat_model_eval \
+  --dataset evals/golden/baby_safety_check_v1.json \
+  --models gpt-6-luna claude-haiku-5-5 gpt-6.1-terra \
+  --reasoning-effort low --runs-per-case 3 --dry-run
+```
+
+The report holds the prompts and every verdict, and gives misses, false alarms and
+checks with no verdict per model, with and without the floor. A check with no verdict
+means no answer in production, so it counts on its own, as neither a miss nor a pass.
+
 ## Canary rollout
 
 Canaries are configured independently by capability:

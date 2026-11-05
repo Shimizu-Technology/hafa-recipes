@@ -8,7 +8,7 @@ import httpx
 import pytest
 from sqlalchemy import delete, func, select
 
-from app.domains.baby import ask_tools, ask_v2, budget
+from app.domains.baby import ask_check, ask_tools, ask_v2, budget
 from app.domains.baby.models import BabyAIAdmission, BabyConversation, BabyMembership, BabyMessage
 from tests import test_baby_access as foundation
 from tests import test_baby_family_records as records
@@ -46,7 +46,11 @@ async def test_the_real_removal_endpoint_mid_round_stops_the_next_read(baby_api,
 async def test_bad_provider_shapes_save_nothing_and_leak_nothing(baby_api, stub, failure):  # noqa: F811
     await enable(baby_api)
     if failure == "timeout":
+        real = stub.handler
+
         def timeout(request):
+            if ask_check.CHECK_FORMAT.encode() in request.content:
+                return real(request)
             stub.sent.append(json.loads(request.content))
             raise httpx.ReadTimeout("PRIVATE_TIMEOUT_PAYLOAD", request=request)
 
@@ -66,7 +70,7 @@ async def test_bad_provider_shapes_save_nothing_and_leak_nothing(baby_api, stub,
     assert len(stub.sent) == 1
     async with baby_api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
-        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 1
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_ask")) == 1
 
 
 async def test_retries_each_reserve_and_stop_at_three(baby_api, stub):  # noqa: F811
@@ -78,14 +82,18 @@ async def test_retries_each_reserve_and_stop_at_three(baby_api, stub):  # noqa: 
     assert (await ask(baby_api, request_id=request_id)).status_code == 429
     assert len(stub.sent) == 3
     async with baby_api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 3
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_ask")) == 3
 
 
 async def test_a_slow_answer_stops_at_the_limit_and_keeps_its_reservation(baby_api, stub, monkeypatch):  # noqa: F811
     await enable(baby_api)
     monkeypatch.setattr(ask_v2, "QUESTION_SECONDS", 3)
 
+    real = stub.handler
+
     async def slow(request):
+        if ask_check.CHECK_FORMAT.encode() in request.content:
+            return real(request)
         stub.sent.append(json.loads(request.content))
         await asyncio.sleep(8)
         return httpx.Response(200, json=answered())
@@ -93,7 +101,7 @@ async def test_a_slow_answer_stops_at_the_limit_and_keeps_its_reservation(baby_a
     stub.handler = slow
     assert (await ask(baby_api)).status_code == 503
     async with baby_api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 1
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_ask")) == 1
         assert await db.scalar(select(func.count()).select_from(BabyMessage).where(BabyMessage.role == "assistant")) == 0
 
 

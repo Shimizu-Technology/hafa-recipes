@@ -321,8 +321,6 @@ def unsafe_suggestion(kind, *texts):
     text = normalized(". ".join(parts))
     if states_a_dose("", text) or gives_a_diagnosis(text):
         return True
-    if len(re.findall(r"[^\W\d_]+", text)) >= 5 and not looks_english(text):
-        return True
     if kind == "question":
         return False
     return bool(TIMED_FEEDING.search(text) or TIMED_MEDICINE.search(text) or (kind == "event" and (MEDICINE_WORDS.search(text) or FREQUENCY.search(text))))
