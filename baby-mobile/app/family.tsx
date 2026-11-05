@@ -9,7 +9,8 @@ import { installationId, nativeSharingAvailable } from "@/modules/hafa-baby-shar
 import { Button, Card, Choice, Copy, Field, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { ApiError, PhonesNotReady } from "../lib/api";
 import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
-import { babyLabel, familySpaces, herLog, rowFence, spacesLive } from "../lib/spaces";
+import { babyLabel, familyOpen, familySpaces, herLog, rowFence } from "../lib/spaces";
+import { leftFamilyNotice } from "../lib/outbox";
 import { askForShareSession } from "@/lib/share-session-state";
 import { friendlyDay } from "../lib/family-format";
 
@@ -40,17 +41,14 @@ function RoleChoice({ role, onChange, disabled }: { role: Role; onChange: (role:
 }
 /** An older build would lose sight of her baby when it moves. Nothing moves until her phones are updated, or she says one is gone. */
 function PhoneGate({ readiness, failed, busy, joining, onCheck, onConfirm }: { readiness: FamilyReadiness | null; failed: boolean; busy: boolean; joining?: boolean; onCheck: () => void; onConfirm: () => void }) {
-  const why = joining ? "An older Håfa Baby can’t see a family’s entries, and it could lose track of what you log. You can join once it’s updated."
-    : "Your baby’s profile moves to the family, and an older Håfa Baby would lose sight of it. Nothing moves until they’re updated.";
   if (failed || !readiness)
     return <Card><Copy kind="heading">Connect to check your phones</Copy><Copy>{joining ? "Any phone on your account needs the update before you join." : "Your baby’s profile moves to the family, so any phone on your account needs the update first."} This can’t be checked without a connection.</Copy><Button secondary title="Check again" busy={busy} onPress={onCheck} /></Card>;
   const waiting = readiness.phones.filter((phone) => phone.state !== "ready"), others = waiting.filter((phone) => !phone.this_phone);
   return <Card>
-    <Copy kind="heading">Update your other phones first</Copy>
-    <Copy>{why}</Copy>
+    <Copy kind="heading">Check your phones first</Copy>
+    {(!!others.length || !!readiness.older_client_at) && <Copy>{`${readiness.older_client_at ? "This account was used on an older version of Håfa Baby in the last 14 days. " : ""}Update that phone, or tell us it’s gone.`}</Copy>}
     {waiting.map((phone) => <Copy key={phone.id} kind="small">{phone.this_phone ? "This phone is still connecting. Try again in a moment."
       : `A phone ${phone.last_seen ? `last opened ${friendlyDay(phone.last_seen)}` : "signed in to your account"} needs the update.`}</Copy>)}
-    {!!readiness.older_client_at && <Copy kind="small">{`An older version of Håfa Baby was used on your account on ${friendlyDay(readiness.older_client_at)}. If that was this phone before you updated it, or a phone nobody uses now, you can say so.`}</Copy>}
     {(!!others.length || !!readiness.older_client_at) && <Button variant="ghost" title="That phone is updated or gone" disabled={busy} onPress={onConfirm} />}
     <Button secondary title="Check again" busy={busy} onPress={onCheck} />
   </Card>;
@@ -174,6 +172,7 @@ function Join({ onBack }: { onBack: () => void }) {
   return <>
     {!!error && <Notice error>{error}</Notice>}
     {preview ? <Section title={preview.role === "parent" ? "Join as a parent" : "Join as a caregiver"}>
+      {!!preview.invitation && <Copy>{preview.invitation}</Copy>}
       <Copy>{preview.disclosure}</Copy>
       <Copy>Nothing of yours moves. Your own entries stay in your own space, and you can come back to them if you leave.</Copy>
       {preview.role === "caregiver" && <Copy>Ask isn’t part of helping as a caregiver. Your own chats are kept for if you leave.</Copy>}
@@ -264,15 +263,18 @@ function InFamily() {
 }
 export default function Family() {
   const b = useBaby(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], [step, setStep] = useState<"start" | "invite" | "join">("start");
-  if (!spacesLive(bootstrap)) return <Screen title="Family" back><Notice>Family sharing isn’t open yet. Everything you log stays safe in your own space.</Notice></Screen>;
+  if (!familyOpen(bootstrap)) return <Screen title="Family" back><Notice>Family sharing isn’t open yet. Everything you log stays safe in your own space.</Notice></Screen>;
   if (family) return <Screen title="Family" back><YourName /><InFamily /></Screen>;
   return <Screen title={step === "invite" ? "Invite someone" : step === "join" ? "Join a family" : "Family"} back>
-    <YourName />
+    {step !== "start" && <YourName />}
     {step === "invite" ? <Invite onBack={() => setStep("start")} /> : step === "join" ? <Join onBack={() => setStep("start")} /> : <>
-      <Copy>Share your baby’s logs, calendar and saved posts with another parent or a caregiver. They use their own account.</Copy>
-      <Button title="Invite someone" icon="person-add-outline" size="lg" onPress={() => setStep("invite")} />
-      <Button secondary title="I have a code" icon="key-outline" size="lg" onPress={() => setStep("join")} />
-      <Copy kind="small" tone="muted">If you’re no longer in a family, its entries have left this phone. Another phone that’s offline clears its copy the next time it connects.</Copy>
+      <Section title="Share with your family">
+        <Copy>Log feeds and appointments together, and each keep your own journal.</Copy>
+        <Button title="Invite someone" icon="person-add-outline" size="lg" onPress={() => setStep("invite")} />
+        <Button secondary title="I have a code" icon="key-outline" size="lg" onPress={() => setStep("join")} />
+      </Section>
+      <YourName />
+      {!!b.state.feedNotices?.includes(leftFamilyNotice) && <Copy kind="small" tone="muted">You’re no longer in a family, so its entries have left this phone. Another phone that’s offline clears its copy the next time it connects.</Copy>}
     </>}
   </Screen>;
 }

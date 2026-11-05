@@ -81,6 +81,8 @@ export interface Bootstrap {
   /** Only with the API's family stack on. */
   personal_space_id?: string;
   spaces?: BabySpace[];
+  /** False only while the rehearsal's test list leaves this account out. */
+  family_available?: boolean;
   /** Names of everyone who has been in this account's families. */
   people?: Record<string, string>;
 }

@@ -3,7 +3,7 @@ import { careKinds } from "./models";
 import { herLog } from "./spaces";
 import { trackedKinds } from "./trackers";
 
-export const disclosureVersion = 1 as const;
+export const disclosureVersion = 2 as const;
 export interface FamilyPhone {
   id: string;
   state: "ready" | "outdated" | "unknown";
@@ -12,7 +12,7 @@ export interface FamilyPhone {
 }
 export interface FamilyReadiness { ready: boolean; phones: FamilyPhone[]; older_client_at?: string | null }
 export interface FamilyInvite { id: string; code?: string; role: "parent" | "caregiver"; expires_at: string; used_at?: string | null; revoked_at?: string | null; space_id?: string; generation?: number }
-export interface InvitePreview { role: "parent" | "caregiver"; expires_at: string; disclosure: string; disclosure_version: number }
+export interface InvitePreview { role: "parent" | "caregiver"; expires_at: string; invitation?: string; disclosure: string; disclosure_version: number }
 export interface FamilyMember { app_user_id: string; role: "parent" | "caregiver"; status: "active" | "left" | "removed"; access_version: number; display_name: string }
 
 /** The code in whatever they pasted, usually the whole message it came in. */

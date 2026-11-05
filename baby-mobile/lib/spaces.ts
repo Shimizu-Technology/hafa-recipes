@@ -5,6 +5,9 @@ import { trackerFor } from "./trackers";
 /** The API listed this account's spaces, which it only does with the family stack on. */
 export const spacesLive = (bootstrap?: Pick<Bootstrap, "spaces"> | null) => !!bootstrap?.spaces?.length;
 export const familySpaces = (bootstrap?: Pick<Bootstrap, "spaces"> | null): BabySpace[] => (bootstrap?.spaces ?? []).filter((space) => space.kind === "family");
+/** Whether to offer Family at all. Someone already in one keeps it, whatever the rehearsal's list says. */
+export const familyOpen = (bootstrap?: Pick<Bootstrap, "spaces" | "family_available"> | null) =>
+  spacesLive(bootstrap) && (bootstrap?.family_available !== false || !!familySpaces(bootstrap).length);
 /**
  * What a screen's data depends on: which families, and in what role. The personal space is left out, so the flag turning
  * on doesn't remount an open editor, and so is the access version, which also moves when a file is taken off a record.
