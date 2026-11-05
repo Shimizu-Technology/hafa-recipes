@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
-import { babyLabel, stampedDraft, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
+import { familyOpen, babyLabel, stampedDraft, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
 import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -328,5 +328,19 @@ describe("where a new draft is going", () => {
   it("leaves a draft from before the family where it was while its baby stays the same", () => {
     const held = draft({ child_id: null, kind: "note", space_id: p, generation: 1 });
     expect(stampedDraft(here, held, { ...(held as object), body: "more" } as never)).toMatchObject({ space_id: p });
+  });
+});
+
+describe("whether Family is offered", () => {
+  const own = { id: "p", kind: "personal" as const, role: "parent" as const, generation: 1, access_version: 1 };
+  const shared = { ...own, id: "f", kind: "family" as const };
+  it("follows the flag, and a build not told otherwise offers it", () => {
+    expect(familyOpen({ spaces: undefined })).toBe(false);
+    expect(familyOpen({ spaces: [own] })).toBe(true);
+    expect(familyOpen({ spaces: [own], family_available: true })).toBe(true);
+  });
+  it("is hidden while the rehearsal's list leaves this account out, unless they're already in one", () => {
+    expect(familyOpen({ spaces: [own], family_available: false })).toBe(false);
+    expect(familyOpen({ spaces: [own, shared], family_available: false })).toBe(true);
   });
 });

@@ -6,7 +6,7 @@ const mock = vi.hoisted(() => ({
   options: [] as any[],
   fontScale: 1, reduced: false, scheme: "light", listener: null as null | ((value: boolean) => void),
   timings: [] as { toValue: number; duration: number; useNativeDriver: boolean }[],
-  baby: { online: true, unreachable: false, syncing: false, error: "", state: { outbox: [] as any[] } }, push: vi.fn(),
+  baby: { online: true, unreachable: false, syncing: false, error: "", state: { outbox: [] as any[], feedNotices: undefined as string[] | undefined } }, push: vi.fn(),
   scrollToTop: [] as { current: { scrollToTop: () => void } }[],
 }));
 /** iOS header actions arrive as one custom item; render it like headerRight. */
@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mock.push.mockClear(); mock.back.mockClear(); mock.replace.mockClear(); mock.canGoBack = false; mock.options = []; mock.scrollToTop = [];
   mock.fontScale = 1; mock.reduced = false; mock.scheme = "light"; mock.timings = [];
-  mock.baby = { online: true, unreachable: false, syncing: false, error: "", state: { outbox: [] } };
+  mock.baby = { online: true, unreachable: false, syncing: false, error: "", state: { outbox: [], feedNotices: undefined } };
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
 it("uses short native press feedback and honours a live Reduce Motion change", async () => {
@@ -175,6 +175,15 @@ it("stays calm when Håfa can't be reached, and still flags a real problem", asy
   await act(async () => renderer!.update(<SyncStatus />));
   expect(renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.accessibilityLabel).toContain("needs attention");
   mock.baby.error = "";
+});
+it("shows a notice as something to dismiss, not somewhere to go", async () => {
+  mock.baby.state.feedNotices = ["No longer in this family."];
+  await mount(<SyncStatus />);
+  const icons = renderer!.root.findAll((node) => String(node.type) === "Icon").map((node) => node.props.name);
+  expect(icons).toContain("close");
+  expect(icons).not.toContain("chevron-forward");
+  expect(renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.accessibilityHint).toBe("Dismisses this");
+  mock.baby.state.feedNotices = undefined;
 });
 it("keeps normal sync quiet but expands rejected changes for action", async () => {
   mock.baby.state.outbox = [{ id: "queued" }]; mock.baby.syncing = true;

@@ -15,7 +15,8 @@ vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Cho
 import Family from "../app/family";
 import { ApiError, PhonesNotReady } from "./api";
 import { emptyState, optimisticRecord } from "./models";
-import { forgetInvite } from "./family";
+import { disclosureVersion, forgetInvite } from "./family";
+import { leftFamilyNotice } from "./outbox";
 
 const personal = "p", family = "f";
 const own = { id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, shared = { id: family, kind: "family", role: "parent", generation: 1, access_version: 1 };
@@ -62,6 +63,33 @@ describe("before there's a family", () => {
     await open();
     expect(button("Invite someone")).toBeUndefined();
     expect(text()).toMatch(/isn’t open yet/);
+  });
+  it("says what it's for, and nothing about leaving, to someone who's never been in one", async () => {
+    setup();
+    await open();
+    expect(text()).toMatch(/Share with your family/);
+    expect(text()).toMatch(/Log feeds and appointments together, and each keep your own journal\./);
+    expect(text()).not.toMatch(/no longer/);
+  });
+  it("mentions leaving only once it's true", async () => {
+    const b = setup();
+    b.state.feedNotices = [leftFamilyNotice];
+    await open();
+    expect(text()).toMatch(/no longer in a family/);
+    expect(button("I have a code")).toBeDefined();
+  });
+  it("hides the way in while the rehearsal's list leaves this account out", async () => {
+    const b = setup();
+    b.state.bootstrap.family_available = false;
+    await open();
+    expect(button("Invite someone")).toBeUndefined();
+    expect(text()).toMatch(/isn’t open yet/);
+  });
+  it("keeps someone's own family whatever the list says", async () => {
+    const b = setup([own, shared]);
+    b.state.bootstrap.family_available = false;
+    await open();
+    expect(text()).toMatch(/Who’s here/);
   });
   it("offers one choice each way", async () => {
     setup();
@@ -148,7 +176,11 @@ describe("the update gate", () => {
     await open();
     await press("Invite someone");
     expect(button("Share and get a code")).toBeUndefined();
+    expect(text()).toMatch(/Check your phones first/);
     expect(text()).toMatch(/needs the update/i);
+    expect(text()).toMatch(/Update that phone, or tell us it’s gone\./);
+    // No older client was seen here, only a phone that hasn't updated, so it doesn't claim one was.
+    expect(text()).not.toMatch(/in the last 14 days/);
     expect(b.api.createInvite).not.toHaveBeenCalled();
   });
   it("treats not knowing as not ready", async () => {
@@ -192,8 +224,8 @@ describe("the update gate", () => {
     setup([own], { readiness: vi.fn(async () => ({ ready: false, phones: [], older_client_at: "2026-11-01T00:00:00Z" })) });
     await open();
     await press("Invite someone");
-    expect(text()).toMatch(/older version/);
-    expect(text()).toMatch(/Nov 1|Oct 31/);
+    expect(text()).toMatch(/Check your phones first/);
+    expect(text()).toMatch(/This account was used on an older version of Håfa Baby in the last 14 days\. Update that phone, or tell us it’s gone\./);
     expect(button("That phone is updated or gone")).toBeDefined();
     expect(button("Share and get a code")).toBeUndefined();
   });
@@ -250,6 +282,18 @@ describe("a personal baby in a family", () => {
 });
 
 describe("joining with a code", () => {
+  it("says who invited them, above what joining shares, and answers with the current version", async () => {
+    const preview = { role: "parent", expires_at: "2026-11-12T00:00:00Z", disclosure_version: 2, invitation: "Kami invited you to their family.", disclosure: "Your own journal and anything marked Just me stay private." };
+    setup([own], { previewInvite: vi.fn(async () => preview) });
+    await open();
+    await press("I have a code");
+    await act(async () => all("Field")[0].props.onChange(code));
+    await press("Check the code");
+    const said = all("Copy").map((n) => n.props.children);
+    expect(said.indexOf(preview.invitation)).toBeGreaterThanOrEqual(0);
+    expect(said.indexOf(preview.invitation)).toBeLessThan(said.indexOf(preview.disclosure));
+    expect(disclosureVersion).toBe(2);
+  });
   it("takes a pasted message, shows what it means, and joins only on the second tap", async () => {
     const b = setup();
     f.paste.mockResolvedValue(`Join us: ${code}`);
@@ -387,7 +431,7 @@ describe("joining with an older phone on the account", () => {
   it("shows the same check as creating a family, and no way to join until it's answered", async () => {
     const b = setup([own], { readiness: vi.fn(async () => stuck) });
     await toPreview();
-    expect(text()).toMatch(/older version of Håfa Baby was used/);
+    expect(text()).toMatch(/older version of Håfa Baby in the last 14 days/);
     expect(button("Join this family")).toBeUndefined();
     expect(button("That phone is updated or gone")).toBeDefined();
     expect(b.api.acceptInvite).not.toHaveBeenCalled();
@@ -419,7 +463,7 @@ describe("joining with an older phone on the account", () => {
     setup([own], { acceptInvite: accept });
     await toPreview();
     await press("Join this family");
-    expect(text()).toMatch(/older version of Håfa Baby was used/);
+    expect(text()).toMatch(/older version of Håfa Baby in the last 14 days/);
     expect(text()).not.toMatch(/expired or been used/);
     expect(button("Join this family")).toBeUndefined();
   });
