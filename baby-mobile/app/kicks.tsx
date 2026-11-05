@@ -74,7 +74,8 @@ export default function Kicks() {
       <Copy kind="small">{cdcMovementDetail}</Copy>
       <MedicalSource source={cdcWarningSignsSource} url={cdcWarningSignsUrl} />
     </Card>
-    {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}
+    {/* Being offline already has its one calm line, up top. */}
+    {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
     {rows.length ? <Section title="History">
       <Grouped>{rows.slice(0, 50).map((row) => <Row key={row.id} numericTitle numericDetail title={friendlyTime(row.occurred_at, minute, timeZone)} detail={kickDetail(row, now)}
         onPress={() => router.push({ pathname: "/record/[id]", params: { id: row.id } })} />)}</Grouped>

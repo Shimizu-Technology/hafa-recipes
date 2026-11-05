@@ -191,3 +191,14 @@ describe("what the charts do", () => {
     expect(await slotWidth(3)).toBe(88);
   });
 });
+
+it("leaves being offline to the one calm line above, and says only where the numbers come from", async () => {
+  await mount(undefined, { error: "Something else went wrong." });
+  expect(renderer!.root.findAll((n) => String(n.type) === "Empty")[0].props.body).toContain("Something else went wrong.");
+  await act(async () => renderer!.unmount());
+  mock.baby.unreachable = true;
+  await mount(undefined, { error: "Could not connect. You're offline." });
+  const empty = renderer!.root.findAll((n) => String(n.type) === "Empty")[0];
+  expect(empty.props.body).toBe("Stats come from Håfa, so they’ll show here once it can be reached.");
+  mock.baby.unreachable = false;
+});

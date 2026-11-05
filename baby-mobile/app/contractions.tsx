@@ -62,7 +62,8 @@ export default function Contractions() {
     </Card>)}
     <Copy numeric kind="label">{hourLine(lastHour(rows, now))}</Copy>
     {!!guidance && <Notice>{guidance}</Notice>}
-    {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}
+    {/* Being offline already has its one calm line, up top. */}
+    {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
     {rows.length ? <Section title="Recent">
       <Grouped>{withGaps(rows).slice(0, 30).map(({ record, apart }) => <Row key={record.id} numericTitle numericDetail title={friendlyTime(record.occurred_at, minute, timeZone)}
         detail={[contractionDetail(record, now), apart === undefined ? "" : `${secondsWords(apart)} apart`].filter(Boolean).join(" · ")}
