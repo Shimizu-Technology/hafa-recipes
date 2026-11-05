@@ -180,6 +180,9 @@ it("logs what she says about herself with no baby on it, and adds nothing to her
   expect(saved()[3]).toMatchObject({ kind: "custom", child_id: null, title: "Prenatal", data: { label: "Vitamins and medicine" } });
   await press("Vitamins & medicine");
   await press("Prenatal");
+  // It can hold a medicine, so the chip only fills the form.
+  expect(saved()).toHaveLength(4);
+  await save("Save vitamins & medicine");
   expect(saved()[4]).toMatchObject({ title: "Prenatal", child_id: null });
 });
 
