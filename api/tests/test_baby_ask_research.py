@@ -388,7 +388,7 @@ async def test_a_short_follow_up_sends_only_itself(baby_api, stub):  # noqa: F81
     assert research_bodies(stub)[0]["input"] == "Research coping ideas"
 
 
-@pytest.mark.parametrize("question", ["What products help with preeclampsia?", "What products help when nene is malångu?", "Which products help fevr and brthing problems?"])
+@pytest.mark.parametrize("question", ["What products help with preeclampsia?", "What products help when nene is cranky?", "Which products help fevr and brthing problems?"])
 async def test_a_health_question_cannot_reach_the_open_web(baby_api, stub, question):  # noqa: F811
     await enable(baby_api)
     url = "https://offlist.example/health-advice"

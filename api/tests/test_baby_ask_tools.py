@@ -264,7 +264,7 @@ def test_permissions_come_from_the_question(question, expected):
 
 def test_the_tools_offered_are_only_the_ones_the_question_allows():
     offered = {tool["name"] for tool in make_tools(question="Summarize my tea post").request_fields(True)["tools"]}
-    assert offered == {"search_saved", "open_entry", "baby_profile"}
+    assert offered == {"search_saved", "open_entry", "baby_profile", "research_trusted"}
 
 
 async def test_saved_text_cannot_widen_what_a_question_may_read(baby_api, stub):  # noqa: F811
@@ -539,9 +539,10 @@ def test_logs_and_the_journal_are_each_offered_only_when_asked_about():
     def offered(question):
         return {tool["name"] for tool in make_tools(question=question).request_fields(True)["tools"]}
 
-    assert offered("Summarize my tea post") == {"search_saved", "open_entry", "baby_profile"}
-    assert offered("How many poos this week?") == {"search_saved", "open_entry", "baby_profile", "day_log", "care_stats", "events"}
-    assert offered("What did I write in my journal?") == {"search_saved", "open_entry", "baby_profile", "journal"}
+    always = {"search_saved", "open_entry", "baby_profile", "research_trusted"}
+    assert offered("Summarize my tea post") == always
+    assert offered("How many poos this week?") == always | {"day_log", "care_stats", "events"}
+    assert offered("What did I write in my journal?") == always | {"journal"}
 
 
 async def test_the_journal_read_is_refused_for_a_question_about_something_else(baby_api, stub):  # noqa: F811
