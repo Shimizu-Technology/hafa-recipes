@@ -3,7 +3,7 @@ import { ApiError } from "./api";
 import { createPushDevice, type PushDeviceEnvironment } from "./push-device";
 
 const fixture = (overrides: Partial<PushDeviceEnvironment> = {}) => {
-  const store = { value: null as string | null };
+  const store = { value: null as string | null, revocation: null as string | null };
   const env: PushDeviceEnvironment = {
     platform: "ios",
     online: () => true,
@@ -16,6 +16,9 @@ const fixture = (overrides: Partial<PushDeviceEnvironment> = {}) => {
     put: vi.fn(async () => ({ registration: "111" })),
     remove: vi.fn(async () => undefined),
     stopDelivery: vi.fn(async () => undefined),
+    readRevocation: vi.fn(async () => store.revocation),
+    writeRevocation: vi.fn(async (value: string | null) => { store.revocation = value; }),
+    binding: "account-a",
     now: () => 0,
     ...overrides,
   };
@@ -90,12 +93,14 @@ describe("signing out", () => {
     made.store.value = JSON.stringify({ installation: "install-1", registration: "111", token: "t" });
     return made;
   };
+  const pending = (store: { revocation: string | null }) => JSON.parse(store.revocation!);
   it("sends back the registration it holds and forgets it", async () => {
     const { env, device, store } = holding();
     await device.end();
     expect(env.remove).toHaveBeenCalledWith("install-1", "111");
     expect(env.stopDelivery).not.toHaveBeenCalled();
     expect(store.value).toBeNull();
+    expect(store.revocation).toBeNull();
   });
   it("makes no call when this phone never registered, as with the flag off", async () => {
     const { env, device } = fixture();
@@ -103,36 +108,35 @@ describe("signing out", () => {
     expect(env.remove).not.toHaveBeenCalled();
     expect(env.stopDelivery).not.toHaveBeenCalled();
   });
-  it("offline, it doesn't wait: the phone stops taking pushes itself, and it forgets", async () => {
+  it("offline, it doesn't wait: the phone stops taking pushes, and remembers what's left to revoke", async () => {
     const { env, device, store } = holding({ online: () => false });
     await device.end();
     expect(env.remove).not.toHaveBeenCalled();
     expect(env.stopDelivery).toHaveBeenCalled();
     expect(store.value).toBeNull();
+    expect(pending(store)).toEqual({ installation: "install-1", registration: "111", binding: "account-a" });
   });
-  it.each([[new ApiError("offline", 0)], [new ApiError("broken", 503)]])("a request that didn't land stops delivery on the phone: %s", async (failure) => {
-    const { env, device, store } = holding({ remove: vi.fn(async () => { throw failure; }) });
-    await device.end();
-    expect(env.stopDelivery).toHaveBeenCalled();
-    expect(store.value).toBeNull();
-  });
-  it.each([[new ApiError("off", 404)], [new ApiError("gone", 401)]])("an answer means the API has nothing more for this phone: %s", async (failure) => {
-    const { env, device } = holding({ remove: vi.fn(async () => { throw failure; }) });
-    await device.end();
-    expect(env.stopDelivery).not.toHaveBeenCalled();
-  });
+  it.each([[new ApiError("offline", 0)], [new ApiError("broken", 503)], [new ApiError("gone", 401)], [new ApiError("flag off", 404)]])(
+    "only a confirmed removal counts: %s stops delivery on the phone and keeps it pending", async (failure) => {
+      const { env, device, store } = holding({ remove: vi.fn(async () => { throw failure; }) });
+      await device.end();
+      expect(env.stopDelivery).toHaveBeenCalled();
+      expect(store.value).toBeNull();
+      expect(pending(store).registration).toBe("111");
+    });
   it("a request that hangs can't hold up signing out", async () => {
     vi.useFakeTimers();
     try {
-      const { env, device } = holding({ remove: vi.fn(() => new Promise<void>(() => {})) });
+      const { env, device, store } = holding({ remove: vi.fn(() => new Promise<void>(() => {})) });
       const ending = device.end(5000);
       await vi.advanceTimersByTimeAsync(5001);
       await ending;
       expect(env.stopDelivery).toHaveBeenCalled();
+      expect(pending(store).registration).toBe("111");
     } finally { vi.useRealTimers(); }
   });
   it("nothing it does can fail signing out", async () => {
-    const { device } = holding({ stopDelivery: vi.fn(async () => { throw Error("native"); }), erase: vi.fn(async () => { throw Error("keychain"); }), remove: vi.fn(async () => { throw new ApiError("x", 0); }) });
+    const { device } = holding({ stopDelivery: vi.fn(async () => { throw Error("native"); }), erase: vi.fn(async () => { throw Error("keychain"); }), writeRevocation: vi.fn(async () => { throw Error("keychain"); }), remove: vi.fn(async () => { throw new ApiError("x", 0); }) });
     await expect(device.end()).resolves.toBeUndefined();
   });
   it("after signing out, the next sign-in registers again", async () => {
@@ -141,5 +145,130 @@ describe("signing out", () => {
     await device.end();
     await device.ensure(1);
     expect(env.put).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a registration under way when sign-out starts", () => {
+  const blocked = (overrides: Partial<PushDeviceEnvironment> = {}) => {
+    let finish!: (value: { registration: string }) => void, fail!: (error: unknown) => void;
+    const made = fixture({ put: vi.fn(() => new Promise<{ registration: string }>((resolve, reject) => { finish = resolve; fail = reject; })), ...overrides });
+    return { ...made, finish: (registration: string) => finish({ registration }), fail: (error: unknown) => fail(error) };
+  };
+  const started = async (device: { ensure(generation: number): Promise<boolean> }, env: PushDeviceEnvironment) => {
+    const work = device.ensure(1);
+    await vi.waitFor(() => expect(env.put).toHaveBeenCalled());
+    return work;
+  };
+  it("sign-out waits for it, and revokes what it got", async () => {
+    const { env, device, store, finish } = blocked();
+    const work = started(device, env);
+    await vi.waitFor(() => expect(env.put).toHaveBeenCalled());
+    const ending = device.end();
+    finish("222");
+    await work;
+    await ending;
+    expect(env.remove).toHaveBeenCalledWith("install-1", "222");
+    expect(store.value).toBeNull();
+  });
+  it("a new registration can't start while sign-out runs", async () => {
+    const { env, device, store } = fixture({ remove: vi.fn(() => new Promise<void>(() => {})) });
+    store.value = JSON.stringify({ installation: "install-1", registration: "111", token: "t" });
+    vi.useFakeTimers();
+    try {
+      const ending = device.end(5000);
+      await vi.advanceTimersByTimeAsync(10);
+      await expect(device.ensure(1)).resolves.toBe(false);
+      expect(env.put).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5001);
+      await ending;
+    } finally { vi.useRealTimers(); }
+  });
+  it("one that outlasts sign-out's limit: the phone stops, and when it lands it's revoked, not kept", async () => {
+    vi.useFakeTimers();
+    try {
+      const { env, device, store, finish } = blocked();
+      const work = device.ensure(1);
+      await vi.advanceTimersByTimeAsync(10);
+      const ending = device.end(1000);
+      await vi.advanceTimersByTimeAsync(1001);
+      await ending;
+      expect(env.stopDelivery).toHaveBeenCalled();
+      finish("333");
+      await vi.advanceTimersByTimeAsync(10);
+      await work;
+      expect(env.remove).toHaveBeenCalledWith("install-1", "333");
+      expect(store.value).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+  it("one that lands late and can't be revoked is left pending, not held", async () => {
+    vi.useFakeTimers();
+    try {
+      const { device, store, finish } = blocked({ remove: vi.fn(async () => { throw new ApiError("offline", 0); }) });
+      const work = device.ensure(1);
+      await vi.advanceTimersByTimeAsync(10);
+      const ending = device.end(1000);
+      await vi.advanceTimersByTimeAsync(1001);
+      await ending;
+      finish("444");
+      await vi.advanceTimersByTimeAsync(10);
+      await work;
+      expect(store.value).toBeNull();
+      expect(JSON.parse(store.revocation!).registration).toBe("444");
+    } finally { vi.useRealTimers(); }
+  });
+  it("one that fails while sign-out waits ends quietly", async () => {
+    const { env, device, store, fail } = blocked();
+    const work = started(device, env);
+    await vi.waitFor(() => expect(env.put).toHaveBeenCalled());
+    const ending = device.end();
+    fail(new ApiError("offline", 0));
+    await work;
+    await ending;
+    expect(store.value).toBeNull();
+  });
+});
+
+describe("a revocation left over from an earlier sign-out", () => {
+  const left = (binding = "account-a") => JSON.stringify({ installation: "install-1", registration: "old", binding });
+  it("a new registration settles it: the token is one row, and it just moved", async () => {
+    const { env, device, store } = fixture();
+    store.revocation = left("account-b");
+    await device.ensure(1);
+    expect(env.put).toHaveBeenCalledOnce();
+    expect(store.revocation).toBeNull();
+  });
+  it("same account, no permission now: it's sent again, and goes once confirmed", async () => {
+    const { env, device, store } = fixture({ granted: vi.fn(async () => false) });
+    store.revocation = left();
+    await device.ensure(1);
+    expect(env.remove).toHaveBeenCalledWith("install-1", "old");
+    expect(store.revocation).toBeNull();
+    expect(env.put).not.toHaveBeenCalled();
+  });
+  it("same account, still can't be confirmed: it stays", async () => {
+    const { device, store } = fixture({ granted: vi.fn(async () => false), remove: vi.fn(async () => { throw new ApiError("offline", 0); }) });
+    store.revocation = left();
+    await device.ensure(1);
+    expect(store.revocation).toBe(left());
+  });
+  it("another account can't confirm it, because a removal only answers for its own phones", async () => {
+    const { env, device, store } = fixture({ granted: vi.fn(async () => false) });
+    store.revocation = left("account-b");
+    await device.ensure(1);
+    expect(env.remove).not.toHaveBeenCalled();
+    expect(store.revocation).toBe(left("account-b"));
+  });
+  it("a failed registration leaves it in place", async () => {
+    const { device, store } = fixture({ put: vi.fn(async () => { throw new ApiError("offline", 0); }) });
+    store.revocation = left();
+    await device.ensure(1);
+    expect(store.revocation).toBe(left());
+  });
+  it("signing out again replaces it with the newest", async () => {
+    const { device, store } = fixture({ online: () => false });
+    store.revocation = left();
+    store.value = JSON.stringify({ installation: "install-1", registration: "new", token: "t" });
+    await device.end();
+    expect(JSON.parse(store.revocation!).registration).toBe("new");
   });
 });

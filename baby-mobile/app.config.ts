@@ -66,8 +66,7 @@ const config: ExpoConfig = {
     ],
     "expo-document-picker",
     "expo-sharing",
-    // Adds the remote-notification background mode, for the silent refresh.
-    ["expo-notifications", { enableBackgroundRemoteNotifications: true }],
+    "expo-notifications",
     "@react-native-community/datetimepicker",
     ["expo-build-properties", { ios: { deploymentTarget: "17.0" }, android: { minSdkVersion: 26 } }],
     "./plugins/with-baby-share.cjs",

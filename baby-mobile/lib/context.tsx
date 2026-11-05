@@ -862,7 +862,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         },
         registerPush: async () => {
           const held = ref.current.bootstrap;
-          return held?.reminders?.push && held.active !== false ? pushDevice.ensure(held.generation) : false;
+          return held?.reminders?.push && held.active !== false && !closing.current ? pushDevice.ensure(held.generation) : false;
         },
         enroll: async () => {
           const g = ref.current.bootstrap?.generation;
