@@ -201,9 +201,9 @@ describe("reviewing a conflict before replacing the saved version", () => {
     expect(said).toMatch(/Topics: sleep, labor/);
   });
   it("leaves out what isn't for reading, and cuts long source text short", async () => {
-    const root = await load({ data: { attachment_ids: ["a"], actions: [{ id: "x" }], evidence: [{ q: "z" }], source_text: "w".repeat(900) } });
+    const root = await load({ data: { attachment_ids: ["a"], actions: [{ id: "x" }], evidence: [{ q: "z" }], provenance: "caregiver_observation", source_text: "w".repeat(900) } });
     const said = words(root);
-    expect(said).not.toMatch(/Attachment ids|Evidence/);
+    expect(said).not.toMatch(/Attachment ids|Evidence|Provenance|caregiver_observation/);
     expect(said).toMatch(/Actions: 1/);
     expect((said.match(/w/g) ?? []).length).toBeLessThan(300);
   });

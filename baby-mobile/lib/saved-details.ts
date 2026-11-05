@@ -1,5 +1,5 @@
 /** The parts of a saved entry's data she can read, so a conflict review shows what she's about to replace. */
-const hidden = new Set(["attachment_ids", "evidence", "record_ids", "event_id", "just_me", "log_form", "timing_source"]);
+const hidden = new Set(["attachment_ids", "provenance", "request_id", "signature", "thumbnail_url", "mime_type", "generation", "evidence", "record_ids", "event_id", "just_me", "log_form", "timing_source"]);
 const longest = 200;
 const label = (key: string) => (key[0].toUpperCase() + key.slice(1)).replace(/_/g, " ");
 function shown(value: unknown) {

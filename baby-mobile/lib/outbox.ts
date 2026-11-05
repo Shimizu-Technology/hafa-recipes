@@ -253,7 +253,7 @@ export function retargeted(state: DeviceState, change: Mutation, moved: Moved, u
     records: isRow ? replaceRecord(state.records, moved.record as BabyRecord) : state.records };
 }
 /** What a notice is about. Most are a tap, and these two aren't. */
-export const noticeTitle = (notice: string) => (notice === leftFamilyNotice ? "Your family" : notice.startsWith("Saved to your own space") ? "Kept in your space" : "A tap wasn’t added");
+export const noticeTitle = (notice: string) => (notice === recoveredNotice ? "Back on this phone" : notice === leftFamilyNotice ? "Your family" : notice.startsWith("Saved to your own space") ? "Kept in your space" : "A tap wasn’t added");
 export const notSentMessage = "Not sent: you’re no longer in this family.";
 export const leftFamilyNotice = "You’re no longer in this family, so its entries have left this phone. Anything not sent is in Sync & recovery.";
 /**
