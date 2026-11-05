@@ -16,6 +16,7 @@ export default function Help() {
       {helpLines.map((line) => <View key={line.name} style={{ gap: 8 }}>
         {line.name !== "911" && <Copy kind="label">{line.name}</Copy>}
         {line.actions.map((action, index) => <Button key={action.url} numeric secondary={index > 0 || line.name !== "911"} title={action.label} onPress={() => open(action.url, action.label)} />)}
+        {!!line.note && <Copy kind="small" tone="muted">{line.note}</Copy>}
         {!!line.source && <MedicalSource source={line.source.name} url={line.source.url} />}
       </View>)}
     </View>

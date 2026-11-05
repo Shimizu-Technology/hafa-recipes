@@ -32,6 +32,30 @@ BASE_INSTRUCTIONS = (
 )
 
 
+def published_answer(question, result, tools):
+    """What may be shown. Production saves this, and the evaluation grades this, not the model's own text."""
+    from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer
+    from app.domains.baby.ask_safety import DIAGNOSIS_REFUSAL, DOSE_REFUSAL, MESSAGES, answer_checks
+
+    if result.safety in MESSAGES:
+        # Comes before citations are checked. Nothing the model wrote or read goes with a fixed reply.
+        return {"message": MESSAGES[result.safety], "citation_ids": [], "sources": [], "help": result.safety, "proposal": None}
+    if any(identifier not in tools.citable for identifier in result.citation_ids):
+        raise ValueError("Unsupported citation")
+    message, sources = checked_answer(result.message, result.source_urls, tools.web_sources)
+    if tools.research_failed and not sources:
+        message = f"{message}\n\n{UNAVAILABLE_NOTICE}"
+    cited = [tools.citable[identifier].get("excerpt") or "" for identifier in result.citation_ids]
+    message, help_kind, extra = answer_checks(question, result.model_copy(update={"message": message}), cited)
+    if message in {DOSE_REFUSAL, DIAGNOSIS_REFUSAL}:
+        return {"message": message, "citation_ids": [], "sources": [], "help": None, "proposal": None, "replaced": True}
+    known = {source["url"] for source in sources}
+    return {
+        "message": message, "citation_ids": result.citation_ids, "help": help_kind, "proposal": result.proposal,
+        "sources": sources + [item for item in extra if item["url"] not in known],
+    }
+
+
 def effort_for(model, configured):
     # Astra has no "none" setting.
     return "low" if model == "gpt-6-astra" and configured == "none" else configured

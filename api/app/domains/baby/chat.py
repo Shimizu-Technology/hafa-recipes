@@ -15,12 +15,12 @@ from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
 from app.domains.baby.ask_gate import ask_v2_allowed
+from app.domains.baby.ask_safety import boundary, classify
 from app.domains.baby.dependencies import Access, Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
 from app.domains.baby.provider import (
     DAILY_LIMIT_CODE,
-    AnswerOutput,
     BabyProvider,
     ContextChanged,
     budget_failure_message,
@@ -653,7 +653,93 @@ def question_identity(body):
     return digest(body.model_dump(mode="json", exclude={"ask_v2", *(() if body.focus_date else ("focus_date",))}))
 
 
+async def child_names(db, access, user_id):
+    """For recognizing a baby by name. Not knowing them must not stop an urgent reply."""
+    try:
+        scope = chat_scopes(access)[0] if access.enabled else user_id
+        return list(await db.scalars(select(BabyChild.name).where(
+            row_scope(BabyChild, scope, access.member.generation), BabyChild.deleted_at.is_(None))))
+    except Exception:
+        await db.rollback()
+        return []
+
+
+async def readable_or_none(db, model, scope, generation, identifier):
+    try:
+        return identifier and (await owned(db, model, scope, generation, identifier)).id
+    except HTTPException:
+        return None
+
+
+async def save_fixed_reply(body, user, db, generation, access, reply):
+    access.check_generation(generation)
+    readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
+    if access.enabled and access.target.id != access.personal_space_id:
+        raise ValueError("Ask conversations belong in the personal space")
+    answer_id = uuid5(NAMESPACE_URL, f"hafa-baby-answer:{user.id}:{generation}:{body.request_id}")
+    prior = await db.get(BabyMessage, body.request_id, populate_existing=True)
+    conversation = None
+    if prior:
+        if prior.app_user_id != user.id or prior.generation != generation:
+            raise ValueError("This question identity belongs to something else")
+        if await db.get(BabyMessage, answer_id):
+            return prior.conversation_id
+        conversation = await db.get(BabyConversation, prior.conversation_id)
+        prior.content = {**prior.content, "status": "ready", "lease_until": None}
+    elif body.conversation_id:
+        try:
+            conversation = await owned(db, BabyConversation, private, generation, body.conversation_id)
+        except HTTPException:
+            conversation = None
+        if conversation and await db.scalar(select(func.count()).select_from(BabyMessage).where(
+                BabyMessage.conversation_id == conversation.id)) >= 500:
+            conversation = None
+    if conversation is None:
+        conversation = BabyConversation(
+            app_user_id=user.id, space_id=access.member.personal_space_id, generation=generation,
+            title=body.message[:100], scope=body.scope, created_at=now(), updated_at=now(),
+            record_id=await readable_or_none(db, BabyRecord, readable, generation, body.record_id),
+            child_id=await readable_or_none(db, BabyChild, readable, generation, body.child_id),
+        )
+        db.add(conversation)
+        await touch(conversation, access.target)
+        await db.flush()
+    if not prior:
+        prior = BabyMessage(
+            id=body.request_id, app_user_id=user.id, space_id=access.member.personal_space_id, generation=generation,
+            conversation_id=conversation.id, role="user", created_at=now(),
+            content={"hash": digest(body.model_dump(mode="json", exclude={"ask_v2"})), "message": body.message, "attempts": 0, "status": "ready"},
+        )
+        db.add(prior)
+    answer = BabyMessage(
+        id=answer_id, app_user_id=user.id, space_id=access.member.personal_space_id, generation=generation,
+        conversation_id=conversation.id, role="assistant", content=reply, created_at=now(),
+    )
+    db.add(answer)
+    conversation.updated_at = now()
+    await touch(prior, access.target)
+    await touch(answer, access.target)
+    await touch(conversation, access.target)
+    await db.commit()
+    return conversation.id
+
+
+async def fixed_reply(body, user, db, generation, access, message, help_kind):
+    """Say it first. Keeping it in the chat comes second: a reason it can't be saved doesn't stop the reply."""
+    reply = {"message": message, "citations": [], "proposal": None, "sources": [], "help": help_kind}
+    try:
+        conversation_id = await save_fixed_reply(body, user, db, generation, access, reply)
+    except Exception:
+        await db.rollback()
+        conversation_id = None
+    return {"conversation_id": conversation_id, **reply}
+
+
 async def answer_chat(body, user, db, generation, client, access, *, retries=2):
+    # After sign-in and access, and before anything that could say no: the AI being off, a limit, a budget, consent.
+    urgent = classify(body.message, await child_names(db, access, user.id))
+    if urgent:
+        return await fixed_reply(body, user, db, generation, access, urgent.message, urgent.kind)
     access.check_generation(generation)
     member = access.member
     readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
@@ -662,6 +748,8 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     # Old conversations scoped to one area keep the search they began with.
     use_v2 = body.ask_v2 and body.scope == "all" and not legacy_client(client) and ask_v2_allowed(member.profile)
     tracked = {"records": {}, "children": {}} if access.enabled or use_v2 else None
+    if use_v2 and (limit := boundary(body.message)):
+        return await fixed_reply(body, user, db, generation, access, limit, None)
     if not member.profile.get("ai_consent"):
         raise HTTPException(403, "Enable AI processing in settings before asking a question")
     provider = BabyProvider()
@@ -855,7 +943,6 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             request_id=str(body.request_id), user_id=user.id, job_id=None, route="/api/v1/baby/chat"
         ):
             if use_v2:
-                from app.domains.baby.ask_safety import classify
                 from app.domains.baby.ask_tools import AskTools
                 from app.domains.baby.ask_v2 import answer_question
 
@@ -866,9 +953,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                     focus_id=body.record_id,
                     history=[item["message"] for item in history if item["message"] != body.message],
                 )
-                urgent = classify(body.message, [item["name"] for item in pack["children"]])
-                # Urgent replies are fixed: no model, no reading, and nothing to wait for.
-                result = AnswerOutput(message=urgent.message, safety=urgent.kind) if urgent else await answer_question(
+                result = await answer_question(
                     provider, tools=tools, message=body.message, history=history,
                     now_local=now().astimezone(zone).isoformat(timespec="minutes"),
                     context_pack=pack,
@@ -884,6 +969,11 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                     requested_range=requested_range,
                 )
         allowed = {item["id"]: item for item in context}
+        if use_v2:
+            from app.domains.baby.ask_v2 import published_answer
+
+            published = published_answer(body.message, result.model_copy(update={"message": clean_assistant_message(result.message)}), tools)
+            result = result.model_copy(update={"citation_ids": published["citation_ids"], "proposal": published["proposal"]})
         if any(identifier not in allowed for identifier in result.citation_ids):
             raise ValueError("Unsupported citation")
         citations = [
@@ -898,21 +988,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         proposal = reviewed_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
         if use_v2:
-            from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer
-            from app.domains.baby.ask_safety import MESSAGES, answer_checks
-
-            if result.safety in MESSAGES:
-                # Nothing the model wrote or read goes with a fixed reply.
-                citations, proposal = [], None
-                payload.update(message=MESSAGES[result.safety], citations=[], proposal=None, sources=[], help=result.safety)
-            else:
-                message, sources = checked_answer(payload["message"], result.source_urls, tools.web_sources)
-                if tools.research_failed and not sources:
-                    message = f"{message}\n\n{UNAVAILABLE_NOTICE}"
-                message, help_kind, extra = answer_checks(body.message, result.model_copy(update={"message": message}))
-                known = {source["url"] for source in sources}
-                payload.update(message=message, sources=sources + [item for item in extra if item["url"] not in known],
-                               help=help_kind)
+            payload.update(message=published["message"], sources=published["sources"], help=published["help"])
         access = await access_for(db, user.id, client=client,
                                   space_id=personal_space_id if access.enabled else None,
                                   generation=generation, write=True)
