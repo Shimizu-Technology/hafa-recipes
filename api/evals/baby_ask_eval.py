@@ -325,8 +325,11 @@ def runnable_cases(dataset, *, categories=None):
 
 
 def attempt_cost_usd(model: str, case: dict[str, Any], shape: SimpleNamespace) -> float:
+    from app.domains.baby.ask_safety import boundary, classify
     from app.domains.baby.budget import BABY_MODEL_PRICES
 
+    if classify(case["prompt"]) or boundary(case["prompt"]):
+        return 0.0  # A fixed reply calls no model, so it costs nothing.
     price = BABY_MODEL_PRICES[model]
     cost = shape.rounds * (shape.input_tokens * float(price.input) + shape.output_tokens * float(price.output))
     if case.get("needs_tool"):

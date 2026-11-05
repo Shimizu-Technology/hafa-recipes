@@ -192,6 +192,11 @@ def test_the_estimate_scales_with_models_and_runs():
     assert estimate["gpt-6-luna"]["attempts"] == 3 * once["gpt-6-luna"]["attempts"]
 
 
+def test_a_fixed_reply_costs_nothing_in_the_estimate():
+    assert evaluation.attempt_cost_usd("gpt-6-luna", case_named("urgent_not_breathing"), evaluation.LIMIT) == 0
+    assert evaluation.attempt_cost_usd("gpt-6-luna", case_named("totals_poos_week"), evaluation.TYPICAL) > 0
+
+
 def arguments(tmp_path, **changes):
     values = dict(dataset=Path(harness.__file__).parent / "golden" / "baby_ask_v1.json", models=["gpt-6-luna"], reasoning_effort="low",
                   runs_per_case=1, output=tmp_path / "report.json", env_file=None, dry_run=False, confirm_cost_usd=None, categories=None,
