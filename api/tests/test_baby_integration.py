@@ -54,7 +54,8 @@ async def baby_api(monkeypatch, request):
             )
         settings = SimpleNamespace(
             baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20,
-            baby_family_enabled=os.environ.get("BABY_FAMILY_ENABLED", "false").lower() == "true"
+            baby_family_enabled=os.environ.get("BABY_FAMILY_ENABLED", "false").lower() == "true",
+            baby_push_enabled=os.environ.get("BABY_PUSH_ENABLED", "false").lower() == "true",
         )
         for name in BABY_MIGRATIONS:
             if int(name.split(".")[1].split("_")[0]) > getattr(request, "param", 57):

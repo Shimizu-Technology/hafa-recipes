@@ -32,6 +32,7 @@ API = "/api/v1/baby"
 async def matrix(privacy_api):
     api = privacy_api
     api.settings.baby_family_enabled = api.settings.baby_invites_enabled = api.settings.baby_new_kinds_enabled = True
+    api.settings.baby_push_enabled = True
     from tests.test_baby_moves import enabled
     await enabled.__wrapped__(api)
     api.client._transport.app.include_router(native.router)
@@ -127,6 +128,12 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
                  "/care/stats?range=7d"):
         await call("GET", API + path, 200 if member or path == "/export" else hidden)
     await call("GET", API + "/changes", 200)
+    # A phone and its settings belong to the person, so every role has only their own.
+    phone = f"{API}/push/devices/install-{actor}"
+    registered = await call("PUT", phone, 200, json={"token": f"ExponentPushToken[{actor}]", "platform": "ios"})
+    assert (await call("GET", API + "/push/prefs", 200)).json()["kinds"]["event"]["enabled"] is False
+    await call("PATCH", API + "/push/prefs", 200, json={"kinds": {"event": {"enabled": True}}})
+    await call("DELETE", f"{phone}?registration={registered.json()['registration']}", 204)
     await call("GET", f"{API}/records/{rows['care']['id']}", 200 if member else hidden)
     await call("GET", f"{API}/conversations/{owner.conversation_id}", denied)
     await call("POST", API + "/chat", 422 if member else hidden, json={"message": "Summarize everything"})

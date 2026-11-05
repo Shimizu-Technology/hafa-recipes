@@ -20,11 +20,13 @@ import pytest  # noqa: E402
 @pytest.fixture(autouse=True)
 def _reset_ai_rate_limiter():
     """Keep the process-wide AI budgets from leaking between tests."""
-    from app.rate_limit import ai_rate_limiter
+    from app.rate_limit import ai_rate_limiter, push_registration_limiter
 
     ai_rate_limiter.reset()
+    push_registration_limiter.reset()
     yield
     ai_rate_limiter.reset()
+    push_registration_limiter.reset()
 
 
 @pytest.fixture(autouse=True)

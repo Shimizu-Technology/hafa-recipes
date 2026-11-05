@@ -14,6 +14,9 @@ from app.domains.baby.models import (
     BabyImport,
     BabyMembership,
     BabyMessage,
+    BabyNotification,
+    BabyNotificationPref,
+    BabyPushDevice,
     BabyRecord,
 )
 from app.domains.baby.stats import care_query
@@ -219,10 +222,22 @@ async def owned_cleanup_prefixes(db, owner):
     ]
 
 
+async def push_tables_exist(db):
+    return await db.scalar(text("SELECT to_regclass('public.baby_notifications') IS NOT NULL"))
+
+
+async def erase_push_data(db, owner):
+    """A person's phones, settings and reminders, in every space. They register again once enrolled."""
+    if await push_tables_exist(db):
+        for model in (BabyNotification, BabyNotificationPref, BabyPushDevice):
+            await db.execute(delete(model).where(model.app_user_id == owner))
+
+
 async def erase_account_data(db, owner):
     """Caller holds shared AppUser lock; cleanup survives all local cascades."""
     if not await db.scalar(text("SELECT to_regclass('public.baby_memberships') IS NOT NULL")):
         return
+    await erase_push_data(db, owner)
     from app.domains.baby.attachments import cleanup_job
 
     prefixes = await owned_cleanup_prefixes(db, owner)
@@ -270,10 +285,13 @@ async def lock_family_data(db, owner, *, space_id=None):
     if not await db.scalar(text("SELECT to_regclass('public.baby_spaces') IS NOT NULL")):
         return None
 
+    # Reminders and settings can name a space the person no longer belongs to.
+    push = (BabyNotification, BabyNotificationPref) if await push_tables_exist(db) else ()
+
     async def discover():
         ids = set(await db.scalars(select(BabySpaceMember.space_id).where(BabySpaceMember.app_user_id == owner)))
         ids.update(await db.scalars(select(BabySpace.id).where(BabySpace.created_by == owner)))
-        for model in (BabyChild, BabyRecord, BabyAttachment, BabyImport, BabyConversation, BabyShareCredential):
+        for model in (BabyChild, BabyRecord, BabyAttachment, BabyImport, BabyConversation, BabyShareCredential, *push):
             ids.update(await db.scalars(select(model.space_id).where(model.app_user_id == owner)))
         # Old account deletion could SET NULL the space creator without deleting it.
         ids.update(await db.scalars(select(BabySpace.id).where(BabySpace.kind == "personal",
@@ -406,6 +424,7 @@ async def erase_baby_account(db, owner, grants):
         return await owned_cleanup_prefixes(db, owner)
     from app.domains.baby.access import touch
 
+    await erase_push_data(db, owner)
     prefixes = []
     for grant in grants:
         if grant.space.kind != "family":

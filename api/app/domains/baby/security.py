@@ -53,6 +53,11 @@ def new_kinds_enabled():
     return getattr(get_settings(), "baby_new_kinds_enabled", False)
 
 
+def push_enabled():
+    settings = get_settings()
+    return getattr(settings, "baby_api_enabled", False) and getattr(settings, "baby_push_enabled", False)
+
+
 # Per-owner admission prevents one caller from monopolizing all process slots.
 # The process cap also bounds concurrent multipart buffers to four uploads.
 _upload_ingress = threading.Lock()

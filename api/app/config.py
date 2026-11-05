@@ -249,6 +249,8 @@ class Settings(BaseSettings):
     baby_development_ai_api_key: SecretStr | None = None
     # Accept the record kinds that migration 055 allows. Set only after it is applied.
     baby_new_kinds_enabled: bool = False
+    # Push registration, settings and delivery. Off means no routes, no worker and no new queries.
+    baby_push_enabled: bool = False
 
     @field_validator("workouts_ai_budget_database_url", mode="before")
     @classmethod
