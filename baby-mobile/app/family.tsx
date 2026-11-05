@@ -73,7 +73,7 @@ function usePhones(setError: (message: string) => void) {
       { text: "Not yet", style: "cancel" },
       { text: "Yes, it’s updated or gone", onPress: () => void (async () => {
         try { await b.api.confirmPhones(nativeSharingAvailable ? await installationId() : undefined); await check(); }
-        catch (failure) { setError(messageFor(failure)); }
+        catch (failure) { setError(failure instanceof ApiError && failure.status === 404 ? codeProblem(failure) : messageFor(failure)); }
       })() },
     ]);
   }

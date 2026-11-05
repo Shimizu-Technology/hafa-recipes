@@ -170,6 +170,16 @@ describe("the update gate", () => {
     expect(b.api.confirmPhones).toHaveBeenCalledWith("this-phone");
     expect(button("Share and get a code")).toBeDefined();
   });
+  it("says invites aren't open yet if her answer comes back 404, not that an item is gone", async () => {
+    setup([own], { readiness: vi.fn(async () => behind), confirmPhones: vi.fn(async () => { throw new ApiError("x", 404); }) });
+    await open();
+    await press("Invite someone");
+    await press("That phone is updated or gone");
+    await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.text === "Yes, it’s updated or gone")!.onPress!(); });
+    await act(async () => {});
+    expect(text()).toMatch(/aren’t open yet/);
+    expect(text()).not.toMatch(/no longer available/);
+  });
   it("says when an older version was used, with no phone to name, and asks the same way", async () => {
     setup([own], { readiness: vi.fn(async () => ({ ready: false, phones: [], older_client_at: "2026-11-01T00:00:00Z" })) });
     await open();
