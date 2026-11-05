@@ -1869,4 +1869,32 @@ describe("reminder settings while the flag is off", () => {
     await act(async () => { await baby.refreshPrefs(); });
     expect(mock.api.pushPrefs).not.toHaveBeenCalled();
   });
+describe("what Today shows from the API", () => {
+  const item = { id: "r", kind: "event", text: "Visit at 3", due_at: "2026-11-06T00:00:00Z", delivery: "accepted", identity: "i", data: {} };
+  it("with the flag off it asks nothing", async () => {
+    mock.api.dueReminders = vi.fn();
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.dueReminders).not.toHaveBeenCalled();
+  });
+  it("with the flag on it reads what's due and sends what she dismissed", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => ({ items: [item] }));
+    mock.api.dismissReminder = vi.fn(async () => undefined);
+    mock.saved = { ...emptyState(), bootstrap, dismissing: ["old"] } as unknown as DeviceState;
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.dismissReminder).toHaveBeenCalledWith("old");
+    expect(baby.state.dueReminders).toEqual([item]);
+    expect(baby.state.dismissing).toEqual([]);
+  });
+  it("a failure reading them can't touch the sync", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.error).toBe("");
+  });
 });

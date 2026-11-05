@@ -79,6 +79,7 @@ import { clearReminders, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
 import { forgetInvite } from "./family";
 import { nativePushDevice } from "./push-native";
+import { refreshDue, sendDismissals } from "./reminder-due";
 import { accessKey, remindersOn, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
@@ -620,6 +621,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
       }
       // Before the releases: one that keeps failing mustn't stop the other phone's changes arriving.
       if (spacesLive(latest)) await pullChanges();
+      if (latest.reminders?.push) {
+        await sendDismissals(api, commit, () => ref.current);
+        await refreshDue(api, commit);
+      }
       for (const id of ref.current.fileReleases ?? []) {
         if (uploadedReferences(ref.current).has(id)) continue;
         try {

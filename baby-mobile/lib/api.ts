@@ -3,6 +3,7 @@ import type {
   Bootstrap,
   BabyRecord,
   ChatResult,
+  DueReminder,
   EventOccurrence,
   SuggestionResult,
   Child,
@@ -395,6 +396,8 @@ export function createBabyApi(
       request<{ registration: string }>(`/push/devices/${encodeURIComponent(installation)}`, "PUT", { token, platform }, generation),
     unregisterPushDevice: (installation: string, registration: string) =>
       request<void>(`/push/devices/${encodeURIComponent(installation)}?` + query({ registration }), "DELETE"),
+    dueReminders: () => request<{ items: DueReminder[] }>("/reminders/due"),
+    dismissReminder: (id: string) => request<void>(`/reminders/${encodeURIComponent(id)}/dismiss`, "POST", {}),
     tappedReminder: (id: string) => request<TappedReminder>(`/reminders/${encodeURIComponent(id)}/tap`),
     pushPrefs: () => request<ReminderPrefs>("/push/prefs"),
     savePushPrefs: (patch: PrefsPatch, g: Fence) => request<ReminderPrefs>("/push/prefs", "PATCH", patch, g),

@@ -523,8 +523,23 @@ export interface PrefsPatch {
   quiet_hours?: QuietHours | null;
   kinds?: Partial<Record<ReminderKind, Partial<KindPref>>>;
 }
+/** One row of `/reminders/due`. Its words are for this person's own Today, never a lock screen. */
+export interface DueReminder {
+  id: string;
+  kind: string;
+  space_id?: string;
+  text: string;
+  due_at: string;
+  delivery: string;
+  identity: string;
+  data: Record<string, unknown>;
+}
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** What the API last said is due, for Today with no signal. */
+  dueReminders?: DueReminder[];
+  /** Dismissed here and not heard yet. */
+  dismissing?: string[];
   /** The API's copy of this person's settings. Only with its push flag on. */
   reminderPrefs?: ReminderPrefs;
   /** Taps the API couldn't apply, kept until she has seen why. */

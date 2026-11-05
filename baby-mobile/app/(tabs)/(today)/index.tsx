@@ -16,6 +16,7 @@ import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, ra
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
+import { DueReminders } from "@/components/due-reminders";
 import { CareGlance, useMinuteClock } from "@/components/care-glance";
 import { BabySetupCard } from "@/components/stage-options";
 import { canAddBaby, canChangeBaby } from "../../../lib/spaces";
@@ -90,6 +91,7 @@ export default function Today() {
       <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
+      <DueReminders />
       {children.length > 1 && <ChildFilter />}
       <LegacyTimer />
       {pregnant ? <PregnancyHero child={child} now={today} /> : <Card tone="hero" style={{ gap: 12 }}>
@@ -121,6 +123,7 @@ export default function Today() {
       <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
+      <DueReminders />
       {children.length > 1 && <ChildFilter />}
       {stage === "none" && (parentHere ? <BabySetupCard child={child} /> : <Notice>A parent adds the baby’s details, and Today fills in.</Notice>)}
       {timer ? <LegacyTimer />
