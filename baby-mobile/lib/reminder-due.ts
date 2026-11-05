@@ -60,3 +60,13 @@ export async function sendDismissals(api: Pick<BabyApi, "dismissReminder">, comm
     await commit((s) => ({ ...s, dismissing: (s.dismissing ?? []).filter((held) => held !== id), dueReminders: (s.dueReminders ?? []).filter((item) => item.id !== id) }));
   }
 }
+
+export async function refreshUpcoming(api: Pick<BabyApi, "upcomingReminders">, commit: Commit) {
+  let answer: Awaited<ReturnType<BabyApi["upcomingReminders"]>>;
+  try {
+    answer = await api.upcomingReminders();
+  } catch {
+    return; // What this phone last heard is what its offline copy needs.
+  }
+  await commit((s) => (JSON.stringify(s.upcomingReminders ?? []) === JSON.stringify(answer.items) ? s : { ...s, upcomingReminders: answer.items })).catch(() => undefined);
+}

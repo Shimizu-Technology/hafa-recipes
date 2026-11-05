@@ -18,6 +18,7 @@ import type {
   RecordPage,
   RecordWrite,
   Scope,
+  UpcomingReminder,
 } from "./models";
 import type { CareDay } from "./tracker";
 import type { CareStats, StatsChoice } from "./care-stats";
@@ -397,6 +398,7 @@ export function createBabyApi(
     unregisterPushDevice: (installation: string, registration: string) =>
       request<void>(`/push/devices/${encodeURIComponent(installation)}?` + query({ registration }), "DELETE"),
     dueReminders: () => request<{ items: DueReminder[] }>("/reminders/due"),
+    upcomingReminders: () => request<{ items: UpcomingReminder[] }>("/reminders/upcoming"),
     dismissReminder: (id: string) => request<void>(`/reminders/${encodeURIComponent(id)}/dismiss`, "POST", {}),
     tappedReminder: (id: string) => request<TappedReminder>(`/reminders/${encodeURIComponent(id)}/tap`),
     pushPrefs: () => request<ReminderPrefs>("/push/prefs"),

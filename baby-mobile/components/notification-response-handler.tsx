@@ -5,6 +5,9 @@ import * as Notifications from "expo-notifications";
 import { router, useNavigationContainerRef, usePathname, useSegments } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { lookUpTap, openPlace, placeReminder } from "@/lib/reminder-open";
+import { reminderPresentation } from "@/lib/reminder-copies";
+import { cancelCopy } from "@/lib/reminders";
+import { remindersOn } from "@/lib/spaces";
 import { useToast } from "./ui";
 import {
   createReminderTapController,
@@ -111,6 +114,21 @@ export function NotificationResponseHandler() {
       controller.current = null;
     };
   }, []);
+  // Only once the API says reminders are on. A routine reminder stays silent in the foreground, as it always has.
+  const remindersLive = remindersOn(baby.state.bootstrap);
+  useEffect(() => {
+    if (Platform.OS === "web" || !remindersLive) return;
+    Notifications.setNotificationHandler({ handleNotification: async (notification) => reminderPresentation(notification.request.content.data) });
+    const received = Notifications.addNotificationReceivedListener((notification) => {
+      const { identity } = notification.request.content.data ?? {};
+      if (typeof identity === "string") void cancelCopy(live.current.baby.owner, identity);
+      void live.current.baby.sync();
+    });
+    return () => {
+      received.remove();
+      Notifications.setNotificationHandler(null);
+    };
+  }, [remindersLive]);
   useEffect(() => {
     void controller.current?.resume();
   }, [

@@ -534,8 +534,21 @@ export interface DueReminder {
   identity: string;
   data: Record<string, unknown>;
 }
+/** One row of `/reminders/upcoming`: what a phone can hold as its offline copy. */
+export interface UpcomingReminder {
+  id: string;
+  kind: string;
+  space_id?: string;
+  identity: string;
+  fire_at: string;
+  text: string;
+  time_sensitive: boolean;
+  data: Record<string, unknown>;
+}
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** What the API said is waiting, for the offline copy. */
+  upcomingReminders?: UpcomingReminder[];
   /** What the API last said is due, for Today with no signal. */
   dueReminders?: DueReminder[];
   /** Dismissed here and not heard yet. */

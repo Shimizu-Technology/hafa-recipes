@@ -75,11 +75,12 @@ import {
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
-import { clearReminders, reconcileReminders } from "./reminders";
+import { clearReminders, reconcileCopies, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
 import { forgetInvite } from "./family";
 import { nativePushDevice } from "./push-native";
-import { refreshDue, sendDismissals } from "./reminder-due";
+import { refreshDue, refreshUpcoming, sendDismissals } from "./reminder-due";
+import { wantedCopies } from "./reminder-copies";
 import { accessKey, remindersOn, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
@@ -624,6 +625,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (latest.reminders?.push) {
         await sendDismissals(api, commit, () => ref.current);
         await refreshDue(api, commit);
+        await refreshUpcoming(api, commit);
+      } else if (ref.current.upcomingReminders) {
+        // The flag went off: what its copies were for isn't coming.
+        await reconcileCopies(ownerRef.current, []);
+        await commit((s) => { const { upcomingReminders: _, dueReminders: __, ...rest } = s; return rest; });
       }
       for (const id of ref.current.fileReleases ?? []) {
         if (uploadedReferences(ref.current).has(id)) continue;
@@ -793,6 +799,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
       cancelled = true;
     };
   }, [state, owner, ready]);
+  const offlineNow = !online || (unreachable && !!error);
+  useEffect(() => {
+    // Off, with nothing kept, is a phone that has never heard of any of this: it doesn't even look.
+    if (!ready || !owner || closing.current || (!remindersOn(state.bootstrap) && !state.upcomingReminders)) return;
+    void reconcileCopies(owner, remindersOn(state.bootstrap) && state.bootstrap?.active !== false ? wantedCopies(state, offlineNow, new Date()) : []);
+  }, [state.upcomingReminders, state.outbox, state.dismissing, state.bootstrap?.reminders?.push, offlineNow, owner, ready]);
   async function clean() {
     // First, while it can still reach the API as this person.
     await pushDevice.end();

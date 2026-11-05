@@ -18,6 +18,8 @@ const mock = vi.hoisted(() => ({
   readCleanup: vi.fn(),
   failWrites: false,
   alert: vi.fn(),
+  copies: vi.fn(async () => undefined),
+  cancelCopy: vi.fn(async () => undefined),
   pushEnsure: vi.fn(async () => true),
   pushEnd: vi.fn(async () => undefined),
 }));
@@ -66,7 +68,10 @@ vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: asyn
 vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
+  reconcileCopies: (owner: string, copies: unknown[]) => (mock.copies as (...args: unknown[]) => Promise<void>)(owner, copies),
+  cancelCopy: (owner: string, identity: string) => (mock.cancelCopy as (...args: unknown[]) => Promise<void>)(owner, identity),
 }));
+
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 vi.mock("./push-native", () => ({ nativePushDevice: () => ({ ensure: mock.pushEnsure, end: mock.pushEnd }) }));
 import { BabyProvider, useBaby } from "./context";
@@ -382,6 +387,8 @@ beforeEach(() => {
   mock.clear.mockReset().mockResolvedValue(undefined);
   mock.clearShares.mockReset();
   mock.signOut.mockReset().mockResolvedValue(undefined);
+  mock.copies.mockClear();
+  mock.cancelCopy.mockClear();
   mock.pushEnsure.mockClear();
   mock.pushEnd.mockClear();
   mock.revoke.mockClear();
@@ -1897,5 +1904,32 @@ describe("what Today shows from the API", () => {
     await mount();
     await act(async () => { await baby.sync(); await settle(); });
     expect(baby.error).toBe("");
+  });
+});
+describe("the offline copy and the push flag", () => {
+  const listed = { id: "u", kind: "event", identity: "i", fire_at: "2030-01-01T00:00:00Z", text: "x", time_sensitive: false, data: {} };
+  it("with the flag off, this phone never looks, asks or arms anything", async () => {
+    mock.api.upcomingReminders = vi.fn();
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.copies).not.toHaveBeenCalled();
+    expect(mock.api.upcomingReminders).not.toHaveBeenCalled();
+  });
+  it("the flag going off takes what it held with it", async () => {
+    mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, reminders: { push: true } }, upcomingReminders: [listed] } as unknown as DeviceState;
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.upcomingReminders).toBeUndefined();
+    expect(mock.copies).toHaveBeenLastCalledWith("owner", []);
+  });
+  it("online it holds no copies, though it knows what's waiting", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => ({ items: [] }));
+    mock.api.upcomingReminders = vi.fn(async () => ({ items: [listed] }));
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.upcomingReminders).toEqual([listed]);
+    expect(mock.copies).toHaveBeenLastCalledWith("owner", []);
   });
 });
