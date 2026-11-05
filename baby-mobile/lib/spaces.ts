@@ -90,7 +90,8 @@ export function choiceFor(bootstrap: Bootstrap | undefined, draft: Pick<EditorDr
 export function stampedDraft(state: Pick<DeviceState, "bootstrap">, held: EditorDraft | undefined, draft: EditorDraft): EditorDraft {
   const { bootstrap } = state;
   if (draft.existing || !spacesLive(bootstrap)) return draft;
-  const placed = held?.space_id ? { ...draft, space_id: held.space_id, generation: held.generation } : draft,
+  // What it was saved with stands until she says otherwise: the form on screen may not have heard it.
+  const placed = held?.space_id ? { ...draft, space_id: held.space_id, generation: held.generation, shared: draft.shared ?? held.shared } : draft,
     choice = choiceFor(bootstrap, placed),
     space = choice?.space_id ?? (placed.space_id && (!held || placed.child_id === held.child_id) ? placed.space_id : spaceForNew(state, placed)!);
   return { ...placed, ...(choice ? { shared: choice.shared } : {}), space_id: space, generation: bootstrap!.spaces!.find((one) => one.id === space)?.generation ?? bootstrap!.generation };

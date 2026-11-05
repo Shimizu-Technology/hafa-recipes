@@ -363,6 +363,16 @@ describe("a new event once there's a family", () => {
   it("a draft from before the family stays private until she says", () => {
     expect(choiceFor(boot(), draft({ space_id: personal }))).toMatchObject({ shared: false, space_id: personal });
   });
+  it("keeps the choice a draft was saved with, when the form on screen doesn't state one", () => {
+    const form = { ...(draft() as object), id: "e", title: "", body: "", occurred_at: "", files: [], data: {} } as never,
+      held = (shared?: boolean) => ({ ...(form as object), space_id: shared ? family : personal, generation: 1, ...(shared === undefined ? {} : { shared }) }) as never;
+    expect(stampedDraft({ bootstrap: boot() }, held(true), form)).toMatchObject({ shared: true, space_id: family });
+    expect(stampedDraft({ bootstrap: boot() }, held(false), form)).toMatchObject({ shared: false, space_id: personal });
+    // From before the family, it never said, so it stays private.
+    expect(stampedDraft({ bootstrap: boot() }, held(), form)).toMatchObject({ shared: false, space_id: personal });
+    // What she chooses now still wins.
+    expect(stampedDraft({ bootstrap: boot() }, held(false), { ...(form as object), shared: true } as never)).toMatchObject({ shared: true, space_id: family });
+  });
   it("is stamped where the choice says, and never sets just_me, which an event can't hold", () => {
     expect(stampedDraft({ bootstrap: boot() }, undefined, { ...(draft() as object), id: "e", title: "", body: "", occurred_at: "", files: [], data: {} } as never)).toMatchObject({ shared: true, space_id: family });
     expect(stampedDraft({ bootstrap: boot() }, undefined, { ...(draft({ shared: false }) as object), id: "e", title: "", body: "", occurred_at: "", files: [], data: {} } as never)).toMatchObject({ shared: false, space_id: personal });

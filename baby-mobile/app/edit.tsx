@@ -101,6 +101,8 @@ export default function Edit() {
         if (!d && params.from) {
           const from = b.records.find((r) => r.id === params.from) ?? await b.api.record(params.from);
           d = nextVisitDraft(Crypto.randomUUID(), from, occurrenceAt(from, params.at));
+          // The next visit of one she kept to herself stays with her.
+          if (from.space_id && from.space_id === b.state.bootstrap!.personal_space_id) d = { ...d, shared: false };
         }
         d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
           : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});

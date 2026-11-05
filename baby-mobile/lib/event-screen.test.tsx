@@ -522,6 +522,19 @@ describe("any event works", () => {
     await press("Button", "Save event");
     expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { title: "Baptism" } });
   });
+  const inFamily = (b: any) => { b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }], children: [] }; };
+  it("Book next goes where the form says: a shared visit's next one is shared, a private one's stays private", async () => {
+    for (const [space, shown, destination] of [["fam", "Shared with family", "fam"], ["me", "Just me", "me"]]) {
+      const b = setup([{ ...event({ recurrence: null, category: "appointment" }, "dr"), title: "Dr. Cruz", space_id: space }]);
+      inFamily(b);
+      mock.params = { kind: "event", from: "dr", at: "2026-11-02T00:00:00.000Z" };
+      await mount(Edit);
+      expect(more().props.accessibilityLabel).toContain(shown);
+      await press("Button", "Save next visit");
+      expect(b.state.outbox[0].space_id).toBe(destination);
+      await act(async () => renderer!.unmount());
+    }
+  });
   it("with the family flag off, asks nothing and adds nothing", async () => {
     const b = await openNew();
     await act(async () => more().props.onPress());
