@@ -498,6 +498,8 @@ export interface DeviceState {
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
+  /** What the API said was removed, newest last. It's the only proof a row is gone: not being here proves nothing. */
+  removed?: string[];
   /** Which storage shape this was saved in. None means a build before spaces. */
   version?: number;
   /** How far `/changes` has come in each space, and the access versions that came with it. */

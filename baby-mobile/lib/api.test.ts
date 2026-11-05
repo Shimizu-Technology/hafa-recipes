@@ -531,3 +531,11 @@ describe("a 409 that says where a row went", () => {
     expect(failure.message).toMatch(/changed elsewhere/);
   });
 });
+
+describe("opening a private file", () => {
+  const api = (known: () => any) => createBabyApi("https://api.test", async () => "token", () => true, async () => new Response("{}"), known);
+  it("asks at the client level everything else does, or the API answers a family file with 404", () => {
+    expect(api(() => ({ spaces: [{ id: "p" }], personal_space_id: "p" })).fileHeaders()).toEqual({ "X-Baby-Client": "3" });
+    expect(api(() => ({})).fileHeaders()).toEqual({ "X-Baby-Client": "2" });
+  });
+});

@@ -474,3 +474,18 @@ it("persists queued native progress before acknowledging a durable receipt", asy
   expect(account.state.imports).toEqual([{ id: "capture-A", record_id: "capture-A", status: "queued" }]);
   expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A");
 });
+
+describe("a draft from before the family", () => {
+  it("stays personal when it's saved after joining", async () => {
+    const account = setup(), personal = "personal-space", family = "family-space";
+    Object.assign(account.state.bootstrap!, { personal_space_id: personal, spaces: [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: family, kind: "family", role: "parent", generation: 1, access_version: 1 }] });
+    account.state.drafts["new:source"] = { id: "kept", kind: "source", title: "", body: "Private words", child_id: null, occurred_at: "2026-10-21T00:00:00.000Z", data: {}, files: [], space_id: personal, generation: 1 };
+    const before = scope.params;
+    scope.params = { kind: "source" };
+    await mount(Edit);
+    const save = renderer!.root.findAll((n) => String(n.type) === "Button").find((n) => n.props.title === "Save post")!;
+    await act(async () => { await save.props.onPress(); await vi.advanceTimersByTimeAsync(0); });
+    expect(account.state.outbox[0]).toMatchObject({ space_id: personal, record: { id: "kept" } });
+    scope.params = before;
+  });
+});

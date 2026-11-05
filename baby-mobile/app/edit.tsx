@@ -281,7 +281,7 @@ export default function Edit() {
         const from = given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records);
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, ...record } = from;
         return {
-          id, generation, type: "save",
+          id, generation, type: "save", ...(from.space_id ? { space_id: from.space_id } : {}),
           record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindWord(from.kind)),
             data: from.kind === "source" ? { ...from.data, source_text: from.data.source_text || from.body || undefined } : from.data,
             ...(revision ? { revision } : {}) }, files,

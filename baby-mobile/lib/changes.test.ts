@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyChanges, type ChangesAnswer, type ChangesPage } from "./changes";
+import { applyChanges as applied, type ChangesAnswer, type ChangesPage } from "./changes";
 import { accessKey, spacesLive } from "./spaces";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState } from "./models";
 
@@ -13,6 +13,7 @@ const page = (id: string, items: ChangesPage["items"], extra: Partial<ChangesPag
   ({ id, generation: 1, access_version: 1, cursor: items.length, has_more: false, reset: false, items, ...extra });
 const answer = (...pages: ChangesPage[]): ChangesAnswer => ({ spaces: pages, cursor: Object.fromEntries(pages.map((p) => [p.id, p.cursor])),
   has_more: pages.some((p) => p.has_more), removed_space_ids: [] });
+const applyChanges = (state: DeviceState, changes: ChangesAnswer) => applied(state, changes, () => "new-id");
 const start = (extra: Partial<DeviceState> = {}): DeviceState => ({ ...emptyState(), bootstrap: boot(), ...extra });
 
 describe("applying what the other phone did", () => {
@@ -90,6 +91,28 @@ describe("applying what the other phone did", () => {
     expect(state.records.map((r) => r.id)).toEqual(["mine"]);
     expect(state.changes).toEqual({ cursor: { [personal]: 5 }, access: { [personal]: 1 } });
     expect(changed).toBe(true);
+  });
+  it("remembers what the API said was removed, even a row this phone had no copy of", () => {
+    const { state } = applyChanges(start({ removed: ["older"] }), answer(page(personal, [{ id: "never-cached", removed: true, seq: 2 }])));
+    expect(state.removed).toEqual(["older", "never-cached"]);
+  });
+  it("doesn't count a reset, or a row merely missing here, as removed", () => {
+    const { state } = applyChanges(start({ records: [row("a", 1, family)] }), answer(page(family, [], { reset: true, cursor: 0 })));
+    expect(state.records).toEqual([]);
+    expect(state.removed ?? []).toEqual([]);
+  });
+  it("keeps that list from growing without end", () => {
+    const { state } = applyChanges(start({ removed: Array.from({ length: 300 }, (_, i) => String(i)) }), answer(page(personal, [{ id: "new", removed: true, seq: 2 }])));
+    expect(state.removed).toHaveLength(300);
+    expect(state.removed?.at(-1)).toBe("new");
+  });
+  it("finishes the job when a space is gone: its baby, its queue and its rows", () => {
+    const queued = { id: "q", generation: 1, space_id: family, type: "save" as const, record: row("q", 1, family), files: [] };
+    const { state } = applyChanges(start({ records: [row("shared", 1, family)], outbox: [queued], bootstrap: boot({ children: [{ id: "c", name: "Mia", revision: 1, space_id: family }] }) }),
+      { ...answer(page(personal, [], { cursor: 5 })), removed_space_ids: [family] });
+    expect(state.bootstrap?.children).toEqual([]);
+    expect(state.records).toEqual([]);
+    expect(state.outbox[0]).toMatchObject({ left_space: family });
   });
   it("never sheds a queued change or a draft", () => {
     const save = { id: "m", generation: 1, type: "save" as const, record: row("a", 1, family), files: [] };

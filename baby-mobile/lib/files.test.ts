@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BabyApi } from "./api";
 
-const native = vi.hoisted(() => ({ size: 3, copy: vi.fn(), remove: vi.fn(), move: vi.fn(), print: vi.fn(), share: vi.fn(), bytes: vi.fn(async () => new Uint8Array([65, 66, 67])) }));
+const native = vi.hoisted(() => ({ list: vi.fn(), download: vi.fn(), size: 3, copy: vi.fn(), remove: vi.fn(), move: vi.fn(), print: vi.fn(), share: vi.fn(), bytes: vi.fn(async () => new Uint8Array([65, 66, 67])) }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
-vi.mock("expo-file-system/legacy", () => ({ documentDirectory: "file:///private/", makeDirectoryAsync: vi.fn(), copyAsync: native.copy, deleteAsync: native.remove, moveAsync: native.move }));
+vi.mock("expo-file-system/legacy", () => ({ documentDirectory: "file:///private/", makeDirectoryAsync: vi.fn(), copyAsync: native.copy, deleteAsync: native.remove, moveAsync: native.move, readDirectoryAsync: native.list, downloadAsync: native.download }));
 vi.mock("expo-file-system", () => ({
   File: class {
     get size() { return native.size; }
@@ -11,9 +11,9 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "copy-id" }));
-vi.mock("expo-sharing", () => ({ shareAsync: native.share }));
+vi.mock("expo-sharing", () => ({ shareAsync: native.share, isAvailableAsync: async () => true }));
 vi.mock("expo-print", () => ({ printToFileAsync: native.print }));
-import { exportOnePagePdf, preserveFile, uploadFile } from "./files";
+import { clearFiles, directory, exportOnePagePdf, openAttachment, preserveFile, uploadFile } from "./files";
 
 describe("sharing a one-page PDF", () => {
   beforeEach(() => { native.print.mockReset(); native.move.mockReset(); native.remove.mockReset().mockResolvedValue(undefined); native.share.mockReset().mockResolvedValue(undefined); });
@@ -104,5 +104,31 @@ describe("private native upload compatibility", () => {
     await expect(preserveFile("local-parent", { uri: "file:///shared/photo.heic", name: "photo.heic" }))
       .rejects.toThrow("Interrupted copy");
     expect(native.remove).toHaveBeenCalledWith(expect.stringContaining("copy-id-photo.heic"), { idempotent: true });
+  });
+});
+
+describe("clearing what's retired", () => {
+  beforeEach(() => { native.remove.mockReset().mockResolvedValue(undefined); native.list.mockReset(); });
+  it("takes the whole directory when nothing is staying", async () => {
+    await clearFiles("owner");
+    expect(native.remove).toHaveBeenCalledExactlyOnceWith(directory("owner"), { idempotent: true });
+    await clearFiles("owner", new Set());
+    expect(native.remove).toHaveBeenLastCalledWith(directory("owner"), { idempotent: true });
+  });
+  it("keeps exactly what pending work still needs", async () => {
+    native.list.mockResolvedValue(["family.jpg", "personal.jpg"]);
+    await clearFiles("owner", new Set([directory("owner") + "family.jpg"]));
+    expect(native.remove).toHaveBeenCalledExactlyOnceWith(directory("owner") + "personal.jpg", { idempotent: true });
+  });
+});
+
+describe("opening a family file", () => {
+  it("asks at this phone's client level, or the API can't find it", async () => {
+    native.download.mockReset().mockResolvedValue({ status: 200 });
+    native.share.mockReset().mockResolvedValue(undefined);
+    native.remove.mockReset().mockResolvedValue(undefined);
+    const api = { lease: () => 1, assertLease: () => undefined, attachment: async () => ({ mime_type: "image/jpeg" }), attachmentUrl: (id: string) => "https://api.test/" + id, fileHeaders: () => ({ "X-Baby-Client": "3" }) } as unknown as BabyApi;
+    await openAttachment(api, "photo", async () => "token", "owner", () => true);
+    expect(native.download.mock.calls[0][2].headers).toEqual({ Authorization: "Bearer token", "X-Baby-Client": "3" });
   });
 });

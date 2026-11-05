@@ -29,7 +29,10 @@ import {
 } from "./models";
 import {
   addMutation,
+  draftsBeforeFamily,
   fencedState,
+  localFileUris,
+  retiredSpaces,
   rejoined,
   retargeted,
   retryUnavailable,
@@ -75,6 +78,7 @@ import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass } from "./changes";
 import { fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
+const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
   Platform.OS === "web"
@@ -173,7 +177,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
         // A space this account has left answers nothing here: its work waits to be kept or discarded.
         if (value.outbox.some((m) => { const known = generationOf(value.bootstrap, m.space_id); return known !== undefined && m.generation !== known && !(m.space_id && !spacesLive(value.bootstrap)); }) || (!value.bootstrap && value.outbox.length))
           throw Error("Older changes cannot be saved after Baby data is cleared.");
-        if (value.bootstrap?.active === false && (value.outbox.length || Object.keys(value.drafts).length || Object.keys(value.childDrafts ?? {}).length))
+        // A family's own work can wait here while the personal space is started again.
+        if (value.bootstrap?.active === false && (value.outbox.some((m) => !familyWork(value, m.space_id)) || Object.values(value.drafts).some((draft) => !familyWork(value, draft.space_id)) || Object.keys(value.childDrafts ?? {}).length))
           throw Error("Start a new Baby space deliberately before saving.");
         await vault.current.write(value);
         api.assertLease(lease);
@@ -219,23 +224,20 @@ export function BabyProvider({ children }: PropsWithChildren) {
   async function mergeBootstrap(bootstrap: Bootstrap) {
     if (!current() || closing.current || deleting.current) return false;
     const lease = api.lease();
-    if (
-      bootstrap.active === false ||
-      (ref.current.bootstrap && ref.current.bootstrap.generation !== bootstrap.generation) ||
-      (ref.current.routine_sync && ref.current.routine_sync.generation !== bootstrap.generation)
-    ) {
+    const staying = fencedState(ref.current, bootstrap);
+    if (bootstrap.active === false || staying !== ref.current) {
       setReady(false);
-      clearPendingShares();
+      // Only what's retiring goes. With a family this account is still in, captures and its files can still go there.
+      if (!familySpaces(bootstrap).length) clearPendingShares();
       await clearReminders(ownerRef.current);
-      await clearFiles(ownerRef.current);
+      await clearFiles(ownerRef.current, localFileUris(staying));
     }
     await commit((s) => {
       const fenced = fencedState(s, bootstrap),
         grew = familySpaces(bootstrap).some((space) => !familySpaces(s.bootstrap).some((known) => known.id === space.id)),
         // With no spaces listed the API has stopped saying, which isn't the same as this account being out of one.
-        lost = spacesLive(bootstrap) ? familySpaces(s.bootstrap).filter((space) => !bootstrap.spaces!.some((known) => known.id === space.id)) : [],
-        left = lost.reduce((rows, space) => withoutFamily(rows, space.id, Crypto.randomUUID), fenced),
-        next = withKnownSpaces(grew ? retryUnavailable(rejoined(left, bootstrap)) : left, bootstrap);
+        left = retiredSpaces(fenced, bootstrap).reduce((rows, space) => withoutFamily(rows, space, Crypto.randomUUID), fenced),
+        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap);
       return {
         ...next,
         bootstrap,
@@ -307,10 +309,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
         if (!current() || closing.current || deleting.current || AppState.currentState === "background") return;
         const held = ref.current.changes, answer = await api.changes(held?.cursor ?? {}, held?.access ?? {});
         let result: ReturnType<typeof applyChanges> | undefined;
-        await commit((s) => { result = applyChanges(s, answer); return result.state; }, lease);
+        await commit((s) => { result = applyChanges(s, answer, Crypto.randomUUID); return result.state; }, lease);
         if (result?.changed && current()) setChangeTick((tick) => tick + 1);
         // An answer that says there's more without moving on would only ask the same thing forever.
-        if (!result?.more || (!result.changed && JSON.stringify(result.state.changes?.cursor) === JSON.stringify(held?.cursor))) return;
+        if (!result?.more || JSON.stringify(result.state.changes) === JSON.stringify(held)) return;
       }
       rerun.current = true;
     } catch { /* The next pass carries on from the saved cursor. */ }
@@ -451,9 +453,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
               }
               let outcome = rejectedAction(row, next.action);
               if (outcome === "removed" && spacesLive(latest)) {
-                // Not readable isn't the same as gone. The tap only goes once the API has said this row was removed.
+                // Not readable isn't the same as gone, and nor is not being on this phone. The tap only goes once the API has said this row was removed.
                 await pullChanges();
-                if (ref.current.records.some((known) => known.id === next.record_id)) outcome = "unresolved";
+                if (!ref.current.removed?.includes(next.record_id)) outcome = "unresolved";
               }
               if (outcome === "unresolved") {
                 // The feed still takes taps, so this was a passing race. It's kept, and asks her if it doesn't clear.

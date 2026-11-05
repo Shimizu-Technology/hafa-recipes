@@ -125,17 +125,25 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer: __, feedNotices: ___, settled: ____, childDrafts: _____, changes, ...rest } = state,
-      kept = (id?: string) => !!id && surviving.has(id);
+    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, ...rest } = state,
+      kept = (id?: string) => !!id && surviving.has(id),
+      familyBaby = (id?: string | null) => kept(state.bootstrap?.children?.find((child) => child.id === id)?.space_id),
+      outbox = state.outbox.filter((m) => kept(m.space_id)),
+      drafts = Object.fromEntries(Object.entries(state.drafts).filter(([, draft]) => kept(draft.space_id))),
+      fileIds = new Set([...Object.values(drafts).flatMap((draft) => draft.files), ...outbox.flatMap((m) => ("files" in m ? m.files : []))].map((file) => file.id)),
+      babyDrafts = Object.entries(childDrafts ?? {}).filter(([id]) => familyBaby(id));
     return {
       ...rest,
       records: state.records.filter((row) => kept(row.space_id)),
-      fileUploads: {},
+      fileUploads: Object.fromEntries(Object.entries(state.fileUploads).filter(([id]) => fileIds.has(id))),
       fileReleases: [],
-      drafts: {},
-      outbox: state.outbox.filter((m) => kept(m.space_id)),
-      imports: [],
-      selectedChild: null,
+      drafts,
+      outbox,
+      imports: state.imports.filter((job) => kept(job.space_id)),
+      selectedChild: familyBaby(state.selectedChild) ? state.selectedChild : null,
+      ...(feedTimer && familyBaby(feedTimer.child_id) ? { feedTimer } : {}),
+      ...(settled && surviving.size ? { settled } : {}),
+      ...(babyDrafts.length ? { childDrafts: Object.fromEntries(babyDrafts) } : {}),
       ...(changes && surviving.size ? { changes: { cursor: Object.fromEntries(Object.entries(changes.cursor).filter(([id]) => kept(id))), access: Object.fromEntries(Object.entries(changes.access).filter(([id]) => kept(id))) } } : {}),
     };
   }
@@ -158,6 +166,34 @@ export function withKnownSpaces(state: DeviceState, bootstrap: Bootstrap): Devic
     records: state.records.map((row) => (row.space_id ? row : { ...row, space_id: personal, generation: bootstrap.generation })),
     outbox: state.outbox.map((m) => (m.space_id ? m : { ...m, space_id: personal, generation: bootstrap.generation })) };
 }
+/**
+ * Drafts from before there was a family stay personal, whatever a new one of that kind would do. She can still choose
+ * Shared when she saves one. Pending private content is never published by a family appearing.
+ */
+export function draftsBeforeFamily(state: DeviceState, bootstrap: Bootstrap): DeviceState {
+  const personal = bootstrap.personal_space_id;
+  if (!personal || Object.values(state.drafts).every((draft) => draft.space_id)) return state;
+  return { ...state, drafts: Object.fromEntries(Object.entries(state.drafts).map(([slot, draft]) => [slot, draft.space_id ? draft : { ...draft, space_id: personal, generation: bootstrap.generation }])) };
+}
+/**
+ * Spaces this phone holds work for that the API no longer lists. It reads them off the work itself, so a flag-off
+ * bootstrap in between, which says nothing about spaces, can't lose track of one.
+ */
+export function retiredSpaces(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces" | "personal_space_id">) {
+  if (!spacesLive(bootstrap)) return [];
+  const listed = new Set(bootstrap.spaces!.map((space) => space.id));
+  return [...new Set([
+    ...familySpaces(state.bootstrap).map((space) => space.id),
+    ...state.records.map((row) => row.space_id),
+    ...state.outbox.filter((m) => !m.left_space).map((m) => m.space_id),
+    ...Object.values(state.drafts).map((draft) => draft.space_id),
+    ...state.imports.map((job) => job.space_id),
+    ...(state.bootstrap?.children ?? []).map((child) => child.space_id),
+  ])].filter((id): id is string => !!id && !listed.has(id) && id !== bootstrap.personal_space_id && id !== state.bootstrap?.personal_space_id);
+}
+/** Files on this phone that pending work still needs. */
+export const localFileUris = (state: DeviceState) =>
+  new Set([...Object.values(state.drafts).flatMap((draft) => draft.files), ...state.outbox.flatMap((m) => ("files" in m ? m.files : []))].map((file) => file.uri));
 /** Sends again what was refused only because its row or baby couldn't be seen, as now it might: the API can say where it moved. */
 export function retryUnavailable(state: DeviceState): DeviceState {
   const gone = new Set([unavailableMessage, goneBabyMessage, stuckTapMessage]);
@@ -170,10 +206,10 @@ export interface Moved {
   revision: number | null;
   record: Partial<BabyRecord> & { id: string };
 }
-const moveFields = new Set(["just_me", "attachment_ids", "record_ids", "event_id", "suggested_category"]);
-const moveData = (data: object = {}) => Object.fromEntries(Object.entries(data).filter(([key]) => !moveFields.has(key)));
-/** The row reads as this phone last saw it, so the move is all that happened to it. */
-const onlyMoved = (seen: BabyRecord, row: Moved["record"]) => (["title", "body", "child_id"] as const).every((key) => seen[key] === row[key]) &&
+/** Just me is the one thing a move itself changes. A file, category or link that differs could be someone's edit. */
+const moveData = ({ just_me: _, ...data }: BabyRecord["data"] = {}) => data;
+/** Exactly one step, and it reads as this phone last saw it, so the move is all that happened to it. Anything else goes to review. */
+const onlyMoved = (seen: BabyRecord, row: Moved["record"], revision: number) => revision === seen.revision + 1 && (["title", "body", "child_id"] as const).every((key) => seen[key] === row[key]) &&
   // The same moment can be written two ways: the API writes `Z` in a response and `+00:00` in this one.
   !!row.occurred_at && instant(seen.occurred_at) === instant(row.occurred_at) && same(moveData(seen.data), moveData(row.data));
 const bounces = 4;
@@ -186,7 +222,7 @@ export function retargeted(state: DeviceState, change: Mutation, moved: Moved, u
   const chain = new Set(queuedChain(state.outbox, change).map((m) => m.id)), id = mutationRecordId(change),
     isRow = moved.record.id === id && "kind" in moved.record,
     seen = isRow ? state.records.find((row) => row.id === id) : undefined,
-    from = seen && moved.revision && onlyMoved(seen, moved.record) ? seen.revision : undefined,
+    from = seen && moved.revision && onlyMoved(seen, moved.record, moved.revision) ? seen.revision : undefined,
     follow = <T extends { revision?: number }>(row: T): T => (from !== undefined && moved.revision && row.revision === from ? { ...row, revision: moved.revision } : row),
     fileUploads = { ...state.fileUploads };
   const outbox = state.outbox.map((m): Mutation => {
@@ -195,11 +231,14 @@ export function retargeted(state: DeviceState, change: Mutation, moved: Moved, u
       next: Mutation = { ...m, space_id: moved.space_id, generation: moved.generation, retargets, ...(retargets > bounces ? { error: unavailableMessage } : {}) };
     if (next.type === "delete") return { ...next, record: follow(next.record) };
     if (next.type === "event_split") return { ...next, series: follow(next.series) };
-    if (next.type !== "save") return next;
+    if (next.type !== "save" && next.type !== "import") return next;
     for (const file of next.files) delete fileUploads[file.id];
-    return { ...next, record: follow(next.record), files: m.space_id === moved.space_id ? next.files : next.files.map(({ uploaded_id: _, ...file }) => ({ ...file, id: uuid() })) };
+    const files = m.space_id === moved.space_id ? next.files : next.files.map(({ uploaded_id: _, ...file }) => ({ ...file, id: uuid() }));
+    // An import's files are the moved source's now. An id from the old space is one the new space would refuse.
+    if (next.type === "import") return { ...next, files, ...(m.space_id !== moved.space_id ? { attachment_ids: isRow ? (moved.record.data?.attachment_ids ?? []) : [] } : {}) };
+    return { ...next, record: follow(next.record), files };
   });
-  return { ...state, outbox, fileUploads: outbox.some((m) => chain.has(m.id) && m.type === "save" && m.files.length) ? fileUploads : state.fileUploads,
+  return { ...state, outbox, fileUploads: outbox.some((m) => chain.has(m.id) && (m.type === "save" || m.type === "import") && m.files.length) ? fileUploads : state.fileUploads,
     drafts: from === undefined ? state.drafts : Object.fromEntries(Object.entries(state.drafts).map(([slot, draft]) => [slot, draft.id === id ? follow(draft) : draft])),
     records: isRow ? replaceRecord(state.records, moved.record as BabyRecord) : state.records };
 }
@@ -221,6 +260,7 @@ export function withoutFamily(state: DeviceState, space: string, uuid: () => str
   }
   const { [space]: _, ...cursor } = state.changes?.cursor ?? {}, { [space]: __, ...access } = state.changes?.access ?? {};
   return withNotice({ ...state, drafts,
+    ...(state.bootstrap ? { bootstrap: { ...state.bootstrap, children: state.bootstrap.children.filter((child) => child.space_id !== space) } } : {}),
     records: state.records.filter((row) => row.space_id !== space),
     imports: state.imports.filter((job) => job.space_id !== space),
     outbox: [...state.outbox.map((m) => (m.space_id === space ? { ...m, error: notSentMessage, conflict: false, left_space: space } : m)), ...stopped],

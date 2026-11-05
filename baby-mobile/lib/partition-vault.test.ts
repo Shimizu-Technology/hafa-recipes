@@ -109,3 +109,42 @@ it("keeps the pre-import baseline through admission loss and cold vault restore"
   await first.write(state); first.retire();
   expect(await createPartitionVault(f.secret, "owner", f.uuid, f.files).read()).toEqual(state);
 });
+
+describe("the fence for an older build", () => {
+  /** Build 35's own check on the manifest, as shipped: anything but version 1 is refused, and nothing is overwritten. */
+  const shippedRead = (raw: string) => { const parsed = JSON.parse(raw); if (parsed.version !== 1) throw Error("Private device data needs recovery. It has not been overwritten."); return parsed; };
+  function vault(stamp?: (state: Record<string, unknown>) => 1 | 2) {
+    const held = new Map<string, string>(), files = new Map<string, string>(); let id = 0;
+    const secret = { getItemAsync: async (k: string) => held.get(k) ?? null, setItemAsync: async (k: string, v: string) => { held.set(k, v); }, deleteItemAsync: async (k: string) => { held.delete(k); } };
+    const store = { read: async (name: string) => files.get(name)!, write: async (name: string, value: string) => { files.set(name, value); }, remove: async (name: string) => { files.delete(name); }, clear: async () => files.clear(), seal: async (value: string) => value, open: async (value: string) => value };
+    return { held, make: () => createPartitionVault(secret, "n", () => String(++id), store, (_: string, v: unknown) => v, stamp) };
+  }
+  const manifest = (held: Map<string, string>) => [...held.entries()].find(([k]) => k.endsWith(".manifest"))![1];
+  it("stays version 1 with no family work, so a rollback still opens", async () => {
+    const v = vault((state) => (state.family ? 2 : 1));
+    await v.make().write({ family: false, outbox: [] });
+    expect(JSON.parse(manifest(v.held)).version).toBe(1);
+    expect(() => shippedRead(manifest(v.held))).not.toThrow();
+  });
+  it("becomes version 2 with family work, which a shipped build refuses without touching it", async () => {
+    const v = vault((state) => (state.family ? 2 : 1)), mine = v.make();
+    await mine.write({ family: true, outbox: ["queued tap"] });
+    const before = manifest(v.held);
+    expect(JSON.parse(before).version).toBe(2);
+    expect(() => shippedRead(before)).toThrow(/has not been overwritten/);
+    expect(await v.make().read()).toEqual({ family: true, outbox: ["queued tap"] });
+  });
+  it("goes back to version 1 when the family work is gone", async () => {
+    const v = vault((state) => (state.family ? 2 : 1)), mine = v.make();
+    await mine.write({ family: true });
+    await mine.write({ family: false });
+    expect(JSON.parse(manifest(v.held)).version).toBe(1);
+  });
+  it("this build reads both, and refuses one from further ahead", async () => {
+    const v = vault(() => 2), mine = v.make();
+    await mine.write({ a: 1 });
+    expect(await v.make().read()).toEqual({ a: 1 });
+    v.held.set([...v.held.keys()].find((k) => k.endsWith(".manifest"))!, JSON.stringify({ version: 3, parts: {} }));
+    await expect(v.make().read()).rejects.toThrow(/needs recovery/);
+  });
+});

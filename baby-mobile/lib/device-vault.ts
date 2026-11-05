@@ -3,7 +3,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import { AESEncryptionKey, AESSealedData, aesEncryptAsync, aesDecryptAsync } from "expo-crypto";
 import { createVault, storageKey, type SecretStorage } from "./vault";
 import { createPartitionVault } from "./partition-vault";
-import type { BabyRecord } from "./models";
+import type { BabyRecord, DeviceState } from "./models";
+import { holdsFamilyWork } from "./spaces";
 const encoder = new TextEncoder(),
   decoder = new TextDecoder();
 export function persistedCache(section: string, value: unknown) {
@@ -72,6 +73,7 @@ export function createDeviceVault(secret: SecretStorage, namespace: string, uuid
         return decoder.decode(bytes);
       },
     },
-    persistedCache
+    persistedCache,
+    (state) => (holdsFamilyWork({ records: [], outbox: [], ...(state as Partial<DeviceState>) }) ? 2 : 1)
   );
 }

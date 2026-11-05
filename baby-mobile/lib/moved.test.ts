@@ -28,6 +28,34 @@ describe("a write that finds its row moved", () => {
     const next = retargeted(state({ records: [row("a", 3)], outbox: [edit("a", 3)] }), edit("a", 3), moved({ revision: 5, record: { ...row("a", 5, family), title: "Someone changed this" } }), uuid);
     expect(next.outbox[0]).toMatchObject({ space_id: family, generation: 1, record: { revision: 3 } });
   });
+  it("keeps the old revision after more than one step, even if everything reads the same", () => {
+    const next = retargeted(state({ records: [row("a", 1)], outbox: [edit("a", 1)] }), edit("a", 1), moved({ revision: 3, record: row("a", 3, family) }), uuid);
+    expect(next.outbox[0]).toMatchObject({ space_id: family, record: { revision: 1 } });
+  });
+  it("sends it to review if the other parent changed a file, a category or a link, so it can't overwrite them", () => {
+    const seenData = { type: "wet", attachment_ids: ["their-photo"], record_ids: ["a"], event_id: "visit", suggested_category: { name: "Sleep", status: "pending" } } as RecordData;
+    for (const changed of [{ attachment_ids: [] }, { record_ids: [] }, { event_id: "other" }, { suggested_category: null }] as RecordData[]) {
+      const seen = row("a", 1, personal, { data: seenData });
+      const next = retargeted(state({ records: [seen], outbox: [edit("a", 1)] }), edit("a", 1), moved({ revision: 2, record: row("a", 2, family, { data: { ...seenData, ...changed } }) }), uuid);
+      expect(next.outbox[0]).toMatchObject({ space_id: family, record: { revision: 1 } });
+    }
+  });
+  it("doesn't mind Just me changing, which is what a move does", () => {
+    const seen = row("a", 1, family, { data: { type: "wet" } });
+    const next = retargeted(state({ records: [seen], outbox: [edit("a", 1)] }), edit("a", 1), moved({ space_id: personal, revision: 2, record: row("a", 2, personal, { data: { type: "wet", just_me: true } }) }), uuid);
+    expect(next.outbox[0]).toMatchObject({ space_id: personal, record: { revision: 2 } });
+  });
+  it("doesn't carry an old upload across with an import: it takes the files the moved row has", () => {
+    const source = row("a", 1, personal, { kind: "source", data: { attachment_ids: ["personal-upload"] } });
+    const imported: Mutation = { id: "i", generation: 2, space_id: personal, type: "import", record_id: "a", attachment_ids: ["personal-upload"], files: [{ id: "f", uri: "file:///f", name: "f.jpg", mime_type: "image/jpeg", uploaded_id: "personal-upload" }] };
+    const next = retargeted(state({ records: [source], outbox: [imported], fileUploads: { f: "personal-upload" } }), imported,
+      moved({ revision: 2, record: row("a", 2, family, { kind: "source", data: { attachment_ids: ["family-copy"] } }) }), uuid);
+    const held = next.outbox[0] as Extract<Mutation, { type: "import" }>;
+    expect(held.attachment_ids).toEqual(["family-copy"]);
+    expect(held.files[0].uploaded_id).toBeUndefined();
+    expect(held.files[0].id).not.toBe("f");
+    expect(next.fileUploads).toEqual({});
+  });
   it("keeps the old revision if this phone can't tell what changed", () => {
     const next = retargeted(state({ outbox: [edit("a", 3)] }), edit("a", 3), moved(), uuid);
     expect(next.outbox[0]).toMatchObject({ space_id: family, record: { revision: 3 } });

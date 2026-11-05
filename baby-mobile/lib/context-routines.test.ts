@@ -60,7 +60,7 @@ vi.mock("./device-vault", () => ({
   }),
 }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearPendingShares: () => mock.clearShares() }));
-vi.mock("./files", () => ({ clearFiles: async () => {}, removeLocal: async () => {}, uploadFile: vi.fn() }));
+vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: async () => {}, uploadFile: vi.fn() }));
 vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
@@ -1421,6 +1421,28 @@ describe("a family's protocol, through the sync loop", () => {
     expect(baby.state.feedNotices ?? []).toEqual([]);
     expect(mock.api.changes).toHaveBeenCalled();
   });
+  it("keeps the tap if the row was never cached here and nothing says it was removed", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { records: [], outbox: [tap] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toMatchObject([{ id: "tap", action: { id: "tap" } }]);
+    expect(baby.state.feedNotices ?? []).toEqual([]);
+  });
+  it("keeps the tap through an access reset, which empties the cache but says nothing about this row", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    const changes = vi.fn(async () => ({ ...none, spaces: [{ id: personal, generation: 1, access_version: 2, cursor: 0, has_more: false, reset: true, items: [] }] }));
+    setup(live, { records: [feed()], outbox: [tap] }, { feedAction, record, changes });
+    await mount(); await flush();
+    expect(baby.state.outbox).toMatchObject([{ id: "tap" }]);
+    expect(baby.state.feedNotices ?? []).toEqual([]);
+  });
+  it("believes a removal /changes reported on an earlier pass", async () => {
+    const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
+    setup(live, { records: [], outbox: [tap], removed: ["feed"] }, { feedAction, record });
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.feedNotices).toEqual(["This feed was removed."]);
+  });
   it("only believes a feed is gone once /changes says it was removed", async () => {
     const feedAction = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404)), record = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
     const changes = vi.fn(async () => ({ ...none, spaces: [{ id: personal, generation: 1, access_version: 1, cursor: 9, has_more: false, reset: false, items: [{ id: "feed", removed: true, seq: 9 }] }] }));
@@ -1455,6 +1477,14 @@ describe("a family's protocol, through the sync loop", () => {
     expect(save).toHaveBeenCalledTimes(1);
     expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: family, error: notSentMessage }]);
   });
+  it("finishes a removal it learned of after the flag was off, when it had no list to compare", async () => {
+    const shared = feed(3, family);
+    setup({ ...live, spaces: [spaces[0]], children: [] }, { bootstrap: bootstrap, records: [shared], outbox: [{ ...tap, space_id: family }] } as never, { feedAction: vi.fn() });
+    await mount(); await flush();
+    expect(baby.state.records.map((row) => row.id)).toEqual([]);
+    expect(mock.api.feedAction).not.toHaveBeenCalled();
+    expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: family, error: notSentMessage }]);
+  });
   it("purges nothing when the flag goes off, since the API has stopped saying", async () => {
     const shared = feed(3, family);
     setup(bootstrap, { bootstrap: live, records: [shared] } as never);
@@ -1469,6 +1499,34 @@ describe("a family's protocol, through the sync loop", () => {
     expect(save).toHaveBeenCalledTimes(1);
     await act(async () => { await baby.commit((s) => ({ ...s, askNoticeSeen: true })); });
     expect(baby.state.askNoticeSeen).toBe(true);
+  });
+  describe("when the personal space is erased from another phone", () => {
+    const cleared = { ...live, generation: 2, spaces: [{ ...spaces[0], generation: 2 }, spaces[1]] };
+    const familyDraft = { id: "fd", kind: "journal", title: "", body: "family words", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [{ id: "f", uri: "file:///family.jpg", name: "family.jpg", mime_type: "image/jpeg" }], space_id: family };
+    const queued = { ...tap, space_id: family, id: "fam", action: { ...tap.action, id: "fam" } };
+    it("keeps the family's drafts and queue, its files, and pending captures", async () => {
+      const { clearFiles } = await import("./files");
+      vi.mocked(clearFiles).mockClear();
+      mock.clearShares.mockClear();
+      setup(cleared, { bootstrap: live, records: [feed(3, family)], outbox: [queued], drafts: { "record:fd": familyDraft, "new:journal": { ...familyDraft, id: "p", space_id: personal } } } as never, { feedAction: vi.fn(async () => feed(4, family)) });
+      await mount(); await flush();
+      expect(Object.keys(baby.state.drafts)).toEqual(["record:fd"]);
+      expect(mock.clearShares).not.toHaveBeenCalled();
+      expect(clearFiles).toHaveBeenCalledWith("owner", new Set(["file:///family.jpg"]));
+    });
+    it("doesn't refuse every save while the personal space waits to be started again", async () => {
+      setup({ ...cleared, active: false, spaces: [spaces[1]] }, { bootstrap: live, records: [feed(3, family)], outbox: [queued] } as never, { feedAction: vi.fn() });
+      await mount(); await flush();
+      expect(baby.state.outbox.map((m) => m.id)).toEqual(["fam"]);
+      expect(baby.state.bootstrap?.active).toBe(false);
+      expect(baby.error).toBe("");
+    });
+    it("still clears everything with no family", async () => {
+      mock.clearShares.mockClear();
+      setup({ ...bootstrap, generation: 2 }, { bootstrap, outbox: [] } as never);
+      await mount(); await flush();
+      expect(mock.clearShares).toHaveBeenCalled();
+    });
   });
   it("treats a release of an upload that's already gone as done, so it can't hold up the pass", async () => {
     const releaseAttachment = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));

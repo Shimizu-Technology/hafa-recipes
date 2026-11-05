@@ -46,7 +46,7 @@ export function PrivateAttachment({ id }: { id: string }) {
     {metadata && <>
       {metadata.mime_type.startsWith("image/") && token && <Image
         accessibilityLabel={metadata.name}
-        source={{ uri: b.api.attachmentUrl(id), headers: { Authorization: `Bearer ${token}` } }}
+        source={{ uri: b.api.attachmentUrl(id), headers: { Authorization: `Bearer ${token}`, ...b.api.fileHeaders() } }}
         cachePolicy="none" contentFit="contain"
         style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 14 }}
         onError={() => setError("This photo could not load. Try opening it again.")}

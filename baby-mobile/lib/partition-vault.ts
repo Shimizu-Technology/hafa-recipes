@@ -8,7 +8,7 @@ export interface EncryptedFiles {
   open(value: string, section: string): Promise<string>;
 }
 interface Manifest {
-  version: 1;
+  version: 1 | 2;
   parts: Record<string, string>;
 }
 /** Immutable encrypted section files + one atomic Keychain manifest. Only changed
@@ -18,7 +18,9 @@ export function createPartitionVault(
   namespace: string,
   uuid: () => string,
   files: EncryptedFiles,
-  project: (section: string, value: unknown) => unknown = (_, v) => v
+  project: (section: string, value: unknown) => unknown = (_, v) => v,
+  /** 2 fences this save from a build that only knows 1: it refuses the vault and overwrites nothing. */
+  version: (state: Record<string, unknown>) => 1 | 2 = () => 1
 ) {
   const key = storageKey(namespace) + ".manifest";
   let retired = false,
@@ -37,7 +39,7 @@ export function createPartitionVault(
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Manifest;
     if (
-      parsed.version !== 1 ||
+      (parsed.version !== 1 && parsed.version !== 2) ||
       !parsed.parts ||
       Object.entries(parsed.parts).some(
         ([section, id]) => !/^\w+$/.test(section) || typeof id !== "string" || !/^[\w-]+$/.test(id)
@@ -86,9 +88,10 @@ export function createPartitionVault(
             delete parts[section];
             changed = true;
           }
-        if (!changed) return;
+        const stamp = version(state);
+        if (!changed && old?.version === stamp) return;
         guard();
-        await secret.setItemAsync(key, JSON.stringify({ version: 1, parts }));
+        await secret.setItemAsync(key, JSON.stringify({ version: stamp, parts }));
         references = state;
         for (const [section, id] of Object.entries(old?.parts ?? {}))
           if (parts[section] !== id) await files.remove(id).catch(() => undefined);

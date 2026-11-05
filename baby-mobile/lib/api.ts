@@ -358,6 +358,8 @@ export function createBabyApi(
     attachment: (id: string) => request<Attachment>(`/attachments/${encodeURIComponent(id)}/metadata`),
     releaseAttachment: (id: string, g: Fence) =>
       request<void>(`/attachments/${encodeURIComponent(id)}/release`, "POST", {}, g),
+    /** A file comes by its own download, not `request`, and the API needs the same client level to find a family's. */
+    fileHeaders: () => ({ "X-Baby-Client": String(spacesLive(known()) ? familyClient : babyClient) }),
     attachmentUrl: (id: string) => `${base.replace(/\/$/, "")}/api/v1/baby/attachments/${id}`,
     chat: (
       body: {

@@ -55,8 +55,12 @@ export async function removeLocal(owner: string, uri: string) {
   if (Platform.OS !== "web" && uri.startsWith(directory(owner)))
     await FileSystem.deleteAsync(uri, { idempotent: true });
 }
-export async function clearFiles(owner: string) {
-  if (Platform.OS !== "web") await FileSystem.deleteAsync(directory(owner), { idempotent: true });
+/** Everything under this account, or everything but what pending work still needs. */
+export async function clearFiles(owner: string, keep?: ReadonlySet<string>) {
+  if (Platform.OS === "web") return;
+  if (!keep?.size) return FileSystem.deleteAsync(directory(owner), { idempotent: true });
+  const names = await FileSystem.readDirectoryAsync(directory(owner)).catch(() => [] as string[]);
+  await Promise.all(names.filter((name) => !keep.has(directory(owner) + name)).map((name) => FileSystem.deleteAsync(directory(owner) + name, { idempotent: true })));
 }
 export async function openAttachment(
   api: BabyApi,
@@ -76,7 +80,7 @@ export async function openAttachment(
   await FileSystem.makeDirectoryAsync(directory(owner), { intermediates: true });
   try {
     const result = await FileSystem.downloadAsync(api.attachmentUrl(id), target, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, ...api.fileHeaders() },
     });
     api.assertLease(lease);
     if (!current()) throw Error("Your account changed.");

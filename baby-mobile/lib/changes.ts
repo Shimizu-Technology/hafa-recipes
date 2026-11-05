@@ -1,4 +1,5 @@
 import type { BabyRecord, Child, DeviceState } from "./models";
+import { withoutFamily } from "./outbox";
 import { spaceOf } from "./spaces";
 
 /** A row as `/changes` sends it, or just its id once it's gone. */
@@ -25,22 +26,19 @@ export interface ChangesAnswer {
 }
 /** Every page goes through here, so a first snapshot can't run a sync pass for long. The next pass carries on. */
 export const changePagesPerPass = 20;
+const removedKept = 300;
 
-export function withoutSpaceRows(state: DeviceState, space: string): DeviceState {
-  const personal = state.bootstrap?.personal_space_id;
-  return { ...state, records: state.records.filter((row) => spaceOf(row, personal) !== space) };
-}
 /**
  * What `/changes` said, on this phone's copy. Removals only count in the space they came from: a move shows up as gone
  * from one space and new in another, in either order. Queued changes and drafts are never touched.
  */
-export function applyChanges(state: DeviceState, answer: ChangesAnswer): { state: DeviceState; changed: boolean; more: boolean } {
+export function applyChanges(state: DeviceState, answer: ChangesAnswer, uuid: () => string): { state: DeviceState; changed: boolean; more: boolean } {
   const personal = state.bootstrap?.personal_space_id,
-    cursor = { ...state.changes?.cursor }, access = { ...state.changes?.access };
+    cursor = { ...state.changes?.cursor }, access = { ...state.changes?.access }, removed: string[] = [];
   let next = state, changed = false, more = answer.has_more;
   for (const space of answer.removed_space_ids) {
-    const left = withoutSpaceRows(next, space);
-    changed ||= left.records.length !== next.records.length;
+    const left = withoutFamily(next, space, uuid);
+    changed = true;
     next = left;
     delete cursor[space];
     delete access[space];
@@ -58,6 +56,7 @@ export function applyChanges(state: DeviceState, answer: ChangesAnswer): { state
     }
     for (const item of page.items) {
       if (item.removed) {
+        removed.push(item.id);
         const row = rows.get(item.id);
         if (row && spaceOf(row, personal) === page.id) { rows.delete(item.id); changed = true; }
         const child = children.find((known) => known.id === item.id);
@@ -83,6 +82,7 @@ export function applyChanges(state: DeviceState, answer: ChangesAnswer): { state
     state: {
       ...next,
       changes: { cursor, access },
+      ...(removed.length ? { removed: [...(next.removed ?? []), ...removed].slice(-removedKept) } : {}),
       records: changed ? [...rows.values()].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)) : next.records,
       ...(next.bootstrap && children !== next.bootstrap.children ? { bootstrap: { ...next.bootstrap, children } } : {}),
     },

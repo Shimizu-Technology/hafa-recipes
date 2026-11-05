@@ -55,3 +55,11 @@ export function spaceForChild({ bootstrap }: Pick<DeviceState, "bootstrap">) {
 /** The fence for writing to a space this phone chose. */
 export const spaceFence = (bootstrap: Bootstrap, space?: string): Fence =>
   fenceOf({ generation: generationOf(bootstrap, space) ?? bootstrap.generation, space_id: space });
+/**
+ * Family work on this phone, which an older build mustn't read: it would discard a queued family tap and offer no way
+ * back. It refuses a vault of the next version outright, and overwrites nothing.
+ */
+export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox">) {
+  const personal = state.bootstrap?.personal_space_id, elsewhere = (space?: string) => !!space && space !== personal;
+  return familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
+}

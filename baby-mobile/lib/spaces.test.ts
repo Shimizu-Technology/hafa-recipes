@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addMutation, deviceVersion, fencedState, pendingRecords, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
-import { fenceOf, generationOf, spaceForNew, unavailableMessage } from "./spaces";
+import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
+import { fenceOf, generationOf, holdsFamilyWork, spaceForNew, unavailableMessage } from "./spaces";
 import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -136,10 +136,65 @@ describe("the fence around pending work", () => {
     expect(next.outbox.map((m) => m.id)).toEqual(["m-old", "m-mine"]);
     expect(next.drafts).toEqual(held().drafts);
   });
+  it("keeps a family's drafts, jobs, baby and file links when only the personal space was cleared", () => {
+    const file = { id: "f", uri: "file:///f", name: "f.jpg", mime_type: "image/jpeg" };
+    const familyDraft = { id: "fd", kind: "journal" as const, title: "", body: "family words", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [file], space_id: family };
+    const before = { ...held(), selectedChild: "baby", drafts: { ...held().drafts, "record:fd": familyDraft },
+      imports: [{ id: "j", status: "queued", space_id: family }, { id: "k", status: "queued", space_id: personal }], fileUploads: { f: "u", other: "x" },
+      childDrafts: { baby: { creation_id: "b" } as never, mine: { creation_id: "m" } as never } };
+    const next = fencedState(before, boot([{ ...own, generation: 3 }, shared], { generation: 3 }));
+    expect(Object.keys(next.drafts)).toEqual(["record:fd"]);
+    expect(next.imports.map((job) => job.id)).toEqual(["j"]);
+    expect(next.selectedChild).toBe("baby");
+    expect(next.fileUploads).toEqual({ f: "u" });
+    expect(Object.keys(next.childDrafts ?? {})).toEqual(["baby"]);
+  });
+  it("drops a selected personal baby with its space", () => {
+    expect(fencedState({ ...held(), selectedChild: "mine" }, boot([{ ...own, generation: 3 }, shared], { generation: 3 })).selectedChild).toBeNull();
+  });
   it("still clears it all for a generation with no spaces, as before", () => {
     const next = fencedState({ ...held(), bootstrap: off() }, 3);
     expect(next.records).toEqual([]);
     expect(next.outbox).toEqual([]);
+  });
+});
+
+describe("drafts from before the family", () => {
+  const draft = (id: string, extra: object = {}) => ({ id, kind: "source" as const, title: "", body: "words", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [], ...extra });
+  it("are personal from the moment a family appears", () => {
+    const next = draftsBeforeFamily(state(boot([own]), { drafts: { "new:source": draft("a") } }), boot());
+    expect(next.drafts["new:source"]).toMatchObject({ space_id: personal, generation: 2, body: "words" });
+  });
+  it("leaves one that knows its space", () => {
+    const next = draftsBeforeFamily(state(boot(), { drafts: { x: draft("a", { space_id: family, generation: 1 }) } }), boot());
+    expect(next.drafts.x).toMatchObject({ space_id: family });
+  });
+});
+
+describe("spaces this account has quietly lost", () => {
+  const row = (space_id: string) => ({ ...optimisticRecord(write("a", "diaper")), space_id });
+  it("finds a family's rows, queue and drafts when the API's list doesn't have it, even with no memory of the family", () => {
+    const flagOff = state(off(), { records: [row("gone")], outbox: [{ ...save("q", "diaper"), space_id: "also-gone" }],
+      drafts: { d: { id: "d", kind: "journal", title: "", body: "", child_id: null, occurred_at: "", data: {}, files: [], space_id: "draft-gone" } } });
+    expect(retiredSpaces(flagOff, boot([own]))).toEqual(["gone", "also-gone", "draft-gone"]);
+  });
+  it("never counts personal, a listed family, or something already stopped", () => {
+    const fine = state(boot(), { records: [row(personal), row(family)], outbox: [{ ...save("q", "diaper"), space_id: "left", left_space: "left" }] });
+    expect(retiredSpaces(fine, boot())).toEqual([]);
+  });
+  it("asks nothing of an API that isn't listing spaces", () => {
+    expect(retiredSpaces(state(boot(), { records: [row("x")] }), off())).toEqual([]);
+  });
+});
+
+describe("what an older build mustn't read", () => {
+  const row = (space_id: string) => ({ ...optimisticRecord(write("a", "diaper")), space_id });
+  it("is a phone with any family work, and nothing else", () => {
+    expect(holdsFamilyWork(state(off()))).toBe(false);
+    expect(holdsFamilyWork(state(boot([own]), { records: [row(personal)] }))).toBe(false);
+    expect(holdsFamilyWork(state(boot()))).toBe(true);
+    expect(holdsFamilyWork(state(boot([own]), { outbox: [{ ...save("q", "diaper"), space_id: family, left_space: family }] }))).toBe(true);
+    expect(holdsFamilyWork(state(off(), { records: [row(family)] }))).toBe(true);
   });
 });
 
