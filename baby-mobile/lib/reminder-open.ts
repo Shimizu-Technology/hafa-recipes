@@ -1,6 +1,8 @@
 import { router } from "expo-router";
 import type { useBaby } from "./context";
+import { ApiError } from "./api";
 import type { ReminderPlace, TappedReminder } from "./notification-route";
+import { remindersOn } from "./spaces";
 
 type Account = Pick<ReturnType<typeof useBaby>, "commit" | "refresh" | "state">;
 const inSpace = (b: Account, space: string) => b.state.bootstrap?.spaces?.some((known) => known.id === space);
@@ -20,6 +22,20 @@ export async function placeReminder(account: () => Account, item: Pick<TappedRem
     await b.commit((s) => ({ ...s, selectedChild: place.child! }));
   return true;
 }
+/** A place with params has somewhere to move even when it's already open, as with Tracker on another day. */
 export function openPlace(place: ReminderPlace, pathname: string) {
-  if (pathname !== place.path) router.navigate({ pathname: place.pathname, params: place.params } as Parameters<typeof router.navigate>[0]);
+  if (pathname !== place.path || place.params) router.navigate({ pathname: place.pathname, params: place.params } as Parameters<typeof router.navigate>[0]);
+}
+/**
+ * What a tap was for. An answer means it's gone or isn't hers, and no answer means this phone can't tell yet, which throws.
+ * With the API's flag off there's no one to ask, so an old notification is simply gone.
+ */
+export async function lookUpTap(b: Pick<ReturnType<typeof useBaby>, "api" | "state">, id: string) {
+  if (!remindersOn(b.state.bootstrap)) return null;
+  try {
+    return await b.api.tappedReminder(id);
+  } catch (failure) {
+    if (failure instanceof ApiError && !failure.local && failure.status !== 0 && failure.status < 500) return null;
+    throw failure;
+  }
 }

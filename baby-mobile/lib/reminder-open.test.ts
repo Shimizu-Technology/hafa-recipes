@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("expo-router", () => ({ router: { navigate: vi.fn() } }));
-import { placeReminder } from "./reminder-open";
+import { router } from "expo-router";
+import { ApiError } from "./api";
+import { reminderDestination } from "./notification-route";
+import { lookUpTap, openPlace, placeReminder } from "./reminder-open";
 import { emptyState, type DeviceState } from "./models";
 
 const family = { id: "family", kind: "family", role: "parent", generation: 1, access_version: 1 };
@@ -43,5 +46,42 @@ describe("getting ready for where a reminder lives", () => {
     expect(c.state.selectedChild).toBe("other");
     await placeReminder(() => c, {}, today);
     expect(c.commit).not.toHaveBeenCalled();
+  });
+});
+
+describe("opening a place", () => {
+  beforeEach(() => vi.mocked(router.navigate).mockClear());
+  it("Tracker already open still moves to the reminder's day", () => {
+    const place = reminderDestination({ kind: "visit_prep", data: { date: "2026-11-20" } })!;
+    openPlace(place, "/tracker");
+    expect(router.navigate).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/tracker", params: expect.objectContaining({ day: "2026-11-20" }) }));
+  });
+  it("Today already open has nothing to move to", () => {
+    openPlace({ path: "/", pathname: "/(tabs)/(today)" }, "/");
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+  it("somewhere else goes there", () => {
+    openPlace({ path: "/", pathname: "/(tabs)/(today)" }, "/settings");
+    expect(router.navigate).toHaveBeenCalledOnce();
+  });
+});
+
+describe("looking up a tap", () => {
+  const item = { id: "r", kind: "event", data: {} };
+  const account = (reminders: { push: boolean } | undefined, tappedReminder: () => Promise<unknown>) =>
+    ({ state: { bootstrap: { reminders } }, api: { tappedReminder } }) as any;
+  it("with the flag off it asks nothing and finds nothing", async () => {
+    const ask = vi.fn();
+    await expect(lookUpTap(account(undefined, ask), "r")).resolves.toBeNull();
+    expect(ask).not.toHaveBeenCalled();
+  });
+  it("finds what the API has", async () => {
+    await expect(lookUpTap(account({ push: true }, async () => item), "r")).resolves.toEqual(item);
+  });
+  it.each([[404], [403], [409]])("an answer of %i means gone", async (status) => {
+    await expect(lookUpTap(account({ push: true }, async () => { throw new ApiError("no", status); }), "r")).resolves.toBeNull();
+  });
+  it.each([[0], [503]])("no real answer (%i) is offline, not gone", async (status) => {
+    await expect(lookUpTap(account({ push: true }, async () => { throw new ApiError("no", status); }), "r")).rejects.toBeInstanceOf(ApiError);
   });
 });
