@@ -471,6 +471,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
           if (!alive.current) break;
           if (e instanceof ApiError && e.local) break;
           const status = e instanceof ApiError ? e.status : -1;
+          // A replayed save whose entry was removed elsewhere. It would refuse every pass, and hold everything behind it. With a file, the upload may be what expired.
+          if (status === 410 && next.type === "save" && !next.files.length) {
+            await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id), records: s.records.filter((r) => r.id !== next.record.id) }));
+            continue;
+          }
           if (status === 410) {
             await refresh();
             break;
@@ -479,8 +484,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
             noteFailure(e);
             break;
           }
-          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "event_split" || retriedSave(next)) && shouldRetry(status)) {
-            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type !== "delete" && m.type !== "import" ? retryLater(m) : m)) }));
+          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
+            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type !== "import" ? retryLater(m) : m)) }));
             continue;
           }
           await commit((s) => ({

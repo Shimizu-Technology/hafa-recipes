@@ -32,6 +32,7 @@ export function todayCareRows(
     .sort(newestFirst)
     .slice(0, limit);
 }
+const queuedSave = (state: DeviceState, id: string) => state.outbox.some((change) => change.type === "save" && change.record.id === id);
 /** Enough recent care for today's totals at newborn frequency (about 30 entries a day per baby). */
 export const glanceLimit = 100;
 /** How often Today looks for what the other phone logged, while it's on screen. */
@@ -59,7 +60,11 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
   }
   const [page, setPage] = useState<{ key: string; ids: string[] } | null>(null),
     [loading, setLoading] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    /** The last quiet look failed. What's on screen stays, and a panel showing a "Last" can say it may be behind. */
+    [staleFor, setStaleFor] = useState<string | null>(null),
+    // Only for the view whose look failed. Another baby's hasn't had a failed look yet.
+    stale = staleFor === key;
   /** `quiet` is the background look: no spinner, and a failure leaves what's on screen alone. */
   async function refresh({ quiet = false } = {}) {
     if (!active.current) return;
@@ -67,7 +72,10 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
       capturedKey = key,
       ticket = ++request.current,
       lease = account.api.lease(),
-      generation = account.state.bootstrap?.generation;
+      generation = account.state.bootstrap?.generation,
+      // Saves already finished as this look begins. Its answer has the last word on those. Anything queued now, or
+      // queued later, could land after the API has read, so this look can't speak for it.
+      settled = [...local.current.ids].filter((id) => !queuedSave(account.state, id));
     const valid = () =>
       active.current && request.current === ticket && capturedKey === viewKey.current && account.current() &&
       latest.current.owner === account.owner && latest.current.api === account.api && account.api.lease() === lease;
@@ -96,8 +104,14 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
         }, state.records);
         return { ...state, records };
       });
-      if (valid()) setPage({ key: capturedKey, ids: items.map((row) => row.id) });
+      if (valid()) {
+        // Gone from this answer means gone: another phone deleted it, and it mustn't stay as the last dose.
+        for (const id of settled) if (!queuedSave(latest.current.state, id)) local.current.ids.delete(id);
+        setPage({ key: capturedKey, ids: items.map((row) => row.id) });
+        setStaleFor(null);
+      }
     } catch (failure) {
+      if (valid() && quiet) setStaleFor(capturedKey);
       if (valid() && !quiet) {
         setPage(null);
         setError(messageFor(failure));
@@ -130,6 +144,7 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
     all,
     loading,
     error,
+    stale,
     refresh,
   };
 }

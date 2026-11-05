@@ -53,6 +53,7 @@ vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/history", () => import("./history"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
+vi.mock("@/components/more-logs", () => ({ MoreLogs: () => null }));
 vi.mock("@/lib/chat-citations", () => import("./chat-citations"));
 vi.mock("@/components/header-search", () => import("../components/header-search"));
 vi.mock("@/components/tab-stack", () => import("../components/tab-stack"));
@@ -379,7 +380,7 @@ it.each([false, true])("refreshes the scoped timeline from page zero after sync,
   expect(visible()).toEqual(expect.arrayContaining([old.id, older.id]));
   await act(async () => { await renderer!.root.findByType(Screen).props.onRefresh(); });
   expect(mock.baby.sync).toHaveBeenCalledOnce();
-  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? ["feeding", "sleep", "diaper"] : ["question"] });
+  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? expect.arrayContaining(["feeding", "sleep", "diaper", "pumping", "medicine", "temperature", "growth", "custom", "kick_session", "contraction"]) : ["question"] });
   expect(visible()).toEqual(expect.arrayContaining([fresh.id, old.id, older.id]));
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("matching");
 });
@@ -564,4 +565,16 @@ it("keeps Ask history named and the composer scalable at accessibility sizes", a
   mock.fontScale = 1;
   await act(async () => renderer!.update(<AskEntry />));
   expect(renderer!.root.findByType("TextInput" as React.ElementType)).not.toBe(input);
+});
+
+it("shows a custom entry's own title beside its numbers, and doesn't repeat a medicine's name", async () => {
+  const bath = optimisticRecord({ id: "bath", kind: "custom", title: "First bath with Dad", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00Z", data: { label: "Bath", value: 2, unit: "min" } as never });
+  mock.baby.records = [bath]; mock.baby.state = { ...mock.baby.state, records: [bath] }; mock.params = { id: bath.id };
+  await mount(<RecordDetail />);
+  expect(JSON.stringify(renderer!.toJSON())).toContain("First bath with Dad");
+  await act(async () => renderer!.unmount());
+  const dose = optimisticRecord({ id: "dose", kind: "medicine", title: "Vitamin D", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00Z", data: { name: "Vitamin D" } as never });
+  mock.baby.records = [dose]; mock.baby.state = { ...mock.baby.state, records: [dose] }; mock.params = { id: dose.id };
+  await mount(<RecordDetail />);
+  expect((JSON.stringify(renderer!.toJSON()).match(/Vitamin D/g) ?? []).length).toBe(1);
 });

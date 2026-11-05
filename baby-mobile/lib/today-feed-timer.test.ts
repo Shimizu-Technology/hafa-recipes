@@ -57,6 +57,9 @@ vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", FirstStep: "FirstStep", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
 vi.mock("@/components/quick-log", () => import("../components/quick-log"));
+vi.mock("@/components/more-logs", () => import("../components/more-logs"));
+vi.mock("@/lib/more-logs", () => import("./more-logs"));
+vi.mock("@/lib/trackers", () => import("./trackers"));
 vi.mock("@/lib/running-feed", () => import("./running-feed"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
@@ -382,3 +385,18 @@ it("keeps a half-typed question across a due baby's layout and a born baby's, wh
   expect(drafts().typed["visit:noa"]).toBe("Half typed");
 });
 
+describe("the extra logs on Today", () => {
+  const tiles = () => find("Pressable", () => true).map((node) => node.props.accessibilityLabel);
+  it("offers what she'd log about herself while she's expecting", async () => {
+    setup().state.bootstrap!.children[0].due_date = "2026-12-10";
+    await render();
+    for (const label of ["How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]) expect(tiles()).toContain(label);
+    expect(tiles()).not.toContain("Pumping");
+  });
+  it("leaves the docked log alone once the baby's here: these are off Today by default", async () => {
+    setup().state.bootstrap!.children[0].birth_date = "2026-10-01";
+    await render();
+    expect(tiles()).toContain("Breastfeed");
+    for (const label of ["Pumping", "Medicine", "Temperature", "Growth", "How I’m feeling"]) expect(tiles()).not.toContain(label);
+  });
+});

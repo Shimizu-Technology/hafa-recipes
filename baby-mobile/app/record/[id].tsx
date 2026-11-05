@@ -5,9 +5,11 @@ import { Image } from "expo-image";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
-import { careSummary, duration, friendlyTime, isCare } from "@/lib/care-format";
+import { careSummary, duration, friendlyTime, isCare, summaryHoldsTitle } from "@/lib/care-format";
 import { feedProgress } from "@/lib/feed-reducer";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
+import { moreKinds } from "../../lib/more-logs";
+import { datedOnly } from "../../lib/well-visits";
 import { keyDate, recordDay } from "@/lib/tracker";
 import { inheritedFiles, mutationRecordId, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
@@ -87,9 +89,9 @@ export default function RecordDetail() {
     title = record.kind === "source" ? sourceTitle(record) : record.title,
     data = record.data,
     // Care and the timers read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
-    clock = isCare(record.kind) || record.kind === "contraction" || record.kind === "kick_session" ? b.state.bootstrap?.profile.timezone : undefined,
-    // A milestone or a shot is kept by its date, and its noon is only how the date is stored.
-    dateOnly = record.kind === "milestone" || record.kind === "custom",
+    clock = isCare(record.kind) || record.kind === "contraction" || record.kind === "kick_session" || moreKinds.includes(record.kind) ? b.state.bootstrap?.profile.timezone : undefined,
+    dateOnly = datedOnly(record),
+    summary = moreKinds.includes(record.kind) ? careSummary(record.kind, data, record.occurred_at) : "",
     localFiles = inheritedFiles(b.state, record.id).filter(
       (file) => !file.uploaded_id || !data.attachment_ids?.includes(file.uploaded_id)
     );
@@ -102,7 +104,7 @@ export default function RecordDetail() {
         : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + child.name : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
-        : title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
+        : !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>
@@ -139,6 +141,7 @@ export default function RecordDetail() {
           )}
         </Card>
       )}
+      {!!summary && <Card tone="hero"><Copy numeric kind="heading">{summary}</Copy></Card>}
       {record.kind === "diaper" && (
         <Card tone="hero">
           <Copy kind="heading">{careSummary("diaper", data, record.occurred_at)}</Copy>
