@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
-import { fenceOf, generationOf, holdsFamilyWork, spaceForNew, unavailableMessage } from "./spaces";
+import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./spaces";
 import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -238,5 +237,24 @@ describe("updating from a build with no spaces", () => {
     expect(withKnownSpaces(before, boot())).toBe(before);
     const legacy = old();
     expect(withKnownSpaces(legacy, off())).toBe(legacy);
+  });
+});
+
+describe("Shared or Just me on a new entry", () => {
+  const draft = (kind: string, extra: object = {}) => ({ kind, existing: false, ...extra }) as never;
+  it("isn't offered with no family, for a caregiver, on an existing entry, or for what can't move", () => {
+    expect(choiceFor(boot([own]), draft("source"))).toBeNull();
+    expect(choiceFor(off(), draft("source"))).toBeNull();
+    expect(choiceFor(boot([own, { ...shared, role: "caregiver" }]), draft("source"))).toBeNull();
+    expect(choiceFor(boot(), draft("source", { existing: true }))).toBeNull();
+    expect(choiceFor(boot(), draft("diaper"))).toBeNull();
+  });
+  it("starts a saved post shared, and a journal entry just for her", () => {
+    expect(choiceFor(boot(), draft("source"))).toEqual({ shared: true, space_id: family, just_me: false });
+    expect(choiceFor(boot(), draft("journal"))).toEqual({ shared: false, space_id: personal, just_me: false });
+  });
+  it("follows what she chose, marking a post so Create family or a move never publishes it", () => {
+    expect(choiceFor(boot(), draft("source", { shared: false }))).toEqual({ shared: false, space_id: personal, just_me: true });
+    expect(choiceFor(boot(), draft("journal", { shared: true }))).toEqual({ shared: true, space_id: family, just_me: false });
   });
 });

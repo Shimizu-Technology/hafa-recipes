@@ -19,6 +19,7 @@ import type {
 import type { CareDay } from "./tracker";
 import type { CareStats, StatsChoice } from "./care-stats";
 import type { ChangesAnswer } from "./changes";
+import { disclosureVersion, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "./family";
 import type { Moved } from "./outbox";
 import { rowFence, spacesLive, unavailableMessage } from "./spaces";
 import { dailyAiLimitMessage } from "./import-status";
@@ -84,6 +85,12 @@ export class ApiError extends Error {
 export class MovedError extends ApiError {
   constructor(readonly moved: Moved) {
     super("This entry moved. It’s being sent to where it lives now.", 409);
+  }
+}
+/** Create family was refused because a phone signed in to this account hasn't updated. */
+export class PhonesNotReady extends ApiError {
+  constructor(readonly readiness: FamilyReadiness) {
+    super("Update your other phones first. Nothing has moved.", 409);
   }
 }
 export function createBabyApi(
@@ -181,7 +188,7 @@ export function createBabyApi(
           }
         }
         if (response.status === 409) {
-          let detail: { code?: string } & Partial<Moved> = {};
+          let detail: { code?: string; phones?: FamilyReadiness["phones"] } & Partial<Moved> = {};
           try {
             // A move comes back as the body itself. Any other coded refusal is under `detail`.
             const body = await response.json();
@@ -193,6 +200,8 @@ export function createBabyApi(
           }
           if (detail.code === "moved" && detail.space_id && detail.generation !== undefined && detail.record)
             throw new MovedError({ space_id: detail.space_id, generation: detail.generation, revision: detail.revision ?? null, record: detail.record });
+          if (detail.code === "phones_not_ready") throw new PhonesNotReady({ ready: false, phones: detail.phones ?? [] });
+          if (detail.code === "family_exit_required") throw new ApiError("Leave your family first. Your family’s data isn’t erased from here.", 409);
         }
         const safe =
           response.status === 409
@@ -378,6 +387,23 @@ export function createBabyApi(
     /** What's changed in each space since these cursors. A bigger access version than the last means start again. */
     changes: (cursor: Record<string, number>, access: Record<string, number>) =>
       request<ChangesAnswer>("/changes?" + query({ cursor: JSON.stringify(cursor), access_version: JSON.stringify(access) })),
+    readiness: (installation_id?: string) => request<FamilyReadiness>("/family/readiness?" + query({ installation_id })),
+    forgetPhone: (id: string, g: Fence) => request<unknown>(`/family/phones/${encodeURIComponent(id)}/forget`, "POST", {}, g),
+    /** The first one creates the family, and only with `publish` set: she's seen what becomes shared. */
+    createInvite: (role: "parent" | "caregiver", publish: boolean, g: Fence) =>
+      request<FamilyInvite>("/family/invites", "POST", { role, publish_shared: publish, disclosure_version: disclosureVersion }, g),
+    previewInvite: (code: string) => request<InvitePreview>("/family/invites/preview", "POST", { code }),
+    acceptInvite: (code: string, g: Fence) =>
+      request<{ space_id: string; generation: number; role: string; access_version: number }>("/family/invites/accept", "POST", { code, disclosure_version: disclosureVersion }, g),
+    familyMembers: (space: string) => request<{ items: FamilyMember[] }>(`/family/${encodeURIComponent(space)}/members`),
+    familyInvites: (space: string) => request<{ items: FamilyInvite[] }>(`/family/${encodeURIComponent(space)}/invites`),
+    revokeInvite: (space: string, id: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}/invites/${encodeURIComponent(id)}`, "DELETE", undefined, g),
+    removeMember: (space: string, actor: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}/members/${encodeURIComponent(actor)}`, "DELETE", undefined, g),
+    leaveFamily: (space: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}/leave`, "POST", {}, g),
+    deleteFamily: (space: string, g: Fence) => request<unknown>(`/family/${encodeURIComponent(space)}`, "DELETE", undefined, g),
+    /** Shared with family or Just me. The row goes to `destination`, and the fence is where it lives now. */
+    moveRecord: (row: BabyRecord, destination: string, g: Fence) =>
+      request<BabyRecord>(`/records/${encodeURIComponent(row.id)}/move`, "POST", { space_id: destination, revision: row.revision }, g),
     export: () => request<unknown>("/export"),
     erase: (g: number) => {
       epoch++;

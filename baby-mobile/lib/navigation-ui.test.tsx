@@ -42,6 +42,7 @@ vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));
 vi.mock("@/components/motion", () => ({ Swell: ({ children }: { children: React.ReactNode }) => children, FadeUp: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: {} }));
 vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateAttachment" }));
+vi.mock("@/components/share-toggle", () => ({ ShareToggle: () => null }));
 vi.mock("@/components/source-content", () => ({ SourceContent: "SourceContent" }));
 vi.mock("@/lib/use-ask-session", () => ({ useAskSession: (record_id: string) => ({
   context: { scope: "all", record_id, child_id: null }, focusedTitle: "Saved source", question: "", messages: [],

@@ -530,6 +530,11 @@ describe("a 409 that says where a row went", () => {
   it("says so, with the row, as the API really sends it: the body itself, not under detail", async () => {
     await expect(on(409, moved).save(row, 1)).rejects.toMatchObject({ status: 409, moved: { space_id: "f", generation: 1, revision: 4 } });
   });
+  it("reads other coded refusals from detail", async () => {
+    await expect(on(409, { detail: { code: "phones_not_ready", ready: false, phones: [{ id: "p", state: "outdated", last_seen: null, this_phone: false }] } }).createInvite("parent", true, 1))
+      .rejects.toMatchObject({ readiness: { phones: [{ id: "p" }] } });
+    await expect(on(409, { detail: { code: "family_exit_required" } }).erase(1)).rejects.toMatchObject({ message: expect.stringContaining("Leave your family") });
+  });
   it("leaves an ordinary conflict as it was", async () => {
     const failure = await on(409, { detail: "This entry changed" }).save(row, 1).catch((e) => e);
     expect(failure.status).toBe(409);

@@ -340,6 +340,8 @@ export interface EditorDraft {
   /** An existing entry's space, copied with it into the draft. */
   space_id?: string;
   generation?: number;
+  /** Shared with family or Just me, as she chose on a new entry. */
+  shared?: boolean;
   kind: Kind;
   title: string;
   body: string;

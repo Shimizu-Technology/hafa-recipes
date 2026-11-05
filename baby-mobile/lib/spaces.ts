@@ -1,5 +1,5 @@
 import type { Fence } from "./api";
-import type { Bootstrap, BabySpace, DeviceState, Kind, RecordWrite } from "./models";
+import type { Bootstrap, BabySpace, DeviceState, EditorDraft, Kind, RecordWrite } from "./models";
 import { trackerFor } from "./trackers";
 
 /** The API listed this account's spaces, which it only does with the family stack on. */
@@ -62,4 +62,14 @@ export const spaceFence = (bootstrap: Bootstrap, space?: string): Fence =>
 export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox">) {
   const personal = state.bootstrap?.personal_space_id, elsewhere = (space?: string) => !!space && space !== personal;
   return familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
+}
+/**
+ * Shared with family, or Just me, as a new saved post or journal entry is written. A post starts shared and a journal
+ * entry private, and only a parent in a family has anything to choose.
+ */
+export function choiceFor(bootstrap: Bootstrap | undefined, draft: Pick<EditorDraft, "kind" | "existing" | "shared">) {
+  const family = familySpaces(bootstrap)[0];
+  if (draft.existing || family?.role !== "parent" || (draft.kind !== "source" && draft.kind !== "journal")) return null;
+  const shared = draft.shared ?? draft.kind === "source";
+  return { shared, space_id: shared ? family.id : bootstrap!.personal_space_id!, just_me: !shared && draft.kind === "source" };
 }

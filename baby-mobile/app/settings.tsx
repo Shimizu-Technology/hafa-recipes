@@ -9,6 +9,7 @@ import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { babyDetailLine } from "@/lib/child-setup";
+import { familySpaces, spacesLive } from "../lib/spaces";
 export default function Settings() {
   const b = useBaby(),
     toast = useToast(),
@@ -71,6 +72,9 @@ export default function Settings() {
           Time zone: {profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
         </Copy>
       </Section>
+      {spacesLive(b.state.bootstrap) && <Section title="Family">
+        <Grouped><Row title="Family" detail={familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} /></Grouped>
+      </Section>}
       <Section title="Your little ones">
         <Grouped>{b.state.bootstrap!.children.map((child) => (
           <Row
