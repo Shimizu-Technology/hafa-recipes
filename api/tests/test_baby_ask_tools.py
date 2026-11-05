@@ -386,3 +386,25 @@ async def test_tool_limits_bound_what_one_round_can_read(baby_api, monkeypatch):
     assert len(calls) == 8 and len(output) == 20
     assert all(len(item["output"]) <= 30_000 for item in output)
     assert json.loads(output[0]["output"]) == {"error": "result_too_large"}
+
+
+# Ordinary ways of asking about medicine and notes keep the private read they need.
+@pytest.mark.parametrize("question", [
+    "Did she get any meds?", "What meds did I give her?", "Any medication today?", "When did I give her Tylenol?",
+    "Did he have his antibiotics?", "Has she had her vitamin D?", "Did I take my prenatals?", "What was her last dose?",
+    "What's my blood pressure been?", "Did I take my BP?", "What is my bp?",
+])
+def test_a_medicine_question_keeps_its_private_log_tool(question):
+    assert "logs" in permissions_for(question)
+
+
+@pytest.mark.parametrize("question", ["What did I note down?", "What did I jot down yesterday?", "What did I note about her?", "Read me my note"])
+def test_asking_for_her_own_notes_keeps_the_journal(question):
+    assert "journal" in permissions_for(question)
+
+
+async def test_a_medicine_entry_opens_for_a_meds_question(baby_api):
+    baby_api.settings.baby_new_kinds_enabled = True
+    medicine = await add(baby_api, HEADERS, kind="medicine", title="Tylenol", data={"name": "Tylenol", "dose": "5 mL"})
+    result = await run(baby_api, make_tools(question="Did she get any meds?"), "open_entry", record_id=medicine)
+    assert result.get("id") == medicine and "error" not in result

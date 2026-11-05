@@ -30,7 +30,8 @@ NOT_IN_DAY_LOG = ("source", "collection", "journal")
 # When these miss, Ask says it can't look there and she can ask again: it says less, not more.
 LOG_QUESTION = re.compile(
     r"\b(feed\w*|fed|ate|eat\w*|nurs\w*|breast\w*|bottle\w*|formula|pump\w*|sleep\w*|slept|nap\w*|woke|awake|diaper\w*|"
-    r"poo\w*|pee\w*|wet|dirty|contraction\w*|kick\w*|medicine\w*|temperature|growth|weight|milestone\w*|log|logs|logged|"
+    r"poo\w*|pee\w*|wet|dirty|contraction\w*|kick\w*|medicine\w*|meds?|medication\w*|prescri\w*|antibiotic\w*|dose\w*|dosage|gave|given|"
+    r"tylenol|acetaminophen|paracetamol|ibuprofen|motrin|advil|vitamin\w*|prenatal\w*|supplement\w*|blood pressure|bp|temperature|growth|weight|milestone\w*|log|logs|logged|"
     r"stats?|totals?|count|how many|how much|how often|last time|when did|today|tonight|yesterday|morning|afternoon|"
     r"evening|week|weeks|month|months|day|days|date|dates|calendar|appointment\w*|visit\w*|event\w*|schedule\w*|birthday\w*|"
     r"baptism|due|next|upcoming|doctor|happen\w*|going on|doing|update\w*|recap|overview|everything|lately|recent\w*|"
@@ -38,7 +39,7 @@ LOG_QUESTION = re.compile(
     re.I,
 )
 JOURNAL_QUESTION = re.compile(
-    r"\b(journal\w*|diary|wrote|written|write|my notes?|i noted|i said|did i say|feeling\w*|felt|mood|emotion\w*)\b",
+    r"\b(journal\w*|diary|wrote|written|write|my notes?|i noted|did i note|note down|jot\w*|i said|did i say|feeling\w*|felt|mood|emotion\w*)\b",
     re.I,
 )
 TOOL_GUIDE = (
