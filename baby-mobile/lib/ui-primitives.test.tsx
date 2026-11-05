@@ -83,6 +83,19 @@ it("remeasures visible text after a live scale change without clipping line heig
   expect(large.props.style.lineHeight).toBe(38);
   expect(large.props.maxFontSizeMultiplier).toBe(0);
 });
+it("keeps a long word whole in a row's title at the largest text size, rather than clipping it", async () => {
+  mock.fontScale = 3.1;
+  await mount(<Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => {}} />);
+  const texts = renderer!.root.findAll((n) => String(n.type) === "Text");
+  expect(texts.find((n) => [n.props.children].flat().includes("Contraction timer"))!.props.maxFontSizeMultiplier).toBe(2.6);
+  // What's under it can still wrap, so it grows as far as she's set it.
+  expect(texts.find((n) => [n.props.children].flat().includes("Start, stop, and the last hour"))!.props.maxFontSizeMultiplier).toBe(0);
+  await act(async () => renderer!.unmount());
+  mock.fontScale = 1.4;
+  await mount(<Row title="Contraction timer" icon="pulse-outline" onPress={() => {}} />);
+  expect(renderer!.root.findAll((n) => String(n.type) === "Text").find((n) => [n.props.children].flat().includes("Contraction timer"))!.props.maxFontSizeMultiplier).toBe(0);
+  mock.fontScale = 1;
+});
 it("gives a row's words the full width at the largest text, so 'calendar' isn't cut mid-word", async () => {
   mock.fontScale = 3.1;
   await mount(<Row title="Add to the calendar" detail="An appointment" icon="book-outline" onPress={() => {}} />);

@@ -949,7 +949,8 @@ export function Row({
       </View>}
       {stacked && chevron}
       <View style={{ ...(stacked ? { flexBasis: "100%" } : { flex: 1 }), minWidth: 0, gap: 2, paddingTop: firstLineTop }}>
-        <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
+        {/* A long word has nowhere to wrap at the very largest sizes, so that title stops just short of clipping. */}
+        <Copy numeric={numericTitle} kind="label" limit={stacked && title.split(/\s+/).some((word) => word.length >= 10) ? 2.6 : 0} lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
         {detail && (
           <Copy numeric={numericDetail} kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 2}>
             {detail}
