@@ -387,6 +387,11 @@ export function createBabyApi(
     /** What's changed in each space since these cursors. A bigger access version than the last means start again. */
     changes: (cursor: Record<string, number>, access: Record<string, number>) =>
       request<ChangesAnswer>("/changes?" + query({ cursor: JSON.stringify(cursor), access_version: JSON.stringify(access) })),
+    /** A phone's push token, under the personal space's generation. What comes back is what its sign-out sends. */
+    registerPushDevice: (installation: string, token: string, platform: "ios" | "android", generation: number) =>
+      request<{ registration: string }>(`/push/devices/${encodeURIComponent(installation)}`, "PUT", { token, platform }, generation),
+    unregisterPushDevice: (installation: string, registration: string) =>
+      request<void>(`/push/devices/${encodeURIComponent(installation)}?` + query({ registration }), "DELETE"),
     readiness: (installation_id?: string) => request<FamilyReadiness>("/family/readiness?" + query({ installation_id })),
     /** She says the older phone is updated or gone. This phone's own credential stays. */
     confirmPhones: (installation_id?: string) => request<unknown>("/family/phones/confirm", "POST", installation_id ? { installation_id } : {}),

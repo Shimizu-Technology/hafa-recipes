@@ -78,6 +78,7 @@ import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
 import { forgetInvite } from "./family";
+import { nativePushDevice } from "./push-native";
 import { accessKey, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
@@ -123,6 +124,8 @@ interface BabyContext {
   signOut: () => Promise<void>;
   erase: () => Promise<void>;
   enroll: () => Promise<void>;
+  /** After she's allowed notifications: this phone goes on the list now, not on the next pass. */
+  registerPush: () => Promise<boolean>;
 }
 const Context = createContext<BabyContext | null>(null);
 export function useBaby() {
@@ -142,6 +145,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
   const current = () => alive.current && liveBinding.current === binding;
   const api = useMemo(() => createBabyApi(configuration.apiBase, () => token.current(), current, fetch, () => ref.current.bootstrap), [binding]);
   const identityVault = useMemo(() => createVault(secret, "identity:" + binding, Crypto.randomUUID), [binding]);
+  const pushDevice = useMemo(() => nativePushDevice(api, secret, binding, () => onlineRef.current, Crypto.randomUUID), [binding]);
   const [owner, setOwner] = useState(""),
     [state, setState] = useState<DeviceState>(emptyState),
     [ready, setReady] = useState(false),
@@ -345,6 +349,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (!(await mergeBootstrap(latest))) return;
       if (alive.current) setError("");
       if (latest.active === false) return;
+      if (latest.reminders?.push) void pushDevice.ensure(latest.generation);
       restoreAfterSync = true;
       let serverChildren = latest.children;
       for (const pending of [...ref.current.outbox]) {
@@ -664,6 +669,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         if (cleaning) {
           closing.current = true;
           setReady(false);
+          await pushDevice.end();
           await revokeShareSession();
           clearPendingShares();
           await clearReminders(cleaning);
@@ -753,6 +759,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
     };
   }, [state, owner, ready]);
   async function clean() {
+    // First, while it can still reach the API as this person.
+    await pushDevice.end();
     forgetInvite();
     await revokeShareSession();
     clearPendingShares();
@@ -851,6 +859,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
             setReady(!removed || cleaned);
           }
           await funcs.current.refresh();
+        },
+        registerPush: async () => {
+          const held = ref.current.bootstrap;
+          return held?.reminders?.push && held.active !== false ? pushDevice.ensure(held.generation) : false;
         },
         enroll: async () => {
           const g = ref.current.bootstrap?.generation;

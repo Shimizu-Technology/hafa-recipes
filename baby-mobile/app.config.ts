@@ -20,7 +20,11 @@ const config: ExpoConfig = {
     supportsTablet: false,
     usesAppleSignIn: true,
     associatedDomains: ["webcredentials:clerk.hafa-recipes.com"],
-    entitlements: { "com.apple.developer.default-data-protection": "NSFileProtectionComplete" },
+    entitlements: {
+      "com.apple.developer.default-data-protection": "NSFileProtectionComplete",
+      // Lets a reminder someone chose come through quiet hours. Apple's App ID needs this capability too.
+      "com.apple.developer.usernotifications.time-sensitive": true,
+    },
     infoPlist: { ITSAppUsesNonExemptEncryption: false },
     icon: { light: "./assets/icon.png", dark: "./assets/icon-dark.png", tinted: "./assets/icon-tinted.png" },
   },
@@ -62,7 +66,8 @@ const config: ExpoConfig = {
     ],
     "expo-document-picker",
     "expo-sharing",
-    "expo-notifications",
+    // Adds the remote-notification background mode, for the silent refresh.
+    ["expo-notifications", { enableBackgroundRemoteNotifications: true }],
     "@react-native-community/datetimepicker",
     ["expo-build-properties", { ios: { deploymentTarget: "17.0" }, android: { minSdkVersion: 26 } }],
     "./plugins/with-baby-share.cjs",

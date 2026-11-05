@@ -85,6 +85,8 @@ export interface Bootstrap {
   family_available?: boolean;
   /** Names of everyone who has been in this account's families. */
   people?: Record<string, string>;
+  /** Only with the API's push flag on. Until it says so this phone asks for nothing and offers nothing. */
+  reminders?: { push?: boolean };
 }
 export interface Attachment {
   id: string;

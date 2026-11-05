@@ -18,6 +18,8 @@ const mock = vi.hoisted(() => ({
   readCleanup: vi.fn(),
   failWrites: false,
   alert: vi.fn(),
+  pushEnsure: vi.fn(async () => true),
+  pushEnd: vi.fn(async () => undefined),
 }));
 vi.mock("react-native", () => ({
   Alert: { alert: (...args: unknown[]) => mock.alert(...args) },
@@ -66,6 +68,7 @@ vi.mock("./reminders", () => ({
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
 }));
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
+vi.mock("./push-native", () => ({ nativePushDevice: () => ({ ensure: mock.pushEnsure, end: mock.pushEnd }) }));
 import { BabyProvider, useBaby } from "./context";
 import { ApiError, MovedError } from "./api";
 import { notSentMessage } from "./outbox";
@@ -379,6 +382,8 @@ beforeEach(() => {
   mock.clear.mockReset().mockResolvedValue(undefined);
   mock.clearShares.mockReset();
   mock.signOut.mockReset().mockResolvedValue(undefined);
+  mock.pushEnsure.mockClear();
+  mock.pushEnd.mockClear();
   mock.revoke.mockClear();
   mock.cleanupOwner = null;
   mock.readCleanup.mockReset().mockImplementation(async () => mock.cleanupOwner);
@@ -1724,5 +1729,32 @@ describe("the recheck: drafts, removal proof and files", () => {
     expect(baby.state.drafts["new:source"]).toMatchObject({ id: "new-draft", files: [file] });
     const keep = vi.mocked(clearFiles).mock.calls.at(-1)?.[1] as () => ReadonlySet<string>;
     expect(keep().has(file.uri)).toBe(true);
+  });
+});
+describe("this phone and the push flag", () => {
+  it("with the flag off it never registers, and only forgets what it holds at sign-out", async () => {
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.pushEnsure).not.toHaveBeenCalled();
+    await act(async () => { await baby.registerPush(); });
+    expect(mock.pushEnsure).not.toHaveBeenCalled();
+  });
+  it("with the flag on it registers under the personal generation", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, generation: 4, reminders: { push: true } }));
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.pushEnsure).toHaveBeenCalledWith(4);
+  });
+  it("sign-out ends the registration before the session goes", async () => {
+    await mount();
+    await act(async () => { await baby.signOut(); });
+    expect(mock.pushEnd).toHaveBeenCalledOnce();
+    expect(mock.pushEnd.mock.invocationCallOrder[0]).toBeLessThan(mock.signOut.mock.invocationCallOrder[0]);
+  });
+  it("a sign-out that was interrupted ends it when it picks up again", async () => {
+    mock.cleanupOwner = "owner";
+    await mount();
+    expect(mock.pushEnd).toHaveBeenCalledOnce();
+    expect(mock.pushEnd.mock.invocationCallOrder[0]).toBeLessThan(mock.signOut.mock.invocationCallOrder[0]);
   });
 });
