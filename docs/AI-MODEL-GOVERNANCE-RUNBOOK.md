@@ -138,7 +138,9 @@ states its cost first, and a paid run needs a ceiling it stops at:
 
 Replace `--dry-run` with `--env-file /absolute/path/to/local-eval.env
 --confirm-cost-usd <ceiling>` for a paid run. `--categories research` and
-`--research-model gpt-6-astra` compare research alone. Haiku needs the SDK for that
+`--research-model <model>` compare research alone. The ceiling is hard: each call's
+worst case is reserved before it is sent, search fees count, and each call is priced
+at its own model. Haiku needs the SDK for that
 run only: `uv run --with anthropic python -m evals.run_chat_model_eval ...`. Its
 adapter lives under `api/evals/`, and production has no Anthropic path or consent
 for it. Tool results come from the golden file, so this measures what a model does
