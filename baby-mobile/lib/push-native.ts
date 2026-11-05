@@ -1,4 +1,5 @@
 import * as Notifications from "expo-notifications";
+import ServerRegistrationModule from "expo-notifications/build/ServerRegistrationModule";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import type { BabyApi } from "./api";
@@ -9,16 +10,19 @@ import { storageKey, type SecretStorage } from "./vault";
 const installationKey = "hb.push.installation";
 const revocationKey = "hb.push.revocation";
 
+export const pushAvailable = Platform.OS === "ios" || Platform.OS === "android";
+
 /**
  * `getExpoPushTokenAsync` turns on Expo's auto-registration, which asks iOS for a token again on every launch and would
- * quietly undo this. So that goes first.
+ * quietly undo this, so that goes first. Its public off switch passes null, and iOS's native setter takes only a string
+ * (SDK 57), so it rejects and changes nothing. It's still called because it cancels an update in progress. Writing what
+ * Expo reads as "off" is what actually does it. Each step is separate: failing one mustn't skip the next.
  */
 export async function stopPushDelivery() {
-  await Notifications.setAutoServerRegistrationEnabledAsync(false);
+  await Notifications.setAutoServerRegistrationEnabledAsync(false).catch(() => undefined);
+  await ServerRegistrationModule.setRegistrationInfoAsync?.(JSON.stringify({ isEnabled: false })).catch(() => undefined);
   await Notifications.unregisterForNotificationsAsync();
 }
-
-export const pushAvailable = Platform.OS === "ios" || Platform.OS === "android";
 
 export function nativePushDevice(api: Pick<BabyApi, "registerPushDevice" | "unregisterPushDevice">, secret: SecretStorage, binding: string, online: () => boolean, uuid: () => string) {
   const key = storageKey("push:" + binding);
