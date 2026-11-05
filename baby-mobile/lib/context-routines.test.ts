@@ -84,6 +84,15 @@ it("retries initial records loading quietly before starting routine sync", async
   expect(baby.error).toBe(""); expect(baby.state.bootstrap).toEqual(bootstrap);
   expect(mock.api.records.mock.calls.filter(([filters]: any[]) => !filters.kind)).toHaveLength(2);
 });
+it("opening with no connection reads as offline, not as a sync problem", async () => {
+  const offline = () => new ApiError("Could not connect. You’re offline.", 0);
+  mock.api.bootstrap = vi.fn(async () => { throw offline(); });
+  mock.saved = { ...emptyState(), bootstrap } as unknown as DeviceState;
+  await mount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1500); await settle(); });
+  expect(baby.error).toContain("Could not connect");
+  expect(baby.unreachable).toBe(true);
+});
 function row(id: string, enabled = true, revision = 1): BabyRecord {
   return {
     ...optimisticRecord({
