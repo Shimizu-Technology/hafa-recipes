@@ -95,7 +95,7 @@ export default function Today() {
     routine = routines[0],
     questions = records.filter((r) => r.kind === "question").length;
   const titleText = child?.name.trim() || "Today";
-  const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id } });
+  const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id, stage: "here" } });
   /** One tap, since it may be the only hand free. Settings changes the date if it was another day. */
   async function arrived() {
     if (!child) return;

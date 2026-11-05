@@ -10,6 +10,7 @@ export function DateField({
   dateOnly = false,
   optional = false,
   timeZone,
+  maximumDate,
 }: {
   label: string;
   value?: string | null;
@@ -18,6 +19,8 @@ export function DateField({
   optional?: boolean;
   /** Show and pick the time on this clock rather than the phone's. */
   timeZone?: string | null;
+  /** The latest date the picker allows. */
+  maximumDate?: Date;
 }) {
   const [mode, setMode] = useState<"date" | "time" | null>(null),
     [draft, setDraft] = useState(new Date()),
@@ -65,6 +68,7 @@ export function DateField({
         <DateTimePicker
           value={valid}
           mode={mode}
+          maximumDate={maximumDate}
           {...zone}
           onChange={(event, date) => {
             setMode(null);
@@ -82,6 +86,7 @@ export function DateField({
               <DateTimePicker
                 value={draft}
                 mode={mode}
+                maximumDate={maximumDate}
                 display="spinner"
                 {...zone}
                 themeVariant={scheme === "dark" ? "dark" : "light"}

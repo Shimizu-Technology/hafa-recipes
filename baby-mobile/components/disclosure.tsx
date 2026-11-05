@@ -3,8 +3,8 @@ import { Pressable, View } from "react-native";
 import { Copy, Icon, useColors } from "./ui";
 
 /** Secondary detail stays available without taking over the reading flow. */
-export function Disclosure({ title, children }: PropsWithChildren<{ title: string }>) {
-  const [open, setOpen] = useState(false), c = useColors();
+export function Disclosure({ title, startOpen = false, children }: PropsWithChildren<{ title: string; startOpen?: boolean }>) {
+  const [open, setOpen] = useState(startOpen), c = useColors();
   return (
     <View style={{ gap: 12 }}>
       <Pressable accessibilityRole="button" accessibilityLabel={title}

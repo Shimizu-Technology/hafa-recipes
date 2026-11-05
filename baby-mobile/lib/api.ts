@@ -33,6 +33,11 @@ const knownDetails = new Set([
   "Add a due date or birth date to see what is relevant now",
   "Add a due date to see what is relevant now",
   "Choose which child to show timing for",
+  "Choose girl or boy, or leave it blank",
+  "Enter a birth weight between 100 g and 10 kg",
+  "Enter a birth length between 15 and 80 cm",
+  "Enter weeks at birth between 20 and 45",
+  "Choose nursing, bottle or both, or leave it blank",
   seriesLimit,
 ]);
 export interface RecordFilters {

@@ -158,7 +158,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         if (deleting.current && value.bootstrap) throw Error("Baby data deletion is in progress.");
         if (value.outbox.some((m) => m.generation !== value.bootstrap?.generation))
           throw Error("Older changes cannot be saved after Baby data is cleared.");
-        if (value.bootstrap?.active === false && (value.outbox.length || Object.keys(value.drafts).length))
+        if (value.bootstrap?.active === false && (value.outbox.length || Object.keys(value.drafts).length || Object.keys(value.childDrafts ?? {}).length))
           throw Error("Start a new Baby space deliberately before saving.");
         await vault.current.write(value);
         api.assertLease(lease);

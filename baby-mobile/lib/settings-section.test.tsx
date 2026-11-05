@@ -14,7 +14,7 @@ vi.mock("@/components/ui", () => ({
   Screen: (props: any) => { props.scrollRef.current = { scrollTo: f.scroll }; return React.createElement("scroll-screen", props); },
 }));
 vi.mock("@/lib/models", () => import("./models"));
-vi.mock("@/lib/care-format", () => import("./care-format"));
+vi.mock("@/lib/child-setup", () => ({ babyDetailLine() {} }));
 import Settings from "../app/settings";
 let view: ReactTestRenderer;
 beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); f.scroll.mockClear(); });

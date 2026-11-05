@@ -1,7 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { emptyState, type BabyRecord, type DeviceState } from "./models";
+import { emptyState, type BabyRecord, type ChildDetails, type DeviceState } from "./models";
 
 const m = vi.hoisted(() => ({ flow: { panel: null as string | null, toggle(id: string) { m.flow.panel = id; } }, account: null as any, rows: [] as unknown[], push: vi.fn(), now: new Date("2027-02-10T02:00:00.000Z") }));
 vi.mock("react-native", () => ({ View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
@@ -28,7 +28,7 @@ const row = (data: Record<string, unknown>, at: string) => ({ id: at, kind: "gro
 let renderer: ReactTestRenderer | undefined;
 function setup(sex?: string | null) {
   const state: DeviceState = { ...emptyState(), selectedChild: "kid",
-    bootstrap: { generation: 1, active: true, ai_available: false, children: [{ id: "kid", name: "Isla", birth_date: "2026-12-10", revision: 1, ...(sex === undefined ? {} : { details: { sex } }) }], profile: { display_name: "K", timezone: "Pacific/Guam", ai_consent: false } } };
+    bootstrap: { generation: 1, active: true, ai_available: false, children: [{ id: "kid", name: "Isla", birth_date: "2026-12-10", revision: 1, ...(sex === undefined ? {} : { details: { sex } as ChildDetails }) }], profile: { display_name: "K", timezone: "Pacific/Guam", ai_consent: false } } };
   m.account = { state, commit: vi.fn(async (change: (s: DeviceState) => DeviceState) => { m.account.state = change(m.account.state); }) };
 }
 const mount = async () => { await act(async () => { renderer = create(<Growth />); }); };
