@@ -166,3 +166,4 @@ class UserRateLimiter:
 
 
 ai_rate_limiter = UserRateLimiter()
+push_registration_limiter = UserRateLimiter()

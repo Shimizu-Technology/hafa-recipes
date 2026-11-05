@@ -9,9 +9,11 @@ import pytest
 from PIL import Image
 from sqlalchemy import select
 
+from app.domains.baby import reminders
 from app.domains.baby.lifecycle import now
 from app.domains.baby.models import (
     BabyImport,
+    BabyNotification,
     BabyRecord,
     BabySpaceMember,
 )
@@ -32,6 +34,7 @@ API = "/api/v1/baby"
 async def matrix(privacy_api):
     api = privacy_api
     api.settings.baby_family_enabled = api.settings.baby_invites_enabled = api.settings.baby_new_kinds_enabled = True
+    api.settings.baby_push_enabled = True
     from tests.test_baby_moves import enabled
     await enabled.__wrapped__(api)
     api.client._transport.app.include_router(native.router)
@@ -127,6 +130,23 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
                  "/care/stats?range=7d"):
         await call("GET", API + path, 200 if member or path == "/export" else hidden)
     await call("GET", API + "/changes", 200)
+    # A phone and its settings belong to the person, so every role has only their own.
+    phone = f"{API}/push/devices/install-{actor}"
+    registered = await call("PUT", phone, 200, json={"token": f"ExponentPushToken[{actor}]", "platform": "ios"})
+    assert (await call("GET", API + "/push/prefs", 200)).json()["kinds"]["event"]["enabled"] is False
+    await call("PATCH", API + "/push/prefs", 200, json={"kinds": {"event": {"enabled": True}}})
+    await call("DELETE", f"{phone}?registration={registered.json()['registration']}", 204)
+    # Reminders are per person too: another person's can be neither read nor dismissed.
+    async with api.sessions() as db:
+        await reminders.schedule(db, owner="owner", space_id=sample["space"], kind="event", key=f"m-{actor}",
+                                 due_at=at - timedelta(minutes=1))
+        await db.commit()
+        reminder = await db.scalar(select(BabyNotification).where(BabyNotification.idempotency_key.endswith(f"m-{actor}")))
+    listed = (await call("GET", API + "/reminders/due", 200)).json()["items"]
+    assert str(reminder.id) not in {item["id"] for item in listed}
+    await call("POST", f"{API}/reminders/{reminder.id}/dismiss", 204)
+    async with api.sessions() as db:
+        assert (await db.get(BabyNotification, reminder.id)).dismissed_at is None
     await call("GET", f"{API}/records/{rows['care']['id']}", 200 if member else hidden)
     await call("GET", f"{API}/conversations/{owner.conversation_id}", denied)
     await call("POST", API + "/chat", 422 if member else hidden, json={"message": "Summarize everything"})

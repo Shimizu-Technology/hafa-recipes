@@ -1235,7 +1235,12 @@ async def delete_data(
 ):
     if expected != generation:
         raise HTTPException(409, "Deletion generation does not match")
-    from app.domains.baby.lifecycle import erase_conversations, erase_space, lock_family_data
+    from app.domains.baby.lifecycle import (
+        erase_conversations,
+        erase_push_data,
+        erase_space,
+        lock_family_data,
+    )
 
     grants = await lock_family_data(db, user.id)
     member = await membership_for(db, user.id, write=True, active=False)
@@ -1272,6 +1277,7 @@ async def delete_data(
                 await touch(credential, grant)
         personal_id = member.personal_space_id
         member.personal_space_id = None
+        await erase_push_data(db, user.id)
         await erase_conversations(db, grants, actor=user.id)
         prefixes = []
         for grant in grants:
@@ -1291,6 +1297,7 @@ async def delete_data(
 from app.domains.baby.changes import router as changes_router  # noqa: E402
 from app.domains.baby.family_router import router as family_router  # noqa: E402
 from app.domains.baby.invites import router as invites_router  # noqa: E402
+from app.domains.baby.push import router as push_router  # noqa: E402
 
 router.include_router(invites_router)
 router.include_router(changes_router)
@@ -1301,3 +1308,4 @@ router.include_router(chat_router)
 router.include_router(imports_router)
 router.include_router(suggestions_router)
 router.include_router(events_router)
+router.include_router(push_router)

@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
+from app.domains.baby.push_worker import baby_push_worker
 from app.domains.baby.router import router as baby_router
 from app.domains.baby.runtime import start_baby_worker, stop_baby_worker, verify_baby_schema
 from app.domains.baby.share_router import router as baby_share_router
@@ -205,11 +206,13 @@ async def startup():
     await cover_job_worker.start()
     await deletion_cleanup_worker.start()
     await start_baby_worker()
+    await baby_push_worker.start()
 
 
 @app.on_event("shutdown")
 async def shutdown():
     """Run on application shutdown."""
+    await baby_push_worker.stop()
     await stop_baby_worker()
     await workout_import_worker.stop()
     await cover_job_worker.stop()
