@@ -3,20 +3,21 @@ import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { panelTrackers, type Stage, type Tracker } from "@/lib/trackers";
 import type { Child } from "@/lib/models";
-import { Icon, PressTarget, fonts, radii, typeScale, useColors } from "./ui";
+import { Icon, PressTarget, fonts, radii, typeScale, useColors, type IconName } from "./ui";
 import { useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
 import { SavedLog, TrackerPanel } from "./tracker-panel";
 
 /** What the page's top bar covers, as a page is scrolled to a panel. */
-const headerClear = 112;
+export const headerClear = 112;
 
-function Tile({ tracker, label = tracker.label, open, onPress }: { tracker: Tracker; label?: string; open: boolean; onPress: () => void }) {
+/** A tracker's button. `big` is for the ones that are on; a tile that opens a screen has nothing to be open. */
+export function TrackerTile({ tracker, label = tracker.label, icon = tracker.icon, hint = tracker.detail, big, open, onPress }: { tracker: Tracker; label?: string; icon?: IconName; hint?: string; big?: boolean; open?: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
-  return <PressTarget accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }} onPress={onPress}
-    style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : fontScale >= 1.3 ? "45%" : "30%", minWidth: 0, minHeight: 64, paddingVertical: 8, paddingHorizontal: 4, borderRadius: radii.tile,
+  return <PressTarget accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={open === undefined ? undefined : { expanded: open }} onPress={onPress}
+    style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : big || fontScale >= 1.3 ? "45%" : "30%", minWidth: 0, minHeight: big ? 76 : 64, paddingVertical: 8, paddingHorizontal: 4, borderRadius: radii.tile,
       alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: c.surface, borderWidth: 2, borderColor: open ? c.accent : "transparent" }}>
-    <Icon name={tracker.icon} size={20} color={c.accentText} />
+    <Icon name={icon} size={big ? 24 : 20} color={c.accentText} />
     <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 13, lineHeight: 16, textAlign: "center", color: c.text }}>{label}</Text>
   </PressTarget>;
 }
@@ -33,7 +34,7 @@ export function MoreLogs({ child, now, pastDay, stage, onOpen }: { child: Child;
     <SavedLog flow={flow} now={now} day={pastDay} timeZone={b.state.bootstrap!.profile.timezone} />
     {open && <TrackerPanel tracker={open} child={child} now={now} pastDay={pastDay} flow={flow} />}
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {shown.map((tracker) => <Tile key={tracker.id} tracker={tracker} open={open === tracker} onPress={() => flow.toggle(tracker.id)} />)}
+      {shown.map((tracker) => <TrackerTile key={tracker.id} tracker={tracker} hint="" open={open === tracker} onPress={() => flow.toggle(tracker.id)} />)}
     </View>
   </View>;
 }

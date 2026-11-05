@@ -1,5 +1,6 @@
 import type { BabyRecord, Child, DeviceState, Relevance, TimingStage } from "./models";
 import { glanceChild } from "./care-glance";
+import type { Stage } from "./trackers";
 
 const day = 24 * 60 * 60_000;
 /** Past 44 weeks 6 days without a birth date the due date is stale, not late pregnancy (the API's rule). */
@@ -34,6 +35,11 @@ export function todayStage(child: Pick<Child, "birth_date" | "due_date"> | null 
   if (birth && birth.getTime() <= startOfDay(now).getTime()) return "baby" as const;
   if (!due) return "none" as const;
   return pregnancyDays(due, now) > latestPregnancyDays ? ("needs_birth" as const) : ("pregnancy" as const);
+}
+
+/** Which trackers a child starts with. One with no dates yet gets a baby's, as Today shows them. */
+export function trackerStage(child: Pick<Child, "birth_date" | "due_date">, now = new Date()): Stage {
+  return ["pregnancy", "needs_birth"].includes(todayStage(child, now)) ? "expecting" : "born";
 }
 
 /** Feed, sleep and diaper logs start once a child is born; while every child is still expected the Add sheet leaves them out. */

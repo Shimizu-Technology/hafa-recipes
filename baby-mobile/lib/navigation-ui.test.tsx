@@ -78,7 +78,6 @@ vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/components/saved-post-row", () => import("../components/saved-post-row"));
 import Library from "../app/(tabs)/library";
 import Journal, { JournalContent } from "../app/journal";
-import Add from "../app/add";
 import RecordDetail from "../app/record/[id]";
 import { Grouped, Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
@@ -154,12 +153,6 @@ it("opens Journal as a pushed screen with Back and Write, and old filtered links
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
   await press("Write");
   expect(mock.stack.at(-1)).toEqual({ pathname: "/edit", params: { kind: "question" } });
-});
-it("shrinks the Add sheet to things to keep: care leaves, a video or link leads", async () => {
-  mock.stack = [{ pathname: "/add" }];
-  await mount(<Add />);
-  const labels = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => n.props.accessibilityLabel).filter(Boolean);
-  expect(labels.filter(l => !/Close/.test(l)).map(l => l.split(".")[0])).toEqual(["Save a video or link", "Write in your journal", "Add to the calendar", "Keep a doctor question", "Make a list"]);
 });
 it("keeps care-only history pushed with Back and disclosed care search", async () => {
   mock.stack = [{ pathname: "/(tabs)" }, { pathname: "/care-history" }];

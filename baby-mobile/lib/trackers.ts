@@ -66,6 +66,8 @@ export const trackersFor = (stage: Stage) => trackers.filter((tracker) => tracke
 /** The ones with a `TrackerPanel` of their own, for a stage. */
 export const panelTrackers = (stage: Stage) => trackersFor(stage).filter((tracker) => tracker.opens === "panel");
 export const shotLabel = "Shot";
+/** Whether a tracker is on: its stage's default. */
+export const trackerOn = (tracker: Tracker, stage: Stage) => tracker.defaultOn.includes(stage);
 
 /** Which tracker a saved entry came from. A label nobody listed is one she made up. */
 export function trackerFor({ kind, data }: Pick<BabyRecord, "kind" | "data">) {
