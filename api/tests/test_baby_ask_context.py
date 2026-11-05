@@ -130,6 +130,7 @@ def test_date_words_are_not_search_terms_and_recaps_have_none():
     assert care_kinds("Hospital bag") == []
     for question in ("When did she last have medicine?", "Did she get any meds today?", "Any medications?"):
         assert care_kinds(question) == ["medicine"]
+    assert "medicine" in chat.SCOPE_KINDS["care"]
 
 
 def test_context_pack_uses_the_timing_rules():
@@ -621,3 +622,35 @@ async def test_a_journal_entry_with_no_baby_stays_out_when_she_asks_about_hersel
     pressure = await log_new(baby_api, "custom", "118/76", guam(4, 9, 5), {"label": "Blood pressure"})
     found = [item["id"] for item in (await ask(baby_api, "What is my blood pressure and my weight?", child_id=child))[0]]
     assert pressure in found and note not in found
+
+
+@needs_database
+async def test_a_dose_is_found_in_a_care_conversation_too(baby_api, frozen, new_kinds):
+    child = await new_child(baby_api)
+    dose = await log_new(baby_api, "medicine", "Tylenol", guam(4, 8), {"name": "Tylenol", "dose": "2.5 mL"}, child=child)
+    for minute in range(35):
+        await log(baby_api, "diaper", "Diaper", guam(4, 18, minute), data={"type": "wet"}, child=child)
+    found = [item["id"] for item in (await ask(baby_api, "When did she last have medicine?", child_id=child, scope="care"))[0]]
+    assert dose in found
+
+
+@needs_database
+@pytest.mark.parametrize("question", [
+    "Did I take my vitamins?", "Did I take my medicine?", "Did I take my meds?", "Have I had my medication?",
+])
+async def test_her_vitamins_and_medicine_are_found_by_any_of_those_words(baby_api, frozen, new_kinds, question):
+    child = await new_child(baby_api)
+    taken = await log_new(baby_api, "custom", "Prenatal", guam(4, 8), {"label": "Vitamins and medicine"})
+    for minute in range(35):
+        await log(baby_api, "diaper", "Diaper", guam(4, 18, minute), data={"type": "wet"}, child=child)
+    assert taken in [item["id"] for item in (await ask(baby_api, question, child_id=child))[0]]
+
+
+@needs_database
+@pytest.mark.parametrize("question", ["Did I give her medicine?", "Did she have my medicine?", "Did I give the baby her meds?"])
+async def test_a_question_about_the_baby_stays_on_the_baby_with_the_same_words(baby_api, frozen, new_kinds, question):
+    child = await new_child(baby_api)
+    dose = await log_new(baby_api, "medicine", "Tylenol", guam(4, 8), {"name": "Tylenol"}, child=child)
+    hers = await log_new(baby_api, "custom", "Prenatal", guam(4, 9), {"label": "Vitamins and medicine"})
+    found = [item["id"] for item in (await ask(baby_api, question, child_id=child))[0]]
+    assert dose in found and hers not in found

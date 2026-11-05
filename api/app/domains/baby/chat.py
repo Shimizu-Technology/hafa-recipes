@@ -31,7 +31,7 @@ router = APIRouter(tags=["baby"], route_class=BabyRoute)
 SCOPE_KINDS = {
     "library": ("source", "collection"),
     "journal": ("journal", "question"),
-    "care": ("feeding", "sleep", "diaper", "routine"),
+    "care": ("feeding", "sleep", "diaper", "routine", "medicine"),
 }
 STOPWORDS = frozenset(
     "a an and are as at be been by can could did do does for from had has have how i in is it me my of on or our should that the their them there these they this to us was we were what when where which who why will with would you your about please saved find show tell "
@@ -48,7 +48,11 @@ CARE_WORDS = {
 }
 # Logs she keeps about herself have no baby on them. These labels match baby-mobile/lib/trackers.ts.
 HER_LOG_LABELS = ("How I'm feeling", "My weight", "Blood pressure", "Vitamins and medicine")
-HER_WORDS = frozenset("blood pressure bp weight weigh feeling feel felt vitamin vitamins prenatal prenatals".split())
+HER_WORDS = frozenset(
+    "blood pressure bp weight weigh feeling feel felt vitamin vitamins prenatal prenatals "
+    "medicine medicines meds medication medications".split()
+)
+ABOUT_THE_BABY = frozenset("baby baby's her hers she he him his".split())
 FIRST_PERSON = frozenset("i i'm i've me my myself".split())
 RECENT_LIMIT = 30  # About one day of newborn logs.
 DATED_LIMIT = 60
@@ -308,7 +312,7 @@ def care_kinds(message):
 
 def asks_about_her(message):
     words = {word.lower() for word in re.findall(r"[\w'-]+", message)}
-    return bool(words & FIRST_PERSON and words & HER_WORDS) and not words & {"baby", "baby's"}
+    return bool(words & FIRST_PERSON and words & HER_WORDS) and not words & ABOUT_THE_BABY
 
 
 def term_matches(terms):
@@ -395,8 +399,11 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
             BabyRecord.child_id == request.child_id,
             and_(BabyRecord.child_id.is_(None), BabyRecord.kind == "custom", BabyRecord.data["label"].astext.in_(HER_LOG_LABELS)),
         ))
+    # What she calls it isn't always what it's stored as, so "my meds" still finds "Vitamins and medicine".
     if "bp" in terms:
         terms = [*terms, "blood pressure"]
+    if set(terms) & set(CARE_WORDS["medicine"]):
+        terms = [*terms, "medicine"]
     if legacy:
         query = query.where(BabyRecord.kind.in_(V1_KINDS))
     if request.scope in SCOPE_KINDS:
