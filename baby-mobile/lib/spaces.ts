@@ -18,10 +18,10 @@ export const goneBabyMessage = "This baby’s profile was removed.";
 export const stuckTapMessage = "This tap couldn’t be added to the feed. It’s safe on this phone.";
 /** The space a row lives in. An older build saved no space, and everything was personal then. */
 export const spaceOf = (row: { space_id?: string }, personal?: string) => row.space_id ?? personal;
-/** A space's own generation. No space means the personal one, and a space this account isn't in has none. */
+/** A space's own generation. No space, or the API not listing any, means the personal one. A space this account isn't in has none. */
 export function generationOf(bootstrap: Pick<Bootstrap, "generation" | "spaces" | "personal_space_id"> | undefined, space?: string | null) {
   if (!bootstrap) return undefined;
-  if (!space || space === bootstrap.personal_space_id) return bootstrap.generation;
+  if (!space || !bootstrap.spaces?.length || space === bootstrap.personal_space_id) return bootstrap.generation;
   return bootstrap.spaces?.find((known) => known.id === space)?.generation;
 }
 /** What a queued change is fenced by. A bare number names no space, which is all the API takes with its flag off. */

@@ -100,6 +100,9 @@ describe("generation by space", () => {
     expect(generationOf(boot(), undefined)).toBe(2);
     expect(generationOf(boot(), "gone")).toBeUndefined();
   });
+  it("with the flag off again every space answers as personal, so a stamped change still goes", () => {
+    expect(generationOf(off(), personal)).toBe(2);
+  });
 });
 
 describe("the fence around pending work", () => {

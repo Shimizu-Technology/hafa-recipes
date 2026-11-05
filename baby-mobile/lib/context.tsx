@@ -171,7 +171,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const value = withPendingTracking(withPendingBirths(trackRoutineIntents(before, change(before), ownerRef.current)));
         if (deleting.current && value.bootstrap) throw Error("Baby data deletion is in progress.");
         // A space this account has left answers nothing here: its work waits to be kept or discarded.
-        if (value.outbox.some((m) => { const known = generationOf(value.bootstrap, m.space_id); return known !== undefined && m.generation !== known; }) || (!value.bootstrap && value.outbox.length))
+        if (value.outbox.some((m) => { const known = generationOf(value.bootstrap, m.space_id); return known !== undefined && m.generation !== known && !(m.space_id && !spacesLive(value.bootstrap)); }) || (!value.bootstrap && value.outbox.length))
           throw Error("Older changes cannot be saved after Baby data is cleared.");
         if (value.bootstrap?.active === false && (value.outbox.length || Object.keys(value.drafts).length || Object.keys(value.childDrafts ?? {}).length))
           throw Error("Start a new Baby space deliberately before saving.");

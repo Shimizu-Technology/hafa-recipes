@@ -1461,6 +1461,15 @@ describe("a family's protocol, through the sync loop", () => {
     await mount(); await flush();
     expect(baby.state.records.map((row) => row.id)).toEqual(["feed"]);
   });
+  it("still sends a stamped change if the flag goes off, and doesn't refuse every save over a family's generation", async () => {
+    const save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), row = { id: "m", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "m", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+    const shared = { ...row, id: "s", generation: 9, space_id: family, record: { ...row.record, id: "s" } };
+    setup({ ...bootstrap }, { bootstrap: { ...bootstrap }, outbox: [row, shared] } as never, { save });
+    await mount(); await flush();
+    expect(save).toHaveBeenCalledTimes(1);
+    await act(async () => { await baby.commit((s) => ({ ...s, askNoticeSeen: true })); });
+    expect(baby.state.askNoticeSeen).toBe(true);
+  });
   it("treats a release of an upload that's already gone as done, so it can't hold up the pass", async () => {
     const releaseAttachment = vi.fn().mockRejectedValue(new ApiError("Unavailable", 404));
     setup(live, { fileReleases: ["retired"], fileUploads: { f: "retired" } }, { releaseAttachment });
