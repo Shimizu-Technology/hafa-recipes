@@ -135,6 +135,8 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     registered = await call("PUT", phone, 200, json={"token": f"ExponentPushToken[{actor}]", "platform": "ios"})
     assert (await call("GET", API + "/push/prefs", 200)).json()["kinds"]["event"]["enabled"] is False
     await call("PATCH", API + "/push/prefs", 200, json={"kinds": {"event": {"enabled": True}}})
+    # Each phone's own report. Before migration 061 there's no such thing to report.
+    await call("PUT", phone + "/routines", 404, json={"holds": {}})
     await call("DELETE", f"{phone}?registration={registered.json()['registration']}", 204)
     # Reminders are per person too: another person's can be neither read nor dismissed.
     async with api.sessions() as db:
@@ -144,6 +146,8 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
         reminder = await db.scalar(select(BabyNotification).where(BabyNotification.idempotency_key.endswith(f"m-{actor}")))
     listed = (await call("GET", API + "/reminders/due", 200)).json()["items"]
     assert str(reminder.id) not in {item["id"] for item in listed}
+    await call("GET", f"{API}/reminders/{reminder.id}/tap", 404)
+    assert str(reminder.id) not in (await call("GET", API + "/reminders/upcoming", 200)).text
     await call("POST", f"{API}/reminders/{reminder.id}/dismiss", 204)
     async with api.sessions() as db:
         assert (await db.get(BabyNotification, reminder.id)).dismissed_at is None

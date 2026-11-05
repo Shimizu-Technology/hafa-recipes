@@ -6,6 +6,7 @@ turns it on. Quiet hours belong to the person rather than a reminder type, so th
 under the reserved kind ``PERSON_ROW``.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
@@ -15,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import Field, StrictBool, ValidationError, field_validator, model_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
@@ -23,7 +24,7 @@ from app.domains.baby.dependencies import Client, Database, Generation, Limit, U
 from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyNotification, BabyNotificationPref, BabyPushDevice
 from app.domains.baby.queries import legacy_client
-from app.domains.baby.reminders import dismiss, reminder_access, resolve
+from app.domains.baby.reminders import dismiss, lock_screen, reminder_access, resolve
 from app.domains.baby.schemas import DomainModel, Profile
 from app.domains.baby.security import BabyRoute, push_enabled
 from app.rate_limit import QuotaWindow, RateLimitExceeded, push_registration_limiter
@@ -34,7 +35,7 @@ REGISTRATION_WINDOWS = (QuotaWindow(seconds=600, limit=30),)
 PERSON_ROW = "_person"
 ReminderKind = Literal[
     "event", "visit_prep", "import", "feed_interval", "running_timer", "pregnancy_week",
-    "milestone_window", "well_visit",
+    "milestone_window", "well_visit", "routine",
 ]
 REMINDER_KINDS = ReminderKind.__args__
 TOKEN = re.compile(r"Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,160}\]")
@@ -43,6 +44,7 @@ Registration = Annotated[str, Query(pattern=r"^\d{1,17}$")]
 # Half-hour steps. Chosen by the person, or their doctor: no value here is a recommendation.
 Hours = Annotated[float, Field(ge=0.5, le=24, multiple_of=0.5)]
 ClockTime = Annotated[str, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
+HeldSchedule = Annotated[str, Field(max_length=200)]
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 MICROSECOND = timedelta(microseconds=1)
 
@@ -183,6 +185,56 @@ async def store_pref(db, owner, space_id, kind, enabled, settings):
     )
 
 
+class RoutineReport(DomainModel):
+    holds: dict[UUID, HeldSchedule] = Field(default_factory=dict, max_length=500)
+
+
+async def device_routines_ready(db):
+    """Whether migration 061 has run. Until it has, nothing here is offered or read."""
+    return await db.scalar(text("SELECT to_regclass('public.baby_device_routines') IS NOT NULL"))
+
+
+async def held_routines(db, devices):
+    """What each phone last said it holds: {device_id: {record_id: schedule}}. No row means it has never said."""
+    if not devices or not await device_routines_ready(db):
+        return {}
+    rows = await db.execute(
+        text("SELECT device_id, holds FROM baby_device_routines WHERE device_id = ANY(:ids)"), {"ids": list(devices)}
+    )
+    return {device: holds for device, holds in rows.all()}
+
+
+@router.put("/push/devices/{installation_id}/routines")
+async def report_routines(installation_id: InstallationId, body: RoutineReport, user: User, db: Database):
+    """What this phone has scheduled for itself, replacing what it said before. It keeps firing those, and the API
+    leaves them to it. Anything it doesn't hold, the API pushes. So a phone changes nothing by reporting, and a phone
+    that never does just carries on as it was. The first report from any of a person's phones starts planning them.
+    """
+    if not await device_routines_ready(db):
+        raise HTTPException(404, "Not found")
+    device = await db.scalar(select(BabyPushDevice.id).where(
+        BabyPushDevice.app_user_id == user.id, BabyPushDevice.installation_id == installation_id,
+    ))
+    if device is None:
+        raise HTTPException(404, "Not found")
+    member = await membership_for(db, user.id)
+    await db.execute(text("""
+        INSERT INTO baby_device_routines (device_id, holds, reported_at) VALUES (:device, CAST(:holds AS jsonb), now())
+        ON CONFLICT (device_id) DO UPDATE SET holds = EXCLUDED.holds, reported_at = EXCLUDED.reported_at
+    """), {"device": device, "holds": json.dumps({str(key): value for key, value in body.holds.items()})})
+    # Only the first time: someone who turned it off on the API stays off.
+    await db.execute(
+        insert(BabyNotificationPref)
+        .values(space_id=member.personal_space_id, app_user_id=user.id, kind="routine", enabled=True, settings={})
+        .on_conflict_do_nothing(index_elements=["space_id", "app_user_id", "kind"])
+    )
+    await db.commit()
+    from app.domains.baby.push_worker import baby_push_worker
+
+    baby_push_worker.plan_soon(user.id)
+    return {"held": len(body.holds)}
+
+
 @router.put("/push/devices/{installation_id}")
 async def register_device(
     installation_id: InstallationId, body: DeviceRegistration, user: User, db: Database, generation: Generation,
@@ -284,6 +336,24 @@ async def patch_prefs(body: PrefsPatch, user: User, db: Database, generation: Ge
     return (await load_prefs(db, user.id, space_id)).response()
 
 
+def reminder_item(row, words):
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "space_id": row.space_id,
+        "text": words.detail,  # This is the person's own screen, not their lock screen.
+        "due_at": row.due_at,
+        "delivery": row.status,
+        "identity": row.collapse_id,
+        "data": words.data,
+    }
+
+
+def readable_spaces(access):
+    # An older build only reads its personal space, so a family's reminders stay off its Today too.
+    return [grant.id for grant in access.spaces] if access.enabled else [access.personal_space_id]
+
+
 @router.get("/reminders/due")
 async def due_reminders(user: User, db: Database, client: Client = None, limit: Limit = 50):
     """What Today shows: due and not dismissed, its reason still standing, however delivery went."""
@@ -291,8 +361,7 @@ async def due_reminders(user: User, db: Database, client: Client = None, limit: 
 
     access = await reminder_access(db, user.id, client=client)
     prefs = await load_prefs(db, user.id, access.personal_space_id)
-    # An older build only reads its personal space, so a family's reminders stay off its Today too.
-    spaces = [grant.id for grant in access.spaces] if access.enabled else [access.personal_space_id]
+    spaces = readable_spaces(access)
     rows = await db.scalars(
         select(BabyNotification)
         .where(
@@ -310,17 +379,72 @@ async def due_reminders(user: User, db: Database, client: Client = None, limit: 
             break
         words = await resolve(db, row, access, prefs)
         if words and not words.not_yet(now()):
-            items.append({
-                "id": row.id,
-                "kind": row.kind,
-                "space_id": row.space_id,
-                "text": words.detail,  # This is the person's own screen, not their lock screen.
-                "due_at": row.due_at,
-                "delivery": row.status,
-                "identity": row.collapse_id,
-                "data": words.data,
-            })
+            items.append(reminder_item(row, words))
     return {"items": items}
+
+
+@router.get("/reminders/upcoming")
+async def upcoming_reminders(user: User, db: Database, client: Client = None, limit: Limit = 30):
+    """What a phone can hold as its offline copy: the same identity, at the time it would go, in lock-screen words."""
+    from app.domains.baby import triggers  # noqa: F401  (each kind's wording registers itself)
+
+    access = await reminder_access(db, user.id, client=client)
+    prefs = await load_prefs(db, user.id, access.personal_space_id)
+    moment = now()
+    rows = await db.scalars(
+        select(BabyNotification)
+        .where(
+            BabyNotification.space_id.in_(readable_spaces(access)),
+            BabyNotification.app_user_id == user.id,
+            BabyNotification.status == "queued",
+            BabyNotification.provider_ticket.is_(None),
+            BabyNotification.kind != "routine",  # A phone keeps those on its own schedule, and that schedule isn't a copy.
+            BabyNotification.due_at > moment,
+            BabyNotification.dismissed_at.is_(None),
+        )
+        .order_by(BabyNotification.due_at, BabyNotification.id)
+        .limit(limit)
+    )
+    items = []
+    for row in rows:
+        words = await resolve(db, row, access, prefs)
+        if not words:
+            continue
+        due, through = words.due_at or row.due_at, prefs.kind(row.kind).break_through
+        items.append({
+            "id": row.id,
+            "kind": row.kind,
+            "space_id": row.space_id,
+            "identity": row.collapse_id,
+            "fire_at": (not through and quiet_until(prefs.quiet_hours, due)) or due,
+            "text": lock_screen(row.kind),
+            "time_sensitive": through,
+            "data": words.data,
+        })
+    return {"items": items}
+
+
+@router.get("/reminders/{identifier}/tap")
+async def tapped_reminder(identifier: UUID, user: User, db: Database, client: Client = None):
+    """A tap names only a ``notification_id``, so this says what it was and where it opens.
+
+    The same test as Today's list: anything Today wouldn't show now is gone as far as a tap can tell.
+    """
+    from app.domains.baby import triggers  # noqa: F401  (each kind's wording registers itself)
+
+    access = await reminder_access(db, user.id, client=client)
+    row = await db.scalar(select(BabyNotification).where(
+        BabyNotification.id == identifier,
+        BabyNotification.app_user_id == user.id,
+        BabyNotification.space_id.in_(readable_spaces(access)),
+        BabyNotification.due_at <= now(),
+        BabyNotification.dismissed_at.is_(None),
+    ))
+    prefs = await load_prefs(db, user.id, access.personal_space_id)
+    words = await resolve(db, row, access, prefs) if row else None
+    if not words or words.not_yet(now()):
+        raise HTTPException(404, "Not found")
+    return reminder_item(row, words)
 
 
 @router.post("/reminders/{identifier}/dismiss", status_code=204)

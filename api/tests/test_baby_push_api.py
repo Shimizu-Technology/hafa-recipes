@@ -203,7 +203,7 @@ async def test_everything_is_off_until_turned_on(push):
     assert response.status_code == 200
     state = response.json()
     assert state["quiet_hours"] is None
-    assert len(state["kinds"]) == 8
+    assert len(state["kinds"]) == 9
     assert all(not item["enabled"] and not item["break_through"] for item in state["kinds"].values())
 
 
