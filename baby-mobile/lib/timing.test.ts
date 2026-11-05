@@ -4,6 +4,7 @@ import {
   babyAgeCard, babyAgeWeeks, byStart, careLogsStarted, dueLine, matchesTiming, pregnancyProgress, profileToday, relevanceFromForm, timingChild, timingContext, timingForm,
   timingLabel, tipTopic, todayStage,
 } from "./timing";
+import { glanceChild } from "./care-glance";
 
 const today = new Date(2026, 10, 1, 9, 30);
 const tip = (id: string, relevance?: Relevance | null, extra = {}): BabyRecord => optimisticRecord({
@@ -61,6 +62,25 @@ describe("a stale due date, several children and the profile's day", () => {
     expect(timingChild(state([older, stale]), today)?.id).toBe("ana"); // ambiguous for the API: keep Today's child
     expect(timingChild(state([stale, { id: "none", name: "A", revision: 1 }]), today)?.id).toBe("old");
     expect(timingChild(state([]), today)).toBeNull();
+  });
+  it("on Everything, picks the newborn when another baby is older, and otherwise keeps to the same rule", () => {
+    const state = (children: Child[], selectedChild: string | null = null) => ({ selectedChild,
+        bootstrap: { generation: 1, ai_available: false, children, profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: false } } }),
+      one = (id: string, birth_date: string): Child => ({ id, name: id, revision: 1, birth_date }),
+      big = one("big", "2025-10-01"), bigger = one("bigger", "2024-03-01"), newborn = one("newborn", "2026-11-01"), twin = one("twin", "2026-11-01"), turned = one("turned", "2025-11-01");
+    expect(timingChild(state([big, newborn]), today)?.id).toBe("newborn");
+    expect(timingChild(state([newborn, big]), today)?.id).toBe("newborn");
+    expect(timingChild(state([big, bigger, newborn]), today)?.id).toBe("newborn");
+    // Choosing a baby still wins.
+    expect(timingChild(state([big, newborn], "big"), today)?.id).toBe("big");
+    // Neither is younger than the other in the way that matters: as Today shows them now.
+    const asBefore = (children: Child[]) => glanceChild(state(children))?.id;
+    expect(timingChild(state([big, bigger]), today)?.id).toBe(asBefore([big, bigger]));
+    expect(timingChild(state([twin, newborn]), today)?.id).toBe(asBefore([twin, newborn]));
+    // A first birthday today is 12 months: no longer under.
+    expect(timingChild(state([big, turned]), today)?.id).toBe(asBefore([big, turned]));
+    // One due still leads, as it did.
+    expect(timingChild(state([big, newborn, { id: "due", name: "D", revision: 1, due_date: "2026-12-10" }]), today)?.id).toBe("due");
   });
   it("counts today in the profile's time zone, not the phone's", () => {
     // 2026-10-31 15:30 UTC is already Nov 1 in Guam (UTC+10) but still Oct 31 in Honolulu.

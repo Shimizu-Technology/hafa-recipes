@@ -91,8 +91,8 @@ type TrackerPanelProps = { tracker: Tracker; child: Child; now: Date; pastDay?: 
  * One tracker's quick panel, as quick as a diaper: the time defaults to now, nothing goes back anywhere, and it works
  * offline. It only needs a `useLogFlow`, so it opens the same from Today, Tracker or Add. Show `SavedLog` beside it for Undo.
  *
- * What's typed belongs to the baby it was typed for. Change baby and it starts again, so a dose can't land on the other
- * baby. A log about her isn't either baby's, so it carries on.
+ * What's typed belongs to the baby it was typed for. `MoreLogs` closes the panel when the baby changes; this starts it again
+ * wherever it stays open, so a dose can't land on the other baby. A log about her isn't either baby's, so it carries on.
  */
 export function TrackerPanel(props: TrackerPanelProps) {
   const owner = props.tracker.about === "her" ? "her" : props.child.id, was = useRef(owner);

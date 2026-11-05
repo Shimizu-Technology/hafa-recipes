@@ -351,6 +351,8 @@ export function useQuickLog({ child, rows, now, pastDay, who, afterSave }: Quick
     openSleeps = pastDay ? [] : careGlance(rows, child.id, now, timeZone).openSleeps, openSleep = openSleeps[0],
     last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
     savedRow = flow.saved?.recordId ? b.records.find((row) => row.id === flow.saved!.recordId) : undefined;
+  // A tap meant for one baby can't land on the other.
+  useEffect(() => flow.close, [child.id]);
   function toggle(name: QuickPanelName) {
     if (name === "breast" && legacyTimer && !pastDay) return toast("A feeding timer is running. Finish it from the timer above.");
     flow.toggle(name);
