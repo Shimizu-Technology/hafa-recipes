@@ -3,9 +3,9 @@ import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { customProblem, waitingEntries, type CareStats } from "@/lib/care-stats";
-import { kindName, messageFor, type BabyRecord } from "@/lib/models";
+import { kindWord, messageFor, type BabyRecord } from "@/lib/models";
 import { friendlyTime } from "@/lib/care-format";
-import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryMaxDays, summaryWords } from "@/lib/doctor-summary";
+import { lastSummaryLevel, localEntries, logCounts, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryMaxDays, summaryWords } from "@/lib/doctor-summary";
 import { exportOnePagePdf } from "@/lib/files";
 import { profileToday, timingChild } from "@/lib/timing";
 import { addDays, dayKey } from "@/lib/tracker";
@@ -75,7 +75,9 @@ export default function DoctorSummary() {
     const page = { stats: numbers, child, timezone, prepared: new Date(),
         questions: picked!.questions,
         // What she ticked herself goes first, so a full page never drops it for a log note.
-        notes: picked!.notes },
+        notes: picked!.notes,
+        // The full page only: the API has them all, and this phone may not.
+        logs: numbers ? rows!.logs : [], her: numbers ? rows!.her.filter(on) : [] },
       result = await exportOnePagePdf((level) => summaryHtml(page, level), lastSummaryLevel, b.owner, summaryFileName(from, to, numbers ? undefined : "questions-and-notes"));
     if (!result.fits) setOutcome("This one runs past a page, so it wasn’t shared. Choose fewer days or untick some notes, then share again.");
     else if (result.level > 0) setOutcome("Some notes were shortened or left out to fit one page. The page says how many.");
@@ -134,7 +136,14 @@ export default function DoctorSummary() {
         {rows.questions.length ? list(rows.questions, (row) => summaryWords(row).detail, (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">No questions saved yet.</Copy>}
       </Section>
       {rows.logNotes.length > 0 && <Section title="Notes on your logs">
-        {list(rows.logNotes, (row) => `${when(row)}. ${row.body.trim().slice(0, 160)}`, (row) => kindName[row.kind])}
+        {list(rows.logNotes, (row) => `${when(row)}. ${row.body.trim().slice(0, 160)}`, (row) => row.data.label ?? kindWord(row.kind))}
+      </Section>}
+      {rows.logs.length > 0 && <Section title="Also on the page">
+        <Copy numeric kind="small" tone="muted">{logCounts(rows.logs)}</Copy>
+      </Section>}
+      {!child?.birth_date && rows.her.length > 0 && <Section title="Your own logs">
+        <Copy kind="small" tone="muted">As you typed them. Untick any you’d rather leave off.</Copy>
+        {list(rows.her, (row) => `${when(row)}. ${[typeof row.data.value === "number" ? `${row.data.value} ${row.data.unit ?? ""}`.trim() : row.title, row.body.trim().slice(0, 160)].filter(Boolean).join(" · ")}`, (row) => row.data.label ?? kindWord(row.kind))}
       </Section>}
       <Section title="Your journal">
         <Copy kind="small" tone="muted">Private. Only what you tick goes on the page.</Copy>
