@@ -283,6 +283,8 @@ export interface ImportJob {
   baseline?: BabyRecord | null;
   automatic?: boolean;
   reconciled?: boolean;
+  space_id?: string;
+  generation?: number;
 }
 export interface Citation {
   id: string;
@@ -349,7 +351,11 @@ export interface EditorDraft {
   log_form?: LogFormDraft;
   event_edit?: EventEdit;
 }
-export type Mutation = { localOnly?: boolean } & (
+export type Mutation = {
+  localOnly?: boolean;
+  /** The space it's for, and `generation` is that space's. None with the API's family flag off, or from an older build. */
+  space_id?: string;
+} & (
   | {
       id: string;
       generation: number;
@@ -485,6 +491,8 @@ export interface DeviceState {
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
+  /** Which storage shape this was saved in. None means a build before spaces. */
+  version?: number;
   /** How far `/changes` has come in each space, and the access versions that came with it. */
   changes?: { cursor: Record<string, number>; access: Record<string, number> };
 }

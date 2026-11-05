@@ -19,7 +19,7 @@ import type {
 import type { CareDay } from "./tracker";
 import type { CareStats, StatsChoice } from "./care-stats";
 import type { ChangesAnswer } from "./changes";
-import { spacesLive } from "./spaces";
+import { rowFence, spacesLive, unavailableMessage } from "./spaces";
 import { dailyAiLimitMessage } from "./import-status";
 /**
  * What this build tells the API it understands, as `X-Baby-Client`. 2 reads and writes every current kind and field, in
@@ -190,7 +190,7 @@ export function createBabyApi(
                           ? dailyAiLimitMessage
                           : "Please wait a moment before trying again."
                         : response.status === 404
-                          ? "This item is no longer available. Keep your local copy or discard this change."
+                          ? unavailableMessage
                           : response.status >= 500
                             ? path === "/attachments"
                               ? "Håfa Baby could not upload this attachment. It is safe on this phone. Retry the upload later."
@@ -259,13 +259,11 @@ export function createBabyApi(
       request<Child>(
         value.revision !== undefined ? `/children/${value.id}` : "/children",
         value.revision !== undefined ? "PATCH" : "POST",
-        value.revision !== undefined
-          ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "id"))
-          : value,
+        Object.fromEntries(Object.entries(value).filter(([key]) => key !== "space_id" && key !== "generation" && (value.revision === undefined || key !== "id"))),
         g
       ),
     deleteChild: (child: Child, g: Fence) =>
-      request<void>(`/children/${child.id}?revision=${child.revision}`, "DELETE", undefined, g),
+      request<void>(`/children/${child.id}?revision=${child.revision}`, "DELETE", undefined, typeof g === "number" ? rowFence(child, g) : g),
     records: (filters: RecordFilters = {}) =>
       request<RecordPage>("/records?" + query({ ...filters })),
     search: (q: string, kind?: Kind, child_id?: string | null,
@@ -286,6 +284,8 @@ export function createBabyApi(
         { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }, g),
     save: (value: RecordWrite, g: Fence) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
+      // A row read from the API says where it lives, and a write has to go there.
+      if (typeof g === "number") g = rowFence(value as { generation?: number; space_id?: string }, g);
       // Repair optional links at the wire boundary, including durable outbox
       // retries created by earlier share capture code. Keep nonblank bytes intact
       // so an accepted create with a lost response keeps the same replay hash.
@@ -316,7 +316,7 @@ export function createBabyApi(
     decideSuggestions: (items: { record_id: string; revision: number }[], g: Fence, action: "accept" | "dismiss" = "accept") =>
       request<SuggestionResult>("/suggested-categories", "POST", { action, items }, g),
     remove: (value: BabyRecord, g: Fence) =>
-      request<void>(`/records/${value.id}?revision=${value.revision}`, "DELETE", undefined, g),
+      request<void>(`/records/${value.id}?revision=${value.revision}`, "DELETE", undefined, typeof g === "number" ? rowFence(value, g) : g),
     import: (
       value: {
         id: string;

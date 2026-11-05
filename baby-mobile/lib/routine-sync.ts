@@ -1,5 +1,6 @@
 import type { RecordFilters } from "./api";
 import type { BabyRecord, DeviceState, Mutation, RecordPage } from "./models";
+import { generationOf } from "./spaces";
 
 const routineMutation = (m: Mutation) => (m.type === "save" || m.type === "delete") && m.record.kind === "routine";
 const routines = (s: DeviceState) => s.records.filter((r) => r.kind === "routine");
@@ -23,7 +24,7 @@ export function routineReminderScope(state: DeviceState, owner: string) {
       ...new Set([
         ...(valid ? marker.managed_ids : []),
         ...state.outbox
-          .filter((m) => m.generation === generation && routineMutation(m))
+          .filter((m) => m.generation === generationOf(state.bootstrap, m.space_id) && routineMutation(m))
           .map((m) => (m.type === "save" || m.type === "delete" ? m.record.id : "")),
       ]),
     ],
@@ -35,7 +36,7 @@ export function trackRoutineIntents(before: DeviceState, after: DeviceState, own
   if (generation === undefined || after.bootstrap?.active === false) return after;
   const changed = [...before.outbox, ...after.outbox].filter(
     (m) =>
-      m.generation === generation &&
+      m.generation === generationOf(after.bootstrap, m.space_id) &&
       routineMutation(m) &&
       before.outbox.find((a) => a.id === m.id) !== after.outbox.find((a) => a.id === m.id)
   );

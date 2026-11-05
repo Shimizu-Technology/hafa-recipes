@@ -30,6 +30,9 @@ import {
 import {
   addMutation,
   fencedState,
+  retryUnavailable,
+  upgradedState,
+  withKnownSpaces,
   heldUntil,
   mutationRecordId,
   settledSplit,
@@ -68,7 +71,7 @@ import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass } from "./changes";
-import { spacesLive } from "./spaces";
+import { fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
   Platform.OS === "web"
@@ -164,7 +167,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const before = ref.current;
         const value = withPendingTracking(withPendingBirths(trackRoutineIntents(before, change(before), ownerRef.current)));
         if (deleting.current && value.bootstrap) throw Error("Baby data deletion is in progress.");
-        if (value.outbox.some((m) => m.generation !== value.bootstrap?.generation))
+        // A space this account has left answers nothing here: its work waits to be kept or discarded.
+        if (value.outbox.some((m) => { const known = generationOf(value.bootstrap, m.space_id); return known !== undefined && m.generation !== known; }) || (!value.bootstrap && value.outbox.length))
           throw Error("Older changes cannot be saved after Baby data is cleared.");
         if (value.bootstrap?.active === false && (value.outbox.length || Object.keys(value.drafts).length || Object.keys(value.childDrafts ?? {}).length))
           throw Error("Start a new Baby space deliberately before saving.");
@@ -223,7 +227,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
       await clearFiles(ownerRef.current);
     }
     await commit((s) => {
-      const next = fencedState(s, bootstrap.generation);
+      const fenced = fencedState(s, bootstrap),
+        grew = familySpaces(bootstrap).some((space) => !familySpaces(s.bootstrap).some((known) => known.id === space.id)),
+        next = withKnownSpaces(grew ? retryUnavailable(fenced) : fenced, bootstrap);
       return {
         ...next,
         bootstrap,
@@ -255,8 +261,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const saved = await vault.current.read<DeviceState>();
         if (!current() || closing.current || deleting.current) return;
         if (saved) {
-          ref.current = saved;
-          setState(saved);
+          const upgraded = upgradedState(saved);
+          ref.current = upgraded;
+          setState(upgraded);
         }
         storageReady.current = true;
         setReady(true);
@@ -330,7 +337,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const next = ref.current.outbox.find((m) => m.id === pending.id);
         if (!next) continue;
         if (!alive.current || !onlineRef.current) break;
-        if (next.generation !== latest.generation || next.conflict || next.error || next.localOnly) continue;
+        if (next.generation !== generationOf(latest, next.space_id) || next.conflict || next.error || next.localOnly) continue;
         if (next.type === "import" && next.automatic &&
           (!(latest.profile.ai_consent && latest.profile.auto_process_shares) ||
             (next.automatic_epoch ?? 0) !== (latest.profile.auto_process_epoch ?? 0))) {
@@ -345,7 +352,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           if (next.type === "event_split") {
             let done: Awaited<ReturnType<typeof api.splitEvent>>;
             try {
-              done = await api.splitEvent(next.series.id, { revision: next.series.revision ?? 0, from_start: next.from_start, event: next.event }, next.generation);
+              done = await api.splitEvent(next.series.id, { revision: next.series.revision ?? 0, from_start: next.from_start, event: next.event }, fenceOf(next));
             } catch (failure) {
               if (!(failure instanceof ApiError) || failure.local || !current() || (failure.status !== 409 && failure.status !== 410)) throw failure;
               // Gone means it landed once and the new event was removed since. Refused means nothing changed: the old dates all stay.
@@ -361,12 +368,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
               }) }));
             continue;
           } else if (next.type === "delete") {
-            await api.remove(next.record, next.generation);
+            await api.remove(next.record, fenceOf(next));
           } else if (next.type === "child_birth") {
             const server = serverChildren.find((child) => child.id === next.child_id), step = birthStep(server, next);
             if (step === "gone" || step === "different") {
               await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id !== next.id ? m : { ...m,
-                error: step === "gone" ? "This baby’s profile was removed." : "Another phone saved a different birth date. Discard this to keep that one." })) }));
+                error: step === "gone" ? goneBabyMessage : "Another phone saved a different birth date. Discard this to keep that one." })) }));
               continue;
             }
             let taken = false;
@@ -378,7 +385,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             let saved = server!;
             if (step === "send") {
               try {
-                saved = await api.child({ id: server!.id, birth_date: next.birth_date, revision: server!.revision }, next.generation);
+                saved = await api.child({ id: server!.id, birth_date: next.birth_date, revision: server!.revision }, rowFence(server!, next.generation));
               } catch (failure) {
                 if (!(failure instanceof ApiError && !failure.local && failure.status === 409) || !current()) throw failure;
                 // Something else on this child moved. The next pass reads it again and sends the date at its new revision.
@@ -393,7 +400,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           } else if (next.type === "child_tracking") {
             const server = serverChildren.find((child) => child.id === next.child_id), step = trackingStep(server, next);
             if (step === "gone") {
-              await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id ? { ...m, error: "This baby’s profile was removed." } : m)) }));
+              await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id ? { ...m, error: goneBabyMessage } : m)) }));
               continue;
             }
             let taken = false;
@@ -405,7 +412,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             let saved = server!;
             if (step === "send") {
               try {
-                saved = await api.child({ id: server!.id, details: { tracking: next.tracking }, revision: server!.revision }, next.generation);
+                saved = await api.child({ id: server!.id, details: { tracking: next.tracking }, revision: server!.revision }, rowFence(server!, next.generation));
               } catch (failure) {
                 if (!(failure instanceof ApiError && !failure.local && failure.status === 409) || !current()) throw failure;
                 // Something else on this child moved. The next pass reads it again and sends the switch at its new revision.
@@ -427,8 +434,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
             if (!taken) continue;
             try {
               result = next.type === "feed_action"
-                ? await api.feedAction(next.record_id, next.action, next.generation)
-                : await api.sessionAction(next.record_id, next.action, next.generation);
+                ? await api.feedAction(next.record_id, next.action, fenceOf(next))
+                : await api.sessionAction(next.record_id, next.action, fenceOf(next));
             } catch (failure) {
               if (!(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409)) || !current()) throw failure;
               let row: BabyRecord | null = null;
@@ -442,7 +449,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                 const tries = (next.attempts ?? 0) + 1;
                 await commit((s) => ({ ...s, records: row ? replaceRecord(s.records, row) : s.records,
                   outbox: s.outbox.map((m) => m.id !== next.id || (m.type !== "feed_action" && m.type !== "session_action") ? m
-                    : tries >= unresolvedAttempts ? { ...m, error: "This tap couldn’t be added to the feed. It’s safe on this phone." } : retryLater(m)) }));
+                    : tries >= unresolvedAttempts ? { ...m, error: stuckTapMessage } : retryLater(m)) }));
                 continue;
               }
               await commit((s) => ({ ...(outcome === "applied" ? s : withNotice(s, outcome === "plain" ? plainFeedNotice : next.type === "feed_action" ? removedFeedNotice : removedSessionNotice)),
@@ -459,7 +466,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             }));
             for (const file of files) {
               if (file.uploaded_id) continue;
-              const uploaded = await uploadFile(api, file, next.generation);
+              const uploaded = await uploadFile(api, file, fenceOf(next));
               files = files.map((f) => (f.id === file.id ? { ...f, uploaded_id: uploaded.id } : f));
               await commit((s) => ({
                 ...s,
@@ -481,7 +488,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                     : {}),
                 },
               };
-              result = await api.save(feedEdit(value), next.generation);
+              result = await api.save(feedEdit(value), fenceOf(next));
             } else {
               // Persist before the request: a lost admission response can replay
               // an already-completed job after a relaunch.
@@ -501,7 +508,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                   topics: next.topics,
                   attachment_ids,
                 },
-                next.generation
+                fenceOf(next)
               );
               await commit((s) => ({ ...s, imports: [{ ...job, baseline, automatic: next.automatic, reconciled: false },
                 ...s.imports.filter((j) => j.id !== job.id)] }));
@@ -652,8 +659,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
         storageReady.current = true;
         closing.current = false;
         if (saved) {
-          ref.current = saved;
-          setState(saved);
+          const upgraded = upgradedState(saved);
+          ref.current = upgraded;
+          setState(upgraded);
         }
         setReady(true);
         await openingAccount(() => funcs.current.refresh(true), () => !cancelled && current());

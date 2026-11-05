@@ -2,6 +2,7 @@ import { ApiError, type BabyApi } from "./api";
 import { changeCategory } from "./categories";
 import type { BabyRecord, DeviceState, SuggestedCategory } from "./models";
 import { replaceRecord } from "./outbox";
+import { rowFence } from "./spaces";
 
 type Account = {
   api: Pick<BabyApi, "decideSuggestions" | "record" | "save" | "remove">;
@@ -52,8 +53,12 @@ export async function acceptSuggestions(account: Account, sources: readonly Baby
   const chosen = sources.filter((row) => decidable(account.state, row)).slice(0, 100);
   const outcome: AcceptOutcome = { accepted: [], created: [], conflicts: 0, full: [], skipped: 0 };
   if (!chosen.length) return outcome;
-  const generation = account.state.bootstrap!.generation;
-  const response = await account.api.decideSuggestions(chosen.map((row) => ({ record_id: row.id, revision: row.revision })), generation);
+  const generation = account.state.bootstrap!.generation,
+    // Each space answers for its own posts, and a category only ever holds its own space's.
+    spaces = [...new Set(chosen.map((row) => row.space_id))],
+    parts = await Promise.all(spaces.map((space) => { const rows = chosen.filter((row) => row.space_id === space);
+      return account.api.decideSuggestions(rows.map((row) => ({ record_id: row.id, revision: row.revision })), rowFence(rows[0], generation)); })),
+    response = { results: parts.flatMap((part) => part.results), records: parts.flatMap((part) => part.records), collections: parts.flatMap((part) => part.collections) };
   const refetch = new Set<string>();
   for (const result of response.results) {
     const source = chosen.find((row) => row.id === result.record_id);
@@ -169,7 +174,7 @@ export async function restoreSuggestion(account: Account, id: string, before: Su
 export async function dismissSuggestion(account: Account, source: BabyRecord) {
   const before = pendingSuggestion(source);
   if (!before || !decidable(account.state, source)) return { status: "no_suggestion" as const, before: null };
-  const response = await account.api.decideSuggestions([{ record_id: source.id, revision: source.revision }], account.state.bootstrap!.generation, "dismiss");
+  const response = await account.api.decideSuggestions([{ record_id: source.id, revision: source.revision }], rowFence(source, account.state.bootstrap!.generation), "dismiss");
   const status = response.results[0]?.status ?? "unavailable",
     // A conflict, an already-decided post or a replay without a row: load the post as it is now.
     fresh = status !== "unavailable" && !response.records.some((row) => row.id === source.id)

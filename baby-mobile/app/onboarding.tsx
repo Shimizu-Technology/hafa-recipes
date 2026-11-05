@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { messageFor } from "@/lib/models";
+import { spaceFence, spaceForChild } from "../lib/spaces";
 import { Alert } from "react-native";
 import { Button, Choice, Field, Notice, Screen } from "@/components/ui";
 import { DateField } from "@/components/date-field";
@@ -34,7 +35,7 @@ export default function Onboarding() {
       if (child.trim())
         await b.api.child(
           { id, name: child.trim(), birth_date: birth || null, due_date: due || null },
-          b.state.bootstrap!.generation
+          spaceFence(b.state.bootstrap!, spaceForChild(b.state))
         );
       await b.refresh();
       router.replace("/(tabs)/(today)");

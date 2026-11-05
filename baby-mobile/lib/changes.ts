@@ -1,5 +1,5 @@
 import type { BabyRecord, Child, DeviceState } from "./models";
-import { spaceOf } from "./outbox";
+import { spaceOf } from "./spaces";
 
 /** A row as `/changes` sends it, or just its id once it's gone. */
 export type ChangeItem = { id: string; seq: number } & (

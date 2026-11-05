@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { importCardVisible, importFinished, importLabel, importProblem, importRetryable } from "@/lib/import-status";
 import { messageFor } from "@/lib/models";
+import { rowFence } from "../lib/spaces";
 import { Button, Copy, Notice, Section } from "./ui";
 import { Disclosure } from "./disclosure";
 
@@ -13,8 +14,8 @@ export function ImportUpdates() {
     if (busy) return;
     setBusy(id); setError("");
     try {
-      const fresh = await (action === "retry" ? b.api.retryJob(id, b.state.bootstrap!.generation)
-        : b.api.cancelJob(id, b.state.bootstrap!.generation));
+      const fence = rowFence(b.state.imports.find((job) => job.id === id) ?? {}, b.state.bootstrap!.generation),
+        fresh = await (action === "retry" ? b.api.retryJob(id, fence) : b.api.cancelJob(id, fence));
       await b.commit((s) => ({ ...s, imports: s.imports.map((job) => job.id === id ? fresh : job) }));
     } catch (failure) { setError(messageFor(failure)); }
     finally { setBusy(""); }
