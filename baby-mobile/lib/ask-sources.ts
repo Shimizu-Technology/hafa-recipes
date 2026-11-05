@@ -8,7 +8,7 @@ export function askV2Active(bootstrap: Bootstrap | null | undefined) {
 
 /** Only a real web link is ever handed to the phone to open. */
 export function openableUrl(url: string) {
-  return /^https?:\/\/[^\s]+$/i.test(url);
+  return /^https?:\/\/[^\s\\\x00-\x1f\x7f]+$/i.test(url);
 }
 
 export function sourceGroups(sources: WebSource[] = []) {

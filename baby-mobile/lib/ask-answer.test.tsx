@@ -33,6 +33,9 @@ it("only opens real web links", () => {
   expect(openableUrl("https://www.cdc.gov/x")).toBe(true);
   expect(openableUrl("javascript:alert(1)")).toBe(false);
   expect(openableUrl("tel:911")).toBe(false);
+  expect(openableUrl("https://evil.example\\@cdc.gov/x")).toBe(false);
+  expect(openableUrl("https://www.cdc.gov/a\u0000b")).toBe(false);
+  expect(openableUrl("https://www.cdc.gov/a\tb")).toBe(false);
   expect(sourceGroups([{ ...cdc, url: "javascript:alert(1)" }]).trusted).toEqual([]);
 });
 
