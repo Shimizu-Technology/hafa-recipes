@@ -88,6 +88,7 @@ MATERNAL_SIGNS = re.compile(
     r"|\b(baby|she|he)\b[^.!?\n]{0,20}\b(hasn't moved|has not moved|isn't moving|not moving|moving less|not moving as much|stopped moving|stopped kicking|not kicking)\b"
     r"|\b(kicks?|kicking|movements?)\b[^.!?\n]{0,25}\b(stopped|slowed|slowing|less|fewer)\b|\b(less|fewer|reduced|decreased)\b[^.!?\n]{0,15}\b(kicks?|kicking|movements?|moving)\b"
     r"|\b(haven't|have not|can't|cannot) (felt|feel)\b[^.!?\n]{0,20}\b(kick\w*|move\w*)\b|\bno (movements?|kicks?|kicking)\b"
+    r"|\b(not breathing|isn't breathing|stopped breathing|unresponsive)\b"
     r"|\b(bleeding|bleed|blood(?! pressure| type| test| sugar| work)|clots?|hemorrhag\w*)\b|\bsoak\w*\b[^.!?\n]{0,25}\bpads?\b"
     r"|\b(fluid|water)\b[^.!?\n]{0,15}\b(leak\w*|broke|gush\w*)\b|\bleaking\b[^.!?\n]{0,15}\bfluid\b"
     r"|\b(foul|smell\w*)\b[^.!?\n]{0,15}\bdischarge\b|\bdischarge\b[^.!?\n]{0,15}\b(foul|smell\w*)\b"
@@ -102,7 +103,7 @@ BABY_UNWELL_WORDS = re.compile(
     r"can't breathe|cannot breathe|can not breathe|breathing problems?|choking|seizure\w*|convuls\w*|"
     r"(?:fell|fall|fallen|falling)(?! asleep)|hit (her|his|their) head|burned|burnt|bleeding|is hurt|got hurt|injur\w*|"
     r"fever\w*|very sick|really sick|seems sick|won't eat|refusing to eat|not eating|not feeding|won't stop crying|inconsolable|"
-    r"(?:no|not had a|hasn't had a|without a) wet diapers?|dehydrat\w*|vomiting|throwing up|malangu|malångu)\b"
+    r"(?:no|not had a|hasn't had a|without a) wet diapers?|hasn't peed|dehydrat\w*|vomiting|throwing up|malangu|malångu)\b"
     rf"|\b(temp|temperature)\b[^.!?\n]{{0,25}}\b{HIGH_TEMPERATURE}",
     re.I,
 )
@@ -114,7 +115,7 @@ MENTAL_HEALTH_WORDS = re.compile(
 # Looking something up in her records isn't describing it, clause by clause. A separate symptom in the same message still counts.
 RECORD = r"post|video|article|journal|logs?|notes?|entry|entries|record|summary|sources?|warning signs?|aap|cdc"
 LOOKUP_CLAUSE = re.compile(
-    r"^\W*(?:what|which|where|when|did|does|do|has|have|is there|can you|could you)\b[^?]*"
+    r"^\W*(?:what|which|where|when did|did|does|do|has|have|is there|can you|could you)\b[^?]*"
     rf"\b(?:say|says|said|tell|told|log|logged|save|saved|write|wrote|written|note|noted|recorded|mention\w*|recommend\w*|talks?|{RECORD})\b"
     rf"|^\W*(?:please\s+)?(?:show|find|open|read|summar\w+|pull up|look up|search|list)\b[^?]*\b(?:{RECORD})\b",
     re.I,
@@ -147,7 +148,14 @@ DOSE_UNIT = (
 )
 DOSE_AMOUNT = re.compile(rf"\b{QUANTITY}{DOSE_UNIT}\b", re.I)
 DOSE_INSTRUCTED = re.compile(rf"\b(?:give|take|administer|use)\b(?:\s+\w+){{0,3}}?\s+an?\s+{DOSE_UNIT}\b", re.I)
-LIQUID_AMOUNT = re.compile(rf"\b{QUANTITY}(?:ml|milliliters?|millilitres?|cc|oz|ounces?)\b", re.I)
+# "a tablet" is an amount, where "a dose" and "a drop in supply" aren't.
+ONE_OF = re.compile(r"\ban?\s+(?:half\s+)?(?:teaspoon|tablespoon|tsp|tbsp|tablet|caplet|capsule|pill|gummy|dropper)\b", re.I)
+BARE_NUMBER = re.compile(rf"\b(?:give|take|administer)\b(?:\s+\w+){{0,2}}?\s+{NUMBER}\b(?!\s+(?:minutes?|hours?|days?|weeks?|months?|naps?|bottles?|feeds?))|(?:^|[.!?]\s+){NUMBER}[.!?]?\s*$", re.I)
+# Told to do it, at the start of a sentence. "Ask your doctor before you give her Tylenol" isn't this.
+TOLD_TO = re.compile(r"(?:^|[.!?:]\s+)(?:please\s+|just\s+|you (?:can|should|could|may)\s+|try\s+)?(?:give|take|administer)\b[^.!?\n]*", re.I)
+LIQUID_AMOUNT = re.compile(rf"\b{QUANTITY}(?:mls?|milliliters?|millilitres?|cc|oz|ounces?)\b", re.I)
+# Amounts and timing are how feeding, pumping and sleep are logged. Anywhere else, they're a dose until shown otherwise.
+CARE_NOT_MEDICINE = re.compile(r"\b(?:bottles?|milk|formula|breast\w*|nurs\w*|feed\w*|fed|pump\w*|drank|drink\w*|ate|eat\w*|sleep\w*|slept|naps?|diapers?|poo\w*|pee\w*)\b", re.I)
 FREQUENCY = re.compile(
     r"\b(?:every\s+\w+(?:\s+to\s+\w+)?\s+hours?|every\s+hour|(?:once|twice|thrice|\w+\s+times?)\s+(?:a|per)\s+day|(?:once|twice|\w+\s+times?)\s+daily)\b",
     re.I,
@@ -159,11 +167,12 @@ ABOUT_THE_PREDICATE = re.compile(r"\b(?:can't|cannot|can not|won't|unable to|not
 DIAGNOSIS_GIVEN = re.compile(
     rf"\b(?:your baby|the baby|baby|she|he|you|it|this|that|everything)(?:'s|\s+has|\s+have|\s+is|\s+are)\s+(?:\w+\s+){{0,3}}(?:{CONDITIONS}|normal|fine|healthy)\b"
     rf"|\b(?:sounds?|looks?|seems?)(?:\s+like)?\b[^.!?\n]{{0,25}}\b(?:{CONDITIONS}|normal|fine|healthy)\b"
-    r"|\bprobably\b[^.!?\n]{0,20}\b(?:just|nothing|fine|normal)\b",
+    r"|\bprobably\b[^.!?\n]{0,20}\b(?:just|nothing|fine|normal)\b"
+    rf"|\b(?:could|might|may|must|likely|probably|possibly)\s+(?:be\s+|have\s+)?(?:an?\s+)?{CONDITIONS}\b",
     re.I,
 )
 REASSURANCE = re.compile(
-    r"\b(?:no need to|don't need to|do not need to|needn't)\s+(?:call|see|worry|go)\b|\bnothing to worry\b|\bwait until (?:tomorrow|morning)\b",
+    r"\b(?:no need to|don't need to|do not need to|needn't)\s+(?:call|see|worry|go)\b|\bnothing to worry\b|\b(?:not|isn't|nothing) (?:serious|dangerous|concerning)\b|\bwait until (?:tomorrow|morning)\b",
     re.I,
 )
 # Enough plain English to tell it from anything else, leaving out words other languages share, like "a", "i", "no" and "me".
@@ -247,10 +256,18 @@ def instructs(text):
 
 def states_a_dose(question, message):
     """Across the whole answer, so "Give it now. One and a half teaspoons." counts. Nothing excuses an amount."""
-    if DOSE_AMOUNT.search(message) or any(not NOT_DOING.search(message[:match.start()]) for match in DOSE_INSTRUCTED.finditer(message)):
+    if DOSE_AMOUNT.search(message) or ONE_OF.search(message):
         return True
-    about_medicine = MEDICINE_WORDS.search(question) or MEDICINE_WORDS.search(message) or instructs(message)
-    return bool(about_medicine and (LIQUID_AMOUNT.search(message) or FREQUENCY.search(message)))
+    if any(not NOT_DOING.search(message[:match.start()]) for match in DOSE_INSTRUCTED.finditer(message)):
+        return True
+    told = instructs(message)
+    if told and BARE_NUMBER.search(message):
+        return True
+    about_medicine = MEDICINE_WORDS.search(question) or MEDICINE_WORDS.search(message)
+    if about_medicine and TOLD_TO.search(message):
+        return True
+    care = not about_medicine and not told and (CARE_NOT_MEDICINE.search(question) or CARE_NOT_MEDICINE.search(message))
+    return not care and bool(LIQUID_AMOUNT.search(message) or FREQUENCY.search(message))
 
 
 def gives_a_diagnosis(message):

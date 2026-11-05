@@ -493,13 +493,14 @@ async def test_vaccine_questions_look_it_up_first_and_show_both_schedules(baby_a
         "What did I log about her fever? My baby is not breathing",
         "What did the doctor say about bleeding, my baby is not breathing",
         "What did I log about her fever and she is not breathing",
+        "When I logged her fever it was 39.5",
     ],
 )
 def test_the_missed_wordings_about_a_baby_are_urgent(message):
     assert classify(message, ["Sunny"]).kind == BABY_UNWELL
 
 
-@pytest.mark.parametrize("message", ["There is no movement from baby today", "No kicks today"])
+@pytest.mark.parametrize("message", ["There is no movement from baby today", "No kicks today", "not breathing", "Not breathing!!", "unresponsive"])
 def test_no_movement_is_urgent(message):
     assert classify(message).kind == URGENT_MATERNAL
 
@@ -552,6 +553,18 @@ async def test_a_lookup_reaches_her_records_through_the_endpoint(baby_api, stub)
         ("When did I log Tylenol?", "You logged Tylenol 500 mg at 9 AM."),
         ("What did the doctor say?", "Your doctor wrote: take two tablets each morning."),
         ("What are the vitamins?", "You logged two doses of vitamins."),
+        ("Anything else?", "You logged 5 mL every hour."),
+        ("Anything else?", "Dose: 5 mL."),
+        ("Anything else?", "Just a teaspoon."),
+        ("Anything else?", "A tablet is enough."),
+        ("Anything else?", "Try a teaspoon."),
+        ("Anything else?", "Give 2."),
+        ("Anything else?", "Take 2 now."),
+        ("Anything else?", "Give it now. Two."),
+        ("Anything else?", "5mls is fine."),
+        ("Anything else?", "Give her Tylenol now."),
+        ("Tell me about Tylenol", "Take it at bedtime."),
+        ("Anything else?", "Take with food twice a day."),
     ],
 )
 def test_model_text_cannot_state_a_dose(question, message):
@@ -564,7 +577,8 @@ def test_a_logged_dose_has_no_exception_left():
 
 @pytest.mark.parametrize(
     "message",
-    ["I can't diagnose, but this sounds like eczema.", "I can't say for sure. It looks like thrush.", "I'm not a doctor, but it's probably nothing."],
+    ["I can't diagnose, but this sounds like eczema.", "I can't say for sure. It looks like thrush.", "I'm not a doctor, but it's probably nothing.",
+     "It could be eczema.", "This might be reflux.", "Likely thrush.", "That is not serious."],
 )
 def test_a_refusal_does_not_excuse_a_diagnosis_next_to_it(message):
     assert answer_checks("Tell me about rashes", answer(message))[0] == DIAGNOSIS_REFUSAL
@@ -768,3 +782,12 @@ async def test_her_own_vitamin_log_is_the_records_line_too(baby_api, stub):  # n
     stub.replies = [tool_call("open_entry", json.dumps({"record_id": entry})), answered("You logged 1 tablet.", citation_ids=[entry])]
     body = (await ask(baby_api, "Did I take my meds?")).json()
     assert body["message"].startswith("You logged Prenatal 1 tablet on") and body["message"].endswith("at 8:00 AM.")
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["You logged 12 oz pumped today.", "She had 120 ml in the bottle.", "Newborns often feed every 2 to 3 hours, per the AAP.", "The CDC says a drop in milk supply can happen.",
+     "Ask your doctor or pharmacist about a dose.", "Your note mentions Tylenol.", "You logged Tylenol at 7 PM.", "Ask your doctor before you give her Tylenol.", "Give yourself five minutes."],
+)
+def test_ordinary_answers_with_numbers_or_medicine_names_stay(message):
+    assert answer_checks("How was today?", answer(message))[0] == message
