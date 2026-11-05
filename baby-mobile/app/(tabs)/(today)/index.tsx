@@ -65,7 +65,8 @@ export default function Today() {
     sleepDetail = sleepGlanceDetail(glance, now),
     routine = routines[0],
     trackerAge = child ? trackerStage(child, today) : "born",
-    tiles = child ? trackersFor(trackerAge).filter((tracker) => trackerOn(tracker, trackerAge, child.details)) : [],
+    // A sleep already running keeps its button until it's ended, switched off or not.
+    tiles = child ? trackersFor(trackerAge).filter((tracker) => trackerOn(tracker, trackerAge, child.details) || (tracker.id === "sleep" && !!glance.openSleep)) : [],
     showing = (...ids: string[]) => tiles.some((tracker) => ids.includes(tracker.id)),
     whatShows = child && <Row title="What shows" detail="Everything’s off. Choose what gets a button." icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />;
   const titleText = child?.name.trim() || "Today";

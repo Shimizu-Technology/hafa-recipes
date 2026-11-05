@@ -462,6 +462,19 @@ describe("Today follows the trackers", () => {
     await render();
     expect(find("CareGlance", () => true)[0].props.sides).toBe(false);
   });
+  it("keeps a way to end a sleep already running when Sleep is switched off, and says when two are", async () => {
+    baby({ tracking: { sleep: false } });
+    const sleep = (id: string) => optimisticRecord({ id, kind: "sleep", child_id: "baby", title: "Sleep", body: "", occurred_at: start.toISOString(), data: {} } as never);
+    await render();
+    expect(tiles()).not.toContain("Sleep");
+    scope.care = [sleep("a")];
+    await render();
+    expect(tiles()).toContain("Sleeping");
+    expect(find("Row", () => true).map((n) => n.props.title)).toContain("Sleeping now");
+    scope.care = [sleep("a"), sleep("b")];
+    await render();
+    expect(find("Row", () => true).map((n) => n.props.title)).toContain("2 sleeps running");
+  });
   it("is the same docked log as before by default", async () => {
     baby({});
     await render();
