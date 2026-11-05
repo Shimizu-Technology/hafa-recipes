@@ -130,9 +130,10 @@ export function dayTotals(rows: readonly BabyRecord[], key: string, timeZone?: s
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** One line for a day: "9 feeds · 6 pee · 3 poo · 11h sleep". It counts what was logged and never judges it. */
-export function summaryLine(day: CareDay) {
-  const sleep = day.sleep.total_minutes / 60;
-  return [plural(day.feeding.count, "feed"), `${day.diapers.pee} pee`, `${day.diapers.poo} poo`, `${sleep > 0 && sleep < 1 ? "<1" : Math.round(sleep)}h sleep`].join(" · ");
+export function summaryLine(day: CareDay, shows: { feeds?: boolean; diapers?: boolean; sleep?: boolean } = {}) {
+  const sleep = day.sleep.total_minutes / 60, { feeds = true, diapers = true, sleep: sleeps = true } = shows;
+  return [...(feeds ? [plural(day.feeding.count, "feed")] : []), ...(diapers ? [`${day.diapers.pee} pee`, `${day.diapers.poo} poo`] : []),
+    ...(sleeps ? [`${sleep > 0 && sleep < 1 ? "<1" : Math.round(sleep)}h sleep`] : [])].join(" · ");
 }
 export function daySummary(rows: readonly BabyRecord[], key: string, timeZone?: string | null, now = new Date()) {
   return summaryLine(dayTotals(rows, key, timeZone, now));

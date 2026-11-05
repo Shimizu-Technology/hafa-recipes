@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState } from "./models";
 
-const mock = vi.hoisted(() => ({ events: { items: [], byDay: new Map(), failed: false, complete: true } as any, summaries: [] as unknown[][], otherAsks: [] as unknown[][], others: undefined as ReadonlyMap<string, string[]> | undefined, gone: new Set<string>(), baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any, statsAsks: [] as unknown[][], statsRefresh: vi.fn() }));
+const mock = vi.hoisted(() => ({ more: [] as any[], events: { items: [], byDay: new Map(), failed: false, complete: true } as any, summaries: [] as unknown[][], otherAsks: [] as unknown[][], others: undefined as ReadonlyMap<string, string[]> | undefined, gone: new Set<string>(), baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any, statsAsks: [] as unknown[][], statsRefresh: vi.fn() }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView",
   useWindowDimensions: () => ({ fontScale: mock.fontScale }),
@@ -43,7 +43,7 @@ vi.mock("@/components/tab-stack", () => ({ HeaderPill: "HeaderPill" }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
-vi.mock("@/components/more-logs", () => ({ MoreLogs: () => "more-logs" }));
+vi.mock("@/components/more-logs", () => ({ MoreLogs: (props: any) => { mock.more.push(props); return "more-logs"; } }));
 vi.mock("@/components/quick-log", () => ({ QuickLog: (props: any) => { mock.quick.push(props); return "quick-log"; } }));
 vi.mock("@/components/tracker-day", () => import("../components/tracker-day"));
 vi.mock("@/components/tracker-month", () => ({ TrackerMonth: "TrackerMonth" }));
@@ -254,6 +254,44 @@ it("goes straight to the day and the log once she's born, with nothing else to c
   expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(0);
   expect(screen().props.footer).toBeTruthy();
   expect(renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toEqual(["Doctor summary", "Growth", "Care history", "What shows"]);
+});
+
+describe("Tracker follows the trackers", () => {
+  const baby = (details: object) => { mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-01", details }]; };
+  const ids = (list: { id: string }[]) => list.map((tracker) => tracker.id);
+  it("by default, has the four quick logs and nothing else to log today, since the rest are in Add", async () => {
+    baby({});
+    await mount();
+    expect(ids(screen().props.footer.props.tiles)).toEqual(["breast", "bottle", "diaper", "sleep"]);
+    expect(ids(mock.more.at(-1).shown)).toEqual([]);
+  });
+  it("turning diapers off takes the button away and leaves the day's diapers on it", async () => {
+    baby({ tracking: { diaper: false } });
+    mock.care = [optimisticRecord({ id: "d", kind: "diaper", title: "Diaper", body: "", child_id: "baby", occurred_at: new Date().toISOString(), data: { type: "wet" } } as never)] as never;
+    await mount();
+    expect(ids(screen().props.footer.props.tiles)).toEqual(["breast", "bottle", "sleep"]);
+    expect(titles().join(" ")).toContain("Diaper");
+  });
+  it("has what's pinned, whatever it is", async () => {
+    baby({ tracking: { temperature: true, kicks: true } });
+    await mount();
+    expect(ids(mock.more.at(-1).shown)).toEqual(["kicks", "temperature"]);
+  });
+  it("on another day, offers what she hasn't turned off, because Add only logs today", async () => {
+    baby({ tracking: { medicine: false } });
+    mock.params = { day: "2026-11-01", at: "1" };
+    await mount();
+    const shown = ids(mock.more.at(-1).shown);
+    expect(shown).toContain("pumping");
+    expect(shown).not.toContain("medicine");
+  });
+  it("before the birth, its tool rows and panels follow the switches too", async () => {
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10", details: { tracking: { kicks: false, blood_pressure: false } } }];
+    await mount();
+    const rows = renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title);
+    expect(rows).toContain("Contraction timer");
+    expect(rows).not.toContain("Kick counter");
+  });
 });
 
 it("moves the quick log into the page at the largest text sizes", async () => {

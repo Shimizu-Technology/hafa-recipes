@@ -5,7 +5,7 @@ import { emptyState, type BabyRecord, type Child, type DeviceState, type Mutatio
 import { pendingRecords } from "./outbox";
 import { keepItems, trackersFor } from "./trackers";
 
-const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), replace: vi.fn(), push: vi.fn(), back: vi.fn(), care: [] as any[], fontScale: 1 }));
+const scope = vi.hoisted(() => ({ params: {} as Record<string, string>, account: null as any, toast: vi.fn(), replace: vi.fn(), push: vi.fn(), back: vi.fn(), care: [] as any[], fontScale: 1 }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", TextInput: "TextInput", ScrollView: "ScrollView", useWindowDimensions: () => ({ fontScale: scope.fontScale }),
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
@@ -13,7 +13,7 @@ vi.mock("react-native", () => ({
   AccessibilityInfo: { isScreenReaderEnabled: async () => false, announceForAccessibility: () => undefined },
   Animated: { View: "AnimatedView", Value: class { setValue() {} stopAnimation() {} }, timing: () => ({ start() {} }) },
 }));
-vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { replace: scope.replace, push: scope.push, back: scope.back, canGoBack: () => true }, useFocusEffect: () => undefined }));
+vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { replace: scope.replace, push: scope.push, back: scope.back, canGoBack: () => true }, useLocalSearchParams: () => scope.params, useFocusEffect: () => undefined }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id}` }; });
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/models", () => import("./models"));
@@ -83,7 +83,7 @@ const order = () => renderer!.root.findAll((n) => ["Pressable", "Row"].includes(
 beforeEach(() => {
   vi.useFakeTimers({ now });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  scope.care = []; scope.fontScale = 1; scope.toast.mockClear(); scope.replace.mockClear(); scope.push.mockClear(); scope.back.mockClear();
+  scope.params = {}; scope.care = []; scope.fontScale = 1; scope.toast.mockClear(); scope.replace.mockClear(); scope.push.mockClear(); scope.back.mockClear();
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -184,6 +184,28 @@ describe("Add", () => {
       act(() => renderer!.unmount());
     }
     renderer = undefined;
+  });
+  it("opens straight to a panel when a tile on Today sends it there", async () => {
+    scope.params = { open: "diaper" };
+    setup([newborn]);
+    await mount();
+    expect(tile("Pee")).toBeDefined();
+    await press("Pee");
+    expect(saves().map((m) => m.record.kind)).toEqual(["diaper"]);
+    expect(scope.back).toHaveBeenCalledOnce();
+  });
+  it("ignores an open it doesn't know", async () => {
+    scope.params = { open: "nothing" };
+    setup([newborn]);
+    await mount();
+    expect(tile("Breastfeed")).toBeDefined();
+  });
+  it("follows her switches: what's off moves down, and what's on from another stage comes in", async () => {
+    setup([{ ...newborn, details: { tracking: { diaper: false, pumping: true, kicks: true } } }]);
+    await mount();
+    const seen = shown();
+    expect(seen.slice(1, seen.indexOf("Keep"))).toEqual(["Breastfeed", "Bottle", "Sleep", "Kick counter", "Pumping"]);
+    expect(seen.slice(seen.indexOf("For Mia"))).toContain("Diaper");
   });
   it("leads with setting up a baby when there is none, with nothing to track", async () => {
     setup([]);

@@ -239,8 +239,9 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["Coming up"]);
   expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0);
-  for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(1);
-  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Doctor questions", "Journal", "Lists & routines", "Baby’s here?"]);
+  // Add has these now: nothing here says it twice.
+  for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(0);
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Lists & routines", "Baby’s here?"]);
   await act(async () => (find("Row", p => p.title === "Baby’s here?")[0].props.onPress as () => void)());
   child.birth_date = "2026-11-02"; await render();
   expect(find("PregnancyHero", () => true)).toHaveLength(1);
@@ -424,16 +425,84 @@ it("keeps a half-typed question across a due baby's layout and a born baby's, wh
   expect(drafts().typed["visit:noa"]).toBe("Half typed");
 });
 
-describe("the extra logs on Today", () => {
+describe("Today follows the trackers", () => {
   const tiles = () => find("Pressable", () => true).map((node) => node.props.accessibilityLabel);
+  const baby = (details: object, birth_date = "2026-10-01") => { const account = setup(); Object.assign(account.state.bootstrap!.children[0], { birth_date, details }); return account; };
+  const expecting = (details: object = {}) => { const account = setup(); Object.assign(account.state.bootstrap!.children[0], { due_date: "2026-12-10", details }); return account; };
+  it("while expecting, leads with the week, then that stage's trackers as tiles, then the next event", async () => {
+    expecting();
+    await render();
+    const seen = renderer!.root.findAll((n) => ["PregnancyHero", "NextEvent", "TipSection"].includes(String(n.type)) || (String(n.type) === "Pressable" && !!n.props.accessibilityLabel))
+      .map((n) => n.props.accessibilityLabel ?? String(n.type));
+    expect(seen).toEqual(["PregnancyHero", "Kick counter", "Contraction timer", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine", "NextEvent", "TipSection"]);
+  });
+  it("takes a tracker off expecting Today when it's off, and adds one when it's on", async () => {
+    expecting({ tracking: { my_weight: false, diaper: true } });
+    await render();
+    expect(tiles()).not.toContain("My weight");
+    expect(tiles()).toContain("Diaper");
+    (find("Pressable", (p) => p.accessibilityLabel === "Diaper")[0].props.onPress as () => void)();
+    expect(scope.push).toHaveBeenCalledWith({ pathname: "/add", params: { open: "diaper" } });
+  });
+  it("is the same docked log as before by default", async () => {
+    baby({});
+    await render();
+    expect(tiles().filter((label) => ["Breastfeed", "Bottle", "Diaper", "Sleep"].includes(label))).toEqual(["Breastfeed", "Bottle", "Diaper", "Sleep"]);
+    expect(find("Row", () => true).map((n) => n.props.title)).toContain("0 diapers today");
+    expect(find("CareGlance", () => true)).toHaveLength(1);
+  });
+  it("turning diapers off takes every diaper button and count off Today", async () => {
+    baby({ tracking: { diaper: false } });
+    await render();
+    expect(tiles()).not.toContain("Diaper");
+    expect(find("Row", () => true).map((n) => n.props.title)).not.toContain("0 diapers today");
+    const line = tiles().find((label) => label?.startsWith("Today:"))!;
+    expect(line).toContain("feeds");
+    expect(line).not.toContain("pee");
+    expect(find("Row", () => true).map((n) => n.props.title)).toContain("Care history");
+  });
+  it("how she's feeding sets the tiles, and the first left is the big one", async () => {
+    baby({ feeding: "bottle" });
+    await render();
+    expect(tiles()).not.toContain("Breastfeed");
+    expect(tiles()).toContain("Bottle");
+  });
+  it("drops the feed card once no feed tracker is on, unless a feed is running", async () => {
+    baby({ tracking: { breast: false, bottle: false } });
+    await render();
+    expect(find("CareGlance", () => true)).toHaveLength(0);
+    scope.care = [optimisticRecord({ id: "f", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: start.toISOString(),
+      data: { method: "breast", side: "left", actions: [{ id: "a", action: "start", side: "left", at: start.toISOString() }] } } as never)];
+    await render();
+    expect(find("CareGlance", () => true)).toHaveLength(1);
+  });
+  it("adds a pinned tracker to the dock, and opens it in Add, where the keyboard has room", async () => {
+    baby({ tracking: { pumping: true, milestone: true } });
+    await render();
+    expect(tiles()).toEqual(expect.arrayContaining(["Breastfeed", "Pumping", "Milestones"]));
+    (find("Pressable", (p) => p.accessibilityLabel === "Pumping")[0].props.onPress as () => void)();
+    expect(scope.push).toHaveBeenLastCalledWith({ pathname: "/add", params: { open: "pumping" } });
+    (find("Pressable", (p) => p.accessibilityLabel === "Milestones")[0].props.onPress as () => void)();
+    expect(scope.push).toHaveBeenLastCalledWith("/milestones");
+    // Its tile says it already, so the row steps back.
+    expect(find("Row", () => true).map((n) => n.props.title)).not.toContain("Milestones");
+  });
+  it("points to What shows when she's turned everything off, rather than leave no way back", async () => {
+    baby({ tracking: { breast: false, bottle: false, diaper: false, sleep: false } });
+    await render();
+    const row = find("Row", (p) => p.title === "What shows")[0];
+    expect(row).toBeDefined();
+    (row.props.onPress as () => void)();
+    expect(scope.push).toHaveBeenCalledWith({ pathname: "/what-shows", params: { child: "baby" } });
+  });
   it("offers what she'd log about herself while she's expecting", async () => {
-    setup().state.bootstrap!.children[0].due_date = "2026-12-10";
+    expecting();
     await render();
     for (const label of ["How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]) expect(tiles()).toContain(label);
     expect(tiles()).not.toContain("Pumping");
   });
   it("leaves the docked log alone once the baby's here: these are off Today by default", async () => {
-    setup().state.bootstrap!.children[0].birth_date = "2026-10-01";
+    baby({});
     await render();
     expect(tiles()).toContain("Breastfeed");
     for (const label of ["Pumping", "Medicine", "Temperature", "Growth", "How I’m feeling"]) expect(tiles()).not.toContain(label);

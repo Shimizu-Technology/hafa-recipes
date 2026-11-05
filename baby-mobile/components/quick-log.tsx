@@ -14,7 +14,7 @@ import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
 import { TimeChip, TimeChoices, type PastDay } from "./quick-time";
 import { zonedInstant } from "@/lib/tracker";
-import { trackers, type Tracker } from "../lib/trackers";
+import { trackerRoute, trackers, type Tracker } from "../lib/trackers";
 
 const quickTiles = trackers.filter((tracker) => tracker.opens === "quick-log");
 const word = { left: "Left", right: "Right", both: "Both" } as const;
@@ -45,10 +45,12 @@ export function Option({ label, detail, hint, strong, height = 76, onPress }: { 
 }
 
 /** The dock's four tiles, in the thumb's reach just above the tab bar. */
-function Tile({ icon, label, hint, primary, open, onPress }: { icon: IconName; label: string; hint: string; primary?: boolean; open?: boolean; onPress: () => void }) {
+function Tile({ icon, label, hint, primary, open, many, onPress }: { icon: IconName; label: string; hint?: string; primary?: boolean; open?: boolean;
+  /** More than a row's worth, so they wrap rather than squeeze. */
+  many?: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ expanded: !!open }} onPress={onPress}
-    style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : fontScale >= 1.3 ? "45%" : 0, minWidth: 0, minHeight: 76, paddingVertical: 10, paddingHorizontal: 4, borderRadius: radii.tile,
+    style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : fontScale >= 1.3 ? "45%" : many ? "22%" : 0, minWidth: 0, minHeight: 76, paddingVertical: 10, paddingHorizontal: 4, borderRadius: radii.tile,
       alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: primary ? c.action : c.surface,
       borderWidth: 2, borderColor: open ? c.accent : "transparent" }}>
     <Icon name={icon} size={24} color={primary ? c.onAction : c.accentText} />
@@ -431,16 +433,19 @@ export function QuickPanels({ quick }: { quick: Quick }) {
   </>;
 }
 
-export function QuickLog({ tilesAside, ...props }: QuickProps & {
+export function QuickLog({ tilesAside, tiles = quickTiles, ...props }: QuickProps & {
   /** Another log on the page is open, and may need the keyboard: the tiles step out of its way. A running feed stays. */
   tilesAside?: boolean;
+  /** What this baby has on. A tile with no quick panel goes where it goes. */
+  tiles?: readonly Tracker[];
 }) {
   const quick = useQuickLog(props);
   return <View style={{ gap: 8 }}>
     <QuickPanels quick={quick} />
     {!tilesAside && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {quickTiles.map((tracker) => <Tile key={tracker.id} primary={tracker.id === "breast"} {...quickFace(quick, tracker)} open={quick.flow.panel === tracker.id}
-        onPress={() => quick.toggle(tracker.id as QuickPanelName)} />)}
+      {tiles.map((tracker, at) => tracker.opens === "quick-log"
+        ? <Tile key={tracker.id} primary={at === 0} many={tiles.length > 4} {...quickFace(quick, tracker)} open={quick.flow.panel === tracker.id} onPress={() => quick.toggle(tracker.id as QuickPanelName)} />
+        : <Tile key={tracker.id} many={tiles.length > 4} icon={tracker.icon} label={tracker.label} hint={tracker.detail} onPress={() => { tap(); router.push(trackerRoute(tracker)); }} />)}
     </View>}
   </View>;
 }

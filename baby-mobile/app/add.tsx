@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { ScrollView, View } from "react-native";
 import { Copy, Row, Screen, tap, useToast } from "@/components/ui";
 import { ChildFilter } from "@/components/child-filter";
@@ -21,7 +21,7 @@ const tileRow = { flexDirection: "row", flexWrap: "wrap", gap: 8 } as const;
 const close = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)"));
 
 /** This baby's main trackers, then what to keep, then the rest of what fits this stage. They open the same panels as Today, right here, so a feed is Breast, then side. */
-function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage: ReturnType<typeof trackerStage>; scroller: React.RefObject<ScrollView | null> }) {
+function Track({ child, now, stage, scroller, opening }: { opening?: string; child: Child; now: Date; stage: ReturnType<typeof trackerStage>; scroller: React.RefObject<ScrollView | null> }) {
   const b = useBaby(), toast = useToast(),
     // With two babies she can log for either from here, so it says which.
     who = b.state.bootstrap!.children.length > 1 ? child.name : undefined,
@@ -49,6 +49,8 @@ function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage
     tap();
     router.replace(tracker.opens);
   }
+  // A tile elsewhere sent her here for this. It opens once; after that the page is hers.
+  useEffect(() => { const tracker = opening ? trackerById(opening) : undefined; if (tracker && listed.includes(tracker)) open(tracker); }, []);
   const on = listed.filter((tracker) => trackerOn(tracker, stage, child.details)),
     rest = listed.filter((tracker) => !on.includes(tracker) && (!otherStage(tracker, stage) || (tracker.id === "sleep" && !!quick.openSleep))),
     tile = (tracker: Tracker, big: boolean) => <TrackerTile key={tracker.id} tracker={tracker} big={big} {...(tracker.opens === "quick-log" ? quickFace(quick, tracker) : {})}
@@ -82,7 +84,7 @@ function Keep() {
 }
 
 export default function Add() {
-  const b = useBaby(), now = useMinuteClock(), scroller = useRef<ScrollView>(null),
+  const b = useBaby(), now = useMinuteClock(), scroller = useRef<ScrollView>(null), { open } = useLocalSearchParams<{ open?: string }>(),
     today = profileToday(now, b.state.bootstrap!.profile.timezone),
     child = timingChild(b.state, today);
   return (
@@ -91,7 +93,7 @@ export default function Add() {
         {b.state.bootstrap!.children.length > 1 && <ChildFilter only={child.id} />}
         {todayStage(child, today) === "none" && <Row title={`Is ${child.name.trim()} here yet?`} detail="Add a due date or birth date and Today fills in." icon="person-add-outline"
           onPress={() => router.replace({ pathname: "/child", params: { id: child.id } })} />}
-        <Track child={child} now={now} stage={trackerStage(child, today)} scroller={scroller} />
+        <Track child={child} now={now} stage={trackerStage(child, today)} scroller={scroller} opening={open} />
       </> : <>
         <Row title="Set up your baby" detail="Tracking starts here, whether you’re expecting or your baby’s here" icon="person-add-outline" onPress={() => router.replace("/child")} />
         <Keep />

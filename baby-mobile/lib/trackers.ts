@@ -84,6 +84,9 @@ export function trackerOn(tracker: Tracker, stage: Stage, details?: ChildDetails
   return tracker.defaultOn.includes(stage);
 }
 
+/** Where a tile goes when it can't open a panel in place. Add has them all, with room for the keyboard. */
+export const trackerRoute = (tracker: Tracker) => (tracker.opens === "panel" || tracker.opens === "quick-log" ? { pathname: "/add" as const, params: { open: tracker.id } } : tracker.opens);
+
 /** Which tracker a saved entry came from. A label nobody listed is one she made up. */
 export function trackerFor({ kind, data }: Pick<BabyRecord, "kind" | "data">) {
   if (kind === "feeding") return trackerById(data.method === "bottle" ? "bottle" : "breast");

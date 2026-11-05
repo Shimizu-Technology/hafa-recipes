@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
+import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { panelTrackers, type Stage, type Tracker } from "@/lib/trackers";
+import { trackerRoute, type Tracker } from "@/lib/trackers";
 import type { Child } from "@/lib/models";
-import { Icon, PressTarget, fonts, radii, typeScale, useColors, type IconName } from "./ui";
+import { Icon, PressTarget, fonts, radii, tap, typeScale, useColors, type IconName } from "./ui";
 import { useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
 import { SavedLog, TrackerPanel } from "./tracker-panel";
@@ -24,19 +25,22 @@ export function LogTile({ icon, label, hint, big, open, onPress }: { icon: IconN
 export const TrackerTile = ({ tracker, label = tracker.label, icon = tracker.icon, hint = tracker.detail, ...rest }: { tracker: Tracker; label?: string; icon?: IconName; hint?: string; big?: boolean; open?: boolean; onPress: () => void }) =>
   <LogTile icon={icon} label={label} hint={hint} {...rest} />;
 
-/** A stage's trackers that have their own panel, as tiles. J5 decides which of these belong on Today, from the same list. */
-export function MoreLogs({ child, now, pastDay, stage, onOpen }: { child: Child; now: Date; pastDay?: PastDay; stage: Stage;
+/** Trackers as tiles. One with a `TrackerPanel` opens it here; any other goes where it goes. */
+export function MoreLogs({ child, now, pastDay, shown, title = "More to log", big, onOpen }: { child: Child; now: Date; pastDay?: PastDay; shown: readonly Tracker[]; title?: string; big?: boolean;
   /** A panel opened or closed, with where this sits on the page, so the page can bring it into view. */
   onOpen?: (open: boolean, y: number) => void }) {
-  const b = useBaby(), c = useColors(), { fontScale } = useWindowDimensions(), shown = panelTrackers(stage),
+  const b = useBaby(), c = useColors(), { fontScale } = useWindowDimensions(),
     flow = useLogFlow<string>(pastDay), top = useRef(0), open = shown.find((tracker) => tracker.id === flow.panel);
   useEffect(() => { onOpen?.(!!open, Math.max(0, top.current - headerClear)); }, [open?.id]);
+  if (!shown.length && !flow.saved) return null;
   return <View onLayout={(event) => { top.current = event.nativeEvent.layout.y; }} style={{ gap: 8 }}>
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.muted }}>More to log</Text>
+    {!!title && <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.muted }}>{title}</Text>}
     <SavedLog flow={flow} now={now} day={pastDay} timeZone={b.state.bootstrap!.profile.timezone} />
     {open && <TrackerPanel tracker={open} child={child} now={now} pastDay={pastDay} flow={flow} />}
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {shown.map((tracker) => <TrackerTile key={tracker.id} tracker={tracker} hint="" open={open === tracker} onPress={() => flow.toggle(tracker.id)} />)}
+      {shown.map((tracker) => tracker.opens === "panel"
+        ? <TrackerTile key={tracker.id} tracker={tracker} big={big} hint="" open={open === tracker} onPress={() => flow.toggle(tracker.id)} />
+        : <TrackerTile key={tracker.id} tracker={tracker} big={big} onPress={() => { tap(); router.push(trackerRoute(tracker)); }} />)}
     </View>
   </View>;
 }

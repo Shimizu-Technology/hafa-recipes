@@ -35,7 +35,7 @@ vi.mock("@/components/ui", () => ui);
 import { MoreLogs } from "../components/more-logs";
 import { SavedLog, TrackerPanel } from "../components/tracker-panel";
 import { useLogFlow } from "../components/quick-log";
-import { trackerById } from "./trackers";
+import { panelTrackers, trackerById } from "./trackers";
 
 const child = { id: "baby", name: "Mia", revision: 1, birth_date: "2026-11-01" };
 let renderer: ReactTestRenderer | undefined;
@@ -50,7 +50,7 @@ function setup(change: (state: DeviceState) => DeviceState = (state) => state) {
   scope.account = b;
   return b;
 }
-const mount = async (pastDay?: { key: string; timezone?: string | null }, stage: "born" | "expecting" = "born") => { await act(async () => { renderer = create(<MoreLogs child={child} now={new Date("2026-11-04T17:00:00.000Z")} pastDay={pastDay} stage={stage} />); }); };
+const mount = async (pastDay?: { key: string; timezone?: string | null }, stage: "born" | "expecting" = "born") => { await act(async () => { renderer = create(<MoreLogs child={child} now={new Date("2026-11-04T17:00:00.000Z")} pastDay={pastDay} shown={panelTrackers(stage)} />); }); };
 const press = async (label: string) => { await act(async () => { renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => n.props.accessibilityLabel === label || n.props.accessibilityLabel?.startsWith(`${label},`))!.props.onPress(); }); };
 const labels = () => renderer!.root.findAll((n) => String(n.type) === "Pressable").map((n) => n.props.accessibilityLabel);
 const type = async (label: string, text: string) => { await act(async () => renderer!.root.findAll((n) => String(n.type) === "Field").find((n) => n.props.label === label)!.props.onChange(text)); };
@@ -69,6 +69,18 @@ it("offers each stage its own trackers, from the list", async () => {
   setup();
   await mount(undefined, "expecting");
   expect(labels()).toEqual(["How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]);
+});
+it("shows nothing with nothing to show, and sends a tile with no panel where it goes", async () => {
+  setup();
+  await act(async () => { renderer = create(<MoreLogs child={child} now={new Date()} shown={[]} />); });
+  expect(renderer!.toJSON()).toBeNull();
+  await act(async () => renderer!.unmount());
+  setup();
+  await act(async () => { renderer = create(<MoreLogs child={child} now={new Date()} shown={[trackerById("kicks")!, trackerById("diaper")!]} />); });
+  await press("Kick counter");
+  expect(scope.push).toHaveBeenLastCalledWith("/kicks");
+  await press("Diaper");
+  expect(scope.push).toHaveBeenLastCalledWith({ pathname: "/add", params: { open: "diaper" } });
 });
 
 it("opens the same panel away from Today: a host needs only the flow, and it saves with Undo", async () => {
@@ -204,14 +216,14 @@ describe("from the review of #543", () => {
     expect(panel).toMatchObject({ poll: true, kinds: ["medicine"], child: "baby" });
     expect(JSON.stringify(renderer!.toJSON())).not.toContain("on this phone");
     scope.care = { error: "No connection" };
-    await act(async () => renderer!.update(<MoreLogs child={child} now={now} stage="born" />));
+    await act(async () => renderer!.update(<MoreLogs child={child} now={now} shown={panelTrackers("born")} />));
     expect(JSON.stringify(renderer!.toJSON())).toContain("Showing what’s on this phone");
     scope.care = { stale: true };
-    await act(async () => renderer!.update(<MoreLogs child={child} now={now} stage="born" />));
+    await act(async () => renderer!.update(<MoreLogs child={child} now={now} shown={panelTrackers("born")} />));
     expect(JSON.stringify(renderer!.toJSON())).toContain("Showing what’s on this phone");
     scope.care = {};
     scope.account.online = false;
-    await act(async () => renderer!.update(<MoreLogs child={child} now={now} stage="born" />));
+    await act(async () => renderer!.update(<MoreLogs child={child} now={now} shown={panelTrackers("born")} />));
     expect(JSON.stringify(renderer!.toJSON())).toContain("Showing what’s on this phone");
   });
   it("5: shows the Last of a medicine she types, even one not offered as a chip", async () => {
@@ -262,7 +274,7 @@ describe("from the re-check of #543", () => {
   const now = new Date("2026-11-04T17:00:00.000Z");
   const other = { id: "other", name: "Noa", revision: 1, birth_date: "2026-11-01" };
   const history = (kind: string, data: object) => ({ id: "history", kind, title: kind, body: "", child_id: "baby", occurred_at: "2026-11-04T15:00:00Z", data, revision: 1, created_at: "", updated_at: "" });
-  const again = (who = child) => act(async () => renderer!.update(<MoreLogs child={who} now={now} stage="born" />));
+  const again = (who = child) => act(async () => renderer!.update(<MoreLogs child={who} now={now} shown={panelTrackers("born")} />));
   it("High: a medicine typed for one baby can't be saved on another after switching", async () => {
     setup();
     await mount();
@@ -298,7 +310,7 @@ describe("from the re-check of #543", () => {
     await mount(undefined, "expecting");
     await press("My weight");
     await type("Weight", "145.5");
-    await act(async () => renderer!.update(<MoreLogs child={other} now={now} stage="expecting" />));
+    await act(async () => renderer!.update(<MoreLogs child={other} now={now} shown={panelTrackers("expecting")} />));
     await save("Save my weight");
     expect(saved()[0]).toMatchObject({ child_id: null, data: { value: 145.5 } });
   });
@@ -372,7 +384,7 @@ describe("from the re-check of #543", () => {
   it("replacing one open panel with another brings the new one into view", async () => {
     setup();
     const onOpen = vi.fn();
-    await act(async () => { renderer = create(<MoreLogs child={child} now={now} stage="born" onOpen={onOpen} />); });
+    await act(async () => { renderer = create(<MoreLogs child={child} now={now} shown={panelTrackers("born")} onOpen={onOpen} />); });
     await press("Growth");
     onOpen.mockClear();
     await press("Medicine");
