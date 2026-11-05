@@ -92,7 +92,8 @@ async def test_deleting_while_an_answer_is_on_its_way_discards_it(baby_api, stub
 
     async def delete_meanwhile(self, **kwargs):
         reply = await real(self, **kwargs)
-        assert (await baby_api.client.delete(f"{URL}/{identifier}", headers=HEADERS)).status_code == 204
+        if kwargs["capability"] == "baby_ask":
+            assert (await baby_api.client.delete(f"{URL}/{identifier}", headers=HEADERS)).status_code == 204
         return reply
 
     monkeypatch.setattr(provider.BabyProvider, "responses_call", delete_meanwhile)
