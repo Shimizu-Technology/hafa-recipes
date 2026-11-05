@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Switch, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
+import { useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { customProblem, waitingEntries, type CareStats } from "@/lib/care-stats";
 import { kindWord, messageFor, type BabyRecord } from "@/lib/models";
@@ -116,13 +117,15 @@ export default function DoctorSummary() {
       setAttempt((count) => count + 1);
     } finally { setRetrying(false); }
   }
-  return <Screen title="Doctor summary" back footer={<View style={{ gap: 8 }}>
+  const { fontScale } = useWindowDimensions(), buttons = <View style={{ gap: 8 }}>
     {/* Beside the button, since she may have scrolled a long way down to reach it. */}
     {!!outcome && <Notice>{outcome}</Notice>}
     {!!error && <Notice error>{error}</Notice>}
     <Button title="Share PDF" busy={busy === "full"} disabled={!ready || !!busy} onPress={() => void share()} />
     <Button secondary title="Share questions and notes" busy={busy === "picked"} disabled={!picked || !picked.questions.length && !picked.notes.length || !!busy} onPress={() => void sharePicked()} />
-  </View>}>
+  </View>;
+  // At large text a docked pair of buttons takes half the screen, so they go at the end of the page.
+  return <Screen title="Doctor summary" back footer={fontScale < 1.5 ? buttons : undefined}>
     <Copy kind="small" tone="muted">One page with daily totals, your questions and the notes you choose.</Copy>
     {children.length > 1 && <Chips scroll label="Baby" value={childId ?? ""} onChange={(id) => setChild(id || null)} options={children.map((one) => ({ label: one.name, value: one.id }))} />}
     <View style={{ gap: 8 }}>
@@ -164,5 +167,6 @@ export default function DoctorSummary() {
         {rows.journal.length ? list(rows.journal, (row) => [when(row), summaryWords(row).detail].filter(Boolean).join(". "), (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">Nothing in these dates.</Copy>}
       </Section>
     </>}
+    {fontScale >= 1.5 && buttons}
   </Screen>;
 }
