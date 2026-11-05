@@ -29,6 +29,8 @@ async def test_flag_off_client_3_is_legacy_elsewhere_which_is_why_a_build_cant_j
 async def test_flag_on_bootstrap_lists_spaces_and_client_2_keeps_working_in_personal(baby_api, enabled):
     three = await baby_api.client.post(API + "/bootstrap", headers=client("3"))
     assert {space["kind"] for space in three.json()["spaces"]} >= {"personal"}
-    assert "spaces" not in (await baby_api.client.post(API + "/bootstrap", headers=client("2"))).json()
+    two = await baby_api.client.post(API + "/bootstrap", headers=client("2"))
+    assert two.status_code == 200
+    assert "spaces" not in two.json()
     assert (await baby_api.client.get(API + "/changes", headers=client("3"))).status_code == 200
     assert (await baby_api.client.get(API + "/changes", headers=client("2"))).status_code == 403
