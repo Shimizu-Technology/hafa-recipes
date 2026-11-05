@@ -708,3 +708,34 @@ font declarations and those four asset-only font nodes differ. No new runtime
 code, native module, advisory exception or expiry is introduced. The reviewed
 whole-lock SHA-256 is `9af7bbd5b0cab5ec2d6ccc9684d28d78d5c0b2a8eed075d0d807997e3acee2d9`.
 Fresh audit and all-platform exports/source-map gate remain required.
+
+## Review renewal (2026-11-06)
+
+Re-checked each advisory from `origin/main` at `ff862204` with a fresh audit and the registry. Fixes first, then a renewal to
+**2027-01-15T00:00:00Z** for what can't be fixed safely. The date clears Håfa Baby's December 3 freeze and December 10 due date.
+
+The Expo SDK 57 patch is taken here too (Expo 57.0.32, Router 57.0.30), because `expo-doctor` now fails without it on any
+Workouts branch. It needs native QA before the next Workouts build; no build is part of this change. `expo-glass-effect`
+moves from the exact 57.0.4 to Expo's expected ~57.0.5.
+
+Gone from the exceptions:
+
+- `zod:1243066` (high): fixed. Expo CLI 57.0.33 no longer depends on it and `abitype`'s peer is optional, so it's out of the lock.
+- `deepmerge:1243505`: fixed. `@expo/config` 57.0.11 no longer uses it.
+- `braces:1240992`: its advisory was withdrawn on 2026-10-23.
+- `minimatch:1244012`: the registry now reports the same advisory as `1244623`.
+
+Renewed, with why:
+
+- `decode-uri-component:1147955` and `1243857` (high): the only patched decoder, 0.5.1, is default-only ESM and isn't callable
+  the way query-string 7.1.3 requires it. Router 58 drops query-string, so the real fix is the SDK 58 upgrade.
+- `glob:1244013` and `minimatch:1244623`: only `@expo/fingerprint` 0.20.15 still uses them, and the fixes are majors it doesn't
+  allow. Fingerprint 0.21.9 on SDK 58 asks for the same ranges, so this waits on Expo. It reads developer-controlled paths
+  during builds, and neither package is in the native bundles.
+- `stream-json:1164823`, `1241262` and `1241263`: Clerk's unused Solana wallet chain, still absent from the native bundles.
+  `@clerk/clerk-js` 6.39.1 drops that chain, and Baby already has it. But clerk-js is in the native bundle as `clerk.native.js`,
+  so that's an authentication change. It should ship with its own device sign-in QA, not inside an audit renewal.
+
+Fresh audit: 11 inherited findings, 7 reviewed advisories, zero critical, zero unexpected. Reviewed whole-lock SHA-256:
+`d13203582bbab24842156098356708deb773f4240126a246efd47c27995ccdd6`. `npm ci`, tests, typecheck, doctor, audit, exports and
+the native bundle check pass on Node 22.22.2. No device journey is claimed.

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ lock: null as Buffer | null, sources: [1244013, 1244012], packageNames: ["glob", "minimatch"] }));
+const fixture = vi.hoisted(() => ({ lock: null as Buffer | null, sources: [1244013, 1244623], packageNames: ["glob", "minimatch"] }));
 vi.mock("node:fs", async (original) => {
   const actual = await original<typeof import("node:fs")>();
   return { ...actual, readFileSync: (...args: Parameters<typeof actual.readFileSync>) =>
@@ -16,11 +16,11 @@ async function audit() {
   vi.resetModules();
   await import("../scripts/audit-runtime.mjs");
 }
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); fixture.lock = null; fixture.sources = [1244013, 1244012]; fixture.packageNames = ["glob", "minimatch"]; });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); fixture.lock = null; fixture.sources = [1244013, 1244623]; fixture.packageNames = ["glob", "minimatch"]; });
 describe("exact-lock dependency review", () => {
   function clock(date = "2026-10-31T00:00:00Z") { vi.useFakeTimers(); vi.setSystemTime(new Date(date)); vi.spyOn(console, "log").mockImplementation(() => {}); }
-  it("accepts the new build-only advisories in the exact reviewed tree", async () => { clock(); await expect(audit()).resolves.toBeUndefined(); });
-  it.each(["2026-10-23T23:59:59Z", "2026-11-17T00:00:00Z"])("rejects outside the review window: %s", async (date) => { clock(date); await expect(audit()).rejects.toThrow("review changed or expired"); });
+  it.each(["2026-10-31T00:00:00Z", "2027-01-14T23:59:59Z"])("accepts the build-only advisories in the exact reviewed tree: %s", async (date) => { clock(date); await expect(audit()).resolves.toBeUndefined(); });
+  it.each(["2026-10-23T23:59:59Z", "2027-01-15T00:00:00Z"])("rejects outside the review window: %s", async (date) => { clock(date); await expect(audit()).rejects.toThrow("review changed or expired"); });
   it.each(["version", "integrity", "parent", "duplicate"])("rejects changed %s provenance", async (field) => {
     clock(); const changed = JSON.parse(lock.toString());
     if (field === "parent") changed.packages[""].dependencies.glob = "^13.0.0";
@@ -29,5 +29,8 @@ describe("exact-lock dependency review", () => {
     fixture.lock = Buffer.from(JSON.stringify(changed)); await expect(audit()).rejects.toThrow("review changed or expired");
   });
   it("rejects unknown advisory IDs", async () => { clock(); fixture.sources = [9999999]; await expect(audit()).rejects.toThrow("Unexpected dependency advisories"); });
+  it.each([["deepmerge", 1243505], ["zod", 1243066], ["braces", 1240992], ["minimatch", 1244012]])("no longer accepts %s %i, which is fixed or withdrawn", async (name, source) => {
+    clock(); fixture.sources = [source]; fixture.packageNames = [name]; await expect(audit()).rejects.toThrow("Unexpected dependency advisories");
+  });
   it("removes the obsolete Forge exception", async () => { clock(); fixture.sources = [1240912]; fixture.packageNames = ["node-forge"]; await expect(audit()).rejects.toThrow("Unexpected dependency advisories"); });
 });

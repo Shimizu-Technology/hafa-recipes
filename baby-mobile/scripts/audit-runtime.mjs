@@ -4,12 +4,12 @@ import { createHash } from "node:crypto";
 
 // Exact reviewed dependency tree: any lock change requires renewed reachability
 // assessment. These are temporary documented exceptions, not security fixes.
-const reviewedLock = "b69b7848259dbbd584bef968b1b81e9c237345dc8e37b3dbfec6b44531b19a83";
+const reviewedLock = "f3c959b5baac3c55a36a41b0065ea1efc9d73cb19534dcd94e840973c79507eb";
 // Expo CLI/config/fingerprint and Metro file matching; absent from native bundles.
-const reviewed = new Set(["braces:1240992", "decode-uri-component:1147955", "decode-uri-component:1243857", "deepmerge:1243505", "glob:1244013", "minimatch:1244012", "minimatch:1244623", "zod:1243066"]);
+const reviewed = new Set(["decode-uri-component:1147955", "decode-uri-component:1243857", "glob:1244013", "minimatch:1244623"]);
 const lock = readFileSync(new URL("../package-lock.json", import.meta.url));
 const now = Date.now();
-if (createHash("sha256").update(lock).digest("hex") !== reviewedLock || now < Date.parse("2026-10-24T00:00:00Z") || now >= Date.parse("2026-11-17T00:00:00Z")) {
+if (createHash("sha256").update(lock).digest("hex") !== reviewedLock || now < Date.parse("2026-10-24T00:00:00Z") || now >= Date.parse("2027-01-15T00:00:00Z")) {
   throw new Error("Baby dependency review changed or expired; renew baby-mobile/README.md before accepting inherited findings.");
 }
 const result = spawnSync("npm", ["audit", "--omit=dev", "--json"], { encoding: "utf8", maxBuffer: 20*1024*1024 });
@@ -23,4 +23,4 @@ for (const [name, finding] of Object.entries(report.vulnerabilities)) {
   }
 }
 if (report.metadata.vulnerabilities.critical || unexpected.length) throw new Error(`Unexpected dependency advisories: ${unexpected.join("; ")}`);
-console.log(`Baby audit: ${report.metadata.vulnerabilities.total} inherited findings; ${reviewed.size} reviewed advisories;0 unexpected. Temporary reachability exceptions expire2026-11-17.`);
+console.log(`Baby audit: ${report.metadata.vulnerabilities.total} inherited findings; ${reviewed.size} reviewed advisories;0 unexpected. Temporary reachability exceptions expire 2027-01-15.`);

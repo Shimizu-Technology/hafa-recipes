@@ -309,3 +309,39 @@ Android `5b3150a5284efa003244035383ec39211d53899e0ae1568354a6b0f14e184111`.
 The extra all-platform export again fails web static rendering with the previously
 recorded tslib `__extends` error; the separate native exports pass. No installed
 app, authentication, simulator or user-data journey is claimed for this tooling change.
+
+## Review renewal — November 6, 2026
+
+Re-checked each advisory from `origin/main` at `ff862204` with a fresh audit and the registry. Fixes first, then a renewal to
+**2027-01-15T00:00:00Z** for what can't be fixed safely. The date clears Håfa Baby's December 3 freeze and December 10 due date.
+
+The Expo SDK 57 patch is taken here too (Expo 57.0.32, Router 57.0.30, expo-updates 57.0.27), because `expo-doctor` now fails
+without it on any Recipes branch. Nothing reaches users from this change: `runtimeVersion` follows the fingerprint, so an EAS
+update can't land on an older binary, and the next App Store build needs its normal native QA.
+
+Gone from the exceptions:
+
+- `zod:1243066` (high): fixed. Expo CLI 57.0.33 no longer depends on it and `abitype`'s peer is optional, so it's out of the lock.
+- `deepmerge:1243505`: fixed. `@expo/config` 57.0.11 no longer uses it.
+- `braces:1240992`: its advisory was withdrawn on 2026-10-23.
+- `minimatch:1244012`: the registry now reports the same advisory as `1244623`.
+
+Renewed, with why:
+
+- `decode-uri-component:1243857` (high): the only patched decoder, 0.5.1, is default-only ESM and isn't callable the way
+  query-string 7.1.3 requires it. Router 58 drops query-string, so the real fix is the SDK 58 upgrade.
+- `glob:1244013` and `minimatch:1244623`: only `@expo/fingerprint` 0.20.15 still uses glob 13.0.0 and minimatch 10.2.6, and the
+  fixes are majors it doesn't allow. Fingerprint 0.21.9 on SDK 58 asks for the same ranges, so this waits on Expo. It reads
+  developer-controlled paths during builds. The other Expo packages now have glob 14.0.3 and minimatch 11.0.4, pinned too.
+- `stream-json:1164823`, `1241262` and `1241263`: Clerk's unused Solana wallet chain, still absent from the native bundles.
+  `@clerk/clerk-js` 6.39.1 drops that chain, and Baby already has it. But clerk-js is in the native bundle, so for a live app
+  that's an authentication change. It should ship with its own device sign-in QA, not inside an audit renewal.
+
+Not renewed because it has no expiry: `uuid:1119441`. Baby and Workouts already override Jayson's uuid to 11.1.1, so Recipes can
+follow in its own change.
+
+Fresh audit: 22 inherited findings, 13 reviewed advisories, zero critical, zero unexpected. `npm ci`, tests, typecheck and doctor pass on Node 22.22.2.
+Fresh native exports contain 2,986 iOS and 3,071 Android sources, select native Clerk, and exclude glob, minimatch, deepmerge,
+stream-json, Jayson, Zod, abitype, viem, ox, braces and Solana. Map SHA-256: iOS
+`f44d599104a465c95f2a0091986ab4daff4ae52ba1b7a10b3011d1cb82f90f70`; Android
+`78e65277640392e29462ff19ded9c5dab5840600fae1f3b3619503aa89a89cc4`. No device journey is claimed.

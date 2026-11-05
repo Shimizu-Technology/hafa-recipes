@@ -19,7 +19,7 @@ const STREAM_JSON_ADVISORIES = new Set([
   'stream-json:1241263',
 ]);
 const STREAM_JSON_REVIEW_STARTED = Date.parse('2026-10-24T00:00:00Z');
-export const streamJsonReviewExpiresAt = '2026-11-17T00:00:00Z';
+export const streamJsonReviewExpiresAt = '2027-01-15T00:00:00Z';
 const STREAM_JSON_REVIEW_EXPIRES = Date.parse(streamJsonReviewExpiresAt);
 
 const reviewedStreamJsonChain = [
@@ -97,7 +97,7 @@ function hasReviewedStreamJsonPath(lockfile, now) {
 // Any changed version, integrity, declaring parent/range, duplicate install,
 // or expired review fails closed and requires a fresh reachability assessment.
 const BUILD_TOOL_REVIEW_STARTED = Date.parse('2026-10-24T00:00:00Z');
-export const buildToolReviewExpiresAt = '2026-11-17T00:00:00Z';
+export const buildToolReviewExpiresAt = '2027-01-15T00:00:00Z';
 const BUILD_TOOL_REVIEW_EXPIRES = Date.parse(buildToolReviewExpiresAt);
 const reviewedBuildToolAdvisories = {
   // Router decoding is reachable; this is a bounded risk acceptance, not absence.
@@ -112,8 +112,8 @@ const reviewedBuildToolAdvisories = {
         "integrity": "sha512-hh2WYhq4fi8+b+/2Kg9CEge4fDPvHS534aOOvOZeQ3+Vf2mCFsaFBYj0i+iXcAq6I9Vzp5fjMFBlONvayDC1qg=="
       },
       "node_modules/expo-router": {
-        "version": "57.0.29",
-        "integrity": "sha512-jm3ZVLm40zZc7XpfvGjZqgoaWjNOEht5mXAxi5RC8gqUQxSq4PRTMy49TXsYlDncVPZFgFPXaE2vOLrsv7Cpsw=="
+        "version": "57.0.30",
+        "integrity": "sha512-ia+tNRo6sEKAuaImrunWdcbagY9VJiDi3c76N1keg+sYUWTYmuOnpH9sEnzEsw5qUSDr8wAPxVY43/5o1nCT4w=="
       }
     },
     "declarations": {
@@ -129,408 +129,131 @@ const reviewedBuildToolAdvisories = {
       }
     }
   },
-  "deepmerge:1243505": {
-    "packages": {
-      "node_modules/deepmerge": {
-        "version": "4.3.1",
-        "integrity": "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A=="
-      },
-      "node_modules/@expo/config": {
-        "version": "57.0.10",
-        "integrity": "sha512-YpexTqLWEXdbbXgHh7Zhpq+qA5diuvO46lb7TiY81JwqKLAl9zK31APY1D7jUFlDX56owje5RtK0o5bMmGIMUg=="
-      },
-      "node_modules/expo": {
-        "version": "57.0.31",
-        "integrity": "sha512-+9AJvHZMLIY/Tv6r5Tpu84vWfI75FBTnineYqjjlHAU138IPg2gYQKn9FQFetCB9YScwyc7STk7WGHSCHAdTiQ=="
-      }
-    },
-    "declarations": {
-      "deepmerge": {
-        "node_modules/@expo/config": {
-          "dependencies": "^4.3.1"
-        }
-      },
-      "@expo/config": {
-        "node_modules/@expo/cli": {
-          "dependencies": "~57.0.10"
-        },
-        "node_modules/@expo/local-build-cache-provider": {
-          "dependencies": "~57.0.10"
-        },
-        "node_modules/@expo/metro-config": {
-          "dependencies": "~57.0.10"
-        },
-        "node_modules/@expo/prebuild-config": {
-          "dependencies": "~57.0.10"
-        },
-        "node_modules/expo": {
-          "dependencies": "~57.0.10"
-        }
-      }
-    }
-  },
-  // Zod is confined to CLI devtools and the unused Clerk wallet chain.
-  "zod:1243066": {
-    "packages": {
-      "node_modules/@base-org/account": {
-        "version": "2.0.1",
-        "integrity": "sha512-tySVNx+vd6XEynZL0uvB10uKiwnAfThr8AbKTwILVG86mPbLAhEOInQIk+uDnvpTvfdUhC1Bi5T/46JvFoLZQQ=="
-      },
-      "node_modules/@clerk/clerk-js": {
-        "version": "6.29.3",
-        "integrity": "sha512-CfamNIf04jhwAMr4+tMI/ZOXj04Tep725cTrnz/Ve6PtjAFzS2XkYlOPjiBA9yfk8gYMbuI4zZeAklbs84UC8g=="
-      },
-      "node_modules/@clerk/expo": {
-        "version": "4.5.2",
-        "integrity": "sha512-sdvcXJ9dPIaZaGTM8clxyQCwpEYuL4mSBnMoXLoOKzHPKSxeW6Y4FQqQbiT/Rr954cUKAjeFYD4oPSboP9yWog=="
-      },
-      "node_modules/@expo/cli": {
-        "version": "57.0.32",
-        "integrity": "sha512-3p1qL/pvWblGNwDE1bt2wh/NUiGpSer61s5GKKFfpEpBkZTYnqve0pdK1UvEFzJGT6PW9vX2RofQQ2LP6MgvDQ=="
-      },
-      "node_modules/abitype": {
-        "version": "1.3.0",
-        "integrity": "sha512-fk6Te+bojIFrMvMZrnOO+SxCB+RUksTGOzq/60ZRvs1L+BVzvi2bqt9L3W/17ZLdZsyM1FuYf65P5nlmoiH1Bg=="
-      },
-      "node_modules/expo": {
-        "version": "57.0.31",
-        "integrity": "sha512-+9AJvHZMLIY/Tv6r5Tpu84vWfI75FBTnineYqjjlHAU138IPg2gYQKn9FQFetCB9YScwyc7STk7WGHSCHAdTiQ=="
-      },
-      "node_modules/ox": {
-        "version": "0.6.9",
-        "integrity": "sha512-wi5ShvzE4eOcTwQVsIPdFr+8ycyX+5le/96iAJutaZAvCes1J0+RvpEPg5QDPDiaR0XQQAvZVl7AwqQcINuUug=="
-      },
-      "node_modules/viem": {
-        "version": "2.55.19",
-        "integrity": "sha512-4QPIX0eYPLsOBk53NKswVMkQoxuP7GlOBnB4wM6dkDokREO4QENNc3bmyPKK1PBTViXh0TPJCHLjIuU20Qi3fg=="
-      },
-      "node_modules/viem/node_modules/abitype": {
-        "version": "1.2.3",
-        "integrity": "sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg=="
-      },
-      "node_modules/viem/node_modules/ox": {
-        "version": "0.14.34",
-        "integrity": "sha512-12seOIk7dv8eAoGQhcWaeKZxNz304IVcDvb9U5Y7JZAEVe21Nm1YMxLjhWah+su5BD4Omx4Zz0z5x3ij9M4GYQ=="
-      },
-      "node_modules/zod": {
-        "version": "3.25.76",
-        "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
-      },
-      "node_modules/@coinbase/wallet-sdk": {
-        "version": "4.3.7",
-        "integrity": "sha512-z6e5XDw6EF06RqkeyEa+qD0dZ2ZbLci99vx3zwDY//XO8X7166tqKJrR2XlQnzVmtcUuJtCd5fCvr9Cu6zzX7w=="
-      }
-    },
-    "declarations": {
-      "zod": {
-        "node_modules/@expo/cli": {
-          "dependencies": "^3.25.76"
-        },
-        "node_modules/abitype": {
-          "peerDependencies": "^3.22.0 || ^4.0.0"
-        },
-        "node_modules/viem/node_modules/abitype": {
-          "peerDependencies": "^3.22.0 || ^4.0.0"
-        }
-      },
-      "abitype": {
-        "node_modules/ox": {
-          "dependencies": "^1.0.6"
-        },
-        "node_modules/viem": {
-          "dependencies": "1.2.3"
-        },
-        "node_modules/viem/node_modules/ox": {
-          "dependencies": "^1.2.3"
-        }
-      },
-      "ox": {
-        "node_modules/@base-org/account": {
-          "dependencies": "0.6.9"
-        },
-        "node_modules/viem": {
-          "dependencies": "0.14.34"
-        }
-      },
-      "viem": {
-        "node_modules/@base-org/account": {
-          "dependencies": "^2.31.7"
-        },
-        "node_modules/@coinbase/wallet-sdk": {
-          "dependencies": "^2.27.2"
-        }
-      },
-      "@base-org/account": {
-        "node_modules/@clerk/clerk-js": {
-          "dependencies": "2.0.1"
-        }
-      },
-      "@clerk/clerk-js": {
-        "node_modules/@clerk/expo": {
-          "dependencies": "^6.29.3"
-        }
-      },
-      "@clerk/expo": {
-        "": {
-          "dependencies": "^4.5.2"
-        }
-      },
-      "@expo/cli": {
-        "node_modules/expo": {
-          "dependencies": "^57.0.32"
-        }
-      },
-      "expo": {
-        "": {
-          "dependencies": "~57.0.31"
-        },
-        "modules/hafa-widget-bridge": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@clerk/expo": {
-          "peerDependencies": ">=54 <58"
-        },
-        "node_modules/@expo/cli": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@expo/dom-webview": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@expo/log-box": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@expo/metro-config": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@expo/metro-runtime": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@expo/router-server": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@expo/ui": {
-          "peerDependencies": "*"
-        },
-        "node_modules/@sentry/react-native": {
-          "peerDependencies": ">=49.0.0"
-        },
-        "node_modules/babel-preset-expo": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-apple-authentication": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-application": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-asset": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-audio": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-build-properties": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-clipboard": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-constants": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-crypto": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-dev-client": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-dev-launcher": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-dev-menu": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-dev-menu-interface": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-file-system": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-font": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-glass-effect": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-haptics": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-image": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-image-loader": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-image-picker": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-keep-awake": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-linear-gradient": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-manifests": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-notifications": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-router": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-secure-store": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-share-intent": {
-          "peerDependencies": "^57"
-        },
-        "node_modules/expo-speech-recognition": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-splash-screen": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-status-bar": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-symbols": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-system-ui": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-updates": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-updates-interface": {
-          "peerDependencies": "*"
-        },
-        "node_modules/expo-web-browser": {
-          "peerDependencies": "*"
-        }
-      },
-      "@coinbase/wallet-sdk": {
-        "node_modules/@clerk/clerk-js": {
-          "dependencies": "4.3.7"
-        }
-      }
-    }
-  },
-  "braces:1240992": {
-    "packages": {
-      "node_modules/braces": {
-        "version": "3.0.3",
-        "integrity": "sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA=="
-      },
-      "node_modules/micromatch": {
-        "version": "4.0.8",
-        "integrity": "sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA=="
-      },
-      "node_modules/@expo/metro-file-map": {
-        "version": "57.0.4",
-        "integrity": "sha512-gLABIbU3SlxRVVCe56ZfYFbxjhdpAKomQYr6LIeDYf7rca8Pfvzv8FS39hH0+IcdpEHly2Jy0X2nd4/obd8Kig=="
-      },
-      "node_modules/metro-file-map": {
-        "version": "0.84.5",
-        "integrity": "sha512-mlm/JL8toSbSc2akpKIGmzvrVRSCgZ5vkbycI34oMLoOnLGuLyC8WTyVJ6P0hZG/usDaGwZSl/s9BCRriqjGJA=="
-      },
-      "node_modules/find-yarn-workspace-root": {
-        "version": "2.0.0",
-        "integrity": "sha512-1IMnbjt4KzsQfnhnzNd8wUEgXZ44IzZaZmnLYx7D5FZlaHt2gW20Cri8Q+E/t5tIj4+epTBub+2Zxu/vNILzqQ=="
-      }
-    },
-    "declarations": {
-      "braces": {
-        "node_modules/micromatch": {
-          "dependencies": "^3.0.3"
-        }
-      },
-      "micromatch": {
-        "node_modules/metro-file-map": {
-          "dependencies": "^4.0.4"
-        },
-        "node_modules/find-yarn-workspace-root": {
-          "dependencies": "^4.0.2"
-        }
-      }
-    }
-  },
-  // Expo CLI/config/fingerprint and Metro file matching; absent from native bundles.
+  // Only Expo fingerprint still uses glob 13; the other Expo packages have patched 14.0.3.
   "glob:1244013": {
     "packages": {
+      "node_modules/@expo/cli/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/@expo/config-plugins/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/@expo/config/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/@expo/metro-config/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/expo-updates/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
       "node_modules/glob": {
         "version": "13.0.0",
         "integrity": "sha512-tvZgpqk6fz4BaNZ66ZsRaZnbHvP/jG3uKJvAZOwEVUL4RTA5nJeeLYfyN9/VA8NX/V3IBG+hkeuGpKjvELkVhA=="
       },
       "node_modules/@expo/cli": {
-        "version": "57.0.32",
-        "integrity": "sha512-3p1qL/pvWblGNwDE1bt2wh/NUiGpSer61s5GKKFfpEpBkZTYnqve0pdK1UvEFzJGT6PW9vX2RofQQ2LP6MgvDQ=="
+        "version": "57.0.33",
+        "integrity": "sha512-MyTMZ3PsofTao5CEoUtXG9l9BfVnUxFT/3wSzzkeeR/dD4SVy7KVMAEzIwT1Dh/v72B5k4nBP5rbXgbDXioJ9w=="
       },
       "node_modules/@expo/config": {
-        "version": "57.0.10",
-        "integrity": "sha512-YpexTqLWEXdbbXgHh7Zhpq+qA5diuvO46lb7TiY81JwqKLAl9zK31APY1D7jUFlDX56owje5RtK0o5bMmGIMUg=="
+        "version": "57.0.11",
+        "integrity": "sha512-NpFRaAHZTxCLBNo9U/gezF40GfUeyTWkml3sp/iEB21qKkRVdpbxLDam6zhzeQlb3i+DhjjMQyF3pfVgrNW9kg=="
       },
       "node_modules/@expo/config-plugins": {
-        "version": "57.0.11",
-        "integrity": "sha512-lnNF0cNXqLQPpQVeb/AAu7O0KhdwMFx99rJkO11mrd0IbQDhnOVObpgaR/Ja2D1jAOoKuqk55jwS4l+ZD1j7aw=="
+        "version": "57.0.12",
+        "integrity": "sha512-VnlMHRVePvUXo0feZ0XvuhwPyiPBeVfr5btxfEF4+oB4qphRCuhkheCSEPu2x+sEu31/OzqIeYuczG3lUE9ncw=="
       },
       "node_modules/@expo/fingerprint": {
-        "version": "0.20.14",
-        "integrity": "sha512-7sihStGX1ZepJBNbYgeQY7cU2GQ+PSkSROe3g7JOQqnT6OOuX0rXKY0ZNoVnlB2Y/H5FWnnJ6QrPlK3fNg9+bQ=="
+        "version": "0.20.15",
+        "integrity": "sha512-qfKLoIPxC8hdSYzYHb8yOVaY+LY57LvLt1Jf4zGdMd7OjSrxvWUL4hJc4WUyHctoEc1e9/wdhSEQN1XE1jp8fg=="
       },
       "node_modules/@expo/metro-config": {
-        "version": "57.0.13",
-        "integrity": "sha512-r+YCwqh8FM5cymkC3MdYO32DqLZQ2wDWkGEnzwgwI40Bj355BvL4XoY0hGgao9vNHjYa7be7XxbVqtMTi76snw=="
+        "version": "57.0.14",
+        "integrity": "sha512-kKC1A1W0Xwmdp7VwWxTvKchyPQM5+IZoYjy9iFa0ftq920MYSsPnCONGolOlrIKImfgJH2UIMXvAFmC6HnT+aw=="
       },
       "node_modules/expo-updates": {
-        "version": "57.0.26",
-        "integrity": "sha512-Dloc9rkoR22qx2HtxzDHOZQcU5rABqsvl8QWA0gFx8N6mHicTdbaxuQ6QCK/wp5fXAK6DQnfzTiQtvJ5IfMTew=="
+        "version": "57.0.27",
+        "integrity": "sha512-v+L9NSMydiphVLDy6bOBPjNuXIy9X9Oekq8aFOtuJtQdHEJl5zSlDxW/awPI559NS4KKlGwMo0KRTtPMU9fiBg=="
       }
     },
     "declarations": {
       "glob": {
         "node_modules/@expo/cli": {
-          "dependencies": "^13.0.0"
+          "dependencies": "^14.0.3"
         },
         "node_modules/@expo/config": {
-          "dependencies": "^13.0.0"
+          "dependencies": "^14.0.3"
         },
         "node_modules/@expo/config-plugins": {
-          "dependencies": "^13.0.0"
+          "dependencies": "^14.0.3"
         },
         "node_modules/@expo/fingerprint": {
           "dependencies": "^13.0.0"
         },
         "node_modules/@expo/metro-config": {
-          "dependencies": "^13.0.0"
+          "dependencies": "^14.0.3"
         },
         "node_modules/expo-updates": {
-          "dependencies": "^13.0.0"
+          "dependencies": "^14.0.3"
         }
       }
     }
   },
-  // Expo fingerprint/glob match developer-controlled build paths; absent from native bundles.
-  "minimatch:1244012": {
+  // Expo fingerprint and its glob 13 match developer-controlled build paths; absent from native bundles.
+  "minimatch:1244623": {
     "packages": {
+      "node_modules/@expo/cli/node_modules/minimatch": {
+        "version": "11.0.4",
+        "integrity": "sha512-/UJ1dEoVQTjPNDh6SGlUo+ueLMmoHTas4q+8yaAR/5t6nLAIiBDJtoYUh20IYleix7ehiQkgczb84PE3uzHkxg=="
+      },
+      "node_modules/@expo/config-plugins/node_modules/minimatch": {
+        "version": "11.0.4",
+        "integrity": "sha512-/UJ1dEoVQTjPNDh6SGlUo+ueLMmoHTas4q+8yaAR/5t6nLAIiBDJtoYUh20IYleix7ehiQkgczb84PE3uzHkxg=="
+      },
+      "node_modules/@expo/config/node_modules/minimatch": {
+        "version": "11.0.4",
+        "integrity": "sha512-/UJ1dEoVQTjPNDh6SGlUo+ueLMmoHTas4q+8yaAR/5t6nLAIiBDJtoYUh20IYleix7ehiQkgczb84PE3uzHkxg=="
+      },
+      "node_modules/@expo/metro-config/node_modules/minimatch": {
+        "version": "11.0.4",
+        "integrity": "sha512-/UJ1dEoVQTjPNDh6SGlUo+ueLMmoHTas4q+8yaAR/5t6nLAIiBDJtoYUh20IYleix7ehiQkgczb84PE3uzHkxg=="
+      },
+      "node_modules/expo-updates/node_modules/minimatch": {
+        "version": "11.0.4",
+        "integrity": "sha512-/UJ1dEoVQTjPNDh6SGlUo+ueLMmoHTas4q+8yaAR/5t6nLAIiBDJtoYUh20IYleix7ehiQkgczb84PE3uzHkxg=="
+      },
       "node_modules/minimatch": {
         "version": "10.2.6",
         "integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A=="
       },
       "node_modules/@expo/fingerprint": {
-        "version": "0.20.14",
-        "integrity": "sha512-7sihStGX1ZepJBNbYgeQY7cU2GQ+PSkSROe3g7JOQqnT6OOuX0rXKY0ZNoVnlB2Y/H5FWnnJ6QrPlK3fNg9+bQ=="
+        "version": "0.20.15",
+        "integrity": "sha512-qfKLoIPxC8hdSYzYHb8yOVaY+LY57LvLt1Jf4zGdMd7OjSrxvWUL4hJc4WUyHctoEc1e9/wdhSEQN1XE1jp8fg=="
+      },
+      "node_modules/@expo/cli/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/@expo/config-plugins/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/@expo/config/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/@expo/metro-config/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
+      },
+      "node_modules/expo-updates/node_modules/glob": {
+        "version": "14.0.3",
+        "integrity": "sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow=="
       },
       "node_modules/glob": {
         "version": "13.0.0",
@@ -539,35 +262,23 @@ const reviewedBuildToolAdvisories = {
     },
     "declarations": {
       "minimatch": {
+        "node_modules/@expo/cli/node_modules/glob": {
+          "dependencies": "^11.0.2"
+        },
+        "node_modules/@expo/config-plugins/node_modules/glob": {
+          "dependencies": "^11.0.2"
+        },
+        "node_modules/@expo/config/node_modules/glob": {
+          "dependencies": "^11.0.2"
+        },
         "node_modules/@expo/fingerprint": {
           "dependencies": "^10.2.2"
         },
-        "node_modules/glob": {
-          "dependencies": "^10.1.1"
-        }
-      }
-    }
-  },
-  // Same build-only consumers and bundle checks as minimatch:1244012 above.
-  "minimatch:1244623": {
-    "packages": {
-      "node_modules/minimatch": {
-        "version": "10.2.6",
-        "integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A=="
-      },
-      "node_modules/@expo/fingerprint": {
-        "version": "0.20.14",
-        "integrity": "sha512-7sihStGX1ZepJBNbYgeQY7cU2GQ+PSkSROe3g7JOQqnT6OOuX0rXKY0ZNoVnlB2Y/H5FWnnJ6QrPlK3fNg9+bQ=="
-      },
-      "node_modules/glob": {
-        "version": "13.0.0",
-        "integrity": "sha512-tvZgpqk6fz4BaNZ66ZsRaZnbHvP/jG3uKJvAZOwEVUL4RTA5nJeeLYfyN9/VA8NX/V3IBG+hkeuGpKjvELkVhA=="
-      }
-    },
-    "declarations": {
-      "minimatch": {
-        "node_modules/@expo/fingerprint": {
-          "dependencies": "^10.2.2"
+        "node_modules/@expo/metro-config/node_modules/glob": {
+          "dependencies": "^11.0.2"
+        },
+        "node_modules/expo-updates/node_modules/glob": {
+          "dependencies": "^11.0.2"
         },
         "node_modules/glob": {
           "dependencies": "^10.1.1"
@@ -587,7 +298,7 @@ function hasReviewedBuildToolPath(key, lockfile, now) {
     const metadata = packages[packagePath];
     if (metadata?.version !== expected.version || metadata?.integrity !== expected.integrity) return false;
     // Reject every unreviewed nested copy, including byte-identical copies.
-    // Zod's wallet chain explicitly pins both installed abitype/ox copies.
+    // Patched glob and minimatch copies are pinned individually above.
     const suffix = `/node_modules/${packagePath.slice('node_modules/'.length)}`;
     if (Object.keys(packages).some((candidate) => candidate.endsWith(suffix)
       && !Object.hasOwn(reviewed.packages, candidate))) return false;
