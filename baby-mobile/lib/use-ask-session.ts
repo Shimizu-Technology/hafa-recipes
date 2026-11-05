@@ -202,9 +202,9 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
       activate(snapshot.context, result.conversation_id ?? undefined, [...snapshot.messages, { role: "user", content: text },
         { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal, sources: result.sources, help: result.help }], snapshot.focusedTitle);
     } catch (failure) {
-      // Anything urgent was already answered. With AI off, everything else is what ends up here.
+      // The screen says where to go with this, whatever the failure. Anything Ask recognized as urgent was already answered.
       if (operation.valid()) setError(account.state.bootstrap?.profile.ai_consent ? messageFor(failure)
-        : "Ask needs AI processing turned on in Settings. If this is urgent, open Help.");
+        : "Ask needs AI processing turned on in Settings.");
     } finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
   async function openHistory() {

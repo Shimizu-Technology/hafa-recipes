@@ -18,7 +18,6 @@ from pydantic import (
     model_validator,
 )
 
-from app.domains.baby.ask_safety import medical_schedule
 from app.domains.baby.feeds import instant, reduce_feed, with_derived
 from app.domains.baby.recurrence import falls_on, is_start
 from app.domains.baby.sessions import with_session
@@ -376,13 +375,9 @@ class RoutineData(DomainModel):
     timezone: str | None = Field(default=None, max_length=80)
     repeat: Literal["none", "daily", "weekly"] = "none"
     enabled: StrictBool = False
-    # Ask suggested this. Kept through review and every edit, it can never become a reminder.
-    ai_origin: StrictBool | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def valid_reminder(self):
-        if self.ai_origin and (self.enabled or self.reminder_at or self.repeat != "none"):
-            raise ValueError("A suggestion from Ask can't become a reminder")
         if len({item.id for item in self.items}) != len(self.items):
             raise ValueError("Checklist item IDs must be unique")
         if self.timezone:
@@ -771,10 +766,6 @@ class RecordCreate(DomainModel):
                 self.occurred_at = instant(started)
         if self.kind == "event":
             EventData.model_validate(self.data).check_times(self.occurred_at)
-        if self.kind == "routine" and self.data.get("ai_origin") and medical_schedule(
-            self.title, self.body, *(str(item.get("label", "")) for item in self.data.get("items") or [])
-        ):
-            raise ValueError("A suggestion from Ask can't become a plan for medicine or feeding")
         if self.data.get("session_actions"):
             self.data = with_session(self.kind, self.data, self.occurred_at)
         end_field = END_FIELDS.get(self.kind)

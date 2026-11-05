@@ -23,7 +23,7 @@ vi.mock("@/components/ui", () => ({
   Icon: "Icon", Loading: "Loading", Notice: "Notice", PressTarget: "PressTarget", Row: "Row", Screen: "Screen", Section: "Section",
   fonts: { semibold: "semibold" }, radii: { notice: 20 }, useColors: () => ({ tile: "tile", accentText: "clay", muted: "muted" }),
 }));
-import { AiNotice, AskUpdateNotice } from "../components/ask-screen";
+import { AiNotice, AskUpdateNotice, CantAnswer } from "../components/ask-screen";
 
 let renderer: ReactTestRenderer | undefined;
 const copy = () => renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
@@ -56,4 +56,14 @@ it("offers the new Ask in one line, and only Review acts", async () => {
   expect(onReview).not.toHaveBeenCalled();
   renderer!.root.findAll((n) => n.props.accessibilityLabel === "Review what Ask can do")[0].props.onPress();
   expect(onReview).toHaveBeenCalledTimes(1);
+});
+
+it("says where to go whenever Ask can't answer", async () => {
+  await act(async () => { renderer = create(<CantAnswer error="Håfa Baby could not save this change." />); });
+  expect(renderer!.root.findAll((n) => (n.type as unknown) === "Notice")[0].props.children).toBe("Håfa Baby could not save this change.");
+  expect(copy()).toEqual(["If this might be urgent, open Help or call 911."]);
+  const help = renderer!.root.findAll((n) => (n.type as unknown) === "Button")[0];
+  expect(help.props.title).toBe("Open Help");
+  await act(async () => help.props.onPress());
+  expect(scope.push).toHaveBeenCalledWith("/help");
 });

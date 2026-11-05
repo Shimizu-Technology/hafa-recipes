@@ -23,7 +23,6 @@ import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
 import { ensureAiConsent } from "../lib/ai-consent";
-import { SUGGESTED_ROUTINE_NOTE } from "../lib/ask-sources";
 import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
@@ -676,9 +675,7 @@ export default function Edit() {
               }}
             />
           </Section>
-          {draft.data.ai_origin ? <Card tone="soft">
-            <Copy tone="muted">{SUGGESTED_ROUTINE_NOTE}</Copy>
-          </Card> : <Card tone="soft">
+          <Card tone="soft">
             <Copy kind="heading">A reminder, only if you choose</Copy>
             <Copy tone="muted">
               This is your chosen routine. Saved advice does not activate reminders automatically.
@@ -722,7 +719,7 @@ export default function Edit() {
               Repeating reminders keep the timezone chosen here, even when you travel. Notifications use a private,
               general message.
             </Copy>
-          </Card>}
+          </Card>
         </>
       )}
       {draft.kind === "collection" && (

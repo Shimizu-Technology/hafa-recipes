@@ -26,7 +26,6 @@ import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
 import { ensureAiConsent } from "../../lib/ai-consent";
 import { babyLabel, isCaregiver } from "../../lib/spaces";
 import { ApiError } from "../../lib/api";
-import { reminderOffLine } from "../../lib/ask-sources";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -185,7 +184,7 @@ export default function RecordDetail() {
               ? data.routine_type === "checklist" && data.items?.length && data.items.every((item) => item.done)
                 ? "Checklist complete. Reminders are paused."
                 : `Reminder enabled for ${friendlyTime(data.reminder_at)}${data.repeat === "daily" ? " · daily" : data.repeat === "weekly" ? " · weekly" : ""}. Repeating reminders use ${data.timezone ?? "the chosen timezone"}.`
-              : reminderOffLine(data)}
+              : "Reminders are off. Edit this routine to choose a time and activate a reminder."}
           </Notice>
         </>
       )}

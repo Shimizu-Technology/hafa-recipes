@@ -4,7 +4,7 @@ import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router
 import { friendlyDate } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
 import { ASK_UPDATE_TITLE, acknowledgeAsk, needsAskAcknowledgment } from "@/lib/ai-consent";
-import { answeredCalmly, unavailablePlaceholder } from "../lib/ask-sources";
+import { CANT_ANSWER_LINE, answeredCalmly, unavailablePlaceholder } from "../lib/ask-sources";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { AnswerText, WebSources } from "./ask-answer";
 import { AskHistory } from "./ask-history";
@@ -44,6 +44,15 @@ export function AiNotice({ service, consent }: { service: boolean; consent: bool
   </View>;
 }
 /** Ask keeps working as it did. This only offers the new one, and nothing changes until it is accepted. */
+/** Whenever Ask can't answer: so a wording the urgent check misses, or no connection at all, still gets her to Help. */
+export function CantAnswer({ error }: { error: string }) {
+  return <>
+    <Notice error>{error}</Notice>
+    <Copy kind="small">{CANT_ANSWER_LINE}</Copy>
+    <Button secondary title="Open Help" onPress={() => router.push("/help")} />
+  </>;
+}
+
 export function AskUpdateNotice({ onReview }: { onReview: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <View accessibilityRole="summary" style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "flex-start" : "center",
@@ -172,7 +181,7 @@ function AskChat({ back }: { back: boolean }) {
             {focusedDay
               ? "Ask for a summary or find a detail. You will review any proposed changes."
               : focused
-              ? "Ask for a summary, find a detail, or draft a checklist from this source. You will review any proposed changes."
+              ? "Ask for a summary, find a detail, or draft a question for your doctor. You will review any proposed changes."
               : "Ask across your saved posts, journal and care logs. Try one of these:"}
           </Copy>
           {!focused && <Grouped separatorInset={16}>{suggestions.map((text) => (
@@ -234,10 +243,7 @@ function AskChat({ back }: { back: boolean }) {
           </View>
         )
       )}
-      {!!error && <>
-        <Notice error>{error}</Notice>
-        <Button secondary title="Open Help" onPress={() => router.push("/help")} />
-      </>}
+      {!!error && <CantAnswer error={error} />}
       {busy && <Loading label="Looking through your saved entries…" />}
       {!showHistory && showNotice && (
         <Copy kind="small" tone="muted">

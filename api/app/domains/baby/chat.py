@@ -15,13 +15,14 @@ from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
 from app.domains.baby.ask_gate import ask_v2_allowed, ask_v2_on
+from app.domains.baby.ask_research import strings_in
 from app.domains.baby.ask_safety import (
     CANT_ANSWER,
     CANT_ANSWER_LINE,
     boundary,
     cant_answer,
     classify,
-    medical_schedule,
+    unsafe_suggestion,
 )
 from app.domains.baby.dependencies import Access, Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, now, owned
@@ -557,33 +558,30 @@ async def context_pack(db, owner, generation, request, zone, *, tracked=None):
     return pack
 
 
-class MedicalSchedule(ValueError):
+NOT_WRITTEN_TEXT = ("provenance", "timezone", "end")  # Fixed values, checked by the schema.
+
+
+class NotOffered(ValueError):
     """Refused on every path: the old one drops the suggestion and keeps its answer, too."""
 
 
 def reviewed_proposal(raw, *, events=False):
+    """Ask suggests a journal note, a doctor question or a one-off event, and nothing it writes skips the checks."""
     if raw is None:
         return None
+    if isinstance(raw, dict) and raw.get("kind") == "routine":
+        raise NotOffered("Ask doesn't suggest routines or checklists")
     is_event = events and isinstance(raw, dict) and raw.get("kind") == "event"
     if not isinstance(raw, dict) or set(raw) - {"kind", "title", "body", "data", *(("occurred_at",) if is_event else ())}:
         raise ValueError("Invalid proposal")
-    if raw.get("kind") not in {"routine", "journal", "question"} and not is_event:
+    if raw.get("kind") not in {"journal", "question"} and not is_event:
         raise ValueError("Unsupported proposal")
     proposal = RecordCreate.model_validate({**raw, "occurred_at": raw["occurred_at"]} if is_event else {**raw, "occurred_at": now()})
     if is_event and (proposal.data.get("recurrence") or proposal.data.get("exceptions")):
         raise ValueError("A suggested event is one date; she can make it repeat while reviewing")
-    if proposal.kind in {"routine", "event"} and medical_schedule(
-        proposal.title, proposal.body, *(str(item.get("label", "")) for item in proposal.data.get("items") or [])
-    ):
-        raise MedicalSchedule("AI cannot suggest a plan for medicine or feeding")
-    if proposal.kind == "routine":
-        if proposal.data.get("repeat") not in {None, "none"}:
-            raise ValueError("AI cannot activate reminders")
-        proposal.data = {**proposal.data, "ai_origin": True}
-    if proposal.kind == "routine" and (
-        proposal.data.get("enabled") or proposal.data.get("reminder_at")
-    ):
-        raise ValueError("AI cannot activate reminders")
+    written = {key: value for key, value in proposal.data.items() if key not in NOT_WRITTEN_TEXT}
+    if unsafe_suggestion(proposal.kind, proposal.title, proposal.body, *strings_in(written)):
+        raise NotOffered("This suggestion doesn't pass the medical checks")
     if proposal.data.get("attachment_ids"):
         raise ValueError("AI cannot attach private files")
     if proposal.data.get("provenance") == "clinician_instruction":
@@ -597,7 +595,7 @@ def reviewed_proposal(raw, *, events=False):
 def legacy_proposal(raw):
     try:
         return reviewed_proposal(raw)
-    except MedicalSchedule:
+    except NotOffered:
         return None
 
 

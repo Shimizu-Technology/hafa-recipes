@@ -310,10 +310,22 @@ def answer_checks(question, answer):
     return message, kind, extra
 
 
-def medical_schedule(*texts):
-    """Text that would make a checklist or reminder into a plan for medicine, doses or feeding times."""
-    text = normalized(" ".join(filter(None, texts)))
-    return any(pattern.search(text) for pattern in (MEDICINE_WORDS, PILL_AMOUNT, LIQUID_AMOUNT, FREQUENCY))
+TIMES_OF_DAY = r"(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|noon|midnight|breakfast|lunch|dinner|bedtime|morning|night)"
+TIMED_FEEDING = re.compile(rf"\b(?:feed\w*|nurs\w*|bottles?|formula)\b[^.!?\n]{{0,30}}\b{TIMES_OF_DAY}\b", re.I)
+TIMED_MEDICINE = re.compile(rf"{MEDICINE_WORDS.pattern}[^.!?\n]{{0,30}}\b{TIMES_OF_DAY}\b", re.I)
+
+
+def unsafe_suggestion(kind, *texts):
+    """Whether what a model wrote for a suggestion fails the checks on its answers, or is a plan for medicine or feeding."""
+    parts = [text for text in texts if text]
+    text = normalized(". ".join(parts))
+    if states_a_dose("", text) or gives_a_diagnosis(text):
+        return True
+    if len(re.findall(r"[^\W\d_]+", text)) >= 5 and not looks_english(text):
+        return True
+    if kind == "question":
+        return False
+    return bool(TIMED_FEEDING.search(text) or TIMED_MEDICINE.search(text) or (kind == "event" and (MEDICINE_WORDS.search(text) or FREQUENCY.search(text))))
 
 
 def must_research_first(question):

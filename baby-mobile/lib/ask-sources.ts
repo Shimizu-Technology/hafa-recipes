@@ -16,11 +16,7 @@ export function answeredCalmly(messages: readonly { role: string; help?: unknown
   return messages.some((m) => m.role === "assistant") && !messages.some((m) => m.help);
 }
 
-export const SUGGESTED_ROUTINE_NOTE = "Ask suggested this, so it can’t become a reminder. To be reminded, add a routine of your own.";
-
-export function reminderOffLine(data: { ai_origin?: unknown }) {
-  return data.ai_origin ? SUGGESTED_ROUTINE_NOTE : "Reminders are off. Edit this routine to choose a time and activate a reminder.";
-}
+export const CANT_ANSWER_LINE = "If this might be urgent, open Help or call 911.";
 
 /** Only a real web link is ever handed to the phone to open. */
 export function openableUrl(url: string) {
