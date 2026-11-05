@@ -70,6 +70,9 @@ export default function Tracker() {
     overlay = dayOverlay(b.state, scope, timezone, now),
     rows = care.all.filter((row) => onDay(row, day, timezone, now)).sort((x, y) => (newest ? 1 : -1) * newestFirst(x, y)),
     future = keyDate(day) > keyDate(today),
+    // Counts only what has a button, as Today's line does: a tracker switched off stays in the list below and in Stats.
+    shown = (...ids: string[]) => onNow.some((tracker) => ids.includes(tracker.id)),
+    dayWords = summaryLine(overlay(summary?.[day], day), { feeds: shown("breast", "bottle"), diapers: shown("diaper"), sleep: shown("sleep") }),
     { fontScale } = useWindowDimensions(),
     events = useEvents(scope, strip[0], strip[strip.length - 1]),
     dayEvents = events.byDay.get(day) ?? [],
@@ -113,7 +116,7 @@ export default function Tracker() {
             </PressTarget>
           </View>
         </View>
-        {(!future || dayEvents.length > 0) && <Copy numeric kind="small" tone="muted">{[!future && summaryLine(overlay(summary?.[day], day)), dayEvents.length > 0 && eventCount(dayEvents.length)].filter(Boolean).join(" · ")}</Copy>}
+        {((!future && !!dayWords) || dayEvents.length > 0) && <Copy numeric kind="small" tone="muted">{[!future && dayWords, dayEvents.length > 0 && eventCount(dayEvents.length)].filter(Boolean).join(" · ")}</Copy>}
       </View>
       {day === today && <LegacyTimer />}
       {!!care.error && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
