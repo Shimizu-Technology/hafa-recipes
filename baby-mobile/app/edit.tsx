@@ -23,6 +23,7 @@ import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
 import { ensureAiConsent } from "../lib/ai-consent";
+import { SUGGESTED_ROUTINE_NOTE } from "../lib/ask-sources";
 import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
@@ -676,7 +677,7 @@ export default function Edit() {
             />
           </Section>
           {draft.data.ai_origin ? <Card tone="soft">
-            <Copy tone="muted">Ask suggested this, so it can’t become a reminder. To be reminded, add a routine of your own.</Copy>
+            <Copy tone="muted">{SUGGESTED_ROUTINE_NOTE}</Copy>
           </Card> : <Card tone="soft">
             <Copy kind="heading">A reminder, only if you choose</Copy>
             <Copy tone="muted">

@@ -6,6 +6,22 @@ export function askV2Active(bootstrap: Bootstrap | null | undefined) {
     bootstrap.profile.ai_consent_version === bootstrap.ask_consent_version;
 }
 
+/** The question box with AI off. It has one line, and these words have to fit it. */
+export function unavailablePlaceholder(fontScale: number) {
+  return fontScale >= 1.5 ? "Urgent? Open Help" : "Urgent? Ask here or open Help";
+}
+
+/** The note about sources belongs under an ordinary answer, not under "call 911". */
+export function answeredCalmly(messages: readonly { role: string; help?: unknown }[]) {
+  return messages.some((m) => m.role === "assistant") && !messages.some((m) => m.help);
+}
+
+export const SUGGESTED_ROUTINE_NOTE = "Ask suggested this, so it can’t become a reminder. To be reminded, add a routine of your own.";
+
+export function reminderOffLine(data: { ai_origin?: unknown }) {
+  return data.ai_origin ? SUGGESTED_ROUTINE_NOTE : "Reminders are off. Edit this routine to choose a time and activate a reminder.";
+}
+
 /** Only a real web link is ever handed to the phone to open. */
 export function openableUrl(url: string) {
   return /^https?:\/\/[^\s\\\x00-\x1f\x7f]+$/i.test(url);

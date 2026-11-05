@@ -4,6 +4,7 @@ import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router
 import { friendlyDate } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
 import { ASK_UPDATE_TITLE, acknowledgeAsk, needsAskAcknowledgment } from "@/lib/ai-consent";
+import { answeredCalmly, unavailablePlaceholder } from "../lib/ask-sources";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { AnswerText, WebSources } from "./ask-answer";
 import { AskHistory } from "./ask-history";
@@ -82,7 +83,7 @@ function AskChat({ back }: { back: boolean }) {
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
     canSend = !busy && !chat.resolving && !!question.trim(),
     c = useColors(),
-    answered = messages.some((m) => m.role === "assistant"),
+    answered = answeredCalmly(messages),
     seen = !!b.state.askNoticeSeen,
     // New chat and History stay in the header from every state. Neither can interrupt an answer on its way.
     locked = chat.resolving || busy,
@@ -117,11 +118,11 @@ function AskChat({ back }: { back: boolean }) {
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}
-            accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
+            accessibilityLabel={focusedDay ? "Ask about this day" : focusedCategory ? "Ask about this category" : focused ? "Ask about this source or entry" : "Your question"}
             value={question}
             onChangeText={chat.setQuestion}
             placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…"
-              : "Something urgent? Ask here or open Help"}
+              : unavailablePlaceholder(fontScale)}
             placeholderTextColor={c.muted}
             editable={!busy && !chat.resolving}
             multiline
