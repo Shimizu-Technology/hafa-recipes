@@ -78,7 +78,7 @@ import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass } from "./changes";
 import { forgetInvite } from "./family";
-import { fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
+import { accessKey, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
@@ -288,11 +288,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
       setError("");
       if (old !== undefined && old !== fresh.generation) await clearReminders(ownerRef.current);
       if (fresh.active === false) return;
-      const lease = api.lease();
+      const lease = api.lease(), access = accessKey(fresh);
       const page = await api.records({ limit: 100 });
       const recent = page.items.filter((r) => r.kind !== "routine");
       await commit(
-        (s) => ({
+        // A read from before she lost access can't put rows back.
+        (s) => (accessKey(s.bootstrap) !== access ? s : {
           ...s,
           records: [...recent, ...s.records.filter((r) => !recent.some((f) => f.id === r.id))],
         }),
@@ -579,6 +580,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
           }));
         }
       }
+      // Before the releases: one that keeps failing mustn't stop the other phone's changes arriving.
+      if (spacesLive(latest)) await pullChanges();
       for (const id of ref.current.fileReleases ?? []) {
         if (uploadedReferences(ref.current).has(id)) continue;
         try {
@@ -621,7 +624,6 @@ export function BabyProvider({ children }: PropsWithChildren) {
             /* The next foreground attempt retries persisted jobs. */
           }
         }
-      if (spacesLive(latest)) await pullChanges();
     } catch (e) {
       if (current()) noteFailure(e);
     } finally {

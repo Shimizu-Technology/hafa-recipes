@@ -218,10 +218,11 @@ Everyone has one **personal space**. A **family space** is separate and is creat
 In this order:
 
 1. **Share credentials and background jobs** use their stored `space_id`. A conflicting header fails.
-2. **Requests with `X-Baby-Client: 2`:**
+2. **Requests with `X-Baby-Client: 3`, with the family flag on:**
    - Reads return everything across the caller's spaces.
    - Writes must send `X-Baby-Space`, or they fail with 422. It must be a space the caller is an active member of, or 403.
    - Bootstrap never needs a space. It returns `spaces: [{id, kind, role, generation, access_version}]`, plus `personal_space_id`.
+   - Below client 3, reads and writes stay in the caller's personal space, and any other `X-Baby-Space` gets 403.
 3. **Requests with no client header (build 32):** served from the personal space only, with v1 kinds, and with new data fields kept when omitted (the `SOURCE_ADDITIONS` pattern). Bootstrap's `generation` is the personal space's, so it never decreases (`api.ts:159`). Build 32 can't see or write family data at all.
 
 `X-Baby-Generation` is compared to the resolved space's generation, never `baby_memberships.generation`.

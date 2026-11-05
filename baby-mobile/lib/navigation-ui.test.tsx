@@ -82,6 +82,7 @@ import Journal, { JournalContent } from "../app/journal";
 import RecordDetail from "../app/record/[id]";
 import { Grouped, Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
+import { ApiError } from "./api";
 import { emptyState, optimisticRecord } from "./models";
 import { getDockedFooterHeight } from "./bottom-overlay";
 let renderer: ReactTestRenderer | undefined;
@@ -125,6 +126,34 @@ it("sends Doctor questions to the one-page summary, for the selected baby", asyn
   await press("Doctor summary");
   expect(mock.stack.at(-1)!.pathname).toBe("/doctor-summary");
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
+});
+describe("an entry that goes away while it's open", () => {
+  const titled = () => renderer!.root.findAll((n) => typeof n.props.title === "string").map((n) => n.props.title);
+  const said = () => renderer!.root.findAll((n) => typeof n.props.children === "string").map((n) => n.props.children).join(" | ");
+  it("says so, instead of opening it forever, when the other parent makes it private", async () => {
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    mock.baby.api.record = vi.fn(async () => { throw new ApiError("Item unavailable", 404); });
+    mock.baby.records = mock.baby.records.filter((r: { id: string }) => r.id !== "Saved source");
+    await act(async () => renderer!.update(<RecordDetail />));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    expect(mock.baby.api.record).toHaveBeenCalledWith("Saved source");
+    expect(titled()).toContain("Entry unavailable");
+    expect(titled()).not.toContain("Opening your entry");
+    expect(said()).toMatch(/isn’t here any more/);
+    expect(said()).not.toMatch(/local copy/);
+  });
+  it("stays unavailable when Try again gets the same answer", async () => {
+    mock.params = { id: "Gone" };
+    mock.baby.api.record = vi.fn(async () => { throw new ApiError("Item unavailable", 404); });
+    await mount(<RecordDetail />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    await press("Try again");
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    expect(mock.baby.api.record).toHaveBeenCalledTimes(2);
+    expect(titled()).toContain("Entry unavailable");
+    expect(said()).toMatch(/isn’t here any more/);
+  });
 });
 describe("a caregiver and Ask", () => {
   const caregiver = () => { mock.baby.state = { ...mock.baby.state, bootstrap: { ...mock.baby.state.bootstrap, spaces: [{ id: "own", kind: "personal", role: "owner" }, { id: "fam", kind: "family", role: "caregiver" }] } }; };

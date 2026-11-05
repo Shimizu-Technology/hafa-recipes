@@ -25,6 +25,7 @@ import { ShareToggle } from "@/components/share-toggle";
 import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
 import { ensureAiConsent } from "../../lib/ai-consent";
 import { babyLabel, isCaregiver } from "../../lib/spaces";
+import { ApiError } from "../../lib/api";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -35,24 +36,28 @@ export default function RecordDetail() {
     [editingTiming, setEditingTiming] = useState(false),
     record = b.records.find((r) => r.id === id),
     pending = b.state.outbox.some((m) => mutationRecordId(m) === id && m.type !== "import");
-  useEffect(() => {
-    if (record && !record.cache_partial) return;
-    let active = true;
-    void b.api
-      .record(id)
+  /** Reads it from the service, and says plainly when it's gone: deleted, or the other parent made it private. */
+  function load(active = () => true) {
+    return b.api.record(id)
       .then((row) => {
-        if (active) void b.commit((s) => ({ ...s, records: replaceRecord(s.records, row) }));
+        if (active()) void b.commit((s) => ({ ...s, records: replaceRecord(s.records, row) }));
       })
       .catch((e) => {
-        if (active) {
-          setError(messageFor(e));
+        if (active()) {
+          setError(e instanceof ApiError && e.status === 404 ? "This entry isn’t here any more. It may have been deleted, or someone made it private." : messageFor(e));
           setMissing(true);
         }
       });
+  }
+  // A row can go while it's open, so this also runs when it leaves the list.
+  useEffect(() => {
+    if (record && !record.cache_partial) return;
+    let active = true;
+    void load(() => active);
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, !!record]);
   async function update(data: BabyRecord["data"]) {
     if (!record) return;
     setError("");
@@ -79,10 +84,7 @@ export default function RecordDetail() {
           onPress={() => {
             setMissing(false);
             setError("");
-            void b.api
-              .record(id)
-              .then((row) => b.commit((s) => ({ ...s, records: replaceRecord(s.records, row) })))
-              .catch((e) => setError(messageFor(e)));
+            void load();
           }}
         />
       </Screen>

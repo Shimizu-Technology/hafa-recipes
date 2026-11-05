@@ -1346,6 +1346,36 @@ describe("fetching the other phone's changes", () => {
     expect(at).toBe(25);
     expect(baby.state.changes?.cursor.p).toBe(25);
   });
+  it("drops a read from before her access changed, so it can't put a family's rows back", async () => {
+    const family = { id: "family-space", kind: "family", role: "parent", generation: 1, access_version: 1 };
+    setup({ ...live, spaces: [...live.spaces, family] });
+    await mount(); await flush();
+    let answer: (value: RecordPage) => void = () => undefined;
+    const usual = mock.api.records.getMockImplementation();
+    mock.api.records.mockImplementation((filters: { kind?: string }) => filters.kind ? usual!(filters) : new Promise<RecordPage>((resolve) => { answer = resolve; }));
+    let done: Promise<void> | undefined;
+    await act(async () => { done = baby.refresh(); await flush(); });
+    mock.api.records.mockImplementation(usual!);
+    await act(async () => { await baby.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, spaces: live.spaces } }) as DeviceState); });
+    await act(async () => { answer(page([{ ...row("hers-no-more"), kind: "journal", space_id: "family-space" }])); await done; });
+    expect(baby.state.records.some((r: BabyRecord) => r.id === "hers-no-more")).toBe(false);
+  });
+  it("still takes a read when her access hasn't changed", async () => {
+    setup(live);
+    await mount(); await flush();
+    const usual = mock.api.records.getMockImplementation();
+    mock.api.records.mockImplementation(async (filters: { kind?: string }) => filters.kind ? usual!(filters) : page([{ ...row("fresh"), kind: "journal" }]));
+    await act(async () => { await baby.refresh(); });
+    mock.api.records.mockImplementation(usual!);
+    expect(baby.state.records.some((r: BabyRecord) => r.id === "fresh")).toBe(true);
+  });
+  it("still fetches the other phone's changes when a release keeps failing", async () => {
+    setup(live, { releaseAttachment: vi.fn(async () => { throw new ApiError("Unavailable", 503); }) });
+    mock.saved = { ...mock.saved, fileReleases: ["stuck"], fileUploads: { f: "stuck" } } as unknown as DeviceState;
+    await mount(); await flush();
+    expect(mock.api.changes).toHaveBeenCalled();
+    expect(baby.state.fileReleases).toEqual(["stuck"]);
+  });
   it("stops paging once the app goes to the background during a first snapshot", async () => {
     setup(live);
     const { AppState } = await import("react-native");
