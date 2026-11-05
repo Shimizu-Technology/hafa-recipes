@@ -119,6 +119,9 @@ describe("leaving a family, or being removed", () => {
   it("tells her, and doesn't call it a tap", () => {
     const notice = withoutFamily(before(), family, uuid).feedNotices![0];
     expect(notice).toMatch(/no longer in this family/i);
+    // A row shows two lines of this at normal text size, and what to do next has to fit in them.
+    expect(notice.length).toBeLessThanOrEqual(76);
+    expect(notice).toMatch(/Sync & recovery/);
     expect(noticeTitle(notice)).toBe("Your family");
     expect(noticeTitle("This feed was removed.")).toBe("A tap wasn’t added");
     expect(noticeTitle(recoveredNotice)).toBe("Back on this phone");
