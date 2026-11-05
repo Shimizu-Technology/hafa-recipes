@@ -222,7 +222,9 @@ function BottlePanel({ start, detail, at, now, day, timeZone, needTime, onTime, 
 }
 
 /** What a log's buttons share: its open panel, when it happened, and the row that says it saved. */
-export function useLogFlow<P extends string>(pastDay?: PastDay) {
+export function useLogFlow<P extends string>(pastDay?: PastDay,
+  /** Takes over from the row that says it saved, for a page that closes when something's logged. */
+  afterSave?: (saved: Saved) => void) {
   const b = useBaby(), toast = useToast(),
     [panel, setPanel] = useState<P | null>(null),
     [at, setAt] = useState<string | null>(null),
@@ -249,7 +251,8 @@ export function useLogFlow<P extends string>(pastDay?: PastDay) {
       setPanel(null);
       setAt(null);
       setNeedTime(false);
-      setSaved({ key: ++keys.current, label, undo, ...details });
+      const done = { key: ++keys.current, label, undo, ...details };
+      if (afterSave) afterSave(done); else setSaved(done);
     } catch (e) { toast(messageFor(e)); }
     finally { writing.current = false; }
   }
@@ -287,13 +290,14 @@ type QuickProps = {
   pastDay?: PastDay;
   /** Where the page doesn't already say whose log this is: the panel and what saved both name the baby. */
   who?: string;
+  afterSave?: (saved: Saved) => void;
 };
 type QuickPanelName = "breast" | "bottle" | "diaper" | "sleep";
 
 /** What the breast, bottle, diaper and sleep panels know and do, so anywhere that shows `QuickPanels` logs the same way. */
-export function useQuickLog({ child, rows, now, pastDay, who }: QuickProps) {
+export function useQuickLog({ child, rows, now, pastDay, who, afterSave }: QuickProps) {
   const b = useBaby(), toast = useToast(),
-    flow = useLogFlow<QuickPanelName>(pastDay),
+    flow = useLogFlow<QuickPanelName>(pastDay, afterSave),
     { when } = flow,
     save: typeof flow.save = (label, action, details) => flow.save(who ? `${label}, for ${who}` : label, action, details),
     timeZone = b.state.bootstrap!.profile.timezone,

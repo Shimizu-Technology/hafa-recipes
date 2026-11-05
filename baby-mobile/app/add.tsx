@@ -1,29 +1,39 @@
 import { useEffect, useRef } from "react";
 import { router } from "expo-router";
 import { ScrollView, View } from "react-native";
-import { Copy, Grouped, Row, Screen, tap } from "@/components/ui";
+import { Copy, Row, Screen, tap, useToast } from "@/components/ui";
 import { ChildFilter } from "@/components/child-filter";
 import { useMinuteClock } from "@/components/care-glance";
-import { QuickPanels, quickFace, useLogFlow, useQuickLog } from "@/components/quick-log";
-import { TrackerTile } from "@/components/more-logs";
-import { SavedLog, TrackerPanel } from "@/components/tracker-panel";
+import { LegacyTimer } from "@/components/feed-timer";
+import { QuickPanels, quickFace, useLogFlow, useQuickLog, type Saved } from "@/components/quick-log";
+import { LogTile, TrackerTile } from "@/components/more-logs";
+import { TrackerPanel } from "@/components/tracker-panel";
 import { kindIcon } from "@/components/record-row";
 import { useBaby } from "@/lib/context";
 import { useTodayCare } from "@/lib/today-care";
 import { profileToday, timingChild, trackerStage } from "@/lib/timing";
-import type { Child } from "@/lib/models";
-import { keepItems, trackerById, trackerOn, trackersFor, type Tracker } from "../lib/trackers";
+import { messageFor, type Child } from "@/lib/models";
+import { keepItems, otherStage, trackerById, trackerOn, trackersFor, type Tracker } from "../lib/trackers";
 
 const tileRow = { flexDirection: "row", flexWrap: "wrap", gap: 8 } as const;
 
-/** Everything this baby can log. It opens the same panels as Today, right here, so a feed is Breast, then side. */
+/** Close the sheet. She lands back where she was, with Undo in the toast that outlives it. */
+const close = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)"));
+
+/** This baby's main trackers, then what to keep, then the rest of what fits this stage. They open the same panels as Today, right here, so a feed is Breast, then side. */
 function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage: ReturnType<typeof trackerStage>; scroller: React.RefObject<ScrollView | null> }) {
-  const b = useBaby(), timeZone = b.state.bootstrap!.profile.timezone,
+  const b = useBaby(), toast = useToast(),
     // With two babies she can log for either from here, so it says which.
     who = b.state.bootstrap!.children.length > 1 ? child.name : undefined,
     care = useTodayCare({ child: child.id }),
-    quick = useQuickLog({ child, rows: care.all, now, who }),
-    more = useLogFlow<string>(),
+    afterSave = ({ label, undo }: Saved) => {
+      toast(`Saved: ${label}`, { label: "Undo", onPress: async () => {
+        try { await undo?.(); toast("Undone."); } catch (e) { toast(messageFor(e)); }
+      } });
+      close();
+    },
+    quick = useQuickLog({ child, rows: care.all, now, who, afterSave }),
+    more = useLogFlow<string>(undefined, afterSave),
     listed = trackersFor(stage),
     form = more.panel ? trackerById(more.panel) : undefined,
     panel = quick.flow.panel ?? more.panel,
@@ -38,24 +48,34 @@ function Track({ child, now, stage, scroller }: { child: Child; now: Date; stage
     tap();
     router.replace(tracker.opens);
   }
-  // The pregnancy timers are still here after the birth, behind everything she's likelier to want.
-  const others = listed.filter((tracker) => !trackerOn(tracker, stage)), later = (tracker: Tracker) => stage === "born" && tracker.defaultOn.includes("expecting") && tracker.about === "baby",
-    quieter = [...others.filter((tracker) => !later(tracker)), ...others.filter(later)];
-  const tile = (tracker: Tracker, big: boolean) => <TrackerTile key={tracker.id} tracker={tracker} big={big} {...(tracker.opens === "quick-log" ? quickFace(quick, tracker) : {})}
-    open={tracker.opens === "quick-log" || tracker.opens === "panel" ? panel === tracker.id : undefined} onPress={() => open(tracker)} />;
-  return <View style={{ gap: 12 }}>
+  const on = listed.filter((tracker) => trackerOn(tracker, stage)),
+    rest = listed.filter((tracker) => !on.includes(tracker) && !otherStage(tracker, stage)),
+    tile = (tracker: Tracker, big: boolean) => <TrackerTile key={tracker.id} tracker={tracker} big={big} {...(tracker.opens === "quick-log" ? quickFace(quick, tracker) : {})}
+      open={tracker.opens === "quick-log" || tracker.opens === "panel" ? panel === tracker.id : undefined} onPress={() => open(tracker)} />,
+    group = (title: string, trackers: Tracker[]) => !!trackers.length && <View style={{ gap: 8 }}>
+      <Copy kind="label">{title}</Copy>
+      <View style={tileRow}>{trackers.map((tracker) => tile(tracker, false))}</View>
+    </View>;
+  return <>
     {/* The padding keeps an open panel clear of the sheet's header, where the heading goes when she's brought up to it. */}
     <View style={{ gap: 8, paddingTop: 30 }}>
       <Copy kind="heading">{who ? `Track for ${who}` : "Track"}</Copy>
+      <LegacyTimer />
       <QuickPanels quick={quick} />
-      <SavedLog flow={more} now={now} timeZone={timeZone} />
       {form && <TrackerPanel tracker={form} child={child} now={now} flow={more} />}
-      <View style={tileRow}>{listed.filter((tracker) => trackerOn(tracker, stage)).map((tracker) => tile(tracker, true))}</View>
+      <View style={tileRow}>{on.map((tracker) => tile(tracker, true))}</View>
     </View>
-    <View style={{ gap: 8 }}>
-      <Copy kind="small" tone="muted">More to track</Copy>
-      <View style={tileRow}>{quieter.map((tracker) => tile(tracker, false))}</View>
-    </View>
+    <Keep />
+    {group(`For ${child.name}`, rest.filter((tracker) => tracker.about === "baby"))}
+    {group("For you", rest.filter((tracker) => tracker.about === "her"))}
+  </>;
+}
+
+function Keep() {
+  return <View style={{ gap: 8 }}>
+    <Copy kind="heading">Keep</Copy>
+    <View style={tileRow}>{keepItems.map((item) => <LogTile key={item.kind} icon={kindIcon[item.kind]} label={item.label} hint={item.detail}
+      onPress={() => router.replace({ pathname: "/edit", params: { kind: item.kind } })} />)}</View>
   </View>;
 }
 
@@ -68,19 +88,10 @@ export default function Add() {
       {child ? <>
         {b.state.bootstrap!.children.length > 1 && <ChildFilter only={child.id} />}
         <Track child={child} now={now} stage={trackerStage(child, today)} scroller={scroller} />
-      </> : <Row title="Set up your baby" detail="Tracking starts here, whether you’re expecting or your baby’s here" icon="person-add-outline" onPress={() => router.replace("/child")} />}
-      <View style={{ gap: 8 }}>
-        <Copy kind="heading">Keep</Copy>
-        <Grouped>{keepItems.map((item) => (
-          <Row
-            key={item.kind}
-            title={item.title}
-            detail={item.detail}
-            icon={kindIcon[item.kind]}
-            onPress={() => router.replace({ pathname: "/edit", params: { kind: item.kind } })}
-          />
-        ))}</Grouped>
-      </View>
+      </> : <>
+        <Row title="Set up your baby" detail="Tracking starts here, whether you’re expecting or your baby’s here" icon="person-add-outline" onPress={() => router.replace("/child")} />
+        <Keep />
+      </>}
     </Screen>
   );
 }

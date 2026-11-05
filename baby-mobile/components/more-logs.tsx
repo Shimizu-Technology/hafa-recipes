@@ -11,8 +11,8 @@ import { SavedLog, TrackerPanel } from "./tracker-panel";
 /** What the page's top bar covers, as a page is scrolled to a panel. */
 const headerClear = 112;
 
-/** A tracker's button. `big` is for the ones that are on; a tile that opens a screen has nothing to be open. */
-export function TrackerTile({ tracker, label = tracker.label, icon = tracker.icon, hint = tracker.detail, big, open, onPress }: { tracker: Tracker; label?: string; icon?: IconName; hint?: string; big?: boolean; open?: boolean; onPress: () => void }) {
+/** A button in a grid of things to log. `big` is for the ones that are on; one that opens a screen has nothing to be open. */
+export function LogTile({ icon, label, hint, big, open, onPress }: { icon: IconName; label: string; hint?: string; big?: boolean; open?: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={open === undefined ? undefined : { expanded: open }} onPress={onPress}
     style={{ flexGrow: 1, flexBasis: fontScale >= 2 ? "100%" : big || fontScale >= 1.3 ? "45%" : "30%", minWidth: 0, minHeight: big ? 76 : 64, paddingVertical: 8, paddingHorizontal: 4, borderRadius: radii.tile,
@@ -21,6 +21,8 @@ export function TrackerTile({ tracker, label = tracker.label, icon = tracker.ico
     <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 13, lineHeight: 16, textAlign: "center", color: c.text }}>{label}</Text>
   </PressTarget>;
 }
+export const TrackerTile = ({ tracker, label = tracker.label, icon = tracker.icon, hint = tracker.detail, ...rest }: { tracker: Tracker; label?: string; icon?: IconName; hint?: string; big?: boolean; open?: boolean; onPress: () => void }) =>
+  <LogTile icon={icon} label={label} hint={hint} {...rest} />;
 
 /** A stage's trackers that have their own panel, as tiles. J5 decides which of these belong on Today, from the same list. */
 export function MoreLogs({ child, now, pastDay, stage, onOpen }: { child: Child; now: Date; pastDay?: PastDay; stage: Stage;

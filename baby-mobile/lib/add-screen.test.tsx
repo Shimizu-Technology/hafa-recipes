@@ -5,7 +5,7 @@ import { emptyState, type BabyRecord, type Child, type DeviceState, type Mutatio
 import { pendingRecords } from "./outbox";
 import { keepItems, trackersFor } from "./trackers";
 
-const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), replace: vi.fn(), push: vi.fn(), care: [] as any[], fontScale: 1 }));
+const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), replace: vi.fn(), push: vi.fn(), back: vi.fn(), care: [] as any[], fontScale: 1 }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", TextInput: "TextInput", ScrollView: "ScrollView", useWindowDimensions: () => ({ fontScale: scope.fontScale }),
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
@@ -13,7 +13,7 @@ vi.mock("react-native", () => ({
   AccessibilityInfo: { isScreenReaderEnabled: async () => false, announceForAccessibility: () => undefined },
   Animated: { View: "AnimatedView", Value: class { setValue() {} stopAnimation() {} }, timing: () => ({ start() {} }) },
 }));
-vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { replace: scope.replace, push: scope.push }, useFocusEffect: () => undefined }));
+vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { replace: scope.replace, push: scope.push, back: scope.back, canGoBack: () => true }, useFocusEffect: () => undefined }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id}` }; });
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/models", () => import("./models"));
@@ -36,6 +36,7 @@ vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("./ui", () => ui);
 vi.mock("@/components/record-row", () => ({ kindIcon: {} }));
+vi.mock("@/components/feed-timer", () => ({ LegacyTimer: "LegacyTimer" }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
 vi.mock("@/components/quick-log", () => import("../components/quick-log"));
@@ -45,6 +46,7 @@ vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/feed-timer", () => ({ useSecondClock: () => new Date() }));
 import Add from "../app/add";
+import { feedWrite } from "./running-feed";
 
 const now = new Date("2026-11-04T17:00:00.000Z");
 const newborn: Child = { id: "baby", name: "Mia", revision: 1, birth_date: "2026-11-01" };
@@ -81,65 +83,79 @@ const order = () => renderer!.root.findAll((n) => ["Pressable", "Row"].includes(
 beforeEach(() => {
   vi.useFakeTimers({ now });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  scope.care = []; scope.fontScale = 1; scope.toast.mockClear(); scope.replace.mockClear(); scope.push.mockClear();
+  scope.care = []; scope.fontScale = 1; scope.toast.mockClear(); scope.replace.mockClear(); scope.push.mockClear(); scope.back.mockClear();
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("Add", () => {
-  it("has a newborn's four first, then the others more quietly, then what to keep", async () => {
+  const heads = ["Track", "Keep", "For Mia", "For you"];
+  const shown = () => renderer!.root.findAll((n) => ["Pressable", "Row"].includes(String(n.type)) || (["Text", "Copy"].includes(String(n.type)) && heads.some((word) => [n.props.children].flat().join("") === word || [n.props.children].flat().join("").startsWith("Track for") || [n.props.children].flat().join("").startsWith("For "))))
+    .map((n) => n.props.accessibilityLabel ?? n.props.title ?? [n.props.children].flat().join(""));
+  it("goes Track, then Keep, then the rest for the baby, then the rest for her", async () => {
     setup([newborn]);
     await mount();
-    const seen = order();
-    expect(seen.slice(0, 6)).toEqual(["Track", "Breastfeed", "Bottle", "Diaper", "Sleep", "More to track"]);
-    expect(seen.indexOf("Keep")).toBeGreaterThan(seen.indexOf("More to track"));
-    expect(seen.slice(seen.indexOf("Keep") + 1)).toEqual(keepItems.map((item) => item.title));
+    expect(shown()).toEqual(["Track", "Breastfeed", "Bottle", "Diaper", "Sleep",
+      "Keep", ...keepItems.map((item) => item.label),
+      "For Mia", "Pumping", "Medicine", "Temperature", "Growth", "Note", "Custom", "Shots", "Milestones",
+      "For you", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]);
   });
-  it("leaves nothing out, at either stage", async () => {
-    for (const [child, stage] of [[newborn, "born"], [expected, "expecting"]] as const) {
-      setup([child]);
-      await mount();
-      const seen = order();
-      for (const tracker of trackersFor(stage)) expect(seen, tracker.label).toContain(tracker.label);
-      for (const item of keepItems) expect(seen, item.title).toContain(item.title);
-      act(() => renderer!.unmount());
-    }
-    renderer = undefined;
+  it("makes Keep the same tiles, saying more to VoiceOver as a hint", async () => {
+    setup([newborn]);
+    await mount();
+    for (const item of keepItems) expect(tile(item.label)!.props.accessibilityHint).toBe(item.detail);
+    await press(keepItems[0].label);
+    expect(scope.replace).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: keepItems[0].kind } });
   });
-  it("leads with what's on while expecting: the timers and her logs, with feeds under More", async () => {
+  it("after the birth, leaves the pregnancy timers out", async () => {
+    setup([newborn]);
+    await mount();
+    expect(shown()).not.toContain("Kick counter");
+    expect(shown()).not.toContain("Contraction timer");
+  });
+  it("while expecting, leaves feeds, diapers and sleep out, and has no empty heading", async () => {
     setup([expected]);
     await mount();
-    const seen = order();
-    expect(seen.slice(1, seen.indexOf("More to track"))).toEqual(["Kick counter", "Contraction timer", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]);
-    expect(seen.indexOf("Breastfeed")).toBeGreaterThan(seen.indexOf("More to track"));
+    expect(shown()).toEqual(["Track", "Kick counter", "Contraction timer", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine",
+      "Keep", ...keepItems.map((item) => item.label)]);
   });
-  it("puts the pregnancy timers last once the baby's here", async () => {
-    setup([newborn]);
-    await mount();
-    const seen = order(), keep = seen.indexOf("Keep");
-    expect(seen.slice(keep - 2, keep)).toEqual(["Kick counter", "Contraction timer"]);
-  });
-  it("logs a feed in two taps: Breast, then side", async () => {
-    setup([newborn]);
+  it("logs a feed in two taps, closes, and offers Undo on the screen beneath", async () => {
+    const b = setup([newborn]);
     await mount();
     await press("Breastfeed");
     await press("Left");
     expect(saves()).toHaveLength(1);
     expect(saves()[0].record).toMatchObject({ kind: "feeding", child_id: "baby" });
     expect(saves()[0].record.data).toMatchObject({ method: "breast" });
-    expect(texts()).toContain("Left");
-    expect(texts()).toContain("Saved");
+    expect(scope.back).toHaveBeenCalledOnce();
+    const [message, action] = scope.toast.mock.calls.at(-1)!;
+    expect(message).toBe("Saved: Left");
+    await act(async () => { await action.onPress(); });
+    expect(b.records.filter((row: BabyRecord) => row.kind === "feeding")).toHaveLength(0);
+    expect(scope.toast.mock.calls.at(-1)![0]).toBe("Undone.");
   });
-  it("logs a diaper, a bottle and a sleep with the same panels as Today", async () => {
-    setup([newborn]);
+  it("closes the same way after a diaper, a bottle, a sleep and a form", async () => {
+    for (const [first, second, kind] of [["Diaper", "Pee", "diaper"], ["Bottle", "Formula", "feeding"], ["Sleep", "Start", "sleep"], ["Pumping", "Both", "pumping"]]) {
+      setup([newborn]);
+      scope.back.mockClear();
+      await mount();
+      await press(first);
+      await press(second);
+      expect(saves().map((m) => m.record.kind)).toEqual([kind]);
+      expect(scope.back).toHaveBeenCalledOnce();
+      act(() => renderer!.unmount());
+    }
+    renderer = undefined;
+  });
+  it("stays open and says why if a save fails", async () => {
+    const b = setup([newborn]);
+    b.commit = vi.fn(async () => { throw Error("This phone can't keep that."); });
+    b.queue = vi.fn(async () => { throw Error("This phone can't keep that."); });
     await mount();
     await press("Diaper");
     await press("Pee");
-    await press("Bottle");
-    await press("Formula");
-    await press("Sleep");
-    await press("Start");
-    expect(saves().map((m) => m.record.kind)).toEqual(["diaper", "feeding", "sleep"]);
+    expect(scope.back).not.toHaveBeenCalled();
+    expect(scope.toast.mock.calls.at(-1)![0]).toBe("This phone can't keep that.");
   });
   it("opens one panel at a time, a quick one or a form", async () => {
     setup([newborn]);
@@ -148,27 +164,20 @@ describe("Add", () => {
     expect(tile("Left")).toBeDefined();
     await press("Temperature");
     expect(tile("Left")).toBeUndefined();
-    expect(tile("Save temperature")).toBeUndefined(); // The mocked Button isn't a Pressable.
     expect(renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.accessibilityLabel)).toContain("Save temperature");
     await press("Diaper");
     expect(renderer!.root.findAll((n) => String(n.type) === "Button")).toHaveLength(0);
     expect(tile("Pee")).toBeDefined();
   });
   it("sends the timers, shots and milestones to their own screens", async () => {
-    for (const [label, to] of [["Kick counter", "/kicks"], ["Contraction timer", "/contractions"], ["Shots", "/well-visits"], ["Milestones", "/milestones"]]) {
-      setup([newborn]);
+    for (const [child, label, to] of [[expected, "Kick counter", "/kicks"], [expected, "Contraction timer", "/contractions"], [newborn, "Shots", "/well-visits"], [newborn, "Milestones", "/milestones"]] as const) {
+      setup([child]);
       await mount();
       await press(label);
       expect(scope.replace).toHaveBeenLastCalledWith(to);
       act(() => renderer!.unmount());
     }
     renderer = undefined;
-  });
-  it("keeps by opening the editor", async () => {
-    setup([newborn]);
-    await mount();
-    await act(async () => rows().find((row) => row.props.title === keepItems[0].title)!.props.onPress());
-    expect(scope.replace).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: keepItems[0].kind } });
   });
   it("leads with setting up a baby when there is none, with nothing to track", async () => {
     setup([]);
@@ -177,7 +186,7 @@ describe("Add", () => {
     expect(seen[0]).toBe("Set up your baby");
     expect(seen).not.toContain("Track");
     expect(seen).not.toContain("Breastfeed");
-    expect(seen.slice(seen.indexOf("Keep") + 1)).toEqual(keepItems.map((item) => item.title));
+    expect(shown().slice(1)).toEqual(["Keep", ...keepItems.map((item) => item.label)]);
     await act(async () => rows()[0].props.onPress());
     expect(scope.replace).toHaveBeenCalledWith("/child");
   });
@@ -193,11 +202,12 @@ describe("Add", () => {
     await mount();
     expect(renderer!.root.findByType("ChildFilter" as any).props.only).toBe("two");
     expect(texts()).toContain("Track for Kai");
+    expect(texts()).toContain("For Kai");
     await press("Diaper");
     expect(texts().join(" ")).toContain("For Kai");
     await press("Pee");
     expect(saves()[0].record.child_id).toBe("two");
-    expect(texts()).toContain("Pee, for Kai");
+    expect(scope.toast.mock.calls.at(-1)![0]).toBe("Saved: Pee, for Kai");
   });
   it("closes an open panel when the baby changes, so a tap can't land on the other", async () => {
     const second = { ...newborn, id: "two", name: "Kai" };
@@ -209,10 +219,22 @@ describe("Add", () => {
     await act(async () => renderer!.update(<Add />));
     expect(tile("Left")).toBeUndefined();
   });
-  it("shows a running feed and a sleep under way, as Today does", async () => {
+  it("shows a running feed with its Switch and Done, and a sleep under way, as Today does", async () => {
     setup([newborn]);
-    scope.care = [{ id: "s", kind: "sleep", title: "Sleep", body: "", child_id: "baby", occurred_at: "2026-11-04T16:00:00.000Z", data: {}, revision: 1, created_at: "2026-11-04T16:00:00.000Z", updated_at: "2026-11-04T16:00:00.000Z" } as BabyRecord];
+    const at = new Date(now.getTime() - 60_000).toISOString();
+    scope.care = [
+      { id: "s", kind: "sleep", title: "Sleep", body: "", child_id: "baby", occurred_at: "2026-11-04T16:00:00.000Z", data: {}, revision: 1, created_at: "2026-11-04T16:00:00.000Z", updated_at: "2026-11-04T16:00:00.000Z" } as BabyRecord,
+      { ...feedWrite("baby", "left", new Date(at)), revision: 1, created_at: at, updated_at: at } as unknown as BabyRecord,
+    ];
     await mount();
     expect(tile("Sleeping")).toBeDefined();
+    expect(tile("Feeding")).toBeDefined();
+    expect(tile("Switch to Right")).toBeDefined();
+    expect(tile("Done")).toBeDefined();
+  });
+  it("has the old timer card, where the block on feeding sends her", async () => {
+    setup([newborn]);
+    await mount();
+    expect(renderer!.root.findAll((n) => String(n.type) === "LegacyTimer")).toHaveLength(1);
   });
 });

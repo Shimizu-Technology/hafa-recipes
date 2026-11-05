@@ -47,12 +47,12 @@ export const trackers: readonly Tracker[] = [
 ];
 
 /** Things to keep rather than track, for Add. */
-export const keepItems: readonly { kind: Kind; title: string; detail: string }[] = [
-  { kind: "source", title: "Save a video or link", detail: "Video, link, screenshot, or document" },
-  { kind: "journal", title: "Write in your journal", detail: "A thought, a memory, or a photo" },
-  { kind: "event", title: "Add to the calendar", detail: "An appointment, baptism or family visit" },
-  { kind: "question", title: "Keep a doctor question", detail: "Bring your questions to the next visit" },
-  { kind: "routine", title: "Make a list", detail: "A checklist or a routine you review first" },
+export const keepItems: readonly { kind: Kind; label: string; detail: string }[] = [
+  { kind: "source", label: "Video or link", detail: "Video, link, screenshot, or document" },
+  { kind: "journal", label: "Journal", detail: "A thought, a memory, or a photo" },
+  { kind: "event", label: "Calendar", detail: "An appointment, baptism or family visit" },
+  { kind: "question", label: "Doctor question", detail: "Bring your questions to the next visit" },
+  { kind: "routine", label: "List", detail: "A checklist or a routine you review first" },
 ];
 
 const unique = (kinds: Kind[]) => [...new Set(kinds)];
@@ -66,6 +66,8 @@ export const trackersFor = (stage: Stage) => trackers.filter((tracker) => tracke
 /** The ones with a `TrackerPanel` of their own, for a stage. */
 export const panelTrackers = (stage: Stage) => trackersFor(stage).filter((tracker) => tracker.opens === "panel");
 export const shotLabel = "Shot";
+/** It belongs to the baby's other stage, the way a kick counter does after the birth. Add leaves it out unless it's on. Hers stay either way. */
+export const otherStage = (tracker: Tracker, stage: Stage) => tracker.about === "baby" && tracker.defaultOn.length > 0 && !tracker.defaultOn.includes(stage);
 /** Whether a tracker is on: its stage's default. */
 export const trackerOn = (tracker: Tracker, stage: Stage) => tracker.defaultOn.includes(stage);
 
