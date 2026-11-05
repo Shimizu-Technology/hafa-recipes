@@ -74,6 +74,13 @@ it("hands a form's Save to the bar above the keyboard, doing what its own Save d
   const note = renderer!.root.findAll((n) => String(n.type) === "KeyboardSave")[0];
   expect(note.props.value.label).toBe("Save note");
 });
+it("wraps five feelings rather than squeezing them until 'Rough' splits", async () => {
+  setup();
+  await mount();
+  await press("How I’m feeling");
+  const rough = renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => n.props.accessibilityLabel === "Rough")!;
+  expect(Object.assign({}, ...[rough.props.style].flat()).flexBasis).toBe("30%");
+});
 it("offers each stage its own trackers, from the list", async () => {
   setup();
   await mount();

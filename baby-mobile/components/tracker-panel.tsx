@@ -121,7 +121,7 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
       void log({ side, amount: amount.amount, unit: amount.unit }, "Pumping", `Pumping, ${sideWords[side]}, ${amount.amount} ${amount.unit === "oz" ? "oz" : "mL"}`)} />
     : id === "note" ? <NotePanel detail={who} panelProps={panelProps} onSave={(text) => void log({ label: noteLabel }, noteLabel, noteLabel, text)} />
     : id === "feeling" ? <Panel title={tracker.label} {...panelProps}>
-      <Choices>{feelingWords.map((word) => <Option key={word} height={64} label={word} onPress={() => void log(dataFrom(id, { ...start, name: word }), word, word)} />)}</Choices>
+      <Choices>{feelingWords.map((word) => <Option key={word} height={64} wraps label={word} onPress={() => void log(dataFrom(id, { ...start, name: word }), word, word)} />)}</Choices>
     </Panel>
     : id === "medicine" ? <FormPanel id={id} title={tracker.label} detail={who} start={start} panelProps={panelProps} autoFocus={!recentMedicines(rows, childId).length} saveAs={(form) => saveForm(form, (data) => data.name)}
       hint={(form) => { const typed = lastDose(rows, childId, form.name); return typed && [typed.dose, lastWords(typed.at)].filter(Boolean).join(" · "); }}>
