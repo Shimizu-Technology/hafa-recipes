@@ -40,6 +40,7 @@ from app.domains.baby.models import (
     BabyMembership,
     BabyMessage,
     BabyRecord,
+    BabySpaceMember,
 )
 from app.domains.baby.queries import (
     LATEST_PREGNANCY_DAYS,
@@ -146,7 +147,8 @@ def record_response(row, access=None, child_ids=None):
         )
     }
     if getattr(access, "enabled", False) and access.client == "3":
-        result.update(space_id=str(row.space_id), generation=row.generation)
+        # "Logged by". None once that account is gone: a former member.
+        result.update(space_id=str(row.space_id), generation=row.generation, created_by=row.app_user_id)
     if child_ids is not None and row.kind == "journal" and row.child_id not in child_ids:
         result["child_id"] = None
     return result
@@ -366,10 +368,15 @@ async def bootstrap_state(user, db, *, create, request):
         "ai_available": BabyProvider().enabled,
     }
     if access and access.client == "3":
+        families = [g.id for g in access.spaces if g.space.status == "active" and g.space.kind == "family"]
+        # Everyone who has been in this account's families, since what someone logged stays after they leave.
+        people = await db.execute(select(BabySpaceMember.app_user_id, BabyMembership.profile["display_name"].as_string())
+            .join(BabyMembership, BabyMembership.app_user_id == BabySpaceMember.app_user_id)
+            .where(BabySpaceMember.space_id.in_(families))) if families else []
         result.update(personal_space_id=str(member.personal_space_id), spaces=[{
             "id": str(g.id), "kind": g.space.kind, "role": g.role,
             "generation": g.generation, "access_version": g.access_version,
-        } for g in access.spaces if g.space.status == "active"])
+        } for g in access.spaces if g.space.status == "active"], people={actor: name or "" for actor, name in people})
     if create and access:
         personal = next(g for g in access.spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
