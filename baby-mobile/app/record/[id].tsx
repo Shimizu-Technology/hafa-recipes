@@ -23,6 +23,7 @@ import { TimingEditor, TimingRow } from "@/components/timing-editor";
 import { RecordVisit } from "@/components/visit-sections";
 import { ShareToggle } from "@/components/share-toggle";
 import { ensureAiConsent } from "../../lib/ai-consent";
+import { babyLabel } from "../../lib/spaces";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -102,7 +103,7 @@ export default function RecordDetail() {
       back
       numericSubtitle
       subtitle={(dateOnly ? keyDate(recordDay(record.occurred_at, b.state.bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
-        : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + child.name : "")}
+        : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + babyLabel(child, b.state.bootstrap) : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
         : !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}

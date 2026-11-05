@@ -188,7 +188,7 @@ export function createBabyApi(
           }
         }
         if (response.status === 409) {
-          let detail: { code?: string; phones?: FamilyReadiness["phones"] } & Partial<Moved> = {};
+          let detail: { code?: string; phones?: FamilyReadiness["phones"]; older_client_at?: string | null } & Partial<Moved> = {};
           try {
             // A move comes back as the body itself. Any other coded refusal is under `detail`.
             const body = await response.json();
@@ -200,7 +200,7 @@ export function createBabyApi(
           }
           if (detail.code === "moved" && detail.space_id && detail.generation !== undefined && detail.record)
             throw new MovedError({ space_id: detail.space_id, generation: detail.generation, revision: detail.revision ?? null, record: detail.record });
-          if (detail.code === "phones_not_ready") throw new PhonesNotReady({ ready: false, phones: detail.phones ?? [] });
+          if (detail.code === "phones_not_ready") throw new PhonesNotReady({ ready: false, phones: detail.phones ?? [], older_client_at: detail.older_client_at });
           if (detail.code === "family_exit_required") throw new ApiError("Leave your family first. Your family’s data isn’t erased from here.", 409);
         }
         const safe =
@@ -388,7 +388,8 @@ export function createBabyApi(
     changes: (cursor: Record<string, number>, access: Record<string, number>) =>
       request<ChangesAnswer>("/changes?" + query({ cursor: JSON.stringify(cursor), access_version: JSON.stringify(access) })),
     readiness: (installation_id?: string) => request<FamilyReadiness>("/family/readiness?" + query({ installation_id })),
-    forgetPhone: (id: string, g: Fence) => request<unknown>(`/family/phones/${encodeURIComponent(id)}/forget`, "POST", {}, g),
+    /** She says the older phone is updated or gone. This phone's own credential stays. */
+    confirmPhones: (installation_id?: string) => request<unknown>("/family/phones/confirm", "POST", installation_id ? { installation_id } : {}),
     /** The first one creates the family, and only with `publish` set: she's seen what becomes shared. */
     createInvite: (role: "parent" | "caregiver", publish: boolean, g: Fence) =>
       request<FamilyInvite>("/family/invites", "POST", { role, publish_shared: publish, disclosure_version: disclosureVersion }, g),

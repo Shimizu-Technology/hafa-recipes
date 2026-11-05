@@ -63,13 +63,24 @@ export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records"
   const personal = state.bootstrap?.personal_space_id, elsewhere = (space?: string) => !!space && space !== personal;
   return familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
 }
+/** What can be saved to a family if she says so. Care goes with its baby. */
+const choosable = new Set<Kind>(["source", "journal", "question", "routine", "event", "collection"]);
 /**
- * Shared with family, or Just me, as a new saved post or journal entry is written. A post starts shared and a journal
- * entry private, and only a parent in a family has anything to choose.
+ * Shared with family, or Just me, as a new entry is written. A new post starts shared and a new journal entry private.
+ * A draft from before the family starts private, whatever its kind, since pending work is never published on its own,
+ * and she can still choose Shared. Only a parent in a family has anything to choose.
  */
-export function choiceFor(bootstrap: Bootstrap | undefined, draft: Pick<EditorDraft, "kind" | "existing" | "shared">) {
+export function choiceFor(bootstrap: Bootstrap | undefined, draft: Pick<EditorDraft, "kind" | "existing" | "shared" | "space_id">) {
   const family = familySpaces(bootstrap)[0];
-  if (draft.existing || family?.role !== "parent" || (draft.kind !== "source" && draft.kind !== "journal")) return null;
-  const shared = draft.shared ?? draft.kind === "source";
+  if (draft.existing || family?.role !== "parent") return null;
+  const held = !!draft.space_id;
+  if (held ? !choosable.has(draft.kind) : draft.kind !== "source" && draft.kind !== "journal") return null;
+  const shared = draft.shared ?? (!held && draft.kind === "source");
   return { shared, space_id: shared ? family.id : bootstrap!.personal_space_id!, just_me: !shared && draft.kind === "source" };
+}
+/** A baby's name, and whose it is when this account has both kinds, so two called the same can be told apart. */
+export function babyLabel(child: { name: string; space_id?: string }, bootstrap?: Pick<Bootstrap, "children" | "personal_space_id"> | null) {
+  const personal = bootstrap?.personal_space_id, spaces = (bootstrap?.children ?? []).map((one) => one.space_id);
+  if (!personal || !spaces.includes(personal) || !spaces.some((space) => space && space !== personal)) return child.name;
+  return `${child.name} · ${child.space_id === personal ? "Personal" : "Family"}`;
 }

@@ -27,7 +27,7 @@ import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
-import { choiceFor } from "../lib/spaces";
+import { babyLabel, choiceFor } from "../lib/spaces";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -464,7 +464,7 @@ export default function Edit() {
             ...((isCare(draft.kind) || staysWithBaby(draft) || log?.about === "baby") && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
               ? []
               : [{ label: "For me / general", value: "" }]),
-            ...b.state.bootstrap!.children.map((c) => ({ label: c.name, value: c.id })),
+            ...b.state.bootstrap!.children.map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
           ]}
           onChange={(id) => change({ child_id: id || null })}
         />

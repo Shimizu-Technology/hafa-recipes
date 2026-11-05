@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeFrom, inviteMessage, whatBecomesShared, canBeJustMe } from "./family";
+import { canBeJustMe, codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared } from "./family";
 import { optimisticRecord, type BabyRecord, type Kind, type RecordData } from "./models";
 
 const row = (kind: Kind, data: RecordData = {}, child_id: string | null = null): BabyRecord => ({ ...optimisticRecord({ id: kind + JSON.stringify(data) + Math.random(), kind, title: kind, body: "", child_id, occurred_at: "2026-11-05T00:00:00.000Z", data }), revision: 1 });
@@ -32,5 +32,26 @@ describe("what Create family will share", () => {
 describe("what can be Just me", () => {
   it("is saved posts, categories and journal entries, which is what the API moves", () => {
     expect((["source", "collection", "journal", "diaper", "event"] as Kind[]).filter(canBeJustMe)).toEqual(["source", "collection", "journal"]);
+  });
+});
+
+describe("the code held through the remount", () => {
+  const invite = { id: "i", code: "hfbi_v1.secret", role: "parent" as const, expires_at: "2026-11-12T00:00:00Z", space_id: "family-a" };
+  it("is only ever given back to the account and family it's for", () => {
+    holdInvite(invite, "kami");
+    expect(heldInvite("kami", "family-a")).toEqual(invite);
+    expect(heldInvite("kami", "family-b")).toBeNull();
+    holdInvite(invite, "kami");
+    expect(heldInvite("leon", "family-a")).toBeNull();
+  });
+  it("is forgotten for good once another account asks", () => {
+    holdInvite(invite, "kami");
+    heldInvite("leon", "family-a");
+    expect(heldInvite("kami", "family-a")).toBeNull();
+  });
+  it("goes when she's done", () => {
+    holdInvite(invite, "kami");
+    forgetInvite();
+    expect(heldInvite("kami", "family-a")).toBeNull();
   });
 });

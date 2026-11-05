@@ -500,6 +500,8 @@ export interface DeviceState {
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
+  /** Her own babies she's chosen to keep alongside a family's, so she's only asked once. */
+  personalBabiesKept?: string[];
   /** What the API said was removed, newest last. It's the only proof a row is gone: not being here proves nothing. */
   removed?: string[];
   /** Which storage shape this was saved in. None means a build before spaces. */

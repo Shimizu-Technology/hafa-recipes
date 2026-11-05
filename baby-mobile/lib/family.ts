@@ -10,7 +10,7 @@ export interface FamilyPhone {
   last_seen: string | null;
   this_phone: boolean;
 }
-export interface FamilyReadiness { ready: boolean; phones: FamilyPhone[] }
+export interface FamilyReadiness { ready: boolean; phones: FamilyPhone[]; older_client_at?: string | null }
 export interface FamilyInvite { id: string; code?: string; role: "parent" | "caregiver"; expires_at: string; used_at?: string | null; revoked_at?: string | null; space_id?: string; generation?: number }
 export interface InvitePreview { role: "parent" | "caregiver"; expires_at: string; disclosure: string; disclosure_version: number }
 export interface FamilyMember { app_user_id: string; role: "parent" | "caregiver"; status: "active" | "left" | "removed"; access_version: number; display_name: string }
@@ -41,9 +41,13 @@ export function whatBecomesShared(rows: readonly BabyRecord[], babies: readonly 
 }
 /**
  * The code from a family just created. It's shown once and the API can't give it back, and a new family remounts every
- * screen, so it waits here, in memory, until she's done with it. Nothing writes it down.
+ * screen, so it waits here, in memory, until she's done with it. Only for this account and this family, and asking as
+ * anyone else forgets it. Nothing writes it down.
  */
-let shown: FamilyInvite | null = null;
-export const heldInvite = () => shown;
-export const holdInvite = (invite: FamilyInvite) => { shown = invite; };
+let shown: { invite: FamilyInvite; owner: string } | null = null;
+export function heldInvite(owner: string, family: string) {
+  if (shown && (shown.owner !== owner || shown.invite.space_id !== family)) shown = null;
+  return shown?.invite ?? null;
+}
+export const holdInvite = (invite: FamilyInvite, owner: string) => { shown = { invite, owner }; };
 export const forgetInvite = () => { shown = null; };

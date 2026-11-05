@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Share, View } from "react-native";
+import { router } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord } from "@/lib/models";
@@ -8,7 +9,8 @@ import { installationId, nativeSharingAvailable } from "@/modules/hafa-baby-shar
 import { Button, Card, Choice, Copy, Field, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { ApiError, PhonesNotReady } from "../lib/api";
 import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
-import { familySpaces, herLog, rowFence, spacesLive } from "../lib/spaces";
+import { babyLabel, familySpaces, herLog, rowFence, spacesLive } from "../lib/spaces";
+import { askForShareSession } from "@/lib/share-session-state";
 import { friendlyDay } from "../lib/family-format";
 
 const everyPage = async (read: (offset: number) => Promise<{ items: BabyRecord[]; has_more: boolean }>) => {
@@ -29,19 +31,18 @@ function codeProblem(failure: unknown) {
   if (failure.status === 403) return "Update Håfa Baby to join a family.";
   return messageFor(failure);
 }
-/** Every signed-in phone has to be on this build before her baby moves: an older one would lose sight of them. */
-function PhoneGate({ readiness, failed, busy, onCheck, onForget }: { readiness: FamilyReadiness | null; failed: boolean; busy: boolean; onCheck: () => void; onForget: (id: string) => void }) {
+/** An older build would lose sight of her baby when it moves. Nothing moves until her phones are updated, or she says one is gone. */
+function PhoneGate({ readiness, failed, busy, onCheck, onConfirm }: { readiness: FamilyReadiness | null; failed: boolean; busy: boolean; onCheck: () => void; onConfirm: () => void }) {
   if (failed || !readiness)
-    return <Card><Copy kind="heading">Connect to check your phones</Copy><Copy>Your baby’s profile moves to the family, so every phone signed in to your account needs the update first. This can’t be checked without a connection.</Copy><Button secondary title="Check again" busy={busy} onPress={onCheck} /></Card>;
-  const waiting = readiness.phones.filter((phone) => phone.state !== "ready");
+    return <Card><Copy kind="heading">Connect to check your phones</Copy><Copy>Your baby’s profile moves to the family, so any phone on your account needs the update first. This can’t be checked without a connection.</Copy><Button secondary title="Check again" busy={busy} onPress={onCheck} /></Card>;
+  const waiting = readiness.phones.filter((phone) => phone.state !== "ready"), others = waiting.filter((phone) => !phone.this_phone);
   return <Card>
     <Copy kind="heading">Update your other phones first</Copy>
-    <Copy>Your baby’s profile moves to the family, and an older Håfa Baby would lose sight of it. Nothing moves until every phone signed in to your account is updated.</Copy>
-    {waiting.map((phone) => <View key={phone.id} style={{ gap: 8 }}>
-      <Copy kind="small">{phone.this_phone ? "This phone is still connecting. Try again in a moment."
-        : `A phone ${phone.last_seen ? `last opened ${friendlyDay(phone.last_seen)}` : "signed in to your account"} needs the update.`}</Copy>
-      {!phone.this_phone && <Button variant="ghost" title="I don’t use this phone" disabled={busy} onPress={() => onForget(phone.id)} />}
-    </View>)}
+    <Copy>Your baby’s profile moves to the family, and an older Håfa Baby would lose sight of it. Nothing moves until they’re updated.</Copy>
+    {waiting.map((phone) => <Copy key={phone.id} kind="small">{phone.this_phone ? "This phone is still connecting. Try again in a moment."
+      : `A phone ${phone.last_seen ? `last opened ${friendlyDay(phone.last_seen)}` : "signed in to your account"} needs the update.`}</Copy>)}
+    {!!readiness.older_client_at && <Copy kind="small">{`An older version of Håfa Baby was used on your account on ${friendlyDay(readiness.older_client_at)}. If that was this phone before you updated it, or a phone nobody uses now, you can say so.`}</Copy>}
+    {(!!others.length || !!readiness.older_client_at) && <Button variant="ghost" title="That phone is updated or gone" disabled={busy} onPress={onConfirm} />}
     <Button secondary title="Check again" busy={busy} onPress={onCheck} />
   </Card>;
 }
@@ -58,24 +59,35 @@ function ShownCode({ invite, onDone }: { invite: FamilyInvite; onDone: () => voi
   </Section>;
 }
 function Invite({ onBack }: { onBack: () => void }) {
-  const b = useBaby(), bootstrap = b.state.bootstrap!, [rows, setRows] = useState<BabyRecord[] | null>(null), [justMe, setJustMe] = useState<string[]>([]),
+  const b = useBaby(), bootstrap = b.state.bootstrap!, [rows, setRows] = useState<BabyRecord[] | null>(null), [unread, setUnread] = useState(false), [justMe, setJustMe] = useState<string[]>([]),
     [readiness, setReadiness] = useState<FamilyReadiness | null>(null), [failed, setFailed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null);
   async function check() {
     setBusy(true);
     try {
+      // This phone answers for itself first: a sighting of an older one takes back what it reported.
+      await askForShareSession();
       setReadiness(await b.api.readiness(nativeSharingAvailable ? await installationId() : undefined));
       setFailed(false);
     } catch { setFailed(true); setReadiness(null); }
     finally { setBusy(false); }
   }
+  /** What becomes shared is what she's agreeing to, so a list that didn't load stops her, rather than reading as nothing. */
+  function readRows() {
+    setUnread(false);
+    setRows(null);
+    void everyPage((offset) => b.api.records({ limit: 100, offset: offset || undefined })).then(setRows).catch(() => setUnread(true));
+  }
   useEffect(() => {
     void check();
-    void everyPage((offset) => b.api.records({ limit: 100, offset: offset || undefined })).then(setRows).catch(() => setRows([]));
+    readRows();
   }, []);
-  function forget(id: string) {
-    Alert.alert("Stop waiting for this phone?", "Only do this if nobody uses it. If it’s opened again on an older Håfa Baby, it won’t see your baby until it updates, and anything waiting on it stays on it.", [
-      { text: "Keep waiting", style: "cancel" },
-      { text: "Stop waiting for it", style: "destructive", onPress: () => void b.api.forgetPhone(id, bootstrap.generation).then(check).catch((failure: unknown) => setError(messageFor(failure))) },
+  function confirmPhones() {
+    Alert.alert("Is that phone updated, or gone?", "Say yes if it’s updated, or nobody uses it now. If it’s used again on an older Håfa Baby, it won’t see your baby until it updates, and anything waiting on it stays on it.", [
+      { text: "Not yet", style: "cancel" },
+      { text: "Yes, it’s updated or gone", onPress: () => void (async () => {
+        try { await b.api.confirmPhones(nativeSharingAvailable ? await installationId() : undefined); await check(); }
+        catch (failure) { setError(messageFor(failure)); }
+      })() },
     ]);
   }
   async function create() {
@@ -83,7 +95,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     try {
       for (const row of rows ?? []) if (justMe.includes(row.id)) await b.api.save({ ...row, data: { ...row.data, just_me: true } }, bootstrap.generation);
       const made = await b.api.createInvite("parent", true, bootstrap.generation);
-      holdInvite(made);
+      holdInvite(made, b.owner);
       setInvite(made);
       await b.refresh();
       void b.sync();
@@ -97,7 +109,10 @@ function Invite({ onBack }: { onBack: () => void }) {
     going = (rows ?? []).filter((row) => !justMe.includes(row.id));
   return <>
     {!!error && <Notice error>{error}</Notice>}
-    {!rows ? <Loading label="Checking what you’ve saved…" /> : <>
+    {unread ? <Card>
+      <Notice error>We couldn’t read what would be shared, so nothing has changed.</Notice>
+      <Button secondary title="Try again" onPress={readRows} />
+    </Card> : !rows ? <Loading label="Checking what you’ve saved…" /> : <>
       <Section title="What becomes shared">
         {whatBecomesShared(going, bootstrap.children.map((child) => child.name)).map((line) => <Copy key={line}>{line}</Copy>)}
         <Copy kind="small" tone="muted">Everyone you invite as a parent can see and change these, and each parent’s Ask can use them when AI is on.</Copy>
@@ -110,9 +125,9 @@ function Invite({ onBack }: { onBack: () => void }) {
         <Copy>Your journal, your Ask chats{(rows ?? []).some(herLog) ? ", and your own logs like blood pressure" : ""}. Only you can see these, and only your Ask can use them.</Copy>
       </Section>
     </>}
-    {readiness?.ready
-      ? <Button title="Share and get a code" size="lg" icon="people-outline" busy={busy} disabled={!rows} onPress={() => void create()} />
-      : <PhoneGate readiness={readiness} failed={failed} busy={busy} onCheck={() => void check()} onForget={forget} />}
+    {!readiness?.ready
+      ? <PhoneGate readiness={readiness} failed={failed} busy={busy} onCheck={() => void check()} onConfirm={confirmPhones} />
+      : !unread && <Button title="Share and get a code" size="lg" icon="people-outline" busy={busy} disabled={!rows} onPress={() => void create()} />}
     <Button variant="ghost" title="Not now" disabled={busy} onPress={onBack} />
   </>;
 }
@@ -160,7 +175,7 @@ function YourName() {
 }
 function InFamily() {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], fence = rowFence({ space_id: family.id, generation: family.generation }, bootstrap.generation),
-    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite()), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false),
+    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false),
     parent = family.role === "parent", alive = useRef(true);
   async function load() {
     if (!parent) return setMembers([]);
@@ -183,10 +198,15 @@ function InFamily() {
   const parents = (members ?? []).filter((member) => member.role === "parent"), last = parent && members !== null && !unread && parents.length <= 1,
     afterwards = () => b.refresh().then(() => void b.sync());
   if (invite) return <ShownCode invite={invite} onDone={() => { forgetInvite(); setInvite(null); void load(); }} />;
+  const ownBabies = bootstrap.children.filter((child) => child.space_id === bootstrap.personal_space_id && !b.state.personalBabiesKept?.includes(child.id));
   return <>
     {!!error && <Notice error>{error}</Notice>}
-    {unread && <Button secondary title="Try again" disabled={busy} onPress={() => void load()} />}
-    {members === null ? (!unread && <Loading label="Opening your family…" />) : !!members.length && <Section title="Who’s here">
+    {ownBabies.map((child) => <Section key={child.id} title="Your own profile">
+      <Copy>{`${babyLabel(child, bootstrap)} is your own profile. It stays private, and what you log for it isn’t in the family. Logs start on the family’s baby now.`}</Copy>
+      <Button secondary title="Keep it separate" onPress={() => void b.commit((s) => ({ ...s, personalBabiesKept: [...(s.personalBabiesKept ?? []), child.id] }))} />
+      <Button variant="ghost" title="Open its profile" onPress={() => router.push({ pathname: "/child", params: { id: child.id } })} />
+    </Section>)}
+    {unread ? <Button secondary title="Try again" disabled={busy} onPress={() => void load()} /> : members === null ? <Loading label="Opening your family…" /> : !!members.length && <Section title="Who’s here">
       <Grouped>{members.map((member) => <Row key={member.app_user_id} title={member.display_name || "Family member"} detail={member.role === "parent" ? "Parent" : "Caregiver"} icon="person-outline" onPress={() => undefined} />)}</Grouped>
       {parent && members.filter((member) => member.app_user_id !== b.owner).map((member) => <Button key={member.app_user_id} variant="ghost" title={`Remove ${member.display_name || "this person"}`} disabled={busy}
         onPress={() => Alert.alert(`Remove ${member.display_name || "this person"}?`, "They lose access right away, and what they logged stays. If their phone is offline, its copy clears the next time it connects.", [
@@ -194,8 +214,8 @@ function InFamily() {
           { text: "Remove", style: "destructive", onPress: () => void run(() => b.api.removeMember(family.id, member.app_user_id, fence)) },
         ])} />)}
     </Section>}
-    {parent && <Section title="Invite">
-      <Button title="Invite someone" icon="person-add-outline" busy={busy} onPress={() => void run(async () => { const made = await b.api.createInvite("parent", false, fence); holdInvite(made); setInvite(made); })} />
+    {parent && !unread && members !== null && <Section title="Invite">
+      <Button title="Invite someone" icon="person-add-outline" busy={busy} onPress={() => void run(async () => { const made = await b.api.createInvite("parent", false, fence); holdInvite(made, b.owner); setInvite(made); })} />
       {invites.map((row) => <Button key={row.id} variant="ghost" title={`Cancel the code sent ${friendlyDay(row.expires_at, -7)}`} disabled={busy} onPress={() => void run(() => b.api.revokeInvite(family.id, row.id, fence))} />)}
     </Section>}
     {last ? <Section title="Delete this family">
@@ -205,7 +225,7 @@ function InFamily() {
         { text: "Keep it", style: "cancel" },
         { text: "Delete family", style: "destructive", onPress: () => void run(async () => { await b.api.deleteFamily(family.id, fence); await afterwards(); toast("Your family was deleted."); }) },
       ])} />
-    </Section> : (members !== null || !parent) && <Button variant="destructive" title="Leave this family" disabled={busy} onPress={() => Alert.alert("Leave this family?", "You lose access right away. Your own journal and space stay yours, and what you logged stays with the family. Ask chats that used the family’s entries are deleted. If another of your phones is offline, its copy clears the next time it connects.", [
+    </Section> : !unread && members !== null && <Button variant="destructive" title="Leave this family" disabled={busy} onPress={() => Alert.alert("Leave this family?", "You lose access right away. Your own journal and space stay yours, and what you logged stays with the family. Ask chats that used the family’s entries are deleted. If another of your phones is offline, its copy clears the next time it connects.", [
       { text: "Stay", style: "cancel" },
       { text: "Leave", style: "destructive", onPress: () => void run(async () => { await b.api.leaveFamily(family.id, fence); await afterwards(); toast("You left the family."); }) },
     ])} />}

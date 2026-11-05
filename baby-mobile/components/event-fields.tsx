@@ -5,6 +5,7 @@ import type { EditorDraft, EventCategory, EventRecurrence } from "@/lib/models";
 import { recordDay, zonedInstant } from "@/lib/tracker";
 import { DateField } from "./date-field";
 import { Chips, Choice, Copy, Field, Notice, useColors } from "./ui";
+import { babyLabel } from "../lib/spaces";
 
 const frequencies: EventRecurrence["frequency"][] = ["daily", "weekly", "monthly", "yearly"];
 
@@ -34,7 +35,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     <Field label="Location (optional)" value={data.location ?? ""} maxLength={240} onChange={(location) => set({ location })} placeholder="Clinic, church, grandma’s house…" />
     {!one && children.length > 0 && <Copy kind="small">Who is it for?</Copy>}
     {!one && children.length > 0 && <Chips label="Who is it for?" value={draft.child_id ?? ""}
-      options={[{ label: "Whole family", value: "" }, ...children.map((child) => ({ label: child.name, value: child.id }))]} onChange={(id) => change({ child_id: id || null })} />}
+      options={[{ label: "Whole family", value: "" }, ...children.map((child) => ({ label: babyLabel(child, b.state.bootstrap), value: child.id }))]} onChange={(id) => change({ child_id: id || null })} />}
     {!one && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
   </>;
 }

@@ -1485,6 +1485,34 @@ describe("a family's protocol, through the sync loop", () => {
     expect(mock.api.feedAction).not.toHaveBeenCalled();
     expect(baby.state.outbox).toMatchObject([{ id: "tap", left_space: family, error: notSentMessage }]);
   });
+  describe("on joining a family", () => {
+    const own = { id: "mine", name: "Mia", revision: 1, space_id: personal, generation: 1 }, theirs = { id: "fam", name: "Mia", revision: 1, space_id: family, generation: 1 };
+    const before = { ...live, spaces: [spaces[0]], children: [own] }, after = { ...live, children: [own, theirs] };
+    it("picks the family's baby for what she logs next, and leaves queued work and drafts where they were going", async () => {
+      const save = vi.fn(async (value: any, _fence?: unknown) => ({ ...optimisticRecord(value), revision: 1 }));
+      const queued = { id: "q", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "q", kind: "diaper" as const, title: "", body: "", child_id: "mine", occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+      const draft = { id: "d", kind: "diaper" as const, title: "", body: "half typed", child_id: "mine", occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [] };
+      setup(after, { bootstrap: before, selectedChild: "mine", outbox: [queued], drafts: { "new:diaper": draft } } as never, { save });
+      await mount(); await flush();
+      expect(baby.state.selectedChild).toBe("fam");
+      expect(save.mock.calls[0][0]).toMatchObject({ id: "q", child_id: "mine" });
+      expect(save.mock.calls[0][1]).toEqual({ generation: 1, space_id: personal });
+      expect(baby.state.drafts["new:diaper"]).toMatchObject({ child_id: "mine", space_id: personal, body: "half typed" });
+    });
+    it("doesn't change her choice on an ordinary refresh", async () => {
+      setup(after, { bootstrap: after, selectedChild: "mine" } as never);
+      await mount(); await flush();
+      expect(baby.state.selectedChild).toBe("mine");
+    });
+  });
+  it("forgets a held invite code when the account signs out", async () => {
+    const family_ = await import("./family");
+    family_.holdInvite({ id: "i", code: "hfbi_v1.x", role: "parent", expires_at: "2026-11-12T00:00:00Z", space_id: family }, "owner");
+    setup(live, {});
+    await mount(); await flush();
+    await act(async () => { await baby.signOut(); });
+    expect(family_.heldInvite("owner", family)).toBeNull();
+  });
   it("purges nothing when the flag goes off, since the API has stopped saying", async () => {
     const shared = feed(3, family);
     setup(bootstrap, { bootstrap: live, records: [shared] } as never);

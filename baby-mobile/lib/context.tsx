@@ -77,6 +77,7 @@ import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
 import { applyChanges, changePagesPerPass } from "./changes";
+import { forgetInvite } from "./family";
 import { fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
@@ -237,11 +238,15 @@ export function BabyProvider({ children }: PropsWithChildren) {
         grew = familySpaces(bootstrap).some((space) => !familySpaces(s.bootstrap).some((known) => known.id === space.id)),
         // With no spaces listed the API has stopped saying, which isn't the same as this account being out of one.
         left = retiredSpaces(fenced, bootstrap).reduce((rows, space) => withoutFamily(rows, space, Crypto.randomUUID), fenced),
-        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap);
+        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap),
+        familyBaby = bootstrap.children.find((child) => familySpaces(bootstrap).some((space) => space.id === child.space_id));
       return {
         ...next,
         bootstrap,
-        selectedChild: bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
+        selectedChild: grew && familyBaby && !familySpaces(bootstrap).some((space) => space.id === bootstrap.children.find((child) => child.id === next.selectedChild)?.space_id)
+          // Joining: what she logs next is for the family's baby. Her own stays, and queued work and drafts keep their destinations.
+          ? familyBaby.id
+          : bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
       };
     }, lease);
     if (!current() || closing.current || deleting.current) return false;
@@ -743,6 +748,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     };
   }, [state, owner, ready]);
   async function clean() {
+    forgetInvite();
     await revokeShareSession();
     clearPendingShares();
     await clearReminders(ownerRef.current);

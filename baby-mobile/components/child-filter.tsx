@@ -1,6 +1,7 @@
 import { useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { Chips } from "./ui";
+import { babyLabel } from "../lib/spaces";
 /** `only` is for a screen that's always about one baby: it names that baby, and "Everything" isn't offered. */
 export function ChildFilter({ scroll = false, only }: { scroll?: boolean; only?: string }) {
   const b = useBaby(), { fontScale } = useWindowDimensions();
@@ -13,7 +14,7 @@ export function ChildFilter({ scroll = false, only }: { scroll?: boolean; only?:
       label="Baby"
       options={[
         ...(only ? [] : [{ label: "Everything", value: "" }]),
-        ...b.state.bootstrap!.children.map((child) => ({ label: child.name, value: child.id })),
+        ...b.state.bootstrap!.children.map((child) => ({ label: babyLabel(child, b.state.bootstrap), value: child.id })),
       ]}
       onChange={(id) => void b.commit((s) => ({ ...s, selectedChild: id || null }))}
     />

@@ -14,6 +14,7 @@ import { useTodayCare } from "@/lib/today-care";
 import { profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { messageFor, type Child } from "@/lib/models";
 import { keepItems, otherStage, trackerById, trackerOn, trackersFor, type Tracker } from "../lib/trackers";
+import { babyLabel } from "../lib/spaces";
 
 const tileRow = { flexDirection: "row", flexWrap: "wrap", gap: 8 } as const;
 
@@ -24,7 +25,7 @@ const close = () => (router.canGoBack() ? router.back() : router.replace("/(tabs
 function Track({ child, now, stage, scroller, opening }: { opening?: string; child: Child; now: Date; stage: ReturnType<typeof trackerStage>; scroller: React.RefObject<ScrollView | null> }) {
   const b = useBaby(), toast = useToast(),
     // With two babies she can log for either from here, so it says which.
-    who = b.state.bootstrap!.children.length > 1 ? child.name : undefined,
+    who = b.state.bootstrap!.children.length > 1 ? babyLabel(child, b.state.bootstrap) : undefined,
     care = useTodayCare({ child: child.id }),
     afterSave = ({ label, undo, until }: Saved, current: boolean) => {
       toast(`Saved: ${label}`, { label: "Undo", until, onPress: async () => {
@@ -69,7 +70,7 @@ function Track({ child, now, stage, scroller, opening }: { opening?: string; chi
       <View style={tileRow}>{on.map((tracker) => tile(tracker, true))}</View>
     </View>
     <Keep />
-    {group(`For ${child.name}`, rest.filter((tracker) => tracker.about === "baby"))}
+    {group(`For ${babyLabel(child, b.state.bootstrap)}`, rest.filter((tracker) => tracker.about === "baby"))}
     {group("For you", rest.filter((tracker) => tracker.about === "her"))}
     <Row title="What shows" detail="Choose the buttons on Today and Tracker" icon="options-outline" onPress={() => router.replace({ pathname: "/what-shows", params: { child: child.id } })} />
   </>;

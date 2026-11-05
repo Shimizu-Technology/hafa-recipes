@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./spaces";
+import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
+import { babyLabel, choiceFor, fenceOf, generationOf, holdsFamilyWork, spaceForNew, unavailableMessage } from "./spaces";
 import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -167,6 +168,38 @@ describe("drafts from before the family", () => {
   it("leaves one that knows its space", () => {
     const next = draftsBeforeFamily(state(boot(), { drafts: { x: draft("a", { space_id: family, generation: 1 }) } }), boot());
     expect(next.drafts.x).toMatchObject({ space_id: family });
+  });
+});
+
+describe("a draft from before the family, when she saves it", () => {
+  it("starts as Just me, and she can still choose Shared", () => {
+    const mine = { kind: "source", existing: false, space_id: personal } as never;
+    expect(choiceFor(boot(), mine)).toEqual({ shared: false, space_id: personal, just_me: true });
+    expect(choiceFor(boot(), { ...(mine as object), shared: true } as never)).toEqual({ shared: true, space_id: family, just_me: false });
+  });
+  it("offers that for a question or list too, not only what a new one would ask", () => {
+    expect(choiceFor(boot(), { kind: "question", existing: false, space_id: personal } as never)).toEqual({ shared: false, space_id: personal, just_me: false });
+    expect(choiceFor(boot(), { kind: "routine", existing: false, space_id: personal, shared: true } as never)).toMatchObject({ shared: true, space_id: family });
+  });
+  it("doesn't offer it for care, which goes with its baby, or to a caregiver", () => {
+    expect(choiceFor(boot(), { kind: "diaper", existing: false, space_id: personal } as never)).toBeNull();
+    expect(choiceFor(boot([own, { ...shared, role: "caregiver" }]), { kind: "source", existing: false, space_id: personal } as never)).toBeNull();
+  });
+  it("one written once the family exists still starts by kind", () => {
+    expect(choiceFor(boot(), { kind: "source", existing: false } as never)).toMatchObject({ shared: true, space_id: family });
+  });
+});
+
+describe("saying which baby, when two could look the same", () => {
+  it("says Personal or Family when both kinds are on the account", () => {
+    const twins = boot([own, shared], { children: [{ id: "a", name: "Mia", revision: 1, space_id: family }, { id: "b", name: "Mia", revision: 1, space_id: personal }] });
+    expect(babyLabel(twins.children[0], twins)).toBe("Mia · Family");
+    expect(babyLabel(twins.children[1], twins)).toBe("Mia · Personal");
+  });
+  it("says nothing extra with only one kind, or the flag off", () => {
+    const one = boot([own, shared], { children: [{ id: "a", name: "Mia", revision: 1, space_id: family }] });
+    expect(babyLabel(one.children[0], one)).toBe("Mia");
+    expect(babyLabel(off().children[0], off())).toBe("Baby");
   });
 });
 

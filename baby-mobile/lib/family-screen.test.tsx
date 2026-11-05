@@ -2,12 +2,13 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const f = vi.hoisted(() => ({ baby: null as any, alerts: [] as { title: string; message?: string; buttons: { text: string; style?: string; onPress?: () => void }[] }[], share: vi.fn(async () => ({})), copy: vi.fn(async () => true), paste: vi.fn(async () => ""), toast: vi.fn(), exportFile: vi.fn(), back: vi.fn() }));
+const f = vi.hoisted(() => ({ push: vi.fn(), ask: vi.fn(async () => undefined), baby: null as any, alerts: [] as { title: string; message?: string; buttons: { text: string; style?: string; onPress?: () => void }[] }[], share: vi.fn(async () => ({})), copy: vi.fn(async () => true), paste: vi.fn(async () => ""), toast: vi.fn(), exportFile: vi.fn(), back: vi.fn() }));
 vi.mock("react-native", () => ({ Alert: { alert: (title: string, message: string, buttons: any[]) => f.alerts.push({ title, message, buttons }) }, Share: { share: f.share }, View: "View", Platform: { OS: "ios" } }));
-vi.mock("expo-router", () => ({ router: { back: f.back, push: vi.fn() } }));
 vi.mock("expo-clipboard", () => ({ setStringAsync: f.copy, getStringAsync: f.paste }));
 vi.mock("@/lib/context", () => ({ useBaby: () => f.baby }));
 vi.mock("@/lib/models", () => import("./models"));
+vi.mock("expo-router", () => ({ router: { back: f.back, push: f.push } }));
+vi.mock("@/lib/share-session-state", () => ({ askForShareSession: f.ask }));
 vi.mock("@/lib/files", () => ({ exportFile: f.exportFile }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, installationId: async () => "this-phone" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Empty: "Empty", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Screen: "Screen", Section: "Section", useToast: () => f.toast }));
@@ -18,7 +19,7 @@ import { forgetInvite } from "./family";
 
 const personal = "p", family = "f";
 const own = { id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, shared = { id: family, kind: "family", role: "parent", generation: 1, access_version: 1 };
-const ready = { ready: true, phones: [] };
+const ready = { ready: true, phones: [], older_client_at: null };
 const code = "hfbi_v1.abcdefghijklmnopqrstuvwxyz012345";
 const source = (id: string, data = {}) => ({ ...optimisticRecord({ id, kind: "source", title: id, body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data }), revision: 1, space_id: personal, generation: 1 });
 function setup(spaces: object[] | null = [own], api: object = {}) {
@@ -26,7 +27,7 @@ function setup(spaces: object[] | null = [own], api: object = {}) {
     api: { readiness: vi.fn(async () => ready), records: vi.fn(async () => ({ items: [], total: 0, has_more: false })), createInvite: vi.fn(async () => ({ id: "i", code, role: "parent", expires_at: "2026-11-12T00:00:00Z", space_id: family, generation: 1 })),
       save: vi.fn(async (row: object) => row), previewInvite: vi.fn(async () => ({ role: "parent", expires_at: "2026-11-12T00:00:00Z", disclosure: "Shared family entries are available to every parent and to each parent's Ask when AI is enabled.", disclosure_version: 1 })),
       acceptInvite: vi.fn(async () => ({ space_id: family, generation: 1, role: "parent", access_version: 1 })), familyMembers: vi.fn(async () => ({ items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, { app_user_id: "them", role: "parent", status: "active", access_version: 1, display_name: "Them" }] })),
-      familyInvites: vi.fn(async () => ({ items: [] })), leaveFamily: vi.fn(async () => ({ left: true })), deleteFamily: vi.fn(async () => ({ deleted: true })), removeMember: vi.fn(async () => ({ removed: true })), revokeInvite: vi.fn(async () => ({ revoked: true })), forgetPhone: vi.fn(async () => ({})), export: vi.fn(async () => ({})), ...api } };
+      familyInvites: vi.fn(async () => ({ items: [] })), confirmPhones: vi.fn(async () => ({ confirmed: true })), leaveFamily: vi.fn(async () => ({ left: true })), deleteFamily: vi.fn(async () => ({ deleted: true })), removeMember: vi.fn(async () => ({ removed: true })), revokeInvite: vi.fn(async () => ({ revoked: true })), export: vi.fn(async () => ({})), ...api } };
   return f.baby;
 }
 let view: ReactTestRenderer | undefined;
@@ -67,6 +68,25 @@ describe("before there's a family", () => {
     await open();
     expect(button("Invite someone")).toBeDefined();
     expect(button("I have a code")).toBeDefined();
+  });
+  it("won't create a family if it couldn't read what would be shared, and offers Try again", async () => {
+    const records = vi.fn().mockRejectedValueOnce(new ApiError("Offline", 0)).mockResolvedValue({ items: [source("Tip")], total: 1, has_more: false });
+    const b = setup([own], { records });
+    await open();
+    await press("Invite someone");
+    expect(button("Share and get a code")).toBeUndefined();
+    expect(text()).toMatch(/couldn’t read/i);
+    expect(b.api.createInvite).not.toHaveBeenCalled();
+    await press("Try again");
+    expect(text()).toMatch(/1 saved post/);
+    expect(button("Share and get a code")).toBeDefined();
+  });
+  it("doesn't take a failure part way through the pages as the whole list", async () => {
+    const records = vi.fn().mockResolvedValueOnce({ items: [source("First")], total: 2, has_more: true }).mockRejectedValue(new ApiError("Offline", 0));
+    setup([own], { records });
+    await open();
+    await press("Invite someone");
+    expect(button("Share and get a code")).toBeUndefined();
   });
   it("says what becomes shared and what stays private before anything happens", async () => {
     const b = setup([own], { records: vi.fn(async () => ({ items: [source("Tip")], total: 1, has_more: false })) });
@@ -114,7 +134,7 @@ describe("before there's a family", () => {
 });
 
 describe("the update gate", () => {
-  const behind = { ready: false, phones: [{ id: "old", state: "outdated", last_seen: "2026-10-30T00:00:00Z", this_phone: false }] };
+  const behind = { ready: false, phones: [{ id: "old", state: "outdated", last_seen: "2026-10-30T00:00:00Z", this_phone: false }], older_client_at: null };
   it("won't start while another phone needs the update, and says which", async () => {
     const b = setup([own], { readiness: vi.fn(async () => behind) });
     await open();
@@ -137,16 +157,33 @@ describe("the update gate", () => {
     await press("Invite someone");
     await press("Check again");
     expect(button("Share and get a code")).toBeDefined();
+    expect(f.ask).toHaveBeenCalledTimes(2);
   });
-  it("lets her say she doesn't use a phone any more, after a warning", async () => {
+  it("lets her say that phone is updated or gone, after a warning", async () => {
     const readiness = vi.fn().mockResolvedValueOnce(behind).mockResolvedValue(ready);
     const b = setup([own], { readiness });
     await open();
     await press("Invite someone");
-    await press("I don’t use this phone");
-    await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.text === "Stop waiting for it")!.onPress!(); });
-    expect(b.api.forgetPhone).toHaveBeenCalledWith("old", 1);
+    await press("That phone is updated or gone");
+    expect(b.api.confirmPhones).not.toHaveBeenCalled();
+    await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.text === "Yes, it’s updated or gone")!.onPress!(); });
+    expect(b.api.confirmPhones).toHaveBeenCalledWith("this-phone");
     expect(button("Share and get a code")).toBeDefined();
+  });
+  it("says when an older version was used, with no phone to name, and asks the same way", async () => {
+    setup([own], { readiness: vi.fn(async () => ({ ready: false, phones: [], older_client_at: "2026-11-01T00:00:00Z" })) });
+    await open();
+    await press("Invite someone");
+    expect(text()).toMatch(/older version/);
+    expect(text()).toMatch(/Nov 1|Oct 31/);
+    expect(button("That phone is updated or gone")).toBeDefined();
+    expect(button("Share and get a code")).toBeUndefined();
+  });
+  it("gets a fresh credential before asking, so this phone can answer for itself", async () => {
+    setup();
+    await open();
+    await press("Invite someone");
+    expect(f.ask).toHaveBeenCalled();
   });
   it("shows the API's answer if a phone appears between the check and the tap", async () => {
     setup([own], { createInvite: vi.fn(async () => { throw new PhonesNotReady(behind as never); }) });
@@ -155,6 +192,42 @@ describe("the update gate", () => {
     await press("Share and get a code");
     expect(text()).toMatch(/needs the update/i);
     expect(button("Share and get a code")).toBeUndefined();
+  });
+});
+
+describe("a personal baby in a family", () => {
+  const withOwn = (api: object = {}) => {
+    const b = setup([own, shared], api);
+    b.state.bootstrap.children = [{ id: "fam", name: "Mia", revision: 1, space_id: family }, { id: "mine", name: "Mia", revision: 1, space_id: personal }];
+    return b;
+  };
+  it("says plainly what it means, and deletes nothing", async () => {
+    const b = withOwn();
+    await open();
+    expect(text()).toMatch(/your own profile/i);
+    expect(text()).toMatch(/Mia · Personal/);
+    expect(b.api.deleteChild).toBeUndefined();
+    await press("Keep it separate");
+    expect(b.commit).toHaveBeenCalled();
+    expect(b.commit.mock.calls[0][0](b.state).personalBabiesKept).toEqual(["mine"]);
+  });
+  it("opens the profile if she'd rather remove it herself", async () => {
+    withOwn();
+    await open();
+    await press("Open its profile");
+    expect(f.push).toHaveBeenCalledWith({ pathname: "/child", params: { id: "mine" } });
+  });
+  it("doesn't ask again once she's kept it", async () => {
+    const b = withOwn();
+    b.state.personalBabiesKept = ["mine"];
+    await open();
+    expect(button("Keep it separate")).toBeUndefined();
+  });
+  it("has nothing to say with only the family's baby", async () => {
+    const b = setup([own, shared]);
+    b.state.bootstrap.children = [{ id: "fam", name: "Mia", revision: 1, space_id: family }];
+    await open();
+    expect(button("Keep it separate")).toBeUndefined();
   });
 });
 
@@ -226,9 +299,24 @@ describe("in a family", () => {
     await open();
     expect(button("Delete this family")).toBeUndefined();
     expect(button("Leave this family")).toBeUndefined();
+    expect(button("Invite someone")).toBeUndefined();
     await press("Try again");
     expect(button("Leave this family")).toBeDefined();
     expect(button("Try again")).toBeUndefined();
+  });
+  it("shows no parent actions on a list it couldn't refresh after removing someone", async () => {
+    const both = { items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, { app_user_id: "them", role: "parent", status: "active", access_version: 1, display_name: "Them" }] };
+    const familyMembers = vi.fn().mockResolvedValueOnce(both).mockRejectedValueOnce(new ApiError("Offline", 0)).mockResolvedValue({ items: [both.items[0]] });
+    inFamily({ familyMembers });
+    await open();
+    await press("Remove Them");
+    await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.style === "destructive")!.onPress!(); });
+    await act(async () => {});
+    for (const title of ["Leave this family", "Remove Them", "Delete this family", "Invite someone"]) expect(button(title), title).toBeUndefined();
+    expect(text()).not.toMatch(/Them/);
+    await press("Try again");
+    expect(button("Leave this family")).toBeUndefined();
+    expect(button("Delete this family")).toBeDefined();
   });
   it("counts a parent who has left as gone", async () => {
     inFamily({ familyMembers: vi.fn(async () => ({ items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, { app_user_id: "them", role: "parent", status: "left", access_version: 2, display_name: "Them" }] })) });

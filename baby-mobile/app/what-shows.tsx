@@ -7,6 +7,7 @@ import { useBaby } from "@/lib/context";
 import { setTracking } from "@/lib/quick-care";
 import { profileToday, timingChild, trackerStage } from "@/lib/timing";
 import { trackerOn, trackersFor, trackingKey, type Tracker } from "../lib/trackers";
+import { babyLabel } from "../lib/spaces";
 
 function Line({ tracker, on, onChange }: { tracker: Tracker; on: boolean; onChange: (on: boolean) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
@@ -37,8 +38,8 @@ export default function WhatShows() {
     <Copy tone="muted">What’s on gets a button on Today and Tracker. Off only hides the button: everything logged stays in Tracker, Stats, the doctor summary and history, and Add always has it all.</Copy>
     {/* Says "Saved on this phone" with no signal, and carries her to a change the API refused. */}
     <SyncStatus />
-    {children.length > 1 && <Chips label="Baby" value={child.id} options={children.map((one) => ({ label: one.name, value: one.id }))} onChange={setPicked} />}
-    {group(`For ${child.name}`, listed.filter((tracker) => tracker.about === "baby"))}
+    {children.length > 1 && <Chips label="Baby" value={child.id} options={children.map((one) => ({ label: babyLabel(one, bootstrap), value: one.id }))} onChange={setPicked} />}
+    {group(`For ${babyLabel(child, bootstrap)}`, listed.filter((tracker) => tracker.about === "baby"))}
     {group("For you", listed.filter((tracker) => tracker.about === "her"))}
   </Screen>;
 }

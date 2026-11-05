@@ -14,6 +14,7 @@ import { useCareStats } from "@/lib/use-care-stats";
 import { Button, Chips, Choice, Copy, Grouped, Notice, Screen, Section, useColors } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { SyncStatus } from "@/components/sync-status";
+import { babyLabel } from "../lib/spaces";
 
 const isDay = (value?: string) => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 type Entries = ReturnType<typeof localEntries>;
@@ -127,7 +128,7 @@ export default function DoctorSummary() {
   // At large text a docked pair of buttons takes half the screen, so they go at the end of the page.
   return <Screen title="Doctor summary" back footer={fontScale < 1.5 ? buttons : undefined}>
     <Copy kind="small" tone="muted">One page with daily totals, your questions and the notes you choose.</Copy>
-    {children.length > 1 && <Chips scroll label="Baby" value={childId ?? ""} onChange={(id) => setChild(id || null)} options={children.map((one) => ({ label: one.name, value: one.id }))} />}
+    {children.length > 1 && <Chips scroll label="Baby" value={childId ?? ""} onChange={(id) => setChild(id || null)} options={children.map((one) => ({ label: babyLabel(one, b.state.bootstrap), value: one.id }))} />}
     <View style={{ gap: 8 }}>
       <DateField dateOnly label="From" value={from} onChange={setFrom} />
       <DateField dateOnly label="To" value={to} onChange={setTo} />
