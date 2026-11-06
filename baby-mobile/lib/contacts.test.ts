@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { summaryHtml, withDoctor } from "./doctor-summary";
-import { callLabel, callLines, contactFrom, contactsOn, deliveryLine, dialUrl, nextContactPrompt, phoneProblem, sameContact, summaryDoctor } from "./contacts";
+import { callLabel, callLines, contactChanges, contactFrom, contactProblem, contactsOn, deliveryLine, dialUrl, nextContactPrompt, phoneProblem, shownContact, summaryDoctor } from "./contacts";
 
 const today = new Date(2026, 10, 6);
 const expecting = { id: "e", name: "Noa", birth_date: null, due_date: "2026-12-10", revision: 1 };
@@ -9,15 +9,29 @@ const account = (extra: object = {}) => ({ profile: {}, children: [], generation
 const change = () => true;
 
 describe("phone numbers", () => {
-  it.each(["671-555-0100", "(671) 555-0100", "+1 671 555 0100", "6715550100", "555-0100", "671.555.0100", "671-555-0100 ext 12", "671-555-0100 x12", "", "   "])("takes %s", (phone) => {
+  it.each(["671-555-0100", "(671) 555-0100", "+1 671 555 0100", "6715550100", "555-0100", "671.555.0100", "671-555-0100 ext 12", "671-555-0100 x12", "671-555-0100 #12", "671-555-0100,12", "", "   "])("takes %s", (phone) => {
     expect(phoneProblem(phone)).toBe("");
   });
-  it.each(["12345", "call the office", "671-555-0100; drop", "tel:6715550100", "1".repeat(16), "1-800-FLOWERS"])("kindly turns down %s", (phone) => {
+  it.each(["12345", "call the office", "671-555-0100; drop", "tel:6715550100", "1".repeat(16), "1-800-FLOWERS",
+    "671\n555\n0100", "671\t555\t0100", "671-555\u0000-0100", "671-555-0100\u2028x12", "\u0666\u0667\u0661-555-0100"])("kindly turns down %s", (phone) => {
     expect(phoneProblem(phone)).toMatch(/Try just the digits/);
   });
   it.each([
     ["671-555-0100", "tel:6715550100"], ["(671) 555-0100", "tel:6715550100"], ["+1 671 555 0100", "tel:+16715550100"], ["671-555-0100 ext 12", "tel:6715550100"], ["671 x12", "tel:671"],
   ])("dials only digits for %s", (phone, url) => expect(dialUrl(phone)).toBe(url));
+  // The same pairs are in api/tests/test_baby_contacts.py, so the app and the API agree.
+  it.each([
+    ["671\u2011555\u20110100", "671-555-0100"], ["671\u2013555\u20140100", "671-555-0100"], ["671\u2212555\uff0d0100", "671-555-0100"],
+    ["671\u00a0555\u202f0100", "671 555 0100"], ["\u202a+1 671 555 0100\u202c", "+1 671 555 0100"], ["\ufeff671-555\u200b-0100", "671-555-0100"],
+    ["\uff16\uff17\uff11-555-0100", "671-555-0100"], ["671-555-0100\n", "671-555-0100"],
+  ])("cleans up what comes with a copied number: %j", (copied, kept) => {
+    expect(phoneProblem(copied)).toBe("");
+    expect(contactFrom("", copied)).toEqual({ phone: kept });
+    expect(dialUrl(copied)).toBe(`tel:${kept.replace(/[^+\d]/g, "")}`);
+  });
+  it.each(["Dr.\u0000Cruz", "Dr.\nCruz", "Dr.\tCruz", "Dr.\u2028Cruz"])("turns down a name with control characters: %j", (name) => {
+    expect(contactProblem(name, "")).toMatch(/line break/);
+  });
   it("can't be made to do anything but dial", () => {
     expect(dialUrl("671;phone-context=evil?a=b#c")).toBe("tel:671");
     expect(dialUrl("")).toBeNull();
@@ -30,8 +44,13 @@ describe("phone numbers", () => {
   it("turns two empty boxes into a clear", () => {
     expect(contactFrom(" ", "")).toBeNull();
     expect(contactFrom(" Dr. Cruz ", "")).toEqual({ name: "Dr. Cruz" });
-    expect(sameContact(undefined, null)).toBe(true);
-    expect(sameContact({ name: "A" }, { name: "A", phone: "1" })).toBe(false);
+  });
+  it("mixes what she typed with the latest of what she didn't", () => {
+    const saved = { doctor: { name: "Dr. B", phone: "671-555-0199" }, delivery: { name: "GMH" } };
+    expect(shownContact(saved.doctor, { name: "Dr. Bea" })).toEqual({ name: "Dr. Bea", phone: "671-555-0199" });
+    expect(contactChanges(saved, { doctor: { name: "Dr. Bea" } })).toEqual({ doctor: { name: "Dr. Bea", phone: "671-555-0199" } });
+    expect(contactChanges(saved, { doctor: { name: "", phone: "" } })).toEqual({ doctor: null });
+    expect(contactChanges(saved, {})).toEqual({});
   });
 });
 

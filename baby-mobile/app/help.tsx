@@ -13,7 +13,7 @@ import { MedicalSource } from "@/components/medical-source";
 /**
  * AWAITING CLINICIAN REVIEW (MEDICAL_REVIEW section A). CDC's urgent signs and numbers to call, and nothing of ours.
  * It asks the network for nothing, so it opens with no signal, however the app is doing. The only account data is her own
- * numbers, as this phone last had them; with no account it's just the rest. They go under 911, and what's below them is unchanged.
+ * numbers, as this phone last had them; with no account it's just the rest. They go under 911, 988 and the hotline, so those stay in reach at any text size.
  */
 export default function Help() {
   const toast = useToast(),
@@ -23,15 +23,14 @@ export default function Help() {
     prompt = nextContactPrompt(bootstrap, today, (child) => canChangeBaby(bootstrap, child));
   return <Screen title="Help" back>
     <View style={{ gap: 18 }}>
-      {helpLines.map((line, place) => <View key={line.name} style={{ gap: 18 }}><View style={{ gap: 8 }}>
+      {helpLines.map((line) => <View key={line.name} style={{ gap: 8 }}>
         {line.name !== "911" && <Copy kind="label">{line.name}</Copy>}
         {line.actions.map((action, index) => <Button key={action.url} numeric secondary={index > 0 || line.name !== "911"} title={action.label} onPress={() => open(action.url, action.label)} />)}
         {!!line.note && <Copy kind="small" tone="muted">{line.note}</Copy>}
         {!!line.source && <MedicalSource source={line.source.name} url={line.source.url} />}
-      </View>
-      {place === 0 && callLines(bootstrap, today).map((call) => <CallContact key={call.key} line={call} />)}
-      {place === 0 && !!prompt && <QuietRow title={prompt.title} onPress={() => router.push(prompt.child ? { pathname: "/child", params: { id: prompt.child, doctor: "1" } } : { pathname: "/profile", params: { open: prompt.open } })} />}
       </View>)}
+      {callLines(bootstrap, today).map((call) => <CallContact key={call.key} line={call} />)}
+      {!!prompt && <QuietRow title={prompt.title} onPress={() => router.push(prompt.child ? { pathname: "/child", params: { id: prompt.child, doctor: "1" } } : { pathname: "/profile", params: { open: prompt.open } })} />}
     </View>
     <Section title="Urgent maternal warning signs">
       <Copy>{cdcUrgentOpening}</Copy>

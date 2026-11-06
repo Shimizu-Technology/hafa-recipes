@@ -34,11 +34,11 @@ it("against an API that doesn't keep contacts, asks for her name only and never 
   expect(fields()[0].props.autoFocus).toBe(true);
   await type(0, " Kami ");
   await save();
-  expect(f.profile.mock.calls[0][0].display_name).toBe("Kami");
+  expect(f.profile.mock.calls[0][0]).toEqual({ display_name: "Kami", timezone: expect.any(String) });
   expect(f.contacts).not.toHaveBeenCalled();
   expect(f.back).toHaveBeenCalled();
 });
-it("saves only what changed, so another phone's edit stays", async () => {
+it("sends only the contact she touched, so another phone's edit stays", async () => {
   await open({ contacts: { delivery: { name: "GMH", phone: "671-555-0103" } } });
   expect(sections()).toEqual(["Your doctor", "Where you plan to deliver"]);
   await type(1, "Dr. Cruz");
@@ -46,6 +46,21 @@ it("saves only what changed, so another phone's edit stays", async () => {
   await save();
   expect(f.contacts).toHaveBeenCalledWith({ doctor: { name: "Dr. Cruz", phone: "671-555-0101" } }, 2);
   expect(f.boot.contacts).toEqual({ doctor: { name: "Dr. Cruz", phone: "671-555-0101" } });
+});
+it("sends the latest of what she didn't touch, not what was there when the screen opened", async () => {
+  await open({ contacts: { doctor: { name: "Dr. A", phone: "671-555-0101" }, delivery: { name: "GMH", phone: "671-555-0103" } } });
+  // Another phone saves a new doctor, and this phone hears about it while the screen is open.
+  f.boot = { ...f.boot, contacts: { doctor: { name: "Dr. B", phone: "671-555-0199" }, delivery: { name: "Naval", phone: "671-555-0177" } } };
+  await act(async () => { view.update(<ProfileDetails />); });
+  expect(fields()[2].props.value).toBe("671-555-0199");
+  await type(1, "Dr. Bea");
+  await save();
+  expect(f.contacts).toHaveBeenCalledWith({ doctor: { name: "Dr. Bea", phone: "671-555-0199" } }, 2);
+});
+it("sends neither a name nor permission she didn't edit", async () => {
+  await open({ contacts: {} });
+  await save();
+  expect(f.profile.mock.calls[0][0]).toEqual({ timezone: expect.any(String) });
 });
 it("doesn't send a profile contact save when nothing changed", async () => {
   await open({ contacts: { doctor: { name: "Dr. Cruz", phone: "671-555-0101" } } });
@@ -68,6 +83,13 @@ it("keeps what she typed and says so kindly when a number can't be dialled", asy
   expect(f.back).not.toHaveBeenCalled();
   expect(fields()[2].props.value).toBe("soon");
   expect(view.root.findAll((n) => String(n.type) === "Notice")[0].props.children).toMatch(/Try just the digits/);
+});
+it("turns down a pasted name with a line break, kindly", async () => {
+  await open({ contacts: {} });
+  await type(1, "Dr.\nCruz");
+  await save();
+  expect(f.profile).not.toHaveBeenCalled();
+  expect(view.root.findAll((n) => String(n.type) === "Notice")[0].props.children).toMatch(/line break/);
 });
 it("shows a caregiver neither, unless one is already saved", async () => {
   const spaces = [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "caregiver" }];

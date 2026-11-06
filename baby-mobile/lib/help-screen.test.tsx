@@ -52,9 +52,9 @@ it("with an API that doesn't keep them, shows and asks nothing new, signed in or
   expect(buttons().map((n) => n.props.title)).toEqual(before);
   expect(quiet()).toEqual([]);
 });
-it("puts her own numbers straight under 911, each dialling only digits", async () => {
+it("keeps 911, 988 and the hotline first, in their order, with her own numbers after, each dialling only digits", async () => {
   await signedIn({ contacts: hasContacts, children: [{ ...expecting, details: { doctor: { name: "Dr. Lee", phone: "(671) 555-0102 ext 4" } } }] });
-  expect(buttons().map((n) => n.props.title).slice(0, 5)).toEqual(["Call 911", "Call Dr. Cruz\n671-555-0101", "Call Dr. Lee\n(671) 555-0102 ext 4", "Call Guam Memorial\n671-555-0103", "Call 988"]);
+  expect(buttons().map((n) => n.props.title)).toEqual(["Call 911", "Call 988", "Text 988", "Call 1-833-TLC-MAMA (1-833-852-6262)", "Text 1-833-TLC-MAMA (1-833-852-6262)", "Call Dr. Cruz\n671-555-0101", "Call Dr. Lee\n(671) 555-0102 ext 4", "Call Guam Memorial\n671-555-0103"]);
   await press("Call Dr. Lee\n(671) 555-0102 ext 4");
   expect(mock.open).toHaveBeenLastCalledWith("tel:6715550102");
   expect(copy()).toEqual(expect.arrayContaining(["Your doctor", "Noa’s doctor", "Where you plan to deliver"]));

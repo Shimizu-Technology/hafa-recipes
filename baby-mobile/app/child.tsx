@@ -236,9 +236,9 @@ export default function ChildEditor() {
           </View>
           {!!form.due && <DateField label="Due date" value={form.due} onChange={(due) => edit("due", (current) => chooseDue(current, due, today))} dateOnly optional />}
         </Disclosure>}
-        {contactsOn(b.state.bootstrap) && <Disclosure title="Baby’s doctor" detail="Adds a call button on Help" startOpen={!!toDoctor || !!details.doctor || edits.touched.includes("doctor")}>
-          <Field label="Name" value={form.doctorName} maxLength={120} onChange={(doctorName) => edit("doctor", (current) => ({ ...current, doctorPhone: form.doctorPhone, doctorName }))} />
-          <Field label="Phone" purpose="phone" value={form.doctorPhone} maxLength={40} onChange={(doctorPhone) => edit("doctor", (current) => ({ ...current, doctorName: form.doctorName, doctorPhone }))} />
+        {contactsOn(b.state.bootstrap) && <Disclosure title="Baby’s doctor" detail="Adds a call button on Help" startOpen={!!toDoctor || !!details.doctor || edits.touched.includes("doctorName") || edits.touched.includes("doctorPhone")}>
+          <Field label="Name" value={form.doctorName} maxLength={120} onChange={(doctorName) => edit("doctorName", (current) => ({ ...current, doctorName }))} />
+          <Field label="Phone" purpose="phone" value={form.doctorPhone} maxLength={40} onChange={(doctorPhone) => edit("doctorPhone", (current) => ({ ...current, doctorPhone }))} />
         </Disclosure>}
         {!!error && <Notice error>{error}</Notice>}
         <Button title="Save profile" size="lg" busy={busy} onPress={() => void save()} />

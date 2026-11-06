@@ -301,7 +301,7 @@ describe("Your little ones", () => {
 describe("the baby's doctor", () => {
   const doctor = { name: "Dr. Lee", phone: "671-555-0102" };
   const typed = (saved: Child | undefined, doctorName: string, doctorPhone: string) =>
-    touch(noEdits(formFor(saved, null, today, "imperial")), "doctor", (form) => ({ ...form, doctorName, doctorPhone }));
+    touch(touch(noEdits(formFor(saved, null, today, "imperial")), "doctorName", (form) => ({ ...form, doctorName })), "doctorPhone", (form) => ({ ...form, doctorPhone }));
   it("reads what's saved into the form", () => {
     const form = formFor(child({ details: { doctor } }), null, today, "imperial");
     expect([form.doctorName, form.doctorPhone]).toEqual(["Dr. Lee", "671-555-0102"]);
@@ -312,8 +312,8 @@ describe("the baby's doctor", () => {
   });
   it("sends the doctor on an edit, and null when both boxes are emptied", () => {
     const saved = child({ details: { doctor } });
-    expect(write(typed(saved, "Dr. Kim", "671-555-0104").form, saved, ["doctor"]).details).toEqual({ doctor: { name: "Dr. Kim", phone: "671-555-0104" } });
-    expect(write(typed(saved, " ", "").form, saved, ["doctor"]).details).toEqual({ doctor: null });
+    expect(write(typed(saved, "Dr. Kim", "671-555-0104").form, saved, ["doctorName", "doctorPhone"]).details).toEqual({ doctor: { name: "Dr. Kim", phone: "671-555-0104" } });
+    expect(write(typed(saved, " ", "").form, saved, ["doctorName", "doctorPhone"]).details).toEqual({ doctor: null });
   });
   it("goes on a new profile only if she filled it in", () => {
     expect(write(named("expecting", { doctorName: "Dr. Lee", doctorPhone: "671-555-0102" })).details).toEqual({ doctor });
@@ -321,7 +321,12 @@ describe("the baby's doctor", () => {
   });
   it("is turned down kindly when the number can't be dialled", () => {
     const saved = child();
-    expect(childWrite(typed(saved, "", "soon").form, ["doctor"], saved, "new-id", today)).toEqual({ error: expect.stringContaining("Try just the digits") });
+    expect(childWrite(typed(saved, "", "soon").form, ["doctorPhone"], saved, "new-id", today)).toEqual({ error: expect.stringContaining("Try just the digits") });
+  });
+  it("takes the box she didn't touch from the latest save", () => {
+    const edits = touch(noEdits(formFor(child({ details: { doctor } }), null, today, "imperial")), "doctorName", (form) => ({ ...form, doctorName: "Dr. Kim" })),
+      newer = child({ revision: 9, details: { doctor: { name: "Dr. Lee", phone: "671-555-0199" } } }), form = shownForm(newer, edits, today);
+    expect(write(form, newer, edits.touched).details).toEqual({ doctor: { name: "Dr. Kim", phone: "671-555-0199" } });
   });
   it("survives an edit from what she typed, over a newer save", () => {
     const edits = typed(child(), "Dr. Kim", "671-555-0104"), form = shownForm(child({ revision: 9, details: { doctor } }), edits, today);

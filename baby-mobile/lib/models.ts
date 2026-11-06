@@ -53,7 +53,7 @@ export interface ChildForm {
   doctorName: string;
   doctorPhone: string;
 }
-export type ChildField = "stage" | "name" | "birth" | "due" | "sex" | "weight" | "length" | "weeksAtBirth" | "feeding" | "doctor";
+export type ChildField = "stage" | "name" | "birth" | "due" | "sex" | "weight" | "length" | "weeksAtBirth" | "feeding" | "doctorName" | "doctorPhone";
 /** What she's done on the setup screen: only `touched` fields of `form` count, and they stay hers until a save succeeds. */
 export interface ChildEdits {
   form: ChildForm;
