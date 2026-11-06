@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -14,10 +15,11 @@ from app.services.video import public_video_service  # noqa: E402
 
 async def main():
     with ai_request_context(route="/internal/import-health"):
-        result = await diagnose_photo_post(
-            public_video_service,
-            "https://www.tiktok.com/@maileelton/photo/7697377006715030814",
-        )
+        fixture = os.environ.get("TIKTOK_PHOTO_CANARY_URL", "").strip()
+        result = await diagnose_photo_post(public_video_service, fixture) if fixture else {
+            "status":"failed", "stage":"fixture", "exception_type":"FixtureMissing",
+            "slides":0, "images_read":0, "caption_chars":0, "coverage_notes":0,
+        }
         print(json.dumps(result))
         return 0 if result["status"] == "ok" else 1
 

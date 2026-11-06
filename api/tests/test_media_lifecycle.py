@@ -288,6 +288,7 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
     summary = tmp_path / "summary"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     monkeypatch.setenv("IMPORT_HEALTH_TOKEN", "" if failure == "missing_token" else "synthetic-secret")
+    monkeypatch.setenv("TIKTOK_PHOTO_CANARY_URL", "https://www.tiktok.com/@synthetic/photo/123")
     calls = []
 
     def curl(argv, **kwargs):
@@ -298,6 +299,7 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
         assert '--retry' not in argv and '--location' not in argv
         assert argv[argv.index("--max-time") + 1] == "210"
         assert kwargs["timeout"] == 220 and 'Bearer synthetic-secret' in kwargs["input"]
+        assert ("X-Import-Health-Fixture: https://www.tiktok.com/@synthetic/photo/123" in kwargs["input"]) == (platform == "tiktok-photo")
         response = {"platform": platform, "status": "ok", "stage": "complete",
                     "error_code": None, "elapsed": 12.0}
         if platform == "tiktok-photo" and failure == "photo":
@@ -331,7 +333,7 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
 async def test_photo_canary_requires_caption_and_every_slide_without_audio(monitor, monkeypatch, photo_status):
     probe = AsyncMock(return_value={"status": photo_status, "slides": 2, "images_read": 2, "caption_chars": 30})
     monkeypatch.setattr("app.services.photo_posts.probe_photo_post", probe)
-    response = await monitor.client.post("/internal/import-health/tiktok-photo")
+    response = await monitor.client.post("/internal/import-health/tiktok-photo", headers={"X-Import-Health-Fixture":"https://www.tiktok.com/@synthetic/photo/123"})
     assert response.status_code == (200 if photo_status == "ok" else 503)
     assert response.json()["error_code"] == (None if photo_status == "ok" else "SOURCE_RESPONSE_INVALID")
     monitor.service.download_audio.assert_not_awaited()
@@ -343,9 +345,25 @@ async def test_photo_canary_metadata_error_keeps_safe_stage_and_redactor_tags(mo
     from app.domains.workouts.privacy import redact_workouts_event
     from app.services.photo_posts import PhotoSourceError
     monitor.service.fetch_photo_post = AsyncMock(side_effect=PhotoSourceError("SOURCE_RESPONSE_INVALID", stage=stage))
-    response = await monitor.client.post("/internal/import-health/tiktok-photo")
+    response = await monitor.client.post("/internal/import-health/tiktok-photo", headers={"X-Import-Health-Fixture":"https://www.tiktok.com/@synthetic/photo/123"})
     assert response.status_code == 503 and response.json()["stage"] == stage
     assert response.json()["error_code"] == "SOURCE_RESPONSE_INVALID"
     event = redact_workouts_event({"tags":{"monitor":"import-health", "platform":"tiktok-photo", "stage":stage}, "message":"private"})
     assert event["tags"]["platform"] == "tiktok-photo" and event["tags"]["stage"] == stage
     assert "private" not in str(event)
+
+async def test_unconfigured_photo_fixture_fails_separately_without_reading_or_new_sentry_alert(monitor):
+    response=await monitor.client.post("/internal/import-health/tiktok-photo")
+    assert response.status_code==503 and response.json()["error_code"]=="FIXTURE_MISSING"
+    assert response.json()["stage"]=="fixture"
+    monitor.service.get_video_metadata_ytdlp.assert_not_awaited()
+    monitor.capture.assert_not_called()
+
+@pytest.mark.parametrize("code",["VIDEO_PRIVATE","VIDEO_REMOVED","NOT_FOUND"])
+async def test_disappeared_photo_fixture_is_not_parser_drift(monitor,code):
+    from app.services.photo_posts import PhotoSourceError
+    monitor.service.fetch_photo_post=AsyncMock(side_effect=PhotoSourceError(code,stage="page_status"))
+    response=await monitor.client.post("/internal/import-health/tiktok-photo",headers={"X-Import-Health-Fixture":"https://www.tiktok.com/@synthetic/photo/123"})
+    assert response.status_code==503 and response.json()["error_code"]=="FIXTURE_MISSING"
+    assert response.json()["stage"]=="fixture"
+    monitor.capture.assert_not_called()
