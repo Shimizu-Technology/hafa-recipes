@@ -20,6 +20,19 @@ enum BabySharePayload {
   }
   // Enough to recognize a share kept under no account, and nothing more: no caption, no file, no address beyond its website.
   // Whoever is signed in hasn't yet said it's theirs.
+  // A website's own name or nothing. Foundation will percent-decode a host into any text at all, including one that reads
+  // like a private path, and whoever's signed in hasn't said this is theirs. So: an ordinary http(s) name in plain letters.
+  static func website(_ link: String) -> String? {
+    guard let parts = URLComponents(string: link), let scheme = parts.scheme?.lowercased(), scheme == "http" || scheme == "https",
+      let host = parts.encodedHost?.lowercased(), host.utf8.count <= 253 else { return nil }
+    let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+    guard labels.count >= 2, let last = labels.last, last.count >= 2, last.allSatisfy({ $0.isASCII && $0.isLetter }),
+      labels.allSatisfy({ label in
+        !label.isEmpty && label.utf8.count <= 63 && !label.hasPrefix("-") && !label.hasSuffix("-") && !label.hasPrefix("xn--")
+          && label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+      }) else { return nil }
+    return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+  }
   static func summary(_ waiting: BabyShareStore.Waiting) throws -> [String: Any] {
     let saved = waiting.snapshot, capture = try decode(saved), files = capture["files"] as? [[String: Any]] ?? []
     let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -31,7 +44,7 @@ enum BabySharePayload {
       result["kind"] = "file"
     } else if let link = capture["url"] as? String {
       result["kind"] = "link"
-      if let host = URLComponents(string: link)?.host?.lowercased() { result["host"] = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
+      result["host"] = website(link)
     } else {
       result["kind"] = "text"
     }

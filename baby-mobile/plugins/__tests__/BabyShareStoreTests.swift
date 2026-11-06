@@ -455,7 +455,7 @@ struct BabyShareStoreTests {
       try store.publish(["just some words"], capture: other)
       try check(try store.unassignedCount() == 3, "signed out, the count is all there is")
       try check(try store.unassigned(owner: "owner-a").isEmpty, "with no account connected, nothing is listed")
-      try check(try !store.claim(tiktok.id + ":nothing", owner: "owner-a", generation: 2), "with no account connected, nothing can be claimed")
+      try check(try store.claim(tiktok.id + ":nothing", owner: "owner-a", generation: 2) == .refused, "with no account connected, nothing can be claimed")
       try store.bind("owner-a:7:\(family)", automaticEpoch: 4)
       try check(try store.pending() == nil, "connecting doesn't deliver any of them")
       try check(try store.unassigned(owner: "owner-b").isEmpty, "another account isn't shown them")
@@ -468,11 +468,11 @@ struct BabyShareStoreTests {
         try check(!String(decoding: shown, as: UTF8.self).contains(leak), "the listing doesn't show \(leak)")
       }
       let token = rows[0].snapshot.token
-      try check(try !store.claim(token, owner: "owner-b", generation: 2), "another account can't claim it")
-      try check(try !store.claim(token + "x", owner: "owner-a", generation: 2), "a stale token can't claim it")
-      try check(try !store.claim(token, owner: "owner-a", generation: 0), "nor with no generation")
-      try check(try store.claim(token, owner: "owner-a", generation: 2), "its owner, connected, can")
-      try check(try !store.claim(token, owner: "owner-a", generation: 2), "and only once")
+      try check(try store.claim(token, owner: "owner-b", generation: 2) == .refused, "another account can't claim it")
+      try check(try store.claim(token + "x", owner: "owner-a", generation: 2) == .refused, "a stale token can't claim it")
+      try check(try store.claim(token, owner: "owner-a", generation: 0) == .refused, "nor with no generation")
+      try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "its owner, connected, can")
+      try check(try store.claim(token, owner: "owner-a", generation: 2) == .refused, "and only once")
       let claimed = try store.pending()!
       try check(claimed.token == token && claimed.scope == "owner-a:2:personal", "the capture is now delivered to its personal space, not the connected family")
       try check(claimed.automaticEpoch == 0 && claimed.claimed, "and carries no permission for AI")
@@ -492,12 +492,12 @@ struct BabyShareStoreTests {
       try store.publish(["mine"], id: owned)
       let ownedToken = try store.pending()!.token
       try check(try !store.discard(ownedToken), "not mine can't touch a capture under an account")
-      try check(try !store.claim(ownedToken, owner: "owner-a", generation: 3), "claim can't retag one either")
+      try check(try store.claim(ownedToken, owner: "owner-a", generation: 3) == .refused, "claim can't retag one either")
       try check(try store.acknowledge(ownedToken), "that one's still whole")
       // A claim that's raced by sign-out finds nothing to act on, and sign-out still clears what's left.
       let last = try store.unassigned(owner: "owner-a")[0].snapshot.token
       try store.clear(preserveUnassigned: true)
-      try check(try !store.claim(last, owner: "owner-a", generation: 2), "once the connection's gone, no claim")
+      try check(try store.claim(last, owner: "owner-a", generation: 2) == .refused, "once the connection's gone, no claim")
       try store.bind("owner-a:7:personal")
       try store.clear()
       try check(try store.unassignedCount() == 0, "an explicit sign-out clears them")
@@ -521,16 +521,64 @@ struct BabyShareStoreTests {
       try check(waiting.keptUntil == clock.addingTimeInterval(30 * day), "kept until says 30 days from sharing")
       clock.addTimeInterval(30 * day - 1)
       try check(try store.unassignedCount() == 1, "still here the second before")
+      // The card's still open across the moment it ran out.
       clock.addTimeInterval(1)
-      try check(try store.unassignedCount() == 0, "gone at 30 days")
-      try check(!FileManager.default.fileExists(atPath: capture.directory.path), "from disk")
+      try check(try store.claim(waiting.snapshot.token, owner: "owner-a", generation: 1) == .expired, "tapping Add on an open card finds it's run out")
+      try check(try store.pending() == nil, "and it isn't delivered")
+      try check(try store.unassignedCount() == 0, "it can't be seen at 30 days")
+      try check(try store.unassigned(owner: "owner-a").isEmpty, "or listed")
+      try check(FileManager.default.fileExists(atPath: capture.directory.path), "and goes from disk only once the clock has held")
+      clock.addTimeInterval(day)
+      _ = try store.unassignedCount()
+      try check(!FileManager.default.fileExists(atPath: capture.directory.path), "a day later it's gone")
+      // A clock a year ahead when it was shared, then put right: not stuck for a year, and not gone early.
+      try store.clear(preserveUnassigned: true)
+      let real = clock
+      clock = real.addingTimeInterval(365 * day)
+      let ahead = try store.begin()
+      try store.publish(["shared with the clock ahead"], capture: ahead)
+      clock = real
+      try store.bind("owner-a:1:personal")
+      try check(try store.unassigned(owner: "owner-a").first?.keptUntil == real.addingTimeInterval(30 * day), "its 30 days start from the corrected clock")
+      clock.addTimeInterval(31 * day)
+      try check(try store.unassignedCount() == 0, "so it does run out")
+      clock.addTimeInterval(day)
+      _ = try store.unassignedCount()
+      try check(!FileManager.default.fileExists(atPath: ahead.directory.path), "and does go")
+      // A clock jumped ahead with no sweep in between still resets rather than deleting.
+      try store.clear(preserveUnassigned: true)
+      let unseen = try store.begin()
+      try store.publish(["never swept"], capture: unseen)
+      let manifestURL = unseen.directory.appendingPathComponent("manifest.json")
+      // Ahead of a clock that's now behind it, by a year.
+      var fields = try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as! [String: Any]
+      fields["heldSince"] = clock.addingTimeInterval(365 * day).timeIntervalSinceReferenceDate
+      try JSONSerialization.data(withJSONObject: fields).write(to: manifestURL)
+      try store.bind("owner-a:1:personal")
+      try check(try store.claim(store.unassigned(owner: "owner-a")[0].snapshot.token, owner: "owner-a", generation: 1) == .claimed, "a future share time resets, and can still be added")
+      try check(try store.pending() != nil && store.acknowledge(store.pending()!.token), "and handed over")
+      // A forward jump, seen by a sweep, then corrected: hidden meanwhile, never deleted.
+      try store.clear(preserveUnassigned: true)
+      let jumped = try store.begin()
+      try store.publish(["clock jumps ahead later"], capture: jumped)
+      let beforeJump = clock
+      clock.addTimeInterval(365 * day)
+      try check(try store.unassignedCount() == 0, "a jump ahead hides it")
+      try check(FileManager.default.fileExists(atPath: jumped.directory.path), "without deleting it")
+      clock = beforeJump.addingTimeInterval(day)
+      try check(try store.unassignedCount() == 1, "putting the clock right brings it back")
+      clock.addTimeInterval(365 * day)
+      _ = try store.unassignedCount()
+      clock.addTimeInterval(day)
+      _ = try store.unassignedCount()
+      try check(!FileManager.default.fileExists(atPath: jumped.directory.path), "a clock that stays ahead is believed after a day")
       // The same capture as an older build wrote it: published, no owner, no clock of its own, and old.
       try store.clear(preserveUnassigned: true)
       let old = try store.begin()
       try store.publish(["an older share"], capture: old)
       try store.bind("owner-a:1:personal")
       let manifest = old.directory.appendingPathComponent("manifest.json")
-      var fields = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as! [String: Any]
+      fields = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as! [String: Any]
       fields.removeValue(forKey: "heldSince")
       try JSONSerialization.data(withJSONObject: fields).write(to: manifest)
       clock.addTimeInterval(365 * day)
@@ -540,7 +588,9 @@ struct BabyShareStoreTests {
       try check(try store.unassigned(owner: "owner-a")[0].keptUntil == clock.addingTimeInterval(30 * day), "its 30 days start now")
       clock.addTimeInterval(30 * day)
       try store.abort(try store.begin())
-      try check(!FileManager.default.fileExists(atPath: old.directory.path), "a later share's sweep removes it at 30")
+      clock.addTimeInterval(day)
+      try store.abort(try store.begin())
+      try check(!FileManager.default.fileExists(atPath: old.directory.path), "a later share's sweep removes it")
       try check(!FileManager.default.fileExists(atPath: current.path), "and doesn't leave the pointer behind")
       try check(defaults.object(forKey: "hafababyShareKey") == nil, "or the old copy in defaults")
       // Under an account nothing has this clock: decision 6 leaves those as they are.
@@ -548,6 +598,37 @@ struct BabyShareStoreTests {
       try store.publish(["mine"], id: mine)
       clock.addTimeInterval(400 * day)
       try check(try store.pending()?.token.hasPrefix(mine) == true, "a capture under an account doesn't expire")
+    }
+    do {
+      // Only an ordinary website's name is ever shown, because whoever's signed in hasn't said this is theirs.
+      let website = BabySharePayload.website
+      try check(website("https://www.TikTok.com/@someone/video/1?a=b") == "tiktok.com", "an ordinary link shows its website")
+      try check(website("http://sub.example.co.uk/x") == "sub.example.co.uk", "http and subdomains are fine")
+      try check(website("https://user:secret@tiktok.com/x") == "tiktok.com", "credentials never come through")
+      try check(website("https://example.com:8443/x") == "example.com", "nor the port")
+      for bad in ["https://example.com%2Fprivate%2Fpregnancy-record", "https://exa%20mple.com/x", "https://%70regnancy%2Erecord/x", "https://例え.jp/x", "https://xn--r8jz45g.jp/x",
+        "https://[::1]/x", "http://192.168.1.2/x", "https://localhost/x", "ftp://example.com/x", "file:///private/record.pdf", "mailto:someone@example.com", "not a link", "https:///x", "https://-bad.example/x", "https://a..b.com/x"] {
+        try check(website(bad) == nil, "\(bad) falls back to Link")
+      }
+      let (_, defaults, store, suite) = try fixture("suspicious-link")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.publish(Data(#"[{"url":"https://example.com%2Fprivate%2Fpregnancy-record"}]"#.utf8), id: UUID().uuidString)
+      try store.bind("owner-a:1:personal")
+      let summary = try BabySharePayload.summary(store.unassigned(owner: "owner-a")[0])
+      try check(summary["kind"] as? String == "link" && summary["host"] == nil, "the card says Link")
+      try check(!String(decoding: try JSONSerialization.data(withJSONObject: summary), as: UTF8.self).contains("pregnancy"), "and nothing of the path reaches the app")
+    }
+    do {
+      // A claim from a card that's fallen behind the connection.
+      let (_, defaults, store, suite) = try fixture("claim-generation")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.publish(["waiting"], id: UUID().uuidString)
+      try store.bind("owner-a:1:personal")
+      try store.bind("owner-a:2:personal")
+      let token = try store.unassigned(owner: "owner-a")[0].snapshot.token
+      try check(try store.claim(token, owner: "owner-a", generation: 1) == .refused, "an obsolete personal generation can't claim it")
+      try check(try store.unassignedCount() == 1, "and it's still waiting")
+      try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "the current one can")
     }
     print("\(count) native capture store cases passed")
   }

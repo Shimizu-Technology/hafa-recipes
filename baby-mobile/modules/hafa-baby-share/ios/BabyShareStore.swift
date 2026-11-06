@@ -9,6 +9,10 @@ final class BabyShareStore {
   static let expiry: TimeInterval = 24 * 60 * 60
   // How long a share kept under no account waits for someone to say it's theirs.
   static let unassignedExpiry: TimeInterval = 30 * 24 * 60 * 60
+  // Past those 30 days a capture can't be seen or claimed. It goes from disk only once the clock has said so for this long,
+  // so setting a phone's clock ahead and back again doesn't delete anything.
+  static let unassignedDeleteAfter: TimeInterval = 24 * 60 * 60
+  enum Claim: String { case claimed, expired, refused }
   enum Failure: Error { case unavailable, invalid, stale }
   private final class Lease {
     let descriptor: Int32
@@ -58,6 +62,8 @@ final class BabyShareStore {
     // When a no-owner capture's clock started. One from an older build has none, so its clock starts when this build first
     // sees it and it can't be removed unseen.
     var heldSince: Date? = nil
+    // When the clock first said its 30 days were up.
+    var expiryNoticed: Date? = nil
     // Someone signed in and said this no-owner capture was theirs. It keeps its share time, and never counts as permission for AI.
     var claimed: Bool? = nil
     var token: String? {
@@ -285,13 +291,18 @@ final class BabyShareStore {
       return true
     }
   }
+  private func expired(_ value: Manifest) -> Bool {
+    // A share time ahead of the clock is one the clock got wrong, and the sweep gives it a new start rather than a guess.
+    guard let held = value.heldSince, held <= now() else { return false }
+    return now().timeIntervalSince(held) >= Self.unassignedExpiry
+  }
   private func unassignedLocked() throws -> [Manifest] {
     try sweepLocked()
     // Only reading. Starting an epoch here would stop `pending` and `clear` carrying over an older build's share.
     guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return [] }
     let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
     return folders.compactMap { try? manifest($0.lastPathComponent) }
-      .filter { $0.scope == nil && $0.payload != nil && $0.epoch == generation }
+      .filter { $0.scope == nil && $0.payload != nil && $0.epoch == generation && !expired($0) }
       .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
   }
   // Shares kept under no account, for a sign-in screen or a warning: how many, and nothing about them.
@@ -311,17 +322,22 @@ final class BabyShareStore {
   }
   // The one door out of no-owner: this exact capture, for the account connected right now, into its own personal space.
   // The tag is written here rather than copied from the connection, because that may name a family.
-  func claim(_ token: String, owner: String, generation: Int) throws -> Bool {
+  // Under the lock, the capture's own age and the connection's own generation have the last word, whatever a card still shows.
+  func claim(_ token: String, owner: String, generation: Int) throws -> Claim {
     try locked {
-      guard generation > 0, !owner.isEmpty, let bound = scope(), Self.tag(bound).owner == owner,
+      guard generation > 0, !owner.isEmpty, let bound = scope().map(Self.tag), bound.owner == owner,
+        bound.destination != "personal" || bound.generation == String(generation),
         let id = token.split(separator: ":").first.map(String.init), UUID(uuidString: id) != nil,
         var value = try? manifest(id), value.token == token, value.scope == nil, value.epoch == (try epoch())
-      else { return false }
+      else { return .refused }
+      guard !expired(value) else { return .expired }
       value.scope = "\(owner):\(generation):personal"
       value.claimed = true
       value.automaticEpoch = 0
+      value.heldSince = nil
+      value.expiryNoticed = nil
       try write(value, to: directory(id).appendingPathComponent("manifest.json"))
-      return true
+      return .claimed
     }
   }
   // "Not mine": only ever a no-owner capture. Anything under an account goes the way it always has.
@@ -378,15 +394,7 @@ final class BabyShareStore {
     for folder in try FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: [.creationDateKey]) {
       guard UUID(uuidString: folder.lastPathComponent) != nil else { continue }
       if var value = try? manifest(folder.lastPathComponent), value.scope == nil, value.payload != nil {
-        if let held = value.heldSince {
-          if now().timeIntervalSince(held) >= Self.unassignedExpiry {
-            if let token = value.token { consumers.removeValue(forKey: token) }
-            _ = try? removeLocked(value)
-          }
-        } else {
-          value.heldSince = now()
-          try? write(value, to: folder.appendingPathComponent("manifest.json"))
-        }
+        sweepUnassigned(&value, folder)
         continue
       }
       guard folder.lastPathComponent != current else { continue }
@@ -401,6 +409,26 @@ final class BabyShareStore {
           try FileManager.default.removeItem(at: folder)
         }
       } catch { /* Keep the manifest for a later cleanup attempt; never log private paths. */ }
+    }
+  }
+  private func sweepUnassigned(_ value: inout Manifest, _ folder: URL) {
+    let moment = now(), before = (value.heldSince, value.expiryNoticed)
+    // Older than this build, or from a clock that was ahead: the 30 days start now, so it can't go unseen or early.
+    if value.heldSince == nil || value.heldSince! > moment { value.heldSince = moment; value.expiryNoticed = nil }
+    if expired(value) {
+      if let noticed = value.expiryNoticed, noticed <= moment {
+        guard moment.timeIntervalSince(noticed) >= Self.unassignedDeleteAfter else { return }
+        if let token = value.token { consumers.removeValue(forKey: token) }
+        _ = try? removeLocked(value)
+        return
+      }
+      value.expiryNoticed = moment
+    } else {
+      // The clock came back, and it's not expired after all.
+      value.expiryNoticed = nil
+    }
+    if before.0 != value.heldSince || before.1 != value.expiryNoticed {
+      try? write(value, to: folder.appendingPathComponent("manifest.json"))
     }
   }
 }

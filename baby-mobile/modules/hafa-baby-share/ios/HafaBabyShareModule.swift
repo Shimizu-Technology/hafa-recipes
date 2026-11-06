@@ -38,8 +38,8 @@ public final class HafaBabyShareModule: Module {
     AsyncFunction("waitingShares") { (owner: String) throws -> [[String: Any]] in
       try self.safely { try self.store().unassigned(owner: owner).map(BabySharePayload.summary) }
     }
-    AsyncFunction("claimShare") { (token: String, owner: String, generation: Int) throws -> Bool in
-      try self.safely { try self.store().claim(token, owner: owner, generation: generation) }
+    AsyncFunction("claimShare") { (token: String, owner: String, generation: Int) throws -> String in
+      try self.safely { try self.store().claim(token, owner: owner, generation: generation).rawValue }
     }
     AsyncFunction("discardShare") { (token: String) throws -> Bool in try self.safely { try self.store().discard(token) } }
     AsyncFunction("installationId") { () throws -> String in

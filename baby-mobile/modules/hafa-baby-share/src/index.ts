@@ -42,7 +42,7 @@ const bridge = requireOptionalNativeModule<{
   clearSession(preserveUnassigned: boolean): Promise<void>;
   waitingShareCount(): Promise<number>;
   waitingShares(owner: string): Promise<WaitingShare[]>;
-  claimShare(token: string, owner: string, generation: number): Promise<boolean>;
+  claimShare(token: string, owner: string, generation: number): Promise<"claimed" | "expired" | "refused">;
   discardShare(token: string): Promise<boolean>;
 }>("HafaBabyShare");
 export const nativeSharingAvailable = !!bridge;
@@ -55,7 +55,7 @@ export const sessionOwner = () => bridge?.sessionOwner() ?? Promise.resolve(null
 export const clearSession = (preserveUnassigned = false) => bridge?.clearSession(preserveUnassigned) ?? Promise.resolve();
 export const waitingShareCount = () => bridge?.waitingShareCount() ?? Promise.resolve(0);
 export const waitingShares = (owner: string) => bridge?.waitingShares(owner) ?? Promise.resolve([]);
-export const claimShare = (token: string, owner: string, generation: number) => bridge?.claimShare(token, owner, generation) ?? Promise.resolve(false);
+export const claimShare = (token: string, owner: string, generation: number) => bridge?.claimShare(token, owner, generation) ?? Promise.resolve("refused" as const);
 export const discardShare = (token: string) => bridge?.discardShare(token) ?? Promise.resolve(false);
 /** `destination` is `personal` or a family's id. None names no destination, as with the API's family flag off. */
 export const configureSession = (session: ShareSession, base: string, owner: string, destination: string | null = null) =>
