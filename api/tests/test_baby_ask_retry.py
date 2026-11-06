@@ -36,3 +36,13 @@ async def test_the_provider_refusing_the_answer_is_not_tried_again(baby_api, stu
     stub.replies = [httpx.Response(400, text="bad"), answered("Too late")]
     assert (await ask(baby_api)).status_code == 503
     assert len(stub.sent) == 1
+
+
+async def test_a_search_that_fails_is_not_tried_again(baby_api, stub):  # noqa: F811
+    from tests.test_baby_ask_research import post_question, research_bodies, research_call
+
+    await enable(baby_api)
+    stub.replies = [research_call(), httpx.Response(503, text="down"), answered("Here is what your entries say.")]
+    result = await post_question(baby_api, "How should babies sleep?")
+    assert result.json()["message"].startswith("Here is what your entries say.")
+    assert len(research_bodies(stub)) == 1
