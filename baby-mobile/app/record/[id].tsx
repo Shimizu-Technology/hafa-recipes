@@ -236,7 +236,7 @@ export default function RecordDetail() {
       {(() => { const other = duplicateOf(record, b.records, b.owner), name = other && loggedByName(other, b.state.bootstrap, b.owner);
         return !!other && !!name && name !== loggedByName(record, b.state.bootstrap, b.owner) && <Notice>{duplicateHint(other, b.state.bootstrap, b.owner)}</Notice>; })()}
       {/* Above who can see it, so it's on screen after saving something short. */}
-      {(record.kind === "journal" || record.kind === "question") && <Grouped><Row title="Your journal" detail={record.kind === "question" ? "All your doctor questions" : "All your entries"} icon="book-outline" onPress={() => openJournal(record.kind)} /></Grouped>}
+      {(record.kind === "journal" || record.kind === "question") && <Grouped><Row title="Your journal" detail="Your entries and doctor questions" icon="book-outline" onPress={() => openJournal(record.kind)} /></Grouped>}
       <ShareToggle record={record} />
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
         onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}

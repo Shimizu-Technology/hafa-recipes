@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import type { BabyRecord, Kind } from "@/lib/models";
 import { kindName, kindWord } from "@/lib/models";
-import { careSummary, friendlyTime, summaryHoldsTitle } from "@/lib/care-format";
+import { careSummary, friendlyTime, summaryHoldsTitle, timeBesideDate } from "@/lib/care-format";
 import { trackerFor, whoseLog } from "../lib/trackers";
 import { familyLine } from "../lib/logged-by";
 import { visibilityWord } from "../lib/spaces";
@@ -64,7 +64,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
       : tracker ? (summaryHoldsTitle(record.kind, record.title, summary) || record.title === title ? "" : record.title)
       : record.data.provenance === "clinician_instruction" ? "Clinician instruction" : kindWord(record.kind),
     !tracker || quick ? "" : record.kind === "contraction" ? contractionDetail(record, now) : record.kind === "kick_session" ? kickDetail(record, now) : record.body.trim().split("\n")[0],
-    dated ? keyDate(recordDay(record.occurred_at, bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : friendlyTime(record.occurred_at, now, clock),
+    dated ? keyDate(recordDay(record.occurred_at, bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : record.kind === "journal" || record.kind === "question" ? timeBesideDate(record.occurred_at, now, clock) : friendlyTime(record.occurred_at, now, clock),
     whoseLog(record),
     child,
     visibilityWord(record, bootstrap),

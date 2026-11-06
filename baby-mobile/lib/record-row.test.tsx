@@ -62,14 +62,23 @@ describe("Private or Shared, on writing", () => {
     await act(async () => renderer!.unmount());
     return seen.detail as string;
   };
+  it("doesn't say the day beside the block that already shows it, unless the year matters", async () => {
+    const seen = await shown({ ...row("journal", {}, "Tonight", "", null), occurred_at: "2026-01-05T09:00:00.000Z" });
+    expect(seen.detail).not.toMatch(/Jan/);
+    await act(async () => renderer!.unmount());
+    const older = await shown({ ...row("journal", {}, "Tonight", "", null), occurred_at: "2024-01-05T09:00:00.000Z" });
+    expect(older.detail).toMatch(/2024/);
+    await act(async () => renderer!.unmount());
+  });
   it("tells a family's parent which is which, on an entry and a question", async () => {
     family("parent");
-    expect(await words("journal", "me")).toContain("Private");
-    expect(await words("journal", "fam")).toContain("Shared");
-    expect(await words("question", "fam")).toContain("Shared");
-    expect(await words("question", "me")).toContain("Private");
+    const says = (text: string, label: "Private" | "Shared") => { expect(text).toContain(label); expect(text).not.toContain(label === "Private" ? "Shared" : "Private"); };
+    says(await words("journal", "me"), "Private");
+    says(await words("journal", "fam"), "Shared");
+    says(await words("question", "fam"), "Shared");
+    says(await words("question", "me"), "Private");
     // From before there was a family, when everything was personal.
-    expect(await words("journal")).toContain("Private");
+    says(await words("journal"), "Private");
   });
   it("says nothing to a caregiver, or with no family at all", async () => {
     family("caregiver");
