@@ -1,12 +1,15 @@
 """Baby-specific prompts over existing configured credentials and usage accounting.
 
-No development paid calls by default, no implicit fallback/retry, no provider
-storage, and no Recipes or Workouts context. Callers supply a revocable gate.
+No development paid calls by default, no implicit fallback, no provider storage,
+and no Recipes or Workouts context. Callers supply a revocable gate. The only
+retry is Ask's answers and safety check on a provider's 429 or 5xx, and each try
+is gated and reserved again, so it can't get round consent or the ceilings.
 """
 
 import asyncio
 import json
 import math
+import time
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -61,6 +64,37 @@ class AnswerOutput(DomainModel):
     proposal: dict | None = None
 
 
+class ProviderBusy(ProviderUnavailable):
+    """A 429 or 5xx, which may pass. It reads as any other failure once the tries run out."""
+
+
+# Ask's answers, and the check in front of them. Imports have their own retries, and a search costs more than it's worth trying twice.
+RETRIED = frozenset({"baby_chat", "baby_ask", "baby_safety"})
+RETRY_DELAYS = (0.5, 1.5)
+# Old builds stop waiting at 45 seconds, so no try starts this late. The safety check's own, shorter limit also covers its tries.
+RETRY_WINDOW_SECONDS = 20
+
+
+def provider_failure(failure):
+    message = "AI could not finish; your original information is saved"
+    status = failure.response.status_code if isinstance(failure, httpx.HTTPStatusError) else None
+    return ProviderBusy(message) if status == 429 or (status and status >= 500) else ProviderUnavailable(message)
+
+
+async def with_retries(capability, attempt):
+    if capability not in RETRIED:
+        return await attempt()
+    started = time.monotonic()
+    for delay in RETRY_DELAYS:
+        try:
+            return await attempt()
+        except ProviderBusy:
+            if time.monotonic() - started + delay > RETRY_WINDOW_SECONDS:
+                raise
+            await asyncio.sleep(delay)
+    return await attempt()
+
+
 class BabyProvider:
     def __init__(self, *, gate=None):
         self.gate = gate
@@ -111,6 +145,11 @@ class BabyProvider:
         await self.admitted(capability)
 
     async def json_call(self, *, capability, instructions, content, output_model, max_tokens=2400):
+        return await with_retries(capability, lambda: self.json_attempt(
+            capability=capability, instructions=instructions, content=content, output_model=output_model, max_tokens=max_tokens,
+        ))
+
+    async def json_attempt(self, *, capability, instructions, content, output_model, max_tokens=2400):
         await self.admitted(capability)
         settings = get_settings()
         model = getattr(settings, "baby_ai_model", None) or settings.recipe_chat_model
@@ -163,11 +202,9 @@ class BabyProvider:
             except asyncio.CancelledError:
                 invocation.fail("cancelled")
                 raise
-            except Exception:
+            except Exception as failure:
                 invocation.fail("baby_provider_failed")
-                raise ProviderUnavailable(
-                    "AI could not finish; your original information is saved"
-                ) from None
+                raise provider_failure(failure) from None
 
     async def extract(self, source, categories=None):
         content = [
