@@ -284,7 +284,7 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
     script = textwrap.dedent(workflow.split("python3 - <<'PY'\n")[1].rsplit("          PY", 1)[0])
     assert "schedule:" in workflow and "workflow_dispatch:" in workflow
     assert "pull_request:" not in workflow and "cancel-in-progress: false" in workflow
-    assert "contents: read" in workflow and "timeout-minutes: 12" in workflow
+    assert "contents: read" in workflow and "timeout-minutes: 16" in workflow
     summary = tmp_path / "summary"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     monkeypatch.setenv("IMPORT_HEALTH_TOKEN", "" if failure == "missing_token" else "synthetic-secret")

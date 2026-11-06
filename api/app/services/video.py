@@ -1669,8 +1669,9 @@ class VideoService:
                 post = await self.fetch_photo_post(url)
                 return VideoMetadata(
                     title=post["title"], description=post["description"],
-                    uploader=post["uploader"], thumbnail=post["slides"][0][0],
-                    photo_slides=post["slides"],
+                    uploader=post["uploader"],
+                    thumbnail=post["slides"][0][0] if post["slides"] else post.get("thumbnail"),
+                    duration=post.get("duration", 0), photo_slides=post["slides"],
                 )
             except asyncio.CancelledError:
                 raise

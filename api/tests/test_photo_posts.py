@@ -123,3 +123,13 @@ def test_instagram_adapter_keeps_single_image_after_expected_no_video(monkeypatc
         return {"description":"Caption", "thumbnails":[{"url":"https://cdn.example/one", "width":100, "height":100}]}
     monkeypatch.setattr(InstagramIE, "_real_extract", raw)
     assert public_ytdlp.photo_json("https://www.instagram.com/p/Synthetic/")["slides"] == [["https://cdn.example/one"]]
+
+
+def test_instagram_video_metadata_is_not_fetched_twice(monkeypatch):
+    from yt_dlp.extractor.instagram import InstagramIE
+    monkeypatch.setattr(InstagramIE, "_real_initialize", lambda self: None)
+    monkeypatch.setattr(InstagramIE, "_real_extract", lambda self, url: {
+        "title":"Video", "description":"Thin caption", "duration":20,
+        "formats":[{"url":"https://cdn.example/video"}]})
+    post = public_ytdlp.photo_json("https://www.instagram.com/p/Synthetic/")
+    assert post["slides"] is None and post["duration"] == 20 and post["description"] == "Thin caption"

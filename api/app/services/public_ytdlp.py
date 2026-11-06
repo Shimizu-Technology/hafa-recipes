@@ -301,7 +301,16 @@ def photo_json(url):
         if instagram:
             from yt_dlp.extractor.instagram import InstagramIE
 
-            return parse_instagram_photo(InstagramIE(downloader).extract(url))
+            info = InstagramIE(downloader).extract(url)
+            entries = info.get("entries") or [info]
+            if any(entry.get("formats") or entry.get("url") for entry in entries):
+                # Keep public /p/ videos on their existing audio/frame path,
+                # without fetching the same metadata a second time.
+                return {"title": info.get("title") or "", "description": info.get("description") or "",
+                        "uploader": info.get("channel") or info.get("uploader") or "",
+                        "duration": info.get("duration") or 0, "slides": None,
+                        "thumbnail": (entries[0].get("thumbnails") or [{}])[-1].get("url")}
+            return parse_instagram_photo(info)
         item, status = TikTokIE(downloader)._extract_web_data_and_status(
             url.replace("/photo/", "/video/"), match[2],
         )

@@ -16,7 +16,7 @@ concurrency:
 jobs:
   canaries:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 16
     steps:
       - name: Check fixed public canaries sequentially
         env:
