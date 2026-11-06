@@ -307,3 +307,74 @@ async def test_failed_reread_preserves_prior_read_without_using_it_as_fresh_evid
         assert after["data"][key]==before["data"][key]
     assert seen[1]==["My own note"]
     assert any("Previously saved text" in note for note in after["data"]["coverage_notes"])
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("family_enabled",[False,True])
+async def test_source_attempt_limit_stops_expired_fifth_claim(baby_api,family_enabled):
+    from datetime import timedelta
+    from uuid import UUID
+
+    from app.domains.baby.runtime import BabyWorker
+    baby_api.settings.baby_family_enabled=family_enabled
+    c=baby_api.client
+    first=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"text":"Original"})).json()
+    async with baby_api.sessions() as db:
+        job=await db.get(BabyImport,UUID(first["id"]))
+        job.status="incomplete"
+        job.attempts=4
+        source=await db.get(BabyRecord,UUID(first["record_id"]))
+        source.data={**source.data,"status":"incomplete"}
+        await db.commit()
+    fifth=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"record_id":first["record_id"]})).json()
+    async with baby_api.sessions() as db:
+        job=await db.get(BabyImport,UUID(fifth["id"]))
+        job.status="processing"
+        job.attempts=1
+        job.lease_until=datetime.now(UTC)-timedelta(seconds=1)
+        job.lease_token=uuid4()
+        await db.commit()
+    processor=AsyncMock(side_effect=AssertionError("No sixth source read"))
+    assert await BabyWorker(baby_api.sessions,processor=processor).tick()
+    processor.assert_not_awaited()
+    assert (await c.get(f"/api/v1/baby/imports/{fifth['id']}")).json()["status"]=="failed"
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_worker_uses_url_edited_after_admission(baby_api):
+    from app.domains.baby.runtime import BabyWorker
+    c=baby_api.client
+    job=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"url":"https://example.com/old"})).json()
+    saved=(await c.get(f"/api/v1/baby/records/{job['record_id']}")).json()
+    changed=await c.patch(f"/api/v1/baby/records/{job['record_id']}",headers=shared.GEN,
+        json={"revision":saved["revision"],"data":{**saved["data"],"url":"https://example.com/edited"}})
+    assert changed.status_code==200
+    seen=[]
+    async def processor(request,*args,**kwargs):
+        seen.append(request["url"])
+        return {"status":"ready","title":"Read","data":{"url":request["url"],"status":"ready"}}
+    assert await BabyWorker(baby_api.sessions,processor=processor).tick()
+    after=(await c.get(f"/api/v1/baby/records/{job['record_id']}")).json()
+    assert seen==["https://example.com/edited"] and after["data"]["url"]==seen[0]
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_import_attachment_union_keeps_eight_and_rejects_ninth(baby_api,monkeypatch,tmp_path):
+    monkeypatch.setattr(storage,"get_settings",lambda:SimpleNamespace(environment="test",baby_local_storage_dir=str(tmp_path)))
+    c=baby_api.client
+    assets=[]
+    image=BytesIO()
+    Image.new("RGB",(2,2),"white").save(image,"PNG")
+    for _ in range(9):
+        identifier=str(uuid4())
+        r=await c.post("/api/v1/baby/attachments",headers={**shared.GEN,"Idempotency-Key":identifier},
+            files={"file":("screenshot.png",image.getvalue(),"image/png")})
+        assert r.status_code==200
+        assets.append(identifier)
+    body=shared.payload("source",data={"status":"saved","attachment_ids":assets[:8]})
+    assert (await c.post("/api/v1/baby/records",headers=shared.GEN,json=body)).status_code==200
+    rejected=await c.post("/api/v1/baby/imports",headers=shared.GEN,
+        json={"id":str(uuid4()),"record_id":body["id"],"attachment_ids":[assets[8]]})
+    assert rejected.status_code==422
+    saved=(await c.get(f"/api/v1/baby/records/{body['id']}")).json()
+    assert saved["data"]["attachment_ids"]==assets[:8] and saved["data"]["status"]=="saved"
+    accepted=await c.post("/api/v1/baby/imports",headers=shared.GEN,
+        json={"id":str(uuid4()),"record_id":body["id"],"attachment_ids":[assets[0]]})
+    assert accepted.status_code==200

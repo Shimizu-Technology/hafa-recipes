@@ -7,7 +7,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, text
+from sqlalchemy import func, or_, select, text
 
 from app.ai_governance import ai_request_context
 from app.config import get_settings
@@ -221,7 +221,9 @@ class BabyWorker:
                 row.status == "processing" and row.lease_until and row.lease_until > now()
             ):
                 return True
-            if row.attempts >= 5:
+            source_attempts = await db.scalar(select(func.coalesce(func.sum(BabyImport.attempts), 0)).where(
+                BabyImport.record_id == row.record_id))
+            if row.attempts >= 5 or source_attempts >= 5:
                 row.status, row.error = (
                     "failed",
                     "Processing stopped after repeated interruptions. Your original is saved.",
@@ -258,6 +260,7 @@ class BabyWorker:
                 return True
             except HTTPException:
                 return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
+            request["url"] = source.data.get("url")
             request["attachment_ids"] = source.data.get("attachment_ids", [])
             if request.get("url") or request["attachment_ids"]:
                 request["text"] = source.body or source.data.get("user_text")

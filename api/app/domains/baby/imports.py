@@ -130,12 +130,15 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         if active:
             raise HTTPException(409, "This source is already processing")
         source_id = source.id
+        attachment_ids = list(dict.fromkeys([*source.data.get("attachment_ids", []), *request["attachment_ids"]]))
+        if len(attachment_ids) > 8:
+            raise HTTPException(422, "A source can keep up to eight attachments")
         request = {
             **request,
             "url": body.url or source.data.get("url"),
             "text": (source.body or source.data.get("user_text")) if (body.url or source.data.get("url") or source.data.get("attachment_ids") or request["attachment_ids"])
                     else (body.text or source.data.get("source_text")),
-            "attachment_ids": list(dict.fromkeys([*source.data.get("attachment_ids", []), *request["attachment_ids"]])),
+            "attachment_ids": attachment_ids,
             "topics": request["topics"] or source.data.get("topics", []),
             "child_id": str(source.child_id) if source.child_id else None,
         }
