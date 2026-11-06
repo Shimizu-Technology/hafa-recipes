@@ -151,7 +151,12 @@ class BabyProvider:
         await self.admitted(capability)
 
     async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
-        """One Responses request: admitted first, tracked, never stored by the provider, never retried."""
+        return await with_retries(capability, lambda: self.responses_attempt(
+            capability=capability, model=model, prompt_version=prompt_version, body=body, searches=searches,
+        ))
+
+    async def responses_attempt(self, *, capability, model, prompt_version, body, searches=0):
+        """One Responses request: admitted first, tracked, and never stored by the provider."""
         body = {**body, "model": model, "store": False, "service_tier": "default"}
         call = AskCall(
             model=model,
@@ -193,11 +198,9 @@ class BabyProvider:
             except (HTTPException, ContextChanged):
                 invocation.fail("baby_answer_discarded", data)
                 raise
-            except Exception:
+            except Exception as failure:
                 invocation.fail("baby_provider_failed", data)
-                raise ProviderUnavailable(
-                    "AI could not finish; your original information is saved"
-                ) from None
+                raise provider_failure(failure) from None
 
     async def json_call(self, *, capability, instructions, content, output_model, max_tokens=2400):
         return await with_retries(capability, lambda: self.json_attempt(

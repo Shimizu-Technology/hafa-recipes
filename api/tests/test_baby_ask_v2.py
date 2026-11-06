@@ -68,6 +68,7 @@ class Stub:
 @pytest.fixture
 async def stub(baby_api, monkeypatch):
     fake = Stub()
+    monkeypatch.setattr(provider, "RETRY_DELAYS", (0, 0))
     settings = SimpleNamespace(
         baby_ask_v2_enabled=True, baby_ask_model="gpt-6-luna", baby_ask_reasoning_effort="low",
         baby_ai_model="gpt-5.6-luna", recipe_chat_model="gpt-5.6-luna", openai_reasoning_effort="none",
@@ -226,7 +227,7 @@ async def test_a_bad_tool_request_comes_back_as_data_rather_than_failing(baby_ap
 )
 async def test_a_failed_or_unsupported_answer_saves_nothing_and_leaks_nothing(baby_api, stub, reply):
     await enable(baby_api)
-    stub.replies = [reply]
+    stub.replies = [reply, reply, reply]  # A 500 gets two more tries.
     result = await ask(baby_api)
     assert result.status_code == 503 and "private" not in result.text
     async with baby_api.sessions() as db:
@@ -365,7 +366,7 @@ async def test_a_reply_discarded_because_consent_changed_keeps_its_usage(baby_ap
 
 async def test_a_provider_failure_with_no_reply_records_no_usage(baby_api, stub):
     await enable(baby_api)
-    stub.replies = [httpx.Response(500, text="PRIVATE_ERROR")]
+    stub.replies = [httpx.Response(500, text="PRIVATE_ERROR") for _ in range(3)]
     response = await ask(baby_api)
     assert response.status_code == 503 and "PRIVATE" not in response.text
     async with baby_api.sessions() as db:
