@@ -50,6 +50,8 @@ it("keeps what she really wrote", () => {
   expect(writtenTitle(journal("What my doctor told me", "Rest and fluids"))).toBe("What my doctor told me");
   expect(writtenTitle(journal("Later that night", "Later that week we went home"))).toBe("Later that night");
   expect(writtenTitle(journal("Our first Christmas", "Our first Christmas was quiet"))).toBe("Our first Christmas");
+  // Nothing cuts a line this short, so the ellipsis is hers.
+  expect(writtenTitle(journal("Our first Christmas together…", "Our first Christmas together was quiet"))).toBe("Our first Christmas together…");
 });
 it("gives every entry a preview that doesn't say the title again", () => {
   expect(journalPreview(journal("First kick", "Felt it after dinner"))).toBe("Felt it after dinner");
@@ -62,6 +64,7 @@ it("gives every entry a preview that doesn't say the title again", () => {
   // A title she chose can open the same way as the body, and a title can carry its own punctuation.
   expect(journalPreview(journal("Our first Christmas", "Our first Christmas was quiet"))).toBe("was quiet");
   expect(journalPreview(journal("Good!", "Good. Then home"))).toBe("Then home");
+  expect(journalPreview(journal("Walk", "Walked to the park with Mia"))).toBe("Walked to the park with Mia");
   // What older builds cut through an emoji leaves nothing stray at the start of the preview.
   expect(journalPreview(journal("👶🏽".repeat(29) + "👶…", "👶🏽".repeat(40)))).toBe("👶🏽".repeat(10));
   expect([...journalPreview(journal("Title", "word ".repeat(100)))].length).toBeLessThanOrEqual(90);

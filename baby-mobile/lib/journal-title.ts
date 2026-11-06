@@ -39,7 +39,8 @@ export function repeatsBody(title: string, body: string) {
   const heading = oneLine(title), line = firstLineOf(body);
   if (!heading || !line) return false;
   const start = words(heading), whole = words(line);
-  return start === whole || (heading.endsWith("…") && start.length >= shortestCut && whole.startsWith(start));
+  // Nothing cuts a line short enough to fit, so an ellipsis on one of those is hers.
+  return start === whole || (heading.endsWith("…") && [...line].length > shortTitle && start.length >= shortestCut && whole.startsWith(start));
 }
 
 /** The title she chose, or nothing when it's only her first line or the kind's name. It's what the editor shows and a row can lean on. */
@@ -55,7 +56,9 @@ export function writtenTitle({ kind, title, body }: Pick<BabyRecord, "kind" | "t
 export function journalPreview({ title, body }: Pick<BabyRecord, "title" | "body">) {
   const text = oneLine(body), start = words(title);
   if (!text) return "";
-  if (!start || !text.toLocaleLowerCase().startsWith(start)) return shortened(text, 90);
+  // "Walk" over "Walked to the park" isn't the same words, unless the title is a cut that may have stopped inside one.
+  const follows = oneLine(title).endsWith("…") || !text[start.length] || /[\s.!?,;:…)]/.test(text[start.length]);
+  if (!start || !follows || !text.toLocaleLowerCase().startsWith(start)) return shortened(text, 90);
   const rest = [...text.slice(start.length).replace(/^[\s.!?,;:…]+/, "")];
   while (joins(rest[0])) rest.shift();
   return shortened(rest.join(""), 90);

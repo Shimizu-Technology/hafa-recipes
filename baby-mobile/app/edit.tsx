@@ -480,7 +480,7 @@ export default function Edit() {
     const choice = choiceFor(b.state.bootstrap, draft), row = b.records.find((r) => r.id === draft.id), babies = b.state.bootstrap!.children,
       forBaby = babies.length > 1 ? babies.find((baby) => baby.id === fittingChild(b.state.bootstrap!, draft, row)) : undefined;
     return <JournalComposer draft={draft} change={change} saved={saved && changed.current} error={error} busy={busy}
-      status={[forBaby && babyLabel(forBaby, b.state.bootstrap), choice ? (choice.shared ? "Shared" : "Just me") : visibilityWord(draft, b.state.bootstrap)].filter(Boolean).join(" · ") || undefined}
+      status={[forBaby && babyLabel(forBaby, b.state.bootstrap), choice ? (choice.shared ? "Shared" : "Just me") : visibilityWord(row ?? draft, b.state.bootstrap)].filter(Boolean).join(" · ") || undefined}
       canDiscard={keepDraft(draft, changed.current)}
       onAttach={(type) => void choose(type)}
       onRemoveFile={(id) => void run(async () => {

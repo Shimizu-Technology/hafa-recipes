@@ -262,6 +262,14 @@ it("says who can see it without opening anything, for a parent in a family, and 
   expect(texts().flat()).toContain("Shared");
   expect(texts().flat()).not.toContain("Just me");
 });
+it("trusts the saved row over a draft kept from before the entry moved", async () => {
+  const account = setup([entry({ space_id: "fam" })], { "record:old": { ...entry({ space_id: "me" }), files: [], existing: true } });
+  account.state.bootstrap = { ...account.state.bootstrap, personal_space_id: "me", spaces: [
+    { id: "me", kind: "personal", role: "owner", generation: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1 }] };
+  scope.params = { id: "old" };
+  await open();
+  expect(texts().flat()).toContain("Shared");
+});
 it("says who can see a saved entry too, even one only just fetched, and where a new one goes", async () => {
   const account = setup([], { "record:old": { ...entry({ space_id: "fam" }), files: [], existing: true } });
   account.state.bootstrap = { ...account.state.bootstrap, personal_space_id: "me", spaces: [
