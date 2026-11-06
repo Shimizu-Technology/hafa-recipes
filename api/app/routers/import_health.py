@@ -15,6 +15,7 @@ from sqlalchemy import text
 from app.ai_governance import ai_request_context
 from app.config import get_settings
 from app.db import AsyncSessionLocal
+from app.services.photo_posts import PhotoSourceError
 from app.services.video import VIDEO_ERROR_PATTERNS, get_friendly_video_error, video_service
 
 
@@ -77,11 +78,15 @@ async def import_health(platform: str, request: Request):
                     if not locked:
                         return result("CHECK_BUSY", 409)
                     url = CANARIES[platform]
+                    def photo_stage(value):
+                        nonlocal stage
+                        stage = value
+
                     if platform == "tiktok-photo":
                         from app.services.photo_posts import probe_photo_post
 
-                        stage = "images"
-                        photo = await probe_photo_post(video_service, url)
+                        stage = "metadata"
+                        photo = await probe_photo_post(video_service, url, on_stage=photo_stage)
                         if photo["status"] != "ok":
                             raise PhotoCanaryFailure()
                         stage = "complete"
@@ -137,6 +142,8 @@ async def import_health(platform: str, request: Request):
                         stage = "complete"
         except PhotoCanaryFailure:
             code = "SOURCE_RESPONSE_INVALID"
+        except PhotoSourceError as exc:
+            code = exc.code
         except TimeoutError:
             code = "TIMEOUT"
         except Exception:

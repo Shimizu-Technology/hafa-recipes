@@ -159,7 +159,6 @@ SECURITY AND SOURCE RULES:
 - Extract cooking facts only when they are supported by the title, description, user notes, or spoken transcript.
 - Never invent an ingredient, quantity, unit, temperature, time, serving count, or cooking action in the source fields to make the recipe look complete. The separate quantityEstimate field follows the culinary estimate rules above.
 - A visible or mentioned ingredient does not prove its amount. Use null for the canonical quantity and unit fields when the source does not state them; provide a defensible suggestion separately in quantityEstimate.
-- Read on-image text and labels as primary evidence when the caption is thin. Preserve image order; do not infer ingredients from appearance alone.
 - Do not replace an unstated amount with "to taste", "as needed", "optional", or similar wording unless the source itself uses that wording.
 - Preserve explicitly stated quantities, temperatures, times, servings, and instructions as written.
 - Use null for an unstated prep, cook, or total time and for an unstated serving count.
@@ -459,7 +458,7 @@ SECURITY AND SOURCE RULES:
 - Examine every image in order and read any visible text exactly.
 - Extract an ingredient only when its identity is unambiguous from visible text, the caption, packaging, or a clearly recognizable whole item. Do not guess powders, liquids, seasonings, sauces, or hidden ingredients from appearance alone.
 - A bowl, spoon, package, or finished portion does not prove a quantity. Use null for canonical quantity and unit unless the amount is written or directly countable without ambiguity; a contextual suggestion may go separately in quantityEstimate.
-- Read on-image text and labels as primary evidence when the caption is thin. Preserve image order; do not infer ingredients from appearance alone.
+- Read on-image text and labels as primary evidence when the caption is thin. Preserve image order. Unambiguous whole items remain valid evidence; never guess ambiguous ingredients from appearance alone.
 - Do not replace an unstated amount with "to taste", "as needed", "optional", or similar wording unless the slideshow or caption actually says it.
 - Record a cooking step only when an action is shown clearly or stated in text/caption. Do not invent steps needed to bridge gaps between images.
 - Preserve explicitly stated quantities, temperatures, times, servings, and instructions as written. Use null for unstated times and servings.

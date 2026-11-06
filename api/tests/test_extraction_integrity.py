@@ -332,8 +332,8 @@ async def test_slideshow_caption_and_source_url_reach_the_model_prompt(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_slideshow_continues_when_caption_metadata_fetch_fails(monkeypatch):
-    """Downloaded slideshow images must remain usable without caption metadata."""
+async def test_slideshow_continues_with_empty_caption_fields(monkeypatch):
+    """Downloaded slideshow images remain usable with empty caption fields."""
 
     monkeypatch.setattr(
         "app.services.extractor.video_service.fetch_photo_post",
@@ -639,3 +639,23 @@ async def test_shared_adapter_preserves_terminal_failures_and_existing_caption(f
     assert result.metadata.description == "Known caption"
     assert [(item.stage, item.code) for item in result.failures] == [("public_metadata", expected)]
     assert source_failure_code(result.failures) == expected
+
+
+async def test_photo_uses_actionable_caption_when_all_images_fail(monkeypatch):
+    caption = "Ingredients: 1 cup rice and 2 cups water. Boil water, add rice, and simmer for 20 minutes."
+    monkeypatch.setattr("app.services.extractor.video_service.fetch_photo_post", AsyncMock(return_value={
+        "title":"Rice", "description":caption, "uploader":"Creator", "slides":[["https://cdn.example/one"]]}))
+    monkeypatch.setattr("app.services.photo_posts.download_photo_images", AsyncMock(return_value=([], ["Read 0 of 1 slides."])))
+    text = AsyncMock(return_value=ExtractionResult(success=True, recipe=_complete_recipe()))
+    monkeypatch.setattr("app.services.extractor.llm_service.extract_recipe", text)
+    result = await RecipeExtractor()._extract_from_tiktok_photo("https://www.tiktok.com/@cook/photo/123")
+    assert result.success and result.raw_text == caption and result.low_confidence
+    assert result.extraction_method == "photo_caption" and "only the caption" in result.confidence_warning
+    assert text.await_args.kwargs["content"] == caption
+
+
+async def test_photo_fetch_exception_preserves_approved_failure_code(monkeypatch):
+    from app.services.photo_posts import PhotoSourceError
+    monkeypatch.setattr("app.services.extractor.video_service.fetch_photo_post", AsyncMock(side_effect=PhotoSourceError("RATE_LIMITED")))
+    result = await RecipeExtractor()._extract_from_tiktok_photo("https://www.tiktok.com/@cook/photo/123")
+    assert not result.success and result.error_code == "RATE_LIMITED"

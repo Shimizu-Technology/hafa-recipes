@@ -14,6 +14,19 @@ from app.security import PublicHTTPTransport, assert_public_http_url
 # normalized payload below 12MiB (16MiB base64); downloaded bytes below 40MiB.
 MAX_PHOTO_IMAGES = 35
 MAX_PHOTO_PAYLOAD_BYTES = 12 * 1024 * 1024
+PHOTO_ERROR_CODES = frozenset({
+    "SOURCE_RESPONSE_INVALID", "SOURCE_UNAVAILABLE", "TIMEOUT", "MEDIA_BUSY", "RATE_LIMITED",
+    "INSTAGRAM_AUTH_REQUIRED", "VIDEO_PRIVATE", "VIDEO_REMOVED", "NOT_FOUND", "ACCESS_DENIED",
+    "BOT_DETECTION", "AGE_RESTRICTED", "ACCOUNT_NOT_FOUND",
+})
+
+
+class PhotoSourceError(ValueError):
+    """Content-free acquisition code across the guarded subprocess boundary."""
+
+    def __init__(self, code):
+        self.code = code if code in PHOTO_ERROR_CODES else "SOURCE_UNAVAILABLE"
+        super().__init__(self.code)
 
 
 def parse_tiktok_photo(item, identifier):
@@ -49,79 +62,88 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
     media persistence or all-or-nothing batch: one failed slide keeps the rest.
     """
     deadline = deadline or asyncio.get_running_loop().time() + 70
-    images, notes = [], []
+    images, notes, completed = [], [], {}
     download_budget = MAX_REMOTE_IMAGES_TOTAL_BYTES
     normalized_bytes = 0
     parallel = asyncio.Semaphore(2)
     from app.services.video import public_video_service
 
-    async with public_video_service._media_slot(), httpx.AsyncClient(
-        timeout=25, follow_redirects=False, max_redirects=5, trust_env=False,
-        transport=PublicHTTPTransport(), headers={"Referer": referer},
-    ) as client:
-        async def read_slide(index, mirrors):
-            nonlocal download_budget, normalized_bytes
-            async with parallel:
-                for url in mirrors[:3]:
-                    remaining = deadline - asyncio.get_running_loop().time()
-                    if remaining <= 0 or download_budget <= 0:
-                        break
-                    # Reserve before yielding: concurrent requests cannot each
-                    # spend the same bytes. Failed requests consume their cap.
-                    cap = min(4 * 1024 * 1024, download_budget)
-                    download_budget -= cap
-                    try:
-                        async with asyncio.timeout(min(remaining, 26)):
-                            await assert_public_http_url(url)
-                            for hop in range(6):
-                                client.cookies.clear()
-                                response = await get_limited(client, url, max_redirects=0, max_bytes=cap)
-                                if not response.is_redirect:
-                                    break
-                                if hop == 5 or not response.headers.get("location"):
-                                    raise ValueError("Photo redirect limit")
-                                url = urljoin(url, response.headers["location"])
-                                await assert_public_http_url(url)
-                            response.raise_for_status()
-                            download_budget += cap - len(response.content)
-                            valid = validate_image_bytes(
-                                response.content, max_bytes=4 * 1024 * 1024,
-                                declared_content_type=response.headers.get("content-type"),
-                            )
-                            # The central 40MP/12000px limit applies before
-                            # decoding. Model images fit below the 4MP limit.
-                            image = normalize_thumbnail_image(valid, max_dimension=1600)
-                            if normalized_bytes + len(image.data) > MAX_PHOTO_PAYLOAD_BYTES:
+    try:
+        async with asyncio.timeout(max(0, deadline - asyncio.get_running_loop().time())):
+            async with public_video_service._media_slot(), httpx.AsyncClient(
+                timeout=25, follow_redirects=False, max_redirects=5, trust_env=False,
+                transport=PublicHTTPTransport(), headers={"Referer": referer},
+            ) as client:
+                async def read_slide(index, mirrors):
+                    nonlocal download_budget, normalized_bytes
+                    async with parallel:
+                        for url in mirrors[:3]:
+                            remaining = deadline - asyncio.get_running_loop().time()
+                            if remaining <= 0 or download_budget <= 0:
                                 break
-                            normalized_bytes += len(image.data)
-                            return index, base64.b64encode(image.data).decode("ascii")
-                    except Exception:
-                        # Provider text and signed URLs never enter logs/notes.
-                        continue
-                return None
+                            # Reserve before yielding: concurrent requests cannot each
+                            # spend the same bytes. Failed requests consume their cap.
+                            cap = min(4 * 1024 * 1024, download_budget)
+                            download_budget -= cap
+                            try:
+                                async with asyncio.timeout(min(remaining, 26)):
+                                    await assert_public_http_url(url)
+                                    for hop in range(6):
+                                        client.cookies.clear()
+                                        response = await get_limited(client, url, max_redirects=0, max_bytes=cap)
+                                        if not response.is_redirect:
+                                            break
+                                        if hop == 5 or not response.headers.get("location"):
+                                            raise ValueError("Photo redirect limit")
+                                        url = urljoin(url, response.headers["location"])
+                                        await assert_public_http_url(url)
+                                    download_budget += cap - len(response.content)
+                                    response.raise_for_status()
+                                    valid = validate_image_bytes(
+                                        response.content, max_bytes=4 * 1024 * 1024,
+                                        declared_content_type=response.headers.get("content-type"),
+                                    )
+                                    # The central 40MP/12000px limit applies before
+                                    # decoding. Model images fit below the 4MP limit.
+                                    image = normalize_thumbnail_image(valid, max_dimension=1600)
+                                    if normalized_bytes + len(image.data) > MAX_PHOTO_PAYLOAD_BYTES:
+                                        break
+                                    normalized_bytes += len(image.data)
+                                    completed[index] = base64.b64encode(image.data).decode("ascii")
+                                    return index, completed[index]
+                            except Exception:
+                                # Provider text and signed URLs never enter logs/notes.
+                                continue
+                        return None
 
-        # gather returns in post order even when downloads finish out of order.
-        results = await asyncio.gather(*(read_slide(i, mirrors)
-                                       for i, mirrors in enumerate(slides[:MAX_PHOTO_IMAGES])))
-        for index, result in enumerate(results):
-            if result is None:
-                notes.append(f"Slide {index + 1} could not be read; its details may be missing.")
-            else:
-                images.append(result)
-        if len(images) < len(slides):
-            notes.insert(0, f"Read {len(images)} of {len(slides)} slides; {len(slides) - len(images)} slides were left out.")
-        if len(slides) > MAX_PHOTO_IMAGES:
-            notes.insert(0, f"Only the first {MAX_PHOTO_IMAGES} of {len(slides)} slides were read; remaining slides were left out.")
+                # gather returns in post order even when downloads finish out of order.
+                await asyncio.gather(*(read_slide(i, mirrors)
+                                               for i, mirrors in enumerate(slides[:MAX_PHOTO_IMAGES])))
+    except TimeoutError:
+        pass
+    for index in range(min(len(slides), MAX_PHOTO_IMAGES)):
+        if index not in completed:
+            notes.append(f"Slide {index + 1} could not be read; its details may be missing.")
+        else:
+            images.append((index, completed[index]))
+    if len(images) < len(slides):
+        notes.insert(0, f"Read {len(images)} of {len(slides)} slides; {len(slides) - len(images)} slides were left out.")
+    if len(slides) > MAX_PHOTO_IMAGES:
+        notes.insert(0, f"Only the first {MAX_PHOTO_IMAGES} of {len(slides)} slides were read; remaining slides were left out.")
     return images, notes
 
 
-async def probe_photo_post(service, url):
+async def probe_photo_post(service, url, *, on_stage=None):
     """No AI or persistence. A vanished canary fails rather than choosing a new post."""
     async with asyncio.timeout(90):
+        if on_stage:
+            on_stage("metadata")
         post = await service.fetch_photo_post(url)
+        if on_stage:
+            on_stage("images")
         images, notes = await download_photo_images(post["slides"])
         return {
-            "status": "ok" if images and post["description"].strip() and not notes else "failed",
+            "status": "ok" if len(images) == len(post["slides"]) and images and post["description"].strip() and not notes else "failed",
             "slides": len(post["slides"]), "images_read": len(images),
             "caption_chars": len(post["description"]), "coverage_notes": len(notes),
         }

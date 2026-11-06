@@ -64,7 +64,8 @@ async def test_slide_cap_and_deadline_are_disclosed(monkeypatch):
     assert "35 of 36" in notes[0]
 
 
-def test_photo_adapter_uses_locked_private_method_and_rewritten_url(monkeypatch):
+@pytest.mark.parametrize("host", ["www.tiktok.com", "m.tiktok.com"])
+def test_photo_adapter_uses_locked_private_method_and_rewritten_url(monkeypatch, host):
     from yt_dlp.extractor.tiktok import TikTokIE
     calls = []
     def read(self, url, identifier):
@@ -72,7 +73,7 @@ def test_photo_adapter_uses_locked_private_method_and_rewritten_url(monkeypatch)
         assert self._downloader.params["public_photo_no_cookies"] is True
         return item(), 0
     monkeypatch.setattr(TikTokIE, "_extract_web_data_and_status", read)
-    assert public_ytdlp.photo_json("https://www.tiktok.com/@creator/photo/123")["slides"]
+    assert public_ytdlp.photo_json(f"https://{host}/@creator/photo/123")["slides"]
     assert calls == [("https://www.tiktok.com/@creator/video/123", "123")]
 
 
@@ -121,7 +122,7 @@ def test_instagram_adapter_keeps_single_image_after_expected_no_video(monkeypatc
     monkeypatch.setattr(InstagramIE, "_real_initialize", lambda self: None)
     def raw(self, url):
         self.raise_no_formats("There is no video in this post", expected=True)
-        return {"description":"Caption", "thumbnails":[{"url":"https://cdn.example/one", "width":100, "height":100}]}
+        return {"id":"Synthetic", "description":"Caption", "thumbnails":[{"url":"https://cdn.example/one", "width":100, "height":100}]}
     monkeypatch.setattr(InstagramIE, "_real_extract", raw)
     assert public_ytdlp.photo_json("https://www.instagram.com/p/Synthetic/")["slides"] == [["https://cdn.example/one"]]
 
@@ -130,7 +131,88 @@ def test_instagram_video_metadata_is_not_fetched_twice(monkeypatch):
     from yt_dlp.extractor.instagram import InstagramIE
     monkeypatch.setattr(InstagramIE, "_real_initialize", lambda self: None)
     monkeypatch.setattr(InstagramIE, "_real_extract", lambda self, url: {
-        "title":"Video", "description":"Thin caption", "duration":20,
+        "id":"Synthetic", "title":"Video", "description":"Thin caption", "duration":20,
         "formats":[{"url":"https://cdn.example/video"}]})
     post = public_ytdlp.photo_json("https://www.instagram.com/p/Synthetic/")
     assert post["slides"] is None and post["duration"] == 20 and post["description"] == "Thin caption"
+
+
+@pytest.mark.parametrize("missing", [0, 11])
+async def test_successful_slide_cap_refunds_empty_errors_and_follows_redirect(monkeypatch, missing):
+    output = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(output, format="PNG")
+    visited = []
+    def handler(request):
+        name = request.url.path.strip("/")
+        visited.append(name)
+        if name == "0":
+            return httpx.Response(302, headers={"location":"/redirected"})
+        index = 0 if name == "redirected" else int(name)
+        if index < missing:
+            return httpx.Response(404, content=b"")
+        return httpx.Response(200, content=output.getvalue(), headers={"content-type":"image/png"})
+    monkeypatch.setattr(photos, "PublicHTTPTransport", lambda: httpx.MockTransport(handler))
+    monkeypatch.setattr(photos, "assert_public_http_url", AsyncMock())
+    images, notes = await photos.download_photo_images([[f"https://cdn.example/{i}"] for i in range(36)])
+    assert [i for i, _ in images] == list(range(missing, 35))
+    assert "35" not in visited and "redirected" in visited and "35 of 36" in notes[0]
+
+
+async def test_pool_wait_honors_deadline_without_losing_completed_slides(monkeypatch):
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    from app.services.video import public_video_service
+    @asynccontextmanager
+    async def busy():
+        await asyncio.Event().wait()
+        yield
+    monkeypatch.setattr(public_video_service, "_media_slot", busy)
+    images, notes = await photos.download_photo_images([["https://cdn.example/0"]],
+        deadline=asyncio.get_running_loop().time() + .01)
+    assert images == [] and "Read 0 of 1" in notes[0]
+
+
+@pytest.mark.parametrize("caption,images,status", [("", [(0,"data")], "failed"), ("Caption", [], "failed"), ("Caption", [(0,"data")], "ok")])
+async def test_real_probe_checks_caption_images_and_stage(monkeypatch, caption, images, status):
+    from types import SimpleNamespace
+    service = SimpleNamespace(fetch_photo_post=AsyncMock(return_value={"description":caption,"slides":[["https://cdn.example/0"]]}))
+    monkeypatch.setattr(photos, "download_photo_images", AsyncMock(return_value=(images, [])))
+    stages = []
+    result = await photos.probe_photo_post(service, "https://www.tiktok.com/@creator/photo/123", on_stage=stages.append)
+    assert result["status"] == status and stages == ["metadata", "images"]
+
+
+async def test_completed_slide_survives_batch_deadline(monkeypatch):
+    import asyncio
+    output = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(output, format="PNG")
+    async def handler(request):
+        if request.url.path == "/slow":
+            await asyncio.sleep(1)
+        return httpx.Response(200, content=output.getvalue(), headers={"content-type":"image/png"})
+    monkeypatch.setattr(photos, "PublicHTTPTransport", lambda: httpx.MockTransport(handler))
+    monkeypatch.setattr(photos, "assert_public_http_url", AsyncMock())
+    images, notes = await photos.download_photo_images([["https://cdn.example/fast"], ["https://cdn.example/slow"]],
+        deadline=asyncio.get_running_loop().time() + .05)
+    assert [i for i, _ in images] == [0] and "Read 1 of 2" in notes[0]
+
+
+def test_photo_cli_shape_failure_prints_only_safe_code(monkeypatch, capsys):
+    def invalid(_):
+        raise ValueError("private source text and token")
+    monkeypatch.setattr(public_ytdlp, "photo_json", invalid)
+    assert public_ytdlp.main(["--public-photo-json", "https://www.tiktok.com/@creator/photo/123"]) == 1
+    assert capsys.readouterr().out.strip() == '{"error_code": "SOURCE_RESPONSE_INVALID"}'
+
+
+async def test_photo_subprocess_rate_limit_reaches_metadata_without_raw_errors(monkeypatch):
+    from app.services.video import VideoService
+    class Process:
+        returncode = 1
+        async def communicate(self):
+            return b'{"error_code":"RATE_LIMITED"}', b'private source text and cookie'
+    monkeypatch.setattr("app.services.video.asyncio.create_subprocess_exec", AsyncMock(return_value=Process()))
+    service = VideoService()
+    metadata = await service.get_video_metadata_ytdlp("https://www.tiktok.com/@creator/photo/123")
+    assert metadata.error_code == "RATE_LIMITED"

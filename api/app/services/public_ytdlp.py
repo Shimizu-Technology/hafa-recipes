@@ -15,7 +15,7 @@ import sys
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 import yt_dlp
@@ -287,6 +287,9 @@ def photo_json(url):
 
     from app.services.photo_posts import parse_instagram_photo, parse_tiktok_photo
 
+    parsed_url = urlsplit(url)
+    if parsed_url.hostname in {"m.tiktok.com", "tiktok.com"} and not parsed_url.username and not parsed_url.port:
+        url = urlunsplit((parsed_url.scheme, "www.tiktok.com", parsed_url.path, parsed_url.query, ""))
     match = re.fullmatch(r"https://www\.tiktok\.com/(@[^/]+)/photo/(\d+)", url)
     instagram = re.fullmatch(r"https://www\.instagram\.com/p/[A-Za-z0-9_-]+/?", url)
     if not match and not instagram:
@@ -302,6 +305,8 @@ def photo_json(url):
             from yt_dlp.extractor.instagram import InstagramIE
 
             info = InstagramIE(downloader).extract(url)
+            if info.get("id") != urlsplit(url).path.strip("/").split("/")[-1]:
+                raise ValueError("Photo response identity changed")
             entries = info.get("entries") or [info]
             if any(entry.get("formats") or entry.get("url") for entry in entries):
                 # Keep public /p/ videos on their existing audio/frame path,
@@ -326,8 +331,16 @@ def main(argv=None):
     if arguments[:1] == ["--public-photo-json"]:
         if len(arguments) != 2:
             raise ValueError("One photo URL required")
-        print(json.dumps(photo_json(arguments[1])))
-        return 0
+        try:
+            print(json.dumps(photo_json(arguments[1])))
+            return 0
+        except Exception as exc:
+            from app.services.photo_posts import PHOTO_ERROR_CODES
+            from app.services.video import get_friendly_video_error
+
+            code = "SOURCE_RESPONSE_INVALID" if isinstance(exc, ValueError) else get_friendly_video_error(str(exc), "tiktok")[0]
+            print(json.dumps({"error_code": code if code in PHOTO_ERROR_CODES else "SOURCE_UNAVAILABLE"}))
+            return 1
     # parse_options alone does not invoke user update/exec/plugin workflows.
     plugin_dirs.value = []
     all_plugins_loaded.value = True

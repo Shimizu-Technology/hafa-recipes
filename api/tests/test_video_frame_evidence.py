@@ -695,8 +695,10 @@ async def test_primary_acquisition_diagnosis_survives_disabled_vision_but_not_re
 
 
 @pytest.mark.asyncio
-async def test_visual_priority_spreads_ten_samples_across_a_silent_video(monkeypatch, tmp_path):
+@pytest.mark.parametrize("cap", [6, 8, 12])
+async def test_visual_priority_respects_cap_and_spreads_samples(monkeypatch, tmp_path, cap):
     service = VideoService()
+    monkeypatch.setattr("app.services.video.settings.video_frame_max_count", cap)
     timestamps = []
     async def write(_video, path, timestamp):
         timestamps.append(timestamp)
@@ -706,5 +708,5 @@ async def test_visual_priority_spreads_ten_samples_across_a_silent_video(monkeyp
     monkeypatch.setattr(service, "_write_scene_change_frames", AsyncMock(return_value=[]))
     monkeypatch.setattr(service, "_image_fingerprint", lambda data: int(data))
     frames = await service._extract_candidate_frames("silent.mp4", str(tmp_path), 100, visual_priority=True)
-    assert len(frames) == 10 and timestamps[0] == 0 and timestamps[-1] == 99.75
+    assert len(frames) == min(cap, 10) and timestamps[0] == 0 and timestamps[-1] == 99.75
     assert timestamps == sorted(timestamps)

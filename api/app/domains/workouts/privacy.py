@@ -153,8 +153,8 @@ def redact_workouts_event(event, hint=None):
         tags = event.get("tags") or {}
         platform = tags.get("platform")
         stage = tags.get("stage")
-        platform = platform if platform in {"instagram", "tiktok", "youtube"} else "unknown"
-        stage = stage if stage in {"auth", "input", "lock", "metadata", "audio", "frames", "complete"} else "unknown"
+        platform = platform if platform in {"instagram", "tiktok", "tiktok-photo", "youtube"} else "unknown"
+        stage = stage if stage in {"auth", "input", "lock", "metadata", "audio", "frames", "images", "complete"} else "unknown"
         return {
             key: event[key] for key in ("event_id", "timestamp", "level", "platform", "release", "environment")
             if key in event

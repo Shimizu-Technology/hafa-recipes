@@ -276,7 +276,7 @@ async def test_monitor_unexpected_failure_does_not_expose_exception(monitor):
     assert "secret" not in response.text and not monitor.locks
 
 
-@pytest.mark.parametrize("failure", [None, "missing_token", "service", "malformed", "timeout", "curl"])
+@pytest.mark.parametrize("failure", [None, "missing_token", "service", "photo", "malformed", "timeout", "curl"])
 def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_results(
     monkeypatch, tmp_path, capsys, failure,
 ):
@@ -300,6 +300,8 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
         assert kwargs["timeout"] == 220 and 'Bearer synthetic-secret' in kwargs["input"]
         response = {"platform": platform, "status": "ok", "stage": "complete",
                     "error_code": None, "elapsed": 12.0}
+        if platform == "tiktok-photo" and failure == "photo":
+            response.update(status="failed", stage="images", error_code="SOURCE_RESPONSE_INVALID")
         if platform == "instagram":
             if failure == "timeout":
                 raise subprocess.TimeoutExpired("curl", 220)
@@ -309,7 +311,7 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
                 response.update(stage="private provider caption", error_code="cookie secret")
         Path(argv[argv.index("--output") + 1]).write_text(json.dumps(response))
         return SimpleNamespace(returncode=28 if failure == "curl" else 0,
-                               stdout="503" if failure == "service" and platform == "instagram" else "200")
+                               stdout="503" if (failure == "service" and platform == "instagram") or (failure == "photo" and platform == "tiktok-photo") else "200")
 
     monkeypatch.setattr(subprocess, "run", curl)
     with pytest.raises(SystemExit) as stopped:
@@ -331,5 +333,18 @@ async def test_photo_canary_requires_caption_and_every_slide_without_audio(monit
     monkeypatch.setattr("app.services.photo_posts.probe_photo_post", probe)
     response = await monitor.client.post("/internal/import-health/tiktok-photo")
     assert response.status_code == (200 if photo_status == "ok" else 503)
+    assert response.json()["error_code"] == (None if photo_status == "ok" else "SOURCE_RESPONSE_INVALID")
     monitor.service.download_audio.assert_not_awaited()
     monitor.service.extract_video_frames.assert_not_awaited()
+
+
+async def test_photo_canary_metadata_error_keeps_safe_stage_and_redactor_tags(monitor, monkeypatch):
+    from app.domains.workouts.privacy import redact_workouts_event
+    from app.services.photo_posts import PhotoSourceError
+    monitor.service.fetch_photo_post = AsyncMock(side_effect=PhotoSourceError("SOURCE_RESPONSE_INVALID"))
+    response = await monitor.client.post("/internal/import-health/tiktok-photo")
+    assert response.status_code == 503 and response.json()["stage"] == "metadata"
+    assert response.json()["error_code"] == "SOURCE_RESPONSE_INVALID"
+    event = redact_workouts_event({"tags":{"monitor":"import-health", "platform":"tiktok-photo", "stage":"images"}, "message":"private"})
+    assert event["tags"]["platform"] == "tiktok-photo" and event["tags"]["stage"] == "images"
+    assert "private" not in str(event)

@@ -479,6 +479,8 @@ class VideoService:
         """Always use the isolated, cookie-free public boundary, including Recipes."""
         import json
 
+        from app.services.photo_posts import PhotoSourceError
+
         process = None
         async with self._media_slot():
             try:
@@ -491,15 +493,23 @@ class VideoService:
                 stdout, _ = await asyncio.wait_for(
                     process.communicate(), timeout=settings.video_metadata_timeout_seconds,
                 )
-                if process.returncode != 0 or len(stdout) > MAX_HTML_BYTES:
-                    raise ValueError("Photo source unavailable")
-                return json.loads(stdout)
+                if len(stdout) > MAX_HTML_BYTES:
+                    raise PhotoSourceError("SOURCE_RESPONSE_INVALID")
+                try:
+                    post = json.loads(stdout)
+                except (ValueError, TypeError):
+                    raise PhotoSourceError("SOURCE_RESPONSE_INVALID") from None
+                if process.returncode != 0:
+                    raise PhotoSourceError(post.get("error_code", "SOURCE_UNAVAILABLE"))
+                return post
+            except asyncio.TimeoutError:
+                raise PhotoSourceError("TIMEOUT") from None
             finally:
                 await _terminate_process(process)
 
     async def fetch_tiktok_photo_images(self, url: str) -> list[str]:
         post = await self.fetch_photo_post(url)
-        return [mirrors[0] for mirrors in post["slides"]]
+        return [mirrors[0] for mirrors in post["slides"] if mirrors]
 
     async def _scrape_tiktok_photo_images(self, url: str) -> list[str]:
         """
@@ -1377,7 +1387,9 @@ class VideoService:
         """Sample opening, closing, periodic, and scene-change frames, then dedupe."""
 
         periodic_candidates: list[tuple[float, str]] = []
-        timestamps = ([max(0, duration - 0.25) * i / 9 for i in range(10)]
+        periodic_count = min(10, settings.video_frame_max_count)
+        timestamps = (sorted({round(max(0, duration - 0.25) * i / max(1, periodic_count - 1), 3)
+                              for i in range(periodic_count)})
                       if visual_priority else self._periodic_frame_timestamps(duration))
         for index, timestamp in enumerate(timestamps):
             output_path = os.path.join(temp_dir, f"periodic-{index:02d}.jpg")
@@ -1389,12 +1401,19 @@ class VideoService:
 
         frames: list[VideoFrame] = []
         fingerprints: list[int] = []
+        exact_images = set()
         for timestamp, path in periodic_candidates + scene_candidates:
             try:
                 image_data = Path(path).read_bytes()
                 fingerprint = self._image_fingerprint(image_data)
             except (OSError, ValueError):
                 continue
+            if visual_priority:
+                import hashlib
+                digest = hashlib.sha256(image_data).digest()
+                if digest in exact_images:
+                    continue
+                exact_images.add(digest)
             is_scene_candidate = path in scene_paths
             if is_scene_candidate and any(
                 (fingerprint ^ prior).bit_count() <= 5 for prior in fingerprints
@@ -1407,7 +1426,7 @@ class VideoService:
                 )
             )
             fingerprints.append(fingerprint)
-            if len(frames) >= (12 if visual_priority else settings.video_frame_max_count):
+            if len(frames) >= settings.video_frame_max_count:
                 break
         frames.sort(key=lambda frame: frame.timestamp_seconds)
         return frames
@@ -1675,9 +1694,9 @@ class VideoService:
                 )
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
                 if self.is_tiktok_photo_post(url):
-                    return VideoMetadata(error_code="SOURCE_UNAVAILABLE")
+                    return VideoMetadata(error_code=getattr(exc, "code", "SOURCE_UNAVAILABLE"))
         try:
             async with self._media_slot():
                 return await self._with_instagram_session_fallback(

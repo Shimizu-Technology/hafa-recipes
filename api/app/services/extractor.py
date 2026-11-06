@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.recipe_review import is_missing_quantity
 from app.services.llm_client import llm_service
 from app.services.openai_client import openai_service  # Used for transcription
+from app.services.photo_posts import PhotoSourceError
 from app.services.source_acquisition import (
     TRANSIENT_SOURCE_ERRORS,
     AcquisitionFailure,
@@ -905,6 +906,21 @@ class RecipeExtractor:
             )
             base64_images = [data for _, data in downloaded]
             
+            if not base64_images and _has_actionable_recipe_evidence(post["description"]):
+                caption_result = await llm_service.extract_recipe(
+                    source_url=url, content=post["description"], location=location,
+                )
+                if caption_result.success and caption_result.recipe:
+                    warning = "Source images could not be read; this draft uses only the caption."
+                    caption_result.recipe["lowConfidence"] = True
+                    caption_result.recipe["confidenceWarning"] = warning
+                    return FullExtractionResult(
+                        success=True, recipe=caption_result.recipe, raw_text=post["description"],
+                        thumbnail_url=thumbnail_url, extraction_method="photo_caption",
+                        extraction_quality="medium", low_confidence=True, confidence_warning=warning,
+                        source_evidence={"modalities": ["metadata"], "coverageNotes": [warning, *coverage_notes],
+                                         "sourceArtifactsRetained": False},
+                    )
             if not base64_images:
                 print("❌ Failed to download any images")
                 return FullExtractionResult(
@@ -1004,6 +1020,12 @@ class RecipeExtractor:
                                  "coverageNotes": coverage_notes, "sourceArtifactsRetained": False},
             )
             
+        except PhotoSourceError as exc:
+            return FullExtractionResult(
+                success=False, error_code=exc.code,
+                error="Photo source could not be read.",
+                friendly_error="We could not read this post. Keep the link, try again, or add screenshots.",
+            )
         except Exception as e:
             print(f"❌ TikTok photo extraction error: {e}")
             import traceback

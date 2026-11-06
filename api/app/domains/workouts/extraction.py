@@ -774,10 +774,15 @@ class ProductionSourceAcquirer:
                     "Source images unavailable; available captions remain usable."
                 )
         else:
+            remaining = max(0, deadline - asyncio.get_running_loop().time())
+            # Leave up to 20 seconds for visual evidence without imposing a
+            # short fixed transcription cap on otherwise available time.
             await self._audio(source, normalized, provider, video_service,
-                              min(deadline, asyncio.get_running_loop().time() + 35))
+                              deadline - min(20, remaining / 4))
             await source.report("reading_frames")
             try:
+                if deadline - asyncio.get_running_loop().time() < 1:
+                    raise asyncio.TimeoutError
                 frame_reader = video_service.extract_video_frames
                 if "transcript" not in source.metadata.channels:
                     frame_reader = getattr(video_service, "extract_visual_frames", frame_reader)
