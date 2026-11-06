@@ -40,6 +40,15 @@ it.each([
   await act(async () => { view = create(<Settings />); });
   expect(view.root.findAll((n) => String(n.type) === "Row" && n.props.title === "Family").length).toBe(shown ? 1 : 0);
 });
+it.each([
+  ["a parent with no baby yet", [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "parent" }], [], true],
+  ["a caregiver who has nothing to change", [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "caregiver" }], [{ id: "b", name: "Noa", space_id: "f" }], false],
+  ["a caregiver with a baby of their own", [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "caregiver" }], [{ id: "m", name: "Mine", space_id: "p" }], true],
+])("Your little ones for %s", async (_, spaces, children, shown) => {
+  f.bootstrap = { spaces, children }; f.section = undefined;
+  await act(async () => { view = create(<Settings />); });
+  expect(view.root.findAll((n) => String(n.type) === "Section" && n.props.title === "Your little ones").length).toBe(shown ? 1 : 0);
+});
 it.each([[null, false], [1, true]])("with the new Ask at version %s, Settings shows its disclosure: %s", async (version, shown) => {
   f.section = undefined; f.ask = version;
   await act(async () => { view = create(<Settings />); });

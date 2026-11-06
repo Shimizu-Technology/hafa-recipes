@@ -236,6 +236,28 @@ describe("the update gate", () => {
     await press("Invite someone");
     expect(f.ask).toHaveBeenCalled();
   });
+  it("waits for this phone's answer before reading the check, so it doesn't report itself as still connecting", async () => {
+    let answer = () => {};
+    f.ask.mockImplementationOnce(() => new Promise<undefined>((done) => { answer = () => done(undefined); }));
+    const b = setup();
+    await open();
+    await act(async () => { void press("Invite someone"); });
+    expect(b.api.readiness).not.toHaveBeenCalled();
+    await act(async () => { answer(); });
+    await act(async () => {});
+    expect(b.api.readiness).toHaveBeenCalled();
+  });
+  it("trying again after a lost connection checks the phones too, not just the list", async () => {
+    const readiness = vi.fn().mockRejectedValueOnce(new ApiError("Offline", 0)).mockResolvedValue(ready),
+      records = vi.fn().mockRejectedValueOnce(new ApiError("Offline", 0)).mockResolvedValue({ items: [], total: 0, has_more: false });
+    setup([own], { readiness, records });
+    await open();
+    await press("Invite someone");
+    expect(text()).toMatch(/Connect to check your phones/);
+    await press("Try again");
+    expect(text()).not.toMatch(/Connect to check your phones/);
+    expect(button("Share and get a code")).toBeDefined();
+  });
   it("shows the API's answer if a phone appears between the check and the tap", async () => {
     setup([own], { createInvite: vi.fn(async () => { throw new PhonesNotReady(behind as never); }) });
     await open();
@@ -450,6 +472,73 @@ describe("in a family", () => {
     await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.style === "destructive")!.onPress!(); });
     expect(b.api.leaveFamily).toHaveBeenCalledWith(family, { generation: 1, space_id: family });
     expect(b.refresh).toHaveBeenCalled();
+  });
+  it("says what removing a parent costs them, and doesn't say it about a caregiver", async () => {
+    inFamily({ familyMembers: vi.fn(async () => ({ items: [
+      { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" },
+      { app_user_id: "them", role: "parent", status: "active", access_version: 1, display_name: "Them" },
+      { app_user_id: "helper", role: "caregiver", status: "active", access_version: 1, display_name: "Helper" }] })) });
+    await open();
+    await press("Remove Them");
+    expect(f.alerts.at(-1)!.message).toMatch(/They’re a parent here.*only an invite from a parent here brings them back/);
+    expect(f.alerts.at(-1)!.message).toMatch(/Ask chats that used family entries are deleted.*reminders.*personal journal.*Codes nobody has used yet stop working/);
+    await press("Remove Helper");
+    expect(f.alerts.at(-1)!.message).not.toMatch(/parent here/);
+    expect(f.alerts.at(-1)!.message).toMatch(/Codes nobody has used yet stop working/);
+  });
+  it("doesn't let an older read bring back someone just removed", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const me = { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" },
+        them = { ...me, app_user_id: "them", display_name: "Them" };
+      let finishOld = (_: object) => {};
+      const familyMembers = vi.fn().mockResolvedValueOnce({ items: [me, them] })
+        .mockImplementationOnce(() => new Promise((done) => { finishOld = done; })).mockResolvedValue({ items: [me] });
+      const b = inFamily({ familyMembers });
+      await open();
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      await press("Remove Them");
+      await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.style === "destructive")!.onPress!(); });
+      expect(b.api.removeMember).toHaveBeenCalled();
+      expect(button("Remove Them")).toBeUndefined();
+      await act(async () => { finishOld({ items: [me, them] }); });
+      await act(async () => {});
+      expect(button("Remove Them")).toBeUndefined();
+      expect(button("Delete this family")).toBeDefined();
+    } finally { vi.useRealTimers(); }
+  });
+  it("says something changed when the API refuses a leave, remove or delete, and rereads the account and the list", async () => {
+    const lastParent = { items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }] },
+      both = { items: [...lastParent.items, { app_user_id: "them", role: "parent", status: "active", access_version: 1, display_name: "Them" }] },
+      familyMembers = vi.fn().mockResolvedValueOnce(lastParent).mockResolvedValue(both);
+    inFamily({ familyMembers, deleteFamily: vi.fn(async () => { throw new ApiError("Only the last parent can delete the family", 409); }) });
+    await open();
+    await press("Delete this family");
+    await act(async () => { await f.alerts.at(-1)!.buttons.find((x) => x.style === "destructive")!.onPress!(); });
+    await act(async () => {});
+    expect(text()).toMatch(/Something here just changed/);
+    expect(text()).not.toMatch(/expired or been used/);
+    expect(f.baby.refresh).toHaveBeenCalled();
+    expect(button("Delete this family")).toBeUndefined();
+    expect(button("Leave this family")).toBeDefined();
+  });
+  it("notices someone joining while the screen stays open, without an error if that check fails", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const lastParent = { items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }] },
+        both = { items: [...lastParent.items, { app_user_id: "them", role: "parent", status: "active", access_version: 1, display_name: "Them" }] },
+        familyMembers = vi.fn().mockResolvedValueOnce(lastParent).mockRejectedValueOnce(new ApiError("Offline", 0)).mockResolvedValue(both);
+      inFamily({ familyMembers });
+      await open();
+      expect(button("Delete this family")).toBeDefined();
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      expect(text()).not.toMatch(/Offline/);
+      expect(button("Delete this family")).toBeDefined();
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      await act(async () => {});
+      expect(button("Delete this family")).toBeUndefined();
+      expect(button("Leave this family")).toBeDefined();
+    } finally { vi.useRealTimers(); }
   });
   it("offers the last parent Delete family with an export, not Leave", async () => {
     const b = inFamily({ familyMembers: vi.fn(async () => ({ items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }] })) });

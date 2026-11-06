@@ -77,7 +77,7 @@ export default function Settings() {
       {familyOpen(b.state.bootstrap) && <Section title="Family">
         <Grouped><Row title="Family" detail={familySpaces(b.state.bootstrap)[0]?.role === "caregiver" ? "You’re helping as a caregiver" : familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} /></Grouped>
       </Section>}
-      <Section title="Your little ones">
+      {(canAddBaby(b.state.bootstrap) || b.state.bootstrap!.children.some((child) => canChangeBaby(b.state.bootstrap, child))) && <Section title="Your little ones">
         <Grouped>{b.state.bootstrap!.children.filter((child) => canChangeBaby(b.state.bootstrap, child)).map((child) => (
           <Row
             key={child.id}
@@ -89,7 +89,7 @@ export default function Settings() {
           />
         ))}</Grouped>
         {canAddBaby(b.state.bootstrap) && <Button variant="ghost" title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />}
-      </Section>
+      </Section>}
       <View onLayout={event => setAiOffset(event.nativeEvent.layout.y)}>
       <Card tone="soft">
         <Copy kind="heading">Optional AI processing</Copy>
