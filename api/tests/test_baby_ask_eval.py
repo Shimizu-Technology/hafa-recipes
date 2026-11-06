@@ -562,3 +562,39 @@ async def test_a_record_claim_with_an_invented_id_fails_and_shows_only_the_plain
     invented = Scripted(answer_reply("9 poos", citation_ids=["00000000-0000-4000-8000-000000000000"]))
     result = await evaluation.evaluate_case(invented, case_named("totals_poos_week"), DATASET, "gpt-6-luna", "low", 1)
     assert result["failures"]["invented_citation"] and result["response_chars"] == len("I couldn't confirm that from your records.")
+
+
+# A gateway's passing 503 isn't billed and says nothing about the model, so it can't throw away a paid run.
+async def test_a_passing_503_is_retried_and_a_lasting_one_still_stops_the_run(monkeypatch):
+    import httpx
+
+    def sequence(*statuses):
+        remaining = list(statuses)
+
+        def handler(request):
+            status = remaining.pop(0)
+            return httpx.Response(status, json={"id": "r", "status": "completed", "usage": {"input_tokens": 1, "output_tokens": 1}, "output": []})
+
+        return handler, remaining
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(evaluation, "RETRY_SECONDS", 0)
+    body = {"max_output_tokens": 10}
+
+    handler, remaining = sequence(503, 502, 200)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(handler)))
+    provider = evaluation.OpenAIProvider("key")
+    assert (await provider.responses_call(capability="x", model="gpt-6-luna", prompt_version="v", body=body))["id"] == "r"
+    assert remaining == [] and len(provider.responses) == 1
+
+    handler, remaining = sequence(503, 503, 503)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(handler)))
+    with pytest.raises(httpx.HTTPStatusError):
+        await evaluation.OpenAIProvider("key").responses_call(capability="x", model="gpt-6-luna", prompt_version="v", body=body)
+
+    # Anything else is an answer about the request, and isn't tried again.
+    handler, remaining = sequence(400, 200)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(handler)))
+    with pytest.raises(httpx.HTTPStatusError):
+        await evaluation.OpenAIProvider("key").responses_call(capability="x", model="gpt-6-luna", prompt_version="v", body=body)
+    assert remaining == [200]

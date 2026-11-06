@@ -7,6 +7,7 @@ does with what it is given. Whether the server hands over the right rows is test
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import statistics
@@ -163,6 +164,10 @@ class WorldTools:
         return self.searched
 
 
+PASSING_FAILURES = frozenset({500, 502, 503, 504})
+EVAL_ATTEMPTS, RETRY_SECONDS = 3, 2
+
+
 class OpenAIProvider:
     """Same request shape as production, with no ledger: evaluation spend is bounded by the CLI."""
 
@@ -173,11 +178,16 @@ class OpenAIProvider:
     async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
         from app.domains.baby.provider import RESPONSES_URL
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(
-                RESPONSES_URL, headers={"Authorization": f"Bearer {self.api_key}"},
-                json={**body, "model": model, "store": False, "service_tier": "default"},
-            )
+        # Evaluation only. Production never retries: it fails closed. These aren't billed and say nothing about the model.
+        for attempt in range(1, EVAL_ATTEMPTS + 1):
+            async with httpx.AsyncClient(timeout=120) as client:
+                response = await client.post(
+                    RESPONSES_URL, headers={"Authorization": f"Bearer {self.api_key}"},
+                    json={**body, "model": model, "store": False, "service_tier": "default"},
+                )
+            if response.status_code not in PASSING_FAILURES or attempt == EVAL_ATTEMPTS:
+                break
+            await asyncio.sleep(RETRY_SECONDS)
         response.raise_for_status()
         data = response.json()
         if data.get("status") != "completed":
