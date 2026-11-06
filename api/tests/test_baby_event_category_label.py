@@ -33,8 +33,12 @@ def test_a_blank_label_is_no_label_and_an_event_without_one_stores_what_it_alway
     assert "category_label" not in EventData(timezone="Pacific/Guam").model_dump(mode="json")
 
 
-def test_a_label_has_a_limit():
+def test_a_label_has_a_limit_on_what_is_left_after_trimming():
     assert valid(category_label="x" * 60).data["category_label"] == "x" * 60
+    assert valid(category_label=f"  {'x' * 60}  ").data["category_label"] == "x" * 60
+    assert valid(**overrides(category_label=f" {'x' * 60} ")).data["exceptions"][0]["overrides"] == {"category_label": "x" * 60}
+    with pytest.raises(ValidationError):
+        valid(**overrides(category_label="x" * 61))
     with pytest.raises(ValidationError):
         valid(category_label="x" * 61)
     with pytest.raises(ValidationError):
@@ -49,6 +53,8 @@ def test_one_date_can_have_its_own_label_or_clear_it():
     data = valid(**overrides(category_label=" Car ")).data
     assert data["exceptions"][0]["overrides"] == {"category_label": "Car"}
     assert valid(**overrides(category_label=None)).data["exceptions"][0]["overrides"] == {"category_label": None}
+    # Blank means none, and a date that says so has cleared it.
+    assert valid(**overrides(category_label="   ")).data["exceptions"][0]["overrides"] == {"category_label": None}
 
 
 @needs_database
@@ -61,6 +67,15 @@ async def test_an_occurrence_carries_the_label_and_a_date_can_change_it(baby_api
     listed = await baby_api.client.get(f"{API}/events", params={"from": "2026-11-10", "to": "2026-11-11"}, headers=V2)
     assert listed.status_code == 200, listed.text
     assert [(item["category"], item["category_label"]) for item in listed.json()["items"]] == [("other", "Car"), ("other", "Tires")]
+
+
+@needs_database
+async def test_a_date_with_a_blank_label_reads_as_none(baby_api):
+    await allow_events(baby_api)
+    data = {**GUAM, "category": "other", "category_label": "Car", **overrides(category_label="  ")}
+    assert (await save(baby_api, "event", occurred_at=START, data=data))[0].status_code == 200
+    listed = await baby_api.client.get(f"{API}/events", params={"from": "2026-11-10", "to": "2026-11-11"}, headers=V2)
+    assert [item["category_label"] for item in listed.json()["items"]] == ["Car", None]
 
 
 @needs_database

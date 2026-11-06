@@ -418,6 +418,11 @@ def labels(values):
     return cleaned
 
 
+def trimmed_label(value):
+    """Before the length is checked, since that's what's kept. Blank means none."""
+    return value.strip() or None if isinstance(value, str) else value
+
+
 class EventRecurrence(DomainModel):
     frequency: Literal["daily", "weekly", "monthly", "yearly"]
     interval: Annotated[int, Field(strict=True, ge=1, le=99)] = 1
@@ -464,10 +469,15 @@ class EventOverrides(DomainModel):
             raise ValueError("Enter a title")
         return value.strip()
 
-    @field_validator("location", "category_label")
+    @field_validator("location")
     @classmethod
     def trimmed_location(cls, value):
         return value and value.strip()
+
+    @field_validator("category_label", mode="before")
+    @classmethod
+    def trimmed_label(cls, value):
+        return trimmed_label(value)
 
     @field_validator("attendees")
     @classmethod
@@ -525,10 +535,15 @@ class EventData(DomainModel):
         default_factory=list, max_length=5, exclude_if=lambda value: not value
     )
 
-    @field_validator("location", "category_label")
+    @field_validator("location")
     @classmethod
     def trimmed_location(cls, value):
         return value.strip() or None if value is not None else None
+
+    @field_validator("category_label", mode="before")
+    @classmethod
+    def trimmed_label(cls, value):
+        return trimmed_label(value)
 
     @field_validator("attendees")
     @classmethod
