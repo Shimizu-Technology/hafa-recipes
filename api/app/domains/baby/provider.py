@@ -107,6 +107,7 @@ class BabyProvider:
     def __init__(self, *, gate=None):
         self.gate = gate
         self.budget_error: BudgetError | None = None
+        self.old_path = False
 
     def _key(self, settings):
         if settings.environment == "production":
@@ -146,7 +147,7 @@ class BabyProvider:
         """Gate, reserve this one call, gate again: withdrawing consent stops the next call."""
         await self.admitted(capability)
         try:
-            await reserve_ask(capability, call)
+            await reserve_ask(capability, call, consent_only=self.old_path)
         except BudgetError as failure:
             self.budget_error = failure
             raise

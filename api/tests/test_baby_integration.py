@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
 from app.db.database import Base as SharedBase
-from app.domains.baby import attachments, security
+from app.domains.baby import ask_v2, attachments, security
 from app.domains.baby.models import (
     BabyAttachment,
     BabyImport,
@@ -36,11 +36,18 @@ DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 migration = importlib.import_module("migrations.050_add_baby_domain")
 GEN = {"X-Baby-Generation": "1"}
+OLD_PATH_REPLY = ask_v2.old_path_reply
+
+
+async def no_verdict_needed(provider, question):
+    return None
 
 
 @pytest.fixture
 async def baby_api(monkeypatch, request):
     require_disposable_test_database(DATABASE_URL)
+    # These tests fake the old path's answer. The check on it has its own tests, in test_baby_old_path_check.py.
+    monkeypatch.setattr(ask_v2, "old_path_reply", no_verdict_needed)
     engine = create_async_engine(DATABASE_URL)
     try:
         async with engine.begin() as connection:

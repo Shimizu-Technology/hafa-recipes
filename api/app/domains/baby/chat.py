@@ -1046,6 +1046,8 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             await checked_access(check)
 
     provider.gate = gate
+    provider.old_path = not use_v2
+    published = None
     try:
         with ai_request_context(
             request_id=str(body.request_id), user_id=user.id, job_id=None, route="/api/v1/baby/chat"
@@ -1085,16 +1087,23 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                         provider, body.message, result.model_copy(update={"message": clean_assistant_message(result.message)}), tools,
                     )
             else:
-                result = await provider.answer(
-                    message=body.message,
-                    context=context,
-                    history=history,
-                    now_local=now().astimezone(zone).isoformat(timespec="minutes"),
-                    context_pack=pack,
-                    requested_range=requested_range,
-                )
+                from app.domains.baby import ask_v2
+
+                # Word lists can't catch every way of saying it, so the old path gets the question check too.
+                published = await ask_v2.old_path_reply(provider, body.message)
+                if published:
+                    result, context, displays = AnswerOutput(message=published["message"]), [], {}
+                else:
+                    result = await provider.answer(
+                        message=body.message,
+                        context=context,
+                        history=history,
+                        now_local=now().astimezone(zone).isoformat(timespec="minutes"),
+                        context_pack=pack,
+                        requested_range=requested_range,
+                    )
         allowed = {item["id"]: item for item in context}
-        if use_v2:
+        if published:
             result = result.model_copy(update={"citation_ids": published["citation_ids"], "proposal": published["proposal"]})
         if any(identifier not in allowed for identifier in result.citation_ids):
             raise ValueError("Unsupported citation")
@@ -1109,7 +1118,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         ]
         proposal = offered_proposal(result.proposal) if use_v2 else legacy_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
-        if use_v2:
+        if published:
             payload.update(message=published["message"], sources=published["sources"], help=published["help"])
         access = await access_for(db, user.id, client=client,
                                   space_id=personal_space_id if access.enabled else None,

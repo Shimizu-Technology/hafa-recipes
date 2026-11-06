@@ -251,6 +251,8 @@ async def on_the_old_path(baby_api, stub, proposal):  # noqa: F811
 
     def medical(request):
         response = real(request)
+        if "chat/completions" not in str(request.url):
+            return response  # The question check, which has its own tests.
         reply = response.json()
         reply["choices"][0]["message"]["content"] = json.dumps({"message": "Old answer", "citation_ids": [], "proposal": proposal})
         return httpx.Response(200, json=reply)

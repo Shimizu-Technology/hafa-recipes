@@ -203,15 +203,19 @@ async def reserve(capability, model, *, images=False, duration=None, sessions=No
         await db.commit()
 
 
-async def reserve_ask(capability, call, *, sessions=None):
-    """Reserve one Ask call on its own ledger: same ceilings, per actor and global."""
+async def reserve_ask(capability, call, *, sessions=None, consent_only=False):
+    """Reserve one Ask call on its own ledger: same ceilings, per actor and global.
+
+    consent_only is the old path's question check. It goes to the provider her AI permission already covers, so it needs no flag.
+    """
     context = current_ai_context()
     if not context.user_id or capability not in ASK_CAPABILITIES:
         raise BudgetError("workouts_ai_budget_unavailable")
     amount = ask_upper_bound(call)
     async with (sessions or AsyncSessionLocal)() as db:
         member = await membership_for(db, context.user_id, write=True)
-        if not ask_v2_allowed(member.profile):
+        old_path_check = consent_only and capability == "baby_safety" and member.profile.get("ai_consent")
+        if not old_path_check and not ask_v2_allowed(member.profile):
             raise BudgetError("workouts_ai_budget_unavailable")
         await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
         total, owner_total, owner_count = await spent(db, context.user_id, BabyAIAdmission.capability.in_(ASK_CAPABILITIES))

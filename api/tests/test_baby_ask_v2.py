@@ -19,6 +19,7 @@ from tests import test_baby_integration as shared
 baby_api = shared.baby_api
 pytestmark = pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 HEADERS = {**shared.GEN, "X-Baby-Client": "2"}
+OLD_PATH_REPLY = shared.OLD_PATH_REPLY
 USAGE = {
     "input_tokens": 1000, "output_tokens": 50,
     "input_tokens_details": {"cached_tokens": 200}, "output_tokens_details": {"reasoning_tokens": 10},
@@ -100,6 +101,8 @@ async def stub(baby_api, monkeypatch):
     monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda self: True))
     monkeypatch.setattr(provider.BabyProvider, "_key", lambda self, _: "stub-key")
     monkeypatch.setattr(httpx, "AsyncHTTPTransport", lambda retries=0: httpx.MockTransport(lambda request: fake.handler(request)))
+    # The shared fixture answers the old path's check, for tests about other things. Here it's real, against this stub.
+    monkeypatch.setattr(ask_v2, "old_path_reply", OLD_PATH_REPLY)
     return fake
 
 
@@ -169,7 +172,9 @@ async def test_everyone_else_stays_on_the_old_path(baby_api, stub, case):
     assert result.json()["message"] == "Old path answer"
     assert stub.urls == ["https://api.openai.com/v1/chat/completions"]
     async with baby_api.sessions() as db:
-        assert await db.scalar(select(BabyAIAdmission.capability)) == "baby_chat"
+        # The old answer, and the one question check it now gets ahead of it.
+        assert sorted(await db.scalars(select(BabyAIAdmission.capability))) == ["baby_chat", "baby_safety"]
+    assert len(stub.checks) == 1 and stub.checks[0]["instructions"] == ask_check.QUESTION_PROMPT
 
 
 async def test_an_older_questions_retry_still_matches_after_this_field_exists(baby_api, stub):

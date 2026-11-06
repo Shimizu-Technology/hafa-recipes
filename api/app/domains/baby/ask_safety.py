@@ -72,10 +72,11 @@ HARM_WORDS = re.compile(
     r"|\b(scared|afraid)\b[^.!?\n]{0,25}\b(lose control|hit (her|him|the baby))\b"
     r"|\b(don't|do not) want to (be here|live|wake up)\b"
     r"|\bend (my life|it all)\b"
-    r"|\bbetter off without me\b"
+    r"|\bbetter (?:off )?without me\b"
+    r"|\bshook (?:him|her|them|the baby|my baby|baby|my son|my daughter)\b"
     r"|\bthoughts? of (harm\w*|hurt\w*|kill\w*)\b"
     # Losing touch with reality is an emergency after birth, and gets the same numbers.
-    r"|\b(hearing voices|voices (telling|saying|say|tell)|seeing things)\b|\bcan't tell what's real\b|\bbaby (isn't|is not) (mine|real)\b|\bnot my (real )?baby\b",
+    r"|\b(hearing (a )?voices?|voices? (telling|saying|say|tell)|seeing things)\b|\bbaby is (evil|possessed|cursed|the devil)\b|\bcan't tell what's real\b|\bbaby (isn't|is not) (mine|real)\b|\bnot my (real )?baby\b",
     re.I,
 )
 HIGH_TEMPERATURE = r"(?:3[89]|4[0-2]|100\.[4-9]|10[1-9])(?:\.\d)?"
@@ -100,10 +101,19 @@ MATERNAL_SIGNS = re.compile(
     r"|\b(fluid|water)\b[^.!?\n]{0,15}\b(leak\w*|broke|gush\w*|trickl\w*)\b|\bleaking\b[^.!?\n]{0,15}\bfluid\b"
     r"|\b(foul|smell\w*)\b[^.!?\n]{0,15}\bdischarge\b|\bdischarge\b[^.!?\n]{0,15}\b(foul|smell\w*)\b"
     r"|\b(leg|calf|arm)\b[^.!?\n]{0,30}\b(swollen|swell\w*|red|redness|severe)\b"
-    r"|\boverwhelming (tired\w*|exhaust\w*|fatigue)\b",
+    r"|\boverwhelming (tired\w*|exhaust\w*|fatigue)\b"
+    # Forms that got past this list on the old path. Waters, preeclampsia, early labor, and fever with a stiff neck.
+    r"|\b(undies|underwear|panties|pants|leggings)\b[^.!?\n]{0,25}\bwet\b[^.!?\n]{0,25}\b(water|fluid)\b"
+    r"|\b(face|hands?)\b[^.!?\n]{0,20}\bpuffy\b|\bpain\b[^.!?\n]{0,15}\b(under|below)\b[^.!?\n]{0,10}\bribs?\b"
+    r"|\b(tighten\w*|contractions?)\b[^.!?\n]{0,25}\bevery\s+\d+\s*min"
+    r"|\bfever\b[^.!?\n]{0,25}\bstiff neck\b|\bstiff neck\b[^.!?\n]{0,25}\bfever\b|\b(i'm|im) not making sense\b",
     re.I,
 )
-BABY_WORDS = re.compile(r"\b(my baby|the baby|baby|newborn|infant|nene|neni|she|shes|he|hes|her|him|daughter|son)\b", re.I)
+BABY_WORDS = re.compile(
+    r"\b(my baby|the baby|baby|newborn|infant|nene|neni|she|shes|he|hes|her|him|daughter|son)\b"
+    r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
+    re.I,
+)
 BABY_UNWELL_WORDS = re.compile(
     r"\b(floppy|limp|lethargic|unresponsive|won't wake|wont wake|hard to wake|not waking|can't wake|turning blue|blue lips|lips? (?:is |are |look |looks )?(?:blue|dusky)|dusky|gasping|"
     r"lips? (?:look |looks )?(?:grey|gray)|breathing funny|grunting|sucking in|barely breathing|can't get \w+ ?\w* to wake|went stiff|jerking|"
@@ -112,8 +122,8 @@ BABY_UNWELL_WORDS = re.compile(
     r"can't breathe|cannot breathe|can not breathe|breathing problems?|choking|seizure\w*|convuls\w*|"
     r"(?:fell|fall|fallen|falling)(?! asleep)|hit (her|his|their) head|burned|burnt|bleeding|is hurt|got hurt|injur\w*|"
     r"fever\w*|very sick|really sick|seems sick|won't eat|refusing to eat|not eating|not feeding|won't stop crying|inconsolable|"
-    r"(?:no|not had a|hasn't had a|hasn't had any|without a) (?:wet|pee) diapers?|hasn't peed|dehydrat\w*|vomiting|throwing up|malangu|malångu)\b"
-    rf"|\b(temp|temperature)\b[^.!?\n]{{0,25}}\b{HIGH_TEMPERATURE}",
+    r"(?:no|not had a|hasn't had a|hasn't had any|without a|only one|only 1) (?:wet|pee) (?:diapers?|napp(?:y|ies))|hasn't peed|won't respond|dehydrat\w*|vomiting|throwing up|malangu|malångu)\b"
+    rf"|\b(temp|temperature|rectal\w*|forehead|armpit|underarm)\b[^.!?\n]{{0,25}}\b{HIGH_TEMPERATURE}",
     re.I,
 )
 MENTAL_HEALTH_WORDS = re.compile(

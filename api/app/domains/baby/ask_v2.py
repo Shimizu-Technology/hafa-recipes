@@ -177,6 +177,14 @@ async def question_reply(provider, question, *, model=None, effort=None):
 
 async def checked_answer_reply(provider, question, result, tools, *, model=None, effort=None):
     """What publishes: the model's answer only if the check read it, and only if it passed."""
+async def old_path_reply(provider, question):
+    """What the old path takes from the check: urgent gets the fixed reply, and no verdict gets no answer. The rest is Ask's."""
+    from app.domains.baby.ask_safety import MESSAGES
+
+    reply = await question_reply(provider, question)
+    return reply if reply and (reply["help"] in MESSAGES or reply.get("check_failed")) else None
+
+
     from app.domains.baby.ask_check import CheckFailed, check_answer
     from app.domains.baby.ask_research import strings_in
     from app.domains.baby.ask_safety import (
