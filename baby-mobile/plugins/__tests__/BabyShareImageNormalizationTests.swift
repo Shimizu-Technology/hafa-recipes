@@ -127,10 +127,10 @@ struct BabyShareImageNormalizationTests {
         throw Failure.contract
       } catch BabyShareImageNormalization.InvalidImage.invalid { cases += 1 }
     }
-    for bytes in [Data([1, 2, 3]), Data(count: BabyShareImageNormalization.maxInputBytes + 1)] {
-      do { _ = try BabyShareImageNormalization.normalize(bytes: bytes); throw Failure.contract }
-      catch BabyShareImageNormalization.InvalidImage.invalid { cases += 1 }
-    }
+    do { _ = try BabyShareImageNormalization.normalize(bytes: Data([1, 2, 3])); throw Failure.contract }
+    catch BabyShareImageNormalization.InvalidImage.invalid { cases += 1 }
+    do { _ = try BabyShareImageNormalization.normalize(bytes: Data(count: BabyShareImageNormalization.maxInputBytes + 1)); throw Failure.contract }
+    catch BabyShareImageNormalization.InvalidImage.tooBig { cases += 1 }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -142,7 +142,7 @@ struct BabyShareImageNormalizationTests {
     try handle.truncate(atOffset: UInt64(BabyShareImageNormalization.maxInputBytes + 1))
     try handle.close()
     do { _ = try BabyShareImageNormalization.normalize(fileURL: file); throw Failure.contract }
-    catch BabyShareImageNormalization.InvalidImage.invalid { cases += 1 }
+    catch BabyShareImageNormalization.InvalidImage.tooBig { cases += 1 }
     print("Baby image normalization: \(cases) native ImageIO cases passed")
   }
 }

@@ -26,6 +26,8 @@
           }
         }
       )
+    } catch BabyShareImageNormalization.InvalidImage.tooBig {
+      self.showBabyProblem(.tooBig)
     } catch {
       self.dismissWithError(message: "Could not share all selected images. Try sharing them again.")
     }

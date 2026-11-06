@@ -3,7 +3,8 @@ import Foundation
 // Every message the share sheet can show, with the rule for choosing it. Foundation only, so it runs
 // on a Mac in the native tests. The words never say "source", "original", "import" or "processed".
 enum BabyShareSheetState: Equatable {
-  case saving, saved, organizing, family, waiting, notSignedIn, notConnected, stillWorking, failed
+  case saving, saved, organizing, family, waiting, notSignedIn, notConnected, stillWorking
+  case failed, tooBig, tooManyPhotos, oneLink, oneAtATime, unsupported, locked
 
   struct Words: Equatable {
     let title: String
@@ -33,6 +34,12 @@ enum BabyShareSheetState: Equatable {
     // Nothing here says anything's saved, because nothing is yet.
     case .stillWorking: return Words(title: "Still working on this", detail: "You can stop and share it again later.", closesItself: false)
     case .failed: return Words(title: "Couldn’t save this", detail: "Try sharing it again.", closesItself: false)
+    case .tooBig: return Words(title: "This file is too big", detail: "Håfa Baby takes files up to 25 MB.", closesItself: false)
+    case .tooManyPhotos: return Words(title: "Too many photos", detail: "Share up to 4 at a time.", closesItself: false)
+    case .oneLink: return Words(title: "One link at a time", detail: "Share them one by one.", closesItself: false)
+    case .oneAtATime: return Words(title: "One thing at a time", detail: "Share them one by one.", closesItself: false)
+    case .unsupported: return Words(title: "This kind of file won’t work", detail: "Håfa Baby takes links, photos, videos, PDFs and audio.", closesItself: false)
+    case .locked: return Words(title: "Your phone locked", detail: "Unlock it and share this again.", closesItself: false)
     }
   }
 
@@ -46,6 +53,30 @@ enum BabyShareSheetState: Equatable {
     // Who can see it matters more than that it'll be organized.
     if isFamily(scope) { return .family }
     return status == "saved" ? .saved : .organizing
+  }
+
+  var isProblem: Bool {
+    switch self {
+    case .failed, .tooBig, .tooManyPhotos, .oneLink, .oneAtATime, .unsupported, .locked: return true
+    default: return false
+    }
+  }
+
+  // The same rule as lib/file-type.ts and lib/files.ts, asked before a file is copied. What the app would refuse
+  // must never get into the queue, where it would hold up every share behind it and could never succeed.
+  static let maxFileBytes = 25 * 1024 * 1024
+  private static let fileExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "pdf", "mp4", "mov", "webm", "3gp", "m4v", "mp3", "m4a", "aac", "wav", "ogg"]
+  static func refusal(mimeType: String?, name: String?, size: Int?) -> BabyShareSheetState? {
+    let mime = mimeType?.components(separatedBy: ";")[0].trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+    let supported: Bool
+    if !mime.isEmpty, mime != "application/octet-stream" {
+      supported = mime == "application/pdf" || (["image/", "video/", "audio/"].contains { mime.hasPrefix($0) && mime.count > $0.count && !mime.contains("*") })
+    } else {
+      supported = fileExtensions.contains(name?.components(separatedBy: ".").last?.lowercased() ?? "")
+    }
+    if !supported { return .unsupported }
+    if let size, size > maxFileBytes { return .tooBig }
+    return nil
   }
 
   // `owner:generation:personal`, `owner:generation:<family uuid>`, or `owner:generation` from before spaces.

@@ -76,6 +76,12 @@ final class BabyShareStore {
     let lock = try Lease(root.appendingPathComponent("store.lock"), exclusive: true)
     return try withExtendedLifetime(lock) { try work() }
   }
+  // Complete protection refuses even a read once the phone is locked. Only asked after something has already failed.
+  func protectedDataClosed() -> Bool {
+    let descriptor = Darwin.open(root.appendingPathComponent("store.lock").path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+    if descriptor >= 0 { Darwin.close(descriptor); return false }
+    return errno == EPERM || errno == EACCES
+  }
   private func directory(_ id: String) throws -> URL {
     guard UUID(uuidString: id) != nil, !id.contains("/") else { throw Failure.invalid }
     return captures.appendingPathComponent(id, isDirectory: true)

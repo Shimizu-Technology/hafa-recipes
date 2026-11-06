@@ -41,3 +41,25 @@
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finishConfirmation() }
     }
   }
+  private func dismissWithError(message: String? = nil) {
+    // Every path left from the library ends here, some carrying private detail. None of it is shown or logged.
+    showBabyProblem(.failed)
+  }
+  private func showBabyProblem(_ state: BabyShareSheetState) {
+    DispatchQueue.main.async { [self] in
+      // The first answer stands. A provider answering after Stop or the time limit has nothing more to say.
+      guard !captureConfirmationFinished else { return }
+      abortBabyShare()
+      captureConfirmationFinished = true
+      showBabySheet(state == .failed && babyPhoneLocked() ? .locked : state)
+    }
+  }
+  // Complete protection keeps the store closed while the phone is locked. The share is still in the app it came from.
+  private func babyPhoneLocked() -> Bool {
+    (babyProducer?.storage ?? (try? babyShareStore()))?.protectedDataClosed() == true || BabyShareSession.protectedDataClosed()
+  }
+  private func babyFileFits(name: String, mimeType: String, size: Int?) -> Bool {
+    guard let refusal = BabyShareSheetState.refusal(mimeType: mimeType, name: name, size: size) else { return true }
+    showBabyProblem(refusal)
+    return false
+  }
