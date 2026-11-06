@@ -3,16 +3,17 @@
 import asyncio
 import base64
 import re
+from contextlib import asynccontextmanager
 from urllib.parse import urljoin
 
 import httpx
 
 from app.http_limits import MAX_REMOTE_IMAGES_TOTAL_BYTES, get_limited
-from app.image_validation import normalize_thumbnail_image, validate_image_bytes
+from app.image_validation import normalize_model_image
 from app.security import PublicHTTPTransport, assert_public_http_url
 
-# 35 slides at 1600px is well below the model's image/context limits. Keep the
-# normalized payload below 12MiB (16MiB base64); downloaded bytes below 40MiB.
+# At most 35 slides, subject to 40MiB downloaded, 12MiB normalized and the
+# deadline. Larger/heavier posts may be partial; every omission is disclosed.
 MAX_PHOTO_IMAGES = 35
 MAX_PHOTO_PAYLOAD_BYTES = 12 * 1024 * 1024
 PHOTO_ERROR_CODES = frozenset({
@@ -27,9 +28,19 @@ class PhotoSourceError(ValueError):
 
     def __init__(self, code, *, stage="metadata", exception_type="PhotoSourceError"):
         self.code = code if code in PHOTO_ERROR_CODES else "SOURCE_UNAVAILABLE"
-        self.stage = stage if stage in {"metadata", "page_read", "page_shape", "page_maintenance"} else "metadata"
+        self.stage = stage if stage in {"metadata", "page_read", "page_shape", "page_status", "page_maintenance"} else "metadata"
         self.exception_type = exception_type if isinstance(exception_type, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", exception_type) else "PhotoSourceError"
         super().__init__(self.code)
+
+
+@asynccontextmanager
+async def photo_media_slot(service):
+    from app.services.video import MediaCapacityExceeded
+    try:
+        async with service._media_slot():
+            yield
+    except MediaCapacityExceeded:
+        raise PhotoSourceError("MEDIA_BUSY", exception_type="MediaCapacityExceeded") from None
 
 
 def parse_tiktok_photo(item, identifier):
@@ -68,17 +79,18 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
     images, notes, completed = [], [], {}
     download_budget = MAX_REMOTE_IMAGES_TOTAL_BYTES
     normalized_bytes = 0
+    normalized_limited = False
     parallel = asyncio.Semaphore(2)
     from app.services.video import public_video_service
 
     try:
         async with asyncio.timeout(max(0, deadline - asyncio.get_running_loop().time())):
-            async with public_video_service._media_slot(), httpx.AsyncClient(
+            async with photo_media_slot(public_video_service), httpx.AsyncClient(
                 timeout=25, follow_redirects=False, max_redirects=5, trust_env=False,
                 transport=PublicHTTPTransport(), headers={"Referer": referer},
             ) as client:
                 async def read_slide(index, mirrors):
-                    nonlocal download_budget, normalized_bytes
+                    nonlocal download_budget, normalized_bytes, normalized_limited
                     async with parallel:
                         for url in mirrors[:3]:
                             remaining = deadline - asyncio.get_running_loop().time()
@@ -102,14 +114,12 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
                                         await assert_public_http_url(url)
                                     download_budget += cap - len(response.content)
                                     response.raise_for_status()
-                                    valid = validate_image_bytes(
+                                    image = await normalize_model_image(
                                         response.content, max_bytes=4 * 1024 * 1024,
                                         declared_content_type=response.headers.get("content-type"),
                                     )
-                                    # The central 40MP/12000px limit applies before
-                                    # decoding. Model images fit below the 4MP limit.
-                                    image = normalize_thumbnail_image(valid, max_dimension=1600)
                                     if normalized_bytes + len(image.data) > MAX_PHOTO_PAYLOAD_BYTES:
+                                        normalized_limited = True
                                         break
                                     normalized_bytes += len(image.data)
                                     completed[index] = base64.b64encode(image.data).decode("ascii")
@@ -133,6 +143,10 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
         notes.insert(0, f"Read {len(images)} of {len(slides)} slides; {len(slides) - len(images)} slides were left out.")
     if len(slides) > MAX_PHOTO_IMAGES:
         notes.insert(0, f"Only the first {MAX_PHOTO_IMAGES} of {len(slides)} slides were read; remaining slides were left out.")
+    if download_budget <= 0 and len(images) < min(len(slides), MAX_PHOTO_IMAGES):
+        notes.append("Image downloads reached the 40 MiB limit; some slides may be missing.")
+    if normalized_limited:
+        notes.append("Normalized images reached the 12 MiB limit; some slides may be missing.")
     return images, notes
 
 

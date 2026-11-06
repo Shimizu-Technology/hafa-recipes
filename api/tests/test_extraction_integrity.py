@@ -665,3 +665,39 @@ async def test_photo_fetch_exception_preserves_approved_failure_code(monkeypatch
     monkeypatch.setattr("app.services.extractor.video_service.fetch_photo_post", AsyncMock(side_effect=PhotoSourceError("RATE_LIMITED")))
     result = await RecipeExtractor()._extract_from_tiktok_photo("https://www.tiktok.com/@cook/photo/123")
     assert not result.success and result.error_code == "RATE_LIMITED"
+
+
+@pytest.mark.parametrize("caption", ["Thin caption", "Ingredients: 1 cup rice and 2 cups water. Boil water, add rice and simmer for 20 minutes."])
+async def test_busy_photo_images_preserve_caption_and_retryable_failure(monkeypatch, caption):
+    from unittest.mock import Mock
+
+    from app.services.photo_posts import PhotoSourceError
+    monkeypatch.setattr("app.services.extractor.video_service.fetch_photo_post", AsyncMock(return_value={
+        "title":"Rice", "description":caption, "uploader":"Creator", "slides":[["https://cdn.example/one"]]}))
+    monkeypatch.setattr("app.services.photo_posts.download_photo_images", AsyncMock(side_effect=PhotoSourceError("MEDIA_BUSY")))
+    sentry=Mock()
+    monkeypatch.setattr("app.services.extractor.sentry_sdk.capture_exception",sentry)
+    text=AsyncMock(return_value=ExtractionResult(success=True, recipe=_complete_recipe()))
+    monkeypatch.setattr("app.services.extractor.llm_service.extract_recipe",text)
+    result=await RecipeExtractor()._extract_from_tiktok_photo("https://www.tiktok.com/@creator/photo/123")
+    assert result.raw_text==caption
+    if caption=="Thin caption":
+        assert not result.success and result.error_code=="MEDIA_BUSY"
+        text.assert_not_awaited()
+    else:
+        assert result.success and result.low_confidence and result.extraction_method=="photo_caption"
+        assert "busy" in str(result.source_evidence["coverageNotes"])
+    sentry.assert_not_called()
+
+
+async def test_partial_photo_warning_survives_successful_recipe_extraction(monkeypatch):
+    monkeypatch.setattr("app.services.extractor.video_service.fetch_photo_post", AsyncMock(return_value={
+        "title":"Rice", "description":"Creator caption", "uploader":"Creator", "slides":[[],["https://cdn.example/two"]]}))
+    warning="Read 1 of 2 slides; 1 slides were left out."
+    monkeypatch.setattr("app.services.photo_posts.download_photo_images", AsyncMock(return_value=([(1,"fixture")],[warning])))
+    vision=AsyncMock(return_value=ExtractionResult(success=True,recipe=_complete_recipe()))
+    monkeypatch.setattr("app.services.extractor.llm_service.extract_from_tiktok_slideshow",vision)
+    result=await RecipeExtractor()._extract_from_tiktok_photo("https://www.tiktok.com/@creator/photo/123")
+    assert result.success and result.low_confidence and warning in result.confidence_warning
+    assert warning in result.source_evidence["coverageNotes"]
+    assert warning in vision.await_args.kwargs["source_context"]

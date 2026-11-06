@@ -415,3 +415,14 @@ def test_impersonating_native_hls_does_not_connect_to_private_segments_or_keys(c
     assert "169.254.169.254" in lookups
     assert len(server.requests) == (1 if kind == "segment" else 2)
     assert not server.errors
+
+
+def test_cookie_free_impersonated_platform_never_reuses_response_cookie(curl_wire):
+    start, _, _ = curl_wire
+    def reply(path):
+        return (302,{"Location":"/caption","Set-Cookie":"session=synthetic-secret; Secure; Path=/"},b"") if path=="/start" else (200,{},b"caption")
+    server=start(reply=reply)
+    with public.PublicYoutubeDL({"quiet":True,"public_photo_no_cookies":True,"http_headers":{"Cookie":"configured=private"}}) as dl:
+        with browser_request(dl,f"https://source.test:{server.port}/start") as response:
+            assert response.read()==b"caption"
+    assert len(server.requests)==2 and all(b"Cookie:" not in request for request in server.requests)

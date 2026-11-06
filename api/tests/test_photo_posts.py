@@ -31,7 +31,7 @@ def test_locked_sdk_photo_shape_and_order():
 
 async def test_mirror_partial_order_downscale_and_cookie_free_redirect(monkeypatch):
     output = io.BytesIO()
-    Image.new("RGB", (1800, 1800), "white").save(output, format="PNG")
+    Image.new("RGB", (2160, 2880), "white").save(output, format="PNG")
     requests = []
 
     def handler(request):
@@ -50,8 +50,11 @@ async def test_mirror_partial_order_downscale_and_cookie_free_redirect(monkeypat
     assert [index for index, _ in images] == [0, 2]
     import base64
     with Image.open(io.BytesIO(base64.b64decode(images[0][1]))) as image:
-        assert image.size == (1600, 1600)
+        assert image.size == (1200, 1600)
     assert notes == ["Read 2 of 3 slides; 1 slides were left out.", "Slide 2 could not be read; its details may be missing."]
+    guarded = [call.args[0] for call in photos.assert_public_http_url.await_args_list]
+    assert all(str(request.url) in guarded for request in requests)
+    assert "https://cdn.example/missing" in guarded
     assert all(r.headers["referer"] == "https://www.tiktok.com/" for r in requests)
 
 
@@ -296,3 +299,140 @@ async def test_page_cookie_cannot_reach_same_host_image_or_cdn_redirect(monkeypa
         images, notes = await photos.download_photo_images([["https://www.tiktok.com/slide"]])
         assert images and not notes
     assert not list(dl.cookiejar) and visited == ["www.tiktok.com", "cdn.example"]
+
+@pytest.mark.parametrize("status,code", [(10216,"VIDEO_PRIVATE"),(10222,"VIDEO_PRIVATE"),(10204,"ACCESS_DENIED"),(99999,"SOURCE_UNAVAILABLE")])
+def test_tiktok_status_is_not_treated_as_success_or_shape_drift(monkeypatch, capsys, status, code):
+    import json
+
+    from yt_dlp.extractor.tiktok import TikTokIE
+    monkeypatch.setattr(TikTokIE,"_extract_web_data_and_status",lambda *a,**k:(item(),status))
+    assert public_ytdlp.main(["--public-photo-json","https://www.tiktok.com/@creator/photo/123"])==1
+    result=json.loads(capsys.readouterr().out)
+    assert result["error_code"]==code and result["stage"]=="page_status" and "slides" not in result
+
+
+def test_explicit_deleted_status_and_http_rate_limit_keep_typed_cause(monkeypatch, capsys):
+    import json
+
+    from yt_dlp.extractor.tiktok import TikTokIE
+    from yt_dlp.utils import ExtractorError
+    monkeypatch.setattr(TikTokIE,"_get_universal_data",lambda *a:{"webapp.video-detail":{"statusMsg":"status_deleted"}})
+    def deleted(self,*args):
+        self._get_universal_data("fixture","123")
+        return None,10204
+    monkeypatch.setattr(TikTokIE,"_extract_web_data_and_status",deleted)
+    assert public_ytdlp.main(["--public-photo-json","https://www.tiktok.com/@creator/photo/123"])==1
+    assert json.loads(capsys.readouterr().out)["error_code"]=="VIDEO_REMOVED"
+    def limited(*args): raise ExtractorError("HTTP Error 429: private fixture text")
+    monkeypatch.setattr(TikTokIE,"_extract_web_data_and_status",limited)
+    assert public_ytdlp.main(["--public-photo-json","https://www.tiktok.com/@creator/photo/123"])==1
+    output=capsys.readouterr().out
+    assert json.loads(output)["error_code"]=="RATE_LIMITED" and "private fixture" not in output
+
+
+def test_maintenance_with_challenge_markers_is_left_for_sdk_solver():
+    with public_ytdlp.TikTokPhotoYoutubeDL({"quiet":True}) as dl:
+        dl._check_page_payload(b'<html><title>Site Maintenance</title><div id="cs" class="challenge"></div><div id="wci"></div></html>')
+        with pytest.raises(public_ytdlp.TikTokPhotoReadError):
+            dl._check_page_payload(b'<html><title>Site Maintenance</title></html>')
+
+
+async def test_busy_metadata_slot_is_retryable_without_starting_child(monkeypatch):
+    import asyncio
+
+    from app.services.video import VideoService
+    service=VideoService(media_slots=asyncio.Semaphore(0),queue_timeout_seconds=.01)
+    child=AsyncMock(side_effect=AssertionError("Busy slot must not start a downloader"))
+    monkeypatch.setattr("app.services.video.asyncio.create_subprocess_exec",child)
+    with pytest.raises(photos.PhotoSourceError) as raised:
+        await service.fetch_photo_post("https://www.tiktok.com/@creator/photo/123")
+    assert raised.value.code=="MEDIA_BUSY"
+    child.assert_not_awaited()
+
+
+async def test_malformed_cover_keeps_photo_metadata_caption_and_remaining_slides(monkeypatch):
+    from app.services.video import VideoService
+    service=VideoService()
+    monkeypatch.setattr(service,"fetch_photo_post",AsyncMock(return_value={"title":"Checklist","description":"Caption","uploader":"Creator",
+        "slides":[[],["https://cdn.example/second"]]}))
+    result=await service.get_video_metadata_ytdlp("https://www.tiktok.com/@creator/photo/123")
+    assert result.description=="Caption" and result.thumbnail=="https://cdn.example/second"
+    assert result.photo_slides==[[],["https://cdn.example/second"]]
+
+
+async def test_instagram_video_uses_existing_metadata_path_before_anonymous_photo_read(monkeypatch):
+    from app.services.video import VideoMetadata, VideoService
+    service=VideoService()
+    legacy=AsyncMock(return_value=VideoMetadata(title="Video",description="Caption",duration=12))
+    photo=AsyncMock(side_effect=AssertionError("Do not try anonymous photo first"))
+    monkeypatch.setattr(service,"_get_video_metadata_ytdlp",legacy)
+    monkeypatch.setattr(service,"fetch_photo_post",photo)
+    result=await service.get_video_metadata_ytdlp("https://www.instagram.com/p/Synthetic/")
+    assert result.duration==12 and legacy.await_count==1
+    photo.assert_not_awaited()
+
+
+async def test_vt_short_link_is_resolved_before_photo_detection(monkeypatch):
+    from app.services.extractor import RecipeExtractor
+    from app.services.video import VideoService
+    canonical="https://www.tiktok.com/@creator/photo/123"
+    def handler(request):
+        return httpx.Response(302,headers={"location":canonical}) if request.url.host=="vt.tiktok.com" else httpx.Response(200)
+    monkeypatch.setattr("app.services.video.PublicHTTPTransport",lambda:httpx.MockTransport(handler))
+    assert await VideoService.normalize_url("https://vt.tiktok.com/Synthetic/")==canonical
+    reader=AsyncMock(return_value="photo result")
+    monkeypatch.setattr(RecipeExtractor,"_extract_from_tiktok_photo",reader)
+    assert await RecipeExtractor().extract("https://vt.tiktok.com/Synthetic/")=="photo result"
+    assert reader.await_args.kwargs["url"]==canonical
+
+async def test_audio_keeps_its_deadline_and_photo_cap_does_not_widen_uploads(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from pydantic import ValidationError
+
+    from app.domains.workouts.extraction import (
+        MAX_IMAGES,
+        MAX_PHOTO_IMAGES,
+        SYSTEM_PROMPT,
+        ExtractionRequest,
+        ProductionSourceAcquirer,
+        SourceBundle,
+        SourceMetadata,
+        provider_messages,
+    )
+    assert (MAX_IMAGES,MAX_PHOTO_IMAGES)==(8,35)
+    images=[{"base64_data":"fixture","mime_type":"image/png"}]*8
+    assert len(ExtractionRequest(kind="images",images=images,ai_consent=True).images)==8
+    with pytest.raises(ValidationError):
+        ExtractionRequest(kind="images",images=images+[images[0]],ai_consent=True)
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@creator/video/123"))
+    assert provider_messages(source)[0]["content"]==SYSTEM_PROMPT
+    source.photo_slides=[["https://cdn.example/one"]]
+    assert "every supplied photo" in provider_messages(source)[0]["content"]
+    source.photo_slides=None
+    service=SimpleNamespace(is_tiktok_photo_post=lambda _:False,
+        extract_video_frames=AsyncMock(return_value=SimpleNamespace(success=False,frames=[],error_code="NO_VIDEO_FRAMES")))
+    acquirer=ProductionSourceAcquirer(video_service=service)
+    audio=AsyncMock()
+    monkeypatch.setattr(acquirer,"_audio",audio)
+    deadline=asyncio.get_running_loop().time()+90
+    await acquirer.acquire_media(source,None,deadline=deadline)
+    assert audio.await_args.args[-1]==deadline
+
+async def test_photo_media_retry_retains_newly_read_caption_and_photo_identity(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.domains.workouts.extraction import (
+        ProductionSourceAcquirer,
+        SourceBundle,
+        SourceMetadata,
+    )
+    service=SimpleNamespace(is_tiktok_photo_post=lambda _:True,
+        fetch_photo_post=AsyncMock(return_value={"title":"Checklist","description":"Newly available caption","uploader":"Creator","slides":[["https://cdn.example/one"]]}))
+    monkeypatch.setattr(photos,"download_photo_images",AsyncMock(return_value=([(0,"fixture")],[])))
+    source=SourceBundle(SourceMetadata(url="https://www.tiktok.com/@creator/photo/123",platform="tiktok"))
+    await ProductionSourceAcquirer(video_service=service).acquire_media(source,None)
+    assert source.photo_slides==[["https://cdn.example/one"]]
+    assert source.parts[0].text=="Newly available caption" and source.metadata.title=="Checklist"
+    assert source.images[0].normalized

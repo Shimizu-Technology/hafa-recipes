@@ -319,7 +319,8 @@ class TikTokPhotoYoutubeDL(PhotoYoutubeDL):
         pass  # Never persist this page session, even if SDK options change.
 
     def _check_page_payload(self, payload):
-        if b"site maintenance" in payload.lower() and b"__UNIVERSAL_DATA_FOR_REHYDRATION__" not in payload:
+        challenge = re.search(rb'<[^>]+\bid=[\"\x27](?:cs|wci)[\"\x27]', payload, re.I)
+        if not challenge and b"site maintenance" in payload.lower() and b"__UNIVERSAL_DATA_FOR_REHYDRATION__" not in payload:
             raise TikTokPhotoReadError("page_maintenance", "SiteMaintenance")
 
     def close(self):
@@ -332,30 +333,51 @@ class TikTokPhotoYoutubeDL(PhotoYoutubeDL):
 class TikTokPhotoReadError(ValueError):
     """Content-free final stage, after one retry within the import deadline."""
 
-    def __init__(self, stage, exception_type):
+    def __init__(self, stage, exception_type, code="SOURCE_RESPONSE_INVALID"):
         self.stage, self.exception_type = stage, exception_type
-        super().__init__("SOURCE_RESPONSE_INVALID")
+        self.code = code
+        super().__init__(code)
 
 
 def _read_tiktok_photo(downloader, url, identifier):
     from yt_dlp.extractor.tiktok import TikTokIE
 
     from app.services.photo_posts import parse_tiktok_photo
+    from app.services.video import get_friendly_video_error
+
+    class PhotoTikTokIE(TikTokIE):
+        status_message = ""
+        def _get_universal_data(self, webpage, display_id):
+            data = super()._get_universal_data(webpage, display_id)
+            detail = data.get("webapp.video-detail") or {}
+            self.status_message = detail.get("statusMsg") or detail.get("statusMessage") or ""
+            return data
 
     # Keep TikTok's newly issued session cookies for the retry, but never beyond
     # this downloader. The parent subprocess deadline bounds both attempts.
     for attempt in range(2):
         stage = "page_read"
         try:
-            item, status = TikTokIE(downloader)._extract_web_data_and_status(url, identifier)
+            extractor = PhotoTikTokIE(downloader)
+            item, status = extractor._extract_web_data_and_status(url, identifier)
             stage = "page_shape"
             if status != 0:
-                raise ValueError("Photo unavailable")
+                code = {10216: "VIDEO_PRIVATE", 10222: "VIDEO_PRIVATE", 10204: "ACCESS_DENIED"}.get(status, "SOURCE_UNAVAILABLE")
+                # 10204 is ambiguous (IP denial OR removed content). Only an
+                # explicit source status message justifies saying it was removed.
+                message = str(extractor.status_message).lower()
+                if status == 10204 and message in {"status_deleted", "item doesn't exist", "video doesn't exist"}:
+                    code = "VIDEO_REMOVED"
+                raise TikTokPhotoReadError("page_status", "TikTokStatus", code)
             return parse_tiktok_photo(item, identifier)
         except Exception as exc:
-            if attempt:
+            if attempt or getattr(exc, "code", None) in {"VIDEO_PRIVATE", "VIDEO_REMOVED", "ACCESS_DENIED"}:
+                code = getattr(exc, "code", None)
+                if not code:
+                    code = "SOURCE_RESPONSE_INVALID" if stage == "page_shape" else get_friendly_video_error(str(exc), "tiktok")[0]
                 raise TikTokPhotoReadError(
                     getattr(exc, "stage", stage), getattr(exc, "exception_type", type(exc).__name__),
+                    code,
                 ) from None
 
 
@@ -414,7 +436,7 @@ def main(argv=None):
             from app.services.photo_posts import PhotoSourceError
             from app.services.video import get_friendly_video_error
 
-            code = "SOURCE_RESPONSE_INVALID" if isinstance(exc, ValueError) else get_friendly_video_error(str(exc), "tiktok")[0]
+            code = getattr(exc, "code", None) or ("SOURCE_RESPONSE_INVALID" if isinstance(exc, ValueError) else get_friendly_video_error(str(exc), "tiktok")[0])
             error = PhotoSourceError(code, stage=getattr(exc, "stage", "metadata"),
                                      exception_type=getattr(exc, "exception_type", type(exc).__name__))
             print(json.dumps({"error_code": error.code, "stage": error.stage,

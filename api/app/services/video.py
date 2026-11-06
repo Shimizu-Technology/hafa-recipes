@@ -415,7 +415,7 @@ class VideoService:
         
         if platform == "tiktok":
             # TikTok short URLs need to be resolved
-            if "/t/" in url or "vm.tiktok.com" in url:
+            if "/t/" in url or ("vm.tiktok.com" in url or "vt.tiktok.com" in url):
                 try:
                     async with httpx.AsyncClient(
                         timeout=10.0,
@@ -479,10 +479,10 @@ class VideoService:
         """Guarded public pages; TikTok gets a fresh, host-bound session jar."""
         import json
 
-        from app.services.photo_posts import PhotoSourceError
+        from app.services.photo_posts import PhotoSourceError, photo_media_slot
 
         process = None
-        async with self._media_slot():
+        async with photo_media_slot(self):
             try:
                 process = await asyncio.create_subprocess_exec(
                     sys.executable, "-m", "app.services.public_ytdlp", "--public-photo-json", url,
@@ -1106,10 +1106,7 @@ class VideoService:
             if not keep_temp_dir:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-    async def extract_visual_frames(self, url: str) -> VideoFrameExtractionResult:
-        return await self.extract_video_frames(url, visual_priority=True)
-
-    async def extract_video_frames(self, url: str, *, visual_priority=False) -> VideoFrameExtractionResult:
+    async def extract_video_frames(self, url: str) -> VideoFrameExtractionResult:
         """Acquire a small, deduplicated frame set without retaining source media."""
 
         temp_dir = tempfile.mkdtemp(prefix="recipe-frames-")
@@ -1119,7 +1116,7 @@ class VideoService:
                 frames = await self._extract_candidate_frames(
                     video_path,
                     temp_dir,
-                    duration, visual_priority=visual_priority,
+                    duration,
                 )
             if not frames:
                 return VideoFrameExtractionResult(
@@ -1384,16 +1381,11 @@ class VideoService:
         video_path: str,
         temp_dir: str,
         duration: float,
-        *, visual_priority=False,
     ) -> list[VideoFrame]:
         """Sample opening, closing, periodic, and scene-change frames, then dedupe."""
 
         periodic_candidates: list[tuple[float, str]] = []
-        periodic_count = min(10, settings.video_frame_max_count)
-        timestamps = (sorted({round(max(0, duration - 0.25) * i / max(1, periodic_count - 1), 3)
-                              for i in range(periodic_count)})
-                      if visual_priority else self._periodic_frame_timestamps(duration))
-        for index, timestamp in enumerate(timestamps):
+        for index, timestamp in enumerate(self._periodic_frame_timestamps(duration)):
             output_path = os.path.join(temp_dir, f"periodic-{index:02d}.jpg")
             if await self._write_frame(video_path, output_path, timestamp):
                 periodic_candidates.append((timestamp, output_path))
@@ -1403,19 +1395,12 @@ class VideoService:
 
         frames: list[VideoFrame] = []
         fingerprints: list[int] = []
-        exact_images = set()
         for timestamp, path in periodic_candidates + scene_candidates:
             try:
                 image_data = Path(path).read_bytes()
                 fingerprint = self._image_fingerprint(image_data)
             except (OSError, ValueError):
                 continue
-            if visual_priority:
-                import hashlib
-                digest = hashlib.sha256(image_data).digest()
-                if digest in exact_images:
-                    continue
-                exact_images.add(digest)
             is_scene_candidate = path in scene_paths
             if is_scene_candidate and any(
                 (fingerprint ^ prior).bit_count() <= 5 for prior in fingerprints
@@ -1685,33 +1670,36 @@ class VideoService:
         return None
     
     async def get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
-        if self.is_tiktok_photo_post(url) or (self.detect_platform(url) == "instagram" and "/p/" in urlparse(url).path):
+        tiktok_photo = self.is_tiktok_photo_post(url)
+        instagram_post = self.detect_platform(url) == "instagram" and "/p/" in urlparse(url).path
+        metadata = VideoMetadata()
+        if not tiktok_photo:
+            # Preserve the existing platform/session path first. Ordinary IG
+            # videos no longer pay for an extra anonymous page read up front.
             try:
-                post = await self.fetch_photo_post(url)
-                return VideoMetadata(
-                    title=post["title"], description=post["description"],
-                    uploader=post["uploader"],
-                    thumbnail=post["slides"][0][0] if post["slides"] else post.get("thumbnail"),
-                    duration=post.get("duration", 0), photo_slides=post["slides"],
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                if self.is_tiktok_photo_post(url):
-                    return VideoMetadata(error_code=getattr(exc, "code", "SOURCE_UNAVAILABLE"))
+                async with self._media_slot():
+                    metadata = await self._with_instagram_session_fallback(
+                        url,
+                        lambda use_session: self._get_video_metadata_ytdlp(url, use_instagram_session=use_session),
+                        lambda result: result.error_code, stage="metadata",
+                    )
+            except MediaCapacityExceeded:
+                return VideoMetadata(error_code="MEDIA_BUSY")
+            if not instagram_post or metadata.error_code == "MEDIA_BUSY" or (not metadata.error_code and metadata.duration > 0):
+                return metadata
         try:
-            async with self._media_slot():
-                return await self._with_instagram_session_fallback(
-                    url,
-                    lambda use_session: self._get_video_metadata_ytdlp(
-                        url, use_instagram_session=use_session,
-                    ),
-                    lambda metadata: metadata.error_code,
-                    stage="metadata",
-                )
-        except MediaCapacityExceeded:
-            _media_log("⚠️ Media process capacity unavailable for video metadata")
-            return VideoMetadata(error_code="MEDIA_BUSY")
+            post = await self.fetch_photo_post(url)
+            return VideoMetadata(
+                title=post["title"] or metadata.title,
+                description=post["description"] or metadata.description,
+                uploader=post["uploader"] or metadata.uploader,
+                thumbnail=next((mirrors[0] for mirrors in (post["slides"] or []) if mirrors), post.get("thumbnail")),
+                duration=post.get("duration", 0), photo_slides=post["slides"],
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            return VideoMetadata(error_code=getattr(exc, "code", "SOURCE_UNAVAILABLE")) if tiktok_photo else metadata
 
     async def _get_video_metadata_ytdlp(
         self, url: str, *, use_instagram_session: bool = True,

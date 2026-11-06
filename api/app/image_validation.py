@@ -1,5 +1,6 @@
 """Central image validation before storage or paid AI calls."""
 
+import asyncio
 import base64
 import binascii
 import io
@@ -23,6 +24,30 @@ ALLOWED_IMAGE_FORMATS = {
     "WEBP": "image/webp",
     "HEIF": "image/heif",
 }
+
+
+_MODEL_IMAGE_SLOTS = asyncio.Semaphore(2)
+
+
+async def normalize_model_image(data, *, max_bytes, encoded=False, allow_heif=False, declared_content_type=None):
+    """Validate/decode/resize off the shared event loop, at most two at once.
+
+    A cancelled waiter cannot free its slot while its native decoder still runs.
+    """
+    if encoded and len(data) > ((max_bytes + 2) // 3) * 4:
+        raise ImageValidationError("Image exceeds the input limit")
+    def render():
+        payload = base64.b64decode(data, validate=True) if encoded else data
+        valid = validate_image_bytes(payload, max_bytes=max_bytes, allow_heif=allow_heif, declared_content_type=declared_content_type)
+        return normalize_thumbnail_image(valid, max_dimension=1600)
+    await _MODEL_IMAGE_SLOTS.acquire()
+    task = asyncio.create_task(asyncio.to_thread(render))
+    def complete(finished):
+        _MODEL_IMAGE_SLOTS.release()
+        if not finished.cancelled():
+            finished.exception()
+    task.add_done_callback(complete)
+    return await asyncio.shield(task)
 
 
 class ImageValidationError(ValueError):

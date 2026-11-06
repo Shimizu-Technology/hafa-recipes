@@ -404,7 +404,7 @@ class RecipeExtractor:
         # Short URLs like /t/xxx don't contain /photo/ until resolved
         resolved_url = url
         if platform == "tiktok":
-            if "/t/" in url or "vm.tiktok.com" in url:
+            if "/t/" in url or ("vm.tiktok.com" in url or "vt.tiktok.com" in url):
                 print("🔗 Resolving TikTok short URL before photo detection...")
                 resolved_url = await VideoService.normalize_url(url)
             
@@ -771,8 +771,7 @@ class RecipeExtractor:
                 )
             )
 
-        frame_reader = video_service.extract_video_frames if has_audio_transcript else video_service.extract_visual_frames
-        frame_result = await frame_reader(url)
+        frame_result = await video_service.extract_video_frames(url)
         frames = frame_result.frames or []
         if not frame_result.success or not frames:
             print(f"⚠️ Video frame recovery unavailable: {frame_result.error_code}")
@@ -901,9 +900,16 @@ class RecipeExtractor:
             
             from app.services.photo_posts import download_photo_images
 
-            downloaded, coverage_notes = await download_photo_images(
-                post["slides"], referer=f"https://www.{video_service.detect_platform(url)}.com/",
-            )
+            media_busy = False
+            try:
+                downloaded, coverage_notes = await download_photo_images(
+                    post["slides"], referer=f"https://www.{video_service.detect_platform(url)}.com/",
+                )
+            except PhotoSourceError as exc:
+                if exc.code != "MEDIA_BUSY":
+                    raise
+                media_busy = True
+                downloaded, coverage_notes = [], ["Image reading is busy; available caption text was kept. Try again later for the images."]
             base64_images = [data for _, data in downloaded]
             
             if not base64_images and _has_actionable_recipe_evidence(post["description"]):
@@ -926,7 +932,7 @@ class RecipeExtractor:
                 return FullExtractionResult(
                     success=False,
                     error="Could not download images from this TikTok post.",
-                    error_code="IMAGE_DOWNLOAD_FAILED",
+                    error_code="MEDIA_BUSY" if media_busy else "IMAGE_DOWNLOAD_FAILED",
                     raw_text=post["description"],
                     source_evidence={"modalities": ["metadata"], "coverageNotes": coverage_notes,
                                      "sourceArtifactsRetained": False},

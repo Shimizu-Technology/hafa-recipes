@@ -695,18 +695,20 @@ async def test_primary_acquisition_diagnosis_survives_disabled_vision_but_not_re
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cap", [6, 8, 12])
-async def test_visual_priority_respects_cap_and_spreads_samples(monkeypatch, tmp_path, cap):
+async def test_ordinary_silent_video_keeps_six_periodic_and_two_scene_frames(monkeypatch, tmp_path):
     service = VideoService()
-    monkeypatch.setattr("app.services.video.settings.video_frame_max_count", cap)
+    monkeypatch.setattr("app.services.video.settings.video_frame_max_count", 8)
     timestamps = []
     async def write(_video, path, timestamp):
         timestamps.append(timestamp)
-        Path(path).write_bytes(str(len(timestamps)).encode())
+        Path(path).write_bytes(b"0")
         return True
+    scene_paths = [tmp_path / "card-1.jpg", tmp_path / "card-2.jpg"]
+    scene_paths[0].write_bytes(str((1 << 64) - 1).encode())
+    scene_paths[1].write_bytes(str((1 << 32) - 1).encode())
     monkeypatch.setattr(service, "_write_frame", AsyncMock(side_effect=write))
-    monkeypatch.setattr(service, "_write_scene_change_frames", AsyncMock(return_value=[]))
+    monkeypatch.setattr(service, "_write_scene_change_frames", AsyncMock(return_value=[(23.,str(scene_paths[0])),(77.,str(scene_paths[1]))]))
     monkeypatch.setattr(service, "_image_fingerprint", lambda data: int(data))
-    frames = await service._extract_candidate_frames("silent.mp4", str(tmp_path), 100, visual_priority=True)
-    assert len(frames) == min(cap, 10) and timestamps[0] == 0 and timestamps[-1] == 99.75
-    assert timestamps == sorted(timestamps)
+    frames = await service._extract_candidate_frames("silent.mp4", str(tmp_path), 100)
+    assert timestamps == [0.,14.962,34.912,54.863,74.812,99.75]
+    assert len(frames)==8 and {23.,77.} <= {frame.timestamp_seconds for frame in frames}
