@@ -4,6 +4,7 @@ import { kindName, kindWord } from "@/lib/models";
 import { careSummary, friendlyTime, summaryHoldsTitle } from "@/lib/care-format";
 import { trackerFor, whoseLog } from "../lib/trackers";
 import { familyLine } from "../lib/logged-by";
+import { visibilityWord } from "../lib/spaces";
 import { datedOnly } from "../lib/well-visits";
 import { contractionDetail } from "../lib/contractions";
 import { kickDetail } from "../lib/kicks";
@@ -66,6 +67,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
     dated ? keyDate(recordDay(record.occurred_at, bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : friendlyTime(record.occurred_at, now, clock),
     whoseLog(record),
     child,
+    visibilityWord(record, bootstrap),
     familyLine(record, baby.records ?? [], bootstrap, baby.owner),
     pending ? "Saved on this device" : record.kind === "source" ? String(record.data.status ?? "") : null,
   ]

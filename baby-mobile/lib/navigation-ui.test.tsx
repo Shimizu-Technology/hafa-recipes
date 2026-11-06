@@ -27,12 +27,14 @@ vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("expo-router", () => ({
   Stack: { Screen: ({ options }: any) => options?.headerRight?.() ?? options?.unstable_headerRightItems?.()[0]?.element ?? null },
   useLocalSearchParams: () => mock.params,
+  useNavigationContainerRef: () => ({ getRootState: () => ({ routes: mock.stack.map((route) => ({ name: String(route.pathname).replace(/^\//, "") })) }) }),
   useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
   router: {
     push: (route: any) => { mock.stack.push(route); mock.params = route.params ?? {}; },
     canGoBack: () => mock.stack.length > 1,
     back: () => { mock.stack.pop(); mock.params = mock.stack.at(-1)?.params ?? {}; },
     replace: (route: any) => { mock.stack[mock.stack.length - 1] = route; },
+    dismissTo: (path: string) => { mock.stack.length = mock.stack.findIndex((route) => route.pathname === path) + 1; },
   },
 }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
@@ -597,6 +599,42 @@ it("switches Journal's filter each time Today opens it, even to the same filter"
   mock.params = { filter: "question", at: "2" };
   await act(async () => renderer!.update(<Journal />));
   expect(checked()).toEqual(["Doctor questions"]);
+});
+describe("finding Journal again", () => {
+  const entry = (kind: "journal" | "question") => { mock.params = { id: kind === "journal" ? "Journal observation" : "Doctor question" }; return mount(<RecordDetail />); };
+  it("opens one on top from an entry with none under it, on the kind she was reading, and Back returns", async () => {
+    mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/record/[id]" }];
+    await entry("journal");
+    await press("Your journal");
+    expect(mock.stack).toHaveLength(3);
+    expect(mock.stack.at(-1)).toEqual({ pathname: "/journal", params: { filter: "journal", at: expect.any(String) } });
+    await act(async () => renderer!.unmount());
+    mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/record/[id]" }];
+    await entry("question");
+    await press("Your journal");
+    expect(mock.stack.at(-1)!.params.filter).toBe("question");
+  });
+  it("goes back to the Journal she came through, so its search and filter stay as she left them", async () => {
+    mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/journal", params: { filter: "question", at: "1" } }, { pathname: "/record/[id]" }];
+    await entry("journal");
+    await press("Your journal");
+    expect(mock.stack.map((route) => route.pathname)).toEqual(["/(tabs)/(today)", "/journal"]);
+    expect(mock.stack.at(-1)!.params.filter).toBe("question");
+  });
+  it("only offers it on what lives in Journal", async () => {
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    expect(renderer!.root.findAll((n) => n.props.accessibilityLabel?.startsWith?.("Your journal"))).toHaveLength(0);
+  });
+  it("gives Saved a quiet way there, and keeps diary entries out of its list", async () => {
+    await mount(<Library />);
+    expect(mock.views.every((view) => view.kind !== "journal")).toBe(true);
+    await press("Your journal");
+    expect(mock.stack.at(-1)).toEqual({ pathname: "/journal", params: { filter: "all", at: expect.any(String) } });
+    // Choosing posts leaves room for nothing else.
+    await press("Select");
+    expect(renderer!.root.findAll((n) => n.props.accessibilityLabel?.startsWith?.("Your journal"))).toHaveLength(0);
+  });
 });
 it("hides suggestions on posts with a queued save, drops (new) for a same-name category, and ignores a double tap", async () => {
   const records = [tip("Pregnancy tea", { suggested_category: labor }), tip("Bag list", { suggested_category: { ...labor, name: "hospital bag", collection_id: null } }),

@@ -5,7 +5,7 @@ import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type E
 
 const mock = vi.hoisted(() => ({ phone: { available: true, added: [] as unknown[], result: "saved" }, title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
 vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
-vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
+vi.mock("expo-router", () => ({ useNavigationContainerRef: () => ({ getRootState: () => undefined }), useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
 vi.mock("expo-document-picker", () => ({}));
 vi.mock("expo-image-picker", () => ({}));

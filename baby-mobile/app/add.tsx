@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScrollView, View } from "react-native";
-import { Copy, Row, Screen, tap, useToast } from "@/components/ui";
+import { Copy, QuietRow, Row, Screen, tap, useToast } from "@/components/ui";
 import { ChildFilter } from "@/components/child-filter";
 import { useMinuteClock } from "@/components/care-glance";
 import { LegacyTimer } from "@/components/feed-timer";
@@ -11,6 +11,7 @@ import { TrackerPanel } from "@/components/tracker-panel";
 import { kindIcon } from "@/components/record-row";
 import { useBaby } from "@/lib/context";
 import { useTodayCare } from "@/lib/today-care";
+import { journalHome } from "../lib/use-open-journal";
 import { canAddBaby, canChangeBaby } from "../lib/spaces";
 import { profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { messageFor, type Child } from "@/lib/models";
@@ -82,6 +83,8 @@ function Keep() {
     <Copy kind="heading">Keep</Copy>
     <View style={tileRow}>{keepItems.map((item) => <LogTile key={item.kind} icon={kindIcon[item.kind]} label={item.label} hint={item.detail}
       onPress={() => router.replace({ pathname: "/edit", params: { kind: item.kind } })} />)}</View>
+    {/* Quiet, under the tiles: writing stays one tap, and what she's already written is right beside it. */}
+    <QuietRow title="Your journal" detail="Past entries and doctor questions" onPress={() => router.replace(journalHome())} />
   </View>;
 }
 

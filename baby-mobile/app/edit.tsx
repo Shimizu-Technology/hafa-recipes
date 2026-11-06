@@ -28,6 +28,7 @@ import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/mo
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
 import { babiesFor, babyLabel, caregiverKeeps, choiceFor, fittingChild, stampedDraft } from "../lib/spaces";
+import { useOpenJournal } from "../lib/use-open-journal";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -64,6 +65,7 @@ export default function Edit() {
   const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string }>(),
     b = useBaby(),
     toast = useToast(),
+    openJournal = useOpenJournal(),
     slot = params.draft ?? (params.from ? "book:" + params.from : params.scope ? `event:${params.id}:${params.scope}:${params.at}` : params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
   const [draft, setDraft] = useState<EditorDraft | null>(null),
     [error, setError] = useState(""),
@@ -361,7 +363,9 @@ export default function Edit() {
           ? "Source saved. Processing can continue in the background."
           : b.online
             ? "Saved. Your changes are syncing."
-            : "Saved privately on this device."
+            : "Saved privately on this device.",
+        // Something new, written from Add, has no list behind it to go back to.
+        !d.existing && (d.kind === "journal" || d.kind === "question") ? { label: "See journal", onPress: () => openJournal(d.kind) } : undefined
       );
       void b.sync();
       router.dismissTo(shouldProcess ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });

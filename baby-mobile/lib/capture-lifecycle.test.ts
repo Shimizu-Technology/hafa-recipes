@@ -19,7 +19,7 @@ vi.mock("react-native", () => ({
     scope.foreground = fn; return { remove() { scope.foreground = null; } };
   } },
 }));
-vi.mock("expo-router", () => ({ useLocalSearchParams: () => scope.params,
+vi.mock("expo-router", () => ({ useNavigationContainerRef: () => ({ getRootState: () => undefined }), useLocalSearchParams: () => scope.params,
   router: { push: scope.push, dismissTo: scope.dismiss, back: vi.fn() } }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `fixture-${++id}` }; });
 vi.mock("expo-document-picker", () => ({}));
