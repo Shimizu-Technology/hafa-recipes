@@ -146,6 +146,20 @@ it("All future from a later date queues one change that holds both parts, so nei
   expect(split.event.data.recurrence.until).toBeUndefined();
   expect(mock.dismissTo).toHaveBeenCalledWith("/(tabs)/tracker");
 });
+it("All future sends both parts with the baby it shows, when a held draft has one that can't go with the family's event", async () => {
+  const b = setup([{ ...event(), child_id: "ours", space_id: "fam" }]);
+  Object.assign(b.state.bootstrap, { personal_space_id: "mine", spaces: [{ id: "mine", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+    children: [{ id: "ours", name: "Noa", revision: 1, space_id: "fam", generation: 1 }, { id: "test", name: "Test", revision: 1, space_id: "mine", generation: 1 }] });
+  mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };
+  await mount(Edit);
+  await act(async () => { found("FilterChips", (p) => p.label === "Who is it for?").props.onChange("test"); });
+  expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("ours");
+  await press("Button", "Save changes");
+  const [split] = b.state.outbox as any[];
+  expect(split.type).toBe("event_split");
+  expect(split.series.child_id).toBe("ours");
+  expect(split.event.child_id).toBe("ours");
+});
 it("All future can't start before the date it changes from, which the old series keeps", async () => {
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };

@@ -280,8 +280,10 @@ export default function Edit() {
       // Keep the original in the durable outbox before its optional import.
       const id = Crypto.randomUUID();
       const splitId = Crypto.randomUUID();
+      // Everything saved from this draft, including the second half of a split, goes with the baby it shows.
+      const fit = (given: EditorDraft) => ({ ...given, child_id: fittingChild(b.state.bootstrap!, given, b.records.find((row) => row.id === given.id)) });
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
-        const fitted = { ...given, child_id: fittingChild(b.state.bootstrap!, given, b.records.find((row) => row.id === given.id)) },
+        const fitted = fit(given),
           from = stampedDraft(b.state, b.state.drafts[slot], fitted.kind === "event" ? eventWrite(fitted) : withFittingVisit(fitted, b.records));
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, shared: ____, ...record } = from,
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;
@@ -316,7 +318,7 @@ export default function Edit() {
             },
             files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
           };
-          const split = d.kind === "event" ? splitEvent(d, splitId) : undefined;
+          const split = d.kind === "event" ? splitEvent(fit(d), splitId) : undefined;
           // One change holding both parts: this series can't end unless the next one starts.
           const saved = addMutation(s, split ? { id: splitId, generation, type: "event_split", series: prepared.record, event: split, from_start: d.event_edit!.original_start, files: [], ...(prepared.base ? { base: prepared.base } : {}) } : prepared);
           return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });
