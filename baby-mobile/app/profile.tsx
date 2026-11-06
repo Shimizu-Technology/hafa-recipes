@@ -9,7 +9,8 @@ import { familyOpen } from "../lib/spaces";
 /** Who she is to the app, opened from the row at the top of Settings. */
 export default function ProfileDetails() {
   const b = useBaby(), toast = useToast(), profile = b.state.bootstrap!.profile,
-    [name, setName] = useState(profile.display_name),
+    // Null until she edits it, so what shows is the latest and a save can't send an older name back.
+    [edited, setEdited] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     working = useRef(false);
@@ -20,7 +21,7 @@ export default function ProfileDetails() {
     setError("");
     try {
       const result = await b.api.profile(
-        { ...profile, display_name: name.trim(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        { ...(edited !== null ? { display_name: edited.trim() } : {}), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
         b.state.bootstrap!.generation
       );
       await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
@@ -39,7 +40,7 @@ export default function ProfileDetails() {
   </View>;
   // Docked, in reach of a thumb. At large text it would take half the screen, so it goes at the end.
   return <Screen title="Your details" back footer={fontScale < 1.5 ? action : undefined}>
-    <Field label="Your name" value={name} onChange={setName} maxLength={120} autoFocus={!profile.display_name}
+    <Field label="Your name" value={edited ?? profile.display_name} onChange={setEdited} maxLength={120} autoFocus={!profile.display_name}
       returnKeyType="done" onSubmit={() => void save()} />
     {familyOpen(b.state.bootstrap) && <Copy kind="small" tone="muted">Your family sees this on what you log.</Copy>}
     <Copy kind="small" tone="muted">
