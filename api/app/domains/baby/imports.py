@@ -133,7 +133,7 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         request = {
             **request,
             "url": body.url or source.data.get("url"),
-            "text": (source.body or source.data.get("user_text")) if (body.url or source.data.get("url"))
+            "text": (source.body or source.data.get("user_text")) if (body.url or source.data.get("url") or source.data.get("attachment_ids") or request["attachment_ids"])
                     else (body.text or source.data.get("source_text")),
             "attachment_ids": list(dict.fromkeys([*source.data.get("attachment_ids", []), *request["attachment_ids"]])),
             "topics": request["topics"] or source.data.get("topics", []),
@@ -153,7 +153,7 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         data = SourceData(
             url=body.url,
             source_text=body.text,
-            user_text=body.text if body.url else None,
+            user_text=body.text if body.url or body.attachment_ids else None,
             topics=body.topics,
             attachment_ids=body.attachment_ids,
             status="queued",
@@ -256,7 +256,7 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         raise HTTPException(409, "This source is already processing")
     row.request = {**row.request, "attachment_ids": source.data.get("attachment_ids", []),
                    "url": source.data.get("url"),
-                   "text": (source.body or source.data.get("user_text")) if source.data.get("url") else row.request.get("text")}
+                   "text": (source.body or source.data.get("user_text")) if source.data.get("url") or source.data.get("attachment_ids") else row.request.get("text")}
     await validate_relations(
         db,
         access,

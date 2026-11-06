@@ -8,7 +8,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import MAX_BYTES, read_bytes
-from app.domains.baby.provider import MAX_SOURCE_IMAGES, budget_failure_message
+from app.domains.baby.provider import (
+    IMAGE_READING_DISCLOSURE,
+    MAX_SOURCE_IMAGES,
+    budget_failure_message,
+)
 from app.domains.baby.schemas import CategorySuggestion, SourceData, SourceRelevance
 from app.domains.workouts.budget import BudgetError
 from app.domains.workouts.extraction import (
@@ -28,6 +32,7 @@ def sampling_disclosure(note):
     return note in {
         "Video frames are samples.",
         "Video frames are samples; details between samples may be missing.",
+        IMAGE_READING_DISCLOSURE,
     } or re.fullmatch(
         r"image:\d+ sampled at [0-9.e+-]+s; samples do not cover every frame\.", note
     ) is not None
@@ -144,6 +149,10 @@ def stated_relevance(raw, readable):
     """
     if not isinstance(raw, dict) or not isinstance(raw.get("quote"), str):
         return None
+    statement = words(re.sub(r"#\w+", "", raw["quote"]))
+    if not set(statement) & {"week", "weeks", "month", "months", "day", "days", "trimester", "trimesters",
+                             "pregnancy", "pregnant", "postpartum", "labor", "labour", "newborn", "birth"}:
+        return None  # A topic/creator hashtag is not a statement of when advice applies.
     quote = words(raw["quote"])
     phrase = " ".join(quote)
     if len(phrase.replace(" ", "")) < 4 or not contains_phrase(
@@ -274,7 +283,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     failures = []
     budget_failure = None
     if request.get("text"):
-        source.parts.append(SourcePart("user_note" if request.get("url") else "pasted_text", request["text"]))
+        source.parts.append(SourcePart("user_note" if request.get("url") or attachments else "pasted_text", request["text"]))
     if request.get("url"):
         await gate()
         try:
@@ -287,9 +296,17 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             source.images.extend(acquired.images)
             source.metadata.coverage_notes.extend(acquired.warnings)
             if acquired.acquisition_failures:
-                failures.append(
-                    "Some linked source content could not be read. Your original link remains saved."
-                )
+                codes = {failure.code for failure in acquired.acquisition_failures}
+                messages = {
+                    "VIDEO_PRIVATE": "This post is private or needs permission. Available text and your original link are saved.",
+                    "VIDEO_REMOVED": "This post is no longer available. Available text and your original link are saved.",
+                    "NOT_FOUND": "This post is no longer available. Available text and your original link are saved.",
+                    "ACCESS_DENIED": "The site blocked reading this post. Your original link is saved; try later or add screenshots.",
+                    "RATE_LIMITED": "The site is limiting requests. Your original link is saved; try later or add screenshots.",
+                    "MEDIA_BUSY": "Image reading is busy. Available text and your original link are saved; try again later.",
+                }
+                failures.append(next((message for code, message in messages.items() if code in codes),
+                    "Some linked source content could not be read. Your original link remains saved."))
         except asyncio.CancelledError:
             raise
         except BudgetError as failure:

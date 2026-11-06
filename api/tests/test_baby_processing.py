@@ -333,10 +333,11 @@ async def test_labelled_slide_lists_survive_source_schema_and_image_cap(monkeypa
     monkeypatch.setattr(BabyProvider, "json_call", calls)
     # Inspect the real provider's image list and prompt without spending.
     await BabyProvider().extract(source)
-    assert calls.await_count == 7
-    assert sum(sum(c.get("type")=="image_url" for c in call.kwargs["content"]) for call in calls.await_args_list) == 35
-    assert all(sum(c.get("type")=="image_url" for c in call.kwargs["content"]) <= 5 for call in calls.await_args_list)
-    assert calls.call_args.kwargs["max_tokens"] == 6000
+    assert calls.await_count == 8
+    assert sum(sum(c.get("type")=="image_url" for c in call.kwargs["content"]) for call in calls.await_args_list if isinstance(call.kwargs["content"], list)) == 35
+    assert all(sum(c.get("type")=="image_url" for c in call.kwargs["content"]) <= 5 for call in calls.await_args_list if isinstance(call.kwargs["content"], list))
+    assert calls.await_args_list[0].kwargs["max_tokens"] == 6000
+    assert calls.call_args.kwargs["max_tokens"] == 800
     monkeypatch.setattr(processing, "ProductionSourceAcquirer", Acquirer)
     provider = SimpleNamespace(enabled=True, extract=AsyncMock(return_value=result))
     saved = await processing.process_capture({"url":"https://example.com/post"}, [], provider, may_use_ai=True, gate=AsyncMock())
@@ -396,7 +397,8 @@ async def test_remote_normalized_pixels_are_not_encoded_again(monkeypatch):
     assert "attachment_ids" not in result["data"]
 
 
-async def test_large_upload_is_normalized_at_attachment_limit(monkeypatch):
+@pytest.mark.parametrize("upload_kind", ["large_png", "heic"])
+async def test_large_upload_is_normalized_at_attachment_limit(monkeypatch, upload_kind):
     import base64
     import io
     from unittest.mock import AsyncMock
@@ -404,11 +406,17 @@ async def test_large_upload_is_normalized_at_attachment_limit(monkeypatch):
     from PIL import Image
     # A valid >4 MiB PNG, without a committed binary fixture.
     output = io.BytesIO()
-    Image.effect_noise((2400, 2400), 100).convert("RGB").save(output, format="PNG")
+    if upload_kind == "large_png":
+        Image.effect_noise((2400, 2400), 100).convert("RGB").save(output, format="PNG")
+    else:
+        from pillow_heif import from_pillow
+        from_pillow(Image.new("RGB", (2400, 2400), "white")).save(output)
     raw = output.getvalue()
-    assert 4 * 1024 * 1024 < len(raw) < attachments.MAX_BYTES
+    assert len(raw) < attachments.MAX_BYTES
+    if upload_kind == "large_png":
+        assert len(raw) > 4 * 1024 * 1024
     monkeypatch.setattr(processing, "read_bytes", AsyncMock(return_value=raw))
-    attachment = SimpleNamespace(mime_type="image/png")
+    attachment = SimpleNamespace(mime_type="image/heic" if upload_kind == "heic" else "image/png")
     class Provider:
         enabled = True
         async def extract(self, source, categories=None):
@@ -420,12 +428,15 @@ async def test_large_upload_is_normalized_at_attachment_limit(monkeypatch):
     assert "Literal uploaded label" in result["data"]["source_text"]
 
 async def test_35_slide_provider_batches_fit_output_and_preserve_every_slide(monkeypatch):
-    from app.domains.baby.provider import BabyProvider
+    from app.domains.baby.provider import IMAGE_READING_DISCLOSURE, BabyProvider, ExtractionSummary
     from app.domains.baby.schemas import SourceData
     source = SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),
                          images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(35)])
     seen=[]
     async def call(self, **kwargs):
+        if kwargs["output_model"] is ExtractionSummary:
+            assert kwargs["max_tokens"] == 800
+            return ExtractionSummary(title="Garden labels", summary="The creator lists garden supplies.")
         locations=[entry["text"].split("Source location: ")[1].split(" ")[0] for entry in kwargs["content"]
                    if entry.get("type")=="text" and entry.get("text","").startswith("Source location:")]
         assert 1<=len(locations)<=5 and kwargs["max_tokens"]==6000
@@ -439,7 +450,8 @@ async def test_35_slide_provider_batches_fit_output_and_preserve_every_slide(mon
     assert seen==[f"image:{i}" for i in range(35)]
     saved=SourceData(key_points=result.key_points,evidence=[e.model_dump() for e in result.visual_text])
     assert len(saved.key_points)==35 and len(saved.evidence)==35
-    assert saved.evidence[-1].text=="Literal list image:34" and not source.metadata.coverage_notes
+    assert saved.evidence[-1].text=="Literal list image:34"
+    assert source.metadata.coverage_notes == [IMAGE_READING_DISCLOSURE]
 
 
 async def test_missing_batch_and_model_trimming_are_disclosed(monkeypatch):
@@ -457,4 +469,23 @@ async def test_missing_batch_and_model_trimming_are_disclosed(monkeypatch):
     result=await BabyProvider().extract(source)
     assert result.key_points==["Batch 1","Batch 3"]
     assert any("batch 2 could not be organized" in note for note in source.metadata.coverage_notes)
-    assert sum("condensed" in note for note in source.metadata.coverage_notes)==2
+    assert sum("AI condensed" in note for note in source.metadata.coverage_notes)==2
+
+@pytest.mark.parametrize("code,phrase",[("VIDEO_PRIVATE","private or needs permission"),("VIDEO_REMOVED","no longer available"),("ACCESS_DENIED","site blocked"),("RATE_LIMITED","limiting requests"),("MEDIA_BUSY","reading is busy")])
+async def test_partial_read_explains_safe_cause_without_losing_caption(monkeypatch,code,phrase):
+    from unittest.mock import AsyncMock
+
+    from app.services.source_acquisition import AcquisitionFailure
+    class Acquirer:
+        def __init__(self, **kwargs): pass
+        async def acquire(self, *args, **kwargs):
+            return SourceBundle(SourceMetadata(),parts=[SourcePart("caption","Readable creator caption")],
+                                acquisition_failures=[AcquisitionFailure("metadata",code)])
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    result=await processing.process_capture({"url":"https://example.com/post"},[],SimpleNamespace(enabled=False),may_use_ai=False,gate=AsyncMock())
+    assert result["status"]=="incomplete" and phrase in result["error"]
+    assert result["data"]["source_text"]=="Readable creator caption" and result["data"]["url"]=="https://example.com/post"
+
+@pytest.mark.parametrize("quote",["#thirdtrimester","Hospital bag #thirdtrimester","#37weekspregnant"])
+async def test_hashtag_cannot_supply_even_a_stage_without_a_statement(quote):
+    assert processing.stated_relevance({"stage":"pregnancy","quote":quote},[quote]) is None

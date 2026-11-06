@@ -1,7 +1,7 @@
 """A provider's passing 429 or 5xx gets two more tries, each admitted again. No database and no paid call."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -133,6 +133,9 @@ async def test_no_try_starts_after_the_time_limit(harness, monkeypatch):
     assert harness.tries == 1 and harness.slept == []
 
 async def test_actual_call_reserves_all_output_and_settles_metered_invalid_result(harness, monkeypatch):
+    tracker = Tracker()
+    tracker.fail = Mock()
+    monkeypatch.setattr(provider, "AIInvocationTracker", lambda **kwargs: tracker)
     ticket = object()
     reservation, settlement = AsyncMock(return_value=ticket), AsyncMock()
     monkeypatch.setattr(BabyProvider, "_reserve", reservation)
@@ -150,3 +153,17 @@ async def test_actual_call_reserves_all_output_and_settles_metered_invalid_resul
     assert reservation.await_args.kwargs["image_count"] == 1
     assert 0 < reservation.await_args.kwargs["input_bytes"] < 2000
     settlement.assert_awaited_once_with(ticket, response)
+    tracker.fail.assert_called_once_with("baby_provider_failed", response)
+
+async def test_incomplete_hosted_tool_response_keeps_full_reservation(harness, monkeypatch):
+    ticket = object()
+    settlement = AsyncMock()
+    monkeypatch.setattr(provider, "settle", settlement)
+    monkeypatch.setattr(BabyProvider, "admit_ask_call", AsyncMock(return_value=ticket))
+    response = {"status": "failed", "output": [], "usage": {"input_tokens": 10, "output_tokens": 1}}
+    monkeypatch.setattr(harness, "body", lambda: response)
+    harness.statuses = [200]
+    with pytest.raises(ProviderUnavailable):
+        await BabyProvider().responses_attempt(capability="baby_ask", model="gpt-5.6-luna",
+            prompt_version="test", body={"input": "fixture", "max_output_tokens": 100})
+    settlement.assert_awaited_once_with(ticket, None, extra_cost=0)

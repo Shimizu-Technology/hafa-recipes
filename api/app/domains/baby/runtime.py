@@ -259,7 +259,7 @@ class BabyWorker:
             except HTTPException:
                 return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
             request["attachment_ids"] = source.data.get("attachment_ids", [])
-            if request.get("url"):
+            if request.get("url") or request["attachment_ids"]:
                 request["text"] = source.body or source.data.get("user_text")
             source.revision += 1
             source.updated_at = now()

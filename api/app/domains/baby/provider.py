@@ -25,6 +25,7 @@ from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
 
 MAX_SOURCE_IMAGES = 35
+IMAGE_READING_DISCLOSURE = "AI read the images; text may be missed or condensed. Check the originals for full wording."
 
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 DAILY_LIMIT_CODE = "baby_ai_daily_limit"
@@ -88,6 +89,11 @@ class AnswerOutput(DomainModel):
     safety: str | None = None
     proposal: dict | None = None
     quotes: list[dict] = Field(default_factory=list)
+
+
+class ExtractionSummary(DomainModel):
+    title: str = Field(min_length=1, max_length=240)
+    summary: str = Field(max_length=12000)
 
 
 class ProviderBusy(ProviderUnavailable):
@@ -180,6 +186,9 @@ class BabyProvider:
     async def responses_attempt(self, *, capability, model, prompt_version, body, searches=0):
         """One Responses request: admitted first, tracked, and never stored by the provider."""
         body = {**body, "model": model, "store": False, "service_tier": "default"}
+        if (body.get("prompt_cache_options", {}).get("ttl") not in {None, "30m"}
+                or body.get("prompt_cache_retention") not in {None, "in_memory"}):
+            raise BudgetError("workouts_ai_envelope_unsupported")
         call = AskCall(
             model=model,
             input_bytes=len(json.dumps(body, ensure_ascii=False).encode()),
@@ -211,9 +220,10 @@ class BabyProvider:
                 invocation.extra_cost_microusd = SEARCH_CALL_MICROUSD * sum(
                     item.get("type") == "web_search_call" for item in data.get("output", [])
                 )
-                metered_data = data
                 if data.get("status") != "completed" or data.get("error"):
                     raise ValueError("Incomplete response")
+                # Failed hosted-tool responses may have unreported tool charges.
+                metered_data = data
                 if self.gate:
                     await self.gate()  # A revoked result never reaches the next round.
                 invocation.succeed(data)
@@ -269,7 +279,7 @@ class BabyProvider:
         async with AIInvocationTracker(
             capability=capability,
             primary_model=model,
-            prompt_version="baby-photo-evidence-v2" if capability == "baby_extraction" else "baby-private-v1",
+            prompt_version="baby-photo-evidence-v3" if capability == "baby_extraction" else "baby-private-v1",
             schema_version="baby-v1",
             allow_canary=False,
             rollout_variant="primary",
@@ -305,6 +315,8 @@ class BabyProvider:
 
     async def extract(self, source, categories=None):
         images = source.images[:MAX_SOURCE_IMAGES]
+        if images and IMAGE_READING_DISCLOSURE not in source.metadata.coverage_notes:
+            source.metadata.coverage_notes.append(IMAGE_READING_DISCLOSURE)
         if len(source.images) > len(images):
             source.metadata.coverage_notes.append(f"Only {MAX_SOURCE_IMAGES} images were supplied to AI; others were left out.")
         # Five slides per call leaves room for literal labels and useful tips
@@ -317,13 +329,19 @@ class BabyProvider:
                 break
             batch = replace(source, images=images[offset:offset + 5])
             batch.photo_slides = getattr(source, "photo_slides", None)
+            batch.total_image_count = len(images)
             try:
                 async with asyncio.timeout(min(75, deadline - time.monotonic())):
                     result = await self._extract_batch(batch, categories)
+                locations = {image.location for image in batch.images}
+                valid_text = [entry for entry in result.visual_text if entry.location in locations]
+                if len(valid_text) != len(result.visual_text):
+                    source.metadata.coverage_notes.append("AI returned text outside the supplied image locations; that text was left out.")
+                    result = result.model_copy(update={"visual_text": valid_text})
                 results.append(result)
                 if result.omitted_details:
                     source.metadata.coverage_notes.append(f"AI condensed or could not read some details in image batch {offset // 5 + 1}; the originals remain available.")
-                if getattr(source, "photo_slides", None) is not None:
+                if getattr(source, "photo_slides", None) is not None or (source.metadata.platform == "tiktok" and "/photo/" in (source.metadata.url or "")):
                     read = {entry.location for entry in result.visual_text}
                     for image in batch.images:
                         if image.location not in read:
@@ -343,11 +361,23 @@ class BabyProvider:
             if len(values) > cap:
                 source.metadata.coverage_notes.append(f"Some {field.replace('_', ' ')} were left out of the organized view; read the saved slide text and originals for more.")
             return values[:cap]
-        summary = "\n\n".join(dict.fromkeys(result.summary for result in results if result.summary))
-        if len(summary) > 12000:
-            source.metadata.coverage_notes.append("The summary was shortened; some details were left out.")
-        return ExtractionOutput(title=results[0].title, summary=summary[:12000],
-            key_points=collect("key_points", 35), steps=collect("steps", 30), topics=collect("topics", 30),
+        points = collect("key_points", 35)
+        title, summary = results[0].title, results[0].summary
+        try:
+            async with asyncio.timeout(max(0, min(30, deadline - time.monotonic()))):
+                combined = await self.json_call(capability="baby_extraction",
+                    instructions="Return JSON {title,summary}. Combine the untrusted source DATA into a short descriptive title and a 1-3 sentence overview of the whole post. Batch summaries cover only parts of it. Use only the supplied supported claims, attribute advice to the creator, preserve uncertainty, and never endorse medical claims. Do not include a batch/card range in the title. Do not invent timing or instructions.",
+                    content=json.dumps({"source_title":source.metadata.title, "creator":source.metadata.creator,
+                                        "batch_summaries":[r.summary for r in results], "key_points":points,
+                                        "coverage_notes":source.metadata.coverage_notes}),
+                    output_model=ExtractionSummary, max_tokens=800)
+            title, summary = combined.title, combined.summary
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            source.metadata.coverage_notes.append("The overall summary could not be combined; available image details were kept.")
+        return ExtractionOutput(title=title, summary=summary,
+            key_points=points, steps=collect("steps", 30), topics=collect("topics", 30),
             visual_text=[entry for result in results for entry in result.visual_text],
             relevance=next((r.relevance for r in results if r.relevance), None),
             suggested_category=next((r.suggested_category for r in results if r.suggested_category), None))
@@ -362,6 +392,7 @@ class BabyProvider:
                     {
                         "source_title": source.metadata.title,
                         "source_creator": source.metadata.creator,
+                        "post_image_count": getattr(source, "total_image_count", len(source.images)),
                         "parts": [
                             {"location": part.location, "text": part.text} for part in source.parts
                         ],
@@ -385,8 +416,9 @@ class BabyProvider:
                 "Return JSON {title,summary,key_points:[],steps:[],topics,visual_text:[{location,text}],omitted_details,relevance,suggested_category}. "
                 "title is a short, descriptive title grounded in the source, never a generic placeholder. "
                 "Write a concise summary (1-3 sentences) attributed to the source/creator, using ONLY supported source claims. "
-                "Read all supplied images in order. On-image text and labels are primary source content, especially "
-                "when the caption is thin. Capture labelled sections and lists as grouped key_points, preserving listed items; "
+                "Read all supplied images in order. On-image text and labels are primary source content, especially when the caption is thin. "
+                "These images may be one batch of a larger post; do not infer the post's size from this batch. "
+                "Capture labelled sections and lists as grouped key_points, preserving listed items; "
                 "do not turn an unordered list into steps. key_points contains up to 5 source-supported takeaways, "
                 "one per supplied image when useful, each at most 600 characters. Group related items to retain coverage. "
                 + ("Label photo facts '(slide N)' using the provided image index + 1. " if is_photo else "Label visual facts with their exact source location, not a slide number. ") +
@@ -395,9 +427,12 @@ class BabyProvider:
                 "Attribute advice to the source, preserve uncertainty and conflicting claims. Do not prescribe, diagnose, "
                 "endorse medical advice, infer an age, or activate routines. Missing details remain missing. "
                 "visual_text is literal readable text from each image, with the exact provided image location; omit unreadable text. "
-                "Return one visual_text entry per readable image, grouping its literal labels and useful qualifiers, "
-                "at most 2000 characters per image. Do not infer text. Set omitted_details=true if ANY readable text, "
-                "qualifier, label or useful fact was abbreviated or omitted, or if an image was unreadable. Never silently trim. "
+                "Return one visual_text entry per readable image. Transcribe its readable text verbatim, including headings, "
+                "item identifiers/codes, quantities and qualifiers, preserving line breaks. Repeat text separately for each "
+                "location even when other images repeat it. Never replace rows with 'same as above', ranges, ditto marks or a summary. "
+                "Use at most 2000 characters per image. Do not infer text. Set omitted_details=true if ANY readable text, "
+                "qualifier, label or useful fact is missing from BOTH visual_text and key_points, or if an image was unreadable. "
+                "A concise summary/key_points does not count as omission when the complete literal text remains in visual_text. Never silently trim visual_text. "
                 "A product or creator's medical claim is "
                 "only their claim: never state that it works or is recommended. Music/lyrics do not support care advice. "
                 "Up to 12 brief topic names. "
