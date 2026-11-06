@@ -501,7 +501,8 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
                     source.data = {**source.data, "status": "cancelled"}
                     source.revision, source.updated_at = source.revision + 1, now()
                     await touch(source, job_access.grant(source) if access.enabled else None)
-    member.profile, member.updated_at = profile.model_dump(), now()
+    # Anything a later release stored stays, so rolling back to this one and saving loses none of it.
+    member.profile, member.updated_at = {**member.profile, **profile.model_dump()}, now()
     if not profile.auto_process_shares:
         from app.domains.baby.share_models import BabyShareCapture
         from app.domains.baby.share_router import share_schema_available
