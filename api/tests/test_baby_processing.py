@@ -548,3 +548,33 @@ async def test_remote_frame_producer_marks_webp_so_baby_does_not_encode_it_twice
             {"location":"image:0","text":"Literal frame label"}]))),may_use_ai=True,gate=AsyncMock())
     normalizer.assert_not_awaited()
     assert "Literal frame label" in result["data"]["source_text"]
+
+@pytest.mark.parametrize("field",["baby_age_unit","stage"])
+@pytest.mark.parametrize("malformed",[[],{}])
+async def test_malformed_timing_type_does_not_discard_later_batches(monkeypatch,field,malformed):
+    from app.domains.baby.provider import BabyProvider, ExtractionSummary
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),
+        images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(6)])
+    bad={"stage":"baby","baby_age_unit":"months","baby_age_min":3,"quote":"At 3 months",field:malformed}
+    monkeypatch.setattr(BabyProvider,"json_call",AsyncMock(side_effect=[
+        ExtractionOutput(title="First",key_points=["First tip"],relevance=bad,visual_text=[{"location":"image:0","text":"At 3 months"}]),
+        ExtractionOutput(title="Later",key_points=["Later tip"],relevance={"stage":"pregnancy","pregnancy_week_min":37,"quote":"At 37 weeks"},
+            visual_text=[{"location":"image:5","text":"At 37 weeks the creator packed this."}]),
+        ExtractionSummary(title="Combined",summary="Creator lists")]))
+    result=await BabyProvider().extract(source)
+    assert result.relevance["pregnancy_week_min"]==37 and result.key_points==["First tip","Later tip"]
+
+@pytest.mark.parametrize("ordered_reader",[False,True])
+async def test_intermediate_legacy_reader_never_silently_claims_all_slides(monkeypatch,ordered_reader):
+    service=SimpleNamespace(is_tiktok_photo_post=lambda url:True)
+    if ordered_reader:
+        service.fetch_photo_post=AsyncMock()
+    monkeypatch.setattr(processing,"public_video_service",service)
+    source=SourceBundle(SourceMetadata(platform="tiktok"),parts=[SourcePart("caption","Creator list")])
+    class Acquirer:
+        def __init__(self,**kwargs): pass
+        async def acquire(self,*args,**kwargs): return source
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    result=await processing.process_capture({"url":"https://www.tiktok.com/@synthetic/photo/123"},[],
+        SimpleNamespace(enabled=False),may_use_ai=False,gate=AsyncMock())
+    assert any("at most eight slides" in note for note in result["data"]["coverage_notes"]) is not ordered_reader

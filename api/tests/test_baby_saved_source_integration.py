@@ -434,3 +434,22 @@ async def test_legacy_text_survives_without_becoming_acquired_input(baby_api,mon
     else:
         assert result["legacy_saved_text"]==earlier and all(parts==["Fresh caption"] for parts in seen)
         assert result["source_text"]=="Fresh caption"
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("saved_url",[None,"https://example.com/old"])
+async def test_admitted_replacement_url_remains_current_for_worker_and_retry(baby_api,saved_url):
+    from app.domains.baby.runtime import BabyWorker
+    c=baby_api.client
+    body=shared.payload("source",body="My note",data={"url":saved_url,"status":"incomplete"})
+    assert (await c.post("/api/v1/baby/records",headers=shared.GEN,json=body)).status_code==200
+    job=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"record_id":body["id"],"url":"https://example.com/replacement"})).json()
+    seen=[]
+    async def processor(request,*args,**kwargs):
+        seen.append(request["url"])
+        return {"status":"incomplete","data":{"url":request["url"],"status":"incomplete"}}
+    worker=BabyWorker(baby_api.sessions,processor=processor)
+    assert await worker.tick()
+    assert (await c.post(f"/api/v1/baby/imports/{job['id']}/retry",headers=shared.GEN)).status_code==200
+    assert await worker.tick()
+    assert seen==["https://example.com/replacement"]*2
+    assert (await c.get(f"/api/v1/baby/records/{body['id']}")).json()["data"]["url"]==seen[0]

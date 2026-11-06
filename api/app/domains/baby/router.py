@@ -1032,8 +1032,12 @@ async def create_record(
     await validate_relations(db, access, generation, child_id, body.data, record_id=body.id, kind=body.kind)
     if body.kind == "event":
         await check_series_cap(db, access, generation, body.data, record_id=body.id)
+    # This request is the original save, before space rewrites or later reading.
+    saved = body.model_dump()
+    if body.kind == "source" and (body.data.get("url") or body.data.get("attachment_ids")) and body.data.get("user_text") is None:
+        saved["data"] = {**body.data, "user_text": body.data.get("source_text")}
     row = BabyRecord(
-        **{**body.model_dump(), "child_id": child_id},
+        **{**saved, "child_id": child_id},
         app_user_id=user.id,
         space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,

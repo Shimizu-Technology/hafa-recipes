@@ -152,7 +152,7 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         caption_title = original_text.splitlines()[0][:100] if original_text else DEFAULT_SOURCE_TITLE
         if automatic and source.revision == 1 and source.title in {DEFAULT_SOURCE_TITLE, caption_title}:
             request["automatic_title"] = source.title
-        source.data = {**source.data, **note_patch, "status": "queued", "attachment_ids": request["attachment_ids"]}
+        source.data = {**source.data, **note_patch, "url": request["url"], "status": "queued", "attachment_ids": request["attachment_ids"]}
         source.revision, source.updated_at = source.revision + 1, now()
     else:
         source_id = uuid5(NAMESPACE_URL, f"hafa-baby-source:{user.id}:{generation}:{body.id}")

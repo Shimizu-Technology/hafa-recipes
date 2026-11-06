@@ -160,6 +160,8 @@ def stated_relevance(raw, readable):
         " ".join(words(" ".join(readable))), phrase
     ):
         return None
+    if any(raw.get(key) is not None and not isinstance(raw[key], str) for key in ("baby_age_unit", "stage")):
+        return None
     unit = raw.get("baby_age_unit") if raw.get("baby_age_unit") in {"weeks", "months"} else None
     weeks = [whole_number(raw.get(key), 45) for key in ("pregnancy_week_min", "pregnancy_week_max")]
     ages = [  # in the unit the source used
@@ -296,6 +298,11 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             source.parts.extend(acquired.parts)
             source.images.extend(acquired.images)
             source.metadata.coverage_notes.extend(acquired.warnings)
+            if (not hasattr(public_video_service, "fetch_photo_post")
+                    and public_video_service.is_tiktok_photo_post(request["url"])):
+                source.metadata.coverage_notes.append(
+                    "This media reader supports at most eight slides; later slides may be missing."
+                )
             if acquired.acquisition_failures:
                 codes = {failure.code for failure in acquired.acquisition_failures}
                 messages = {
