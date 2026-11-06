@@ -19,7 +19,7 @@ const config: ExpoConfig = {
     appleTeamId: "4T358A5S74",
     supportsTablet: false,
     usesAppleSignIn: true,
-    associatedDomains: ["webcredentials:clerk.hafa-recipes.com"],
+    associatedDomains: ["webcredentials:clerk.hafa-recipes.com", "applinks:shimizu-technology.com"],
     entitlements: { "com.apple.developer.default-data-protection": "NSFileProtectionComplete" },
     infoPlist: { ITSAppUsesNonExemptEncryption: false },
     icon: { light: "./assets/icon.png", dark: "./assets/icon-dark.png", tinted: "./assets/icon-tinted.png" },

@@ -8,6 +8,8 @@ describe("reading a code", () => {
   const code = "hfbi_v1.abcdefghijklmnopqrstuvwxyz012345";
   it("finds it in the whole message they pasted", () => {
     expect(codeFrom(inviteMessage(code))).toBe(code);
+    expect(inviteMessage(code)).toContain(`https://shimizu-technology.com/join/${code}`);
+    expect(inviteMessage(code)).toContain(`\n\n${code}`);
     expect(codeFrom(`  ${code}\n`)).toBe(code);
   });
   it("gives back whatever else, for the API to refuse", () => {

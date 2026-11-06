@@ -17,6 +17,7 @@ import { ApiError, PhonesNotReady } from "./api";
 import { emptyState, optimisticRecord } from "./models";
 import { disclosureVersion, forgetInvite } from "./family";
 import { leftFamilyNotice } from "./outbox";
+import { hasJoinLink, holdJoinLink, takeJoinLink } from "./join-link";
 
 const personal = "p", family = "f";
 const own = { id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, shared = { id: family, kind: "family", role: "parent", generation: 1, access_version: 1 };
@@ -324,6 +325,101 @@ describe("joining with a code", () => {
     await act(async () => all("Field")[0].props.onChange(code));
     await press("Check the code");
     expect(text()).toMatch(message);
+  });
+});
+
+describe("opened from a family link", () => {
+  const preview = { role: "parent", expires_at: "2026-11-12T00:00:00Z", disclosure_version: 2, invitation: "Kami invited you to their family.", disclosure: "Your own journal stays yours." };
+  afterEach(() => { takeJoinLink(); });
+  const failing = (status: number) => vi.fn(async () => { throw new ApiError("no", status); });
+  it("fills the code in and checks it, and still joins only on a tap", async () => {
+    const b = setup([own], { previewInvite: vi.fn(async () => preview) });
+    holdJoinLink(code);
+    await open();
+    expect(b.api.previewInvite).toHaveBeenCalledWith(code);
+    expect(text()).toContain(preview.invitation);
+    expect(b.api.acceptInvite).not.toHaveBeenCalled();
+    await press("Join this family");
+    expect(b.api.acceptInvite).toHaveBeenCalledWith(code, 1);
+  });
+  it("uses the code once, so a later visit to Family is ordinary", async () => {
+    setup([own], { previewInvite: vi.fn(async () => preview) });
+    holdJoinLink(code);
+    await open();
+    expect(hasJoinLink()).toBe(false);
+    await act(async () => view!.unmount());
+    await open();
+    expect(button("I have a code")).toBeDefined();
+  });
+  it("leaves the code in the entry when it can't be checked, so they can try again", async () => {
+    setup([own], { previewInvite: vi.fn(async () => { throw new ApiError("Connect and try again.", 0, true); }) });
+    holdJoinLink(code);
+    await open();
+    expect(all("Field").find((n) => n.props.label === "Code")!.props.value).toBe(code);
+    expect(button("Check the code")).toBeDefined();
+  });
+  it("says plainly when a used or expired code comes back", async () => {
+    setup([own], { previewInvite: failing(409) });
+    holdJoinLink(code);
+    await open();
+    expect(text()).toMatch(/expired or been used/);
+    expect(button("Join this family")).toBeUndefined();
+  });
+  it("says plainly when invites aren't open for this account", async () => {
+    setup([own], { previewInvite: failing(404) });
+    holdJoinLink(code);
+    await open();
+    expect(text()).toMatch(/aren’t open yet/);
+  });
+  it("says plainly when the link has no real code in it, and doesn't ask the API", async () => {
+    const b = setup();
+    holdJoinLink("");
+    await open();
+    expect(b.api.previewInvite).not.toHaveBeenCalled();
+    expect(text()).toMatch(/doesn’t have a working family code/);
+    expect(all("Field").find((n) => n.props.label === "Code")!.props.value).toBe("");
+  });
+  it("still lets them paste a code after a bad link", async () => {
+    const b = setup([own], { previewInvite: vi.fn(async () => preview) });
+    holdJoinLink("");
+    await open();
+    await act(async () => all("Field").find((n) => n.props.label === "Code")!.props.onChange(code));
+    await press("Check the code");
+    expect(b.api.previewInvite).toHaveBeenCalledWith(code);
+  });
+  it("says plainly that the invitation wasn't used with the family flag off, and forgets it", async () => {
+    const b = setup(null);
+    holdJoinLink(code);
+    await open();
+    expect(text()).toMatch(/invitation wasn’t used/);
+    expect(hasJoinLink()).toBe(false);
+    expect(b.api.previewInvite).not.toHaveBeenCalled();
+  });
+  it("says the same when the rehearsal's family_available: false hides the Family row", async () => {
+    const b = setup([own]);
+    b.state.bootstrap.family_available = false;
+    holdJoinLink(code);
+    await open();
+    expect(text()).toMatch(/invitation wasn’t used/);
+    expect(b.api.previewInvite).not.toHaveBeenCalled();
+  });
+  it("says so to someone already in a family, and doesn't try the code", async () => {
+    const b = setup([own, shared]);
+    holdJoinLink(code);
+    await open();
+    expect(text()).toMatch(/already in a family/);
+    expect(text()).not.toContain(code);
+    expect(b.api.previewInvite).not.toHaveBeenCalled();
+    expect(b.api.acceptInvite).not.toHaveBeenCalled();
+  });
+  it("doesn't say any of that without a link", async () => {
+    setup([own, shared]);
+    await open();
+    expect(text()).not.toMatch(/already in a family/);
+    await act(async () => view!.unmount());
+    setup(null);
+    await open();
+    expect(text()).not.toMatch(/invitation/);
   });
 });
 
