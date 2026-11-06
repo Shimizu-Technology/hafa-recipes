@@ -336,7 +336,7 @@ export function upgradedState(saved: DeviceState): DeviceState {
 /** Keep exactly the row shown, never a later draft of that entry. Other drafts remain separately recoverable. */
 export function keepHeldDraft(state: DeviceState, id: string, uuid: () => string): DeviceState {
   const held = state.heldDrafts?.find((one) => one.id === id);
-  if (!held) return state;
+  if (!held || !state.bootstrap) return state;
   const { kind, title, body, child_id, occurred_at, data } = held.draft,
     change: Mutation = { id, type: "save", generation: held.draft.generation ?? state.bootstrap?.generation ?? 1, space_id: held.draft.space_id,
       files: held.draft.files, record: { id: held.draft.id, kind, title, body, child_id, occurred_at, data } },
