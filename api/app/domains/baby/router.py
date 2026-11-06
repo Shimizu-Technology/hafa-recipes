@@ -65,6 +65,7 @@ from app.domains.baby.schemas import (
     NEW_KINDS,
     SERVER_PROFILE_FIELDS,
     V1_KINDS,
+    CareContactsPatch,
     ChildCreate,
     ChildDetails,
     ChildPatch,
@@ -79,6 +80,7 @@ from app.domains.baby.schemas import (
     SessionActionRequest,
     SourceRelevance,
     Stage,
+    contact_fields,
 )
 from app.domains.baby.security import BabyRoute, new_kinds_enabled, push_enabled
 from app.domains.baby.sessions import SESSION_KINDS
@@ -120,6 +122,7 @@ CHILD_DETAIL_ERRORS = {
     "weeks_at_birth": "Enter weeks at birth between 20 and 45",
     "feeding": "Choose nursing, bottle or both, or leave it blank",
     "tracking": "A tracker setting could not be read",
+    "doctor": "Enter a phone number with digits, such as 671-555-0100",
 }
 
 
@@ -131,6 +134,8 @@ def child_details(stored, sent):
         raise HTTPException(422, CHILD_DETAIL_ERRORS[str(error.errors()[0]["loc"][0])]) from None
     result = dict(stored)
     for key, value in given.items():
+        if key == "doctor":
+            value = contact_fields(value)
         if value is None:
             result.pop(key, None)
         else:
@@ -389,6 +394,8 @@ async def bootstrap_state(user, db, *, create, request):
     )
     result = {
         "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
+        # Always here, so a phone can tell this API keeps them: an older one would drop them, and the app hides the fields until it sees this.
+        "contacts": member.profile.get("contacts", {}),
         "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
@@ -444,6 +451,26 @@ async def enroll(user: User, db: Database, generation: Generation, request: Requ
         await touch(personal.space, personal)
     await db.commit()
     return {"generation": member.generation, "active": True}
+
+
+@router.patch("/profile/contacts")
+async def patch_contacts(body: CareContactsPatch, user: User, db: Database, generation: Generation,
+                         access: Access = None):
+    """Her own numbers, away from the profile save and its AI consent rules. Family members never read these."""
+    access.check_generation(generation)
+    member = access.member
+    contacts = dict(member.profile.get("contacts", {}))
+    for key, value in body.model_dump(mode="json", exclude_unset=True).items():
+        if fields := contact_fields(value):
+            contacts[key] = fields
+        else:
+            contacts.pop(key, None)
+    member.profile, member.updated_at = {**member.profile, "contacts": contacts}, now()
+    if access.enabled:
+        personal = next(g for g in access.member_spaces if g.id == member.personal_space_id)
+        await touch(personal.space, personal)
+    await db.commit()
+    return contacts
 
 
 @router.patch("/profile")
@@ -1273,6 +1300,7 @@ async def export(user: User, db: Database, client: Client = None):
         "exported_at": now(),
         "generation": member.generation,
         "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
+        "contacts": member.profile.get("contacts", {}),
         "children": [child_response(row, access) for row in await rows(BabyChild) if row.deleted_at is None],
         "records": [record_response(row, access, readable) for row in records],
         "attachments": [metadata(row, access) for row in await rows(BabyAttachment) if row.state == "ready"],

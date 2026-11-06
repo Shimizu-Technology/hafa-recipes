@@ -1,5 +1,6 @@
 """Bounded, explicit wire schemas; source claims never become care instructions."""
 
+import re
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Literal, get_args
 from urllib.parse import urlsplit
@@ -43,6 +44,47 @@ class DomainModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
+PHONE_NUMBER = re.compile(r"^\+?[\d\s().\-/]+?(?:\s*(?:x|ext\.?|extension)\s*\d{1,6})?$", re.IGNORECASE)
+PHONE_EXTENSION = re.compile(r"(?:x|ext).*$", re.IGNORECASE)
+
+
+class CareContact(BaseModel):
+    """A name and number as she typed them. They're shown back to people and dialled, and no model is ever sent them."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+    name: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=40)
+
+    @field_validator("name", "phone")
+    @classmethod
+    def blank_is_none(cls, value):
+        return (value or "").strip() or None
+
+    @field_validator("phone")
+    @classmethod
+    def looks_dialable(cls, value):
+        """Guam and US numbers both occur, with or without an area code, so any layout will do as long as it has the digits."""
+        if value is None:
+            return None
+        digits = sum(ch.isdigit() for ch in PHONE_EXTENSION.sub("", value))
+        if not PHONE_NUMBER.match(value) or not 7 <= digits <= 15:
+            raise ValueError("Enter a phone number with digits, such as 671-555-0100")
+        return value
+
+
+def contact_fields(contact):
+    """What's worth keeping of a contact, or None if she cleared it all."""
+    return {key: value for key, value in (contact or {}).items() if value} or None
+
+
+class CareContactsPatch(BaseModel):
+    """Her own numbers. A key that was sent changes and null clears it. Unknown keys are ignored, so a newer client can't fail an older API."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+    doctor: CareContact | None = None
+    delivery: CareContact | None = None
+
+
 class Profile(DomainModel):
     # Read back from stored JSON, so a release rolled back to must still open what a later one saved.
     model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
@@ -53,6 +95,8 @@ class Profile(DomainModel):
     family_phones: dict[str, str] = Field(default_factory=dict, exclude_if=lambda value: not value)
     older_client_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
     older_client_confirmed_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    # Her own doctor and where she plans to deliver. Only ever read back to her, in bootstrap's `contacts` and her export.
+    contacts: dict[str, dict] = Field(default_factory=dict, exclude_if=lambda value: not value)
     display_name: str = Field(default="", max_length=120)
     timezone: str = Field(default="Pacific/Guam", max_length=80)
     ai_consent: StrictBool = False
@@ -72,7 +116,9 @@ class Profile(DomainModel):
 
 
 # Stored with the profile and never sent back: a client that saves what it read can't touch them.
-SERVER_PROFILE_FIELDS = {"family_disclosures", "family_phones", "older_client_at", "older_client_confirmed_at"}
+# `contacts` is here too: every build saves its whole cached profile, so one in the response would come back from a phone
+# that read it a while ago and undo a newer edit, and ProfilePatch refuses a key it doesn't know.
+SERVER_PROFILE_FIELDS = {"family_disclosures", "family_phones", "older_client_at", "older_client_confirmed_at", "contacts"}
 
 
 class ProfilePatch(DomainModel):
@@ -101,6 +147,8 @@ class ChildDetails(BaseModel):
     weeks_at_birth: int | None = Field(default=None, strict=True, ge=20, le=45)
     feeding: Literal["nursing", "bottle", "both"] | None = None
     tracking: dict[TrackerId, StrictBool] | None = Field(default=None, max_length=MAX_TRACKERS)
+    # With the baby, so it follows them into a family, and everyone there can read and call it.
+    doctor: CareContact | None = None
 
     @field_validator("length_at_birth_cm")
     @classmethod
