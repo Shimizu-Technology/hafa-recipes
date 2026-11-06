@@ -786,12 +786,14 @@ export function Chips({
   return scroll ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
     contentContainerStyle={{ paddingBottom: 2 }} keyboardShouldPersistTaps="handled">{choices}</ScrollView> : choices;
 }
-export interface FilterChip { label: string; value: string; icon?: IconName }
+export interface FilterChip { label: string; value: string; icon?: IconName; dot?: ColorValue }
 /**
  * The sub-navigation chip row at the top of a list: 34pt pills that scroll edge to edge and fade
  * at the trailing edge instead of clipping a word. Selected is filled cocoa; the rest are sand.
  */
-export function FilterChips({ options, value, onChange, label }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string }) {
+export function FilterChips({ options, value, onChange, label, wrap = false }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string;
+  /** Every choice in sight, on as many lines as it takes, for a choice she mustn't have to go looking for. */
+  wrap?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), scroller = useRef<ScrollView>(null),
     frames = useRef<Record<string, { x: number; width: number }>>({}), view = useRef({ x: 0, width: 0 });
   // Bring a chip chosen elsewhere (Today's "See all", a category row) into view; leave visible ones still.
@@ -803,28 +805,31 @@ export function FilterChips({ options, value, onChange, label }: { options: Filt
     if (left < x) scroller.current?.scrollTo({ x: Math.max(0, left - 48), animated: true });
     else if (right > x + width - 32) scroller.current?.scrollTo({ x: right - width + 48, animated: true });
   }, [value]);
+  const chips = options.map((option) => {
+    const on = value === option.value, ink = on ? c.onAction : c.text;
+    return <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
+      accessibilityState={{ selected: on, checked: on }}
+      onLayout={(event) => { const { x, width } = event.nativeEvent.layout; frames.current[option.value] = { x, width }; }}
+      onPress={() => { if (!on) tap(); onChange(option.value); }}
+      // A 44×44 minimum target around the 34pt pill, so even a one-word chip is easy to hit.
+      style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}>
+      <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
+        backgroundColor: on ? c.action : c.surface }}>
+        {option.icon && <Icon name={option.icon} size={16} color={ink} />}
+        {!!option.dot && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }} />}
+        <Text key={fontScale} maxFontSizeMultiplier={0}
+          style={{ ...typeScale.subhead, fontFamily: on ? fonts.semibold : fonts.medium, color: ink }}>{option.label}</Text>
+      </View>
+    </PressTarget>;
+  });
+  if (wrap) return <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8 }}>{chips}</View>;
   return <View style={{ marginHorizontal: -16 }}>
     <ScrollView ref={scroller} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
       onLayout={(event) => { view.current.width = event.nativeEvent.layout.width; }} scrollEventThrottle={64}
       onScroll={(event) => { view.current.x = event.nativeEvent.contentOffset.x; }}
       contentContainerStyle={{ paddingHorizontal: 16, paddingRight: 40 }}>
       <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        {options.map((option) => {
-          const on = value === option.value, ink = on ? c.onAction : c.text;
-          return <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
-            accessibilityState={{ selected: on, checked: on }}
-            onLayout={(event) => { const { x, width } = event.nativeEvent.layout; frames.current[option.value] = { x, width }; }}
-            onPress={() => { if (!on) tap(); onChange(option.value); }}
-            // A 44×44 minimum target around the 34pt pill, so even a one-word chip is easy to hit.
-            style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}>
-            <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
-              backgroundColor: on ? c.action : c.surface }}>
-              {option.icon && <Icon name={option.icon} size={16} color={ink} />}
-              <Text key={fontScale} maxFontSizeMultiplier={0}
-                style={{ ...typeScale.subhead, fontFamily: on ? fonts.semibold : fonts.medium, color: ink }}>{option.label}</Text>
-            </View>
-          </PressTarget>;
-        })}
+        {chips}
       </View>
     </ScrollView>
     <EdgeFade color={c.background} />

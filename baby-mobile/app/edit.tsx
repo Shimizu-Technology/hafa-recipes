@@ -101,6 +101,8 @@ export default function Edit() {
         if (!d && params.from) {
           const from = b.records.find((r) => r.id === params.from) ?? await b.api.record(params.from);
           d = nextVisitDraft(Crypto.randomUUID(), from, occurrenceAt(from, params.at));
+          // The next visit of one she kept to herself stays with her.
+          if (from.space_id && from.space_id === b.state.bootstrap!.personal_space_id) d = { ...d, shared: false };
         }
         d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
           : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
@@ -434,7 +436,8 @@ export default function Edit() {
       {!!error && <Notice error>{error}</Notice>}
       <EventFields draft={draft} change={change} quick={!params.from} today={dayKey(profileToday(new Date(), b.state.bootstrap!.profile.timezone))} />
       {movesAwayFromDateChanges(draft) && <Notice>Changes you made to single dates won’t carry over to the new dates. If you don’t want that, leave the first date as it is.</Notice>}
-      <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
+      {/* Nothing typed yet is nothing to throw away, and back already leaves. */}
+      {(draft.existing || !!params.from || !!draft.title.trim()) && <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />}
     </Screen>
   );
   return (

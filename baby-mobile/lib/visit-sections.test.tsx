@@ -21,7 +21,8 @@ vi.mock("./ui", () => ui);
 vi.mock("./record-row", () => ({ kindIcon: { question: "q", journal: "j" } }));
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/record-row", () => ({ kindIcon: { question: "q", journal: "j" } }));
-import { LinkQuestions, NextVisitQuestions, RecordVisit, useVisitDrafts, VisitQuestions, VisitSections } from "../components/visit-sections";
+import { LinkQuestions, NextVisitQuestions, RecordVisit, useVisitDrafts, VisitLinks, VisitQuestions, VisitSections } from "../components/visit-sections";
+import { useVisitRecords } from "@/lib/use-visit";
 
 const guam = "Pacific/Guam";
 let renderer: ReactTestRenderer | undefined;
@@ -249,5 +250,25 @@ describe("which questions fit which visit", () => {
     mock.upcoming = [{ ...appointment("v", new Date(Date.now() + 86_400_000).toISOString()), child_id: "noa" }];
     await mount(<RecordVisit record={person("kais", "kai")} />);
     expect(renderer!.toJSON()).toBeNull();
+  });
+});
+
+describe("on an event that isn't an appointment any more", () => {
+  const show = async (rows: BabyRecord[]) => { setup(rows); await mount(<VisitLinks visit={{ id: "was" }} />); };
+  it("shows what's linked to it, each opening, and nothing to add", async () => {
+    await show([record("sleep?", "question", { event_id: "was" }), record("rest", "journal", { event_id: "was", provenance: "clinician_instruction" })]);
+    expect(all("Row").map((n) => n.props.title)).toEqual(["sleep?", "rest"]);
+    expect(all("Field")).toHaveLength(0);
+    await act(async () => row("sleep?").props.onPress());
+    expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "sleep?" } });
+  });
+  it("reads them, in case this phone hasn't got them yet", async () => {
+    await show([]);
+    expect(useVisitRecords).toHaveBeenCalledWith("was", true);
+  });
+  it("shows nothing when nothing's linked, and leaves another visit's alone", async () => {
+    await show([record("other", "question", { event_id: "elsewhere" })]);
+    expect(all("Copy")).toHaveLength(0);
+    expect(all("Row")).toHaveLength(0);
   });
 });

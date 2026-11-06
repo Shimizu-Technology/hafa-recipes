@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allDayChanged, dayName, dayTimeline, eventOccurrences, eventsByDay, eventWhen, eventWrite, newEvent, nextEvent, occurrenceAt, occurrenceDraft, onNewDay, quickEvent, seriesFull, splitEvent, startingAt, visibleEvents, withEventRows, withoutDate, withoutFuture , movesAwayFromDateChanges } from "./events";
+import { allDayChanged, attendeesFrom, eventKindName, herCategories, chooseCategory, categoryChoices, dayName, dayTimeline, detailsLine, detailsSet, doctorVisit, reminderChoices, reminderName, selectedSuggestion, usedEventNames, eventOccurrences, eventsByDay, eventWhen, eventWrite, newEvent, nextEvent, occurrenceAt, occurrenceDraft, onNewDay, quickEvent, seriesFull, splitEvent, startingAt, visibleEvents, withEventRows, withoutDate, withoutFuture , movesAwayFromDateChanges } from "./events";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type EventOccurrence, type Mutation, type RecordData } from "./models";
 import { advancePending, pendingRecords, producedRevision, queuedChain, settledDraft, settledSplit, waitingForEarlier, withoutChain } from "./outbox";
 import { recordDay } from "./tracker";
@@ -236,7 +236,7 @@ describe("filling in a new event", () => {
   });
   it("a kind fills in its name and category, an appointment gets a time, and a birthday repeats until she picks something else", () => {
     expect(quickEvent(draft, "Baptism")).toMatchObject({ title: "Baptism", data: { category: "celebration", all_day: true } });
-    const visit = { ...draft, ...quickEvent(draft, "Appointment") };
+    const visit = { ...draft, ...quickEvent(draft, doctorVisit) };
     expect(visit).toMatchObject({ occurred_at: "2026-12-19T23:00:00.000Z", data: { category: "appointment", all_day: false } });
     const birthday = { ...draft, ...quickEvent(draft, "Birthday") };
     expect(birthday.data.recurrence?.frequency).toBe("yearly");
@@ -248,7 +248,7 @@ describe("filling in a new event", () => {
   });
   it("moves a kept draft to the day she tapped", () => {
     expect(onNewDay(draft, "2027-01-05").occurred_at).toBe("2027-01-04T14:00:00.000Z");
-    const visit = { ...draft, ...quickEvent(draft, "Appointment") };
+    const visit = { ...draft, ...quickEvent(draft, doctorVisit) };
     expect(onNewDay(visit, "2027-01-05").occurred_at).toBe("2027-01-04T23:00:00.000Z");
   });
 });
@@ -276,5 +276,157 @@ describe("moving a whole repeat", () => {
     expect(movesAwayFromDateChanges(draft("2026-11-03T00:00:00.000Z", changed))).toBe(true);
     expect(movesAwayFromDateChanges(draft("2026-11-02T00:00:00.000Z", changed))).toBe(false);
     expect(movesAwayFromDateChanges(draft("2026-11-03T00:00:00.000Z", []))).toBe(false);
+  });
+});
+
+let rowCount = 0;
+const row = ({ title = "Class", kind, updated_at, data = {} }: { title?: string; kind?: BabyRecord["kind"]; updated_at?: string; data?: RecordData }) =>
+  ({ ...event(`row-${++rowCount}`, "2026-11-01T00:00:00Z", data, { title, ...(kind ? { kind } : {}), ...(updated_at ? { updated_at } : {}) }) }) as BabyRecord;
+
+describe("a suggestion", () => {
+  const blank = () => newEvent("e", "baby", "2026-11-20", "Pacific/Guam");
+  const apply = (draft: EditorDraft, title: string) => ({ ...draft, ...quickEvent(draft, title) }) as EditorDraft;
+  it("fills an empty name, and takes it back when tapped again", () => {
+    const filled = apply(blank(), "Baptism");
+    expect(filled).toMatchObject({ title: "Baptism", data: { category: "celebration" } });
+    expect(apply(filled, "Baptism")).toMatchObject({ title: "", data: { category: "other" } });
+  });
+  it("makes a doctor's appointment of what she typed, and keeps her words", () => {
+    const typed = { ...blank(), title: "Dr. Cruz" }, visit = apply(typed, doctorVisit);
+    expect(visit).toMatchObject({ title: "Dr. Cruz", data: { category: "appointment", all_day: false } });
+    expect(selectedSuggestion(visit)).toBe(doctorVisit);
+    expect(apply(visit, doctorVisit)).toMatchObject({ title: "Dr. Cruz", data: { category: "other" } });
+  });
+  it("takes a birthday's yearly repeat away again when she chooses something else", () => {
+    const birthday = apply(blank(), "Birthday");
+    expect(birthday.data.recurrence?.frequency).toBe("yearly");
+    expect(apply(birthday, "Baptism").data.recurrence).toBeNull();
+    expect(apply(birthday, "Birthday").data.recurrence).toBeNull();
+  });
+  it("from a name she's used brings back its kind and that it had a time, not its date", () => {
+    const rows = [row({ title: "Dentist", data: { timezone: "Pacific/Guam", all_day: false, category: "appointment" } })];
+    const used = usedEventNames(rows)[0], picked = { ...blank(), ...quickEvent(blank(), used.title, [used]) } as EditorDraft;
+    expect(picked).toMatchObject({ title: "Dentist", data: { category: "appointment", all_day: false } });
+    expect(picked.occurred_at.startsWith("2026-11-19T23")).toBe(true);
+  });
+});
+describe("names she's used", () => {
+  it("leave out the ones already suggested, what's blank, and anything past six", () => {
+    const rows = ["Baptism", "  ", ...Array.from({ length: 9 }, (_, n) => `Thing ${n}`)].map((title, n) => row({ title, updated_at: `2026-11-${String(20 - n).padStart(2, "0")}T00:00:00.000Z` }));
+    expect(usedEventNames(rows).map((item) => item.title)).toEqual(["Thing 0", "Thing 1", "Thing 2", "Thing 3", "Thing 4", "Thing 5"]);
+  });
+  it("only come from events", () => {
+    expect(usedEventNames([row({ title: "Note", kind: "journal" })])).toEqual([]);
+  });
+});
+describe("who's coming", () => {
+  it("is names split on commas, trimmed, each once", () => {
+    expect(attendeesFrom(" Grandma , grandma, Auntie Rose,, ")).toEqual(["Grandma", "Auntie Rose"]);
+    expect(attendeesFrom("")).toEqual([]);
+  });
+  it("stays inside what the API holds", () => {
+    expect(attendeesFrom(Array.from({ length: 40 }, (_, n) => `P${n}`).join(","))).toHaveLength(30);
+    expect(attendeesFrom("x".repeat(200))[0]).toHaveLength(120);
+  });
+});
+describe("a reminder", () => {
+  it("is worded for the kind of event", () => {
+    expect(reminderName(0, false)).toBe("At the time");
+    expect(reminderName(0, true)).toBe("That morning");
+    expect(reminderName(1440, false)).toBe("1 day before");
+    expect(reminderName(1440, true)).toBe("The day before");
+    expect(reminderName(45, false)).toBe("45 minutes before");
+  });
+  it("offers none, the usual ones, and keeps any others it already holds", () => {
+    expect(reminderChoices(false, []).map((item) => item.value)).toEqual(["", "0", "60", "1440", "10080"]);
+    expect(reminderChoices(true, []).map((item) => item.value)).toEqual(["", "0", "1440", "10080"]);
+    expect(reminderChoices(false, [30]).map((item) => item.value)).toContain("30");
+    expect(reminderChoices(false, [30, 120]).map((item) => item.label)).toContain("2 reminders");
+  });
+});
+describe("what More details holds", () => {
+  const base = () => newEvent("e", "baby", "2026-11-20", "Pacific/Guam");
+  it("is nothing on a new event", () => {
+    expect(detailsSet(base())).toBe(false);
+    expect(detailsLine(base())).toBe("");
+  });
+  it("is said in a line, so nothing's hidden when it's shut", () => {
+    const draft = { ...base(), body: "Bring the car seat", data: { ...base().data, recurrence: { frequency: "yearly" as const, interval: 1 }, location: "Church", attendees: ["Grandma"], reminder_minutes: [1440] } };
+    expect(detailsSet(draft)).toBe(true);
+    expect(detailsLine(draft, true)).toBe("Every year · Church · With Grandma · The day before · Note");
+    expect(detailsLine(draft)).toBe("Every year · Church · With Grandma · Note");
+  });
+});
+
+describe("what kind of event it is", () => {
+  const blank = () => newEvent("e", null, "2026-11-20", guam);
+  it("is a core category's name, or her own, or nothing at all", () => {
+    expect(eventKindName({ category: "family" })).toBe("Family");
+    expect(eventKindName({ category: "appointment" })).toBe("Doctor’s appointment");
+    expect(eventKindName({ category: "other", category_label: "Car" })).toBe("Car");
+    expect(eventKindName({ category: null, category_label: "Car" })).toBe("Car");
+    expect(eventKindName({ category: "other" })).toBe("");
+    expect(eventKindName({ category: null })).toBe("");
+  });
+  it("shows the core one when an older build changed the category under her label", () => {
+    expect(eventKindName({ category: "family", category_label: "Car" })).toBe("Family");
+  });
+  it("her own are offered again: newest first, once each, past and queued alike", () => {
+    const rows = [row({ data: { category_label: "Car" }, updated_at: "2026-11-01T00:00:00.000Z" }), row({ data: { category_label: "car " }, updated_at: "2026-10-01T00:00:00.000Z" }),
+      row({ data: { category_label: "Work" }, updated_at: "2026-11-02T00:00:00.000Z" }), row({ data: { category: "family" } })];
+    expect(herCategories(rows)).toEqual(["Work", "Car"]);
+  });
+  it("lists the core ones, then hers, with no Other", () => {
+    expect(categoryChoices(["Car"], {}).map((item) => item.label)).toEqual(["Doctor’s appointment", "Family", "Celebration", "Milestone", "Reminder", "Car"]);
+  });
+  it("is one choice: a core category or her own, and either can be taken back", () => {
+    const family = { ...blank().data, ...chooseCategory(blank().data, "family") };
+    expect(family).toMatchObject({ category: "family", category_label: null });
+    const car = { ...family, ...chooseCategory(family, "label:Car") };
+    expect(car).toMatchObject({ category: "other", category_label: "Car" });
+    expect({ ...car, ...chooseCategory(car, "label:Car") }).toMatchObject({ category: "other", category_label: null });
+    expect({ ...family, ...chooseCategory(family, "family") }).toMatchObject({ category: "other", category_label: null });
+  });
+  it("is said in the More details line", () => {
+    expect(detailsSet({ body: "", data: { category: "family" } })).toBe(true);
+    expect(detailsLine({ body: "", data: { category: "other", category_label: "Car" } })).toBe("Car");
+    expect(detailsSet({ body: "", data: { category: "other" } })).toBe(false);
+  });
+  it("from a name she's used, comes back with her own category", () => {
+    const used = usedEventNames([row({ title: "Oil change", data: { category: "other", category_label: "Car" } })])[0];
+    expect(({ ...blank(), ...quickEvent(blank(), used.title, [used]) } as EditorDraft).data).toMatchObject({ category: "other", category_label: "Car" });
+  });
+  it("a suggestion clears a label she'd chosen", () => {
+    const labelled = { ...blank(), data: { ...blank().data, category_label: "Car" } };
+    expect(quickEvent(labelled, "Baptism").data).toMatchObject({ category: "celebration", category_label: null });
+  });
+});
+describe("her own category on a repeating event", () => {
+  const series = () => event("s", "2026-11-02T00:00:00.000Z", { recurrence: { frequency: "weekly" }, category: "other", category_label: "Car" });
+  const at = "2026-11-09T00:00:00.000Z";
+  it("shows on each occurrence, and a date can have its own", () => {
+    const rows = eventOccurrences({ ...series(), data: { ...series().data, exceptions: [{ original_start: at, overrides: { category_label: "Tires" } }] } }, "2026-11-02", "2026-11-09", guam);
+    expect(rows.map((item) => item.category_label)).toEqual(["Car", "Tires"]);
+  });
+  it("one date's editor changes only that date", () => {
+    const draft = { ...series(), ...occurrenceDraft(series(), at, "one"), files: [], existing: true } as EditorDraft;
+    expect(draft.data.category_label).toBe("Car");
+    const written = eventWrite({ ...draft, data: { ...draft.data, category_label: "Tires" } });
+    expect(written.data.category_label).toBe("Car");
+    expect(written.data.exceptions?.[0].overrides).toEqual({ category_label: "Tires" });
+  });
+  it("one date's editor adds no change when she leaves it alone", () => {
+    const draft = { ...series(), ...occurrenceDraft(series(), at, "one"), files: [], existing: true } as EditorDraft;
+    expect(eventWrite(draft).data.exceptions).toEqual([]);
+  });
+  it("all future keeps it, on both halves", () => {
+    const draft = { ...series(), ...occurrenceDraft(series(), at, "future"), files: [], existing: true } as EditorDraft;
+    expect(eventWrite(draft).data.category_label).toBe("Car");
+    expect(splitEvent(draft, "next")?.data.category_label).toBe("Car");
+  });
+  it("trims what she typed, and a blank one is none", () => {
+    const draft = newEvent("e", null, "2026-11-20", guam);
+    expect(eventWrite({ ...draft, title: "x", data: { ...draft.data, category_label: "  Car " } }).data.category_label).toBe("Car");
+    expect(eventWrite({ ...draft, title: "x", data: { ...draft.data, category_label: "   " } }).data.category_label).toBeNull();
   });
 });

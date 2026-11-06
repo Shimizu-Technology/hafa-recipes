@@ -303,3 +303,9 @@ for this one addition. Fresh `npm audit --omit=dev`: 21 inherited findings, zero
 same six reviewed advisory IDs; nothing new. The existing 2026-11-17 expiry is unchanged.
 
 `expo-print` 57.0.2 (Nov 2026) makes the doctor summary PDF on the device. It has no dependencies of its own and adds no advisories, but it is native code, so it needs a new binary.
+
+## expo-calendar for the add-event sheet (2026-11-06)
+
+`expo-calendar` ~57.0.6 opens the system's add-event sheet for "Add to my phone's calendar". It adds one package and no advisories; the runtime audit's reviewed set is unchanged.
+No calendar access is asked for: on iOS 17 and later the sheet runs outside the app and needs no permission, so the plugin is listed with no usage strings, and Android's `READ_CALENDAR` and `WRITE_CALENDAR` are blocked. Both were checked with `expo config --type introspect`. It needs a new binary.
+Reviewed baby-mobile lock SHA-256: `422b3e8456b1b454c92a4ae2a753f7c247173a635cd39def3e0ef087df28f779`.

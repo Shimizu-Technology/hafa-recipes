@@ -50,7 +50,7 @@ export const trackers: readonly Tracker[] = [
 export const keepItems: readonly { kind: Kind; label: string; detail: string }[] = [
   { kind: "source", label: "Video or link", detail: "Video, link, screenshot, or document" },
   { kind: "journal", label: "Journal", detail: "A thought, a memory, or a photo" },
-  { kind: "event", label: "Calendar", detail: "An appointment, baptism or family visit" },
+  { kind: "event", label: "Calendar", detail: "A visit, a birthday, anything with a date" },
   { kind: "question", label: "Doctor question", detail: "Bring your questions to the next visit" },
   { kind: "routine", label: "List", detail: "A checklist or a routine you review first" },
 ];
