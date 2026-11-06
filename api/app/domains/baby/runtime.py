@@ -427,10 +427,22 @@ class BabyWorker:
 
 
 def keep_user_decisions(current, organized):
-    """Reprocessing never overrides timing the user set or a suggestion they decided."""
+    """Keep user decisions and earlier reading after a retry cannot reread a source."""
     organized = dict(organized)
     organized.pop("attachment_ids", None)
     organized.pop("user_text", None)
+    if (organized.get("status") in {"incomplete", "failed"} and current.get("source_text")
+            and (current.get("url") or current.get("attachment_ids"))
+            and not any(item.get("text") and item.get("location") != "user_note"
+                        for item in (organized.get("evidence") or []))):
+        # Keep earlier reading for display, without feeding it into this attempt.
+        for key in ("source_text", "summary", "evidence", "key_points", "steps", "creator",
+                    "platform", "thumbnail_url", "suggested_category"):
+            organized.pop(key, None)
+        organized["coverage_notes"] = [
+            "Previously saved text is shown. This attempt could not reread the source.",
+            *organized.get("coverage_notes", []),
+        ][:30]
     if (current.get("relevance") or {}).get("origin") == "user":
         organized.pop("relevance", None)
     if (current.get("suggested_category") or {}).get("status") in {"accepted", "dismissed"}:

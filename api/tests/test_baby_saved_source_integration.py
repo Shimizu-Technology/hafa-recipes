@@ -264,3 +264,46 @@ async def test_repeated_url_reads_do_not_multiply_evidence_or_promote_parent_not
     rejected=await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"record_id":record_id})
     assert rejected.status_code==429
     assert (await c.post(f"/api/v1/baby/imports/{identifier}/retry",headers=shared.GEN)).status_code==200  # ready is an idempotent no-op
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("family_enabled", [False, True])
+async def test_failed_reread_preserves_prior_read_without_using_it_as_fresh_evidence(baby_api,monkeypatch,family_enabled):
+    from app.domains.baby import processing
+    from app.domains.baby.provider import ExtractionOutput
+    from app.domains.baby.runtime import BabyWorker
+    from app.domains.workouts.extraction import SourceBundle, SourceMetadata, SourcePart
+    baby_api.settings.baby_family_enabled=family_enabled
+    c=baby_api.client
+    await c.patch("/api/v1/baby/profile",headers=shared.GEN,json={"ai_consent":True})
+    class Acquirer:
+        reads=0
+        def __init__(self,**kwargs): pass
+        async def acquire(self,*args,**kwargs):
+            Acquirer.reads+=1
+            if Acquirer.reads>1:
+                raise ValueError("Unavailable source")
+            return SourceBundle(SourceMetadata(title="Checklist"),parts=[SourcePart("caption","Earlier creator caption")],
+                warnings=["One original image was not read; caption retained."])
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    seen=[]
+    class Provider:
+        enabled=True
+        def __init__(self,**kwargs): pass
+        async def extract(self,source,categories=None):
+            seen.append([p.text for p in source.parts])
+            return ExtractionOutput(title="Checklist",summary="Earlier summary" if len(seen)==1 else "Note only",
+                key_points=["Earlier supported tip"] if len(seen)==1 else ["Parent note only"])
+    identifier=str(uuid4())
+    made=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":identifier,
+        "url":"https://example.com/post","text":"My own note"})).json()
+    worker=BabyWorker(baby_api.sessions,provider_factory=Provider)
+    assert await worker.tick()
+    before=(await c.get(f"/api/v1/baby/records/{made['record_id']}")).json()
+    assert (await c.post(f"/api/v1/baby/imports/{identifier}/retry",headers=shared.GEN)).status_code==200
+    assert await worker.tick()
+    after=(await c.get(f"/api/v1/baby/records/{made['record_id']}")).json()
+    assert after["data"]["status"]=="incomplete"
+    for key in ["source_text","summary","evidence","key_points"]:
+        assert after["data"][key]==before["data"][key]
+    assert seen[1]==["My own note"]
+    assert any("Previously saved text" in note for note in after["data"]["coverage_notes"])
