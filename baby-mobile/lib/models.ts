@@ -394,6 +394,8 @@ export interface EditorDraft {
   event_edit?: EventEdit;
 }
 export type Mutation = {
+  /** Recovery content from an editor, without Save intent. Never eligible for delivery. */
+  draft_only?: boolean;
   localOnly?: boolean;
   /** The space it's for, and `generation` is that space's. None with the API's family flag off, or from an older build. */
   space_id?: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepInPersonal, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice } from "./outbox";
+import { keepInPersonal, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain } from "./outbox";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -132,6 +132,40 @@ describe("leaving a family, or being removed", () => {
     expect(next.drafts).toEqual({});
     const kept = next.outbox.find((m) => m.type === "save" && m.record.id === "shared") as Extract<Mutation, { type: "save" }>;
     expect(kept).toMatchObject({ left_space: family, error: notSentMessage, record: { body: "half typed" } });
+  });
+  it.each(["", "words I did not save"])("never sends an opened or edited draft on rejoin (%s)", (body) => {
+    const draft = { ...write("shared", "event"), body, revision: 3, space_id: family, files: [], existing: true } as EditorDraft;
+    const left = withoutFamily({ ...before(), drafts: { "record:shared": draft } }, family, uuid);
+    const back = retryUnavailable(rejoined(upgradedState(left), boot()));
+    const held = back.outbox.find((m) => m.type === "save" && m.record.id === "shared")!;
+    expect(held).toMatchObject({ draft_only: true, error: expect.any(String) });
+    expect(retryMutation(held)).toBe(held);
+    expect(pendingRecords(back).some((r) => r.id === "shared")).toBe(false);
+    expect(draftsBeforeFamily(back, boot()).outbox).toEqual(back.outbox);
+    expect(settledDraft(draft, back).body).toBe(body);
+  });
+  it("keeps a saved change separate from the editor draft it preceded", () => {
+    const saved = { ...queued, record: write("shared", "event") } as Mutation;
+    const draft = { ...write("shared", "event"), body: "unsaved", space_id: family, files: [], existing: true } as EditorDraft;
+    const left = withoutFamily({ ...before(), outbox: [saved], drafts: { d: draft } }, family, uuid);
+    expect(queuedChain(left.outbox, left.outbox[0])).toHaveLength(1);
+    const back = rejoined(left, boot());
+    expect(back.outbox[0]).toMatchObject({ id: saved.id, error: undefined, left_space: undefined });
+    expect(back.outbox[1]).toMatchObject({ draft_only: true, left_space: family });
+    expect(rejoined(back, boot()).outbox).toEqual(back.outbox);
+    const kept = keepInPersonal(left, left.outbox[0], uuid).outbox;
+    expect(kept.at(-1)).toMatchObject({ record: { body: "words" } });
+    expect(kept[0]).toMatchObject({ draft_only: true, record: { body: "unsaved" } });
+  });
+  it("holds ambiguous saves stopped by the old build for an explicit personal save", () => {
+    const old = state({ version: 2, outbox: [{ ...queued, left_space: family, error: notSentMessage }] });
+    const next = rejoined(upgradedState(old), boot());
+    expect(next.outbox[0]).toMatchObject({ draft_only: true, error: expect.any(String) });
+    const kept = keepInPersonal(next, next.outbox[0], uuid);
+    expect(kept.outbox[0].space_id).toBe(personal);
+    expect(kept.outbox[0].error).toBeUndefined();
+    expect(kept.outbox[0].draft_only).toBeUndefined();
+    expect(upgradedState(upgradedState(old))).toEqual(upgradedState(old));
   });
   it("takes a new draft's lost baby off it, and leaves the words", () => {
     const draft = { ...write("n", "diaper", "baby"), files: [] } as EditorDraft, other = { ...write("o", "diaper", "mine"), files: [] } as EditorDraft;

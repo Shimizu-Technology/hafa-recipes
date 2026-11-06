@@ -213,3 +213,12 @@ describe("reviewing a conflict before replacing the saved version", () => {
     expect(renderer!.root.findAll((n) => String(n.type) === "Button").some((n) => n.props.title === "Save my version after review")).toBe(false);
   });
 });
+
+it("holds an unfinished family draft without Retry and offers an explicit personal save", async () => {
+  setup([save("draft", "entry", { draft_only: true, left_space: "family", error: "Not sent" })]);
+  await act(async () => { renderer = create(<Sync />); });
+  const buttons = renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.title);
+  expect(buttons).toContain("Keep in my personal space");
+  expect(buttons).not.toContain("Retry");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("It won’t be sent to your family");
+});

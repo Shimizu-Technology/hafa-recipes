@@ -411,7 +411,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const next = ref.current.outbox.find((m) => m.id === pending.id);
         if (!next) continue;
         if (!alive.current || !onlineRef.current) break;
-        if (next.generation !== generationOf(latest, next.space_id) || next.conflict || next.error || next.localOnly) continue;
+        if (next.generation !== generationOf(latest, next.space_id) || next.conflict || next.error || next.localOnly || next.draft_only) continue;
         if (next.type === "import" && next.automatic &&
           (!(latest.profile.ai_consent && latest.profile.auto_process_shares) ||
             (next.automatic_epoch ?? 0) !== (latest.profile.auto_process_epoch ?? 0))) {

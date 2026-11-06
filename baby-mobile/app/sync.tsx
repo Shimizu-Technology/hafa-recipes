@@ -102,7 +102,9 @@ export default function Sync() {
                     : m.record.title}
               </Copy>
               <Copy kind="small" tone="muted">
-                {m.left_space
+                {m.draft_only
+                  ? "Unfinished draft · not sent"
+                  : m.left_space
                   ? "Not sent"
                   : m.localOnly
                   ? "Kept on this phone · not syncing"
@@ -129,7 +131,7 @@ export default function Sync() {
               ) : (
                 <Copy>{m.record.body || "Care details and attachments are saved with this change."}</Copy>
               )}
-              {m.error && <Notice error>{m.error}</Notice>}
+              {m.draft_only ? <Notice>This may be an unfinished draft. It won’t be sent to your family. Keep a copy in your personal space, or discard it.</Notice> : m.error && <Notice error>{m.error}</Notice>}
               {!!m.left_space && queuedChain(b.state.outbox, m).some((row) => row.type === "save") && (
                 <Button
                   secondary
@@ -259,7 +261,7 @@ export default function Sync() {
                     await b.commit(s => ({ ...s, outbox: s.outbox.map(row => row.id === m.id ? { ...row, localOnly: true } : row) }));
                   })} />
               )}
-              {!m.left_space && !m.conflict && (m.error || m.localOnly) && (
+              {!m.draft_only && !m.left_space && !m.conflict && (m.error || m.localOnly) && (
                 <Button secondary title="Retry" busy={busy} onPress={() => void run(() => retry(m))} />
               )}
               <Button
