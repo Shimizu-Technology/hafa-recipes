@@ -27,10 +27,17 @@ it("saves her name and time zone as before, and goes back", async () => {
   expect(field().props.autoFocus).toBe(true);
   await act(async () => field().props.onChange(" Kami "));
   await save();
-  expect(f.profile.mock.calls[0][0]).toMatchObject({ display_name: "Kami", ai_consent: true });
-  expect(f.profile.mock.calls[0][0].timezone).toBeTruthy();
+  expect(f.profile.mock.calls[0][0]).toEqual({ display_name: "Kami", timezone: expect.any(String) });
   expect(f.boot.profile.display_name).toBe("Kami");
   expect(f.back).toHaveBeenCalled();
+});
+it("never sends permission or a name she didn't edit, so another phone's newer ones stay", async () => {
+  await open("Older name");
+  f.boot = { ...f.boot, profile: { ...f.boot.profile, display_name: "Newer name", ai_consent: false } };
+  await act(async () => { view.update(<ProfileDetails />); });
+  expect(field().props.value).toBe("Newer name");
+  await save();
+  expect(f.profile.mock.calls[0][0]).toEqual({ timezone: expect.any(String) });
 });
 it("doesn't jump into the keyboard when she already has a name", async () => {
   await open("Kami");

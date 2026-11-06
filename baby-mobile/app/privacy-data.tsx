@@ -38,7 +38,7 @@ export default function PrivacyData() {
   async function consent(value: boolean) {
     await run(async () => {
       const version = b.state.bootstrap!.ask_consent_version;
-      const result = await b.api.profile({ ...profile, ai_consent: value,
+      const result = await b.api.profile({ ai_consent: value,
         ...(!value ? { auto_process_shares: false } : version ? { acknowledge_ai_consent_version: version } : {}) }, b.state.bootstrap!.generation);
       await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
       toast(value ? "AI processing enabled." : "AI permission removed.");
@@ -84,9 +84,10 @@ export default function PrivacyData() {
           onPress={() => {
             const save = () => void run(async () => {
               const enabled = !profile.auto_process_shares;
-              const result = await b.api.profile({ ...profile, auto_process_shares: enabled }, b.state.bootstrap!.generation);
+              const result = await b.api.profile({ auto_process_shares: enabled }, b.state.bootstrap!.generation);
               await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
-              toast(enabled ? "Shared posts will process automatically." : "Automatic processing is off. Originals stay saved.");
+              // The API has the last word: permission may have been withdrawn on another phone.
+              toast(result.auto_process_shares ? "Shared posts will process automatically." : "Automatic processing is off. Originals stay saved.");
             });
             if (profile.auto_process_shares) save();
             else Alert.alert("Automatically process shared posts?",

@@ -48,7 +48,7 @@ describe("a name for Logged by", () => {
     await open();
     await act(async () => all("Field").find((n) => n.props.label === "Your name")!.props.onChange("Kami"));
     await press("Save name");
-    expect(profile).toHaveBeenCalledWith(expect.objectContaining({ display_name: "Kami" }), 1);
+    expect(profile).toHaveBeenCalledWith({ display_name: "Kami" }, 1);
     expect(all("Field").find((n) => n.props.label === "Your name")).toBeUndefined();
   });
   it("doesn't ask someone who has one", async () => {
