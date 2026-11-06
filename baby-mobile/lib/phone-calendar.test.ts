@@ -108,9 +108,9 @@ describe("the sheet", () => {
 });
 describe("what the app asks the phone for", () => {
   const config = readFileSync(new URL("../app.config.ts", import.meta.url), "utf8");
-  it("asks for no calendar access at all", () => {
-    expect(config).not.toMatch(/NSCalendars|writeOnlyAccess/);
-    expect(config).toContain('["expo-calendar", { calendarPermission: false, remindersPermission: false }]');
+  it("never asks for calendar access, and has the words Apple requires because the module could", () => {
+    expect(config).toMatch(/writeOnlyAccess: true/);
+    for (const key of ["calendarPermission", "writeOnlyCalendarPermission", "remindersPermission"]) expect(config).toMatch(new RegExp(`${key}: "`));
     const source = readFileSync(new URL("./phone-calendar.ts", import.meta.url), "utf8");
     expect(source).not.toMatch(/requestCalendarPermissions|getCalendars|getEvents|createEventAsync/);
     // A real phone refused this: production Metro makes import() a chunk to fetch.

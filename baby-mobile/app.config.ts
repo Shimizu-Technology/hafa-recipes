@@ -65,7 +65,13 @@ const config: ExpoConfig = {
     "expo-sharing",
     "expo-notifications",
     // Its plugin applies by itself if it isn't listed, with usage strings for access this app never asks for.
-    ["expo-calendar", { calendarPermission: false, remindersPermission: false }],
+    // The app only opens the system's add-event sheet and never asks for access. Apple still requires these words because the module can.
+    ["expo-calendar", {
+      calendarPermission: "Håfa Baby adds an event to your calendar only when you ask it to.",
+      writeOnlyCalendarPermission: "Håfa Baby adds an event to your calendar only when you ask it to.",
+      writeOnlyAccess: true,
+      remindersPermission: "Håfa Baby doesn't use your reminders.",
+    }],
     "@react-native-community/datetimepicker",
     ["expo-build-properties", { ios: { deploymentTarget: "17.0" }, android: { minSdkVersion: 26 } }],
     "./plugins/with-baby-share.cjs",
