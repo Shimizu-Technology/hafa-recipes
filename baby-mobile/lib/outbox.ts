@@ -271,7 +271,7 @@ export function withoutFamily(state: DeviceState, space: string, uuid: () => str
     heldDrafts = [...(state.heldDrafts ?? [])], drafts: DeviceState["drafts"] = {};
   for (const [slot, draft] of Object.entries(state.drafts)) {
     if (draft.space_id === space) {
-      heldDrafts.push({ id: uuid(), draft: { ...draft, generation: generationOf(state.bootstrap, space) ?? draft.generation } });
+      heldDrafts.push({ id: uuid(), slot, draft: { ...draft, generation: generationOf(state.bootstrap, space) ?? draft.generation } });
     } else drafts[slot] = draft.child_id && lost.has(draft.child_id) ? { ...draft, child_id: null } : draft;
   }
   const { [space]: _, ...cursor } = state.changes?.cursor ?? {}, { [space]: __, ...access } = state.changes?.access ?? {};
@@ -332,6 +332,12 @@ export function upgradedState(saved: DeviceState): DeviceState {
     }
   }
   return { ...retryUnavailable({ ...saved, outbox }), heldDrafts, version: deviceVersion };
+}
+/** A late editor cleanup can arrive after its family was removed. It is recovery content too. */
+export function holdEditor(state: DeviceState, slot: string, draft: EditorDraft, uuid: () => string): DeviceState {
+  const drafts = { ...state.drafts }; delete drafts[slot];
+  const held = state.heldDrafts ?? [], already = held.some((one) => one.slot === slot && same(one.draft, draft));
+  return { ...state, drafts, heldDrafts: already ? held : [...held, { id: uuid(), slot, draft }] };
 }
 /** Keep exactly the row shown, never a later draft of that entry. Other drafts remain separately recoverable. */
 export function keepHeldDraft(state: DeviceState, id: string, uuid: () => string): DeviceState {

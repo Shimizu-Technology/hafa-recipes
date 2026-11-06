@@ -273,9 +273,11 @@ describe("unfinished work stays outside the queue", () => {
     expect(retryMutation(next).localOnly).toBe(false);
   });
   it("uses the family generation for a queued row's editor and survives its generation changing", () => {
-    const next = withoutFamily(state({ drafts: { d: draft("words") } }), family, uuid);
+    const old = state({ version: 3, drafts: { d: draft("words") } });
+    old.bootstrap!.spaces!.find((space) => space.id === family)!.generation = 7;
+    const next = withoutFamily(old, family, uuid);
     expect(next.version).toBe(deviceVersion); expect(emptyState().version).toBe(deviceVersion);
-    expect(next.heldDrafts![0].draft.generation).toBe(1);
+    expect(next.heldDrafts![0].draft.generation).toBe(7);
     expect(fencedState(next, { generation: 2, spaces: boot().spaces!.map((space) => ({ ...space, generation: space.generation + 1 })) }).heldDrafts).toEqual(next.heldDrafts);
   });
 });

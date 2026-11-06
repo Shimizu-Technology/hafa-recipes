@@ -2007,3 +2007,15 @@ describe("telling the API what this phone holds", () => {
     expect(mock.api.reportRoutines).toHaveBeenCalledOnce();
   });
 });
+
+it("keeps a late editor cleanup outside the queue and ordinary draft slots after family removal", async () => {
+  const live = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] };
+  mock.api.bootstrap = vi.fn(async () => live); mock.saved = { ...emptyState(), bootstrap: live } as DeviceState;
+  await mount();
+  const draft = { id: "shared", kind: "journal", title: "Shared", body: "unsaved words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", space_id: "former-family", existing: true, files: [{ id: "photo", name: "private.jpg", mime_type: "image/jpeg", uri: "file:///private.jpg" }], data: {} } as const;
+  await act(async () => { await baby.saveDraft("record:shared", { ...draft, files: [...draft.files] }); });
+  expect(baby.state.outbox).toEqual([]); expect(baby.state.drafts).toEqual({});
+  expect(baby.state.heldDrafts![0].draft.body).toBe("unsaved words");
+  await act(async () => { await baby.saveDraft("record:shared", { ...draft, files: [...draft.files] }); });
+  expect(baby.state.heldDrafts).toHaveLength(1);
+});

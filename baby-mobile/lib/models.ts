@@ -376,6 +376,7 @@ export const deviceVersion = 4;
 /** Unfinished editor work is recovery content, never an outbox mutation. */
 export interface HeldDraft {
   id: string;
+  slot?: string;
   draft: EditorDraft;
   /** Legacy actions whose uncertain ancestor must be reviewed first. Never automatically replayed. */
   followups?: Mutation[];

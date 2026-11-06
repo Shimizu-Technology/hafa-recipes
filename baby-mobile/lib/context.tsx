@@ -29,6 +29,7 @@ import {
 } from "./models";
 import {
   addMutation,
+  holdEditor,
   draftsBeforeFamily,
   fencedState,
   localFileUris,
@@ -916,7 +917,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => {
             if (valid && !valid()) return s;
             const drafts = { ...s.drafts };
-            if (draft) drafts[key] = stampedDraft(s, s.drafts[key], draft);
+            if (draft) {
+              const placed = stampedDraft(s, s.drafts[key], draft);
+              if (placed.space_id && spacesLive(s.bootstrap) && !s.bootstrap!.spaces!.some((space) => space.id === placed.space_id))
+                return queueRemovedUploads(s, holdEditor(s, key, placed, Crypto.randomUUID));
+              drafts[key] = placed;
+            }
             else delete drafts[key];
             return queueRemovedUploads(s, { ...s, drafts });
           });
