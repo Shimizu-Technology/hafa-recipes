@@ -87,6 +87,7 @@ export default function Tracker() {
   }, [params.day, params.at]);
   const addEvent = (key: string) => router.push({ pathname: "/edit", params: { kind: "event", day: key } }),
     pick = (key: string) => setPicked(key === today ? null : key),
+    logRow = (entry: (typeof rows)[number]) => <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} logged={familyLine(entry, care.all, b.state.bootstrap, b.owner)} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />,
     blank = (() => {
       if (future) return { title: "Nothing planned yet", body: "This day is still ahead. The calendar is where to add to it.", action: <HeaderPill title="Open the calendar" onPress={() => setView("month")} /> };
       const title = day === today ? "Nothing logged today" : "Nothing logged this day";
@@ -104,7 +105,7 @@ export default function Tracker() {
       <Segmented label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }, { label: "Stats", value: "stats" }]} />
       {view === "month" ? <>
         <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date} onPick={pick} onOpen={(key) => { pick(key); setView("day"); }}>
-          <CalendarDay day={day} today={today} items={dayEvents} logged={future ? undefined : dayWords} onAdd={() => addEvent(day)} onOpen={future ? undefined : () => { setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} />
+          <CalendarDay key={day} day={day} today={today} items={dayEvents} logged={future ? undefined : dayWords} logs={rows.map(logRow)} onAdd={() => addEvent(day)} onOpen={future ? undefined : () => { setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} />
         </TrackerMonth>
         <ComingUp childId={scope} today={today} except={dayEvents} />
       </> : view === "stats" ? <TrackerStats answer={stats} choice={statsChoice} onChoose={setStatsChoice} today={today} childId={scope} expecting={expecting} now={now} growth={logging}
@@ -137,7 +138,7 @@ export default function Tracker() {
         </View>
         <Grouped separatorInset={0}>{timeline.map((entry) => "event_id" in entry
           ? <EventRow key={`${entry.event_id}:${entry.original_start}`} item={entry} day={day} />
-          : <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} logged={familyLine(entry, care.all, b.state.bootstrap, b.owner)} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />
+          : logRow(entry)
         )}</Grouped>
       </View> : <Empty icon="calendar-outline" {...blank} />}
       {(logging || expecting) && !future && <MoreLogs key={`more:${day}`} child={child!} now={now} shown={moreShown} title={logging ? undefined : day === today ? "Log now" : "Add to this day"} pastDay={day === today ? undefined : { key: day, timezone }} onOpen={(open, y) => { setMoreOpen(open); if (open) scroller.current?.scrollTo({ y, animated: true }); }} />}

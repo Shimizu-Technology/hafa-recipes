@@ -296,6 +296,43 @@ describe("each view has its own things, once", () => {
     await act(async () => month().props.onPick("2026-12-01"));
     expect(quiet()).not.toContain("Open this day");
   });
+  describe("a date's logs, under its events", () => {
+    const logs = (count: number) => Array.from({ length: count }, (_, index) => row(`d${index}`, "diaper", new Date(Date.UTC(2026, 9, 26, 2 + index)).toISOString(), { type: "wet" }));
+    const timeline = () => renderer!.root.findAllByType(TimelineRow);
+    const onCalendar = async (rows: BabyRecord[], day = "2026-10-26") => {
+      mock.care = rows;
+      await mount();
+      await show("month");
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onPick(day));
+    };
+    it("shows them inline, newest first, with the + and Open this day still there", async () => {
+      await onCalendar(logs(2));
+      expect(view().props.value).toBe("month");
+      expect(timeline().map((n) => n.props.record.id)).toEqual(["d1", "d0"]);
+      expect(quiet()).toContain("Open this day");
+      expect(renderer!.root.findAll((n) => String(n.type) === "HeaderIconButton")).toHaveLength(1);
+    });
+    it("keeps a long day short, and See all opens the rest right there", async () => {
+      await onCalendar(logs(6));
+      expect(timeline()).toHaveLength(4);
+      expect(quiet()).toContain("See all 6");
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").find((n) => n.props.title === "See all 6")!.props.onPress());
+      expect(timeline()).toHaveLength(6);
+      expect(view().props.value).toBe("month");
+      expect(quiet()).not.toContain("See all 6");
+    });
+    it("has no See all for a short day, and folds again on another date", async () => {
+      await onCalendar(logs(6));
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").find((n) => n.props.title === "See all 6")!.props.onPress());
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onPick("2026-10-27"));
+      expect(timeline()).toHaveLength(0);
+      expect(quiet().some((title) => String(title).startsWith("See all"))).toBe(false);
+    });
+    it("shows only that day's, and each still opens to change", async () => {
+      await onCalendar([...logs(1), row("other", "diaper", "2026-10-28T02:00:00.000Z", { type: "wet" })]);
+      expect(timeline().map((n) => n.props.record.id)).toEqual(["d0"]);
+    });
+  });
   it("First log and Born still open the day", async () => {
     await mount();
     await show("month");

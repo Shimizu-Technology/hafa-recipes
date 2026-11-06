@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View } from "react-native";
 import { eventCount } from "@/lib/events";
 import type { EventOccurrence } from "@/lib/models";
@@ -7,9 +8,14 @@ import { HeaderIconButton } from "./tab-stack";
 import { dayTitle } from "./tracker-day";
 import { Copy, Grouped, QuietRow } from "./ui";
 
-/** The date tapped on the calendar: what's on it, the one place to add to it, and a way to its logs. */
-export function CalendarDay({ day, today, items, logged, onAdd, onOpen }: { day: string; today: string; items: readonly EventOccurrence[]; logged?: string; onAdd: () => void; onOpen?: () => void }) {
-  const line = [logged, items.length > 0 && eventCount(items.length)].filter(Boolean).join(" · ");
+/** A busy day's logs stay short here. Day has all of it, with the buttons. */
+const shortList = 4;
+
+/** The date tapped on the calendar: what's on it and what was logged, the one place to add to it, and a way to the whole day. */
+export function CalendarDay({ day, today, items, logged, logs = [], onAdd, onOpen }: { day: string; today: string; items: readonly EventOccurrence[]; logged?: string;
+  /** That day's timeline rows, newest first. */
+  logs?: readonly React.ReactNode[]; onAdd: () => void; onOpen?: () => void }) {
+  const [all, setAll] = useState(false), line = [logged, items.length > 0 && eventCount(items.length)].filter(Boolean).join(" · ");
   return <View style={{ gap: 8 }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -19,6 +25,8 @@ export function CalendarDay({ day, today, items, logged, onAdd, onOpen }: { day:
       <HeaderIconButton icon="add" label={`Add to the calendar on ${keyDate(day).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`} onPress={onAdd} />
     </View>
     {items.length > 0 && <Grouped separatorInset={0}>{items.map((item) => <EventRow key={`${item.event_id}:${item.original_start}`} item={item} day={day} />)}</Grouped>}
+    {logs.length > 0 && <Grouped separatorInset={0}>{all ? logs : logs.slice(0, shortList)}</Grouped>}
+    {!all && logs.length > shortList && <QuietRow title={`See all ${logs.length}`} onPress={() => setAll(true)} />}
     {!!onOpen && <QuietRow title="Open this day" onPress={onOpen} />}
   </View>;
 }
