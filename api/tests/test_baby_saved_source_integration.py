@@ -174,36 +174,91 @@ async def test_pre_upgrade_source_creation_replay_preserves_original_fingerprint
     assert changed.status_code == 409
 
 
+
 @pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
-async def test_unreadable_photo_retry_improves_the_same_private_source(baby_api):
+async def test_unreadable_photo_retry_improves_the_same_private_source(baby_api, monkeypatch, tmp_path):
+    from pillow_heif import from_pillow
+
+    from app.domains.baby import processing
+    from app.domains.baby.provider import ExtractionOutput
     from app.domains.baby.runtime import BabyWorker
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(environment="test", baby_local_storage_dir=str(tmp_path)))
     c = baby_api.client
-    body = {"id": str(uuid4()), "url": "https://www.tiktok.com/@synthetic/photo/123"}
-    created = await c.post("/api/v1/baby/imports", headers=shared.GEN, json=body)
-    assert created.status_code == 200
-    record_id = created.json()["record_id"]
-
-    async def unreadable(*args, **kwargs):
-        return {"data": {"status":"incomplete", "source_text":""}, "status":"incomplete",
-                "error":"The linked source could not be read. The original link remains saved."}
-
-    worker = BabyWorker(baby_api.sessions, processor=unreadable)
+    assert (await c.patch("/api/v1/baby/profile", headers=shared.GEN, json={"ai_consent":True})).status_code == 200
+    class Unavailable:
+        def __init__(self, **kwargs): pass
+        async def acquire(self, *args, **kwargs): raise ValueError("Unavailable linked source")
+    monkeypatch.setattr(processing, "ProductionSourceAcquirer", Unavailable)
+    seen = []
+    class Provider:
+        enabled = True
+        def __init__(self, **kwargs): pass
+        async def extract(self, source, categories=None):
+            seen.extend(image.location for image in source.images)
+            assert source.images and source.images[0].normalized
+            return ExtractionOutput(title="Screenshot checklist", key_points=["Creator's literal list (image attachment:0)"],
+                visual_text=[{"location":"attachment:0", "text":"Literal screenshot label"}])
+    worker = BabyWorker(baby_api.sessions, provider_factory=Provider)
+    body = {"id":str(uuid4()), "url":"https://www.tiktok.com/@synthetic/photo/123"}
+    created = (await c.post("/api/v1/baby/imports", headers=shared.GEN, json=body)).json()
+    record_id = created["record_id"]
     assert await worker.tick()
-    assert (await c.get(f"/api/v1/baby/records/{record_id}")).json()["data"]["url"] == body["url"]
+    original = (await c.get(f"/api/v1/baby/records/{record_id}")).json()
+    assert original["data"]["status"] == "incomplete"
+    image = BytesIO()
+    from_pillow(Image.new("RGB", (120, 160), "white")).save(image)
+    attachment_id = str(uuid4())
+    uploaded = await c.post("/api/v1/baby/attachments", headers={**shared.GEN,"Idempotency-Key":attachment_id},
+                            files={"file":("screenshot.heic",image.getvalue(),"image/heic")})
+    assert uploaded.status_code == 200, uploaded.text
+    patched = await c.patch(f"/api/v1/baby/records/{record_id}", headers=shared.GEN,
+                            json={"revision":original["revision"],"data":{**original["data"],"attachment_ids":[attachment_id]}})
+    assert patched.status_code == 200
     retried = await c.post(f"/api/v1/baby/imports/{body['id']}/retry", headers=shared.GEN)
-    assert retried.status_code == 200 and retried.json()["record_id"] == record_id
-
-    async def readable(*args, **kwargs):
-        return {"title":"Hospital bag", "status":"ready", "data":{
-            "status":"ready", "source_text":"for labor: heating pad", "summary":"The creator's list.",
-            "key_points":["For labor: heating pad. (slide 2)"],
-            "evidence":[{"location":"image:1", "text":"for labor: heating pad"}]}}
-
-    worker.processor = readable
+    assert retried.status_code == 200
     assert await worker.tick()
     saved = (await c.get(f"/api/v1/baby/records/{record_id}")).json()
-    assert saved["title"] == "Hospital bag" and saved["data"]["status"] == "ready"
-    assert saved["data"]["key_points"] == ["For labor: heating pad. (slide 2)"]
-    assert saved["data"]["url"] == body["url"]
-    assert (await c.get("/api/v1/baby/records?kind=source")).json()["total"] == 1
-    assert (await c.get(f"/api/v1/baby/records/{record_id}", headers={"X-Test-Owner":"other"})).status_code == 404
+    assert saved["data"]["attachment_ids"] == [attachment_id]
+    assert saved["data"]["key_points"] == ["Creator's literal list (image attachment:0)"]
+    assert "Literal screenshot label" in saved["data"]["source_text"] and seen == ["attachment:0"]
+    # A buggy/malicious processor result still cannot detach it in the merge.
+    from app.domains.baby.runtime import keep_user_decisions
+    assert "attachment_ids" not in keep_user_decisions(saved["data"], {"attachment_ids":[]})
+    assert (await c.get(f"/api/v1/baby/records/{record_id}",headers={"X-Test-Owner":"other"})).status_code == 404
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_repeated_url_reads_do_not_multiply_evidence_or_promote_parent_notes(baby_api, monkeypatch):
+    from app.domains.baby import processing
+    from app.domains.baby.provider import ExtractionOutput
+    from app.domains.baby.runtime import BabyWorker
+    from app.domains.workouts.extraction import SourceBundle, SourceMetadata, SourcePart
+    c = baby_api.client
+    await c.patch("/api/v1/baby/profile",headers=shared.GEN,json={"ai_consent":True})
+    note, caption = "At 37 weeks I saved this for later", "The creator lists ordinary packing items"
+    class Acquirer:
+        def __init__(self, **kwargs): pass
+        async def acquire(self, *args, **kwargs):
+            return SourceBundle(SourceMetadata(title="Packing"), parts=[SourcePart("caption",caption)])
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    class Provider:
+        enabled=True
+        def __init__(self, **kwargs): pass
+        async def extract(self, source, categories=None):
+            return ExtractionOutput(title="Packing", relevance={"stage":"pregnancy","pregnancy_week_min":37,"quote":"At 37 weeks"})
+    worker=BabyWorker(baby_api.sessions,provider_factory=Provider)
+    identifier=str(uuid4())
+    first=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":identifier,"url":"https://example.com/post","text":note})).json()
+    record_id=first["record_id"]
+    assert await worker.tick()
+    for _ in range(4):
+        saved=(await c.get(f"/api/v1/baby/records/{record_id}")).json()
+        queued=await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"record_id":record_id,
+            "url":"https://example.com/post","text":saved["data"]["source_text"]})  # old client echoes AI/caption text
+        assert queued.status_code==200,queued.text
+        assert await worker.tick()
+    saved=(await c.get(f"/api/v1/baby/records/{record_id}")).json()
+    assert saved["data"]["source_text"].count(caption)==1 and saved["data"]["source_text"].count(note)==1
+    assert not saved["data"].get("relevance") and saved["data"]["user_text"]==note
+    rejected=await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"record_id":record_id})
+    assert rejected.status_code==429
+    assert (await c.post(f"/api/v1/baby/imports/{identifier}/retry",headers=shared.GEN)).status_code==200  # ready is an idempotent no-op

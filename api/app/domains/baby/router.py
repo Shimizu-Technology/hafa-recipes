@@ -170,7 +170,7 @@ async def record_reply(db, row, access):
 
 
 # Clients that predate these fields omit them; only an explicit null clears one.
-SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me")
+SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text")
 PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
 
 

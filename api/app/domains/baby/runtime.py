@@ -258,6 +258,9 @@ class BabyWorker:
                 return True
             except HTTPException:
                 return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
+            request["attachment_ids"] = source.data.get("attachment_ids", [])
+            if request.get("url"):
+                request["text"] = source.body or source.data.get("user_text")
             source.revision += 1
             source.updated_at = now()
             baseline_revision = source.revision
@@ -426,6 +429,8 @@ class BabyWorker:
 def keep_user_decisions(current, organized):
     """Reprocessing never overrides timing the user set or a suggestion they decided."""
     organized = dict(organized)
+    organized.pop("attachment_ids", None)
+    organized.pop("user_text", None)
     if (current.get("relevance") or {}).get("origin") == "user":
         organized.pop("relevance", None)
     if (current.get("suggested_category") or {}).get("status") in {"accepted", "dismissed"}:

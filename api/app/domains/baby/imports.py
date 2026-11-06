@@ -111,6 +111,12 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         source = await owned(db, BabyRecord, access, generation, body.record_id)
         if source.kind != "source":
             raise HTTPException(422, "Only saved sources can be processed")
+        await db.refresh(source, with_for_update=True)
+        attempts = await db.scalar(select(func.coalesce(func.sum(BabyImport.attempts), 0)).where(
+            BabyImport.record_id == source.id,
+        ))
+        if attempts >= 5:
+            raise HTTPException(429, "This source reached the retry limit; the original remains saved")
         active = await db.scalar(
             select(BabyImport.id)
             .where(
@@ -127,8 +133,9 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         request = {
             **request,
             "url": body.url or source.data.get("url"),
-            "text": body.text or source.data.get("source_text"),
-            "attachment_ids": request["attachment_ids"] or source.data.get("attachment_ids", []),
+            "text": (source.body or source.data.get("user_text")) if (body.url or source.data.get("url"))
+                    else (body.text or source.data.get("source_text")),
+            "attachment_ids": list(dict.fromkeys([*source.data.get("attachment_ids", []), *request["attachment_ids"]])),
             "topics": request["topics"] or source.data.get("topics", []),
             "child_id": str(source.child_id) if source.child_id else None,
         }
@@ -139,13 +146,14 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         caption_title = original_text.splitlines()[0][:100] if original_text else DEFAULT_SOURCE_TITLE
         if automatic and source.revision == 1 and source.title in {DEFAULT_SOURCE_TITLE, caption_title}:
             request["automatic_title"] = source.title
-        source.data = {**source.data, "status": "queued"}
+        source.data = {**source.data, "status": "queued", "attachment_ids": request["attachment_ids"]}
         source.revision, source.updated_at = source.revision + 1, now()
     else:
         source_id = uuid5(NAMESPACE_URL, f"hafa-baby-source:{user.id}:{generation}:{body.id}")
         data = SourceData(
             url=body.url,
             source_text=body.text,
+            user_text=body.text if body.url else None,
             topics=body.topics,
             attachment_ids=body.attachment_ids,
             status="queued",
@@ -238,6 +246,17 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
     if row.attempts >= 5:
         raise HTTPException(429, "This source reached the retry limit; the original remains saved")
     source = await owned(db, BabyRecord, access, generation, row.record_id)
+    await db.refresh(source, with_for_update=True)
+    attempts = await db.scalar(select(func.coalesce(func.sum(BabyImport.attempts), 0)).where(BabyImport.record_id == source.id))
+    if attempts >= 5:
+        raise HTTPException(429, "This source reached the retry limit; the original remains saved")
+    active = await db.scalar(select(BabyImport.id).where(BabyImport.record_id == source.id,
+        BabyImport.id != row.id, BabyImport.status.in_(["queued", "processing"])).limit(1))
+    if active:
+        raise HTTPException(409, "This source is already processing")
+    row.request = {**row.request, "attachment_ids": source.data.get("attachment_ids", []),
+                   "url": source.data.get("url"),
+                   "text": (source.body or source.data.get("user_text")) if source.data.get("url") else row.request.get("text")}
     await validate_relations(
         db,
         access,

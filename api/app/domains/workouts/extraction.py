@@ -148,6 +148,7 @@ class SourcePart:
 class SourceImage:
     location: str
     data_url: str
+    normalized: bool = False
 
 
 @dataclass

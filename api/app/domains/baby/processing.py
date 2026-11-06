@@ -7,7 +7,7 @@ import unicodedata
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from app.domains.baby.attachments import read_bytes
+from app.domains.baby.attachments import MAX_BYTES, read_bytes
 from app.domains.baby.provider import MAX_SOURCE_IMAGES, budget_failure_message
 from app.domains.baby.schemas import CategorySuggestion, SourceData, SourceRelevance
 from app.domains.workouts.budget import BudgetError
@@ -123,12 +123,6 @@ def states_bounds(quote, weeks, ages, unit):
 
     A lower bound of 0 is the same as no start, so it needs no stated number.
     """
-    # Hashtags are literal source text too; preserve their quote while reading
-    # the explicitly named trimester, not a guessed age from a topic.
-    quote = [part for word in quote for part in (
-        [word[:-9], "trimester"] if word in {"firsttrimester", "secondtrimester", "thirdtrimester", "fourthtrimester"}
-        else [word]
-    )]
     said = stated_numbers(quote)
     week_bounds, age_bounds = set(said), set(said)
     if {"trimester", "trimesters"} & set(quote):
@@ -211,7 +205,7 @@ def category_suggestion(raw, categories):
 
 async def local_media(payload, mime, provider, *, may_use_ai, gate):
     from app.domains.baby.media import EXTENSIONS, audio_track, frame, probe
-    from app.image_validation import normalize_thumbnail_image, validate_image_bytes
+    from app.image_validation import normalize_model_image
 
     source = SourceBundle(SourceMetadata(platform="upload"))
     with TemporaryDirectory(prefix="baby-import-") as directory:
@@ -252,12 +246,12 @@ async def local_media(payload, mime, provider, *, may_use_ai, gate):
                 except Exception:
                     continue
                 if output.exists():
-                    valid = validate_image_bytes(output.read_bytes(), max_bytes=4 * 1024 * 1024)
-                    image = normalize_thumbnail_image(valid, max_dimension=1600)
+                    image = await normalize_model_image(output.read_bytes(), max_bytes=4 * 1024 * 1024)
                     source.images.append(
                         SourceImage(
                             f"uploaded_frame:{timestamp:.1f}s",
                             "data:image/webp;base64," + base64.b64encode(image.data).decode(),
+                            normalized=True,
                         )
                     )
             if len(source.images) < 4:
@@ -280,7 +274,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     failures = []
     budget_failure = None
     if request.get("text"):
-        source.parts.append(SourcePart("pasted_text", request["text"]))
+        source.parts.append(SourcePart("user_note" if request.get("url") else "pasted_text", request["text"]))
     if request.get("url"):
         await gate()
         try:
@@ -288,6 +282,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
                 request["url"], provider, include_media=may_use_ai
             )
             source.metadata = acquired.metadata
+            source.photo_slides = getattr(acquired, "photo_slides", None)
             source.parts.extend(acquired.parts)
             source.images.extend(acquired.images)
             source.metadata.coverage_notes.extend(acquired.warnings)
@@ -327,7 +322,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
                     for part in local.parts
                 )
                 source.images.extend(
-                    SourceImage(f"attachment:{index}:{image.location}", image.data_url)
+                    SourceImage(f"attachment:{index}:{image.location}", image.data_url, normalized=image.normalized)
                     for image in local.images
                 )
                 source.metadata.coverage_notes.extend(local.metadata.coverage_notes)
@@ -358,17 +353,23 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         )
     # Remote images are already normalized; uploaded images still need the same
     # dimensions/byte bounds before the model, with no retained derived media.
-    from app.image_validation import decode_and_validate_base64_image, normalize_thumbnail_image
+    from app.image_validation import normalize_model_image
 
     images, total = [], 0
     for image in source.images[:MAX_SOURCE_IMAGES]:
         try:
-            valid = decode_and_validate_base64_image(image.data_url.split(",", 1)[1], max_bytes=4 * 1024 * 1024)
-            normalized = normalize_thumbnail_image(valid, max_dimension=1600)
-            if total + len(normalized.data) > 12 * 1024 * 1024:
+            encoded = image.data_url.split(",", 1)[1]
+            if image.normalized:
+                size = len(encoded) * 3 // 4
+                normalized_image = image
+            else:
+                normalized = await normalize_model_image(encoded, max_bytes=MAX_BYTES, encoded=True, allow_heif=True)
+                size = len(normalized.data)
+                normalized_image = SourceImage(image.location, "data:image/webp;base64," + base64.b64encode(normalized.data).decode(), normalized=True)
+            if total + size > 12 * 1024 * 1024:
                 raise ValueError("Combined image limit")
-            total += len(normalized.data)
-            images.append(SourceImage(image.location, "data:image/webp;base64," + base64.b64encode(normalized.data).decode()))
+            total += size
+            images.append(normalized_image)
         except Exception:
             source.metadata.coverage_notes.append(f"Image {image.location} could not be read; its details may be missing.")
     source.images = images
@@ -393,7 +394,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             # image locations, and stored as evidence the parent can see beside
             # the quote. Timing only sorts tips; it never schedules anything.
             relevance = stated_relevance(
-                result.relevance, [source.metadata.title or "", *(part.text for part in source.parts)]
+                result.relevance, [source.metadata.title or "", *(part.text for part in source.parts if part.location != "user_note")]
             )
             suggestion = category_suggestion(result.suggested_category, categories)
         except asyncio.CancelledError:
@@ -421,7 +422,9 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     if len(readable) > 100000:
         source.metadata.coverage_notes.append("Read text exceeds the saved-text limit; some text was left out.")
     text = readable[:100000]
-    notes = list(dict.fromkeys([*source.metadata.coverage_notes, *failures]))[:30]
+    notes = list(dict.fromkeys([*source.metadata.coverage_notes, *failures]))
+    if len(notes) > 30:
+        notes = notes[:29] + [f"{len(notes) - 29} additional processing notes were left out; source coverage is incomplete."]
     incomplete = failures or not text or any(
         not sampling_disclosure(note) for note in source.metadata.coverage_notes
     )
@@ -436,11 +439,12 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         **safe_metadata(source.metadata),
         evidence=evidence,
         status=status,
-        attachment_ids=request.get("attachment_ids", []),
         coverage_notes=notes,
         relevance=relevance,
         suggested_category=suggestion,
     ).model_dump(mode="json")
+    # Attachment membership belongs to the editable record, never a processing result.
+    data.pop("attachment_ids", None)
     return {
         "title": title,
         "data": data,
