@@ -16,6 +16,7 @@ vi.mock("@/components/ui", () => ({
 vi.mock("@/components/settings-group", () => ({ SettingsGroup: "SettingsGroup" }));
 vi.mock("@/components/tab-stack", () => ({ initials: (name: string) => name.slice(0, 1) }));
 vi.mock("@/lib/models", () => import("./models"));
+vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/child-setup", () => ({ babyDetailLine() {} }));
 import Settings from "../app/settings";
 import PrivacyData from "../app/privacy-data";
@@ -53,6 +54,15 @@ it.each([
   expect(rows()[0].props.detail).toMatch(why);
   await act(async () => rows()[0].props.onPress());
   expect(f.push).toHaveBeenLastCalledWith("/profile");
+});
+it.each([
+  ["an API without contacts", {}, "Your details"],
+  ["a parent", { contacts: {} }, "Your details and numbers"],
+  ["a caregiver", { contacts: {}, spaces: [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "caregiver" }] }, "Your details"],
+])("says what's behind the name for %s", async (_, bootstrap, detail) => {
+  f.bootstrap = bootstrap;
+  await open();
+  expect(rows()[0].props.detail).toBe(detail);
 });
 it("keeps everything that used to be here within reach", async () => {
   f.reminders = { push: true };

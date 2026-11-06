@@ -8,6 +8,7 @@ import { Button, Copy, Grouped, Notice, Row, Screen, useColors } from "@/compone
 import { SettingsGroup } from "@/components/settings-group";
 import { initials } from "@/components/tab-stack";
 import { babyDetailLine } from "@/lib/child-setup";
+import { contactsOn, herDoctorMatters } from "../lib/contacts";
 import { babyLabel, canAddBaby, canChangeBaby, familyOpen, familySpaces, remindersOn } from "../lib/spaces";
 
 /** Her initials, in the same blush tile as the icons on the rows under it. */
@@ -52,7 +53,7 @@ export default function Settings() {
     <Screen scrollRef={scroller} title="Settings" back>
       {!!error && <Notice error>{error}</Notice>}
       <Grouped>
-        {name ? <Row title={name} detail="Your details" {...(letters ? { leading: <InitialsTile text={letters} /> } : { icon: "person-outline" as const })} onPress={() => router.push("/profile")} />
+        {name ? <Row title={name} detail={contactsOn(b.state.bootstrap) && herDoctorMatters(b.state.bootstrap) ? "Your details and numbers" : "Your details"} {...(letters ? { leading: <InitialsTile text={letters} /> } : { icon: "person-outline" as const })} onPress={() => router.push("/profile")} />
           : <Row title="Add your name" detail={familyOpen(b.state.bootstrap) ? "So your family can see who logged what" : "It puts your initials at the top of the app"} icon="person-add-outline" onPress={() => router.push("/profile")} />}
         <Row title="Help" detail="Urgent warning signs and numbers to call" icon="medkit-outline" onPress={() => router.push("/help")} />
       </Grouped>

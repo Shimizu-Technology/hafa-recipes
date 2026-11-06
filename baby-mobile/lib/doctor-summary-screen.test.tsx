@@ -58,6 +58,25 @@ it("leaves a private journal entry off the page unless she ticks it", async () =
   await share();
   expect(mock.shared[1]).toContain("So tired and scared tonight");
 });
+describe("naming the doctor", () => {
+  const offer = () => choices().find((n) => /at the top of the page/.test(n.props.label));
+  it("isn't offered against an API without contacts", async () => {
+    await mount();
+    expect(offer()).toBeUndefined();
+  });
+  it("goes on the page only if she ticks it", async () => {
+    mock.baby.state.bootstrap.contacts = {};
+    mock.baby.state.bootstrap.children = [{ ...mock.baby.state.bootstrap.children[0], birth_date: "2026-10-10", details: { doctor: { name: "Dr. Lee", phone: "671-555-0102" } } }];
+    await mount();
+    expect(offer()!.props.label).toBe("Put Dr. Lee · 671-555-0102 at the top of the page");
+    expect(offer()!.props.selected).toBe(false);
+    await share();
+    expect(mock.shared[0]).not.toContain("Dr. Lee");
+    await act(async () => offer()!.props.onPress());
+    await share();
+    expect(mock.shared[1]).toContain("<p>For Dr. Lee · 671-555-0102</p>");
+  });
+});
 describe("her own logs", () => {
   const pressure = { ...optimisticRecord({ id: "bp", kind: "custom", title: "118/76", body: "", child_id: null, occurred_at: new Date(Date.now() - 3_600_000).toISOString(), data: { label: "Blood pressure" } }), revision: 1 };
   const include = () => renderer!.root.findAll((n) => String(n.type) === "Switch").find((n) => n.props.accessibilityLabel === "Include my own logs");

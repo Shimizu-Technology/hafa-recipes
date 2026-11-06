@@ -11,6 +11,7 @@ vi.mock("expo-router", () => ({ router: { push: scope.push }, useFocusEffect: ()
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id}` }; });
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/models", () => import("./models"));
+vi.mock("@/components/call-contact", () => ({ CallContact: "CallContact" }));
 vi.mock("@/lib/contractions", () => import("./contractions"));
 vi.mock("@/lib/medical-wording", () => import("./medical-wording"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
@@ -20,7 +21,7 @@ vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/running-feed", () => ({ finishTimer: vi.fn() }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: pendingRecords(scope.account.state), rows: [], loading: false, error: scope.careError ?? "", refresh: vi.fn() }) }));
-const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", Row: "Row", Screen: "Screen", Section: "Section",
+const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", QuietRow: "QuietRow", Row: "Row", Screen: "Screen", Section: "Section",
   fonts: {}, radii: {}, tap: () => undefined, typeScale: {}, useColors: () => ({}), useToast: () => scope.toast }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
@@ -67,6 +68,20 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+it("offers where she plans to deliver as a call, a quiet line, or nothing, and never during a contraction", async () => {
+  const b = setup(), calls = () => renderer!.root.findAll((n) => String(n.type) === "CallContact"), quiet = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow");
+  await mount();
+  expect(calls().length + quiet().length).toBe(0);
+  b.state = { ...b.state, bootstrap: { ...b.state.bootstrap!, contacts: {} } };
+  await refresh();
+  expect(quiet()[0].props.title).toBe("Add where you plan to deliver");
+  await act(async () => target("Start")!.props.onPress());
+  await refresh();
+  expect(quiet()).toHaveLength(0);
+  b.state = { ...b.state, bootstrap: { ...b.state.bootstrap!, contacts: { delivery: { name: "GMH", phone: "671-555-0103" } } } };
+  await refresh();
+  expect(calls()[0].props.line.contact.name).toBe("GMH");
+});
 it("saves on Start and on Stop, as one record, with Undo, in a big target", async () => {
   setup();
   await mount();

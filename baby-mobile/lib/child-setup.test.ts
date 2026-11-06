@@ -297,3 +297,34 @@ describe("Your little ones", () => {
     expect(babyDetailLine(child())).toBe("Add a due date or birth date");
   });
 });
+
+describe("the baby's doctor", () => {
+  const doctor = { name: "Dr. Lee", phone: "671-555-0102" };
+  const typed = (saved: Child | undefined, doctorName: string, doctorPhone: string) =>
+    touch(noEdits(formFor(saved, null, today, "imperial")), "doctor", (form) => ({ ...form, doctorName, doctorPhone }));
+  it("reads what's saved into the form", () => {
+    const form = formFor(child({ details: { doctor } }), null, today, "imperial");
+    expect([form.doctorName, form.doctorPhone]).toEqual(["Dr. Lee", "671-555-0102"]);
+  });
+  it("sends nothing about a doctor she didn't touch", () => {
+    const saved = child({ details: { doctor } });
+    expect(write(formFor(saved, null, today, "imperial"), saved, ["name"]).details).toBeUndefined();
+  });
+  it("sends the doctor on an edit, and null when both boxes are emptied", () => {
+    const saved = child({ details: { doctor } });
+    expect(write(typed(saved, "Dr. Kim", "671-555-0104").form, saved, ["doctor"]).details).toEqual({ doctor: { name: "Dr. Kim", phone: "671-555-0104" } });
+    expect(write(typed(saved, " ", "").form, saved, ["doctor"]).details).toEqual({ doctor: null });
+  });
+  it("goes on a new profile only if she filled it in", () => {
+    expect(write(named("expecting", { doctorName: "Dr. Lee", doctorPhone: "671-555-0102" })).details).toEqual({ doctor });
+    expect(write(named("expecting")).details).toBeUndefined();
+  });
+  it("is turned down kindly when the number can't be dialled", () => {
+    const saved = child();
+    expect(childWrite(typed(saved, "", "soon").form, ["doctor"], saved, "new-id", today)).toEqual({ error: expect.stringContaining("Try just the digits") });
+  });
+  it("survives an edit from what she typed, over a newer save", () => {
+    const edits = typed(child(), "Dr. Kim", "671-555-0104"), form = shownForm(child({ revision: 9, details: { doctor } }), edits, today);
+    expect([form.doctorName, form.doctorPhone]).toEqual(["Dr. Kim", "671-555-0104"]);
+  });
+});

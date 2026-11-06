@@ -626,7 +626,7 @@ export function Field({
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), onSurface = useContext(OnSurfaceContext),
     traits = inputTraits(purpose, Platform.OS, numeric),
-    pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
+    pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric" || traits.keyboardType === "phone-pad",
     save = useContext(KeyboardSave),
     [accessory] = useState(() => `field-done-${++accessoryCount}`);
   return (

@@ -1,52 +1,90 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, expect, it, vi } from "vitest";
-const f = vi.hoisted(() => ({ boot: {} as any, profile: vi.fn(), toast: vi.fn(), back: vi.fn() }));
+const f = vi.hoisted(() => ({ params: {} as { open?: string }, boot: {} as any, profile: vi.fn(), contacts: vi.fn(), toast: vi.fn(), back: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
-vi.mock("expo-router", () => ({ router: { back: f.back } }));
-vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { bootstrap: f.boot }, api: { profile: f.profile }, commit: async (change: (s: any) => any) => { f.boot = change({ bootstrap: f.boot }).bootstrap; } }) }));
+vi.mock("expo-router", () => ({ router: { back: f.back }, useLocalSearchParams: () => f.params }));
+vi.mock("@/components/disclosure", () => ({ Disclosure: "Disclosure" }));
+vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { bootstrap: f.boot }, api: { profile: f.profile, contacts: f.contacts }, commit: async (change: (s: any) => any) => { f.boot = change({ bootstrap: f.boot }).bootstrap; } }) }));
 vi.mock("@/lib/models", () => import("./models"));
+vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/components/ui", () => ({ Button: "Button", Copy: "Copy", Field: "Field", Notice: "Notice", Screen: ({ children, footer }: { children: unknown; footer: unknown }) => [children, footer], useToast: () => f.toast }));
 import ProfileDetails from "../app/profile";
 
 let view: ReactTestRenderer;
-const field = () => view.root.findByType("Field" as React.ElementType);
+const fields = () => view.root.findAll((n) => String(n.type) === "Field");
+const sections = () => view.root.findAll((n) => String(n.type) === "Disclosure").map((n) => n.props.title);
+const opened = () => view.root.findAll((n) => String(n.type) === "Disclosure" && n.props.startOpen).map((n) => n.props.title);
+const type = (index: number, text: string) => act(async () => fields()[index].props.onChange(text));
 const save = () => act(async () => view.root.findByType("Button" as React.ElementType).props.onPress());
-const open = async (name: string) => {
-  f.boot = { generation: 2, profile: { display_name: name, timezone: "Pacific/Guam", ai_consent: true }, children: [] };
+const open = async (extra: object) => {
+  f.boot = { generation: 2, profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: true }, children: [{ id: "e", name: "Noa", due_date: "2030-01-01" }], ...extra };
   await act(async () => { view = create(<ProfileDetails />); });
 };
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   f.profile.mockReset().mockImplementation(async (value: object) => value);
-  f.toast.mockClear(); f.back.mockClear();
+  f.contacts.mockReset().mockImplementation(async (value: object) => value);
+  f.toast.mockClear(); f.back.mockClear(); f.params = {};
 });
 
-it("saves her name and time zone as before, and goes back", async () => {
-  await open("");
-  expect(field().props.autoFocus).toBe(true);
-  await act(async () => field().props.onChange(" Kami "));
+it("against an API that doesn't keep contacts, asks for her name only and never calls for them", async () => {
+  await open({});
+  expect(fields().map((n) => n.props.label)).toEqual(["Your name"]);
+  expect(fields()[0].props.autoFocus).toBe(true);
+  await type(0, " Kami ");
   await save();
-  expect(f.profile.mock.calls[0][0]).toEqual({ display_name: "Kami", timezone: expect.any(String) });
-  expect(f.boot.profile.display_name).toBe("Kami");
+  expect(f.profile.mock.calls[0][0].display_name).toBe("Kami");
+  expect(f.contacts).not.toHaveBeenCalled();
   expect(f.back).toHaveBeenCalled();
 });
-it("never sends permission or a name she didn't edit, so another phone's newer ones stay", async () => {
-  await open("Older name");
-  f.boot = { ...f.boot, profile: { ...f.boot.profile, display_name: "Newer name", ai_consent: false } };
-  await act(async () => { view.update(<ProfileDetails />); });
-  expect(field().props.value).toBe("Newer name");
+it("saves only what changed, so another phone's edit stays", async () => {
+  await open({ contacts: { delivery: { name: "GMH", phone: "671-555-0103" } } });
+  expect(sections()).toEqual(["Your doctor", "Where you plan to deliver"]);
+  await type(1, "Dr. Cruz");
+  await type(2, "671-555-0101");
   await save();
-  expect(f.profile.mock.calls[0][0]).toEqual({ timezone: expect.any(String) });
+  expect(f.contacts).toHaveBeenCalledWith({ doctor: { name: "Dr. Cruz", phone: "671-555-0101" } }, 2);
+  expect(f.boot.contacts).toEqual({ doctor: { name: "Dr. Cruz", phone: "671-555-0101" } });
 });
-it("doesn't jump into the keyboard when she already has a name", async () => {
-  await open("Kami");
-  expect(field().props.autoFocus).toBe(false);
-});
-it("stays put and says what went wrong if it can't save", async () => {
-  await open("Kami");
-  f.profile.mockRejectedValueOnce(Error("Couldn’t save"));
+it("doesn't send a profile contact save when nothing changed", async () => {
+  await open({ contacts: { doctor: { name: "Dr. Cruz", phone: "671-555-0101" } } });
   await save();
+  expect(f.profile).toHaveBeenCalled();
+  expect(f.contacts).not.toHaveBeenCalled();
+});
+it("clears a contact when both boxes are emptied", async () => {
+  await open({ contacts: { doctor: { name: "Dr. Cruz", phone: "671-555-0101" } } });
+  await type(1, "");
+  await type(2, "");
+  await save();
+  expect(f.contacts).toHaveBeenCalledWith({ doctor: null }, 2);
+});
+it("keeps what she typed and says so kindly when a number can't be dialled", async () => {
+  await open({ contacts: {} });
+  await type(2, "soon");
+  await save();
+  expect(f.profile).not.toHaveBeenCalled();
   expect(f.back).not.toHaveBeenCalled();
-  expect(view.root.findByType("Notice" as React.ElementType).props.children).toBe("Couldn’t save");
+  expect(fields()[2].props.value).toBe("soon");
+  expect(view.root.findAll((n) => String(n.type) === "Notice")[0].props.children).toMatch(/Try just the digits/);
+});
+it("shows a caregiver neither, unless one is already saved", async () => {
+  const spaces = [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "caregiver" }];
+  await open({ contacts: {}, spaces });
+  expect(sections()).toEqual([]);
+  await open({ contacts: { doctor: { phone: "671-555-0101" } }, spaces });
+  expect(sections()).toEqual(["Your doctor"]);
+});
+it("asks for where she plans to deliver only until the baby's here", async () => {
+  await open({ contacts: {}, children: [{ id: "b", name: "Kai", birth_date: "2026-01-01" }] });
+  expect(sections()).toEqual(["Your doctor"]);
+});
+it("keeps empty sections shut, and opens the one she came for or one already filled in", async () => {
+  await open({ contacts: {} });
+  expect(opened()).toEqual([]);
+  f.params = { open: "delivery" };
+  await open({ contacts: { doctor: { phone: "671-555-0101" } } });
+  expect(opened()).toEqual(["Your doctor", "Where you plan to deliver"]);
+  expect(fields()[0].props.autoFocus).toBe(false);
 });

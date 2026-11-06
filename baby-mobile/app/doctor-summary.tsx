@@ -15,6 +15,8 @@ import { Button, Chips, Choice, Copy, Grouped, Notice, Screen, Section, useColor
 import { DateField } from "@/components/date-field";
 import { SyncStatus } from "@/components/sync-status";
 import { babyLabel } from "../lib/spaces";
+import { contactWords, summaryDoctor } from "../lib/contacts";
+import { withDoctor } from "@/lib/doctor-summary";
 
 const isDay = (value?: string) => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 type Entries = ReturnType<typeof localEntries>;
@@ -36,6 +38,8 @@ export default function DoctorSummary() {
     [picks, setPicks] = useState<Record<string, boolean>>({}),
     // After the birth the page is the baby's, so hers stay off it until she asks, for this baby only: it may go to the pediatrician.
     [mineFor, setMineFor] = useState<string | null>(null),
+    // The same for naming the doctor: only if she ticks it, and only on this baby's page.
+    [doctorFor, setDoctorFor] = useState<string | null>(null),
     [busy, setBusy] = useState<"full" | "picked" | null>(null),
     [retrying, setRetrying] = useState(false), [attempt, setAttempt] = useState(0),
     [error, setError] = useState(""), [outcome, setOutcome] = useState(""),
@@ -62,6 +66,7 @@ export default function DoctorSummary() {
     flip = (row: BabyRecord) => setPicks((prior) => ({ ...prior, [row.id]: !on(row) })),
     child = children.find((one) => one.id === childId) ?? null,
     mineOnPage = !child?.birth_date || (!!childId && mineFor === childId),
+    pageDoctor = summaryDoctor(child, b.state.bootstrap), doctorOnPage = !!pageDoctor && doctorFor === (childId ?? ""),
     picked = rows ? { questions: rows.questions.filter(on), notes: [...rows.journal, ...rows.logNotes].filter(on) } : null,
     waiting = stats ? waitingEntries(b.state, childId, stats, timezone) : 0,
     // Why the totals can't go on a page right now. A wrong total is worse than no page.
@@ -84,7 +89,7 @@ export default function DoctorSummary() {
         notes: picked!.notes,
         // The full page only: the API has them all, and this phone may not.
         logs: numbers ? rows!.logs : [], her: numbers && mineOnPage ? rows!.her.filter(on) : [], atBirth: !!numbers },
-      result = await exportOnePagePdf((level) => summaryHtml(page, level), lastSummaryLevel, b.owner, summaryFileName(from, to, numbers ? undefined : "questions-and-notes"));
+      result = await exportOnePagePdf((level) => withDoctor(summaryHtml(page, level), doctorOnPage ? pageDoctor : null), lastSummaryLevel, b.owner, summaryFileName(from, to, numbers ? undefined : "questions-and-notes"));
     if (!result.fits) setOutcome("This one runs past a page, so it wasn’t shared. Choose fewer days or untick some notes, then share again.");
     else if (result.level > 0) setOutcome("Some notes were shortened or left out to fit one page. The page says how many.");
   }
@@ -133,6 +138,7 @@ export default function DoctorSummary() {
       <DateField dateOnly label="From" value={from} onChange={setFrom} />
       <DateField dateOnly label="To" value={to} onChange={setTo} />
     </View>
+    {!!pageDoctor && <Choice label={`Put ${contactWords(pageDoctor)} at the top of the page`} selected={doctorOnPage} onPress={() => setDoctorFor(doctorOnPage ? null : childId ?? "")} />}
     {!!problem && <Notice>{problem}</Notice>}
     {!!why && <>
       <Notice>{why}</Notice>
