@@ -114,7 +114,7 @@ describe("the card", () => {
     await mount();
     w.rows = [];
     await press("Add to my saved posts");
-    expect(text()).toContain("That share was only kept for 30 days, so it’s gone from this phone.");
+    expect(text()).toContain("That share’s 30 days are up. It can’t be added any more.");
     expect(w.toast).not.toHaveBeenCalled();
     await press("OK");
     expect(renderer!.toJSON()).toBeNull();

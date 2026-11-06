@@ -22,7 +22,7 @@ export function shareWhen(share: WaitingShare, now = new Date()) {
   return `${day}, ${clock(shared)}`;
 }
 export const shareKeptUntil = (share: WaitingShare) => `kept until ${shortDate(new Date(share.kept_until))}`;
-export const expiredNotice = (count: number) => `${count === 1 ? "That share was" : "Those shares were"} only kept for 30 days, so ${count === 1 ? "it’s" : "they’re"} gone from this phone.`;
+export const expiredNotice = (count: number) => `${count === 1 ? "That share’s" : "Those shares’"} 30 days are up. ${count === 1 ? "It can’t" : "They can’t"} be added any more.`;
 export const blockedReason = (share: WaitingShare) => (share.blocked === "file_too_large" ? "It’s bigger than 25 MB."
   : share.blocked === "unreadable" ? "It can’t be read on this phone any more." : "Håfa Baby can’t take this kind of file.");
 export const signInNotice = (count: number) => `${counted(count, "share")} ${count === 1 ? "is" : "are"} waiting on this phone. Sign in to add ${count === 1 ? "it" : "them"}.`;
