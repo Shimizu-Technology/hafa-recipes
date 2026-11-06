@@ -413,3 +413,29 @@ async def test_stale_low_price_configuration_cannot_release_below_published_floo
     monkeypatch.setattr(budget,"get_settings",lambda:configured)
     await budget.settle(ticket,{"usage":{"prompt_tokens":3000,"completion_tokens":1000,"prompt_tokens_details":{"cache_write_tokens":0}}})
     assert (await admissions(baby_api))[0].reserved_microusd==1800
+
+
+def test_ask_reservation_includes_higher_configured_rates(monkeypatch):
+    configured=get_settings().model_copy(update={"ai_model_pricing":{"gpt-6-luna":{
+        "input_per_million":2,"cached_input_per_million":3,"output_per_million":7}}})
+    monkeypatch.setattr(budget,"get_settings",lambda:configured)
+    assert ask_upper_bound(AskCall("gpt-6-luna",100,100))==8575
+
+
+@needs_database
+@pytest.mark.parametrize("overrun",[False,True])
+async def test_settlement_connection_failure_keeps_reservation_and_overrun_rejection(baby_api,monkeypatch,overrun):
+    from sqlalchemy.exc import OperationalError
+    await consented(baby_api,monkeypatch)
+    with question():
+        ticket=await reserve("baby_extraction","gpt-5.6-luna",input_bytes=5000,max_output_tokens=6000)
+    class Offline:
+        async def __aenter__(self): raise OperationalError("connect",{},OSError())
+        async def __aexit__(self,*args): pass
+    usage={"usage":{"prompt_tokens":1000000 if overrun else 3000,"completion_tokens":1}}
+    if overrun:
+        with pytest.raises(BudgetError,match="usage_invalid"):
+            await budget.settle(ticket,usage,sessions=Offline)
+    else:
+        await budget.settle(ticket,usage,sessions=Offline)
+    assert (await admissions(baby_api))[0].reserved_microusd==ticket.amount

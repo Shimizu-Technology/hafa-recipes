@@ -7,6 +7,7 @@ from typing import NamedTuple
 from uuid import uuid4
 
 from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.ai_governance import current_ai_context, extract_token_usage
 from app.config import get_settings
@@ -102,9 +103,14 @@ def ask_upper_bound(call, *, evaluating=False):
     if max(call.input_bytes + FRAMING_TOKENS, SEARCH_CONTEXT_TOKENS if call.searches else 0) > LONG_CONTEXT_TOKENS:
         raise BudgetError("workouts_ai_envelope_unsupported")
     price = BABY_MODEL_PRICES[call.model]
+    configured = get_settings().ai_model_pricing.get(call.model, {})
+    input_rate = max(price.input, Decimal(str(configured.get("input_per_million", 0))),
+                     Decimal(str(configured.get("cached_input_per_million", 0))))
+    write_rate = max(price.cache_write, input_rate * Decimal("1.25"))
+    output_rate = max(price.output, Decimal(str(configured.get("output_per_million", 0))))
     long = tokens > LONG_CONTEXT_TOKENS
-    tokens_cost = (tokens * max(price.input, price.cache_write) * (2 if long else 1)
-                   + call.max_output_tokens * price.output * (Decimal("1.5") if long else 1))
+    tokens_cost = (tokens * write_rate * (2 if long else 1)
+                   + call.max_output_tokens * output_rate * (Decimal("1.5") if long else 1))
     return int(tokens_cost.to_integral_value(rounding=ROUND_CEILING)) + call.searches * SEARCH_CALL_MICROUSD
 
 
@@ -254,14 +260,17 @@ async def settle(reservation, response, *, extra_cost=0, sessions=None):
                         + long_writes * input_rate * Decimal("2.5")
                         + outgoing * output_rate
                         + extra_cost).to_integral_value(rounding=ROUND_CEILING)))
-    async with (sessions or AsyncSessionLocal)() as db:
-        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
-        await db.execute(update(BabyAIAdmission).where(
-            BabyAIAdmission.id == reservation.id,
-            BabyAIAdmission.app_user_id == reservation.owner,
-            BabyAIAdmission.reserved_microusd == reservation.amount,
-        ).values(reserved_microusd=amount))
-        await db.commit()
+    try:
+        async with (sessions or AsyncSessionLocal)() as db:
+            await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
+            await db.execute(update(BabyAIAdmission).where(
+                BabyAIAdmission.id == reservation.id,
+                BabyAIAdmission.app_user_id == reservation.owner,
+                BabyAIAdmission.reserved_microusd == reservation.amount,
+            ).values(reserved_microusd=amount))
+            await db.commit()
+    except (SQLAlchemyError, OSError, TimeoutError):
+        pass  # The original reservation remains; keep the completed result.
     if amount > reservation.amount:
         raise BudgetError("workouts_ai_usage_invalid")
 
