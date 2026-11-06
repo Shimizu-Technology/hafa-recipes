@@ -250,10 +250,10 @@ export function reminderChoices(allDay: boolean, minutes: readonly number[] = []
     ...(minutes.length > 1 ? [{ label: `${minutes.length} reminders`, value: "several" }] : [])];
 }
 /** Whether More details has anything in it, so an event that does opens with it showing. */
-export const detailsSet = (draft: Pick<EditorDraft, "body" | "data">) => detailsLine(draft) !== "";
-/** The same, in one line, for when it's shut: nothing is ever hidden without a word. */
-export function detailsLine({ body, data }: Pick<EditorDraft, "body" | "data">) {
-  const reminders = data.reminder_minutes ?? [], people = data.attendees ?? [];
+export const detailsSet = (draft: Pick<EditorDraft, "body" | "data">, remindersOn = false) => detailsLine(draft, remindersOn) !== "";
+/** The same, in one line, for when it's shut: nothing is ever hidden without a word. Until reminders are on, one she has stays kept and unsaid. */
+export function detailsLine({ body, data }: Pick<EditorDraft, "body" | "data">, remindersOn = false) {
+  const reminders = remindersOn ? data.reminder_minutes ?? [] : [], people = data.attendees ?? [];
   return [data.recurrence && repeatName(data.recurrence), data.location?.trim(), people.length && `With ${people.join(", ")}`,
     reminders.length === 1 ? reminderName(reminders[0], !!data.all_day) : reminders.length > 1 && `${reminders.length} reminders`, body.trim() && "Note"].filter(Boolean).join(" · ");
 }

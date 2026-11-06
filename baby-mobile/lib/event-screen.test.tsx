@@ -319,6 +319,7 @@ describe("the form opens on a name, a date and Save", () => {
   const nameField = () => found("Field", (p) => p.label === "Name");
   const more = () => renderer!.root.findAll((n) => n.props.accessibilityLabel === "More details" || String(n.props.accessibilityLabel).startsWith("More details"))[0];
   const openNew = async () => { setup([]); mock.params = { kind: "event", day: "2026-11-20" }; await mount(Edit); };
+  const remindersOn = (b: any) => { b.state.bootstrap = { ...b.state.bootstrap, reminders: { push: true } }; return b; };
 
   it("has nothing before the name, and everything else behind one More details", async () => {
     await openNew();
@@ -361,7 +362,7 @@ describe("the form opens on a name, a date and Save", () => {
     expect(names.indexOf("Dentist")).toBeLessThan(names.indexOf("Class"));
   });
   it("opens an existing event with what it already has showing", async () => {
-    setup([event({ location: "Clinic", attendees: ["Grandma"], reminder_minutes: [1440] })]);
+    remindersOn(setup([event({ location: "Clinic", attendees: ["Grandma"], reminder_minutes: [1440] })]));
     mock.params = { kind: "event", id: "class" };
     await mount(Edit);
     expect(more().props.accessibilityState.expanded).toBe(true);
@@ -383,8 +384,10 @@ describe("the form opens on a name, a date and Save", () => {
     await press("Button", "Save event");
     expect(mock.baby.state.outbox[0].record.data.attendees).toEqual(["Grandma", "Auntie Rose"]);
   });
-  it("sets one reminder, and clears it", async () => {
-    await openNew();
+  it("sets one reminder, and clears it, once reminders are on", async () => {
+    remindersOn(setup([]));
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
     await act(async () => more().props.onPress());
     const reminder = () => found("FilterChips", (p) => p.label === "Reminder");
     await act(async () => reminder().props.onChange("1440"));
@@ -395,7 +398,7 @@ describe("the form opens on a name, a date and Save", () => {
     expect(mock.baby.state.outbox[0].record.data.reminder_minutes).toEqual([]);
   });
   it("keeps reminders it has no chip for until she picks one", async () => {
-    setup([event({ reminder_minutes: [30, 120] })]);
+    remindersOn(setup([event({ reminder_minutes: [30, 120] })]));
     mock.params = { kind: "event", id: "class" };
     await mount(Edit);
     await press("Button", "Save changes");
@@ -407,8 +410,29 @@ describe("the form opens on a name, a date and Save", () => {
     await act(async () => nameField().props.onChange("Dentist"));
     expect(renderer!.root.findAll((n) => n.props.title === "Discard this draft")).toHaveLength(1);
   });
+  it("with reminders off, offers no reminder, and says nothing about one", async () => {
+    await openNew();
+    await act(async () => more().props.onPress());
+    expect(renderer!.root.findAll((n) => n.props.label === "Reminder")).toHaveLength(0);
+    expect(texts()).not.toMatch(/Reminder|notifications/);
+  });
+  it("with reminders off, keeps one she already has, without calling it out or opening More details for it", async () => {
+    setup([{ ...event({ recurrence: null, reminder_minutes: [1440] }), data: { timezone: guam, all_day: true, category: "other", attendees: [], reminder_minutes: [1440] } }]);
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(false);
+    expect(more().props.accessibilityLabel).toBe("More details");
+    await press("Button", "Save changes");
+    expect(mock.baby.state.outbox[0].record.data.reminder_minutes).toEqual([1440]);
+  });
+  it("with reminders off, the event's own screen doesn't promise one", async () => {
+    setup([event({ reminder_minutes: [1440], recurrence: null }, "party")]);
+    mock.params = { id: "party" };
+    await mount(EventDetail);
+    expect(texts()).not.toContain("Reminder");
+  });
   it("shows who's coming and the reminder on the event", async () => {
-    setup([event({ attendees: ["Grandma", "Auntie Rose"], reminder_minutes: [1440], recurrence: null }, "party")]);
+    remindersOn(setup([event({ attendees: ["Grandma", "Auntie Rose"], reminder_minutes: [1440], recurrence: null }, "party")]));
     mock.params = { id: "party" };
     await mount(EventDetail);
     expect(texts()).toContain("Grandma, Auntie Rose");

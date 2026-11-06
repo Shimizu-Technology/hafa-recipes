@@ -353,6 +353,7 @@ describe("what More details holds", () => {
   it("is said in a line, so nothing's hidden when it's shut", () => {
     const draft = { ...base(), body: "Bring the car seat", data: { ...base().data, recurrence: { frequency: "yearly" as const, interval: 1 }, location: "Church", attendees: ["Grandma"], reminder_minutes: [1440] } };
     expect(detailsSet(draft)).toBe(true);
-    expect(detailsLine(draft)).toBe("Every year · Church · With Grandma · The day before · Note");
+    expect(detailsLine(draft, true)).toBe("Every year · Church · With Grandma · The day before · Note");
+    expect(detailsLine(draft)).toBe("Every year · Church · With Grandma · Note");
   });
 });

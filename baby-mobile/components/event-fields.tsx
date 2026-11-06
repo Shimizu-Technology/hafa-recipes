@@ -34,7 +34,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     used = useMemo(() => (quick && !draft.existing ? usedEventNames(pendingRecords(b.state)) : []), [quick, draft.existing]),
     // Typing can't take a comma away: the names she means are worked out from what she sees.
     [people, setPeople] = useState((data.attendees ?? []).join(", ")),
-    reminders = data.reminder_minutes ?? [];
+    reminders = data.reminder_minutes ?? [], remindersOn = !!b.state.bootstrap!.reminders?.push;
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="What’s happening?" />
@@ -44,7 +44,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       ? <DateField label="When" dateOnly value={key} onChange={(day) => change({ occurred_at: zonedInstant(day, 0, 0, zone).toISOString() })} trailing={<AllDay on onPress={() => change(allDayChanged(draft, false))} />} />
       : <DateField label="When" timeZone={zone} value={draft.occurred_at} onChange={(start) => change(startingAt(draft, start))} trailing={<AllDay on={false} onPress={() => change(allDayChanged(draft, true))} />} />}
     {/* Book next carries over what the last visit had, and is still one tap from saving. */}
-    <Disclosure title="More details" detail={detailsLine(draft)} startOpen={(draft.existing || quick) && detailsSet(draft)}>
+    <Disclosure title="More details" detail={detailsLine(draft, remindersOn)} startOpen={(draft.existing || quick) && detailsSet(draft, remindersOn)}>
       {!one && <Copy kind="small">Repeat</Copy>}
       {!one && <FilterChips label="Repeat" value={rule?.frequency ?? ""} options={[{ label: "Doesn’t repeat", value: "" }, ...repeats]}
         onChange={(frequency) => set({ recurrence: frequency ? { ...rule, interval: rule?.frequency === frequency ? rule.interval : 1, frequency: frequency as EventRecurrence["frequency"] } : null })} />}
@@ -57,10 +57,10 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       {!one && children.length > 0 && <Copy kind="small">Who is it for?</Copy>}
       {!one && children.length > 0 && <FilterChips label="Who is it for?" value={draft.child_id ?? ""}
         options={[{ label: "Whole family", value: "" }, ...children.map((child) => ({ label: babyLabel(child, b.state.bootstrap), value: child.id }))]} onChange={(id) => change({ child_id: id || null })} />}
-      {!one && <Copy kind="small">Reminder</Copy>}
-      {!one && <FilterChips label="Reminder" value={reminderValue(reminders)} options={reminderChoices(!!data.all_day, reminders)}
+      {/* Only once reminders are on: a choice that does nothing yet would be a promise. One she already has is kept. */}
+      {!one && remindersOn && <Copy kind="small">Reminder</Copy>}
+      {!one && remindersOn && <FilterChips label="Reminder" value={reminderValue(reminders)} options={reminderChoices(!!data.all_day, reminders)}
         onChange={(value) => { if (value !== "several") set({ reminder_minutes: value ? [Number(value)] : [] }); }} />}
-      {!one && !!reminders.length && <Copy kind="small" tone="muted">It reaches this phone once notifications are on for Håfa Baby.</Copy>}
       {!one && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
     </Disclosure>
   </>;

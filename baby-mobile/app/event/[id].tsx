@@ -68,7 +68,7 @@ export default function EventDetail() {
       {shown.attendees.length > 0 && <Copy>With {shown.attendees.join(", ")}</Copy>}
       <Copy kind="small" tone="muted">{child?.name ?? "Whole family"}{repeating ? ` · ${repeatName(row.data.recurrence)}` : ""}</Copy>
       {!!row.body && <Copy>{row.body}</Copy>}
-      {!!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
+      {!!b.state.bootstrap!.reminders?.push && !!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
     </Card>
     {appointment && <Button size="lg" icon="calendar-outline" title="Book next"
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
