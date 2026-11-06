@@ -118,6 +118,7 @@ export default function RecordDetail() {
         <Notice>This device has a partial offline copy. Reconnect to load the complete source before editing.</Notice>
       )}
       {pending && <Notice>Saved on this device. Your latest changes will sync when a connection is available.</Notice>}
+      <SourceRecovery record={record} onError={setError} />
       {record.kind === "source" && <SourceContent data={data} onError={setError} />}
       {record.kind === "feeding" && (
         <Card tone="hero">
@@ -249,7 +250,6 @@ export default function RecordDetail() {
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
       />}
       </Grouped>
-      <SourceRecovery record={record} onError={setError} />
       <Button
         variant="destructive"
         title="Delete this entry"
