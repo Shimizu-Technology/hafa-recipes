@@ -7,6 +7,8 @@ import Darwin
 // or host read, including when that read exceeds the 24-hour orphan grace period.
 final class BabyShareStore {
   static let expiry: TimeInterval = 24 * 60 * 60
+  // How long a share kept under no account waits for someone to say it's theirs.
+  static let unassignedExpiry: TimeInterval = 30 * 24 * 60 * 60
   enum Failure: Error { case unavailable, invalid, stale }
   private final class Lease {
     let descriptor: Int32
@@ -38,6 +40,11 @@ final class BabyShareStore {
     let occurredAt: Date
     let automaticEpoch: Int
     let receipt: [String: String]?
+    var claimed = false
+  }
+  struct Waiting {
+    let snapshot: Snapshot
+    let keptUntil: Date
   }
   private struct Manifest: Codable {
     let id: String
@@ -48,6 +55,11 @@ final class BabyShareStore {
     var scope: String? = nil
     var sequence: Int? = nil
     var automaticEpoch: Int? = nil
+    // When a no-owner capture's clock started. One from an older build has none, so its clock starts when this build first
+    // sees it and it can't be removed unseen.
+    var heldSince: Date? = nil
+    // Someone signed in and said this no-owner capture was theirs. It keeps its share time, and never counts as permission for AI.
+    var claimed: Bool? = nil
     var token: String? {
       payload.map { id + ":" + SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
     }
@@ -116,7 +128,8 @@ final class BabyShareStore {
   func bind(_ value: String, automaticEpoch: Int = 0, install: () throws -> Void = {}) throws {
     guard automaticEpoch >= 0 else { throw Failure.invalid }
     try locked {
-      if let previous = scope(), previous != value, Self.retires(previous, value) { try clearLocked() }
+      // A share kept under no account isn't this account's data, so its own space being cleared doesn't take it.
+      if let previous = scope(), previous != value, Self.retires(previous, value) { try clearLocked(preserveUnassigned: Self.sameOwner(previous, value)) }
       try install()
       try write(value, to: root.appendingPathComponent("scope.json"))
       // The Keychain install and this non-sensitive sidecar share the store lock.
@@ -158,7 +171,7 @@ final class BabyShareStore {
     guard capture.epoch == (try epoch()), capture.lease != nil else { throw Failure.stale }
     let (payload, text) = try bytes(raw)
     let original = try manifest(capture.id)
-    let value = Manifest(id: capture.id, epoch: capture.epoch, createdAt: capture.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: capture.automaticEpoch)
+    let value = Manifest(id: capture.id, epoch: capture.epoch, createdAt: capture.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: capture.automaticEpoch, heldSince: original.scope == nil ? capture.createdAt : nil)
     try write(value, to: capture.directory.appendingPathComponent("manifest.json"))
     try write(capture.id, to: root.appendingPathComponent("current.json"))
     // Keep the stock share-intent reader compatible. The native bridge uses the
@@ -188,7 +201,7 @@ final class BabyShareStore {
       consumers[token] = try Lease(directory(value.id).appendingPathComponent("lease.lock"), exclusive: false)
     }
     return Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: value.automaticEpoch ?? 0,
-      receipt: try? read([String: String].self, directory(value.id).appendingPathComponent("receipt.json")))
+      receipt: try? read([String: String].self, directory(value.id).appendingPathComponent("receipt.json")), claimed: value.claimed == true)
   }
   func published(_ id: String) throws -> Snapshot? {
     try locked {
@@ -255,18 +268,69 @@ final class BabyShareStore {
       guard let id = token.split(separator: ":").first.map(String.init), UUID(uuidString: id) != nil,
         let value = try? manifest(id), value.token == token else { return false }
       consumers.removeValue(forKey: token)
-      // No producer or another live reader may be using this capture's files.
-      guard let lease = try? Lease(directory(id).appendingPathComponent("lease.lock"), exclusive: true, nonblocking: true)
-      else { return false }
-      return try withExtendedLifetime(lease) {
-        try removeLegacyFiles(value)
-        try FileManager.default.removeItem(at: directory(id))
-        if currentID() == id {
-          try FileManager.default.removeItem(at: root.appendingPathComponent("current.json"))
-          defaults.removeObject(forKey: sharedKey); defaults.removeObject(forKey: receiptKey); defaults.synchronize()
-        }
-        return true
+      return try removeLocked(value)
+    }
+  }
+  // No producer or another live reader may be using this capture's files.
+  private func removeLocked(_ value: Manifest) throws -> Bool {
+    guard let lease = try? Lease(directory(value.id).appendingPathComponent("lease.lock"), exclusive: true, nonblocking: true)
+    else { return false }
+    return try withExtendedLifetime(lease) {
+      try removeLegacyFiles(value)
+      try FileManager.default.removeItem(at: directory(value.id))
+      if currentID() == value.id {
+        try FileManager.default.removeItem(at: root.appendingPathComponent("current.json"))
+        defaults.removeObject(forKey: sharedKey); defaults.removeObject(forKey: receiptKey); defaults.synchronize()
       }
+      return true
+    }
+  }
+  private func unassignedLocked() throws -> [Manifest] {
+    try sweepLocked()
+    // Only reading. Starting an epoch here would stop `pending` and `clear` carrying over an older build's share.
+    guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return [] }
+    let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
+    return folders.compactMap { try? manifest($0.lastPathComponent) }
+      .filter { $0.scope == nil && $0.payload != nil && $0.epoch == generation }
+      .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
+  }
+  // Shares kept under no account, for a sign-in screen or a warning: how many, and nothing about them.
+  func unassignedCount() throws -> Int { try locked { try unassignedLocked().count } }
+  // What the connected account may see before it says a share is its own. Nothing, with no account connected.
+  func unassigned(owner: String) throws -> [Waiting] {
+    try locked {
+      guard let bound = scope(), Self.tag(bound).owner == owner else { return [] }
+      return try unassignedLocked().compactMap { value in
+        guard let token = value.token, let payload = value.payload else { return nil }
+        let raw: Any = value.text ? try JSONDecoder().decode([String].self, from: payload) : payload
+        let held = value.heldSince ?? value.createdAt
+        return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: nil, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil),
+          keptUntil: held.addingTimeInterval(Self.unassignedExpiry))
+      }
+    }
+  }
+  // The one door out of no-owner: this exact capture, for the account connected right now, into its own personal space.
+  // The tag is written here rather than copied from the connection, because that may name a family.
+  func claim(_ token: String, owner: String, generation: Int) throws -> Bool {
+    try locked {
+      guard generation > 0, !owner.isEmpty, let bound = scope(), Self.tag(bound).owner == owner,
+        let id = token.split(separator: ":").first.map(String.init), UUID(uuidString: id) != nil,
+        var value = try? manifest(id), value.token == token, value.scope == nil, value.epoch == (try epoch())
+      else { return false }
+      value.scope = "\(owner):\(generation):personal"
+      value.claimed = true
+      value.automaticEpoch = 0
+      try write(value, to: directory(id).appendingPathComponent("manifest.json"))
+      return true
+    }
+  }
+  // "Not mine": only ever a no-owner capture. Anything under an account goes the way it always has.
+  func discard(_ token: String) throws -> Bool {
+    try locked {
+      guard let id = token.split(separator: ":").first.map(String.init), UUID(uuidString: id) != nil,
+        let value = try? manifest(id), value.token == token, value.scope == nil else { return false }
+      consumers.removeValue(forKey: token)
+      return try removeLocked(value)
     }
   }
   // Explicit privacy cleanup invalidates even an extension that is still loading.
@@ -312,7 +376,20 @@ final class BabyShareStore {
     guard FileManager.default.fileExists(atPath: captures.path) else { return }
     let current = currentID()
     for folder in try FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: [.creationDateKey]) {
-      guard UUID(uuidString: folder.lastPathComponent) != nil, folder.lastPathComponent != current else { continue }
+      guard UUID(uuidString: folder.lastPathComponent) != nil else { continue }
+      if var value = try? manifest(folder.lastPathComponent), value.scope == nil, value.payload != nil {
+        if let held = value.heldSince {
+          if now().timeIntervalSince(held) >= Self.unassignedExpiry {
+            if let token = value.token { consumers.removeValue(forKey: token) }
+            _ = try? removeLocked(value)
+          }
+        } else {
+          value.heldSince = now()
+          try? write(value, to: folder.appendingPathComponent("manifest.json"))
+        }
+        continue
+      }
+      guard folder.lastPathComponent != current else { continue }
       if (try? manifest(folder.lastPathComponent).payload) != nil { continue }
       let created = (try? manifest(folder.lastPathComponent).createdAt) ?? (try? folder.resourceValues(forKeys: [.creationDateKey]).creationDate)
       guard let created, now().timeIntervalSince(created) >= Self.expiry,

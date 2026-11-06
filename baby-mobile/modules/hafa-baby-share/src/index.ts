@@ -16,27 +16,47 @@ export interface NativeShare {
   automatic_epoch?: number;
   scope?: string;
   status?: "saved" | "deferred" | "queued";
+  /** Someone said this one, shared under no account, was theirs. It never counts as permission for AI. */
+  claimed?: boolean;
   import_id?: string;
   url?: string;
   text?: string;
   files: { path: string; fileName: string; mimeType: string }[];
 }
+/** A share kept on this phone under no account. Enough to recognize it, and no more. */
+export interface WaitingShare {
+  token: string;
+  kind: "link" | "photo" | "video" | "audio" | "pdf" | "file" | "text";
+  count: number;
+  host?: string;
+  shared_at: string;
+  kept_until: string;
+}
 const bridge = requireOptionalNativeModule<{
   pending(): Promise<NativeShare | null>;
   acknowledge(token: string): boolean;
-  clear(): void;
+  clear(keepWaiting: boolean): void;
   installationId(): Promise<string>;
   configureSession(token: string, base: string, expires: string, owner: string, generation: number, automaticEpoch: number, destination: string | null): Promise<void>;
   sessionOwner(): Promise<string | null>;
   clearSession(preserveUnassigned: boolean): Promise<void>;
+  waitingShareCount(): Promise<number>;
+  waitingShares(owner: string): Promise<WaitingShare[]>;
+  claimShare(token: string, owner: string, generation: number): Promise<boolean>;
+  discardShare(token: string): Promise<boolean>;
 }>("HafaBabyShare");
 export const nativeSharingAvailable = !!bridge;
 export const pendingShare = () => bridge?.pending() ?? Promise.resolve(null);
 export const acknowledgeShare = (token: string) => bridge?.acknowledge(token) ?? false;
-export const clearPendingShares = () => bridge?.clear();
+/** `keepWaiting` keeps what was shared under no account, for when only this account's own data is going. */
+export const clearPendingShares = (keepWaiting = false) => bridge?.clear(keepWaiting);
 export const installationId = () => bridge?.installationId() ?? Promise.reject(Error("Native sharing unavailable"));
 export const sessionOwner = () => bridge?.sessionOwner() ?? Promise.resolve(null);
 export const clearSession = (preserveUnassigned = false) => bridge?.clearSession(preserveUnassigned) ?? Promise.resolve();
+export const waitingShareCount = () => bridge?.waitingShareCount() ?? Promise.resolve(0);
+export const waitingShares = (owner: string) => bridge?.waitingShares(owner) ?? Promise.resolve([]);
+export const claimShare = (token: string, owner: string, generation: number) => bridge?.claimShare(token, owner, generation) ?? Promise.resolve(false);
+export const discardShare = (token: string) => bridge?.discardShare(token) ?? Promise.resolve(false);
 /** `destination` is `personal` or a family's id. None names no destination, as with the API's family flag off. */
 export const configureSession = (session: ShareSession, base: string, owner: string, destination: string | null = null) =>
   bridge?.configureSession(session.token, base, session.expires_at, owner, session.generation, session.auto_process_epoch ?? 0, destination) ?? Promise.resolve();

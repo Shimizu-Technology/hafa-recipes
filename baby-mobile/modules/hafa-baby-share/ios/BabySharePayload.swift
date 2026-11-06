@@ -18,6 +18,25 @@ enum BabySharePayload {
       ["capture_id", "occurred_at", "url", "text", "automatic_epoch"].contains($0.key)
     })
   }
+  // Enough to recognize a share kept under no account, and nothing more: no caption, no file, no address beyond its website.
+  // Whoever is signed in hasn't yet said it's theirs.
+  static func summary(_ waiting: BabyShareStore.Waiting) throws -> [String: Any] {
+    let saved = waiting.snapshot, capture = try decode(saved), files = capture["files"] as? [[String: Any]] ?? []
+    let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var result: [String: Any] = ["token": saved.token, "count": files.count,
+      "shared_at": format.string(from: saved.occurredAt), "kept_until": format.string(from: waiting.keptUntil)]
+    if let mime = (files.first?["mimeType"] as? String)?.lowercased() {
+      result["kind"] = mime.hasPrefix("image/") ? "photo" : mime.hasPrefix("video/") ? "video" : mime.hasPrefix("audio/") ? "audio" : mime == "application/pdf" ? "pdf" : "file"
+    } else if !files.isEmpty {
+      result["kind"] = "file"
+    } else if let link = capture["url"] as? String {
+      result["kind"] = "link"
+      if let host = URLComponents(string: link)?.host?.lowercased() { result["host"] = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
+    } else {
+      result["kind"] = "text"
+    }
+    return result
+  }
   static func decode(_ saved: BabyShareStore.Snapshot) throws -> [String: Any] {
     var texts: [String] = [], link: String?, files: [[String: Any]] = []
     if let strings = saved.raw as? [String] { texts = strings }
@@ -45,6 +64,7 @@ enum BabySharePayload {
     let id = String(saved.token.split(separator: ":")[0]).lowercased()
     var result: [String: Any] = ["token": saved.token, "capture_id": id, "record_id": id,
       "occurred_at": format.string(from: saved.occurredAt), "files": files, "automatic_epoch": saved.automaticEpoch]
+    if saved.claimed { result["claimed"] = true }
     result["scope"] = saved.scope; result["url"] = link; result["text"] = text.isEmpty ? nil : text
     if let receipt = saved.receipt {
       result["status"] = receipt["status"]; result["import_id"] = receipt["import_id"]
