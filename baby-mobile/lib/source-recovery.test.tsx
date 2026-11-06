@@ -95,3 +95,15 @@ it("hides processing from a caregiver and for a partial offline record", async (
   await act(async () => view.update(<SourceRecovery record={record} onError={onError} />));
   expect(view.toJSON()).toBeNull();
 });
+it("keeps older saved text separate from a new read and never resubmits it", async () => {
+  vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  let content!: ReturnType<typeof create>;
+  await act(async () => { content = create(<SourceContent data={{ source_text: "New caption", legacy_saved_text: "Earlier ambiguous note" }} onError={vi.fn()} />); });
+  const earlier = content.root.findAllByType("Disclosure" as React.ElementType).find((item) => item.props.title === "Earlier saved text");
+  expect(earlier?.findAllByType("Copy" as React.ElementType).map((item) => item.props.children).join(" ")).toContain("Earlier ambiguous note");
+  const record = source(); record.body = ""; record.data.legacy_saved_text = "Earlier ambiguous note";
+  const view = await recovery(record);
+  await act(async () => view.root.findAllByType("Button" as React.ElementType)[0].props.onPress());
+  expect(mock.baby.queue.mock.calls[0][0].text).toBeUndefined();
+  await act(async () => content.unmount());
+});

@@ -44,6 +44,10 @@ export function SourceContent({ data, onError }: { data: RecordData; onError: (m
           <Card key={index}><Copy>{entry.text}</Copy>{entry.location && <Copy kind="small" tone="muted">{entry.location}</Copy>}</Card>
         ))}
       </Disclosure>}
+      {!!data.legacy_saved_text && data.legacy_saved_text !== data.source_text && <Disclosure title="Earlier saved text">
+        <Copy kind="small" tone="muted">Kept from before this read. This may include your earlier notes.</Copy>
+        <Card><Copy>{data.legacy_saved_text}</Copy></Card>
+      </Disclosure>}
       {(notes.length > 0 || evidence.length > 0) && <Disclosure title="Processing details">
         {notes.map((note, index) => <Copy key={index} kind="small" tone="muted">{note}</Copy>)}
         {evidence.length > 0 && <Disclosure title="Supporting passages">

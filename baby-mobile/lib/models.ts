@@ -211,6 +211,7 @@ export interface RecordData {
   topics?: string[];
   source_text?: string;
   user_text?: string;
+  legacy_saved_text?: string;
   summary?: string;
   key_points?: string[];
   steps?: string[];
