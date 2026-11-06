@@ -150,6 +150,12 @@ class SourceImage:
     data_url: str
     normalized: bool = False
 
+    @property
+    def payload_bytes(self):
+        length = len(self.data_url) - self.data_url.find(",") - 1
+        padding = 2 if self.data_url.endswith("==") else int(self.data_url.endswith("="))
+        return max(0, length * 3 // 4 - padding)
+
 
 @dataclass
 class SourceBundle:
