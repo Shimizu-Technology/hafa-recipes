@@ -356,3 +356,12 @@ def test_trimester_hashtag_is_stated_timing_without_transcript():
 def test_expanded_photo_output_is_reserved_before_call():
     from app.domains.baby.budget import upper_bound
     assert upper_bound("baby_extraction", "gpt-5.6-luna", images=True, max_output_tokens=6000) == 535800
+
+
+def test_many_literal_labels_are_kept_in_slide_groups_before_schema_limit():
+    entries = [{"location": f"image:{i // 10}", "text": f"Literal label {i}"} for i in range(100)]
+    result = ExtractionOutput(title="Packing lists", visual_text=entries)
+    assert len(result.visual_text) == 10
+    for i, entry in enumerate(result.visual_text):
+        assert entry.location == f"image:{i}"
+        assert entry.text.splitlines() == [f"Literal label {n}" for n in range(i * 10, (i + 1) * 10)]

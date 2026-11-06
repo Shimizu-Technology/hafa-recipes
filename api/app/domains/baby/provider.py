@@ -15,7 +15,7 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import HTTPException
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
@@ -60,6 +60,21 @@ class ExtractionOutput(DomainModel):
     )
     topics: list[str] = Field(default_factory=list, max_length=30)
     visual_text: list[Evidence] = Field(default_factory=list, max_length=70)
+    @field_validator("visual_text", mode="before")
+    @classmethod
+    def group_slide_labels(cls, entries):
+        # A list-heavy carousel can have hundreds of labels on 35 slides.
+        # Preserve every literal label, grouped by its original image, rather
+        # than rejecting the organized source at an arbitrary label count.
+        if not isinstance(entries, list):
+            return entries
+        grouped = {}
+        for value in entries:
+            entry = Evidence.model_validate(value)
+            grouped.setdefault(entry.location, []).append(entry.text)
+        return [{"location": location, "text": "\n".join(labels)}
+                for location, labels in grouped.items()]
+
     # Parsed defensively in processing: a malformed timing or category guess
     # drops only that suggestion, never the organized source.
     relevance: Any = None
