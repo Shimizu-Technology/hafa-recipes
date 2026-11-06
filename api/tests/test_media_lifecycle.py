@@ -318,8 +318,18 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
     if failure == "missing_token":
         assert not calls
     else:
-        assert calls == ["instagram", "tiktok", "youtube"]
+        assert calls == ["instagram", "tiktok", "youtube", "tiktok-photo"]
         output = summary.read_text() + capsys.readouterr().out
         assert "synthetic-secret" not in output and "cookie secret" not in output
         assert "private provider caption" not in output
         assert output.count("| instagram |") == 1
+
+
+@pytest.mark.parametrize("photo_status", ["ok", "failed"])
+async def test_photo_canary_requires_caption_and_every_slide_without_audio(monitor, monkeypatch, photo_status):
+    probe = AsyncMock(return_value={"status": photo_status, "slides": 2, "images_read": 2, "caption_chars": 30})
+    monkeypatch.setattr("app.services.photo_posts.probe_photo_post", probe)
+    response = await monitor.client.post("/internal/import-health/tiktok-photo")
+    assert response.status_code == (200 if photo_status == "ok" else 503)
+    monitor.service.download_audio.assert_not_awaited()
+    monitor.service.extract_video_frames.assert_not_awaited()

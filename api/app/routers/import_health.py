@@ -17,11 +17,17 @@ from app.config import get_settings
 from app.db import AsyncSessionLocal
 from app.services.video import VIDEO_ERROR_PATTERNS, get_friendly_video_error, video_service
 
+
+class PhotoCanaryFailure(Exception):
+    pass
+
+
 router = APIRouter(include_in_schema=False)
 CANARIES = {
     "instagram": "https://www.instagram.com/reel/DehHrUVg7kB/",
     "tiktok": "https://www.tiktok.com/@feelgoodfoodie/video/6922938178559069446",
     "youtube": "https://www.youtube.com/watch?v=ATVUcl3Bv4U",
+    "tiktok-photo": "https://www.tiktok.com/@maileelton/photo/7697377006715030814",
 }
 DEADLINE_SECONDS = 180
 ERROR_CODES = frozenset(item["code"] for item in VIDEO_ERROR_PATTERNS.values()) | {
@@ -71,6 +77,15 @@ async def import_health(platform: str, request: Request):
                     if not locked:
                         return result("CHECK_BUSY", 409)
                     url = CANARIES[platform]
+                    if platform == "tiktok-photo":
+                        from app.services.photo_posts import probe_photo_post
+
+                        stage = "images"
+                        photo = await probe_photo_post(video_service, url)
+                        if photo["status"] != "ok":
+                            raise PhotoCanaryFailure()
+                        stage = "complete"
+                        return result()
                     stage = "metadata"
                     metadata = await video_service.get_video_metadata_ytdlp(url)
                     code = metadata.error_code
@@ -120,6 +135,8 @@ async def import_health(platform: str, request: Request):
                         code = code if code in ERROR_CODES else "CHECK_FAILED"
                     else:
                         stage = "complete"
+        except PhotoCanaryFailure:
+            code = "SOURCE_RESPONSE_INVALID"
         except TimeoutError:
             code = "TIMEOUT"
         except Exception:

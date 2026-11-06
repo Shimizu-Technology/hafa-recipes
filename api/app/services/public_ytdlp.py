@@ -7,7 +7,9 @@ request handler. Unsupported transports fail safely instead of falling back.
 """
 
 import io
+import json
 import os
+import re
 import shutil
 import sys
 from functools import partial
@@ -93,9 +95,10 @@ class PublicRH(ImpersonateRequestHandler):
     _SUPPORTED_PROXY_SCHEMES = None
     _SUPPORTED_FEATURES = None
 
-    def __init__(self, *, trusted_proxy=None, **kwargs):
+    def __init__(self, *, trusted_proxy=None, no_cookies=False, **kwargs):
         super().__init__(**kwargs)
         self.trusted_proxy = trusted_proxy
+        self.no_cookies = no_cookies
 
     def _check_extensions(self, extensions):
         super()._check_extensions(extensions)
@@ -109,7 +112,7 @@ class PublicRH(ImpersonateRequestHandler):
         try:
             client = httpx.Client(
                 transport=PublicSyncHTTPTransport(proxy=self.trusted_proxy),
-                cookies=self._get_cookiejar(request), trust_env=False,
+                cookies=None if self.no_cookies else self._get_cookiejar(request), trust_env=False,
                 follow_redirects=False, max_redirects=5,
                 timeout=min(self._calculate_timeout(request), 30),
             )
@@ -117,6 +120,9 @@ class PublicRH(ImpersonateRequestHandler):
             # HTTPX handles decoding; never advertise unavailable brotli/zstd.
             headers["Accept-Encoding"] = "gzip, deflate"
             headers.pop("Proxy-Authorization", None)
+            if self.no_cookies:
+                headers.pop("Cookie", None)
+                headers.pop("Authorization", None)
             outgoing = client.build_request(
                 request.method, request.url, headers=headers, content=request.data,
             )
@@ -128,6 +134,9 @@ class PublicRH(ImpersonateRequestHandler):
                 if response.next_request is None:
                     break
                 outgoing = response.next_request
+                if self.no_cookies:
+                    outgoing.headers.pop("Cookie", None)
+                    outgoing.headers.pop("Authorization", None)
                 response.close()
             else:
                 raise httpx.TooManyRedirects(
@@ -156,11 +165,15 @@ class PublicRH(ImpersonateRequestHandler):
         headers = httpx.Headers(self._get_impersonate_headers(request))
         headers.pop("Host", None)
         headers.pop("Proxy-Authorization", None)
+        if self.no_cookies:
+            headers.pop("Cookie", None)
+            headers.pop("Authorization", None)
         for hop in range(6):
             owner = None
             try:
                 owner = PublicCurlSession(
-                    url, proxy=self.trusted_proxy, cookies=self._get_cookiejar(request),
+                    url, proxy=self.trusted_proxy,
+                    cookies=None if self.no_cookies else self._get_cookiejar(request),
                 )
                 response = owner.request(
                     method, headers=dict(headers), data=data,
@@ -202,7 +215,8 @@ class PublicYoutubeDL(yt_dlp.YoutubeDL):
     def build_request_director(self, handlers, preferences=None):
         # Never register unpinned handlers, even as a lower-priority fallback.
         return super().build_request_director([
-            partial(PublicRH, trusted_proxy=self.params.get("proxy")),
+            partial(PublicRH, trusted_proxy=self.params.get("proxy"),
+                    no_cookies=self.params.get("public_photo_no_cookies", False)),
         ])
 
     def dl(self, name, info, subtitle=False, test=False):
@@ -249,7 +263,61 @@ def _decoder_wrappers(directory):
         script.chmod(0o700)
 
 
+class PhotoYoutubeDL(PublicYoutubeDL):
+    def urlopen(self, request):
+        response = super().urlopen(request)
+        try:
+            payload = response.read(5 * 1024 * 1024 + 1)
+            if len(payload) > 5 * 1024 * 1024:
+                raise ValueError("Photo page limit")
+            return Response(io.BytesIO(payload), url=response.url, headers=dict(response.headers),
+                            status=response.status, reason=response.reason,
+                            extensions=response.extensions)
+        finally:
+            response.close()
+
+
+def photo_json(url):
+    """One deliberately narrow adapter to the locked yt-dlp private TikTok API.
+
+    Keep the private call here, in the killed-on-timeout guarded subprocess.
+    Shape drift is an error, never a successful empty/thumbnail-only carousel.
+    """
+    from yt_dlp.extractor.tiktok import TikTokIE
+
+    from app.services.photo_posts import parse_instagram_photo, parse_tiktok_photo
+
+    match = re.fullmatch(r"https://www\.tiktok\.com/(@[^/]+)/photo/(\d+)", url)
+    instagram = re.fullmatch(r"https://www\.instagram\.com/p/[A-Za-z0-9_-]+/?", url)
+    if not match and not instagram:
+        raise ValueError("Invalid photo URL")
+    with PhotoYoutubeDL({
+        "quiet": True, "no_warnings": True, "cachedir": False,
+        "socket_timeout": 15, "retries": 0, "extractor_retries": 0,
+        "public_photo_no_cookies": True, "remote_components": set(), "js_runtimes": {},
+        "enable_file_urls": False, "nocheckcertificate": False,
+    }) as downloader:
+        if instagram:
+            from yt_dlp.extractor.instagram import InstagramIE
+
+            return parse_instagram_photo(InstagramIE(downloader).extract(url))
+        item, status = TikTokIE(downloader)._extract_web_data_and_status(
+            url.replace("/photo/", "/video/"), match[2],
+        )
+        if status != 0:
+            raise ValueError("Photo unavailable")
+        return parse_tiktok_photo(item, match[2])
+
+
 def main(argv=None):
+    plugin_dirs.value = []
+    all_plugins_loaded.value = True
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments[:1] == ["--public-photo-json"]:
+        if len(arguments) != 2:
+            raise ValueError("One photo URL required")
+        print(json.dumps(photo_json(arguments[1])))
+        return 0
     # parse_options alone does not invoke user update/exec/plugin workflows.
     plugin_dirs.value = []
     all_plugins_loaded.value = True

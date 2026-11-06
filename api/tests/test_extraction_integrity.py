@@ -131,7 +131,7 @@ def test_recipe_structured_output_contract_is_strict_and_versioned():
     _assert_every_object_is_strict(RECIPE_RESPONSE_FORMAT["json_schema"]["schema"])
     assert RECIPE_SCHEMA_VERSION == "recipe-components-v3-estimates"
     assert PROMPT_VERSIONS["recipe_extraction"] == "recipe-extraction-v4"
-    assert PROMPT_VERSIONS["tiktok_slideshow"] == "recipe-tiktok-slideshow-v2"
+    assert PROMPT_VERSIONS["tiktok_slideshow"] == "recipe-tiktok-slideshow-v3"
 
 
 def test_video_prompt_encodes_untrusted_source_and_forbids_invented_amounts():
@@ -336,12 +336,12 @@ async def test_slideshow_continues_when_caption_metadata_fetch_fails(monkeypatch
     """Downloaded slideshow images must remain usable without caption metadata."""
 
     monkeypatch.setattr(
-        "app.services.extractor.video_service.fetch_tiktok_photo_images",
-        AsyncMock(return_value=["https://cdn.example.test/slide.png"]),
+        "app.services.extractor.video_service.fetch_photo_post",
+        AsyncMock(return_value={"title":"", "description":"", "uploader":"", "slides":[["https://cdn.example.test/slide.png"]]}),
     )
     monkeypatch.setattr(
-        "app.services.extractor.video_service.download_images_as_base64",
-        AsyncMock(return_value=["iVBORsynthetic"]),
+        "app.services.photo_posts.download_photo_images",
+        AsyncMock(return_value=([(0, "iVBORsynthetic")], [])),
     )
     monkeypatch.setattr(
         "app.services.extractor.video_service.get_video_metadata_ytdlp",
@@ -361,9 +361,7 @@ async def test_slideshow_continues_when_caption_metadata_fetch_fails(monkeypatch
     )
 
     assert result.success is True
-    assert vision_call.await_args.kwargs["source_context"] == (
-        "ADDITIONAL NOTES FROM USER: Use the family variation."
-    )
+    assert "ADDITIONAL NOTES FROM USER: Use the family variation." in vision_call.await_args.kwargs["source_context"]
 
 
 class _FakeResponse:

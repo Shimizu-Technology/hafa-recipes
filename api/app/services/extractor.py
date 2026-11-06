@@ -428,6 +428,13 @@ class RecipeExtractor:
         acquired = await acquire_video_metadata(video_service, url, platform)
         metadata = acquired.metadata
         thumbnail_url = metadata.thumbnail
+        if metadata.photo_slides:
+            return await self._extract_from_tiktok_photo(
+                url, location, notes, progress_callback, post={
+                    "title": metadata.title, "description": metadata.description,
+                    "uploader": metadata.uploader, "slides": metadata.photo_slides,
+                },
+            )
         
         # Keep the existing fallback flow on the merged source evidence.
         ytdlp_metadata = metadata
@@ -763,7 +770,8 @@ class RecipeExtractor:
                 )
             )
 
-        frame_result = await video_service.extract_video_frames(url)
+        frame_reader = video_service.extract_video_frames if has_audio_transcript else video_service.extract_visual_frames
+        frame_result = await frame_reader(url)
         frames = frame_result.frames or []
         if not frame_result.success or not frames:
             print(f"⚠️ Video frame recovery unavailable: {frame_result.error_code}")
@@ -844,7 +852,8 @@ class RecipeExtractor:
         url: str,
         location: str = "Guam",
         notes: str = "",
-        progress_callback=None
+        progress_callback=None,
+        post=None,
     ) -> FullExtractionResult:
         """
         Extract recipe from a TikTok photo/slideshow post using vision AI.
@@ -852,7 +861,7 @@ class RecipeExtractor:
         TikTok photo posts are image carousels without audio, so we use
         the configured multimodal extraction model to analyze the images directly.
         """
-        print(f"📸 Starting TikTok photo extraction for: {url}")
+        print("Starting social photo extraction")
         
         thumbnail_url = None
         
@@ -865,7 +874,8 @@ class RecipeExtractor:
                     message="Fetching slideshow images..."
                 ))
             
-            image_urls = await video_service.fetch_tiktok_photo_images(url)
+            post = post or await video_service.fetch_photo_post(url)
+            image_urls = [mirrors[0] for mirrors in post["slides"]]
             
             if not image_urls:
                 print("❌ No images found in TikTok photo post")
@@ -878,7 +888,7 @@ class RecipeExtractor:
             
             # Use first image as thumbnail
             thumbnail_url = image_urls[0] if image_urls else None
-            print(f"✅ Found {len(image_urls)} images, thumbnail: {thumbnail_url[:80] if thumbnail_url else 'None'}...")
+            print(f"Found {len(image_urls)} source images")
             
             # Step 2: Download images as base64
             if progress_callback:
@@ -888,7 +898,12 @@ class RecipeExtractor:
                     message=f"Downloading {len(image_urls)} images..."
                 ))
             
-            base64_images = await video_service.download_images_as_base64(image_urls)
+            from app.services.photo_posts import download_photo_images
+
+            downloaded, coverage_notes = await download_photo_images(
+                post["slides"], referer=f"https://www.{video_service.detect_platform(url)}.com/",
+            )
+            base64_images = [data for _, data in downloaded]
             
             if not base64_images:
                 print("❌ Failed to download any images")
@@ -901,17 +916,13 @@ class RecipeExtractor:
             
             print(f"✅ Downloaded {len(base64_images)} images as base64")
 
-            source_context_parts = []
-            try:
-                metadata = await video_service.get_video_metadata_ytdlp(url)
-            except Exception as metadata_error:
-                print(f"⚠️ Slideshow metadata fetch failed: {metadata_error}")
-                metadata = None
-            if metadata:
-                if metadata.title:
-                    source_context_parts.append(f"VIDEO TITLE: {metadata.title}")
-                if metadata.description:
-                    source_context_parts.append(f"VIDEO DESCRIPTION: {metadata.description}")
+            source_context_parts = [
+                f"VIDEO TITLE: {post['title']}", f"VIDEO DESCRIPTION: {post['description']}",
+                f"CREATOR: {post['uploader']}",
+                "Supplied image order corresponds to original slides: "
+                + ", ".join(str(index + 1) for index, _ in downloaded),
+                *coverage_notes,
+            ]
             if notes:
                 source_context_parts.append(f"ADDITIONAL NOTES FROM USER: {notes}")
             source_context = "\n\n".join(source_context_parts)
@@ -957,10 +968,10 @@ class RecipeExtractor:
             if recipe:
                 recipe["sourceUrl"] = url
             
-            print(f"✅ TikTok photo extraction successful: {recipe.get('title', 'Untitled')}")
+            print("Social photo extraction complete")
             
             # Check confidence
-            raw_text = f"[TikTok Photo Post - {len(base64_images)} images analyzed]"
+            raw_text = source_context + f"\n[TikTok Photo Post - {len(base64_images)} images analyzed]"
             low_confidence, confidence_warning = _check_extraction_confidence(
                 recipe=recipe,
                 raw_text=raw_text,
@@ -969,6 +980,12 @@ class RecipeExtractor:
                 is_visual_source=True,
             )
             
+            if coverage_notes:
+                low_confidence = True
+                confidence_warning = " ".join(filter(None, [confidence_warning, *coverage_notes]))
+                recipe["lowConfidence"] = True
+                recipe["confidenceWarning"] = confidence_warning
+
             return FullExtractionResult(
                 success=True,
                 recipe=recipe,
@@ -980,6 +997,8 @@ class RecipeExtractor:
                 low_confidence=low_confidence,
                 confidence_warning=confidence_warning,
                 cover_images=base64_images,
+                source_evidence={"modalities": ["metadata", "images"],
+                                 "coverageNotes": coverage_notes, "sourceArtifactsRetained": False},
             )
             
         except Exception as e:

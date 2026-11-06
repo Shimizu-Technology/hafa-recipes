@@ -280,6 +280,7 @@ class VideoMetadata:
     duration: int = 0
     uploader: str = ""
     error_code: Optional[str] = None
+    photo_slides: list[list[str]] | None = None
 
 
 @dataclass
@@ -474,84 +475,32 @@ class VideoService:
             return photo_id_match.group(1)
         return None
     
-    async def fetch_tiktok_photo_images(self, url: str) -> list[str]:
-        """
-        Fetch image URLs from a TikTok photo/slideshow post.
-        
-        Uses yt-dlp to get metadata which includes image URLs for photo posts.
-        Returns a list of image URLs (base64 encoded images or URLs).
-        """
-        _media_log(f"📸 Fetching TikTok photo images from: {url}")
-        
-        try:
-            # Use yt-dlp to dump JSON metadata - it can get image URLs even for photo posts
-            command = [
-                *self._downloader_command(),
-                "--dump-json",
-                "--no-download",
-                url
-            ]
-            
-            _media_log(f"🔍 Executing: {' '.join(command)}")
-            
-            async with self._media_slot():
+    async def fetch_photo_post(self, url: str) -> dict:
+        """Always use the isolated, cookie-free public boundary, including Recipes."""
+        import json
+
+        process = None
+        async with self._media_slot():
+            try:
                 process = await asyncio.create_subprocess_exec(
-                    *command,
-                    cwd=self._downloader_cwd(),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    sys.executable, "-m", "app.services.public_ytdlp", "--public-photo-json", url,
+                    cwd=Path(__file__).resolve().parents[2],
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                     start_new_session=os.name == "posix",
                 )
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(),
-                        timeout=settings.video_metadata_timeout_seconds,
-                    )
-                finally:
-                    await _terminate_process(process)
-            
-            if process.returncode == 0 and stdout:
-                import json
-                data = json.loads(stdout.decode())
-                
-                image_urls = []
-                
-                # TikTok photo posts have images in various fields
-                # Check for 'entries' (slideshow) or direct image fields
-                if 'entries' in data:
-                    # Multi-image slideshow
-                    for entry in data['entries']:
-                        if 'url' in entry:
-                            image_urls.append(entry['url'])
-                        elif 'thumbnail' in entry:
-                            image_urls.append(entry['thumbnail'])
-                
-                # Check for thumbnail as fallback
-                if not image_urls and 'thumbnail' in data:
-                    image_urls.append(data['thumbnail'])
-                
-                # Check for thumbnails array
-                if not image_urls and 'thumbnails' in data:
-                    for thumb in data['thumbnails']:
-                        if 'url' in thumb:
-                            image_urls.append(thumb['url'])
-                
-                _media_log(f"✅ Found {len(image_urls)} images from TikTok photo post")
-                return image_urls
-            else:
-                safe_error = _redact_sensitive_values(stderr.decode() if stderr else "")
-                _media_log(f"⚠️ yt-dlp metadata extraction failed: {safe_error}")
-                
-        except asyncio.TimeoutError:
-            _media_log("⚠️ yt-dlp timed out fetching photo metadata")
-        except MediaCapacityExceeded:
-            _media_log("⚠️ Media process capacity unavailable for photo metadata")
-        except Exception as e:
-            _media_log(f"⚠️ Error fetching TikTok photo images: {e}")
-        
-        # Fallback: Try to scrape the page directly for image URLs
-        return await self._scrape_tiktok_photo_images(url)
-    
+                stdout, _ = await asyncio.wait_for(
+                    process.communicate(), timeout=settings.video_metadata_timeout_seconds,
+                )
+                if process.returncode != 0 or len(stdout) > MAX_HTML_BYTES:
+                    raise ValueError("Photo source unavailable")
+                return json.loads(stdout)
+            finally:
+                await _terminate_process(process)
+
+    async def fetch_tiktok_photo_images(self, url: str) -> list[str]:
+        post = await self.fetch_photo_post(url)
+        return [mirrors[0] for mirrors in post["slides"]]
+
     async def _scrape_tiktok_photo_images(self, url: str) -> list[str]:
         """
         Scrape TikTok photo/slideshow images from the page.
@@ -1145,7 +1094,10 @@ class VideoService:
             if not keep_temp_dir:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-    async def extract_video_frames(self, url: str) -> VideoFrameExtractionResult:
+    async def extract_visual_frames(self, url: str) -> VideoFrameExtractionResult:
+        return await self.extract_video_frames(url, visual_priority=True)
+
+    async def extract_video_frames(self, url: str, *, visual_priority=False) -> VideoFrameExtractionResult:
         """Acquire a small, deduplicated frame set without retaining source media."""
 
         temp_dir = tempfile.mkdtemp(prefix="recipe-frames-")
@@ -1155,7 +1107,7 @@ class VideoService:
                 frames = await self._extract_candidate_frames(
                     video_path,
                     temp_dir,
-                    duration,
+                    duration, visual_priority=visual_priority,
                 )
             if not frames:
                 return VideoFrameExtractionResult(
@@ -1420,11 +1372,14 @@ class VideoService:
         video_path: str,
         temp_dir: str,
         duration: float,
+        *, visual_priority=False,
     ) -> list[VideoFrame]:
         """Sample opening, closing, periodic, and scene-change frames, then dedupe."""
 
         periodic_candidates: list[tuple[float, str]] = []
-        for index, timestamp in enumerate(self._periodic_frame_timestamps(duration)):
+        timestamps = ([max(0, duration - 0.25) * i / 9 for i in range(10)]
+                      if visual_priority else self._periodic_frame_timestamps(duration))
+        for index, timestamp in enumerate(timestamps):
             output_path = os.path.join(temp_dir, f"periodic-{index:02d}.jpg")
             if await self._write_frame(video_path, output_path, timestamp):
                 periodic_candidates.append((timestamp, output_path))
@@ -1452,7 +1407,7 @@ class VideoService:
                 )
             )
             fingerprints.append(fingerprint)
-            if len(frames) >= settings.video_frame_max_count:
+            if len(frames) >= (12 if visual_priority else settings.video_frame_max_count):
                 break
         frames.sort(key=lambda frame: frame.timestamp_seconds)
         return frames
@@ -1709,6 +1664,19 @@ class VideoService:
         return None
     
     async def get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
+        if self.is_tiktok_photo_post(url) or (self.detect_platform(url) == "instagram" and "/p/" in urlparse(url).path):
+            try:
+                post = await self.fetch_photo_post(url)
+                return VideoMetadata(
+                    title=post["title"], description=post["description"],
+                    uploader=post["uploader"], thumbnail=post["slides"][0][0],
+                    photo_slides=post["slides"],
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if self.is_tiktok_photo_post(url):
+                    return VideoMetadata(error_code="SOURCE_UNAVAILABLE")
         try:
             async with self._media_slot():
                 return await self._with_instagram_session_fallback(

@@ -61,12 +61,12 @@ MAX_TEXT_CHARS = 30_000
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 MAX_EXTRACTION_IMAGE_PIXELS = 4_000_000
 MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024
-MAX_IMAGES = 8
+MAX_IMAGES = 35
 MAX_WEB_BYTES = 2 * 1024 * 1024
 MAX_ACQUISITION_SECONDS = 90
 MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
-PROMPT_VERSION = "workout-extraction-evidence-v8"
+PROMPT_VERSION = "workout-extraction-evidence-v9"
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
 
@@ -156,6 +156,7 @@ class SourceBundle:
     parts: list[SourcePart] = field(default_factory=list)
     images: list[SourceImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    photo_slides: list[list[str]] | None = field(default=None, repr=False)
     paid_recovery_denied: bool = False
     acquisition_failures: list[AcquisitionFailure] = field(default_factory=list, repr=False)
     progress: ProgressCallback | None = field(default=None, repr=False, compare=False)
@@ -237,7 +238,9 @@ def _validated_images(images: list[ExtractionImage]) -> list[SourceImage]:
 
 
 SYSTEM_PROMPT = """Read the whole source and save the workout the creator actually authored.
-Combine caption, spoken instructions and on-screen text to understand the full
+Read text and labels on every supplied slide as primary source evidence, especially
+when the caption is thin. Preserve slide locations in evidence (image:0 is slide 1).
+Music or lyrics do not establish exercises or doses. Combine caption, spoken instructions and on-screen text to understand the full
 routine: its exercises in order, targets, circuits, time cap and rest wording.
 Give it a useful workout title; retain the creator and original source credit.
 For '10 total, 5 each side', store 5 reps with per_side=true, not 10 each side.
@@ -730,6 +733,7 @@ class ProductionSourceAcquirer:
                 thumbnail_url=self._metadata_text(getattr(metadata, "thumbnail", None), 2000),
             )
         )
+        source.photo_slides = getattr(metadata, "photo_slides", None)
         source.acquisition_failures.extend(acquired.failures)
         if duration is not None and duration > get_settings().video_max_duration_seconds:
             raise ExtractionFailure("video_duration_limit", source=source)
@@ -750,26 +754,34 @@ class ProductionSourceAcquirer:
             return source
         deadline = deadline or asyncio.get_running_loop().time() + MAX_ACQUISITION_SECONDS
         normalized = source.metadata.url
-        if video_service.is_tiktok_photo_post(normalized):
+        if source.photo_slides is not None or video_service.is_tiktok_photo_post(normalized):
             await source.report("reading_images")
             try:
-                urls = await self._within_deadline(
-                    video_service.fetch_tiktok_photo_images(normalized), deadline
+                from app.services.photo_posts import download_photo_images
+
+                slides = source.photo_slides
+                if slides is None:
+                    post = await self._within_deadline(video_service.fetch_photo_post(normalized), deadline)
+                    slides = post["slides"]
+                images, notes = await download_photo_images(
+                    slides, deadline=deadline, referer=f"https://www.{source.metadata.platform}.com/",
                 )
-                source.images = await self._within_deadline(
-                    self._download_images(urls[:MAX_IMAGES]), deadline
-                )
+                source.images = [SourceImage(f"image:{index}", "data:image/webp;base64," + data)
+                                 for index, data in images]
+                source.metadata.coverage_notes.extend(notes)
             except Exception:
                 source.metadata.coverage_notes.append(
                     "Source images unavailable; available captions remain usable."
                 )
         else:
-            await self._audio(source, normalized, provider, video_service, deadline)
+            await self._audio(source, normalized, provider, video_service,
+                              min(deadline, asyncio.get_running_loop().time() + 35))
             await source.report("reading_frames")
             try:
-                frames = await self._within_deadline(
-                    video_service.extract_video_frames(normalized), deadline
-                )
+                frame_reader = video_service.extract_video_frames
+                if "transcript" not in source.metadata.channels:
+                    frame_reader = getattr(video_service, "extract_visual_frames", frame_reader)
+                frames = await self._within_deadline(frame_reader(normalized), deadline)
                 if not frames.success or not frames.frames:
                     if getattr(frames, "error_code", None):
                         source.acquisition_failures.append(AcquisitionFailure("frames", frames.error_code))

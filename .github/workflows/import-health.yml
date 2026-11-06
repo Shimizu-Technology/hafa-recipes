@@ -44,11 +44,11 @@ jobs:
               YOUTUBE_ERROR UNKNOWN_ERROR MEDIA_BUSY TIMEOUT SYSTEM_ERROR NO_AUDIO
               AUDIO_TOO_LARGE VIDEO_TOO_LONG NO_VIDEO_FRAMES
               VIDEO_FRAME_EXTRACTION_FAILED NO_METADATA""".split())
-          stages = {"auth", "input", "lock", "metadata", "audio", "frames", "complete"}
+          stages = {"auth", "input", "lock", "metadata", "audio", "frames", "images", "complete"}
           failed = False
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write("| Platform | Status | Stage | Error |\n|---|---|---|---|\n")
-              for platform in ("instagram", "tiktok", "youtube"):
+              for platform in ("instagram", "tiktok", "youtube", "tiktok-photo"):
                   status, stage, code = "failed", "unknown", "INVALID_RESPONSE"
                   with tempfile.TemporaryDirectory() as directory:
                       output = os.path.join(directory, "response.json")
