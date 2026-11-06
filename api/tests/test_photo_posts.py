@@ -107,9 +107,10 @@ async def test_photo_metadata_bypasses_audio_and_keeps_caption(monkeypatch):
     service.download_audio.assert_not_awaited()
 
 
-def test_one_malformed_slide_keeps_caption_and_other_slides_in_place():
+@pytest.mark.parametrize("image_url", [None, "unexpected", {}])
+def test_one_malformed_slide_keeps_caption_and_other_slides_in_place(image_url):
     source = item()
-    source["imagePost"]["images"][0] = {"unrecognized": "shape"}
+    source["imagePost"]["images"][0] = {"imageURL": image_url}
     parsed = photos.parse_tiktok_photo(source, "123")
     assert parsed["description"] == "Hospital bag"
     assert parsed["slides"] == [[], ["https://cdn.example/c"]]

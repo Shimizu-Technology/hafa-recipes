@@ -692,3 +692,19 @@ async def test_primary_acquisition_diagnosis_survives_disabled_vision_but_not_re
         assert "authenticate with Instagram" in result.friendly_error
         capture.assert_called_once_with("Source acquisition failed", level="warning",
             tags={"platform": "instagram", "error_code": "INSTAGRAM_AUTH_REQUIRED"})
+
+
+@pytest.mark.asyncio
+async def test_visual_priority_spreads_ten_samples_across_a_silent_video(monkeypatch, tmp_path):
+    service = VideoService()
+    timestamps = []
+    async def write(_video, path, timestamp):
+        timestamps.append(timestamp)
+        Path(path).write_bytes(str(len(timestamps)).encode())
+        return True
+    monkeypatch.setattr(service, "_write_frame", AsyncMock(side_effect=write))
+    monkeypatch.setattr(service, "_write_scene_change_frames", AsyncMock(return_value=[]))
+    monkeypatch.setattr(service, "_image_fingerprint", lambda data: int(data))
+    frames = await service._extract_candidate_frames("silent.mp4", str(tmp_path), 100, visual_priority=True)
+    assert len(frames) == 10 and timestamps[0] == 0 and timestamps[-1] == 99.75
+    assert timestamps == sorted(timestamps)
