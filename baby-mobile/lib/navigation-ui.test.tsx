@@ -68,6 +68,7 @@ vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
 vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
 vi.mock("@/components/visit-sections", () => ({ LinkQuestions: "LinkQuestions", RecordVisit: "RecordVisit" }));
+vi.mock("../components/visit-sections", () => ({ RecordVisit: "RecordVisit" }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
 vi.mock("@/lib/use-library-history", () => ({ useLibraryHistory: (view: { kind: string }) => (mock.views.push(view), {
   rows: mock.baby.records.filter((record: any) => record.kind === view.kind), loading: false, error: "", more: false,
@@ -587,6 +588,30 @@ it("uses the ongoing pregnancy for Saved timing beside an older sibling", async 
   mock.params = { view: "now", at: "1" };
   await mount(<Library />);
   expect(sourceView()).toMatchObject({ timing: { mode: "now", childId: "isla", context: { stage: "pregnancy", value: 0 } } });
+});
+describe("Related, on saved writing", () => {
+  const headings = () => renderer!.root.findAll((n) => n.props.kind === "heading").map((n) => [n.props.children].flat().join(""));
+  const open = async (id: string) => { mock.params = { id }; await mount(<RecordDetail />); };
+  it("shows on a journal entry and a doctor question", async () => {
+    await open("Journal observation");
+    expect(headings()).toContain("Related");
+    await act(async () => renderer!.unmount());
+    await open("Doctor question");
+    expect(headings()).toContain("Related");
+    await press("On October 30");
+    expect(mock.stack.at(-1)).toMatchObject({ pathname: "/day", params: { day: "2026-10-30" } });
+  });
+  it("stays off care logs, saved posts and checklists, which need their own actions first", async () => {
+    for (const id of ["Bottle observation", "Saved source"]) {
+      await open(id);
+      expect(headings()).not.toContain("Related");
+      await act(async () => renderer!.unmount());
+    }
+    const list = { ...row("list", "journal"), kind: "routine" as const, data: { routine_type: "checklist" as const, items: [] } };
+    mock.baby.records = [list]; mock.baby.state.records = [list];
+    await open("list");
+    expect(headings()).not.toContain("Related");
+  });
 });
 it("switches Journal's filter each time Today opens it, even to the same filter", async () => {
   mock.params = { filter: "question", at: "1" };

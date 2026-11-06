@@ -12,7 +12,7 @@ import { useCareSummary, useDeleted, useOtherDays } from "@/lib/use-care-summary
 import { newestFirst } from "@/lib/feed-reducer";
 import { useEvents } from "@/lib/use-events";
 import { dayTimeline, eventCount } from "@/lib/events";
-import { Button, Copy, Empty, Grouped, Icon, Notice, PressTarget, QuietRow, Screen, Segmented, useColors } from "@/components/ui";
+import { Button, Copy, Empty, Grouped, Icon, Notice, PressTarget, QuietRow, Screen, Segmented, sectionHeadingLimit, useColors } from "@/components/ui";
 import { ComingUp, EventRow } from "@/components/event-row";
 import { HeaderPill } from "@/components/tab-stack";
 import { ChildFilter } from "@/components/child-filter";
@@ -34,20 +34,27 @@ import type { StatsChoice } from "@/lib/care-stats";
 /** The docked log covers too much of the screen at the largest text sizes, so it scrolls with the page there. */
 const dockBelow = 1.5;
 
-export default function Tracker() {
+const dayLink = (day?: string) => (day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null);
+
+export default function Tracker() { return <TrackerContent />; }
+
+/** `pushed` is Tracker on top of another page, from a link that names its baby, which stays its own and isn't the one selected everywhere else. */
+export function TrackerContent({ pushed = false }: { pushed?: boolean }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const b = useBaby(), c = useColors(), now = useMinuteClock(), params = useLocalSearchParams<{ day?: string; at?: string }>(),
+  const b = useBaby(), c = useColors(), now = useMinuteClock(), params = useLocalSearchParams<{ day?: string; at?: string; child?: string }>(),
     timezone = b.state.bootstrap!.profile.timezone,
     today = dayKey(profileToday(now, timezone)),
-    [picked, setPicked] = useState<string | null>(null),
+    [picked, setPicked] = useState<string | null>(dayLink(params.day) === today ? null : dayLink(params.day)),
     [newest, setNewest] = useState(true),
-    [chosenView, setView] = useState<string | null>(null),
+    [chosenView, setView] = useState<string | null>(dayLink(params.day) ? "day" : null),
+    [linkedChild, setLinkedChild] = useState(pushed ? params.child : undefined),
     scroller = useRef<ScrollView>(null),
     // Kept here, so opening a day from a bar and coming back finds the same range.
     [statsChoice, setStatsChoice] = useState<StatsChoice>({ range: "7d" }),
     day = picked ?? today,
     range = dayRange(day, timezone),
-    child = timingChild(b.state, keyDate(today)),
+    children = b.state.bootstrap!.children,
+    child = children.find((known) => known.id === linkedChild) ?? timingChild(b.state, keyDate(today)),
     // Tracker is always about one baby: the timeline, totals, dots and logging all use this.
     scope = child?.id ?? null,
     // A day looks back one more, for a sleep that ran over midnight into it.
@@ -55,7 +62,6 @@ export default function Tracker() {
     recent = useTodayCare({ child: scope }),
     // The weeks a swipe away, so their dots are already there.
     strip = Array.from({ length: 90 }, (_, index) => addDays(weekOf(day)[0], index - 42)),
-    children = b.state.bootstrap!.children,
     logging = careLogsStarted(children, keyDate(today)) && !!child && todayStage(child, keyDate(today)) === "baby",
     expecting = !!child && !logging && todayStage(child, keyDate(today)) !== "none",
     stage = child ? trackerStage(child, keyDate(today)) : "born",
@@ -84,8 +90,10 @@ export default function Tracker() {
     timeline = dayTimeline(rows, dayEvents, newest);
   useEffect(() => {
     // A link to one day, from Today or the calendar.
-    if (params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day)) { setPicked(params.day === today ? null : params.day); setView("day"); }
-  }, [params.day, params.at]);
+    const linked = dayLink(params.day);
+    if (linked) { setPicked(linked === today ? null : linked); setView("day"); }
+    if (pushed && params.child) setLinkedChild(params.child);
+  }, [params.day, params.child, params.at]);
   const addEvent = (key: string) => router.push({ pathname: "/edit", params: { kind: "event", day: key } }),
     pick = (key: string) => setPicked(key === today ? null : key),
     logRow = (entry: (typeof rows)[number]) => <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} logged={familyLine(entry, care.all, b.state.bootstrap, b.owner)} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />,
@@ -99,10 +107,10 @@ export default function Tracker() {
     })(),
     quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} tilesAside={moreOpen} tiles={onNow.filter((tracker) => tracker.opens === "quick-log")} /> : null;
   return (
-    <Screen title="Tracker" scrollRef={scroller} onRefresh={() => Promise.all([care.refresh(), recent.refresh(), stats.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
+    <Screen title="Tracker" back={pushed} scrollRef={scroller} onRefresh={() => Promise.all([care.refresh(), recent.refresh(), stats.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
       <Stack.Screen options={{ title: "Tracker" }} />
       <SyncStatus />
-      {children.length > 1 && <ChildFilter only={scope ?? undefined} />}
+      {children.length > 1 && <ChildFilter only={scope ?? undefined} onChoose={pushed ? setLinkedChild : undefined} />}
       <Segmented label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }, { label: "Stats", value: "stats" }]} />
       {view === "month" ? <>
         <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date} onPick={pick} onOpen={(key) => { pick(key); setView("day"); }}>
@@ -114,8 +122,9 @@ export default function Tracker() {
         onOpen={(key) => { pick(key); setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} /> : <>
       <WeekStrip day={day} today={today} marked={marked} onPick={pick} />
       <View style={{ gap: 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
-          <View style={{ flexShrink: 1 }}><Copy kind="heading">{dayTitle(day, today)}</Copy></View>
+        {/* At the largest text its controls go under the day, rather than breaking the day mid-word beside them. */}
+        <View style={{ flexDirection: fontScale >= dockBelow ? "column" : "row", alignItems: fontScale >= dockBelow ? "flex-start" : "center", justifyContent: "space-between", gap: 4 }}>
+          <View style={{ flexShrink: 1 }}><Copy kind="heading" limit={sectionHeadingLimit}>{dayTitle(day, today)}</Copy></View>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             {day !== today && <HeaderPill title="Back to today" onPress={() => pick(today)} />}
             <PressTarget accessibilityRole="button" accessibilityLabel="Day before" onPress={() => pick(addDays(day, -1))} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -145,7 +154,8 @@ export default function Tracker() {
       {(logging || expecting) && !future && <MoreLogs key={`more:${day}`} child={child!} now={now} shown={moreShown} title={logging ? undefined : day === today ? "Log now" : "Add to this day"} pastDay={day === today ? undefined : { key: day, timezone }} onOpen={(open, y) => { setMoreOpen(open); if (open) scroller.current?.scrollTo({ y, animated: true }); }} />}
       {/* The logs, searched across every day. Today has it too. */}
       <View>
-        {!future && askV2Active(b.state.bootstrap) && <QuietRow title="Ask about this day" onPress={() => router.push({ pathname: "/ask-entry", params: { date: day } })} />}
+        {/* Ask goes by the selected baby, so it can't be offered about a different one on screen. */}
+        {!future && askV2Active(b.state.bootstrap) && (!pushed || scope === b.state.selectedChild) && <QuietRow title="Ask about this day" onPress={() => router.push({ pathname: "/ask-entry", params: { date: day } })} />}
         <QuietRow title="Care history" onPress={() => router.push("/care-history")} />
         {!!child && canChangeBaby(b.state.bootstrap, child) && <QuietRow title="What shows" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
       </View>

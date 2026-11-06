@@ -36,7 +36,7 @@ vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
 } }));
 const ui = vi.hoisted(() => ({
   Button: "Button", FilterChips: "FilterChips", Segmented: "Segmented", QuietRow: "QuietRow", PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
-  fonts: {}, radii: {}, typeScale: { caption: {} }, useColors: () => ({}),
+  fonts: {}, radii: {}, typeScale: { caption: {} }, useColors: () => ({}), sectionHeadingLimit: 2.2,
 }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
@@ -53,7 +53,7 @@ vi.mock("@/components/tracker-month", () => ({ TrackerMonth: "TrackerMonth" }));
 vi.mock("@/components/calendar-day", () => import("../components/calendar-day"));
 vi.mock("@/components/tracker-stats", () => ({ TrackerStats: "TrackerStats" }));
 vi.mock("@/lib/use-care-stats", () => ({ useCareStats: (choice: unknown, child: unknown) => { mock.statsAsks.push([choice, child]); return { loading: false, refresh: mock.statsRefresh }; } }));
-import Tracker from "../app/(tabs)/tracker/index";
+import Tracker, { TrackerContent } from "../app/(tabs)/tracker/index";
 import { TimelineRow, timelineDetail } from "../components/tracker-day";
 import { timelineKinds } from "./tracker";
 import { ChildFilter } from "@/components/child-filter";
@@ -109,6 +109,55 @@ describe("one baby at a time", () => {
     expect(mock.summaries[0][0]).toBe("sister");
     expect(mock.requests.every((request) => request.child === "sister")).toBe(true);
     expect(lastQuick().child.id).toBe("sister");
+  });
+});
+
+describe("opened on top of an entry, for its baby and day", () => {
+  const two = () => {
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25" }, { id: "sister", name: "Noa", revision: 1, birth_date: "2026-10-25" }];
+    mock.baby.commit = vi.fn(async () => undefined);
+    mock.baby.state.selectedChild = "baby";
+    mock.params = { day: "2026-10-26", child: "sister", at: "1" };
+  };
+  const open = async () => { mock.baby.state.records = mock.care; await act(async () => { renderer = create(<TrackerContent pushed />); }); };
+  it("shows that baby's day straight away, not the selected baby's, and has a Back", async () => {
+    two();
+    await open();
+    expect(screen().props.back).toBe(true);
+    expect(copy().join(" ")).toContain("Oct 26");
+    expect(mock.summaries.every((args) => args[0] === "sister")).toBe(true);
+    expect(mock.requests.every((request) => request.child === "sister")).toBe(true);
+    expect(mock.baby.commit).not.toHaveBeenCalled();
+  });
+  it("changes baby on this page only, leaving the one selected everywhere else", async () => {
+    two();
+    await open();
+    await act(async () => renderer!.root.findByType("ChildFilter" as never).props.onChoose("baby"));
+    expect(mock.summaries.at(-1)![0]).toBe("baby");
+    expect(mock.baby.commit).not.toHaveBeenCalled();
+  });
+  it("doesn't offer Ask about this day for a baby Ask wouldn't be asked about", async () => {
+    two();
+    Object.assign(mock.baby.state.bootstrap, { ask_consent_version: 1, profile: { ...mock.baby.state.bootstrap.profile, ai_consent: true, ai_consent_version: 1 } });
+    await open();
+    const ask = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow" && n.props.title === "Ask about this day");
+    expect(ask()).toEqual([]);
+    await act(async () => renderer?.unmount());
+    mock.params = { ...mock.params, child: "baby" };
+    await open();
+    expect(ask()).toHaveLength(1);
+  });
+  it("falls back to the baby it would show when the link's baby has gone", async () => {
+    two();
+    mock.params = { day: "2026-10-26", child: "removed", at: "1" };
+    await open();
+    expect(mock.summaries.at(-1)![0]).toBe("baby");
+  });
+  it("leaves the tab itself on the selected baby, whatever a link says", async () => {
+    two();
+    await mount();
+    expect(mock.summaries.at(-1)![0]).toBe("baby");
+    expect(screen().props.back).toBe(false);
   });
 });
 

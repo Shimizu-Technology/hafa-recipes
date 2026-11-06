@@ -21,6 +21,7 @@ import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
 import { RecordVisit } from "@/components/visit-sections";
+import { RelatedRows } from "../../components/related-rows";
 import { ShareToggle } from "@/components/share-toggle";
 import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
 import { ensureAiConsent } from "../../lib/ai-consent";
@@ -229,7 +230,7 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
-      {(record.kind === "question" || !!data.event_id) && <RecordVisit record={record} />}
+      {record.kind === "journal" || record.kind === "question" ? <RelatedRows record={record} /> : !!data.event_id && <RecordVisit record={record} />}
       {!!loggedByName(record, b.state.bootstrap, b.owner) && <Copy kind="small" tone="muted">{`Logged by ${loggedByName(record, b.state.bootstrap, b.owner)}`}</Copy>}
       {(() => { const other = duplicateOf(record, b.records, b.owner), name = other && loggedByName(other, b.state.bootstrap, b.owner);
         return !!other && !!name && name !== loggedByName(record, b.state.bootstrap, b.owner) && <Notice>{duplicateHint(other, b.state.bootstrap, b.owner)}</Notice>; })()}
