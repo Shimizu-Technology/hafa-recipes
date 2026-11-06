@@ -297,7 +297,7 @@ describe("unfinished work stays outside the queue", () => {
     expect(next.localOnly).toBe(true); expect(next.left_space).toBeUndefined(); expect(next.error).toBeUndefined();
     expect(retryMutation(next).localOnly).toBe(false);
   });
-  it("uses the family generation for a queued row's editor and survives its generation changing", () => {
+  it("uses the family generation for an editor and retires it when that family generation changes", () => {
     const old = state({ version: 3, drafts: { d: draft("words") } });
     old.bootstrap!.spaces!.find((space) => space.id === family)!.generation = 7;
     const next = withoutFamily(old, family, uuid);
@@ -341,13 +341,16 @@ describe("legacy editor provenance and dependency boundaries", () => {
     expect(next.outbox).toHaveLength(1); expect(next.outbox[0]).toMatchObject({ id: made.id, error: undefined, left_space: undefined });
     expect(next.heldDrafts ?? []).toEqual([]);
   });
-  it("keeps former-family drafts and file references when the personal generation changes", () => {
+  it("keeps only current-family held drafts and files when the personal generation changes", () => {
     const draft: EditorDraft = { ...write("entry"), files: [photo], space_id: family }, held = { id: "held", draft },
       old = state({ heldDrafts: [held], fileUploads: { [photo.id]: "uploaded" } });
     old.bootstrap = { ...boot(), spaces: boot().spaces!.filter((space) => space.id === personal), children: [] };
     const next = fencedState(old, { generation: 3, spaces: [{ ...old.bootstrap.spaces![0], generation: 3 }] });
     expect(next.heldDrafts).toEqual([]); expect(next.fileUploads).toEqual({});
     expect(localFileUris(next).has(photo.uri)).toBe(false);
+    const active = fencedState(state({ heldDrafts: [held], fileUploads: { [photo.id]: "uploaded" } }), { generation: 3, spaces: boot().spaces!.map((space) => space.id === personal ? { ...space, generation: 3 } : space) });
+    expect(active.heldDrafts).toEqual([held]); expect(active.fileUploads).toEqual(old.fileUploads);
+    expect(localFileUris(active).has(photo.uri)).toBe(true);
   });
 });
 
