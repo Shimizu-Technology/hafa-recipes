@@ -299,7 +299,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             source.images.extend(acquired.images)
             source.metadata.coverage_notes.extend(acquired.warnings)
             if (not hasattr(public_video_service, "fetch_photo_post")
-                    and public_video_service.is_tiktok_photo_post(request["url"])):
+                    and public_video_service.is_tiktok_photo_post(source.metadata.url or request["url"])):
                 source.metadata.coverage_notes.append(
                     "This media reader supports at most eight slides; later slides may be missing."
                 )

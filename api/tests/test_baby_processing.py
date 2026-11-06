@@ -565,16 +565,18 @@ async def test_malformed_timing_type_does_not_discard_later_batches(monkeypatch,
     assert result.relevance["pregnancy_week_min"]==37 and result.key_points==["First tip","Later tip"]
 
 @pytest.mark.parametrize("ordered_reader",[False,True])
-async def test_intermediate_legacy_reader_never_silently_claims_all_slides(monkeypatch,ordered_reader):
-    service=SimpleNamespace(is_tiktok_photo_post=lambda url:True)
+@pytest.mark.parametrize("short",[False,True])
+async def test_intermediate_legacy_reader_never_silently_claims_all_slides(monkeypatch,ordered_reader,short):
+    service=SimpleNamespace(is_tiktok_photo_post=lambda url:"/photo/" in url)
     if ordered_reader:
         service.fetch_photo_post=AsyncMock()
     monkeypatch.setattr(processing,"public_video_service",service)
-    source=SourceBundle(SourceMetadata(platform="tiktok"),parts=[SourcePart("caption","Creator list")])
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),parts=[SourcePart("caption","Creator list")])
     class Acquirer:
         def __init__(self,**kwargs): pass
         async def acquire(self,*args,**kwargs): return source
     monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
-    result=await processing.process_capture({"url":"https://www.tiktok.com/@synthetic/photo/123"},[],
+    url="https://www.tiktok.com/t/synthetic/" if short else source.metadata.url
+    result=await processing.process_capture({"url":url},[],
         SimpleNamespace(enabled=False),may_use_ai=False,gate=AsyncMock())
     assert any("at most eight slides" in note for note in result["data"]["coverage_notes"]) is not ordered_reader
