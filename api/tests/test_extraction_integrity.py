@@ -332,16 +332,19 @@ async def test_slideshow_caption_and_source_url_reach_the_model_prompt(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_slideshow_continues_with_empty_caption_fields(monkeypatch):
+@pytest.mark.parametrize("missing_slide", [False, True])
+async def test_slideshow_continues_with_empty_caption_fields(monkeypatch, missing_slide):
     """Downloaded slideshow images remain usable with empty caption fields."""
 
     monkeypatch.setattr(
         "app.services.extractor.video_service.fetch_photo_post",
-        AsyncMock(return_value={"title":"", "description":"", "uploader":"", "slides":[["https://cdn.example.test/slide.png"]]}),
+        AsyncMock(return_value={"title":"", "description":"", "uploader":"", "slides":
+                              ([[]] if missing_slide else []) + [["https://cdn.example.test/slide.png"]]}),
     )
     monkeypatch.setattr(
         "app.services.photo_posts.download_photo_images",
-        AsyncMock(return_value=([(0, "iVBORsynthetic")], [])),
+        AsyncMock(return_value=([(1 if missing_slide else 0, "iVBORsynthetic")],
+                               ["Slide 1 could not be read."] if missing_slide else [])),
     )
     monkeypatch.setattr(
         "app.services.extractor.video_service.get_video_metadata_ytdlp",
@@ -362,6 +365,9 @@ async def test_slideshow_continues_with_empty_caption_fields(monkeypatch):
 
     assert result.success is True
     assert "ADDITIONAL NOTES FROM USER: Use the family variation." in vision_call.await_args.kwargs["source_context"]
+    assert vision_call.await_args.kwargs["source_url"] == "https://www.tiktok.com/@cook/photo/123"
+    if missing_slide:
+        assert "Slide 1 could not be read" in vision_call.await_args.kwargs["source_context"]
 
 
 class _FakeResponse:

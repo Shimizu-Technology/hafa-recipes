@@ -105,6 +105,8 @@ async def test_photo_metadata_bypasses_audio_and_keeps_caption(monkeypatch):
     monkeypatch.setattr(photos, "download_photo_images", AsyncMock(return_value=([(0,"synthetic")], ["Slide 2 could not be read."])))
     source = await ProductionSourceAcquirer(video_service=service).acquire("https://www.tiktok.com/@creator/photo/123", None)
     assert source.parts[0].text == "Caption" and source.metadata.creator == "Creator"
+    assert source.metadata.url == "https://www.tiktok.com/@creator/photo/123"
+    assert source.metadata.canonical_key == "tiktok:photo:123"
     assert source.images[0].location == "image:0" and source.metadata.coverage_notes
     service.download_audio.assert_not_awaited()
 
@@ -122,6 +124,8 @@ def test_instagram_adapter_keeps_single_image_after_expected_no_video(monkeypatc
     from yt_dlp.extractor.instagram import InstagramIE
     monkeypatch.setattr(InstagramIE, "_real_initialize", lambda self: None)
     def raw(self, url):
+        assert self._downloader.params["public_photo_no_cookies"] is True
+        assert not self._downloader.params.get("public_photo_page_origin")
         self.raise_no_formats("There is no video in this post", expected=True)
         return {"id":"Synthetic", "description":"Caption", "thumbnails":[{"url":"https://cdn.example/one", "width":100, "height":100}]}
     monkeypatch.setattr(InstagramIE, "_real_extract", raw)
@@ -249,3 +253,46 @@ def test_retry_shape_drift_fails_loudly_without_source_text(monkeypatch, capsys)
     output = capsys.readouterr().out
     assert len(calls) == 2 and "private source text" not in output
     assert '"stage": "page_shape"' in output and '"exception_type": "ValueError"' in output
+
+
+@pytest.mark.parametrize("failure,stage,exception_type", [
+    (photos.PhotoSourceError("SOURCE_RESPONSE_INVALID", stage="page_maintenance", exception_type="SiteMaintenance"), "page_maintenance", "SiteMaintenance"),
+    (RuntimeError("private text, session=secret"), "metadata", "RuntimeError"),
+])
+async def test_probe_failure_reports_only_stage_type_and_counts(failure, stage, exception_type):
+    from types import SimpleNamespace
+    service = SimpleNamespace(fetch_photo_post=AsyncMock(side_effect=failure))
+    report = await photos.diagnose_photo_post(service, "https://www.tiktok.com/@creator/photo/123")
+    assert report == {"status": "failed", "stage": stage, "exception_type": exception_type,
+                      "slides": 0, "images_read": 0, "caption_chars": 0, "coverage_notes": 0}
+    assert "private" not in str(report) and "secret" not in str(report)
+
+
+async def test_probe_partial_coverage_retains_counts_and_failure_stage(monkeypatch):
+    from types import SimpleNamespace
+    service = SimpleNamespace(fetch_photo_post=AsyncMock(return_value={"description":"Caption", "slides":[[], []]}))
+    monkeypatch.setattr(photos, "download_photo_images", AsyncMock(return_value=([(0, "data")], ["Slide 2 failed"])))
+    report = await photos.diagnose_photo_post(service, "https://www.tiktok.com/@creator/photo/123")
+    assert report == {"status":"failed", "stage":"images", "exception_type":"IncompleteCoverage",
+                      "slides":2, "images_read":1, "caption_chars":7, "coverage_notes":1}
+
+
+async def test_page_cookie_cannot_reach_same_host_image_or_cdn_redirect(monkeypatch):
+    from curl_cffi.requests import Cookies
+    output = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(output, format="PNG")
+    visited = []
+    def handler(request):
+        visited.append(request.url.host)
+        assert "cookie" not in request.headers and "authorization" not in request.headers
+        if request.url.host == "www.tiktok.com":
+            return httpx.Response(302, headers={"location":"https://cdn.example/slide", "set-cookie":"cdn=secret; Path=/"})
+        return httpx.Response(200, content=output.getvalue(), headers={"content-type":"image/png"})
+    monkeypatch.setattr(photos, "PublicHTTPTransport", lambda: httpx.MockTransport(handler))
+    monkeypatch.setattr(photos, "assert_public_http_url", AsyncMock())
+    with public_ytdlp.TikTokPhotoYoutubeDL({"quiet":True}) as dl:
+        Cookies(dl.cookiejar).set("page", "synthetic-secret", domain=".tiktok.com", secure=True)
+        assert list(dl.cookiejar)
+        images, notes = await photos.download_photo_images([["https://www.tiktok.com/slide"]])
+        assert images and not notes
+    assert not list(dl.cookiejar) and visited == ["www.tiktok.com", "cdn.example"]

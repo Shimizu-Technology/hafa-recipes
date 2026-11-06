@@ -876,7 +876,7 @@ class RecipeExtractor:
                 ))
             
             post = post or await video_service.fetch_photo_post(url)
-            image_urls = [mirrors[0] for mirrors in post["slides"]]
+            image_urls = [mirrors[0] for mirrors in post["slides"] if mirrors]
             
             if not image_urls:
                 print("❌ No images found in TikTok photo post")
