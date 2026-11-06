@@ -171,8 +171,11 @@ describe("generated Safari preprocessing", () => {
     expect(output).toContain("BabySharePayload.merging(raw, caption: caption)");
     expect(output).toContain("attributedContentText?.string");
     expect(output).toContain('"Saved on this phone"');
-    expect(output).toContain('"Import started"');
+    expect(output).toContain('"You’re not signed in"');
     expect(output).toContain('"Done"');
+    // No more false promise that a family's capture is private, and none of the old words.
+    for (const gone of ["Private to your Baby account", "Import started", "Saving your source", "when you are online"])
+      expect(output).not.toContain(gone);
     expect(output).toContain("BabyShareSession.enqueue(producer.capture.id");
     expect(output).not.toContain("application.open(url)");
     const confirmation = output.slice(output.indexOf("  private func redirectToHostApp("), output.indexOf("  enum RedirectType"));
@@ -248,6 +251,19 @@ describe("generated Safari preprocessing", () => {
         );
         expect(execFileSync(executable, { encoding: "utf8", timeout: 30_000 })).toContain(
           "native capture store cases passed"
+        );
+        execFileSync(
+          "swiftc",
+          [
+            fileURLToPath(new URL("./BabyShareSheetState.swift", import.meta.url)),
+            fileURLToPath(new URL("./__tests__/BabyShareSheetStateTests.swift", import.meta.url)),
+            "-o",
+            executable,
+          ],
+          { timeout: 60_000 }
+        );
+        expect(execFileSync(executable, { encoding: "utf8", timeout: 10_000 })).toContain(
+          "native sheet state cases passed"
         );
         const output = patchShareController(upstream);
         const lifecycle = output.slice(
