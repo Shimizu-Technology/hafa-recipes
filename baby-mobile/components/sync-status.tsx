@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { noticeTitle, waitingToSend, recoverySummary } from "../lib/outbox";
+import { noticeTitle, waitingToSend, recoverySummary, heldUpgradeNotice } from "../lib/outbox";
 import { Copy, Icon, PressTarget, Row, useColors } from "./ui";
 export function SyncStatus() {
   const b = useBaby(), c = useColors();
@@ -13,7 +13,7 @@ export function SyncStatus() {
     return <Row title={failed ? `${failed} change${failed === 1 ? " needs" : "s need"} attention` : "Sync needs attention"}
       detail={[(!b.unreachable && b.error) || "Your work is safe on this phone. Review the failed changes.", drafts ? `${drafts} unfinished draft${drafts === 1 ? " is" : "s are"} also kept here.` : ""].filter(Boolean).join(" ")}
       icon="cloud-upload-outline" onPress={() => router.push("/sync")} />;
-  if (drafts) return <Row title={recoverySummary(b.state)} detail="Your unfinished words stay on this phone. Review them when you’re ready." icon="document-text-outline" onPress={() => router.push("/sync")} />;
+  if (drafts) return <Row title={recoverySummary(b.state)} detail={notice === heldUpgradeNotice ? notice : "Your unfinished words stay on this phone. Review them when you’re ready."} icon="document-text-outline" onPress={() => router.push("/sync")} />;
   const offline = !b.online || b.unreachable;
   if (!offline && !waiting.length) return null;
   const message = offline ? waiting.length ? "Saved on this phone · offline" : "Offline · showing what’s on this phone"

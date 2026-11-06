@@ -7,6 +7,7 @@ const scope = vi.hoisted(() => ({ account: null as any }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("../components/ui", () => ({ Copy: "Copy", PressTarget: "PressTarget", Row: "Row", Icon: "Icon", useColors: () => ({}) }));
+import { heldUpgradeNotice } from "./outbox";
 import { SyncStatus } from "../components/sync-status";
 
 const prefs: Mutation = { id: "p", generation: 1, type: "reminder_prefs", patch: { kinds: { event: { enabled: true } } } };
@@ -34,4 +35,12 @@ it("keeps unfinished drafts discoverable with no queued work or family notice", 
   const row = view.root.findAll((n) => String(n.type) === "Row")[0];
   expect(row.props.title).toBe("1 unfinished draft");
   expect(row.props.detail).toContain("on this phone");
+});
+
+it("shows the upgrade explanation together with the unfinished-draft count", async () => {
+  await render(); scope.account.state.outbox = []; scope.account.state.heldDrafts = [{ id: "held", draft: {} }];
+  scope.account.state.feedNotices = [heldUpgradeNotice];
+  await act(async () => view.update(<SyncStatus />));
+  const row = view.root.findAll((n) => String(n.type) === "Row")[0];
+  expect(row.props.title).toBe("1 unfinished draft"); expect(row.props.detail).toBe(heldUpgradeNotice);
 });
