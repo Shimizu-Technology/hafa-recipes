@@ -178,6 +178,8 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
 
 Details may be tightened together, never changed independently in API/client.
 
+**Care contacts.** `PATCH /profile/contacts` keeps her doctor and where she plans to deliver in `baby_memberships.profile`; `details.doctor` on a child keeps the baby's doctor, so it goes with the baby and everyone in the family reads it. Each is a name and a phone number as typed. Bootstrap always carries `contacts`, which is how a phone knows the API keeps them, and the fields stay hidden until then. Her own are in `SERVER_PROFILE_FIELDS`, so they're never in the `profile` a phone echoes back, and nobody else reads them. They're in her export and removed with her data. No request to a model carries any of them: the Ask context and tools name the child fields they send, and `test_baby_contacts.py` checks that at the HTTP layer.
+
 ## Family, tracker and calendar contracts
 
 Decided November 4, 2026 with Leon and Kami. These extend the API contract above
