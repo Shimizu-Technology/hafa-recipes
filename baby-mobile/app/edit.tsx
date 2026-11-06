@@ -62,7 +62,7 @@ function firstLine(d: EditorDraft) {
   return line.length > 60 ? line.slice(0, 59).join("").trimEnd() + "…" : line.join("");
 }
 export default function Edit() {
-  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string }>(),
+  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string; child?: string }>(),
     b = useBaby(),
     toast = useToast(),
     openJournal = useOpenJournal(),
@@ -94,8 +94,11 @@ export default function Edit() {
         }
         // Add from a day means that day, even over a draft left from another.
         if (d && params.kind === "event" && params.day && !d.existing) d = onNewDay(d, params.day);
+        // Add from a day that shows one baby means that baby, whichever is selected everywhere else.
+        const linkedBaby = params.child && b.state.bootstrap!.children.some((known) => known.id === params.child) ? params.child : undefined;
+        if (d && linkedBaby && !d.existing) d = { ...d, child_id: linkedBaby };
         const kind = params.kind ?? "journal",
-          child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
+          child = linkedBaby ?? defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
           lastFeed = b.records
             .filter((r) => r.kind === "feeding" && r.child_id === child)
             .sort((x, y) => y.occurred_at.localeCompare(x.occurred_at))[0];
