@@ -1,7 +1,7 @@
 export const importFinished = (status: string) =>
   ["saved", "ready", "incomplete", "complete", "completed", "failed", "cancelled", "canceled"].includes(status);
 export const importRetryable = (status: string, error?: string | null) =>
-  status === "incomplete" ? !!error : ["failed", "cancelled", "canceled"].includes(status);
+  ["incomplete", "failed", "cancelled", "canceled"].includes(status);
 export const importCardVisible = (status: string, error?: string | null) =>
   !importFinished(status) || importRetryable(status, error) || !!error;
 export function importLabel(status: string, error?: string | null) {

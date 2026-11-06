@@ -30,3 +30,9 @@ it("shortens an untouched native capture only for display and preserves its idem
   expect(sourceTitle({ ...capture, revision: 2 })).toBe(legacy);
   expect(sharedSourceTitle("😀".repeat(110))).toHaveLength(200);
 });
+
+it("names an unread older saved link without claiming its content was read", () => {
+  const unread = { ...row, body: "", data: { url: "https://www.tiktok.com/@example/photo/123", status: "incomplete" as const } };
+  expect(sourceTitle(unread)).toBe("Saved TikTok post");
+  expect(unread.title).toBe("Saved source");
+});

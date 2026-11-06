@@ -249,10 +249,10 @@ export default function RecordDetail() {
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
       />}
       </Grouped>
-      {record.kind === "source" && <Disclosure title="Process this post again">
+      {record.kind === "source" && <Section title="Read this post">
         <Button
           secondary
-          title="Process original with AI"
+          title={data.status === "saved" ? "Read original with AI" : "Try reading this post again"}
           icon="sparkles-outline"
           onPress={() => {
             void ensureAiConsent(b).then((allowed) => !allowed ? undefined : b
@@ -272,7 +272,10 @@ export default function RecordDetail() {
               .catch((e) => setError(messageFor(e)));
           }}
         />
-      </Disclosure>}
+        <Button secondary title="Add screenshots or missing text" icon="images-outline"
+          onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: "source" } })} />
+        <Copy kind="small" tone="muted">Add photos in the editor, then choose Process & organize with AI. This updates the same saved post.</Copy>
+      </Section>}
       <Button
         variant="destructive"
         title="Delete this entry"

@@ -34,8 +34,8 @@ it("shows only recognized static budget messages on import cards", () => {
 it("treats successfully organized sampled media as complete with visible coverage in the source, not a retry failure", () => {
   expect(importFinished("incomplete")).toBe(true);
   expect(importLabel("incomplete", null)).toBe("Source organized · see processing notes");
-  expect(importRetryable("incomplete", null)).toBe(false);
-  expect(importCardVisible("incomplete", null)).toBe(false);
+  expect(importRetryable("incomplete", null)).toBe(true);
+  expect(importCardVisible("incomplete", null)).toBe(true);
   expect(importCardVisible("ready", null)).toBe(false);
   expect(importCardVisible("queued", null)).toBe(true);
   expect(importCardVisible("processing", null)).toBe(true);
