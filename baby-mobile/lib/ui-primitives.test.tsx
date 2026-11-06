@@ -159,6 +159,17 @@ it("makes a field clear to use: its word focuses it, focus shows, and the caret 
   // VoiceOver reads the label once, on the box.
   expect(word.props.accessibilityElementsHidden).toBe(true);
 });
+it("doesn't cut long multiline text in silence, and keeps limits a caller asked for", async () => {
+  await mount(<Field label="Note" multiline value={"😀".repeat(60000)} onChange={() => {}} />);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.maxLength).toBeUndefined();
+  expect(renderer!.root.findAll(n => String(n.type) === "Text" && String(n.props.children).includes("too long"))).toHaveLength(0);
+  await act(async () => renderer!.unmount());
+  await mount(<Field label="Note" multiline value={"a".repeat(100001)} onChange={() => {}} />);
+  expect(renderer!.root.findAll(n => String(n.type) === "Text" && String(n.props.children).includes("1 character too long"))).toHaveLength(1);
+  await act(async () => renderer!.unmount());
+  await mount(<Field label="Note" multiline maxLength={4000} value="" onChange={() => {}} />);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.maxLength).toBe(4000);
+});
 it("shows a disabled field as disabled, and keeps single-line search clearable", async () => {
   await mount(<Field label="Email" value="a@b.c" disabled clearable onChange={() => {}} />);
   const input = renderer!.root.findByType("TextInput" as React.ElementType).props;

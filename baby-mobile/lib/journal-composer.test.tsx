@@ -51,6 +51,7 @@ vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("./ui", () => ui);
 import Edit from "../app/edit";
+import { doctorNote, doctorNoteTitle } from "./contractions";
 
 let renderer: ReactTestRenderer | undefined;
 const entry = (over: Partial<BabyRecord> = {}): BabyRecord => ({ id: "old", kind: "journal", title: "First day felt good", body: "First day felt good", child_id: null,
@@ -99,12 +100,12 @@ it("opens a new entry as a page: title first, then the body with the keyboard al
   // Nothing to say yet, so nothing sits in the top bar to tap.
   expect(renderer!.root.findAll((node) => String(node.type) === "Pressable" && node.props.accessibilityLabel === "Details")).toHaveLength(0);
 });
-it("never saves a title for her that she didn't write beyond her first words", async () => {
+it("stores no title of its own for an entry she didn't title, so nothing can go stale", async () => {
   const account = setup();
   await open();
   await type("Your entry", "Felt the first real kick tonight\nRight after dinner");
   const record = await save(account);
-  expect(record).toMatchObject({ title: "Felt the first real kick tonight", body: "Felt the first real kick tonight\nRight after dinner" });
+  expect(record).toMatchObject({ title: "Journal entry", body: "Felt the first real kick tonight\nRight after dinner" });
   expect(scope.dismiss).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: record.id } });
 });
 it("keeps a title she typed, and turns a pasted line break into a space", async () => {
@@ -115,9 +116,9 @@ it("keeps a title she typed, and turns a pasted line break into a space", async 
   await type("Your entry", "After dinner");
   expect((await save(account)).title).toBe("First kick");
 });
-it("edits without the same words twice, whether the title was this build's or an older one's", async () => {
+it("doesn't show the same words twice, whether the title was typed or an older build's cut", async () => {
   const long = "We went for a walk this morning, and the whole neighbourhood stopped to say hello";
-  for (const row of [entry(), entry({ title: long.slice(0, 59) + "…", body: long })]) {
+  for (const row of [entry(), entry({ title: long.slice(0, 59) + "…", body: long }), entry({ title: "FIRST KICK!", body: "First kick." }), entry({ title: "Journal entry", body: "Something" })]) {
     setup([row]);
     scope.params = { id: row.id };
     await open();
@@ -128,25 +129,118 @@ it("edits without the same words twice, whether the title was this build's or an
   }
   renderer = undefined;
 });
-it("makes the title again from what the body says now, and leaves an unchanged one alone", async () => {
-  let account = setup([entry()]);
+it("never rewrites a title because the body changed: first reproduction", async () => {
+  const account = setup([entry({ title: "First kick", body: "First kick" })]);
   scope.params = { id: "old" };
   await open();
-  await type("Your entry", "Second day felt better");
-  expect((await save(account))).toMatchObject({ title: "Second day felt better", revision: 2 });
-  await act(async () => renderer!.unmount());
-  account = setup([entry()]);
+  expect(input("Title, optional").props.value).toBe("");
+  await type("Your entry", "Second kick");
+  expect(await save(account)).toMatchObject({ title: "First kick", body: "Second kick", revision: 2 });
+});
+it("sends a title with different case and punctuation back exactly as stored, with no body change", async () => {
+  const account = setup([entry({ title: "FIRST KICK!", body: "First kick." })]);
+  scope.params = { id: "old" };
   await open();
-  expect((await save(account)).title).toBe("First day felt good");
-  await act(async () => renderer!.unmount());
+  expect((await save(account)).title).toBe("FIRST KICK!");
+});
+it("keeps a chosen ellipsis title, even over a long line it opens", async () => {
+  const body = "Our first Christmas together with everyone at grandma's house and the whole street singing";
+  for (const title of ["Our first Christmas together…", "  Spaced as it was  "]) {
+    const account = setup([entry({ title, body })]);
+    scope.params = { id: "old" };
+    await open();
+    expect((await save(account)).title).toBe(title);
+    await act(async () => renderer!.unmount());
+  }
   renderer = undefined;
 });
-it("shows a title she really wrote, and keeps it through a save", async () => {
-  const account = setup([entry({ title: "What my doctor told me", body: "Rest", data: { provenance: "clinician_instruction" } })]);
+it("keeps the timer's doctor note findable after its opening is edited in Journal", async () => {
+  const note = entry({ title: doctorNoteTitle, body: "What my doctor told me is to rest", child_id: "baby", data: { provenance: "clinician_instruction" } });
+  const account = setup([note], {}, [{ id: "baby", name: "Mia", revision: 1 }]);
   scope.params = { id: "old" };
   await open();
-  expect(input("Title, optional").props.value).toBe("What my doctor told me");
-  expect((await save(account)).title).toBe("What my doctor told me");
+  expect(input("Title, optional").props.value).toBe(doctorNoteTitle);
+  await type("Your entry", "Rest and fluids");
+  const record = await save(account);
+  expect(record.title).toBe(doctorNoteTitle);
+  expect(doctorNote([{ ...note, ...record }], "baby")?.body).toBe("Rest and fluids");
+  // And when the body is word for word its title, so the page hides it.
+  const same = entry({ title: doctorNoteTitle, body: doctorNoteTitle, child_id: "baby", data: { provenance: "clinician_instruction" } });
+  await act(async () => renderer!.unmount());
+  const second = setup([same], {}, [{ id: "baby", name: "Mia", revision: 1 }]);
+  await open();
+  expect(input("Title, optional").props.value).toBe("");
+  await type("Your entry", "Now different");
+  const kept = await save(second);
+  expect(doctorNote([{ ...same, ...kept }], "baby")?.body).toBe("Now different");
+});
+it("changes a stored title only when she does", async () => {
+  // Typing into the blank box replaces it.
+  let account = setup([entry({ title: "First kick", body: "First kick" })]);
+  scope.params = { id: "old" };
+  await open();
+  await type("Title, optional", "The real one");
+  expect((await save(account)).title).toBe("The real one");
+  await act(async () => renderer!.unmount());
+  // Clearing a title she can see leaves the entry with none, which is stored as the kind's name.
+  account = setup([entry({ title: "A real title", body: "Other words" })]);
+  await open();
+  expect(input("Title, optional").props.value).toBe("A real title");
+  await type("Title, optional", "");
+  expect((await save(account)).title).toBe("Journal entry");
+  await act(async () => renderer!.unmount());
+  // An old title stays and shows once the body has moved on from it: she can see it and change it.
+  account = setup([entry({ title: "First day felt good", body: "Today was hard" })]);
+  await open();
+  expect(input("Title, optional").props.value).toBe("First day felt good");
+  expect((await save(account)).title).toBe("First day felt good");
+  renderer!.unmount();
+  renderer = undefined;
+});
+it("keeps a title-only draft called Journal entry through cleanup, and shows it", async () => {
+  const draft: EditorDraft = { id: "new-2", kind: "journal", title: "Journal entry", body: "", child_id: null, occurred_at: "2026-11-04T09:52:00.000Z", data: {}, files: [] };
+  const account = setup([], { "new:journal": draft });
+  await open();
+  expect(input("Title, optional").props.value).toBe("Journal entry");
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); renderer!.unmount(); await account.drain(); });
+  renderer = undefined;
+  expect(account.state.drafts["new:journal"].title).toBe("Journal entry");
+  await open();
+  expect((await save(account)).title).toBe("Journal entry");
+});
+it("keeps the raw title in a draft while the box is blank", async () => {
+  const account = setup([entry({ title: "First kick", body: "First kick" })]);
+  scope.params = { id: "old" };
+  await open();
+  await type("Your entry", "First kick and more");
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); renderer!.unmount(); await account.drain(); });
+  renderer = undefined;
+  expect(account.state.drafts["record:old"].title).toBe("First kick");
+  await open();
+  expect(input("Title, optional").props.value).toBe("");
+  expect((await save(account)).title).toBe("First kick");
+});
+it("keeps every pasted word, says what's over, and doesn't save until it fits", async () => {
+  const account = setup();
+  await open();
+  expect(input("Your entry").props.maxLength).toBeUndefined();
+  expect(input("Title, optional").props.maxLength).toBeUndefined();
+  const long = "a".repeat(100001);
+  await type("Your entry", long);
+  expect(input("Your entry").props.value).toBe(long);
+  const notice = () => renderer!.root.findAll((node) => String(node.type) === "Notice").map((node) => node.props.children);
+  expect(notice()).toEqual(["This entry is 1 character too long to save. Nothing has been cut. Shorten it to save."]);
+  await save(account);
+  expect(account.state.outbox).toHaveLength(0);
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); await account.drain(); });
+  expect(account.state.drafts["new:journal"].body).toBe(long);
+  // 60,000 emoji are 120,000 to iOS and 60,000 to the API.
+  await type("Your entry", "😀".repeat(60000));
+  expect(notice()).toEqual([]);
+  await type("Title, optional", "x".repeat(241));
+  expect(notice()).toEqual(["This title is 1 character too long to save. Nothing has been cut. Shorten it to save."]);
+  await type("Title, optional", "x".repeat(240));
+  expect((await save(account))).toMatchObject({ title: "x".repeat(240) });
 });
 it("opens an older build's draft without the first-line title, even after the body moved on", async () => {
   const draft: EditorDraft = { ...entry(), body: "First day felt good and then some", files: [], existing: true, base: { after: [] } };
@@ -227,6 +321,17 @@ it("shows a photo once, however far along its upload is, from the copy on this p
   await act(async () => control("Remove saved attachment 1").props.onPress());
   await act(async () => { await vi.advanceTimersByTimeAsync(500); await account.drain(); });
   expect(account.state.drafts["record:old"].data.attachment_ids).toEqual([]);
+});
+it("refuses to keep an entry with nothing in it, even with the kind's name stored", async () => {
+  const account = setup([entry({ title: "Journal entry", body: "Something" })]);
+  scope.params = { id: "old" };
+  await open();
+  await type("Your entry", "");
+  await save(account);
+  expect(account.state.outbox).toHaveLength(0);
+  expect(renderer!.root.findAll((node) => String(node.type) === "Notice")[0].props.children).toBe("Write something or add a photo to keep.");
+  await type("Your entry", "Back");
+  expect(renderer!.root.findAll((node) => String(node.type) === "Notice")).toHaveLength(0);
 });
 it("still saves a photo-only entry whose title was only the kind's name", async () => {
   const account = setup([entry({ title: "Journal entry", body: "", data: { attachment_ids: ["up-1"] } })]);

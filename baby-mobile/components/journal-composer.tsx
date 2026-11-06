@@ -7,7 +7,7 @@ import { Stack } from "expo-router";
 import { friendlyTime } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
 import type { EditorDraft } from "@/lib/models";
-import { titleLimit } from "../lib/journal-title";
+import { tooLong } from "../lib/text-limits";
 import { DateField } from "./date-field";
 import { Button, Copy, Icon, Notice, PressTarget, TopBar, fonts, radii, sectionHeadingLimit, typeScale, useColors, type IconName } from "./ui";
 
@@ -64,9 +64,11 @@ function DockButton({ icon, label, badge, onPress }: { icon: IconName; label: st
  * can have waits in the dock, which rides on the keyboard with Save, or behind it in the details sheet. `details` is what
  * the sheet holds, and it's what every other kind has on its form, so the rules for each stay in one place.
  */
-export function JournalComposer({ draft, change, saved, error, busy, status, details, canDiscard, onAttach, onRemoveFile, onRemoveSaved, onSave, onDiscard }: {
+export function JournalComposer({ draft, change, titleHidden, saved, error, busy, status, details, canDiscard, onAttach, onRemoveFile, onRemoveSaved, onSave, onDiscard }: {
   draft: EditorDraft;
   change: (value: Partial<EditorDraft>) => void;
+  /** Its stored title would only say the first line again, so the box starts blank. The title itself stays as it is until she types one. */
+  titleHidden: boolean;
   /** The draft has reached this phone's storage. */
   saved: boolean;
   error: string;
@@ -81,10 +83,12 @@ export function JournalComposer({ draft, change, saved, error, busy, status, det
   onSave: () => void;
   onDiscard: () => void;
 }) {
-  const b = useBaby(), c = useColors(), scheme = useColorScheme(), safeArea = useSafeAreaInsets(), { fontScale } = useWindowDimensions(),
+  const b = useBaby(), c = useColors(), scheme = useColorScheme(), safeArea = useSafeAreaInsets(), { fontScale, height: windowHeight } = useWindowDimensions(),
     title = useRef<TextInput>(null), body = useRef<TextInput>(null), scroller = useRef<ScrollView>(null),
     lastFocused = useRef<TextInput | null>(null), everSaved = useRef(false),
-    page = useRef({ height: 0, offset: 0, bodyTop: 0, bodyLength: draft.body.length, caretAtEnd: true }),
+    page = useRef({ height: 0, offset: 0, bodyTop: 0, text: draft.body, caret: draft.body.length }),
+    measureLater = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
+    [titleUntouched, setTitleUntouched] = useState(titleHidden), [measuring, setMeasuring] = useState<string | null>(null),
     [keyboard, setKeyboard] = useState(false), [sheet, setSheet] = useState(false), [picking, setPicking] = useState<Date | null>(null);
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboard(true));
@@ -103,11 +107,20 @@ export function JournalComposer({ draft, change, saved, error, busy, status, det
   }, [count]);
   // It saves in every pause, so once it's been said it stays said. Coming and going with each word would be a flicker to read.
   everSaved.current ||= saved;
+  /** Scrolls so a line ending this far down the body is in sight. */
+  function bringIntoView(height: number) {
+    const { height: seen, offset, bodyTop } = page.current, bottom = bodyTop + height + 12 - seen;
+    if (seen && bottom > offset) scroller.current?.scrollTo({ y: bottom, animated: false });
+  }
   /** iOS follows the caret as keys are typed, but not through a paste or dictation, so those are brought into view here. */
   function followWriting(height: number) {
-    const { height: seen, offset, bodyTop, caretAtEnd } = page.current, bottom = bodyTop + height + 12 - seen;
-    if (caretAtEnd && seen && bottom > offset && body.current?.isFocused()) scroller.current?.scrollTo({ y: bottom, animated: false });
+    if (!body.current?.isFocused()) return;
+    clearTimeout(measureLater.current);
+    if (page.current.caret >= page.current.text.length) return bringIntoView(height);
+    // In the middle there's no asking where the caret is, so a hidden copy of the words before it says how far down that is.
+    measureLater.current = setTimeout(() => setMeasuring(page.current.text.slice(0, page.current.caret)), 30);
   }
+  useEffect(() => () => clearTimeout(measureLater.current), []);
   /** Sets the keyboard aside for something on top of the page, and remembers where to put it back. */
   function stepAside() {
     lastFocused.current = body.current?.isFocused() ? body.current : title.current?.isFocused() ? title.current : null;
@@ -134,7 +147,7 @@ export function JournalComposer({ draft, change, saved, error, busy, status, det
     const date = new Date(draft.occurred_at);
     setPicking(Number.isFinite(date.getTime()) ? date : new Date());
   }
-  const when = friendlyTime(draft.occurred_at);
+  const when = friendlyTime(draft.occurred_at), tooMuch = tooLong(titleUntouched ? "" : draft.title, draft.body);
   return <SafeAreaView collapsable={false} edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
     <Stack.Screen options={{ headerShown: false }} />
     <TopBar back close={false} trailing={(!!status || (everSaved.current && roomy)) && <Pressable accessibilityRole="button" accessibilityLabel={[status, everSaved.current ? "Draft saved" : "", "Details"].filter(Boolean).join(". ")} onPress={openSheet}
@@ -147,17 +160,20 @@ export function JournalComposer({ draft, change, saved, error, busy, status, det
         onLayout={(event) => { page.current.height = event.nativeEvent.layout.height; }} onScroll={(event) => { page.current.offset = event.nativeEvent.contentOffset.y; }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive"
         contentInsetAdjustmentBehavior="never" contentContainerStyle={{ flexGrow: 1, width: "100%", maxWidth: 720, alignSelf: "center", paddingHorizontal: 22, paddingTop: 6 }}>
         {draft.data.provenance === "clinician_instruction" && <View style={{ paddingBottom: 8 }}><Copy kind="small" tone="muted">Clinician instruction · labeled by you</Copy></View>}
-        <TextInput key={`t:${fontScale}`} ref={title} accessibilityLabel="Title, optional" value={draft.title} placeholder="Title (optional)" placeholderTextColor={c.muted} selectionColor={c.accentText}
+        <TextInput key={`t:${fontScale}`} ref={title} accessibilityLabel="Title, optional" value={titleUntouched ? "" : draft.title} placeholder="Title (optional)" placeholderTextColor={c.muted} selectionColor={c.accentText}
           // Wraps instead of sliding sideways. Return goes on to the entry, and a pasted line break is only a space.
           multiline scrollEnabled={false} submitBehavior="submit" returnKeyType="next" onSubmitEditing={() => body.current?.focus()}
-          onChangeText={(text) => change({ title: text.replace(/\s*\n\s*/g, " ") })} maxLength={titleLimit} autoCapitalize="sentences" maxFontSizeMultiplier={titleTextLimit}
+          onChangeText={(text) => { setTitleUntouched(false); change({ title: text.replace(/\s*\n\s*/g, " ") }); }} autoCapitalize="sentences" maxFontSizeMultiplier={titleTextLimit}
           style={{ ...typeScale.title1, padding: 0, color: c.text, textAlignVertical: "top" }} />
         <TextInput key={`b:${fontScale}`} ref={body} accessibilityLabel="Your entry" value={draft.body} placeholder={fontScale >= 2 ? "How are you doing?" : "How are you doing? What would you like to remember?"} placeholderTextColor={c.muted} selectionColor={c.accentText}
-          multiline scrollEnabled={false} autoFocus={!draft.existing} maxLength={100000}
-          onChangeText={(text) => { page.current.bodyLength = text.length; change({ body: text }); }}
-          onSelectionChange={(event) => { page.current.caretAtEnd = event.nativeEvent.selection.end >= page.current.bodyLength; }}
+          multiline scrollEnabled={false} autoFocus={!draft.existing}
+          onChangeText={(text) => { page.current.text = text; change({ body: text }); }}
+          onSelectionChange={(event) => { page.current.caret = event.nativeEvent.selection.end; }}
           onLayout={(event) => { page.current.bodyTop = event.nativeEvent.layout.y; }} onContentSizeChange={(event) => followWriting(event.nativeEvent.contentSize.height)} autoCapitalize="sentences" maxFontSizeMultiplier={0}
           style={{ ...pageInk, marginTop: 12, padding: 0, color: c.text, textAlignVertical: "top" }} />
+        {measuring !== null && <Text key={`m:${fontScale}`} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none" maxFontSizeMultiplier={0}
+          onLayout={(event) => { bringIntoView(event.nativeEvent.layout.height); setMeasuring(null); }}
+          style={{ ...pageInk, position: "absolute", left: 22, right: 22, opacity: 0 }}>{`${measuring}\u200b`}</Text>}
         {count > 0 && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14, paddingTop: 22 }}>
           {savedIds.map((id, index) => <Tile key={id} label={`saved attachment ${index + 1}`} onRemove={() => onRemoveSaved(id)}><SavedThumb id={id} /></Tile>)}
           {localFiles.map((file) => <Tile key={file.id} label={file.name} onRemove={() => onRemoveFile(file.id)}>
@@ -171,7 +187,7 @@ export function JournalComposer({ draft, change, saved, error, busy, status, det
         {/* The rest of the page is still the page. */}
         <Pressable accessible={false} onPress={() => body.current?.focus()} style={{ flexGrow: 1, minHeight: 96 }} />
       </ScrollView>
-      {!!error && <View style={{ paddingHorizontal: 12, paddingBottom: 6 }}><Notice error>{error}</Notice></View>}
+      {!!(tooMuch || error) && <ScrollView style={{ flexGrow: 0, maxHeight: windowHeight * 0.25 }} contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 6 }}><Notice error>{tooMuch || error}</Notice></ScrollView>}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingTop: 6, paddingBottom: keyboard ? 6 : Math.max(6, safeArea.bottom),
         borderTopWidth: 0.5, borderColor: c.border, backgroundColor: c.background, width: "100%", maxWidth: 720, alignSelf: "center" }}>
         <DockButton icon="image-outline" label={count ? `Add a photo or file. ${count} added.` : "Add a photo or file"} badge={count} onPress={attach} />

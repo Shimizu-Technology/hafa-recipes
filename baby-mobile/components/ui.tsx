@@ -29,6 +29,7 @@ import { Stack, router, useScrollToTop, useSegments } from "expo-router";
 import { NavigationContext } from "expo-router/react-navigation";
 import { isTabRoute, overlayBottom, reportDockedFooter, useDockedFooterHeight, useTabBarHeight } from "../lib/bottom-overlay";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
+import { bodyLimit, overBy, tooLongWords } from "../lib/text-limits";
 import { BrandMark } from "./brand-mark";
 
 /**
@@ -663,7 +664,8 @@ export function Field({
         autoFocus={autoFocus}
         autoCapitalize={purpose || secret ? "none" : capitalize ?? "sentences"}
         {...traits}
-        maxLength={maxLength ?? traits.maxLength ?? (multiline ? 30000 : 1000)}
+        // Long text isn't cut in silence: iOS counts differently from the API, and pasted words can't come back.
+        maxLength={maxLength ?? traits.maxLength ?? (multiline ? undefined : 1000)}
         onSubmitEditing={onSubmit}
         returnKeyType={returnKeyType ?? (multiline ? undefined : "done")}
         clearButtonMode={clearable ? "while-editing" : undefined}
@@ -685,6 +687,7 @@ export function Field({
           minHeight: multiline ? 150 : 52,
         }}
       />
+      {multiline && maxLength === undefined && overBy(value, bodyLimit) > 0 && <Copy kind="small" tone="error">{tooLongWords("note", overBy(value, bodyLimit))}</Copy>}
       {(pad || multiline || !!save) && <KeyboardDone id={accessory} save={save} />}
     </View>
   );

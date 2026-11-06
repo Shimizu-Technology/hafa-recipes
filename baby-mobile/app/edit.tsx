@@ -29,7 +29,8 @@ import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/mo
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
 import { ComposerOpening, JournalComposer } from "../components/journal-composer";
-import { firstWords, titleLimit, writtenTitle } from "../lib/journal-title";
+import { firstWords, noTitle, repeatsBody } from "../lib/journal-title";
+import { tooLong, titleLimit } from "../lib/text-limits";
 import { babiesFor, babyLabel, caregiverKeeps, choiceFor, fittingChild, stampedDraft, visibilityWord } from "../lib/spaces";
 import { useOpenJournal } from "../lib/use-open-journal";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
@@ -55,8 +56,8 @@ function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): Edit
                 : {},
   };
 }
-/** An untitled journal entry or question is listed by its first words. A source's placeholder stays for a processed title. */
-const firstLine = (d: EditorDraft) => (d.kind === "journal" || d.kind === "question" ? firstWords(d.body) : "");
+/** An untitled question is listed by its first words. A journal entry has no title stored, and a source's placeholder stays for a processed title. */
+const firstLine = (d: EditorDraft) => (d.kind === "question" ? firstWords(d.body) : "");
 export default function Edit() {
   const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string; child?: string }>(),
     b = useBaby(),
@@ -76,6 +77,7 @@ export default function Edit() {
     openedAs = useRef<{ id: string; tracker?: Tracker } | null>(null),
     retired = useRef(false),
     restored = useRef(false),
+    hideTitle = useRef(false),
     working = useRef(false),
     changed = useRef(false);
   /** A journal entry opened and left as it was is no unfinished draft. */
@@ -111,10 +113,10 @@ export default function Edit() {
         }
         d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
           : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
-        // A journal title that only repeats her first line isn't a title. It's made again on save, from whatever the body says then.
+        // The page won't say the same words twice. That's all this does: what's stored stays, and goes back as it was unless she types a title.
         if (d.kind === "journal") {
           const row = b.records.find((r) => r.id === d!.id);
-          if (!writtenTitle(d) || (row && d.title === row.title && !writtenTitle(row))) d = { ...d, title: "" };
+          hideTitle.current = (!!d.existing && d.title.trim() === noTitle) || repeatsBody(d.title, d.body) || (!!row && d.title === row.title && repeatsBody(row.title, row.body));
         }
         if (active) {
           latest.current = d;
@@ -162,6 +164,8 @@ export default function Edit() {
   }, [b.state.outbox, b.state.settled]);
   function change(value: Partial<EditorDraft>) {
     changed.current = true;
+    // What she was told was about what's on the page, and she's just changed it.
+    if (latest.current?.kind === "journal") setError("");
     setDraft((d) => {
       if (!d) return d;
       const next = { ...d, ...value };
@@ -229,6 +233,8 @@ export default function Edit() {
     });
   }
   function validate(d: EditorDraft) {
+    const long = tooLong(d.kind === "event" ? "" : d.title, d.body);
+    if (long) throw Error(long);
     if (d.kind === "event") {
       if (!d.title.trim()) throw Error("Give this event a name.");
       if (d.data.recurrence?.until && d.data.recurrence.until < recordDay(d.occurred_at, d.data.timezone)) throw Error("A repeat can’t end before the event starts.");
@@ -237,7 +243,7 @@ export default function Edit() {
       return;
     }
     if (
-      !d.title.trim() &&
+      !(d.kind === "journal" && d.existing && d.title.trim() === noTitle ? "" : d.title.trim()) &&
       !d.body.trim() &&
       !d.files.length &&
       !d.data.attachment_ids?.length &&
@@ -300,7 +306,9 @@ export default function Edit() {
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;
         return {
           id, generation, type: "save", ...(from.space_id ? { space_id: from.space_id } : {}),
-          record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindWord(from.kind)),
+          // A title changes only when she changes it. What's stored goes back byte for byte, whatever the body now says.
+          record: { ...record, title: from.title === (from.kind === "journal" ? b.records.find((row) => row.id === from.id)?.title : undefined) ? from.title
+            : from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindWord(from.kind)),
             data: from.kind === "source" ? { ...data, source_text: data.source_text || from.body || undefined } : data,
             ...(revision ? { revision } : {}) }, files,
           // A draft kept by an older build doesn't know what it saw, so it follows nothing.
@@ -479,7 +487,7 @@ export default function Edit() {
     />;
     const choice = choiceFor(b.state.bootstrap, draft), row = b.records.find((r) => r.id === draft.id), babies = b.state.bootstrap!.children,
       forBaby = babies.length > 1 ? babies.find((baby) => baby.id === fittingChild(b.state.bootstrap!, draft, row)) : undefined;
-    return <JournalComposer draft={draft} change={change} saved={saved && changed.current} error={error} busy={busy}
+    return <JournalComposer draft={draft} change={change} titleHidden={hideTitle.current} saved={saved && changed.current} error={error} busy={busy}
       status={[forBaby && babyLabel(forBaby, b.state.bootstrap), choice ? (choice.shared ? "Shared" : "Just me") : visibilityWord(row ?? draft, b.state.bootstrap)].filter(Boolean).join(" · ") || undefined}
       canDiscard={keepDraft(draft, changed.current)}
       onAttach={(type) => void choose(type)}

@@ -8,7 +8,7 @@ import { visibilityWord } from "../lib/spaces";
 import { datedOnly } from "../lib/well-visits";
 import { contractionDetail } from "../lib/contractions";
 import { kickDetail } from "../lib/kicks";
-import { journalPreview } from "../lib/journal-title";
+import { journalName, journalPreview } from "../lib/journal-title";
 import { keyDate, recordDay } from "../lib/tracker";
 import { useBaby } from "@/lib/context";
 import { Text, View } from "react-native";
@@ -57,7 +57,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
     quick = tracker?.opens === "quick-log",
     label = record.title && record.title !== kindName[record.kind] ? record.title : "",
     // A shot or milestone goes by its own name, and its noon is only how the date is stored.
-    title = dated ? record.title : summary || record.data.label || label || kindWord(record.kind),
+    title = dated ? record.title : summary || record.data.label || (record.kind === "journal" ? journalName(record) : label) || kindWord(record.kind),
     child = children.length > 1 ? children.find((c) => c.id === record.child_id)?.name : undefined,
     preview = record.kind === "journal" ? journalPreview(record) : "";
   const details = [
