@@ -1,6 +1,7 @@
 """A provider's passing 429 or 5xx gets two more tries, each admitted again. No database and no paid call."""
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -130,3 +131,22 @@ async def test_no_try_starts_after_the_time_limit(harness, monkeypatch):
     with pytest.raises(ProviderUnavailable):
         await harness.old_answer()
     assert harness.tries == 1 and harness.slept == []
+
+async def test_actual_call_reserves_all_output_and_settles_metered_invalid_result(harness, monkeypatch):
+    ticket = object()
+    reservation, settlement = AsyncMock(return_value=ticket), AsyncMock()
+    monkeypatch.setattr(BabyProvider, "_reserve", reservation)
+    monkeypatch.setattr(provider, "settle", settlement)
+    response = {"choices":[{"finish_reason":"length", "message":{"content":"incomplete"}}],
+                "usage":{"prompt_tokens":3000,"completion_tokens":6000}}
+    monkeypatch.setattr(harness, "body", lambda: response)
+    harness.statuses = [200]
+    with pytest.raises(ProviderUnavailable):
+        await BabyProvider().json_call(capability="baby_extraction", instructions="Read source", content=[
+            {"type":"text","text":"Synthetic caption"},
+            {"type":"image_url","image_url":{"url":"data:image/webp;base64,synthetic","detail":"high"}},
+        ], output_model=AnswerOutput, max_tokens=6000)
+    assert reservation.await_args.kwargs["max_output_tokens"] == 6000
+    assert reservation.await_args.kwargs["image_count"] == 1
+    assert 0 < reservation.await_args.kwargs["input_bytes"] < 2000
+    settlement.assert_awaited_once_with(ticket, response)

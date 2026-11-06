@@ -331,6 +331,60 @@ def test_the_ceilings_are_six_dollars_a_person_and_ten_overall():
     assert (budget.OWNER_DAILY_CAP, budget.GLOBAL_DAILY_CAP) == (6_000_000, 10_000_000)
 
 
+def test_import_reserves_its_actual_text_image_and_output_envelope():
+    # 7000 text/framing + 5*3001 bounded high-detail image tokens, with the
+    # existing 2.5x/1.5x headroom, including all 6000 requested output tokens.
+    amount = upper_bound("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                         image_count=5, max_output_tokens=6000)
+    assert amount == 21803 and amount < 535800
+    assert upper_bound("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                       image_count=5, max_output_tokens=2400) < amount
+    with pytest.raises(BudgetError):
+        upper_bound("baby_extraction", "unknown", input_bytes=1)
+
+
+@needs_database
+async def test_metered_import_settles_actual_cost_and_keeps_attempt(baby_api, monkeypatch):
+    await consented(baby_api, monkeypatch)
+    with question():
+        ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                               image_count=5, max_output_tokens=6000)
+    usage = {"usage":{"prompt_tokens":3000, "completion_tokens":1000}}
+    await budget.settle(ticket, usage)
+    await budget.settle(ticket, usage)  # delivery/re-entry does not double-charge
+    rows = await admissions(baby_api)
+    assert len(rows) == 1 and rows[0].reserved_microusd == 1800
+    assert rows[0].capability == "baby_extraction"
+    # Ask uses the very same aggregate after the released reservation.
+    with question():
+        await reserve_ask("baby_ask", CALL)
+    assert len(await admissions(baby_api)) == 2
+
+
+@needs_database
+@pytest.mark.parametrize("usage", [None, {}, {"usage":{"prompt_tokens":1000}},
+    {"usage":{"prompt_tokens":True,"completion_tokens":1}},
+    {"usage":{"prompt_tokens":1,"completion_tokens":-1}},
+    {"usage":{"prompt_tokens":1,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":2}}}])
+async def test_unmetered_or_invalid_usage_keeps_entire_reservation(baby_api, monkeypatch, usage):
+    await consented(baby_api, monkeypatch)
+    with question():
+        ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                               image_count=5, max_output_tokens=6000)
+    await budget.settle(ticket, usage)
+    assert (await admissions(baby_api))[0].reserved_microusd == ticket.amount
+
+
+@needs_database
+async def test_unexpected_overrun_is_charged_and_stops_the_call(baby_api, monkeypatch):
+    await consented(baby_api, monkeypatch)
+    with question():
+        ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=1, max_output_tokens=1)
+    with pytest.raises(BudgetError, match="workouts_ai_usage_invalid"):
+        await budget.settle(ticket, {"usage":{"prompt_tokens":1000000,"completion_tokens":1}})
+    assert (await admissions(baby_api))[0].reserved_microusd > ticket.amount
+
+
 def test_the_safety_check_counts_as_ask_in_budget_and_attempts():
     # Two checks on top of up to five tool rounds and a final answer, for fifty questions a day.
     assert "baby_safety" in budget.ASK_CAPABILITIES and budget.ASK_MAX_ATTEMPTS == 400

@@ -19,7 +19,7 @@ from pydantic import Field, field_validator
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
-from app.domains.baby.budget import SEARCH_CALL_MICROUSD, AskCall, reserve, reserve_ask
+from app.domains.baby.budget import SEARCH_CALL_MICROUSD, AskCall, reserve, reserve_ask, settle
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
 
@@ -153,7 +153,7 @@ class BabyProvider:
 
     async def _reserve(self, capability, model, **kwargs):
         try:
-            await reserve(capability, model, **kwargs)
+            return await reserve(capability, model, **kwargs)
         except BudgetError as failure:
             # Shared acquisition adapters may retain partial evidence and catch
             # the exception. Preserve only its safe class, never provider data.
@@ -164,11 +164,12 @@ class BabyProvider:
         """Gate, reserve this one call, gate again: withdrawing consent stops the next call."""
         await self.admitted(capability)
         try:
-            await reserve_ask(capability, call, consent_only=self.old_path)
+            reservation = await reserve_ask(capability, call, consent_only=self.old_path)
         except BudgetError as failure:
             self.budget_error = failure
             raise
         await self.admitted(capability)
+        return reservation
 
     async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
         return await with_retries(capability, lambda: self.responses_attempt(
@@ -184,7 +185,7 @@ class BabyProvider:
             max_output_tokens=body["max_output_tokens"],
             searches=searches,
         )
-        await self.admit_ask_call(capability, call)
+        reservation = await self.admit_ask_call(capability, call)
         async with AIInvocationTracker(
             capability=capability,
             primary_model=model,
@@ -224,6 +225,8 @@ class BabyProvider:
             except Exception as failure:
                 invocation.fail("baby_provider_failed", data)
                 raise provider_failure(failure) from None
+            finally:
+                await settle(reservation, data, extra_cost=getattr(invocation, "extra_cost_microusd", 0))
 
     async def json_call(self, *, capability, instructions, content, output_model, max_tokens=2400):
         return await with_retries(capability, lambda: self.json_attempt(
@@ -234,13 +237,31 @@ class BabyProvider:
         await self.admitted(capability)
         settings = get_settings()
         model = getattr(settings, "baby_ai_model", None) or settings.recipe_chat_model
-        await self._reserve(
+        body = {
+            "model": model,
+            "messages": [{"role": "system", "content": instructions}, {"role": "user", "content": content}],
+            "response_format": {"type": "json_object"}, "max_completion_tokens": max_tokens,
+            "store": False, "reasoning_effort": settings.openai_reasoning_effort, "service_tier": "default",
+        }
+        image_count = 0
+        measured_content = content
+        if isinstance(content, list):
+            measured_content = []
+            for entry in content:
+                if entry.get("type") == "image_url":
+                    if entry["image_url"].get("detail") != "high":
+                        raise BudgetError("workouts_ai_envelope_unsupported")
+                    image_count += 1
+                    measured_content.append({"type": "image_url"})
+                else:
+                    measured_content.append(entry)
+        measured = {**body, "messages": [body["messages"][0], {"role":"user", "content":measured_content}]}
+        reservation = await self._reserve(
             capability,
             model,
             max_output_tokens=max_tokens,
-            images=any(item.get("type") == "image_url" for item in content)
-            if isinstance(content, list)
-            else False,
+            images=bool(image_count), image_count=image_count,
+            input_bytes=len(json.dumps(measured, ensure_ascii=False).encode()),
         )
         await self.admitted(capability)
         async with AIInvocationTracker(
@@ -259,18 +280,7 @@ class BabyProvider:
                     response = await client.post(
                         "https://api.openai.com/v1/chat/completions",
                         headers={"Authorization": f"Bearer {self._key(settings)}"},
-                        json={
-                            "model": model,
-                            "messages": [
-                                {"role": "system", "content": instructions},
-                                {"role": "user", "content": content},
-                            ],
-                            "response_format": {"type": "json_object"},
-                            "max_completion_tokens": max_tokens,
-                            "store": False,
-                            "reasoning_effort": settings.openai_reasoning_effort,
-                            "service_tier": "default",
-                        },
+                        json=body,
                     )
                 response.raise_for_status()
                 data = response.json()
@@ -288,6 +298,8 @@ class BabyProvider:
             except Exception as failure:
                 invocation.fail("baby_provider_failed", data)
                 raise provider_failure(failure) from None
+            finally:
+                await settle(reservation, data)
 
     async def extract(self, source, categories=None):
         content = [
@@ -426,6 +438,7 @@ class BabyProvider:
             allow_canary=False,
             rollout_variant="primary",
         ) as invocation:
+            result = None
             try:
                 async with AsyncOpenAI(
                     api_key=self._key(settings), max_retries=0, timeout=75
@@ -445,8 +458,8 @@ class BabyProvider:
                 invocation.succeed(result)
                 return text[:30000]
             except asyncio.CancelledError:
-                invocation.fail("cancelled")
+                invocation.fail("cancelled", result)
                 raise
             except Exception:
-                invocation.fail("baby_transcription_failed")
+                invocation.fail("baby_transcription_failed", result)
                 raise ProviderUnavailable("Audio could not be read") from None
