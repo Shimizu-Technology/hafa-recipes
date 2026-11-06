@@ -32,7 +32,7 @@ export interface WaitingShare {
   shared_at: string;
   kept_until: string;
   /** Why the app can never take this one. */
-  blocked?: "file_too_large" | "unsupported_file";
+  blocked?: "file_too_large" | "unsupported_file" | "unreadable";
 }
 const bridge = requireOptionalNativeModule<{
   pending(): Promise<NativeShare | null>;

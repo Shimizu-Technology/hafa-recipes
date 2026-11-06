@@ -631,6 +631,59 @@ struct BabyShareStoreTests {
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "the current one can")
     }
     do {
+      // A restore or device transfer gives the app group a new path. The files are still there, and still found.
+      let suite = "hafa.share.test." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let before = folder.appendingPathComponent("AppGroup/11111111-AAAA-4AAA-8AAA-111111111111"), after = folder.appendingPathComponent("AppGroup/22222222-BBBB-4BBB-8BBB-222222222222")
+      try FileManager.default.createDirectory(at: before, withIntermediateDirectories: true)
+      let old = BabyShareStore(container: before, defaults: defaults)
+      try old.bind("owner-a:1:personal")
+      let photo = try old.begin(), gone = try old.begin(), foreign = try old.begin(), legacy = try old.begin()
+      let photoFile = photo.directory.appendingPathComponent("photo.jpg"), goneFile = gone.directory.appendingPathComponent("gone.jpg"), legacyFile = before.appendingPathComponent("legacy.jpg")
+      for file in [photoFile, goneFile, legacyFile] { try Data("private".utf8).write(to: file) }
+      func row(_ file: URL) throws -> Data { try JSONSerialization.data(withJSONObject: [["path": file.absoluteString, "fileName": file.lastPathComponent, "mimeType": "image/jpeg"]]) }
+      try old.publish(row(photoFile), capture: photo)
+      try old.publish(row(goneFile), capture: gone)
+      // Names another capture's folder, which no real capture does.
+      try old.publish(row(photoFile), capture: foreign)
+      try old.publish(row(legacyFile), capture: legacy)
+      let waiting = UUID().uuidString
+      try old.publish(["the one behind"], id: waiting)
+      try FileManager.default.removeItem(at: goneFile)
+      try FileManager.default.moveItem(at: before, to: after)
+      let moved = BabyShareStore(container: after, defaults: defaults)
+      var capture = try BabySharePayload.next(moved)!
+      var files = capture["files"] as! [[String: Any]]
+      let found = URL(string: files[0]["path"] as! String)!
+      try check(found.path.hasPrefix(after.standardizedFileURL.resolvingSymlinksInPath().path) && FileManager.default.fileExists(atPath: found.path), "a moved container's file is found where it is now")
+      try check(files[0]["fileName"] as? String == "photo.jpg", "under its own name")
+      try check(try moved.acknowledge(capture["token"] as! String), "and it hands off")
+      capture = try BabySharePayload.next(moved)!
+      files = capture["files"] as! [[String: Any]]
+      try check(capture["capture_id"] as? String == legacy.id.lowercased(), "a file gone and one naming another capture's folder are both set aside, and the queue moves on")
+      try check(FileManager.default.fileExists(atPath: URL(string: files[0]["path"] as! String)!.path), "an old container-root file is found too")
+      try check(try moved.acknowledge(capture["token"] as! String), "and hands off")
+      capture = try BabySharePayload.next(moved)!
+      try check(capture["capture_id"] as? String == waiting.lowercased(), "the one behind arrives")
+      try check(try moved.acknowledge(capture["token"] as! String), "and hands off")
+      try check(try BabySharePayload.next(moved) == nil, "and the queue is empty, without throwing")
+      let aside = try moved.blocked(owner: "owner-a")
+      try check(aside.count == 2 && aside.allSatisfy { $0.blocked == "unreadable" }, "the two unreadable ones wait for Today's card")
+      try check(try moved.removeBlocked(aside[0].snapshot.token, owner: "owner-a"), "which can remove them")
+      try check(moved.ownedFile("file:///etc/passwd") == nil, "a path outside the store is still refused")
+      try check(moved.ownedFile(photoFile.deletingLastPathComponent().appendingPathComponent("../../../../secret").absoluteString) == nil, "and a climb out of it")
+      // A locked phone isn't a missing file.
+      let lock = after.appendingPathComponent(".hafa-baby-share-store-v1/store.lock")
+      try moved.publish(["kept through a lock"], id: UUID().uuidString)
+      try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lock.path)
+      var threw = false
+      do { _ = try BabySharePayload.next(moved) } catch { threw = true }
+      try check(threw, "with the store closed nothing is judged")
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: lock.path)
+      try check(try moved.blocked(owner: "owner-a").count == 1, "and nothing was set aside for it")
+      try check(try BabySharePayload.next(moved) != nil, "it's still there afterwards")
+    }
+    do {
       // A capture that can never be delivered doesn't hold up the ones behind it.
       let (_, defaults, store, suite) = try fixture("blocked")
       defer { defaults.removePersistentDomain(forName: suite) }

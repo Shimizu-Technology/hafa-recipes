@@ -67,7 +67,7 @@ final class BabyShareStore {
     var expiryNoticed: Date? = nil
     // Someone signed in and said this no-owner capture was theirs. It keeps its share time, and never counts as permission for AI.
     var claimed: Bool? = nil
-    // The app can never take this one: `file_too_large` or `unsupported_file`. It stays until removed, behind nothing and in front of nothing.
+    // The app can never take this one: `file_too_large`, `unsupported_file` or `unreadable`. It stays until removed, behind nothing and in front of nothing.
     var blocked: String? = nil
     var token: String? {
       payload.map { id + ":" + SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
@@ -251,16 +251,26 @@ final class BabyShareStore {
       return scope() == nil ? try snapshot(manifest(capture.id)) : nil
     }
   }
-  func ownedFile(_ path: String) -> URL? {
+  // A file is found by its place in this store, never by the container path it was saved under: restoring or moving a phone
+  // gives the app group a new path, and the file is still right here. Manifests keep the path as written, since their token
+  // hashes it and an older build reads it, so this is the one place that turns it into a real location.
+  func ownedFile(_ path: String, capture id: String? = nil) -> URL? {
     let parsed = URL(string: path)
-    let file = (parsed?.isFileURL == true ? parsed! : container.appendingPathComponent(URL(fileURLWithPath: path).lastPathComponent))
-      .standardizedFileURL.resolvingSymlinksInPath()
-    let parent = file.deletingLastPathComponent()
-    if parent == container || parent == container.appendingPathComponent("thumbnail") { return file }
-    if parent.deletingLastPathComponent() == captures,
-      UUID(uuidString: parent.lastPathComponent) != nil,
-      !["manifest.json", "lease.lock", "receipt.json"].contains(file.lastPathComponent) { return file }
-    return nil
+    let written = (parsed?.isFileURL == true ? parsed! : URL(fileURLWithPath: path)).standardizedFileURL
+    let name = written.lastPathComponent, parent = written.deletingLastPathComponent()
+    guard !name.isEmpty, name != "/", name != root.lastPathComponent else { return nil }
+    let home: URL
+    if parent.deletingLastPathComponent().lastPathComponent == captures.lastPathComponent, UUID(uuidString: parent.lastPathComponent) != nil,
+      parent.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent == root.lastPathComponent {
+      guard id == nil || parent.lastPathComponent == id, !["manifest.json", "lease.lock", "receipt.json"].contains(name) else { return nil }
+      home = captures.appendingPathComponent(parent.lastPathComponent, isDirectory: true)
+    } else if parent.lastPathComponent == "thumbnail" {
+      home = container.appendingPathComponent("thumbnail", isDirectory: true)
+    } else if parsed?.isFileURL != true || parent == container || parent.deletingLastPathComponent().lastPathComponent == "AppGroup" {
+      home = container
+    } else { return nil }
+    let file = home.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
+    return file.deletingLastPathComponent() == home.standardizedFileURL.resolvingSymlinksInPath() ? file : nil
   }
   private func removeLegacyFiles(_ value: Manifest) throws {
     guard !value.text, let payload = value.payload,
@@ -326,7 +336,7 @@ final class BabyShareStore {
   // A capture of this account's that can never be delivered, set aside so it can't hold up the ones behind it.
   func block(_ token: String, reason: String) throws -> Bool {
     try locked {
-      guard ["file_too_large", "unsupported_file"].contains(reason), let id = token.split(separator: ":").first.map(String.init),
+      guard ["file_too_large", "unsupported_file", "unreadable"].contains(reason), let id = token.split(separator: ":").first.map(String.init),
         UUID(uuidString: id) != nil, var value = try? manifest(id), value.token == token, value.scope != nil,
         value.epoch == (try epoch()), Self.sameOwner(value.scope, scope()) else { return false }
       value.blocked = reason

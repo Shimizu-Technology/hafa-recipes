@@ -13,6 +13,30 @@ enum BabySharePayload {
     }
     rows.append(["text": caption]); return try JSONSerialization.data(withJSONObject: rows)
   }
+  // The next capture the app can act on, with its files where they are now. One whose files have really gone, or that can't
+  // be decoded, is set aside for Today's card and the ones behind it carry on. A locked phone never gets this far, because
+  // `pending` can't open the store, so nothing is judged unreadable just for being locked.
+  static func next(_ storage: BabyShareStore) throws -> [String: Any]? {
+    while let saved = try storage.pending() {
+      let id = String(saved.token.split(separator: ":")[0])
+      var files: [[String: Any]] = [], readable = true
+      var result = try? decode(saved)
+      for row in result?["files"] as? [[String: Any]] ?? [] {
+        guard let path = row["path"] as? String, let file = storage.ownedFile(path, capture: id),
+          FileManager.default.fileExists(atPath: file.path) else { readable = false; continue }
+        files.append(["path": file.absoluteString, "fileName": row["fileName"] as? String ?? file.lastPathComponent,
+          "mimeType": row["mimeType"] as? String ?? "application/octet-stream"])
+      }
+      if readable, result != nil, saved.receipt == nil || files.count == (result?["files"] as? [[String: Any]] ?? []).count {
+        result?["files"] = files
+        return result
+      }
+      // No account has said it's theirs, so there's nothing to tell yet. The drain stops at these anyway.
+      if saved.scope == nil { result?["files"] = files; return result ?? ["token": saved.token, "capture_id": id, "record_id": id, "files": files] }
+      guard try storage.block(saved.token, reason: "unreadable") else { throw BabyShareStore.Failure.invalid }
+    }
+    return nil
+  }
   static func requestBody(_ capture: [String: Any]) throws -> Data {
     try JSONSerialization.data(withJSONObject: capture.filter {
       ["capture_id", "occurred_at", "url", "text", "automatic_epoch"].contains($0.key)

@@ -194,6 +194,11 @@ describe("a share the app can't take", () => {
     await act(async () => { w.alerts[0].buttons[1].onPress!(); });
     expect(w.removeBlocked).toHaveBeenCalledExactlyOnceWith("b:1", "owner");
   });
+  it("says when one can't be read any more", async () => {
+    w.blocked = [row({ token: "b:3", kind: "photo", count: 1, host: undefined, blocked: "unreadable" })];
+    await mount();
+    expect(text()).toContain("It can’t be read on this phone any more.");
+  });
   it("Not now puts it away without touching it", async () => {
     w.blocked = [row({ token: "b:2", kind: "file", count: 1, host: undefined, blocked: "unsupported_file" })];
     await mount();

@@ -62,17 +62,5 @@ public final class HafaBabyShareModule: Module {
     }
   }
 
-  private func snapshot() throws -> [String: Any]? {
-    let storage = try store()
-    guard let saved = try storage.pending() else { return nil }
-    var result = try BabySharePayload.decode(saved)
-    var files: [[String: Any]] = []
-    for row in result["files"] as? [[String: Any]] ?? [] {
-      guard let path = row["path"] as? String, let file = storage.ownedFile(path) else { throw BabyShareStore.Failure.invalid }
-      files.append(["path": file.absoluteString, "fileName": row["fileName"] as? String ?? file.lastPathComponent,
-        "mimeType": row["mimeType"] as? String ?? "application/octet-stream"])
-    }
-    result["files"] = files
-    return result
-  }
+  private func snapshot() throws -> [String: Any]? { try BabySharePayload.next(store()) }
 }
