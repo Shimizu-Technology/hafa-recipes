@@ -7,6 +7,7 @@ import { useBaby } from "@/lib/context";
 import { ASK_CONSENT_BODY } from "@/lib/ai-consent";
 import { messageFor, pendingChanges } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
+import { removedWarning, waitingShareCount } from "@/lib/waiting-shares";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { babyDetailLine } from "@/lib/child-setup";
@@ -188,10 +189,11 @@ export default function Settings() {
           variant="destructive"
           title="Delete my Baby data"
           busy={busy}
-          onPress={() =>
+          onPress={async () => {
+            const waiting = await waitingShareCount();
             Alert.alert(
               "Delete all Baby information?",
-              "This permanently removes your Baby records, files, conversations, and profiles. Recipes, Workouts, and your Håfa login remain. Older offline changes will not restore deleted data. Export anything you need first.",
+              `This permanently removes your Baby records, files, conversations, and profiles. Recipes, Workouts, and your Håfa login remain. Older offline changes will not restore deleted data. Export anything you need first.${waiting ? ` ${removedWarning(waiting)}` : ""}`,
               [
                 { text: "Keep my data", style: "cancel" },
                 {
@@ -204,37 +206,42 @@ export default function Settings() {
                     }),
                 },
               ]
-            )
-          }
+            );
+          }}
         />
         <Button
           variant="destructive"
           title="Delete my entire Håfa account"
           busy={busy}
-          onPress={() =>
+          onPress={async () => {
+            const waiting = await waitingShareCount();
             confirmAccountDeletion(() =>
               void run(async () => {
                 await revokeShareSession();
                 await b.api.deleteAccount();
                 await b.signOut();
-              })
-            )
-          }
+              }),
+              waiting ? removedWarning(waiting) : undefined
+            );
+          }}
         />
       </Section>
       <Button
         secondary
         title="Sign out"
         busy={busy}
-        onPress={() => {
-          if (b.state.outbox.length)
+        onPress={async () => {
+          const waiting = await waitingShareCount(), unsent = b.state.outbox.length > 0;
+          if (waiting || unsent)
             Alert.alert(
-              "You have changes on this device",
-              "Signing out removes unsynced entries and drafts from this device. Sync first to keep them in your account.",
+              waiting ? "Sign out and clear this phone?" : "You have changes on this device",
+              waiting
+                ? `${removedWarning(waiting)} Signing out also removes unsynced entries and drafts.${unsent ? " Sync first to keep them in your account." : ""}`
+                : "Signing out removes unsynced entries and drafts from this device. Sync first to keep them in your account.",
               [
                 { text: "Keep working", style: "cancel" },
-                { text: "Sync changes", onPress: () => void b.sync() },
-                { text: "Sign out and clear device", style: "destructive", onPress: () => void run(b.signOut) },
+                ...(unsent ? [{ text: "Sync changes", onPress: () => void b.sync() }] : []),
+                { text: "Sign out and clear device", style: "destructive" as const, onPress: () => void run(b.signOut) },
               ]
             );
           else void run(b.signOut);

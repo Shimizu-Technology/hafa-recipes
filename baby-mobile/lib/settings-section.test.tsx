@@ -2,6 +2,7 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const f = vi.hoisted(() => ({ section: undefined as string | undefined, scroll: vi.fn(), reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object, ask: null as number | null }));
+vi.mock("@/lib/waiting-shares", () => ({ removedWarning: () => "", waitingShareCount: async () => 0, signInNotice: () => "", useWaitingShareCount: () => 0 }));
 vi.mock("react-native", () => ({ Alert: {}, Linking: {}, ScrollView: "ScrollView", View: "View" }));
 vi.mock("expo-router", () => ({ router: {}, useLocalSearchParams: () => ({ section: f.section }) }));
 vi.mock("expo-constants", () => ({ default: { expoConfig: {} } }));

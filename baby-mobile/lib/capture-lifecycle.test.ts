@@ -291,6 +291,12 @@ it.each([[true, false, 1], [false, true, 1], [true, true, 2]])(
     if (count === 2) expect(account.state.outbox[1]).toEqual({ id: "capture-A", generation: 1,
       type: "import", record_id: "capture-A", files: [], automatic: true, automatic_epoch: 0 });
   });
+it("a share added from the waiting card never starts AI, even with automatic organizing on and matching numbers", async () => {
+  const account = setup(); Object.assign(account.state.bootstrap!.profile, { ai_consent: true, auto_process_shares: true, auto_process_epoch: 0 });
+  scope.pending.mockResolvedValueOnce({ ...payload(), scope: "disposable-local-parent:1:personal", claimed: true, automatic_epoch: 0 }); await mount(ShareCapture);
+  expect(account.state.outbox.map(m => m.type)).toEqual(["save"]);
+  expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A");
+});
 it("does not copy or queue a source with an exact durable server receipt", async () => {
   const account = setup(); scope.pending.mockResolvedValueOnce({ ...payload(), status: "deferred" });
   await mount(ShareCapture);

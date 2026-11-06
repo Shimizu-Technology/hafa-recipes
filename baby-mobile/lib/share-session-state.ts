@@ -45,3 +45,11 @@ export const onShareSessionAsked = (listener: () => Promise<void>) => {
   asked = listener;
   return () => { if (asked === listener) asked = null; };
 };
+
+/** Something about what's waiting on this phone changed: a credential arrived, or a share was added or removed. */
+const shareListeners = new Set<() => void>();
+export const sharesChanged = () => shareListeners.forEach((listener) => listener());
+export const onSharesChanged = (listener: () => void) => {
+  shareListeners.add(listener);
+  return () => { shareListeners.delete(listener); };
+};

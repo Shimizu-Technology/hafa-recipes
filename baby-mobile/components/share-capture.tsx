@@ -11,6 +11,7 @@ import { captureBelongs, captureDestination, captureStale } from "../lib/share-s
 import { notSentMessage } from "../lib/outbox";
 import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
+import { onSharesChanged } from "../lib/share-session-state";
 import { acknowledgeShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
 
 import { sharedSourceTitle } from "../lib/source-title";
@@ -24,10 +25,11 @@ export function ShareCapture() {
   const account = useRef(b);
   account.current = b;
   useEffect(() => {
-    let alive = true, running = false;
+    let alive = true, running = false, again = false;
     const drain = async () => {
-      if (running) return;
+      if (running) { again = true; return; }
       running = true;
+      again = false;
       let retry = false;
       try {
         while (alive) {
@@ -102,7 +104,8 @@ export function ShareCapture() {
               const place = native ? captureDestination(native.scope, state.bootstrap) : {};
               let next = addMutation(state, { ...save, ...place, ...(place.left_space ? { error: notSentMessage } : {}) });
               if (place.left_space) return next;
-              if (profile.ai_consent && profile.auto_process_shares &&
+              // A share added from the waiting card was never covered by permission for AI, whatever's on now.
+              if (!native?.claimed && profile.ai_consent && profile.auto_process_shares &&
                 (automatic.automatic_epoch ?? 0) === (profile.auto_process_epoch ?? 0)) next = addMutation(next, automatic);
               return next;
             });
@@ -124,12 +127,13 @@ export function ShareCapture() {
           "Håfa Baby could not finish saving every item. Your original capture is kept; reopen the app to try again.");
       } finally {
         running = false;
-        if (retry && alive) setTimeout(() => void drain(), 500);
+        if ((retry || again) && alive) setTimeout(() => void drain(), retry ? 500 : 0);
       }
     };
     void drain();
     const app = AppState.addEventListener("change", state => { if (state === "active") void drain(); });
-    return () => { alive = false; app.remove(); };
+    const stop = onSharesChanged(() => void drain());
+    return () => { alive = false; app.remove(); stop(); };
   }, [b.ready, b.owner, b.state.bootstrap?.generation, stock.hasShareIntent, b.state.bootstrap?.active]);
   return null;
 }

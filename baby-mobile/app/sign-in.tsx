@@ -14,6 +14,7 @@ import { useSignIn, useSignUp } from "@clerk/expo/legacy";
 import { useSSO } from "@clerk/expo";
 import * as WebBrowser from "expo-web-browser";
 import { Button, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { signInNotice, useWaitingShareCount } from "@/lib/waiting-shares";
 import { callbackUrl, socialSignIn } from "@/lib/social";
 import { configuration } from "@/lib/config";
 import { signupSetup } from "@/lib/signup-setup";
@@ -21,6 +22,7 @@ import { nativeAppleSignIn } from "@/lib/native-apple-sign-in";
 WebBrowser.maybeCompleteAuthSession();
 type Mode = "signin" | "signup" | "recover";
 export default function SignIn() {
+  const waiting = useWaitingShareCount();
   const { signIn, setActive, isLoaded } = useSignIn();
   const { signUp, isLoaded: signupLoaded } = useSignUp();
   const { startSSOFlow } = useSSO();
@@ -267,6 +269,7 @@ export default function SignIn() {
       title={mode === "signup" ? "Create your account" : mode === "recover" ? "Recover your account" : "Håfa adai"}
       subtitle="A little more room to remember: saved advice, everyday care and family memories, together."
     >
+      {waiting > 0 && <Notice>{signInNotice(waiting)}</Notice>}
       <Copy kind="small" tone="muted">
         Use Håfa Recipes? Sign in the same way.
       </Copy>

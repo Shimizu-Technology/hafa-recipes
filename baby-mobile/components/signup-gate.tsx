@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PropsWithChildren } from "react";
 import { useAuth, useClerk, useSession } from "@clerk/expo";
 import { ApiError, createBabyApi } from "../lib/api";
 import { configuration } from "../lib/config";
+import { confirmSignOut } from "../lib/waiting-shares";
 import { revokeShareSession } from "../lib/share-session-state";
 import { signupSetup } from "../lib/signup-setup";
 import { openingAccount } from "../lib/startup";
@@ -87,6 +88,6 @@ export function SignupGate({ children }: PropsWithChildren) {
     {needsFinish && !busy && <Notice>Your account was created, but setup is unfinished. Finish setup to start using Håfa Baby.</Notice>}
     {!busy && <Button title={needsFinish ? "Finish account setup" : "Try again"} secondary
       onPress={() => void retry.current(needsFinish)} />}
-    {(hasIntent || !!error) && !busy && <Button title="Sign out" variant="ghost" busy={busy} onPress={() => void leave.current()} />}
+    {(hasIntent || !!error) && !busy && <Button title="Sign out" variant="ghost" busy={busy} onPress={() => void confirmSignOut(() => void leave.current())} />}
   </Screen>;
 }

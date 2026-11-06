@@ -11,6 +11,7 @@ import {
   onShareSessionAsked,
   revokeShareAuthority,
   serializeShareSession,
+  sharesChanged,
 } from "./share-session-state";
 import { sessionScope, shareDestination, shareOwner } from "./share-scope";
 import { accessKey, generationOf, spaceFence, spacesLive } from "./spaces";
@@ -55,6 +56,8 @@ export function useShareSession() {
           // same-account captures. Account cleanup is serialized separately.
           if (!current() && (isShareSessionSuspended() || !b.current())) await Share.clearSession(true);
         });
+        // Connected, so whatever's waiting can be offered to this account now.
+        if (current()) sharesChanged();
       } catch {
         // Keep an existing same-account capability when offline. Expired tokens
         // only produce the truthful local-save confirmation in the extension.
