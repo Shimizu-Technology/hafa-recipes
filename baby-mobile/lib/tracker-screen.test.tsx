@@ -220,7 +220,7 @@ it("opens a day from a link, and ignores anything that isn't a date", async () =
 });
 
 it("offers Ask about this day only with the new Ask accepted, and never for a day ahead", async () => {
-  const askRow = () => renderer!.root.findAll((n) => String(n.type) === "Row" && n.props.title === "Ask about this day");
+  const askRow = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow" && n.props.title === "Ask about this day");
   await mount();
   expect(askRow()).toEqual([]);
   Object.assign(mock.baby.state.bootstrap, { ask_consent_version: 1, profile: { ...mock.baby.state.bootstrap.profile, ai_consent: true, ai_consent_version: 1 } });
