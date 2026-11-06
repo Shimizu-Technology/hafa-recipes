@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Bootstrap } from "./models";
-import { canMoveEntry, eventNoteWhere, noteWhere, sharedDetail, writingWhere } from "./writing-places";
+import { canMoveEntry, eventNoteWhere, noteWhere, sharedDetail, writingWhere, doctorNoteWhere } from "./writing-places";
 
 const spaces = (role?: "parent" | "caregiver") => ({ spaces: [{ id: "me", kind: "personal", role: "parent" }, ...(role ? [{ id: "fam", kind: "family", role }] : [])], personal_space_id: "me",
   children: [{ id: "mia", name: "Mia", space_id: role ? "fam" : "me" }], generation: 1 }) as unknown as Bootstrap;
@@ -53,5 +53,15 @@ describe("sharing, for who's reading", () => {
   it("lets a post made by someone who's left be taken back, as the API does", () => {
     expect(canMoveEntry({ kind: "source", created_by: "them" }, "me")).toBe(false);
     expect(canMoveEntry({ kind: "source", created_by: null }, "me")).toBe(true);
+  });
+});
+describe("the timer's doctor note", () => {
+  const boot = { spaces: [{ id: "me", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }], personal_space_id: "me" } as never;
+  it("is just for her until she's shared it", () => {
+    expect(doctorNoteWhere(boot)).toMatch(/^Just for you/);
+    expect(doctorNoteWhere(boot, { space_id: "me" })).toMatch(/^Just for you/);
+  });
+  it("says so once it's shared", () => {
+    expect(doctorNoteWhere(boot, { space_id: "fam" })).toMatch(/^Shared with your family/);
   });
 });

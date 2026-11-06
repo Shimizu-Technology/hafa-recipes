@@ -13,8 +13,9 @@ export function noteWhere(child: Pick<Child, "name" | "space_id">, bootstrap?: B
 }
 /** Hers, with no baby on it, and it stays out of any family. */
 export const feelingWhere = "Just for you. Goes in Tracker.";
-/** The one note on the contraction timer, kept as a private journal entry. */
-export const doctorNoteWhere = "Just for you. It’s in your Journal too.";
+/** The one note on the contraction timer. It starts private, and if she's shared it from Journal, it says so. */
+export const doctorNoteWhere = (bootstrap: Bootstrap | undefined, note?: Pick<BabyRecord, "space_id">) =>
+  inFamily(bootstrap, note?.space_id) ? "Shared with your family. It’s in your Journal too." : "Just for you. It’s in your Journal too.";
 
 /** One line above a new entry or question. A caregiver's own line already says who can see it, and so does a choice on the form. */
 export function writingWhere(state: State, draft: Pick<EditorDraft, "kind" | "existing" | "child_id" | "data" | "space_id" | "shared">) {
