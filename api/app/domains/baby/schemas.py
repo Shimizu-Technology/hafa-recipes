@@ -1,6 +1,7 @@
 """Bounded, explicit wire schemas; source claims never become care instructions."""
 
 import re
+import unicodedata
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Literal, get_args
 from urllib.parse import urlsplit
@@ -44,32 +45,50 @@ class DomainModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
-PHONE_NUMBER = re.compile(r"^\+?[\d\s().\-/]+?(?:\s*(?:x|ext\.?|extension)\s*\d{1,6})?$", re.IGNORECASE)
-PHONE_EXTENSION = re.compile(r"(?:x|ext).*$", re.IGNORECASE)
+# What a number copied from a website or a contact card brings with it: invisible direction marks and look-alike hyphens.
+# NFKC already turns odd spaces and full-width digits into plain ones. The app does the same (lib/contacts.ts).
+PHONE_INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")
+PHONE_DASHES = re.compile("[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]")
+PHONE_NUMBER = re.compile(r"^\+?[0-9 ().\-/]+?(?:\s*(?:x|ext\.?|extension|#|,+)\s*[0-9]{1,6})?$", re.IGNORECASE)
+PHONE_EXTENSION = re.compile(r"\s*(?:x|ext|#|,).*$", re.IGNORECASE)
+
+
+def no_control_characters(text):
+    if any(unicodedata.category(ch) == "Cc" or ch in "\u2028\u2029" for ch in text):
+        raise ValueError("Line breaks and control characters can't be saved here")
+    return text
+
+
+def plain_phone(text):
+    """The digits and punctuation she meant, whatever she copied them from."""
+    return PHONE_DASHES.sub("-", PHONE_INVISIBLE.sub("", unicodedata.normalize("NFKC", no_control_characters(text.strip()))))
 
 
 class CareContact(BaseModel):
-    """A name and number as she typed them. They're shown back to people and dialled, and no model is ever sent them."""
+    """A name and number she entered. They're shown back to people and dialled, and no model is ever sent them."""
 
     model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
     name: str | None = Field(default=None, max_length=120)
     phone: str | None = Field(default=None, max_length=40)
 
-    @field_validator("name", "phone")
+    @field_validator("name", mode="before")
     @classmethod
-    def blank_is_none(cls, value):
-        return (value or "").strip() or None
+    def plain_name(cls, value):
+        return (no_control_characters(value.strip()) or None) if isinstance(value, str) else value
 
-    @field_validator("phone")
+    @field_validator("phone", mode="before")
     @classmethod
     def looks_dialable(cls, value):
         """Guam and US numbers both occur, with or without an area code, so any layout will do as long as it has the digits."""
-        if value is None:
+        if not isinstance(value, str):
+            return value
+        number = plain_phone(value)
+        if not number:
             return None
-        digits = sum(ch.isdigit() for ch in PHONE_EXTENSION.sub("", value))
-        if not PHONE_NUMBER.match(value) or not 7 <= digits <= 15:
+        digits = sum(ch in "0123456789" for ch in PHONE_EXTENSION.sub("", number))
+        if not PHONE_NUMBER.match(number) or not 7 <= digits <= 15:
             raise ValueError("Enter a phone number with digits, such as 671-555-0100")
-        return value
+        return number
 
 
 def contact_fields(contact):

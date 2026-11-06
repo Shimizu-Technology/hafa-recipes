@@ -122,7 +122,7 @@ CHILD_DETAIL_ERRORS = {
     "weeks_at_birth": "Enter weeks at birth between 20 and 45",
     "feeding": "Choose nursing, bottle or both, or leave it blank",
     "tracking": "A tracker setting could not be read",
-    "doctor": "Enter a phone number with digits, such as 671-555-0100",
+    "doctor": "Check the doctor's name and number. A number needs digits, such as 671-555-0100",
 }
 
 

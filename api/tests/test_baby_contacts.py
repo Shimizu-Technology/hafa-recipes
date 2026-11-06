@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.domains.baby.chat import context_pack
 from app.domains.baby.models import BabyChild, BabyMembership, BabySpaceMember
 from app.domains.baby.router import child_details
+from app.domains.baby.runtime import BabyWorker
 from app.domains.baby.schemas import (
     SERVER_PROFILE_FIELDS,
     CareContact,
@@ -23,6 +24,7 @@ from app.domains.baby.schemas import (
 from tests import test_baby_access as foundation
 from tests import test_baby_family_records as records
 from tests import test_baby_integration as shared
+from tests.test_baby_ask_research import research_bodies, research_call, search_reply
 from tests.test_baby_ask_v2 import HEADERS, answered, enable, stub, tool_call  # noqa: F401
 
 baby_api, family = foundation.baby_api, foundation.family
@@ -36,15 +38,41 @@ PRIVATE = ("HER_DOCTOR_NAME", "BABY_DOCTOR_NAME", "DELIVERY_PLACE_NAME", "555-01
 
 @pytest.mark.parametrize("phone", [
     "671-555-0100", "(671) 555-0100", "+1 671 555 0100", "6715550100", "555-0100", "671.555.0100", "671-555-0100 ext 12", "671-555-0100 x12", "+1-800-555-0199",
+    "671-555-0100 #12", "671-555-0100,12",
 ])
 def test_every_layout_of_a_real_number_is_kept_as_she_typed_it(phone):
     assert CareContact(phone=f"  {phone} ").phone == phone
 
 
-@pytest.mark.parametrize("phone", ["12345", "call the office", "671-555-0100; drop", "tel:6715550100", "1" * 16, "1-800-FLOWERS"])
+# The same pairs are in baby-mobile/lib/contacts.test.ts, so the app and the API agree.
+@pytest.mark.parametrize(("copied", "kept"), [
+    ("671\u2011555\u20110100", "671-555-0100"),  # nonbreaking hyphens
+    ("671\u2013555\u20140100", "671-555-0100"),  # en and em dashes
+    ("671\u2212555\uff0d0100", "671-555-0100"),  # minus and full-width hyphen
+    ("671\u00a0555\u202f0100", "671 555 0100"),  # nonbreaking spaces
+    ("\u202a+1 671 555 0100\u202c", "+1 671 555 0100"),  # a contact card's direction marks
+    ("\ufeff671-555\u200b-0100", "671-555-0100"),  # invisible marks
+    ("\uff16\uff17\uff11-555-0100", "671-555-0100"),  # full-width digits
+    ("671-555-0100\n", "671-555-0100"),  # a line break at the end of what was copied
+])
+def test_what_comes_with_a_copied_number_is_cleaned_up(copied, kept):
+    assert CareContact(phone=copied).phone == kept
+
+
+@pytest.mark.parametrize("phone", [
+    "12345", "call the office", "671-555-0100; drop", "tel:6715550100", "1" * 16, "1-800-FLOWERS",
+    "671\n555\n0100", "671\t555\t0100", "671-555\x00-0100", "671-555-0100\u2028x12",
+    "\u0666\u0667\u0661-555-0100",  # digits the phone's dialler wouldn't get
+])
 def test_what_cant_be_dialled_is_refused(phone):
     with pytest.raises(ValidationError):
         CareContact(phone=phone)
+
+
+@pytest.mark.parametrize("name", ["Dr.\x00Cruz", "Dr.\nCruz", "Dr.\tCruz", "Dr.\u2028Cruz"])
+def test_a_name_with_control_characters_is_refused(name):
+    with pytest.raises(ValidationError):
+        CareContact(name=name)
 
 
 def test_blank_is_nothing_and_a_name_alone_is_fine():
@@ -67,14 +95,21 @@ def test_contacts_are_never_in_the_profile_a_phone_reads_and_echoes():
     assert "contacts" not in stored.model_dump(exclude=SERVER_PROFILE_FIELDS)
 
 
-# Everything that builds a model's prompt. The only reads of a child there name their fields, so a new key can't arrive by accident.
-AI_MODULES = ("chat", "ask_v2", "ask_tools", "ask_check", "ask_research", "ask_safety", "provider", "processing", "suggestions", "imports")
+# Every module that reads these fields, each for a reason that isn't a model: new code that reads them has to be added here.
+READERS = {
+    "router": "bootstrap, children and export",
+    "schemas": "where they're defined",
+    "access": "a moved row's reply to the app",
+    "changes": "/changes, which returns child_response",
+    "push_worker": "Expo's own ticket `details`",
+}
 
 
-@pytest.mark.parametrize("name", AI_MODULES)
-def test_no_module_that_talks_to_a_model_reads_these_fields(name):
-    words = Path(import_module(f"app.domains.baby.{name}").__file__).read_text()
-    assert not re.search(r"""\.details\b|["']details["']|["']contacts["']|\bchild_response\b""", words), name
+def test_only_the_known_modules_read_these_fields():
+    folder = Path(import_module("app.domains.baby").__file__).parent
+    readers = {path.stem for path in folder.rglob("*.py")
+               if re.search(r"""\.details\b|["']details["']|["']contacts["']|\bchild_response\b""", path.read_text())}
+    assert readers == set(READERS)
 
 
 @needs_database
@@ -121,6 +156,8 @@ async def test_an_older_phone_saving_a_baby_loses_no_doctor(baby_api):
     assert edited.status_code == 200 and edited.json()["details"]["doctor"] == BABY_DOCTOR
     bad = await c.patch(f"{CHILDREN}/{child['id']}", headers=shared.GEN, json={"revision": edited.json()["revision"], "details": {"doctor": {"phone": "soon"}}})
     assert bad.status_code == 422 and "digits" in bad.json()["detail"]
+    bad = await c.patch(f"{CHILDREN}/{child['id']}", headers=shared.GEN, json={"revision": edited.json()["revision"], "details": {"doctor": {"name": "Dr.\x00Cruz"}}})
+    assert bad.status_code == 422, "a NUL would otherwise reach the database"
 
 
 @needs_database
@@ -179,16 +216,40 @@ async def test_ask_context_carries_none_of_them(baby_api):
     assert not any(word in json.dumps(pack, default=str) for word in PRIVATE)
 
 
-@needs_database
-@pytest.mark.parametrize("headers", [shared.GEN, HEADERS], ids=["old path", "new Ask"])
-async def test_no_request_to_a_model_carries_any_of_them(baby_api, stub, headers):  # noqa: F811
-    """A whole question at the HTTP layer. On the new Ask the model also reads the baby's profile through its own tool."""
+def clean(captured):
+    """Every request captured, safety checks included, with none of the values in any of them."""
+    every = [*captured.sent, *captured.checks]
+    assert not any(word in json.dumps(body) for body in every for word in PRIVATE)
+    return every
+
+
+async def all_saved(baby_api, headers):
     c = baby_api.client
     await enable(baby_api)
     await c.patch(CONTACTS, headers=headers, json={"doctor": HER_DOCTOR, "delivery": DELIVERY})
     await c.post(CHILDREN, headers=headers, json={"name": "Noa", "due_date": "2026-12-10", "details": {"doctor": BABY_DOCTOR}})
-    stub.replies = [tool_call("baby_profile", "{}"), answered("Noa is due in December.")]
-    reply = await c.post("/api/v1/baby/chat", headers=headers, json={"request_id": str(uuid4()), "message": "Who is my baby's doctor?", "ask_v2": True})
+
+
+@needs_database
+@pytest.mark.parametrize("headers", [shared.GEN, HEADERS], ids=["old path", "new Ask"])
+async def test_no_request_to_a_model_carries_any_of_them(baby_api, stub, headers):  # noqa: F811
+    """A whole question at the HTTP layer. On the new Ask the model also reads the baby's profile through its own tool, and searches."""
+    await all_saved(baby_api, headers)
+    stub.replies = [tool_call("baby_profile", "{}"), research_call(), search_reply(), answered("Noa is due in December.")]
+    reply = await baby_api.client.post("/api/v1/baby/chat", headers=headers, json={"request_id": str(uuid4()), "message": "Who is my baby's doctor?", "ask_v2": True})
     assert reply.status_code == 200, reply.text
-    assert any("Noa" in json.dumps(body) for body in stub.sent), "what the model was told about her baby is in here"
-    assert not any(word in json.dumps(body) for body in stub.sent for word in PRIVATE)
+    every = clean(stub)
+    assert stub.checks, "the safety check is a model request too"
+    assert any("Noa" in json.dumps(body) for body in every), "what the model was told about her baby is in here"
+    if headers is HEADERS:
+        assert research_bodies(stub), "the search is a model request too"
+
+
+@needs_database
+async def test_processing_a_saved_post_carries_none_of_them(baby_api, stub):  # noqa: F811
+    await all_saved(baby_api, shared.GEN)
+    body = {"id": str(uuid4()), "text": "A_SYNTHETIC_POST about sleep", "topics": ["Saved"]}
+    assert (await baby_api.client.post("/api/v1/baby/imports", headers=shared.GEN, json=body)).status_code == 200
+    assert await BabyWorker(baby_api.sessions).tick()
+    every = clean(stub)
+    assert any("A_SYNTHETIC_POST" in json.dumps(request) for request in every), "the post itself did reach the model"
