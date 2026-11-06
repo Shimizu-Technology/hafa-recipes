@@ -257,6 +257,19 @@ describe("unfinished work stays outside the queue", () => {
     expect(keepHeldDraft(first, left.heldDrafts![0].id, uuid)).toBe(first);
     expect(heldDraftWarning(2)).toContain("2 later saved changes");
   });
+  it.each(["event", "feeding", "question", "journal"] as const)("keeps a held %s personal after rejoin without a baby link that could move it back", (kind) => {
+    const left = withoutFamily(state({ drafts: { d: { ...draft("only my words"), kind } } }), family, uuid),
+      back = { ...rejoined(left, boot()), bootstrap: boot() },
+      kept = keepHeldDraft(back, back.heldDrafts![0].id, uuid);
+    expect(kept.outbox).toHaveLength(1);
+    expect(kept.outbox[0]).toMatchObject({ space_id: personal, generation: 2, record: { kind, child_id: null, body: "only my words" } });
+  });
+  it("retains the origin of an older stopped save when only left_space recorded its family", () => {
+    const stopped: Mutation = { id: "old-save", generation: 1, type: "save", files: [], space_id: undefined, left_space: family, record: write("entry", "event", "baby") },
+      upgraded = upgradedState(state({ version: 3, outbox: [stopped] }));
+    expect(upgraded.heldDrafts![0].draft.space_id).toBe(family);
+    expect(keepHeldDraft(upgraded, stopped.id, uuid).outbox[0]).toMatchObject({ space_id: personal, record: { child_id: null } });
+  });
   it("migrates uncertain stopped ancestors with every follow-up, but releases a provably saved base", () => {
     const saved = { ...edit("saved", 2), base: { after: [] }, left_space: family, space_id: family, draft_only: true },
       uncertain = { ...edit("entry", 1), left_space: family, space_id: family },

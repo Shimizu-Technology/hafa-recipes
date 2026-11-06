@@ -321,7 +321,7 @@ export function upgradedState(saved: DeviceState): DeviceState {
   for (const m of saved.outbox) {
     const id = mutationRecordId(m), prior = id ? blocked.get(id) : undefined;
     if (m.type === "save" && (m.draft_only || m.left_space) && !m.base) {
-      heldDrafts.push({ id: m.id, draft: { ...m.record, files: m.files, space_id: m.space_id, generation: m.generation, existing: !!m.record.revision } });
+      heldDrafts.push({ id: m.id, draft: { ...m.record, files: m.files, space_id: m.space_id ?? m.left_space, generation: m.generation, existing: !!m.record.revision } });
       if (id) blocked.set(id, heldDrafts.length - 1);
     } else if (prior !== undefined) {
       const held = heldDrafts[prior];
@@ -344,7 +344,7 @@ export function keepHeldDraft(state: DeviceState, id: string, uuid: () => string
   const held = state.heldDrafts?.find((one) => one.id === id);
   if (!held || !state.bootstrap) return state;
   const { kind, title, body, child_id, occurred_at, data } = held.draft,
-    change: Mutation = { id, type: "save", generation: held.draft.generation ?? state.bootstrap?.generation ?? 1, space_id: held.draft.space_id,
+    change: Mutation = { id, type: "save", generation: held.draft.generation ?? state.bootstrap?.generation ?? 1, space_id: held.draft.space_id, left_space: held.draft.space_id,
       files: held.draft.files, record: { id: held.draft.id, kind, title, body, child_id, occurred_at, data } },
     copied = keepInPersonal({ ...state, outbox: [change] }, change, uuid);
   return queueRemovedUploads(state, { ...copied, heldDrafts: state.heldDrafts!.filter((one) => one.id !== id), outbox: [...state.outbox, ...copied.outbox] });
