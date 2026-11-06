@@ -304,7 +304,7 @@ export function keepInPersonal(state: DeviceState, change: Mutation, uuid: () =>
     held = new Set(last.files.map((file) => file.uploaded_id ?? state.fileUploads[file.id])),
     missing = (attachment_ids ?? []).filter((id) => !held.has(id)).length,
     fileUploads = { ...state.fileUploads },
-    child = bootstrap.children.some((known) => known.id === last.record.child_id && known.space_id !== last.left_space) ? last.record.child_id : null;
+    child = bootstrap.children.some((known) => known.id === last.record.child_id && known.space_id !== last.left_space && (last.record.kind === "journal" || known.space_id === bootstrap.personal_space_id)) ? last.record.child_id : null;
   for (const file of last.files) delete fileUploads[file.id];
   const gone = new Set(chain.map((m) => m.id)), kept: Mutation = { id: uuid(), generation: bootstrap.generation, space_id: bootstrap.personal_space_id, type: "save",
     files: last.files.map(({ uploaded_id: _, ...file }) => ({ ...file, id: uuid() })),
@@ -344,8 +344,10 @@ export function keepHeldDraft(state: DeviceState, id: string, uuid: () => string
   const held = state.heldDrafts?.find((one) => one.id === id);
   if (!held || !state.bootstrap) return state;
   const { kind, title, body, child_id, occurred_at, data } = held.draft,
+    personal = state.bootstrap.personal_space_id,
+    ownChild = state.bootstrap.children.some((child) => child.id === child_id && child.space_id === personal) ? child_id : null,
     change: Mutation = { id, type: "save", generation: held.draft.generation ?? state.bootstrap?.generation ?? 1, space_id: held.draft.space_id, left_space: held.draft.space_id,
-      files: held.draft.files, record: { id: held.draft.id, kind, title, body, child_id, occurred_at, data } },
+      files: held.draft.files, record: { id: held.draft.id, kind, title, body, child_id: ownChild, occurred_at, data } },
     copied = keepInPersonal({ ...state, outbox: [change] }, change, uuid);
   return queueRemovedUploads(state, { ...copied, heldDrafts: state.heldDrafts!.filter((one) => one.id !== id), outbox: [...state.outbox, ...copied.outbox] });
 }

@@ -82,7 +82,7 @@ export default function Sync() {
         {b.state.heldDrafts.map((held) => <Card key={held.id}>
           <Copy kind="heading">{held.draft.title || "Untitled draft"}</Copy>
           <Copy>{held.draft.body || "Your unfinished details and files are kept here."}</Copy>
-          <Copy kind="small" tone="muted">{held.draft.files.length ? `${held.draft.files.length} local file(s). ` : ""}This draft won’t sync. Keeping it makes a personal copy without family links.</Copy>
+          <Copy kind="small" tone="muted">{held.draft.files.length ? `${held.draft.files.length} local file(s). ` : ""}This draft won’t sync. Keeping it saves a personal copy, without the family baby or visit link.</Copy>
           <Button secondary title="Keep this draft in my personal space" disabled={busy || b.syncing} onPress={() => Alert.alert("Keep this draft?", heldDraftWarning(held.followups?.length), [
             { text: "Cancel", style: "cancel" }, { text: "Keep this draft", onPress: () => void run(async () => {
               await b.commit((s) => keepHeldDraft(s, held.id, Crypto.randomUUID)); await b.sync();

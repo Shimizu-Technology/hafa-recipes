@@ -264,6 +264,17 @@ describe("unfinished work stays outside the queue", () => {
     expect(kept.outbox).toHaveLength(1);
     expect(kept.outbox[0]).toMatchObject({ space_id: personal, generation: 2, record: { kind, child_id: null, body: "only my words" } });
   });
+  it.each([undefined, "a-former-family"])("never gives a personal non-journal copy a family baby, even with origin %s", (left_space) => {
+    const change: Mutation = { id: "stopped", generation: 1, type: "save", space_id: family, left_space, files: [], record: write("entry", "event", "baby") };
+    expect(keepInPersonal(state({ outbox: [change] }), change, uuid).outbox[0]).toMatchObject({ space_id: personal, record: { child_id: null } });
+    const mine = { ...change, record: { ...change.record, child_id: "mine" } };
+    expect(keepInPersonal(state({ outbox: [mine] }), mine, uuid).outbox[0]).toMatchObject({ space_id: personal, record: { child_id: "mine" } });
+  });
+  it.each(["event", "journal"] as const)("keeps only a personal baby on a held %s copy even if an older origin is missing", (kind) => {
+    const held = { id: "held", draft: { ...draft("my words"), kind, space_id: undefined } };
+    expect(keepHeldDraft(state({ heldDrafts: [held] }), held.id, uuid).outbox[0]).toMatchObject({ space_id: personal, record: { child_id: null } });
+    expect(keepHeldDraft(state({ heldDrafts: [{ ...held, draft: { ...held.draft, child_id: "mine" } }] }), held.id, uuid).outbox[0]).toMatchObject({ record: { child_id: "mine" } });
+  });
   it("retains the origin of an older stopped save when only left_space recorded its family", () => {
     const stopped: Mutation = { id: "old-save", generation: 1, type: "save", files: [], space_id: undefined, left_space: family, record: write("entry", "event", "baby") },
       upgraded = upgradedState(state({ version: 3, outbox: [stopped] }));
