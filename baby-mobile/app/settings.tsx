@@ -1,31 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Linking, ScrollView, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
-import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
-import { ASK_CONSENT_BODY } from "@/lib/ai-consent";
 import { messageFor, pendingChanges } from "@/lib/models";
-import { confirmAccountDeletion } from "@/lib/account-deletion";
-import { exportFile } from "@/lib/files";
-import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
+import { Button, Copy, Grouped, Notice, Row, Screen, useColors } from "@/components/ui";
+import { SettingsGroup } from "@/components/settings-group";
+import { initials } from "@/components/tab-stack";
 import { babyDetailLine } from "@/lib/child-setup";
 import { babyLabel, canAddBaby, canChangeBaby, familyOpen, familySpaces, remindersOn } from "../lib/spaces";
+
+/** Her initials, in the same blush tile as the icons on the rows under it. */
+function InitialsTile({ text }: { text: string }) {
+  const c = useColors();
+  return <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ minWidth: 40, minHeight: 40, paddingHorizontal: 4, borderRadius: 20, backgroundColor: c.placeholder, alignItems: "center", justifyContent: "center" }}>
+      <Copy kind="label" tone="accent" limit={1.4}>{text}</Copy>
+    </View>
+  </View>;
+}
 export default function Settings() {
   const b = useBaby(),
-    toast = useToast(),
     profile = b.state.bootstrap!.profile,
-    [name, setName] = useState(profile.display_name),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    working = useRef(false);
+    working = useRef(false),
+    scroller = useRef<ScrollView>(null);
   const { section } = useLocalSearchParams<{ section?: string }>();
-  const scroller = useRef<ScrollView>(null);
-  const [aiOffset, setAiOffset] = useState<number | null>(null);
-  const [contentReady, setContentReady] = useState(false);
-  useEffect(() => {
-    if (section === "ai" && contentReady && aiOffset != null) scroller.current?.scrollTo({ y: aiOffset, animated: false });
-  }, [section, contentReady, aiOffset]);
+  // What went wrong shows at the top, and the button that failed may be far below it.
+  useEffect(() => { if (error) scroller.current?.scrollTo({ y: 0 }); }, [error]);
   async function run(action: () => Promise<void>) {
     if (working.current) return;
     working.current = true;
@@ -40,45 +43,21 @@ export default function Settings() {
       setBusy(false);
     }
   }
-  async function consent(value: boolean) {
-    await run(async () => {
-      const version = b.state.bootstrap!.ask_consent_version;
-      const result = await b.api.profile({ ...profile, ai_consent: value,
-        ...(!value ? { auto_process_shares: false } : version ? { acknowledge_ai_consent_version: version } : {}) }, b.state.bootstrap!.generation);
-      await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
-      toast(value ? "AI processing enabled." : "AI permission removed.");
-    });
-  }
+  // Ask's "Review AI permission" and any older link. Replaced, so Back returns to where it came from.
+  if (section === "ai") return <Redirect href="/privacy-data" />;
+  const name = profile.display_name.trim(), letters = initials(name),
+    babies = b.state.bootstrap!.children.filter((child) => canChangeBaby(b.state.bootstrap, child)),
+    addable = canAddBaby(b.state.bootstrap);
   return (
-    <Screen scrollRef={scroller} onContentReady={() => setContentReady(true)} title="Settings" subtitle="A private space, with choices you control." back>
+    <Screen scrollRef={scroller} title="Settings" back>
       {!!error && <Notice error>{error}</Notice>}
-      <Grouped><Row title="Help" detail="Urgent warning signs and numbers to call" icon="medkit-outline" onPress={() => router.push("/help")} /></Grouped>
-      <Section title="Your details">
-        <Field label="Your name" value={name} onChange={setName} />
-        <Button
-          variant="ghost"
-          title="Save name"
-          busy={busy}
-          onPress={() =>
-            void run(async () => {
-              const result = await b.api.profile(
-                { ...profile, display_name: name.trim(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-                b.state.bootstrap!.generation
-              );
-              await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
-              toast("Your details are saved.");
-            })
-          }
-        />
-        <Copy kind="small" tone="muted">
-          Time zone: {profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
-        </Copy>
-      </Section>
-      {familyOpen(b.state.bootstrap) && <Section title="Family">
-        <Grouped><Row title="Family" detail={familySpaces(b.state.bootstrap)[0]?.role === "caregiver" ? "You’re helping as a caregiver" : familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} /></Grouped>
-      </Section>}
-      {(canAddBaby(b.state.bootstrap) || b.state.bootstrap!.children.some((child) => canChangeBaby(b.state.bootstrap, child))) && <Section title="Your little ones">
-        <Grouped>{b.state.bootstrap!.children.filter((child) => canChangeBaby(b.state.bootstrap, child)).map((child) => (
+      <Grouped>
+        {name ? <Row title={name} detail="Your details" {...(letters ? { leading: <InitialsTile text={letters} /> } : { icon: "person-outline" as const })} onPress={() => router.push("/profile")} />
+          : <Row title="Add your name" detail={familyOpen(b.state.bootstrap) ? "So your family can see who logged what" : "It puts your initials at the top of the app"} icon="person-add-outline" onPress={() => router.push("/profile")} />}
+        <Row title="Help" detail="Urgent warning signs and numbers to call" icon="medkit-outline" onPress={() => router.push("/help")} />
+      </Grouped>
+      {(addable || babies.length > 0) && <SettingsGroup title="Your little ones">
+        {babies.map((child) => (
           <Row
             key={child.id}
             title={babyLabel(child, b.state.bootstrap)}
@@ -87,69 +66,15 @@ export default function Settings() {
             icon="person-outline"
             onPress={() => router.push({ pathname: "/child", params: { id: child.id } })}
           />
-        ))}</Grouped>
-        {canAddBaby(b.state.bootstrap) && <Button variant="ghost" title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />}
-      </Section>}
-      <View onLayout={event => setAiOffset(event.nativeEvent.layout.y)}>
-      <Card tone="soft">
-        <Copy kind="heading">Optional AI processing</Copy>
-        {b.state.bootstrap!.ask_consent_version ? <Copy>{ASK_CONSENT_BODY}</Copy> : <Copy>
-          When you request processing, OpenAI receives the selected source text, images, audio or sampled video frames.
-          When you ask a question, OpenAI receives your question, relevant authorized Baby records, and recent
-          conversation context.
-        </Copy>}
-        <Copy tone="muted">
-          Recipes and Workouts data are not included. You can withdraw permission at any time. Previously processed
-          results stay in your library until you delete them. Imported advice does not activate a care schedule.
-        </Copy>
-        <Choice
-          label="Allow my selected Baby information to be processed by OpenAI"
-          selected={profile.ai_consent}
-          disabled={busy}
-          onPress={() => {
-            if (profile.ai_consent) void consent(false);
-            else
-              Alert.alert(
-                "Allow optional AI processing?",
-                b.state.bootstrap!.ask_consent_version ? ASK_CONSENT_BODY
-                  : "OpenAI will process the sources and personal context described here when you use imports or Ask. You can turn this off at any time.",
-                [
-                  { text: "Keep off", style: "cancel" },
-                  { text: "Allow processing", onPress: () => void consent(true) },
-                ]
-              );
-          }}
-        />
-        <Button variant="ghost" title="Read privacy details" onPress={() => router.push("/privacy")} />
-        <Choice label="Automatically organize posts I share" selected={profile.auto_process_shares === true}
-          disabled={busy || !profile.ai_consent}
-          detail={profile.ai_consent ? "New shared posts process automatically. Existing saved posts are kept as they are."
-            : "Allow AI processing above to enable this. Saving originals always works."}
-          onPress={() => {
-            const save = () => void run(async () => {
-              const enabled = !profile.auto_process_shares;
-              const result = await b.api.profile({ ...profile, auto_process_shares: enabled }, b.state.bootstrap!.generation);
-              await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
-              toast(enabled ? "Shared posts will process automatically." : "Automatic processing is off. Originals stay saved.");
-            });
-            if (profile.auto_process_shares) save();
-            else Alert.alert("Automatically process shared posts?",
-              "New posts you share with Baby will be sent to OpenAI for processing. You can keep browsing, and turn this off at any time.",
-              [{ text: "Keep off", style: "cancel" }, { text: "Allow processing", onPress: save }]);
-          }} />
-      </Card>
-      </View>
-      <Section title="Your device">
+        ))}
+        {addable && <Row title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />}
+      </SettingsGroup>}
+      <Grouped>
+        {familyOpen(b.state.bootstrap) && <Row title="Family" detail={familySpaces(b.state.bootstrap)[0]?.role === "caregiver" ? "You’re helping as a caregiver" : familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} />}
         {remindersOn(b.state.bootstrap) && <Row title="Reminders" detail="Feed, calendar and timers, and quiet hours" icon="alarm-outline" onPress={() => router.push("/reminders")} />}
         <Row
-          title="Saved changes & recovery"
-          numericDetail
-          detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
-          icon="cloud-upload-outline"
-          onPress={() => router.push("/sync")}
-        />
-        <Row
-          title="Open notification settings"
+          title="Notifications"
+          detail="Opens your phone’s Settings"
           icon="notifications-outline"
           onPress={() =>
             void Linking.openSettings().catch(() =>
@@ -157,71 +82,16 @@ export default function Settings() {
             )
           }
         />
-        <Copy kind="small" tone="muted">
-          Private drafts and offline entries are stored with device-protected storage. Signing out clears this account’s
-          local files and reminders. Unsynced work should be synced or exported first.
-        </Copy>
-      </Section>
-      <Section title="Your information">
-        <Button
-          secondary
-          title="Export my Baby data"
-          icon="download-outline"
-          busy={busy}
-          onPress={() =>
-            void run(async () => {
-              const data = await b.api.export();
-              await exportFile(data, b.owner);
-            })
-          }
-        />
-        <Copy kind="small" tone="muted">
-          The export contains saved server records. Sync pending changes before exporting. Attachments remain separate
-          private files.
-        </Copy>
-      </Section>
-      <Section title="Delete">
-        <Copy kind="small" tone="muted">
-          These cannot be undone. Export anything you want to keep first.
-        </Copy>
-        <Button
-          variant="destructive"
-          title="Delete my Baby data"
-          busy={busy}
-          onPress={() =>
-            Alert.alert(
-              "Delete all Baby information?",
-              "This permanently removes your Baby records, files, conversations, and profiles. Recipes, Workouts, and your Håfa login remain. Older offline changes will not restore deleted data. Export anything you need first.",
-              [
-                { text: "Keep my data", style: "cancel" },
-                {
-                  text: "Delete Baby data",
-                  style: "destructive",
-                  onPress: () =>
-                    void run(async () => {
-                      await b.erase();
-                      toast("Your Baby space was cleared.");
-                    }),
-                },
-              ]
-            )
-          }
-        />
-        <Button
-          variant="destructive"
-          title="Delete my entire Håfa account"
-          busy={busy}
-          onPress={() =>
-            confirmAccountDeletion(() =>
-              void run(async () => {
-                await revokeShareSession();
-                await b.api.deleteAccount();
-                await b.signOut();
-              })
-            )
-          }
-        />
-      </Section>
+        {/* Waiting changes shouldn't need finding. Otherwise this lives on Privacy & data. */}
+        {b.state.outbox.length > 0 && <Row
+          title="Saved changes & recovery"
+          numericDetail
+          detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
+          icon="cloud-upload-outline"
+          onPress={() => router.push("/sync")}
+        />}
+        <Row title="Privacy & data" detail={`AI is ${profile.ai_consent ? "on" : "off"} · Export · Recovery · Delete`} icon="shield-checkmark-outline" onPress={() => router.push("/privacy-data")} />
+      </Grouped>
       <Button
         secondary
         title="Sign out"
