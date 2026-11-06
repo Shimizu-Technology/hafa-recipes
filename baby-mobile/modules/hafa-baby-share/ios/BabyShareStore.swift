@@ -49,6 +49,7 @@ final class BabyShareStore {
   struct Waiting {
     let snapshot: Snapshot
     let keptUntil: Date
+    var blocked: String? = nil
   }
   private struct Manifest: Codable {
     let id: String
@@ -66,6 +67,8 @@ final class BabyShareStore {
     var expiryNoticed: Date? = nil
     // Someone signed in and said this no-owner capture was theirs. It keeps its share time, and never counts as permission for AI.
     var claimed: Bool? = nil
+    // The app can never take this one: `file_too_large` or `unsupported_file`. It stays until removed, behind nothing and in front of nothing.
+    var blocked: String? = nil
     var token: String? {
       payload.map { id + ":" + SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
     }
@@ -234,7 +237,7 @@ final class BabyShareStore {
       let generation = try epoch(), currentScope = scope()
       let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
       let published: [Manifest] = folders.compactMap { try? manifest($0.lastPathComponent) }
-      let values = published.filter { $0.payload != nil && $0.epoch == generation &&
+      let values = published.filter { $0.payload != nil && $0.blocked == nil && $0.epoch == generation &&
         (currentScope == nil || $0.scope == currentScope || Self.sameOwner($0.scope, currentScope)) }
         .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
       if let value = values.first { return try snapshot(value) }
@@ -318,6 +321,41 @@ final class BabyShareStore {
         return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: nil, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil),
           keptUntil: held.addingTimeInterval(Self.unassignedExpiry))
       }
+    }
+  }
+  // A capture of this account's that can never be delivered, set aside so it can't hold up the ones behind it.
+  func block(_ token: String, reason: String) throws -> Bool {
+    try locked {
+      guard ["file_too_large", "unsupported_file"].contains(reason), let id = token.split(separator: ":").first.map(String.init),
+        UUID(uuidString: id) != nil, var value = try? manifest(id), value.token == token, value.scope != nil,
+        value.epoch == (try epoch()), Self.sameOwner(value.scope, scope()) else { return false }
+      value.blocked = reason
+      consumers.removeValue(forKey: token)
+      try write(value, to: directory(id).appendingPathComponent("manifest.json"))
+      return true
+    }
+  }
+  func blocked(owner: String) throws -> [Waiting] {
+    try locked {
+      guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return [] }
+      let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
+      return try folders.compactMap { try? manifest($0.lastPathComponent) }
+        .filter { $0.blocked != nil && $0.epoch == generation && $0.scope.map { Self.tag($0).owner == owner } == true }
+        .sorted { $0.createdAt < $1.createdAt }
+        .compactMap { value in
+          guard let token = value.token, let payload = value.payload else { return nil }
+          let raw: Any = value.text ? try JSONDecoder().decode([String].self, from: payload) : payload
+          return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil), keptUntil: value.createdAt, blocked: value.blocked)
+        }
+    }
+  }
+  func removeBlocked(_ token: String, owner: String) throws -> Bool {
+    try locked {
+      guard let id = token.split(separator: ":").first.map(String.init), UUID(uuidString: id) != nil,
+        let value = try? manifest(id), value.token == token, value.blocked != nil,
+        value.scope.map({ Self.tag($0).owner == owner }) == true else { return false }
+      consumers.removeValue(forKey: token)
+      return try removeLocked(value)
     }
   }
   // The one door out of no-owner: this exact capture, for the account connected right now, into its own personal space.

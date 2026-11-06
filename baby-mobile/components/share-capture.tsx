@@ -11,8 +11,8 @@ import { captureBelongs, captureDestination, captureStale } from "../lib/share-s
 import { notSentMessage } from "../lib/outbox";
 import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
-import { claimSettled, onSharesChanged, type ClaimOutcome } from "../lib/share-session-state";
-import { acknowledgeShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
+import { claimSettled, onSharesChanged, sharesChanged, type ClaimOutcome } from "../lib/share-session-state";
+import { acknowledgeShare, blockShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
 
 import { sharedSourceTitle } from "../lib/source-title";
 export { sharedSourceTitle } from "../lib/source-title";
@@ -88,7 +88,11 @@ export function ShareCapture() {
                 name: file.fileName ?? undefined, mimeType: file.mimeType }));
               if (!current()) return;
             }
-            if (!url && !text?.trim() && !copied.length) return;
+            if (!url && !text?.trim() && !copied.length) {
+              // Nothing in it to keep, and left here it would hold up every share behind it.
+              if (native && acknowledgeShare(native.token)) { settle("gone"); continue; }
+              return;
+            }
             const occurred_at = native?.occurred_at ?? new Date().toISOString();
             const profile = bootstrap.profile as Profile & { auto_process_shares?: boolean };
             const save: Mutation = { id: saveId, generation, type: "save", files: copied,
@@ -119,6 +123,14 @@ export function ShareCapture() {
             void baby.sync();
             if (native) { if (!acknowledgeShare(native.token)) return; }
             else { stock.resetShareIntent(); return; }
+          } catch (failure) {
+            // Trying again can never work for these, and every share behind this one would wait. Today's card says what happened.
+            const code = (failure as { code?: string }).code;
+            if (!native || !current() || (code !== "file_too_large" && code !== "unsupported_file")) throw failure;
+            if (!(await blockShare(native.token, code))) throw failure;
+            settle("blocked");
+            sharesChanged();
+            continue;
           } finally {
             // On failure the native namespace still owns the originals. Existing
             // outbox saves own prior copies when replaying an interrupted ack.
@@ -129,8 +141,8 @@ export function ShareCapture() {
         // The first bootstrap ending a lease mid-write isn't a failure to tell her about: it goes again as soon as this one's done.
         if (failure instanceof ApiError && failure.local) { retry = true; return; }
         settle("failed");
-        if (alive) Alert.alert("Your shared source is still on this phone",
-          "Håfa Baby could not finish saving every item. Your original capture is kept; reopen the app to try again.");
+        if (alive) Alert.alert("Your share is still on this phone",
+          "Håfa Baby couldn’t finish saving it. Open the app again to try again.");
       } finally {
         running = false;
         if ((retry || again) && alive) setTimeout(() => void drain(), retry ? 500 : 0);

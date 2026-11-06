@@ -31,6 +31,8 @@ export interface WaitingShare {
   host?: string;
   shared_at: string;
   kept_until: string;
+  /** Why the app can never take this one. */
+  blocked?: "file_too_large" | "unsupported_file";
 }
 const bridge = requireOptionalNativeModule<{
   pending(): Promise<NativeShare | null>;
@@ -44,6 +46,9 @@ const bridge = requireOptionalNativeModule<{
   waitingShares(owner: string): Promise<WaitingShare[]>;
   claimShare(token: string, owner: string, generation: number): Promise<"claimed" | "expired" | "refused">;
   discardShare(token: string): Promise<boolean>;
+  blockShare(token: string, reason: string): Promise<boolean>;
+  blockedShares(owner: string): Promise<WaitingShare[]>;
+  removeBlockedShare(token: string, owner: string): Promise<boolean>;
 }>("HafaBabyShare");
 export const nativeSharingAvailable = !!bridge;
 export const pendingShare = () => bridge?.pending() ?? Promise.resolve(null);
@@ -57,6 +62,9 @@ export const waitingShareCount = () => bridge?.waitingShareCount() ?? Promise.re
 export const waitingShares = (owner: string) => bridge?.waitingShares(owner) ?? Promise.resolve([]);
 export const claimShare = (token: string, owner: string, generation: number) => bridge?.claimShare(token, owner, generation) ?? Promise.resolve("refused" as const);
 export const discardShare = (token: string) => bridge?.discardShare(token) ?? Promise.resolve(false);
+export const blockShare = (token: string, reason: string) => bridge?.blockShare(token, reason) ?? Promise.resolve(false);
+export const blockedShares = (owner: string) => bridge?.blockedShares(owner) ?? Promise.resolve([]);
+export const removeBlockedShare = (token: string, owner: string) => bridge?.removeBlockedShare(token, owner) ?? Promise.resolve(false);
 /** `destination` is `personal` or a family's id. None names no destination, as with the API's family flag off. */
 export const configureSession = (session: ShareSession, base: string, owner: string, destination: string | null = null) =>
   bridge?.configureSession(session.token, base, session.expires_at, owner, session.generation, session.auto_process_epoch ?? 0, destination) ?? Promise.resolve();

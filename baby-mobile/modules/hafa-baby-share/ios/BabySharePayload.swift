@@ -38,6 +38,7 @@ enum BabySharePayload {
     let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     var result: [String: Any] = ["token": saved.token, "count": files.count,
       "shared_at": format.string(from: saved.occurredAt), "kept_until": format.string(from: waiting.keptUntil)]
+    result["blocked"] = waiting.blocked
     if let mime = (files.first?["mimeType"] as? String)?.lowercased() {
       result["kind"] = mime.hasPrefix("image/") ? "photo" : mime.hasPrefix("video/") ? "video" : mime.hasPrefix("audio/") ? "audio" : mime == "application/pdf" ? "pdf" : "file"
     } else if !files.isEmpty {

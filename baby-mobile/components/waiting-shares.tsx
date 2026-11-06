@@ -4,7 +4,7 @@ import { useUser } from "@clerk/expo";
 import { useBaby } from "@/lib/context";
 import * as Share from "@/modules/hafa-baby-share/src";
 import { onClaimSettled, onSharesChanged } from "../lib/share-session-state";
-import { addWaitingShares, expiredNotice, removeWaitingShare, shareKeptUntil, shareLabel, shareWhen } from "../lib/waiting-shares";
+import { addWaitingShares, blockedReason, expiredNotice, removeBlockedShare, removeWaitingShare, shareKeptUntil, shareLabel, shareWhen } from "../lib/waiting-shares";
 import { Button, Card, Copy, Icon, Notice, PressTarget, radii, tap, useColors, useToast } from "./ui";
 
 /** "Not now" holds until the app is next opened fresh, and only for the account that said it. */
@@ -15,6 +15,46 @@ const notNow = new Set<string>();
  * it's theirs, so a share can't reach whoever happens to sign in next. Adding always goes to their own personal space.
  */
 export function WaitingShares() {
+  return <>
+    <BlockedShares />
+    <ConfirmWaiting />
+  </>;
+}
+/** A share the app can never take, set aside so the rest keep coming. Trying again wouldn't help, so this offers no such thing. */
+function BlockedShares() {
+  const b = useBaby(), c = useColors(), owner = b.owner;
+  const [rows, setRows] = useState<Share.WaitingShare[]>([]), [error, setError] = useState("");
+  const load = useCallback(async () => {
+    if (!owner) return setRows([]);
+    const next = await Share.blockedShares(owner).catch(() => [] as Share.WaitingShare[]);
+    if (b.current()) setRows(next.filter((row) => !notNow.has(`${owner}:${row.token}`)));
+  }, [owner]);
+  useEffect(() => {
+    void load();
+    const stop = onSharesChanged(() => void load());
+    return stop;
+  }, [load]);
+  if (!owner) return null;
+  const remove = (token: string) => Alert.alert("Remove from this phone?", "It hasn’t gone anywhere else. This can’t be undone.", [
+    { text: "Keep it", style: "cancel" },
+    { text: "Remove", style: "destructive", onPress: () => void removeBlockedShare(token, owner).catch(() => setError("That couldn’t be removed just now. Try again.")) },
+  ]);
+  return <>{rows.map((row) => <Card key={row.token} style={{ gap: 12 }}>
+    <Copy kind="heading">This share couldn’t be added</Copy>
+    <View style={{ gap: 2, padding: 12, borderRadius: radii.thumb, backgroundColor: c.tile }}>
+      <Copy kind="label">{shareLabel(row)}</Copy>
+      <Copy kind="small" tone="muted">{blockedReason(row)}</Copy>
+    </View>
+    <Copy kind="small" tone="muted">Your other shares are still coming through.</Copy>
+    {!!error && <Notice error>{error}</Notice>}
+    <Button secondary title="Remove it" onPress={() => remove(row.token)} />
+    <Button variant="ghost" title="Not now" onPress={() => {
+      notNow.add(`${owner}:${row.token}`);
+      setRows((all) => all.filter((other) => other.token !== row.token));
+    }} />
+  </Card>)}</>;
+}
+function ConfirmWaiting() {
   const b = useBaby(), c = useColors(), toast = useToast(), { user } = useUser();
   const owner = b.owner, generation = b.state.bootstrap?.generation;
   const [rows, setRows] = useState<Share.WaitingShare[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState(""),

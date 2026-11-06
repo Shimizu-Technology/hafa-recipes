@@ -8,7 +8,7 @@ const scope = vi.hoisted(() => ({
   account: null as unknown, foreground: null as null | ((state: string) => void),
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
   params: { kind: "journal" }, native: true,
-  pending: vi.fn(), acknowledge: vi.fn(), copy: vi.fn(), remove: vi.fn(),
+  pending: vi.fn(), acknowledge: vi.fn(), block: vi.fn(async (..._: unknown[]) => true), copy: vi.fn(), remove: vi.fn(),
   push: vi.fn(), dismiss: vi.fn(), reset: vi.fn(), toast: vi.fn(),
   stock: { hasShareIntent: false, shareIntent: { webUrl: "", text: "", files: [] as unknown[] } },
 }));
@@ -43,7 +43,7 @@ vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
-  get nativeSharingAvailable() { return scope.native; }, pendingShare: scope.pending, acknowledgeShare: scope.acknowledge,
+  get nativeSharingAvailable() { return scope.native; }, pendingShare: scope.pending, acknowledgeShare: scope.acknowledge, blockShare: scope.block,
 }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field",
@@ -315,6 +315,32 @@ it("says when a claimed share couldn't be written, and keeps it", async () => {
   expect(scope.acknowledge).not.toHaveBeenCalledWith("claimed-b");
   stop();
 });
+it.each(["file_too_large", "unsupported_file"])("sets aside a capture the app can never take (%s), and the one behind it still arrives", async (code) => {
+  const account = setup(); scope.block.mockClear();
+  scope.pending.mockResolvedValueOnce({ ...payload("big"), files: [{ path: "file:///big.mov", fileName: "big.mov", mimeType: "video/quicktime" }] }).mockResolvedValueOnce(payload("next"));
+  scope.copy.mockRejectedValueOnce(Object.assign(Error("no"), { code }));
+  await mount(ShareCapture);
+  expect(scope.block).toHaveBeenCalledExactlyOnceWith("big", code);
+  expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:next"]);
+  expect(scope.alerts).toEqual([]);
+});
+it("lets go of a capture with nothing in it, so the one behind still arrives", async () => {
+  const account = setup();
+  scope.pending.mockResolvedValueOnce({ ...payload("blank"), url: undefined, text: "  \n" }).mockResolvedValueOnce(payload("next"));
+  await mount(ShareCapture);
+  expect(scope.acknowledge).toHaveBeenCalledWith("blank");
+  expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:next"]);
+});
+it("keeps retrying a capture on a passing failure, and doesn't set it aside", async () => {
+  const account = setup(); scope.block.mockClear();
+  scope.pending.mockResolvedValueOnce({ ...payload("flaky"), files: [{ path: "file:///a.mov", fileName: "a.mov", mimeType: "video/quicktime" }] });
+  scope.copy.mockRejectedValueOnce(Error("disk busy"));
+  await mount(ShareCapture);
+  expect(scope.block).not.toHaveBeenCalled();
+  expect(scope.acknowledge).not.toHaveBeenCalled();
+  expect(account.state.outbox).toEqual([]);
+  expect(scope.alerts.map(a => a.title)).toEqual(["Your share is still on this phone"]);
+});
 it("a share added from the waiting card never starts AI, even with automatic organizing on and matching numbers", async () => {
   const account = setup(); Object.assign(account.state.bootstrap!.profile, { ai_consent: true, auto_process_shares: true, auto_process_epoch: 0 });
   scope.pending.mockResolvedValueOnce({ ...payload(), scope: "disposable-local-parent:1:personal", claimed: true, automatic_epoch: 0 }); await mount(ShareCapture);
@@ -344,7 +370,9 @@ it("never acknowledges a supported subset when another attachment is refused", a
   await mount(ShareCapture);
   expect(account.state.outbox).toEqual([]); expect(scope.acknowledge).not.toHaveBeenCalled();
   expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
-  expect(scope.alerts.at(-1)?.title).toBe("Your shared source is still on this phone");
+  // Whole, and set aside for Today's card to explain, rather than an alert on every open.
+  expect(scope.block).toHaveBeenCalledWith("mixed", "unsupported_file");
+  expect(scope.alerts).toEqual([]);
 });
 it("retains the native original after failed persistence and retries on foreground", async () => {
   const account = setup(); scope.pending.mockResolvedValue(payload("retry", [

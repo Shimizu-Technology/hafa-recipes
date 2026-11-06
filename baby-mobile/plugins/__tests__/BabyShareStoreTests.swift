@@ -630,6 +630,36 @@ struct BabyShareStoreTests {
       try check(try store.unassignedCount() == 1, "and it's still waiting")
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "the current one can")
     }
+    do {
+      // A capture that can never be delivered doesn't hold up the ones behind it.
+      let (_, defaults, store, suite) = try fixture("blocked")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      let big = UUID().uuidString, next = UUID().uuidString
+      try store.publish(["too big"], id: big)
+      try store.publish(["next"], id: next)
+      let first = try store.pending()!
+      try check(first.token.hasPrefix(big), "it comes up first")
+      try check(try !store.block(first.token, reason: "anything else"), "only the app's own refusals set one aside")
+      try check(try !store.block(first.token + "x", reason: "file_too_large"), "and only the exact capture")
+      try check(try store.block(first.token, reason: "file_too_large"), "it's set aside")
+      let second = try store.pending()!
+      try check(second.token.hasPrefix(next), "the next one comes through")
+      try check(try store.acknowledge(second.token), "and is delivered")
+      try check(try store.pending() == nil, "nothing keeps retrying the blocked one")
+      try check(try store.blocked(owner: "owner-b").isEmpty, "another account isn't shown it")
+      let rows = try store.blocked(owner: "owner-a")
+      try check(rows.count == 1 && rows[0].blocked == "file_too_large", "its owner is, with why")
+      try check(try BabySharePayload.summary(rows[0])["blocked"] as? String == "file_too_large", "the card is told why")
+      try check(try !store.discard(first.token), "not mine can't touch it")
+      try check(try !store.removeBlocked(first.token, owner: "owner-b"), "another account can't remove it")
+      try check(try store.removeBlocked(first.token, owner: "owner-a"), "its owner can")
+      try check(try store.blocked(owner: "owner-a").isEmpty, "and it's gone")
+      try store.publish(["big again"], id: UUID().uuidString)
+      try check(try store.block(store.pending()!.token, reason: "unsupported_file"), "set aside again")
+      try store.clear()
+      try check(try store.blocked(owner: "owner-a").isEmpty, "sign-out clears these too")
+    }
     print("\(count) native capture store cases passed")
   }
 }

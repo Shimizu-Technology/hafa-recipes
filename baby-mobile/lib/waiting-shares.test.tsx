@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const w = vi.hoisted(() => ({
   baby: null as any, rows: [] as any[], current: true, alerts: [] as { title: string; message: string; buttons: { text: string; onPress?: () => void }[] }[],
+  blocked: [] as any[], removeBlocked: vi.fn(async (..._: unknown[]) => true),
   claim: vi.fn(async (..._: unknown[]) => "claimed"), discard: vi.fn(async (..._: unknown[]) => true), toast: vi.fn(), foreground: null as null | ((state: string) => void),
 }));
 vi.mock("react-native", () => ({
@@ -14,6 +15,7 @@ vi.mock("@clerk/expo", () => ({ useUser: () => ({ user: { primaryEmailAddress: {
 vi.mock("@/lib/context", () => ({ useBaby: () => w.baby }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
   waitingShares: async (owner: string) => (owner === "owner" ? w.rows : []), waitingShareCount: async () => w.rows.length,
+  blockedShares: async () => w.blocked, removeBlockedShare: w.removeBlocked,
   claimShare: w.claim, discardShare: w.discard, clearSession: async () => undefined,
 }));
 vi.mock("../components/ui", () => ({
@@ -35,7 +37,7 @@ const press = async (title: string) => {
   await act(async () => { await button.props.onPress(); });
 };
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); w.alerts = []; w.rows = []; w.current = true;
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); w.alerts = []; w.rows = []; w.blocked = []; w.current = true;
   w.baby = { owner: "owner", current: () => w.current, state: { bootstrap: { generation: 3 } } };
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
@@ -177,6 +179,28 @@ describe("the card", () => {
     await act(async () => { await revokeShareSession(); });
     await press("Add to my saved posts");
     expect(w.claim).not.toHaveBeenCalled();
+  });
+});
+describe("a share the app can't take", () => {
+  it("gets its own card, with Remove and no promise that trying again will work", async () => {
+    w.blocked = [row({ token: "b:1", kind: "video", count: 1, host: undefined, blocked: "file_too_large" })];
+    await mount();
+    expect(text()).toContain("This share couldn’t be added");
+    expect(text()).toContain("Video");
+    expect(text()).toContain("It’s bigger than 25 MB.");
+    expect(text()).toContain("Your other shares are still coming through.");
+    expect(text()).not.toContain("try again");
+    await press("Remove it");
+    await act(async () => { w.alerts[0].buttons[1].onPress!(); });
+    expect(w.removeBlocked).toHaveBeenCalledExactlyOnceWith("b:1", "owner");
+  });
+  it("Not now puts it away without touching it", async () => {
+    w.blocked = [row({ token: "b:2", kind: "file", count: 1, host: undefined, blocked: "unsupported_file" })];
+    await mount();
+    expect(text()).toContain("can’t take this kind of file");
+    await press("Not now");
+    expect(renderer!.toJSON()).toBeNull();
+    expect(w.removeBlocked).not.toHaveBeenCalled();
   });
 });
 describe("signing out", () => {
