@@ -413,6 +413,25 @@ describe("each view has its own things, once", () => {
     await act(async () => empty.props.action.props.onPress());
     expect(mock.push).toHaveBeenCalledWith({ pathname: "/child", params: { id: "baby" } });
   });
+  it("after the birth, with everything off, a blank day doesn't point at buttons that aren't there", async () => {
+    const off = Object.fromEntries(["breast", "bottle", "diaper", "sleep"].map((id) => [id, false]));
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25", details: { tracking: off } }];
+    await mount();
+    expect(empties()[0].props.body).toContain("What shows");
+    expect(empties()[0].props.body).not.toContain("below");
+  });
+  it("doesn't call a day empty when it couldn't read the calendar", async () => {
+    expecting();
+    mock.events = { items: [], byDay: new Map(), failed: true, complete: true };
+    await mount();
+    expect(copy().join(" ")).not.toContain("Nothing on the calendar");
+    mock.events = { items: [], byDay: new Map(), failed: false, complete: false };
+    await act(async () => renderer!.update(<Tracker />));
+    expect(copy().join(" ")).not.toContain("Nothing on the calendar");
+    mock.events = { items: [], byDay: new Map(), failed: false, complete: true };
+    await act(async () => renderer!.update(<Tracker />));
+    expect(copy().join(" ")).toContain("Nothing on the calendar");
+  });
   it("after the birth, a blank day points at the buttons below", async () => {
     await mount();
     expect(empties()[0].props.body).toBe("Tap a button below to add one.");

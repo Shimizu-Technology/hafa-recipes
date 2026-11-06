@@ -91,7 +91,7 @@ export default function Tracker() {
     blank = (() => {
       if (future) return { title: "Nothing planned yet", body: "This day is still ahead. The calendar is where to add to it.", action: <HeaderPill title="Open the calendar" onPress={() => setView("month")} /> };
       const title = day === today ? "Nothing logged today" : "Nothing logged this day";
-      if (logging) return { title: "Nothing logged this day", body: "Tap a button below to add one." };
+      if (logging) return { title: "Nothing logged this day", body: onNow.length || moreShown.length ? "Tap a button below to add one." : "Nothing is switched on to log. What shows has the list." };
       if (expecting) return { title, body: moreShown.length ? `You can log ${loggableWords(moreShown)}. Tap one below.` : "Nothing is switched on to log. What shows has the list." };
       if (child) return { title, body: "Add a due date or a birth date, and what you can log will show here.", action: <Button secondary title="Add a date" onPress={() => router.push({ pathname: "/child", params: { id: child.id } })} /> };
       return { title, body: "Set up your baby, and what you can log will show here.", action: <Button secondary title="Set up your baby" onPress={() => router.push("/child")} /> };
@@ -105,7 +105,7 @@ export default function Tracker() {
       <Segmented label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }, { label: "Stats", value: "stats" }]} />
       {view === "month" ? <>
         <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date} onPick={pick} onOpen={(key) => { pick(key); setView("day"); }}>
-          <CalendarDay key={day} day={day} today={today} items={dayEvents} logged={future ? undefined : dayWords} logs={rows.map(logRow)} onAdd={() => addEvent(day)} onOpen={future ? undefined : () => { setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} />
+          <CalendarDay key={day} day={day} today={today} items={dayEvents} known={!events.failed && events.complete} logged={future ? undefined : dayWords} logs={rows.map(logRow)} onAdd={() => addEvent(day)} onOpen={future ? undefined : () => { setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} />
         </TrackerMonth>
         <ComingUp childId={scope} today={today} except={dayEvents} />
       </> : view === "stats" ? <TrackerStats answer={stats} choice={statsChoice} onChoose={setStatsChoice} today={today} childId={scope} expecting={expecting} now={now} growth={logging}

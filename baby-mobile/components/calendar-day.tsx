@@ -12,7 +12,9 @@ import { Copy, Grouped, QuietRow } from "./ui";
 const shortList = 4;
 
 /** The date tapped on the calendar: what's on it and what was logged, the one place to add to it, and a way to the whole day. */
-export function CalendarDay({ day, today, items, logged, logs = [], onAdd, onOpen }: { day: string; today: string; items: readonly EventOccurrence[]; logged?: string;
+export function CalendarDay({ day, today, items, known = true, logged, logs = [], onAdd, onOpen }: { day: string; today: string; items: readonly EventOccurrence[];
+  /** Whether the calendar could be read in full, so an empty day can be called empty. */
+  known?: boolean; logged?: string;
   /** That day's timeline rows, newest first. */
   logs?: readonly React.ReactNode[]; onAdd: () => void; onOpen?: () => void }) {
   const [all, setAll] = useState(false), line = [logged, items.length > 0 && eventCount(items.length)].filter(Boolean).join(" · ");
@@ -20,7 +22,7 @@ export function CalendarDay({ day, today, items, logged, logs = [], onAdd, onOpe
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Copy kind="heading">{dayTitle(day, today)}</Copy>
-        <Copy numeric kind="small" tone="muted">{line || "Nothing on the calendar"}</Copy>
+        {(!!line || known) && <Copy numeric kind="small" tone="muted">{line || "Nothing on the calendar"}</Copy>}
       </View>
       <HeaderIconButton icon="add" label={`Add to the calendar on ${keyDate(day).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`} onPress={onAdd} />
     </View>

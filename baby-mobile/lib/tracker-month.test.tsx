@@ -215,6 +215,7 @@ it("has no legend entry for an event with no category", async () => {
   await mount();
   expect(renderer!.root.findAll((n) => String(n.type) === "Text").map((n) => n.props.children)).not.toContain("Other");
   expect(target("Tuesday, November 10")!.props.accessibilityLabel).not.toContain("Other");
+  expect(target("Tuesday, November 10")!.props.accessibilityLabel).toContain("has an event");
   mock.occurrences = [];
 });
 it("shows what it's given under the grid, above First log", async () => {
@@ -228,4 +229,15 @@ it("says it's showing what's on the phone only when nothing else on the page doe
   mock.baby.online = false;
   await mount();
   expect(renderer!.root.findAll((n) => String(n.type) === "Notice")).toHaveLength(0);
+});
+it.each([
+  ["a saved-feed notice", { feedNotices: ["Changed on the other phone"] }],
+  ["a change needing attention", { outbox: [{ id: "m", generation: 1, type: "save", files: [], error: "No", record: { id: "x", kind: "journal", title: "", body: "", child_id: null, occurred_at: "2026-11-01T00:00:00Z", data: {} } }] }],
+])("still says the dots may be behind when %s has the top line instead", async (_, state) => {
+  setup();
+  mock.baby.api.records = vi.fn(async () => { throw new TypeError("offline"); });
+  mock.baby.online = false;
+  mock.baby.state = { ...mock.baby.state, ...state };
+  await mount();
+  expect(renderer!.root.findAll((n) => String(n.type) === "Notice")).toHaveLength(1);
 });

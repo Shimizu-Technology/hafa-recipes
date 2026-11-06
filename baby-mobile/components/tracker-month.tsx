@@ -60,7 +60,9 @@ export function TrackerMonth({ today, day, childId, birthDate, onPick, onOpen, c
     void firstCareDay(latest.current, childId, timezone).then((key) => { if (active) setFirstDay(key); }).catch(() => undefined);
     return () => { active = false; };
   }, [childId, timezone]);
-  const saved = remote[cacheKey], overlay = dayOverlay(b.state, childId, timezone), other = otherDayMark(b, childId, timezone, saved?.others, gone),
+  // The line at the top of the page says it's offline, unless a notice or a failed change has that line instead.
+  const offlineSaid = (b.online === false || !!b.unreachable) && !b.state.feedNotices?.length && !b.state.outbox.some((change) => (change.error || change.conflict) && !change.localOnly),
+    saved = remote[cacheKey], overlay = dayOverlay(b.state, childId, timezone), other = otherDayMark(b, childId, timezone, saved?.others, gone),
     has = (key: string) => other(key) || overlay(saved?.days[key], key).dots.some((mark) => mark !== "event"),
     label = keyDate(`${month}-01`).toLocaleDateString(undefined, { month: "long", year: "numeric" }),
     jumps = [firstDay && { key: firstDay, label: "First log" }, birthDate && birthDate !== firstDay && { key: birthDate, label: "Born" }].filter(Boolean) as { key: string; label: string }[];
@@ -83,7 +85,7 @@ export function TrackerMonth({ today, day, childId, birthDate, onPick, onOpen, c
         {week.map((key) => {
           const date = keyDate(key), other = monthKey(key) !== month, isToday = key === today, dot = has(key), on = kinds(key), named = on.filter((kind) => kind !== "other"), chosen = key === day;
           return <PressTarget key={key} accessibilityRole="button" accessibilityState={{ selected: chosen }}
-            accessibilityLabel={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}${dot ? ", has entries" : ""}${named.length ? `, ${named.map(categoryName).join(", ")}` : ""}${isToday ? ", today" : ""}`}
+            accessibilityLabel={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}${dot ? ", has entries" : ""}${named.length ? `, ${named.map(categoryName).join(", ")}` : on.length ? ", has an event" : ""}${isToday ? ", today" : ""}`}
             onPress={() => { if (other) setMonth(monthKey(key)); onPick(key); }}
             style={{ flex: 1, minHeight: 56, alignItems: "center", justifyContent: "center", gap: 2, opacity: other ? 0.5 : 1 }}>
             <View style={{ minWidth: 30, minHeight: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: chosen ? c.action : "transparent" }}>
@@ -103,8 +105,7 @@ export function TrackerMonth({ today, day, childId, birthDate, onPick, onOpen, c
         <Text key={fontScale} maxFontSizeMultiplier={1.3} style={{ fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.muted }}>{categoryName(kind)}</Text>
       </View>)}
     </View>}
-    {/* The line at the top of the page already says it's offline. */}
-    {error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. Older dots will come back when you reconnect.</Notice>}
+    {error && !offlineSaid && <Notice>Showing what’s on this phone. Older dots will come back when you reconnect.</Notice>}
     {children}
     {jumps.length > 0 && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {jumps.map((jump) => <PressTarget key={jump.label} accessibilityRole="button" accessibilityLabel={`${jump.label}, ${friendlyDate(jump.key)}`} accessibilityHint="Opens that day" onPress={() => onOpen(jump.key)}
