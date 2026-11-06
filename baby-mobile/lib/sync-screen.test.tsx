@@ -252,3 +252,18 @@ it("confirms Keep and Discard for the selected snapshot, retains the other, and 
   expect(b.state.heldDrafts).toEqual([]); expect(b.state.fileReleases).toEqual(["upload-two", "upload-one"]);
   expect(b.state.outbox[0].record.body).toBe("two words"); expect(b.sync).toHaveBeenCalledOnce();
 });
+
+it.each([0, 1])("discards snapshot %i while another held draft and its upload remain", async (selected) => {
+  const b = setup([]), held = ["one", "two"].map((id) => ({ id, draft: { ...(save(id) as any).record,
+    files: [{ id, uri: `file:///${id}`, uploaded_id: `upload-${id}`, name: `${id}.jpg`, mime_type: "image/jpeg" }] } }));
+  b.state.heldDrafts = held;
+  b.commit.mockImplementation(async (change: (s: DeviceState) => DeviceState) => { b.state = change(b.state); });
+  await act(async () => { renderer = create(<Sync />); });
+  await act(async () => renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Discard this unfinished draft")[selected].props.onPress());
+  expect(b.commit).not.toHaveBeenCalled();
+  await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Discard draft")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.state.heldDrafts).toEqual([held[1 - selected]]);
+  expect(b.state.fileReleases).toEqual([`upload-${held[selected].id}`]);
+  expect(b.state.outbox).toEqual([]);
+  expect(b.sync).not.toHaveBeenCalled();
+});
