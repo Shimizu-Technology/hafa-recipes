@@ -2,6 +2,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   createReminderTapController,
   notificationResponseKey,
+  reminderDestination,
+  reminderGoneMessage,
+  reminderOfflineMessage,
   reminderTapDecision,
   reminderNotificationData,
   reminderNavigationReady,
@@ -17,15 +20,16 @@ function response(data: unknown = { babyOwner: "owner", generation: 4, recordId:
     notification: { date, request: { identifier: "repeating-reminder", content: { data } } },
   };
 }
+const fixtureSession: ReminderTapSession = {
+  owner: "owner",
+  generation: 4,
+  active: true,
+  ready: true,
+  navigationReady: true,
+  lease: 1,
+};
 function fixture() {
-  let session: ReminderTapSession | null = {
-    owner: "owner",
-    generation: 4,
-    active: true,
-    ready: true,
-    navigationReady: true,
-    lease: 1,
-  };
+  let session: ReminderTapSession | null = fixtureSession;
   let destination = "/";
   const cache = new Map<string, { id: string; kind: string }>(),
     deleted = new Set<string>();
@@ -44,6 +48,14 @@ function fixture() {
     }),
     retry: vi.fn(),
     acknowledge: vi.fn(),
+    lookup: vi.fn(async (id) => ({ id, kind: "feed_interval", space_id: "space", data: { child_id: "baby" } })),
+    place: vi.fn(async () => true),
+    openReminder: vi.fn((place) => {
+      destination = place.path;
+    }),
+    today: vi.fn(() => {
+      destination = "/";
+    }),
   };
   return {
     env,
@@ -415,4 +427,135 @@ it("does not acknowledge a late destination after its account generation has bee
 it("keeps the notification fallback on the pushed routines route", async () => {
   const { reminderRoutes } = await import("./notification-route");
   expect(reminderRoutes.routines).toBe("/routines");
+});
+
+describe("a tap on a server reminder", () => {
+  const server = (id = other) => response({ notification_id: id, space_id: "space", identity: "abc" });
+  it("a payload with no type looks it up, and opens where that kind lives", async () => {
+    const f = fixture();
+    f.destination("/settings");
+    await f.controller.offer(server());
+    expect(f.env.lookup).toHaveBeenCalledWith(other);
+    expect(f.env.place).toHaveBeenCalledOnce();
+    expect(f.env.openReminder).toHaveBeenCalledWith(expect.objectContaining({ path: "/" }));
+    expect(f.env.today).not.toHaveBeenCalled();
+    expect(f.env.acknowledge).toHaveBeenCalledOnce();
+    expect(f.env.fetch).not.toHaveBeenCalled();
+  });
+  it("needs no owner or generation in the payload: the lookup is the check", () => {
+    const f = fixture();
+    expect(reminderTapDecision(server(), f.session(), action)).toEqual({ kind: "reminder", id: other });
+  });
+  it("waits for the account and navigation, like any other tap", async () => {
+    const f = fixture();
+    f.set(null);
+    await f.controller.offer(server());
+    expect(f.env.lookup).not.toHaveBeenCalled();
+    f.set({ ...fixtureSession, navigationReady: false });
+    await f.controller.resume();
+    expect(f.env.lookup).not.toHaveBeenCalled();
+    f.set(fixtureSession);
+    await f.controller.resume();
+    expect(f.env.lookup).toHaveBeenCalledOnce();
+  });
+  it("a silent refresh or a malformed id is no tap at all", async () => {
+    const f = fixture();
+    await f.controller.offer(response({ refresh: true }));
+    await f.controller.offer(response({ notification_id: "../../evil" }));
+    expect(f.env.lookup).not.toHaveBeenCalled();
+    expect(f.env.today).not.toHaveBeenCalled();
+  });
+  it("gone, or she's lost access: Today, with a plain word", async () => {
+    const f = fixture();
+    f.destination("/settings");
+    f.env.lookup = vi.fn(async () => null);
+    await f.controller.offer(server());
+    expect(f.env.today).toHaveBeenCalledWith(reminderGoneMessage);
+    expect(f.env.openReminder).not.toHaveBeenCalled();
+    expect(f.env.acknowledge).toHaveBeenCalledOnce();
+  });
+  it("offline: Today, saying why, never a blank screen", async () => {
+    const f = fixture();
+    f.destination("/settings");
+    f.env.lookup = vi.fn(async () => { throw Error("offline"); });
+    await f.controller.offer(server());
+    expect(f.env.today).toHaveBeenCalledWith(reminderOfflineMessage);
+    expect(f.env.acknowledge).toHaveBeenCalledOnce();
+  });
+  it("a lookup that hangs ends at Today too", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      f.destination("/settings");
+      f.env.lookup = vi.fn(() => new Promise<never>(() => {}));
+      const tap = f.controller.offer(server());
+      await vi.advanceTimersByTimeAsync(1001);
+      await tap;
+      expect(f.env.today).toHaveBeenCalledWith(reminderOfflineMessage);
+    } finally { vi.useRealTimers(); }
+  });
+  it("a reminder for somewhere this phone can't place goes to Today", async () => {
+    const f = fixture();
+    f.destination("/settings");
+    f.env.place = vi.fn(async () => false);
+    await f.controller.offer(server());
+    expect(f.env.today).toHaveBeenCalledWith(reminderGoneMessage);
+    expect(f.env.openReminder).not.toHaveBeenCalled();
+  });
+  it("a kind this build doesn't know goes to Today rather than nowhere", async () => {
+    const f = fixture();
+    f.destination("/settings");
+    f.env.lookup = vi.fn(async (id) => ({ id, kind: "from_the_future", data: {} }));
+    await f.controller.offer(server());
+    expect(f.env.today).toHaveBeenCalledWith(reminderGoneMessage);
+  });
+  it("a different account's session mid-lookup keeps the tap rather than opening anything", async () => {
+    const f = fixture();
+    let finish!: (value: null) => void;
+    f.env.lookup = vi.fn(() => new Promise<null>((resolve) => { finish = resolve; }));
+    const tap = f.controller.offer(server());
+    await Promise.resolve();
+    await Promise.resolve();
+    f.set({ ...fixtureSession, owner: "someone-else" });
+    finish(null);
+    await tap;
+    expect(f.env.today).not.toHaveBeenCalled();
+    expect(f.env.acknowledge).not.toHaveBeenCalled();
+  });
+  it("the same delivery tapped twice is handled once", async () => {
+    const f = fixture();
+    await f.controller.offer(server());
+    await f.controller.offer(server());
+    expect(f.env.lookup).toHaveBeenCalledOnce();
+  });
+  it("an old local routine notification still opens the old way", async () => {
+    const f = fixture();
+    f.destination("/settings");
+    await f.controller.offer(response());
+    expect(f.env.lookup).not.toHaveBeenCalled();
+    expect(f.env.open).toHaveBeenCalledWith(id);
+  });
+});
+
+describe("where each kind opens", () => {
+  const item = (kind: string, data: Record<string, unknown>) => ({ id: other, kind, data });
+  it.each([
+    ["event", { event_id: id, original_start: "2026-11-20T10:00:00+00:00" }, { path: `/event/${id}`, pathname: "/event/[id]", params: { id, at: "2026-11-20T10:00:00+00:00" } }],
+    ["visit_prep", { date: "2026-11-20" }, { path: "/tracker", pathname: "/tracker", params: { day: "2026-11-20" } }],
+    ["import", { record_id: id }, { path: `/record/${id}`, pathname: "/record/[id]", params: { id } }],
+    ["routine", { record_id: id }, { path: `/record/${id}`, pathname: "/record/[id]", params: { id } }],
+    ["feed_interval", { record_id: id, child_id: "baby" }, { path: "/", pathname: "/(tabs)/(today)", child: "baby" }],
+    ["running_timer", { record_id: id, child_id: "baby" }, { path: "/", pathname: "/(tabs)/(today)", child: "baby" }],
+    ["pregnancy_week", { child_id: "baby", week: 37 }, { path: "/", pathname: "/(tabs)/(today)", child: "baby" }],
+    ["milestone_window", {}, { path: "/milestones", pathname: "/milestones" }],
+    ["well_visit", {}, { path: "/well-visits", pathname: "/well-visits" }],
+  ])("%s", (kind, data, place) => {
+    expect(reminderDestination(item(kind, data))).toMatchObject(place);
+  });
+  it("a kind with what it needs missing has nowhere to open", () => {
+    expect(reminderDestination(item("event", {}))).toBeNull();
+    expect(reminderDestination(item("import", {}))).toBeNull();
+    expect(reminderDestination(item("nonsense", {}))).toBeNull();
+    expect(reminderDestination(item("event", { event_id: "../settings" }))).toBeNull();
+  });
 });

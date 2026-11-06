@@ -3,7 +3,7 @@ import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
 import { withSessionAction } from "./session-actions";
 import { careKinds } from "./models";
 import { trackedKinds } from "./trackers";
-import { familySpaces, generationOf, goneBabyMessage, spaceForNew, spacesLive, stuckTapMessage, unavailableMessage } from "./spaces";
+import { familySpaces, remindersOn, generationOf, goneBabyMessage, spaceForNew, spacesLive, stuckTapMessage, unavailableMessage } from "./spaces";
 import type { BabyRecord, Bootstrap, Child, DeviceState, EditorDraft, ImportJob, Kind, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
@@ -46,6 +46,7 @@ function targetOf(state: DeviceState, m: Mutation) {
   if (m.type === "delete") return m.record.space_id ?? home(m.record.id) ?? personal;
   if (m.type === "child_birth" || m.type === "child_tracking") return state.bootstrap?.children.find((child) => child.id === m.child_id)?.space_id ?? personal;
   if (m.type === "import") return home(m.record_id) ?? spaceForNew(state, { kind: "source", child_id: m.child_id ?? null, data: {} });
+  if (m.type === "reminder_prefs") return personal;
   return home(m.record_id) ?? personal;
 }
 export function addMutation(state: DeviceState, mutation: Mutation) {
@@ -125,7 +126,7 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, ...rest } = state,
+    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, dueReminders: ____, dismissing: _____, upcomingReminders: ______, ...rest } = state,
       kept = (id?: string) => !!id && surviving.has(id),
       familyBaby = (id?: string | null) => kept(state.bootstrap?.children?.find((child) => child.id === id)?.space_id),
       outbox = state.outbox.filter((m) => kept(m.space_id)),
@@ -153,6 +154,8 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
       ...state,
       records: state.records.filter((row) => !gone(row.space_id)),
       outbox: state.outbox.filter((m) => !gone(m.space_id)),
+      ...(state.dueReminders ? { dueReminders: state.dueReminders.filter((item) => !gone(item.space_id)) } : {}),
+      ...(state.upcomingReminders ? { upcomingReminders: state.upcomingReminders.filter((item) => !gone(item.space_id)) } : {}),
       ...(state.changes ? { changes: { cursor: Object.fromEntries(Object.entries(state.changes.cursor).filter(([id]) => !gone(id))), access: Object.fromEntries(Object.entries(state.changes.access).filter(([id]) => !gone(id))) } } : {}),
     };
   }
@@ -275,6 +278,8 @@ export function withoutFamily(state: DeviceState, space: string, uuid: () => str
     ...(state.bootstrap ? { bootstrap: { ...state.bootstrap, children: state.bootstrap.children.filter((child) => child.space_id !== space) } } : {}),
     records: state.records.filter((row) => row.space_id !== space),
     imports: state.imports.filter((job) => job.space_id !== space),
+    ...(state.dueReminders ? { dueReminders: state.dueReminders.filter((item) => item.space_id !== space) } : {}),
+    ...(state.upcomingReminders ? { upcomingReminders: state.upcomingReminders.filter((item) => item.space_id !== space) } : {}),
     outbox: [...state.outbox.map((m) => (m.space_id === space ? { ...m, error: notSentMessage, conflict: false, left_space: space } : m)), ...stopped],
     ...(state.changes ? { changes: { cursor, access } } : {}),
   }, leftFamilyNotice);
@@ -438,7 +443,7 @@ export function switchTooLate(action: { action: string; at: string }, result: Ba
   return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
 }
 /** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
-export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "child_tracking" | "save" | "event_split" | "delete" }>>(change: T, now = Date.now()): T {
+export function retryLater<T extends Extract<Mutation, { type: "reminder_prefs" | "feed_action" | "session_action" | "child_birth" | "child_tracking" | "save" | "event_split" | "delete" }>>(change: T, now = Date.now()): T {
   const attempts = (change.attempts ?? 0) + 1;
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
 }
@@ -454,6 +459,7 @@ export const unresolvedAttempts = 5;
  * An unresolved ancestor holds only its own record, never the entire outbox. */
 export function mutationRecordId(change: Mutation) {
   if (change.type === "child_birth" || change.type === "child_tracking") return change.child_id;
+  if (change.type === "reminder_prefs") return change.id;
   if (change.type === "event_split") return change.series.id;
   return change.type === "save" || change.type === "delete" ? change.record.id : change.record_id;
 }
@@ -501,6 +507,10 @@ export function birthStep(server: Child | undefined, m: Extract<Mutation, { type
   const saved = server.birth_date ?? null;
   return saved === m.birth_date ? "done" : saved === m.previous ? "send" : "different";
 }
+
+/** What's on its way. Reminder settings kept while the API's flag is off aren't: they're not going anywhere until it's back. */
+export const waitingToSend = (state: Pick<DeviceState, "outbox" | "bootstrap">) =>
+  state.outbox.filter((m) => m.type !== "reminder_prefs" || remindersOn(state.bootstrap));
 
 /** A switch shows everywhere as soon as it's tapped, and stays through every refresh until it lands. */
 export function withPendingTracking(state: DeviceState): DeviceState {

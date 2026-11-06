@@ -88,7 +88,7 @@ export interface Bootstrap {
   /** Names of everyone who has been in this account's families. */
   people?: Record<string, string>;
   /** Only with the API's push flag on. Until it says so this phone asks for nothing and offers nothing. */
-  reminders?: { push?: boolean };
+  reminders?: { push?: boolean; routines?: boolean };
   /** Set only while the new Ask is on: the disclosure version to show and acknowledge. */
   ask_consent_version?: number | null;
 }
@@ -475,6 +475,18 @@ export type Mutation = {
       conflict?: boolean;
     }
   | {
+      /** A person's reminder settings. Only what's named changes. */
+      id: string;
+      generation: number;
+      type: "reminder_prefs";
+      patch: PrefsPatch;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
       /** A "What shows" switch: only these keys change, and the API merges them key by key. */
       id: string;
       generation: number;
@@ -518,8 +530,60 @@ export interface FeedTimer {
   /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
   record_id?: string;
 }
+export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit";
+export interface KindPref {
+  enabled: boolean;
+  /** Comes through quiet hours, as time-sensitive. */
+  break_through: boolean;
+  hours: number | null;
+  feed_hours: number | null;
+  sleep_hours: number | null;
+}
+export interface QuietHours {
+  start: string;
+  end: string;
+  timezone: string;
+}
+export interface ReminderPrefs {
+  quiet_hours: QuietHours | null;
+  kinds: Partial<Record<ReminderKind, KindPref>>;
+}
+export interface PrefsPatch {
+  quiet_hours?: QuietHours | null;
+  kinds?: Partial<Record<ReminderKind, Partial<KindPref>>>;
+}
+/** One row of `/reminders/due`. Its words are for this person's own Today, never a lock screen. */
+export interface DueReminder {
+  id: string;
+  kind: string;
+  space_id?: string;
+  text: string;
+  due_at: string;
+  delivery: string;
+  identity: string;
+  data: Record<string, unknown>;
+}
+/** One row of `/reminders/upcoming`: what a phone can hold as its offline copy. */
+export interface UpcomingReminder {
+  id: string;
+  kind: string;
+  space_id?: string;
+  identity: string;
+  fire_at: string;
+  text: string;
+  time_sensitive: boolean;
+  data: Record<string, unknown>;
+}
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** What the API said is waiting, for the offline copy. */
+  upcomingReminders?: UpcomingReminder[];
+  /** What the API last said is due, for Today with no signal. */
+  dueReminders?: DueReminder[];
+  /** Dismissed here and not heard yet. */
+  dismissing?: string[];
+  /** The API's copy of this person's settings. Only with its push flag on. */
+  reminderPrefs?: ReminderPrefs;
   /** Taps the API couldn't apply, kept until she has seen why. */
   feedNotices?: string[];
   /** Ask has shown its reminder about sources on this device. */

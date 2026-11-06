@@ -1,0 +1,57 @@
+import * as Notifications from "expo-notifications";
+import ServerRegistrationModule from "expo-notifications/build/ServerRegistrationModule";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+import type { BabyApi } from "./api";
+import { createPushDevice } from "./push-device";
+import { storageKey, type SecretStorage } from "./vault";
+
+/** One per phone, kept through sign-outs: it's the phone the API is told about, not the person. */
+const installationKey = "hb.push.installation";
+const revocationKey = "hb.push.revocation";
+
+export const pushAvailable = Platform.OS === "ios" || Platform.OS === "android";
+/** It can outlast the sign-out that started it. Until it's done nobody registers: a late stop would undo that, whichever account it is. */
+let stopping: Promise<void> | null = null;
+
+/**
+ * `getExpoPushTokenAsync` turns on Expo's auto-registration, which asks iOS for a token again on every launch and would
+ * quietly undo this, so that goes first. Its public off switch passes null, and iOS's native setter takes only a string
+ * (SDK 57), so it rejects and changes nothing. It's still called because it cancels an update in progress. Writing what
+ * Expo reads as "off" is what actually does it. Each step is separate: failing one mustn't skip the next.
+ */
+export function stopPushDelivery() {
+  stopping ??= (async () => {
+    await Notifications.setAutoServerRegistrationEnabledAsync(false).catch(() => undefined);
+    await ServerRegistrationModule.setRegistrationInfoAsync?.(JSON.stringify({ isEnabled: false })).catch(() => undefined);
+    await Notifications.unregisterForNotificationsAsync();
+  })().finally(() => { stopping = null; });
+  return stopping;
+}
+
+export function nativePushDevice(api: Pick<BabyApi, "registerPushDevice" | "unregisterPushDevice">, secret: SecretStorage, binding: string, online: () => boolean, uuid: () => string) {
+  const key = storageKey("push:" + binding);
+  return createPushDevice({
+    platform: Platform.OS === "android" ? "android" : "ios",
+    binding,
+    online,
+    granted: async () => pushAvailable && !stopping && (await Notifications.getPermissionsAsync()).granted,
+    token: async () => (await Notifications.getExpoPushTokenAsync({ projectId: Constants.expoConfig?.extra?.eas?.projectId })).data,
+    installation: async () => {
+      const held = await secret.getItemAsync(installationKey);
+      if (held) return held;
+      const made = uuid();
+      await secret.setItemAsync(installationKey, made);
+      return made;
+    },
+    read: () => secret.getItemAsync(key),
+    write: (value) => secret.setItemAsync(key, value),
+    erase: () => secret.deleteItemAsync(key),
+    put: (installation, token, platform, generation) => api.registerPushDevice(installation, token, platform, generation),
+    remove: (installation, registration) => api.unregisterPushDevice(installation, registration),
+    stopDelivery: stopPushDelivery,
+    readRevocation: () => secret.getItemAsync(revocationKey),
+    writeRevocation: (value) => (value === null ? secret.deleteItemAsync(revocationKey) : secret.setItemAsync(revocationKey, value)),
+    now: () => Date.now(),
+  });
+}

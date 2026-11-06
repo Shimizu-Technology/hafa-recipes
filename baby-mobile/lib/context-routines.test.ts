@@ -18,6 +18,12 @@ const mock = vi.hoisted(() => ({
   readCleanup: vi.fn(),
   failWrites: false,
   alert: vi.fn(),
+  scheduled: [] as unknown[],
+  copies: vi.fn(async () => undefined),
+  cancelCopy: vi.fn(async () => undefined),
+  pushEnsure: vi.fn(async () => true),
+  pushEnd: vi.fn(async () => undefined),
+  pushForget: vi.fn(),
 }));
 vi.mock("react-native", () => ({
   Alert: { alert: (...args: unknown[]) => mock.alert(...args) },
@@ -64,8 +70,13 @@ vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: asyn
 vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
+  reconcileCopies: (owner: string, copies: unknown[]) => (mock.copies as (...args: unknown[]) => Promise<void>)(owner, copies),
+  cancelCopy: (owner: string, identity: string) => (mock.cancelCopy as (...args: unknown[]) => Promise<void>)(owner, identity),
+  scheduledNotifications: async () => mock.scheduled,
 }));
+
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
+vi.mock("./push-native", () => ({ nativePushDevice: () => ({ ensure: mock.pushEnsure, end: mock.pushEnd, installation: async () => "install-1", forget: mock.pushForget }) }));
 import { BabyProvider, useBaby } from "./context";
 import { ApiError, MovedError } from "./api";
 import { notSentMessage } from "./outbox";
@@ -73,6 +84,8 @@ import { unavailableMessage } from "./spaces";
 import { uploadFile } from "./files";
 import { runningFeed } from "./feed-reducer";
 import { switchFeed } from "./running-feed";
+import { reminderNotificationData } from "./notification-route";
+import { routineSchedule } from "./routine-report";
 let baby!: ReturnType<typeof useBaby>, renderer: ReactTestRenderer | undefined;
 function Probe() {
   baby = useBaby();
@@ -379,6 +392,13 @@ beforeEach(() => {
   mock.clear.mockReset().mockResolvedValue(undefined);
   mock.clearShares.mockReset();
   mock.signOut.mockReset().mockResolvedValue(undefined);
+  mock.copies.mockClear();
+  mock.cancelCopy.mockClear();
+  mock.pushEnsure.mockClear();
+  mock.pushEnd.mockClear();
+  mock.pushForget.mockClear();
+  mock.pushEnsure.mockResolvedValue(true);
+  mock.scheduled = [];
   mock.revoke.mockClear();
   mock.cleanupOwner = null;
   mock.readCleanup.mockReset().mockImplementation(async () => mock.cleanupOwner);
@@ -831,6 +851,24 @@ describe("feed actions in the sync loop", () => {
   });
 });
 describe("provider routine restore integration", () => {
+  it("a phone whose push cleanup hangs at every step still finishes signing out", async () => {
+    const { createPushDevice } = await vi.importActual<typeof import("./push-device")>("./push-device");
+    const never = () => new Promise<never>(() => {});
+    const hung = createPushDevice({
+      platform: "ios", binding: "b", online: () => true, granted: async () => true, token: never, installation: never,
+      read: async () => JSON.stringify({ installation: "i", registration: "1", token: "t" }), write: never, erase: never, put: never,
+      remove: never, stopDelivery: never, readRevocation: never, writeRevocation: never, now: () => 0,
+    });
+    await mount();
+    mock.pushEnd.mockImplementationOnce(() => hung.end(50).then(() => undefined));
+    await act(async () => {
+      const out = baby.signOut();
+      await vi.advanceTimersByTimeAsync(60);
+      await out;
+    });
+    expect(mock.signOut).toHaveBeenCalledOnce();
+    expect(baby.error).toBeFalsy();
+  });
   it("retries failed live sign-out cleanup without reopening the Baby space", async () => {
     await mount();
     const bootstrapCalls = mock.api.bootstrap.mock.calls.length;
@@ -1724,5 +1762,248 @@ describe("the recheck: drafts, removal proof and files", () => {
     expect(baby.state.drafts["new:source"]).toMatchObject({ id: "new-draft", files: [file] });
     const keep = vi.mocked(clearFiles).mock.calls.at(-1)?.[1] as () => ReadonlySet<string>;
     expect(keep().has(file.uri)).toBe(true);
+  });
+});
+describe("this phone and the push flag", () => {
+  it("with the flag off it never registers, and only forgets what it holds at sign-out", async () => {
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.pushEnsure).not.toHaveBeenCalled();
+    await act(async () => { await baby.registerPush(); });
+    expect(mock.pushEnsure).not.toHaveBeenCalled();
+  });
+  it("with the flag on it registers under the personal generation", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, generation: 4, reminders: { push: true } }));
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.pushEnsure).toHaveBeenCalledWith(4);
+  });
+  it("sign-out ends the registration before the session goes", async () => {
+    await mount();
+    await act(async () => { await baby.signOut(); });
+    expect(mock.pushEnd).toHaveBeenCalledOnce();
+    expect(mock.pushEnd.mock.invocationCallOrder[0]).toBeLessThan(mock.signOut.mock.invocationCallOrder[0]);
+  });
+  it("a sign-out that was interrupted ends it when it picks up again", async () => {
+    mock.cleanupOwner = "owner";
+    await mount();
+    expect(mock.pushEnd).toHaveBeenCalledOnce();
+    expect(mock.pushEnd.mock.invocationCallOrder[0]).toBeLessThan(mock.signOut.mock.invocationCallOrder[0]);
+  });
+});
+describe("reminder settings saved with no signal", () => {
+  const change = { id: "prefs", generation: 1, type: "reminder_prefs" as const, patch: { kinds: { event: { enabled: true } } } },
+    saved = { quiet_hours: null, kinds: { event: { enabled: true, break_through: false, hours: null, feed_hours: null, sleep_hours: null } } };
+  const holding = (extra = {}) => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => saved);
+    mock.saved = { ...emptyState(), bootstrap, outbox: [{ ...change, ...extra }] } as unknown as DeviceState;
+  };
+  it("goes when it can, and keeps what the API answered", async () => {
+    holding();
+    mock.api.savePushPrefs = vi.fn(async () => saved);
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.savePushPrefs).toHaveBeenCalledWith(change.patch, 1);
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.reminderPrefs).toEqual(saved);
+  });
+  it("offline it stays queued and shows no problem", async () => {
+    holding();
+    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Could not connect", 0); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.outbox).toHaveLength(1);
+    expect(baby.state.outbox[0].error).toBeUndefined();
+  });
+  it("a server problem retries later rather than asking her", async () => {
+    holding();
+    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Down", 503); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.outbox[0]).toMatchObject({ attempts: 1 });
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    expect((baby.state.outbox[0] as { hold_until?: string }).hold_until).toBeTruthy();
+  });
+  it("reads the settings once with the flag on, and never with it off", async () => {
+    mock.api.pushPrefs = vi.fn(async () => saved);
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.pushPrefs).not.toHaveBeenCalled();
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    await act(async () => { await baby.sync(); await settle(); });
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.pushPrefs).toHaveBeenCalledOnce();
+    expect(baby.state.reminderPrefs).toEqual(saved);
+  });
+  it("a failed read stays quiet", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.error).toBe("");
+  });
+});
+describe("reminder settings while the flag is off", () => {
+  const change = { id: "prefs", generation: 1, type: "reminder_prefs" as const, patch: { kinds: { event: { enabled: true } } } };
+  it("a queued change isn't sent, and isn't lost", async () => {
+    mock.saved = { ...emptyState(), bootstrap, outbox: [change] } as unknown as DeviceState;
+    mock.api.savePushPrefs = vi.fn();
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.savePushPrefs).not.toHaveBeenCalled();
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["prefs"]);
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    expect(baby.error).toBe("");
+  });
+  it("it goes when the flag comes back", async () => {
+    mock.saved = { ...emptyState(), bootstrap, outbox: [change] } as unknown as DeviceState;
+    mock.api.savePushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.savePushPrefs).toHaveBeenCalledOnce();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("the flag going off between the bootstrap and the request keeps it too", async () => {
+    mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, reminders: { push: true } }, outbox: [change] } as unknown as DeviceState;
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.savePushPrefs = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["prefs"]);
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    expect(baby.error).toBe("");
+  });
+  it("reading the settings is refused here too, so no caller can ask with the flag off", async () => {
+    mock.api.pushPrefs = vi.fn();
+    await mount();
+    await act(async () => { await baby.refreshPrefs(); });
+    expect(mock.api.pushPrefs).not.toHaveBeenCalled();
+  });
+});
+describe("what Today shows from the API", () => {
+  const item = { id: "r", kind: "event", text: "Visit at 3", due_at: "2026-11-06T00:00:00Z", delivery: "accepted", identity: "i", data: {} };
+  it("with the flag off it asks nothing", async () => {
+    mock.api.dueReminders = vi.fn();
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.dueReminders).not.toHaveBeenCalled();
+  });
+  it("with the flag on it reads what's due and sends what she dismissed", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => ({ items: [item] }));
+    mock.api.dismissReminder = vi.fn(async () => undefined);
+    mock.saved = { ...emptyState(), bootstrap, dismissing: ["old"] } as unknown as DeviceState;
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.dismissReminder).toHaveBeenCalledWith("old");
+    expect(baby.state.dueReminders).toEqual([item]);
+    expect(baby.state.dismissing).toEqual([]);
+  });
+  it("a failure reading them can't touch the sync", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.error).toBe("");
+  });
+});
+describe("the offline copy and the push flag", () => {
+  const listed = { id: "u", kind: "event", identity: "i", fire_at: "2030-01-01T00:00:00Z", text: "x", time_sensitive: false, data: {} };
+  it("with the flag off, this phone never looks, asks or arms anything", async () => {
+    mock.api.upcomingReminders = vi.fn();
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.copies).not.toHaveBeenCalled();
+    expect(mock.api.upcomingReminders).not.toHaveBeenCalled();
+  });
+  it("the flag going off takes what it held with it", async () => {
+    mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, reminders: { push: true } }, upcomingReminders: [listed] } as unknown as DeviceState;
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.upcomingReminders).toBeUndefined();
+    expect(mock.copies).toHaveBeenLastCalledWith("owner", []);
+  });
+  it("online it holds no copies, though it knows what's waiting", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...bootstrap, reminders: { push: true } }));
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => ({ items: [] }));
+    mock.api.upcomingReminders = vi.fn(async () => ({ items: [listed] }));
+    await mount();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.state.upcomingReminders).toEqual([listed]);
+    expect(mock.copies).toHaveBeenLastCalledWith("owner", []);
+  });
+});
+describe("telling the API what this phone holds", () => {
+  const on = { ...bootstrap, reminders: { push: true, routines: true } }, kept = row("kept", true, 3);
+  const local = () => ({ identifier: "n", content: { data: reminderNotificationData("owner", 1, kept) } });
+  const flagOn = (answer: typeof bootstrap = on) => {
+    mock.api.bootstrap = vi.fn(async () => answer);
+    mock.api.pushPrefs = vi.fn(async () => ({ quiet_hours: null, kinds: {} }));
+    mock.api.dueReminders = vi.fn(async () => ({ items: [] }));
+    mock.api.upcomingReminders = vi.fn(async () => ({ items: [] }));
+    mock.api.reportRoutines = vi.fn(async () => ({ held: 1 }));
+    mock.api.records = vi.fn(async (filters: { kind?: string }) => page(filters.kind === "routine" ? [kept] : []));
+    mock.scheduled = [local()];
+  };
+  const syncs = async (times = 1) => { for (let i = 0; i < times; i++) await act(async () => { await baby.sync(); await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); }); };
+  it("with the flag off, or before the migration, it says nothing", async () => {
+    flagOn({ ...bootstrap, reminders: { push: true } } as typeof bootstrap);
+    await mount();
+    await syncs();
+    expect(mock.api.reportRoutines).not.toHaveBeenCalled();
+    flagOn(bootstrap);
+    await syncs();
+    expect(mock.api.reportRoutines).not.toHaveBeenCalled();
+  });
+  it("reports what's really scheduled, and only when that changes", async () => {
+    flagOn();
+    await mount();
+    await syncs(2);
+    expect(mock.api.reportRoutines).toHaveBeenCalledOnce();
+    expect(mock.api.reportRoutines).toHaveBeenCalledWith("install-1", { kept: routineSchedule(kept.data) });
+    mock.scheduled = [];
+    await syncs();
+    expect(mock.api.reportRoutines).toHaveBeenCalledTimes(2);
+    expect(mock.api.reportRoutines).toHaveBeenLastCalledWith("install-1", {});
+  });
+  it("doesn't report for a phone the API refused to register", async () => {
+    flagOn();
+    mock.pushEnsure.mockResolvedValue(false);
+    await mount();
+    await syncs();
+    expect(mock.api.reportRoutines).not.toHaveBeenCalled();
+  });
+  it("reporting changes nothing on the phone: every schedule stays in charge", async () => {
+    flagOn();
+    await mount();
+    await syncs();
+    expect(mock.clear).not.toHaveBeenCalled();
+  });
+  it("a phone the API has lost registers again, quietly", async () => {
+    flagOn();
+    mock.api.reportRoutines = vi.fn(async () => { throw new ApiError("Not found", 404); });
+    await mount();
+    await syncs();
+    expect(mock.pushForget).toHaveBeenCalled();
+    expect(baby.error).toBe("");
+  });
+  it("offline it tries again later, and says nothing", async () => {
+    flagOn();
+    mock.api.reportRoutines = vi.fn(async () => { throw new ApiError("Could not connect", 0); });
+    await mount();
+    await syncs();
+    expect(mock.pushForget).not.toHaveBeenCalled();
+    expect(baby.error).toBe("");
+    mock.api.reportRoutines = vi.fn(async () => ({ held: 1 }));
+    await syncs();
+    expect(mock.api.reportRoutines).toHaveBeenCalledOnce();
   });
 });

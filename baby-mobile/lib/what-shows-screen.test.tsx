@@ -143,3 +143,13 @@ describe("What shows", () => {
     expect(scope.push).toHaveBeenCalledWith("/child");
   });
 });
+
+it("links to Reminders only with the API's flag on", async () => {
+  const b = setup([newborn]);
+  await act(async () => { renderer = create(<WhatShows />); });
+  const titles = () => renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title);
+  expect(titles()).not.toContain("Reminders");
+  b.state = { ...b.state, bootstrap: { ...b.state.bootstrap!, reminders: { push: true } } };
+  await act(async () => { renderer!.update(<WhatShows />); });
+  expect(titles()).toContain("Reminders");
+});

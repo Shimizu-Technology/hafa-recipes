@@ -20,7 +20,11 @@ const config: ExpoConfig = {
     supportsTablet: false,
     usesAppleSignIn: true,
     associatedDomains: ["webcredentials:clerk.hafa-recipes.com", "applinks:shimizu-technology.com"],
-    entitlements: { "com.apple.developer.default-data-protection": "NSFileProtectionComplete" },
+    entitlements: {
+      "com.apple.developer.default-data-protection": "NSFileProtectionComplete",
+      // Lets a reminder someone chose come through quiet hours. Apple's App ID needs this capability too.
+      "com.apple.developer.usernotifications.time-sensitive": true,
+    },
     infoPlist: { ITSAppUsesNonExemptEncryption: false },
     icon: { light: "./assets/icon.png", dark: "./assets/icon-dark.png", tinted: "./assets/icon-tinted.png" },
   },

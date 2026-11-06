@@ -75,10 +75,14 @@ import {
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
-import { clearReminders, reconcileReminders } from "./reminders";
+import { clearReminders, reconcileCopies, reconcileReminders, scheduledNotifications } from "./reminders";
+import { heldRoutines } from "./routine-report";
 import { applyChanges, changePagesPerPass, removedFrom } from "./changes";
 import { forgetInvite } from "./family";
-import { accessKey, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
+import { nativePushDevice } from "./push-native";
+import { refreshDue, refreshUpcoming, sendDismissals } from "./reminder-due";
+import { wantedCopies } from "./reminder-copies";
+import { accessKey, remindersOn, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
 const secret: SecretStorage =
@@ -123,6 +127,9 @@ interface BabyContext {
   signOut: () => Promise<void>;
   erase: () => Promise<void>;
   enroll: () => Promise<void>;
+  /** After she's allowed notifications: this phone goes on the list now, not on the next pass. */
+  registerPush: () => Promise<boolean>;
+  refreshPrefs: () => Promise<void>;
 }
 const Context = createContext<BabyContext | null>(null);
 export function useBaby() {
@@ -146,6 +153,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
   const current = () => alive.current && liveBinding.current === binding;
   const api = useMemo(() => createBabyApi(configuration.apiBase, () => token.current(), current, fetch, () => ref.current.bootstrap), [binding]);
   const identityVault = useMemo(() => createVault(secret, "identity:" + binding, Crypto.randomUUID), [binding]);
+  const pushDevice = useMemo(() => nativePushDevice(api, secret, binding, () => onlineRef.current, Crypto.randomUUID), [binding]);
   const [owner, setOwner] = useState(""),
     [state, setState] = useState<DeviceState>(emptyState),
     [ready, setReady] = useState(false),
@@ -158,6 +166,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
     vault = useRef<ReturnType<typeof createDeviceVault> | null>(null),
     serialized = useRef<Promise<unknown>>(Promise.resolve()),
     busy = useRef(false),
+    pushRegistered = useRef(false),
+    reporting = useRef(false),
+    reportAgain = useRef(false),
+    lastReport = useRef(""),
     rerun = useRef(false),
     onlineRef = useRef(true),
     ownerRef = useRef(""),
@@ -310,6 +322,42 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) noteFailure(e);
     }
   }
+  /**
+   * Tells the API which routines this phone fires for itself, so it pushes only the ones it doesn't. Nothing is cancelled
+   * here or anywhere else for this, so a phone that can't report, or reports late, carries on exactly as it was.
+   */
+  async function reportRoutines() {
+    if (reporting.current) { reportAgain.current = true; return; }
+    const owner = ownerRef.current;
+    if (!pushRegistered.current || !owner || !ref.current.bootstrap?.reminders?.routines || ref.current.bootstrap.active === false || closing.current) return;
+    reporting.current = true;
+    try {
+      const generation = ref.current.bootstrap.generation,
+        holds = heldRoutines(await scheduledNotifications(owner), owner, generation, ref.current),
+        said = JSON.stringify(Object.entries(holds).sort());
+      if (said === lastReport.current) return;
+      await api.reportRoutines(await pushDevice.installation(), holds);
+      lastReport.current = said;
+    } catch (failure) {
+      // Dropped on the API's side, say by a token Apple retired. The next pass registers it again.
+      if (failure instanceof ApiError && !failure.local && failure.status === 404) {
+        pushRegistered.current = false;
+        lastReport.current = "";
+        pushDevice.forget();
+      }
+    } finally {
+      reporting.current = false;
+      if (reportAgain.current) { reportAgain.current = false; void reportRoutines(); }
+    }
+  }
+  async function refreshPrefs() {
+    if (!remindersOn(ref.current.bootstrap)) return;
+    const lease = api.lease();
+    try {
+      const saved = await api.pushPrefs();
+      await commit((s) => ({ ...s, reminderPrefs: saved }), lease);
+    } catch { /* Quiet: with the flag off or no signal, the switches stay where they were. */ }
+  }
   /** What other phones did. A failure is quiet: everything here stays as it is and the next pass asks from the same place. */
   async function pullChanges() {
     const lease = api.lease();
@@ -349,6 +397,14 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (!(await mergeBootstrap(latest))) return;
       if (alive.current) setError("");
       if (latest.active === false) return;
+      if (latest.reminders?.push) {
+        void pushDevice.ensure(latest.generation).then((registered) => {
+          pushRegistered.current = registered;
+          if (registered) void reportRoutines();
+        });
+        // Once, to know where the switches are. The screen itself asks again each time it's opened.
+        if (!ref.current.reminderPrefs) void refreshPrefs();
+      }
       restoreAfterSync = true;
       let serverChildren = latest.children;
       for (const pending of [...ref.current.outbox]) {
@@ -414,6 +470,18 @@ export function BabyProvider({ children }: PropsWithChildren) {
             }
             await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id),
               bootstrap: s.bootstrap && { ...s.bootstrap, children: s.bootstrap.children.map((child) => (child.id === saved.id ? saved : child)) } }));
+            continue;
+          } else if (next.type === "reminder_prefs") {
+            // With the flag off there's nothing to send it to. It waits on this phone, and goes if the flag comes back.
+            if (!latest.reminders?.push) continue;
+            let taken = false;
+            await commit((s) => {
+              taken = s.outbox.some((m) => m.id === next.id);
+              return { ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "reminder_prefs" ? { ...m, sent: true } : m)) };
+            });
+            if (!taken) continue;
+            const saved = await api.savePushPrefs(next.patch, fenceOf(next));
+            await commit((s) => ({ ...s, reminderPrefs: saved, outbox: s.outbox.filter((m) => m.id !== next.id) }));
             continue;
           } else if (next.type === "child_tracking") {
             const server = serverChildren.find((child) => child.id === next.child_id), step = trackingStep(server, next);
@@ -575,7 +643,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
             noteFailure(e);
             break;
           }
-          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "child_tracking" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
+          // The flag went off just now. The API refused it, so it can still take later changes and go when the flag's back.
+          if (status === 404 && next.type === "reminder_prefs") {
+            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "reminder_prefs" ? { ...retryLater(m), sent: false } : m)) }));
+            continue;
+          }
+          if ((next.type === "reminder_prefs" || next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "child_tracking" || next.type === "event_split" || next.type === "delete" || retriedSave(next)) && shouldRetry(status)) {
             await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type !== "import" ? retryLater(m) : m)) }));
             continue;
           }
@@ -589,6 +662,15 @@ export function BabyProvider({ children }: PropsWithChildren) {
       }
       // Before the releases: one that keeps failing mustn't stop the other phone's changes arriving.
       if (spacesLive(latest)) await pullChanges();
+      if (latest.reminders?.push) {
+        await sendDismissals(api, commit, () => ref.current);
+        await refreshDue(api, commit);
+        await refreshUpcoming(api, commit);
+      } else if (ref.current.upcomingReminders) {
+        // The flag went off: what its copies were for isn't coming.
+        await reconcileCopies(ownerRef.current, []);
+        await commit((s) => { const { upcomingReminders: _, dueReminders: __, ...rest } = s; return rest; });
+      }
       for (const id of ref.current.fileReleases ?? []) {
         if (uploadedReferences(ref.current).has(id)) continue;
         try {
@@ -668,6 +750,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         if (cleaning) {
           closing.current = true;
           setReady(false);
+          await pushDevice.end();
           await revokeShareSession();
           clearPendingShares();
           await clearReminders(cleaning);
@@ -746,7 +829,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           !deleting.current &&
           ownerRef.current === owner &&
           api.lease() === lease,
-      }).catch(() => {
+      }).then(() => { if (!cancelled) void reportRoutines(); }, () => {
         if (!cancelled && current())
           setError(
             "Your entries are saved, but reminders need another attempt. Open Routines or check notification settings."
@@ -756,7 +839,17 @@ export function BabyProvider({ children }: PropsWithChildren) {
       cancelled = true;
     };
   }, [state, owner, ready]);
+  const offlineNow = !online || (unreachable && !!error);
+  useEffect(() => {
+    // Off, with nothing kept, is a phone that has never heard of any of this: it doesn't even look.
+    if (!ready || !owner || closing.current || (!remindersOn(state.bootstrap) && !state.upcomingReminders)) return;
+    void reconcileCopies(owner, remindersOn(state.bootstrap) && state.bootstrap?.active !== false ? wantedCopies(state, offlineNow, new Date()) : []);
+  }, [state.upcomingReminders, state.outbox, state.dismissing, state.reminderPrefs, state.bootstrap?.spaces, state.bootstrap?.reminders?.push, offlineNow, owner, ready]);
   async function clean() {
+    // First, while it can still reach the API as this person.
+    await pushDevice.end();
+    pushRegistered.current = false;
+    lastReport.current = "";
     forgetInvite();
     await revokeShareSession();
     clearPendingShares();
@@ -855,6 +948,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
             setReady(!removed || cleaned);
           }
           await funcs.current.refresh();
+        },
+        refreshPrefs,
+        registerPush: async () => {
+          const held = ref.current.bootstrap;
+          return held?.reminders?.push && held.active !== false && !closing.current ? pushDevice.ensure(held.generation) : false;
         },
         enroll: async () => {
           const g = ref.current.bootstrap?.generation;

@@ -1,12 +1,12 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import type { BabyRecord } from "./models";
+import type { BabyRecord, UpcomingReminder } from "./models";
 import { reminderNotificationData } from "./notification-route";
 import { reminderClock } from "./reminder-clock";
 async function clearOwnedReminders(owner: string) {
   if (Platform.OS === "web") return;
   for (const n of await Notifications.getAllScheduledNotificationsAsync())
-    if (n.content.data?.babyOwner === owner) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    if (n.content.data?.babyOwner === owner || n.content.data?.copyOwner === owner) await Notifications.cancelScheduledNotificationAsync(n.identifier);
 }
 export interface ReminderScope {
   authoritative: boolean;
@@ -109,11 +109,55 @@ export async function requestReminders() {
   if (!result.granted) throw Error("Notifications are off. You can enable them in your phone’s Settings.");
 }
 
+/** Named by the reminder's identity, as a push is, so one replaces the other. Its own, marked apart from routines. Never throws. */
+async function reconcileOwnedCopies(owner: string, copies: UpcomingReminder[]) {
+  if (Platform.OS === "web") return;
+  try {
+    const allowed = (await Notifications.getPermissionsAsync()).granted,
+      wanted = new Map(copies.map((copy) => [copy.identity, copy])),
+      existing = (await Notifications.getAllScheduledNotificationsAsync()).filter((n) => n.content.data?.copyOwner === owner),
+      kept = new Set<string>();
+    for (const n of existing) {
+      if (allowed && wanted.get(n.identifier)?.fire_at === n.content.data?.fireAt) kept.add(n.identifier);
+      else await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    if (!allowed) return;
+    for (const copy of copies) {
+      if (kept.has(copy.identity)) continue;
+      await Notifications.scheduleNotificationAsync({
+        identifier: copy.identity,
+        content: {
+          body: copy.text,
+          sound: "default",
+          ...(copy.time_sensitive ? { interruptionLevel: "timeSensitive" as const } : {}),
+          data: { notification_id: copy.id, space_id: copy.space_id, identity: copy.identity, copyOwner: owner, fireAt: copy.fire_at },
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(copy.fire_at) },
+      }).catch(() => undefined);
+    }
+  } catch { /* Best effort: the push and Today don't depend on it. */ }
+}
+
 const pending = new Map<string, Promise<unknown>>();
 function ordered<T>(owner: string, work: () => Promise<T>) {
   const next = (pending.get(owner) ?? Promise.resolve()).catch(() => undefined).then(work);
   pending.set(owner, next);
   return next;
+}
+export function reconcileCopies(owner: string, copies: UpcomingReminder[]) {
+  return ordered(owner, () => reconcileOwnedCopies(owner, copies));
+}
+/** The push got here, so the copy of it isn't needed. */
+export function cancelCopy(owner: string, identity: string) {
+  return ordered(owner, async () => {
+    if (Platform.OS === "web") return;
+    for (const n of await Notifications.getAllScheduledNotificationsAsync())
+      if (n.identifier === identity && n.content.data?.copyOwner === owner) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+  }).catch(() => undefined);
+}
+/** Read back from the phone, after anything queued has run, so it's what's really scheduled. */
+export function scheduledNotifications(owner: string) {
+  return ordered(owner, async () => (Platform.OS === "web" ? [] : Notifications.getAllScheduledNotificationsAsync()));
 }
 export function clearReminders(owner: string) {
   return ordered(owner, () => clearOwnedReminders(owner));
