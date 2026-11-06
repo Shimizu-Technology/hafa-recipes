@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { messageFor } from "@/lib/models";
 import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
-import { Button, HeaderAction, FilterChips, Grouped, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, Copy, HeaderAction, FilterChips, Grouped, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
 import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -88,7 +88,9 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     setHistoryError("");
     await loadHistory(ticket, key);
   }
-  const records = historyRows(b.state, view, page?.key === key ? page.ids : null, [...localChanges.current.ids]);
+  const records = historyRows(b.state, view, page?.key === key ? page.ids : null, [...localChanges.current.ids]),
+    // With one baby there's nothing else she could be looking at.
+    shownBaby = (b.state.bootstrap?.children.length ?? 0) > 1 ? b.state.bootstrap!.children.find((child) => child.id === b.state.selectedChild) : undefined;
   return (
     <Screen
       title={careHistory ? "Care history" : "Journal"}
@@ -106,12 +108,14 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
         value={filter}
         label="Show"
         options={[
-          { label: "Everything", value: "writing" },
+          { label: "All writing", value: "writing" },
           { label: "Journal", value: "journal" },
           { label: "Doctor questions", value: "question" },
         ]}
         onChange={setFilter}
       />}
+      {/* A baby's page here still holds what she wrote for no baby in particular, and that's easy to miss. */}
+      {!careHistory && !!shownBaby && <Copy kind="small" tone="muted">{`${shownBaby.name.trim() || "This baby"}’s entries, and those for no baby in particular.`}</Copy>}
       {searching && <HeaderSearch value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Search notes and questions"} />}
       {filter === "question" && <Row title="Doctor summary" detail="One page with your questions, notes and daily totals"
         icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: b.state.selectedChild ?? undefined } })} />}
@@ -145,8 +149,8 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
       ) : (
         <Empty
           icon="book-outline"
-          title={q.trim() ? "No matching entries" : careHistory ? "No care logged yet" : "A place for your own words."}
-          body={q.trim() ? "Try a different phrase or clear your search." : careHistory ? "Log a feed, sleep or diaper from Today. Your care history will be here." : "Write a thought, save a photo, or record something you want to ask about. It doesn’t have to be polished."}
+          title={q.trim() ? "No matching entries" : careHistory ? "No care logged yet" : filter === "question" ? "No doctor questions yet." : "A place for your own words."}
+          body={q.trim() ? "Try a different phrase or clear your search." : careHistory ? "Log a feed, sleep or diaper from Today. Your care history will be here." : filter === "question" ? "Write down what you want to ask, and bring it to your next visit." : "Write a thought, save a photo, or record something you want to ask about. It doesn’t have to be polished."}
           action={q.trim() ? <Button secondary title="Clear search" onPress={() => setQ("")} /> : undefined}
         />
       )}
@@ -154,6 +158,8 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
         <Button secondary title={q.trim() ? "Load more matches" : "Load older entries"} busy={loading}
           onPress={() => void loadHistory(page.ticket, key)} />
       )}
+      {/* The two other places she may remember typing. */}
+      {!careHistory && <Copy kind="small" tone="muted">Baby notes and How I’m feeling are in Tracker, on the day you logged them.</Copy>}
       <View style={{ height: 55 }} />
     </Screen>
   );

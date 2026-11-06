@@ -13,6 +13,7 @@ import { LogFields, sideWords } from "./log-fields";
 import { AmountStepper, Option, Panel, SavedRow, keepPlace, usePlaceBackOnLeaving, type useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
 import { babyLabel } from "../lib/spaces";
+import { feelingWhere, noteWhere } from "../lib/writing-places";
 
 type Flow = ReturnType<typeof useLogFlow<string>>;
 type PanelProps = Omit<React.ComponentProps<typeof Panel>, "title" | "detail" | "children">;
@@ -70,11 +71,18 @@ function PumpPanel({ start, detail, panelProps, onSave }: { start: BottleChoice;
   </Panel>;
 }
 
-function NotePanel({ detail, panelProps, onSave }: { detail?: string; panelProps: PanelProps; onSave: (text: string) => void }) {
+/** Where what's on this panel goes, in one quiet line. */
+function WhereItGoes({ children }: { children: string }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted, paddingHorizontal: 2 }}>{children}</Text>;
+}
+
+function NotePanel({ detail, where, panelProps, onSave }: { detail?: string; where: string; panelProps: PanelProps; onSave: (text: string) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [note, setNote] = useState(""), [empty, setEmpty] = useState(false),
     onPress = () => { const text = note.trim(); setEmpty(!text); if (text) onSave(text); };
   return <Panel title="Note" detail={detail} {...panelProps}>
     <OnSurface><KeyboardSave.Provider value={{ label: "Save note", onPress }}><Field multiline label="What to remember" value={note} autoFocus onChange={(text) => { setNote(text); setEmpty(false); }} /></KeyboardSave.Provider></OnSurface>
+    <WhereItGoes>{where}</WhereItGoes>
     {empty && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>Write the note first.</Text>}
     <Button size="lg" icon="checkmark" title="Save" accessibilityLabel="Save note" onPress={onPress} />
   </Panel>;
@@ -132,8 +140,9 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
     {behind && <OnThisPhone />}
     {id === "pumping" ? <PumpPanel start={pumpStart(rows, childId, lastAmountUnit(pendingRecords(b.state)))} detail={who} panelProps={panelProps} onSave={(side, amount) =>
       void log({ side, amount: amount.amount, unit: amount.unit }, "Pumping", `Pumping, ${sideWords[side]}, ${amount.amount} ${amount.unit === "oz" ? "oz" : "mL"}`)} />
-    : id === "note" ? <NotePanel detail={who} panelProps={panelProps} onSave={(text) => void log({ label: noteLabel }, noteLabel, noteLabel, text)} />
+    : id === "note" ? <NotePanel detail={who} where={noteWhere(child, b.state.bootstrap)} panelProps={panelProps} onSave={(text) => void log({ label: noteLabel }, noteLabel, noteLabel, text)} />
     : id === "feeling" ? <Panel title={tracker.label} {...panelProps}>
+      <WhereItGoes>{feelingWhere}</WhereItGoes>
       <Choices>{feelingWords.map((word) => <Option key={word} height={64} wraps label={word} onPress={() => void log(dataFrom(id, { ...start, name: word }), word, word)} />)}</Choices>
     </Panel>
     : id === "medicine" ? <FormPanel id={id} title={tracker.label} detail={who} start={start} panelProps={panelProps} autoFocus={!recentMedicines(rows, childId).length} saveAs={(form) => saveForm(form, (data) => data.name)}
