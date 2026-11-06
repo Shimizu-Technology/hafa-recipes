@@ -27,7 +27,7 @@ import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
-import { babyLabel, choiceFor, stampedDraft } from "../lib/spaces";
+import { babiesFor, babyLabel, caregiverKeeps, choiceFor, stampedDraft } from "../lib/spaces";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -467,11 +467,12 @@ export default function Edit() {
             ...((isCare(draft.kind) || staysWithBaby(draft) || log?.about === "baby") && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
               ? []
               : [{ label: "For me / general", value: "" }]),
-            ...b.state.bootstrap!.children.map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
+            ...babiesFor(b.state.bootstrap!.children, draft, b.state.bootstrap!.personal_space_id).map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
           ]}
           onChange={(id) => change({ child_id: id || null })}
         />
       )}
+      {caregiverKeeps(b.state.bootstrap, draft) && <Copy kind="small" tone="muted">This stays with you. Caregivers share care logs and the calendar, not posts or notes.</Copy>}
       {draft.kind === "source" && <Field label="Original link" purpose="url" value={draft.data.url ?? ""}
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}

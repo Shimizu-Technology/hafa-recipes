@@ -37,6 +37,10 @@ function codeProblem(failure: unknown) {
   if (failure.status === 403) return "Update Håfa Baby to join a family.";
   return messageFor(failure);
 }
+/** Leaving, removing and deleting are refused with a 409 when who's here isn't what this screen showed. */
+function whoIsHereProblem(failure: unknown) {
+  return failure instanceof ApiError && !failure.local && failure.status === 409 ? "Who’s here has changed. Check the list and try again." : codeProblem(failure);
+}
 type Role = "parent" | "caregiver";
 function RoleChoice({ role, onChange, disabled }: { role: Role; onChange: (role: Role) => void; disabled?: boolean }) {
   return <Section title="Who are they?">
@@ -65,7 +69,8 @@ function usePhones(setError: (message: string) => void) {
     setChecking(true);
     try {
       // This phone answers for itself first: a sighting of an older one takes back what it reported.
-      await askForShareSession();
+      // A slow answer doesn't hold up the check, which can say "still connecting" and be asked again.
+      await Promise.race([askForShareSession(), new Promise((settle) => setTimeout(settle, 8_000))]);
       setReadiness(await b.api.readiness(nativeSharingAvailable ? await installationId() : undefined));
       setFailed(false);
     } catch { setFailed(true); setReadiness(null); }
@@ -130,7 +135,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     <RoleChoice role={role} onChange={setRole} disabled={busy} />
     {unread ? <Card>
       <Notice error>We couldn’t read what would be shared, so nothing has changed.</Notice>
-      <Button secondary title="Try again" onPress={readRows} />
+      <Button secondary title="Try again" onPress={() => { readRows(); if (failed) void check(); }} />
     </Card> : !rows ? <Loading label="Checking what you’ve saved…" /> : <>
       <Section title="What becomes shared">
         {whatBecomesShared(going, bootstrap.children.map((child) => child.name)).map((line) => <Copy key={line}>{line}</Copy>)}
@@ -216,7 +221,7 @@ function InFamily() {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], fence = rowFence({ space_id: family.id, generation: family.generation }, bootstrap.generation),
     [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false), [role, setRole] = useState<Role>("parent"),
     parent = family.role === "parent", alive = useRef(true);
-  async function load() {
+  async function load(quiet = false) {
     if (!parent) return setMembers([]);
     try {
       const [people, codes] = await Promise.all([b.api.familyMembers(family.id), b.api.familyInvites(family.id)]);
@@ -224,13 +229,21 @@ function InFamily() {
       setMembers(people.items.filter((member) => member.status === "active"));
       setInvites(codes.items.filter((row) => !row.used_at && !row.revoked_at && new Date(row.expires_at) > new Date()));
       setUnread(false);
-    } catch (failure) { if (alive.current) { setError(messageFor(failure)); setUnread(true); } }
+    } catch (failure) { if (alive.current && !quiet) { setError(messageFor(failure)); setUnread(true); } }
   }
-  useEffect(() => { void load(); return () => { alive.current = false; }; }, [family.id]);
-  async function run(action: () => Promise<unknown>) {
+  // Someone can join or leave while this is open, and it decides whether she's offered Leave or Delete.
+  useEffect(() => {
+    void load();
+    const again = setInterval(() => void load(true), 30_000);
+    return () => { alive.current = false; clearInterval(again); };
+  }, [family.id]);
+  async function run(action: () => Promise<unknown>, problem = codeProblem) {
     setBusy(true); setError("");
     try { await action(); await load(); }
-    catch (failure) { setError(codeProblem(failure)); }
+    catch (failure) {
+      setError(problem(failure));
+      if (problem === whoIsHereProblem) await load(true);
+    }
     finally { setBusy(false); }
   }
   // Until the API has said who's here, nobody can be told they're the last parent.
@@ -248,9 +261,11 @@ function InFamily() {
     {unread ? <Button secondary title="Try again" disabled={busy} onPress={() => void load()} /> : members === null ? <Loading label="Opening your family…" /> : !!members.length && <Section title="Who’s here">
       <Grouped>{members.map((member) => <Row key={member.app_user_id} title={member.display_name || "Family member"} detail={member.role === "parent" ? "Parent" : "Caregiver"} icon="person-outline" onPress={() => undefined} />)}</Grouped>
       {parent && members.filter((member) => member.app_user_id !== b.owner).map((member) => <Button key={member.app_user_id} variant="ghost" title={`Remove ${member.display_name || "this person"}`} disabled={busy}
-        onPress={() => Alert.alert(`Remove ${member.display_name || "this person"}?`, "They lose access right away, and what they logged stays. If their phone is offline, its copy clears the next time it connects.", [
+        onPress={() => Alert.alert(`Remove ${member.display_name || "this person"}?`, member.role === "parent"
+          ? "They’re a parent here. They lose the family’s baby, logs, saved posts and calendar right away, and only an invite from a parent here brings them back. What they logged stays, and so does their own journal. If their phone is offline, its copy clears the next time it connects."
+          : "They lose access right away, and what they logged stays. If their phone is offline, its copy clears the next time it connects.", [
           { text: "Keep them", style: "cancel" },
-          { text: "Remove", style: "destructive", onPress: () => void run(() => b.api.removeMember(family.id, member.app_user_id, fence)) },
+          { text: "Remove", style: "destructive", onPress: () => void run(() => b.api.removeMember(family.id, member.app_user_id, fence), whoIsHereProblem) },
         ])} />)}
     </Section>}
     {!parent && <Section title="You’re helping as a caregiver">
@@ -266,11 +281,11 @@ function InFamily() {
       <Button secondary title="Export my Baby data" icon="download-outline" disabled={busy} onPress={() => void run(async () => { await exportFile(await b.api.export(), b.owner); })} />
       <Button variant="destructive" title="Delete this family" disabled={busy} onPress={() => Alert.alert("Delete this family for good?", "Export anything you want to keep first. This can’t be undone.", [
         { text: "Keep it", style: "cancel" },
-        { text: "Delete family", style: "destructive", onPress: () => void run(async () => { await b.api.deleteFamily(family.id, fence); await afterwards(); toast("Your family was deleted."); }) },
+        { text: "Delete family", style: "destructive", onPress: () => void run(async () => { await b.api.deleteFamily(family.id, fence); await afterwards(); toast("Your family was deleted."); }, whoIsHereProblem) },
       ])} />
     </Section> : !unread && members !== null && <Button variant="destructive" title="Leave this family" disabled={busy} onPress={() => Alert.alert("Leave this family?", "You lose access right away. Your own journal and space stay yours, and what you logged stays with the family. Ask chats that used the family’s entries are deleted. If another of your phones is offline, its copy clears the next time it connects.", [
       { text: "Stay", style: "cancel" },
-      { text: "Leave", style: "destructive", onPress: () => void run(async () => { await b.api.leaveFamily(family.id, fence); await afterwards(); toast("You left the family."); }) },
+      { text: "Leave", style: "destructive", onPress: () => void run(async () => { await b.api.leaveFamily(family.id, fence); await afterwards(); toast("You left the family."); }, whoIsHereProblem) },
     ])} />}
   </>;
 }

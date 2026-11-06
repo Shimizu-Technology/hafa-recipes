@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
-import { familyOpen, babyLabel, stampedDraft, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
+import { babiesFor, caregiverKeeps, familyOpen, babyLabel, stampedDraft, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
 import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -292,6 +292,39 @@ describe("Shared or Just me on a new entry", () => {
   });
 });
 
+describe("which babies an entry can be for", () => {
+  const children = [{ id: "ours", space_id: family }, { id: "mine", space_id: personal }];
+  const entry = (kind: "feeding" | "journal" | "source", space_id?: string, child_id: string | null = "ours", existing = true) => ({ kind, space_id, child_id, existing });
+  it("keeps a saved family log to the family's babies", () => {
+    expect(babiesFor(children, entry("feeding", family), personal).map((one) => one.id)).toEqual(["ours"]);
+  });
+  it("keeps a saved personal log to this account's own", () => {
+    expect(babiesFor(children, entry("feeding", personal, "mine"), personal).map((one) => one.id)).toEqual(["mine"]);
+  });
+  it("lets a personal journal entry name either, which the API allows", () => {
+    expect(babiesFor(children, entry("journal", personal, null), personal)).toEqual(children);
+  });
+  it("offers every baby on a new entry, which goes where its baby is", () => {
+    expect(babiesFor(children, entry("feeding", family, "ours", false), personal)).toEqual(children);
+  });
+  it("offers every baby on a row from before spaces", () => {
+    expect(babiesFor(children, entry("feeding"), personal)).toEqual(children);
+  });
+  it("never hides the baby it's already for", () => {
+    expect(babiesFor(children, entry("feeding", family, "mine"), personal).map((one) => one.id)).toEqual(["ours", "mine"]);
+  });
+});
+describe("a caregiver keeping something to themselves", () => {
+  const helper = boot([own, { ...shared, role: "caregiver" }]);
+  it.each(["source", "journal", "question"] as const)("says a new %s isn't shared", (kind) => {
+    expect(caregiverKeeps(helper, { kind, existing: false })).toBe(true);
+  });
+  it("says nothing on care, an entry already saved, or to a parent", () => {
+    expect(caregiverKeeps(helper, { kind: "feeding", existing: false })).toBe(false);
+    expect(caregiverKeeps(helper, { kind: "source", existing: true })).toBe(false);
+    expect(caregiverKeeps(boot([own, shared]), { kind: "source", existing: false })).toBe(false);
+  });
+});
 describe("who can change a baby's profile", () => {
   const helper = boot([own, { ...shared, role: "caregiver" }]);
   it("a parent can, and anyone can with the flag off or no family", () => {

@@ -96,6 +96,17 @@ export function stampedDraft(state: Pick<DeviceState, "bootstrap">, held: Editor
     space = choice?.space_id ?? (placed.space_id && (!held || placed.child_id === held.child_id) ? placed.space_id : spaceForNew(state, placed)!);
   return { ...placed, ...(choice ? { shared: choice.shared } : {}), space_id: space, generation: bootstrap!.spaces!.find((one) => one.id === space)?.generation ?? bootstrap!.generation };
 }
+/**
+ * The babies an entry can be for. An entry already saved stays in its space, so it can't take a baby from another: the
+ * API refuses that. A personal journal entry is the one thing that can name a baby in any space.
+ */
+export function babiesFor<T extends { id: string; space_id?: string }>(children: T[], draft: Pick<EditorDraft, "kind" | "existing" | "space_id" | "child_id">, personal?: string) {
+  if (!draft.existing || !draft.space_id || (draft.kind === "journal" && draft.space_id === personal)) return children;
+  return children.filter((child) => !child.space_id || child.space_id === draft.space_id || child.id === draft.child_id);
+}
+/** A caregiver can still keep a post or a note, but it isn't shared, and nothing else on the way there would say so. */
+export const caregiverKeeps = (bootstrap: Pick<Bootstrap, "spaces"> | null | undefined, draft: Pick<EditorDraft, "kind" | "existing">) =>
+  isCaregiver(bootstrap) && !draft.existing && !caregiverKinds.has(draft.kind);
 /** A baby's name, and whose it is when this account has both kinds, so two called the same can be told apart. */
 export function babyLabel(child: { name: string; space_id?: string }, bootstrap?: Pick<Bootstrap, "children" | "personal_space_id"> | null) {
   const personal = bootstrap?.personal_space_id, spaces = (bootstrap?.children ?? []).map((one) => one.space_id);
