@@ -1,6 +1,6 @@
 import type { Bootstrap, CareContact, Child } from "./models";
 import { babyLabel, isCaregiver } from "./spaces";
-import { trackerStage } from "./timing";
+import { todayStage, trackerStage } from "./timing";
 
 type Account = Pick<Bootstrap, "contacts" | "children" | "spaces" | "personal_space_id"> | null | undefined;
 export interface CallLine { key: string; heading: string; contact: CareContact }
@@ -33,7 +33,8 @@ export function contactFrom(name: string, phone: string): CareContact | null {
 export const sameContact = (saved: CareContact | null | undefined, next: CareContact | null) =>
   (saved?.name ?? "") === (next?.name ?? "") && (saved?.phone ?? "") === (next?.phone ?? "");
 
-const expecting = (bootstrap: Account, today: Date) => (bootstrap?.children ?? []).some((child) => trackerStage(child, today) === "expecting");
+/** Anyone not known to be born, since a profile with no dates yet may well be a pregnancy. */
+const expecting = (bootstrap: Account, today: Date) => (bootstrap?.children ?? []).some((child) => todayStage(child, today) !== "baby");
 const dialable = (contact: CareContact | null | undefined): contact is CareContact => !!contact?.phone;
 
 /** Where she plans to deliver only matters until the baby's here. Saved, it stays editable in Your details. */

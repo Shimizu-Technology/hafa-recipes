@@ -50,6 +50,8 @@ describe("where they show", () => {
     expect(callLines(account({ contacts: { delivery }, children: [expecting] }), today).map((line) => line.key)).toEqual(["delivery"]);
     expect(callLines(account({ contacts: { delivery }, children: [] }), today).map((line) => line.key)).toEqual(["delivery"]);
     expect(callLines(account({ contacts: { delivery }, children: [born] }), today)).toEqual([]);
+    expect(callLines(account({ contacts: { delivery }, children: [{ id: "n", name: "No dates", revision: 1 }] }), today).map((line) => line.key)).toEqual(["delivery"]);
+    expect(callLines(account({ contacts: { delivery }, children: [{ ...expecting, due_date: "2025-01-01" }] }), today).map((line) => line.key)).toEqual(["delivery"]);
     expect(deliveryLine(account({ contacts: { delivery } }))?.contact).toEqual(delivery);
   });
   it("shows a doctor two babies share once, named for both", () => {
