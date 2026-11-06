@@ -9,6 +9,7 @@ import { DateField } from "./date-field";
 import { Disclosure } from "./disclosure";
 import { Copy, Field, FilterChips, Icon, Notice, PressTarget, fonts, tap, typeScale, useColors } from "./ui";
 import { babiesFor, babyLabel, choiceFor, familySpaces, fittingChild } from "../lib/spaces";
+import { eventNoteWhere } from "../lib/writing-places";
 
 const familyId = (bootstrap: NonNullable<ReturnType<typeof useBaby>["state"]["bootstrap"]>) => familySpaces(bootstrap)[0]?.id;
 const frequencies: EventRecurrence["frequency"][] = ["daily", "weekly", "monthly", "yearly"];
@@ -83,6 +84,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       {!one && remindersOn && <FilterChips label="Reminder" value={reminderValue(reminders)} options={reminderChoices(!!data.all_day, reminders)}
         onChange={(value) => { if (value !== "several") set({ reminder_minutes: value ? [Number(value)] : [] }); }} />}
       {!one && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
+      {!one && <Copy kind="small" tone="muted">{eventNoteWhere(b.state, draft, b.records.find((row) => row.id === draft.id))}</Copy>}
       {!!choice && <Copy kind="small">Who can see this</Copy>}
       {!!choice && <FilterChips label="Who can see this" value={choice.shared ? "shared" : "just_me"} options={[{ label: "Shared with family", value: "shared" }, { label: "Just me", value: "just_me" }]}
         onChange={(value) => share(value === "shared")} />}

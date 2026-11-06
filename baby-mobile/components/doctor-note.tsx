@@ -5,6 +5,7 @@ import { useBaby } from "@/lib/context";
 import { doctorNote, doctorNoteTitle } from "@/lib/contractions";
 import { messageFor, type Mutation } from "@/lib/models";
 import { Card, Copy, fonts, radii, useColors, useToast } from "./ui";
+import { doctorNoteWhere } from "../lib/writing-places";
 
 /**
  * Her own words from her own doctor, at the top of the timer. It's one private journal entry labelled as a clinician
@@ -45,6 +46,7 @@ function ChildNote({ childId }: { childId: string | null }) {
       <TextInput key={fontScale} accessibilityLabel={doctorNoteTitle} value={text} multiline maxLength={4000} maxFontSizeMultiplier={0} placeholderTextColor={c.muted} placeholder="Write it here"
         onChangeText={(value) => { editing.current = true; setText(value); }} onBlur={save}
         style={{ minHeight: 64, padding: 12, borderRadius: radii.field, backgroundColor: c.surface, color: c.text, fontFamily: fonts.regular, fontSize: 16, lineHeight: 22, textAlignVertical: "top" }} />
+      <Copy kind="small" tone="muted">{doctorNoteWhere}</Copy>
     </View>
   </Card>;
 }

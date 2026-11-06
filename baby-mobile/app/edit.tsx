@@ -22,6 +22,7 @@ import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
+import { sharedDetail, writingWhere } from "../lib/writing-places";
 import { ensureAiConsent } from "../lib/ai-consent";
 import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
@@ -475,13 +476,14 @@ export default function Edit() {
           onChange={(id) => change({ child_id: id || null })}
         />
       )}
+      {!!writingWhere(b.state, draft) && <Copy kind="small" tone="muted">{writingWhere(b.state, draft)}</Copy>}
       {caregiverKeeps(b.state, draft) && <Copy kind="small" tone="muted">Only you can see this. It isn’t shared with the family.</Copy>}
       {draft.kind === "source" && <Field label="Original link" purpose="url" value={draft.data.url ?? ""}
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}
       {(() => { const choice = choiceFor(b.state.bootstrap, draft);
         return choice && <>
-          <Choice label="Shared with family" selected={choice.shared} onPress={() => change({ shared: true })} />
+          <Choice label="Shared with family" detail={sharedDetail(draft.kind)} selected={choice.shared} onPress={() => change({ shared: true })} />
           <Choice label="Just me" selected={!choice.shared} onPress={() => change({ shared: false })} />
         </>; })()}
       {writing && <Button variant="ghost" title={showDetails ? "Hide optional details" : "Add photo, title or details"} onPress={() => setShowDetails(!showDetails)} />}
