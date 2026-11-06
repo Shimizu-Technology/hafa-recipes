@@ -11,7 +11,7 @@ import { captureBelongs, captureDestination, captureStale } from "../lib/share-s
 import { notSentMessage } from "../lib/outbox";
 import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
-import { onSharesChanged } from "../lib/share-session-state";
+import { claimSettled, onSharesChanged, type ClaimOutcome } from "../lib/share-session-state";
 import { acknowledgeShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
 
 import { sharedSourceTitle } from "../lib/source-title";
@@ -30,7 +30,8 @@ export function ShareCapture() {
       if (running) { again = true; return; }
       running = true;
       again = false;
-      let retry = false;
+      let retry = false, claimed: string | undefined;
+      const settle = (outcome: ClaimOutcome) => { if (claimed) claimSettled(claimed, outcome); claimed = undefined; };
       try {
         while (alive) {
           const baby = account.current, bootstrap = baby.state.bootstrap;
@@ -41,8 +42,10 @@ export function ShareCapture() {
           const native = Platform.OS === "ios" && nativeSharingAvailable ? await pendingShare() : null;
           if (!current()) return;
           if (Platform.OS === "ios" && nativeSharingAvailable && !native) return;
+          claimed = native?.claimed ? native.token : undefined;
           if (native && captureStale(native.scope, owner, bootstrap)) {
             if (!acknowledgeShare(native.token)) return;
+            settle("gone");
             continue;
           }
           // Any capture of this account's, whatever its destination was then. Its tag says where it goes now.
@@ -72,7 +75,7 @@ export function ShareCapture() {
           const id = native?.capture_id ?? Crypto.randomUUID();
           const saveId = `share-save:${id}`;
           if (baby.state.outbox.some(m => m.id === saveId) || baby.state.records.some(r => r.id === id)) {
-            if (native) { if (!acknowledgeShare(native.token)) return; continue; }
+            if (native) { if (!acknowledgeShare(native.token)) return; settle("saved"); continue; }
             stock.resetShareIntent(); return;
           }
           const copied: LocalFile[] = [];
@@ -110,6 +113,8 @@ export function ShareCapture() {
               return next;
             });
             committed = true;
+            // In the outbox, durably: only now is it true to say it's been added.
+            settle("saved");
             if (!current()) return;
             void baby.sync();
             if (native) { if (!acknowledgeShare(native.token)) return; }
@@ -123,6 +128,7 @@ export function ShareCapture() {
       } catch (failure) {
         // The first bootstrap ending a lease mid-write isn't a failure to tell her about: it goes again as soon as this one's done.
         if (failure instanceof ApiError && failure.local) { retry = true; return; }
+        settle("failed");
         if (alive) Alert.alert("Your shared source is still on this phone",
           "Håfa Baby could not finish saving every item. Your original capture is kept; reopen the app to try again.");
       } finally {

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const w = vi.hoisted(() => ({
   baby: null as any, rows: [] as any[], current: true, alerts: [] as { title: string; message: string; buttons: { text: string; onPress?: () => void }[] }[],
-  claim: vi.fn(async (..._: unknown[]) => true), discard: vi.fn(async (..._: unknown[]) => true), toast: vi.fn(), foreground: null as null | ((state: string) => void),
+  claim: vi.fn(async (..._: unknown[]) => "claimed"), discard: vi.fn(async (..._: unknown[]) => true), toast: vi.fn(), foreground: null as null | ((state: string) => void),
 }));
 vi.mock("react-native", () => ({
   View: "View", Alert: { alert: (title: string, message: string, buttons: any[]) => w.alerts.push({ title, message, buttons }) },
@@ -22,12 +22,14 @@ vi.mock("../components/ui", () => ({
 }));
 import { WaitingShares } from "../components/waiting-shares";
 import { confirmSignOut, removedWarning, shareLabel, shareWhen, shareKeptUntil, signInNotice, useWaitingShareCount } from "./waiting-shares";
-import { revokeShareSession } from "./share-session-state";
+import { claimSettled, revokeShareSession } from "./share-session-state";
 
 const row = (over = {}) => ({ token: "a:1", kind: "link", count: 0, host: "tiktok.com", shared_at: "2026-11-06T14:14:00.000Z", kept_until: "2026-12-06T14:14:00.000Z", ...over });
 let renderer: ReactTestRenderer | undefined;
 const mount = async () => { await act(async () => { renderer = create(<WaitingShares />); }); };
 const text = () => JSON.stringify(renderer!.toJSON());
+// A render with the latest account, keeping the tap handed out before it.
+const latestRender = () => { renderer!.update(<WaitingShares />); };
 const press = async (title: string) => {
   const button = renderer!.root.findAll((node) => (node.type as unknown) === "Button" && node.props.title === title)[0];
   await act(async () => { await button.props.onPress(); });
@@ -75,14 +77,63 @@ describe("the card", () => {
     expect(text()).toContain("kept until");
     await press("Add to my saved posts");
     expect(w.claim).toHaveBeenCalledExactlyOnceWith("a:1", "owner", 3);
+    // She's said it's hers, and it isn't saved yet.
+    expect(w.toast).not.toHaveBeenCalled();
+    expect(text()).toContain("Adding to your saved posts…");
+    await act(async () => { claimSettled("a:1", "saved"); });
     expect(w.toast).toHaveBeenCalledExactlyOnceWith("Added to your saved posts");
+    expect(text()).not.toContain("Adding to your saved posts…");
+  });
+  it("doesn't say Added for a share that turns out not to fit, or that couldn't be written", async () => {
+    for (const outcome of ["blocked", "failed"] as const) {
+      w.rows = [row({ token: `${outcome}:1` })];
+      await mount();
+      await press("Add to my saved posts");
+      await act(async () => { claimSettled(`${outcome}:1`, outcome); });
+      expect(w.toast).not.toHaveBeenCalled();
+      expect(text()).not.toContain("Adding to your saved posts…");
+      await act(async () => renderer!.unmount());
+      renderer = undefined;
+    }
+  });
+  it("waits for every one of several before saying so", async () => {
+    w.rows = [row({ token: "w:1" }), row({ token: "w:2" })];
+    await mount();
+    await press("Add all 2");
+    await act(async () => { claimSettled("w:1", "saved"); });
+    expect(w.toast).not.toHaveBeenCalled();
+    await act(async () => { claimSettled("someone-elses:1", "saved"); });
+    expect(w.toast).not.toHaveBeenCalled();
+    await act(async () => { claimSettled("w:2", "saved"); });
+    expect(w.toast).toHaveBeenCalledOnce();
+  });
+  it("says plainly when a share's 30 days ran out with the card open", async () => {
+    w.rows = [row({ token: "old:1" })]; w.claim.mockResolvedValueOnce("expired");
+    await mount();
+    w.rows = [];
+    await press("Add to my saved posts");
+    expect(text()).toContain("That share was only kept for 30 days, so it’s gone from this phone.");
+    expect(w.toast).not.toHaveBeenCalled();
+    await press("OK");
+    expect(renderer!.toJSON()).toBeNull();
   });
   it("says it's still here if it couldn't be added, and isn't told it was", async () => {
-    w.rows = [row()]; w.claim.mockResolvedValueOnce(false);
+    w.rows = [row()]; w.claim.mockResolvedValueOnce("refused");
     await mount();
     await press("Add to my saved posts");
     expect(text()).toContain("It’s still on this phone.");
     expect(w.toast).not.toHaveBeenCalled();
+  });
+  it("won't claim on a space generation the card has fallen behind", async () => {
+    w.rows = [row({ token: "g:1" })];
+    await mount();
+    w.baby = { ...w.baby, state: { bootstrap: { generation: 4 } } };
+    // The tap's closure still says 3, and the latest account says 4.
+    const tap = renderer!.root.findAll((node) => (node.type as unknown) === "Button" && node.props.title === "Add to my saved posts")[0].props.onPress;
+    await act(async () => latestRender());
+    await act(async () => { await tap(); });
+    expect(w.claim).not.toHaveBeenCalled();
+    expect(text()).toContain("It’s still on this phone.");
   });
   it("Not mine asks first, then removes only this one", async () => {
     w.rows = [row()];
@@ -115,7 +166,7 @@ describe("the card", () => {
   });
   it("stops adding when the account changes partway", async () => {
     w.rows = [row({ token: "c:1" }), row({ token: "c:2" })];
-    w.claim.mockImplementationOnce(async () => { w.current = false; return true; });
+    w.claim.mockImplementationOnce(async () => { w.current = false; return "claimed"; });
     await mount();
     await press("Add all 2");
     expect(w.claim).toHaveBeenCalledTimes(1);

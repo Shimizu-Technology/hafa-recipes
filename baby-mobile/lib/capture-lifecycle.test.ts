@@ -51,6 +51,7 @@ vi.mock("@/components/ui", () => ({
 }));
 import Edit from "../app/edit";
 import { ShareCapture, sharedSourceTitle } from "../components/share-capture";
+import { onClaimSettled } from "./share-session-state";
 let renderer: ReactTestRenderer | undefined;
 function held<T>() { let release!: (value: T) => void; const promise = new Promise<T>((resolve) => { release = resolve; }); return { promise, release }; }
 function setup() {
@@ -291,6 +292,29 @@ it.each([[true, false, 1], [false, true, 1], [true, true, 2]])(
     if (count === 2) expect(account.state.outbox[1]).toEqual({ id: "capture-A", generation: 1,
       type: "import", record_id: "capture-A", files: [], automatic: true, automatic_epoch: 0 });
   });
+it("says a claimed share is saved only once it's durably in the outbox", async () => {
+  const account = setup(), { promise, release } = held<void>(), settled: string[] = [];
+  const stop = onClaimSettled((token, outcome) => settled.push(`${token}:${outcome}`));
+  account.holdCommit(promise);
+  scope.pending.mockResolvedValueOnce({ ...payload("claimed-a"), scope: "disposable-local-parent:1:personal", claimed: true });
+  await mount(ShareCapture);
+  expect(settled).toEqual([]);
+  expect(account.state.outbox).toEqual([]);
+  await act(async () => { release(); await account.drain(); });
+  expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:claimed-a"]);
+  expect(settled).toEqual(["claimed-a:saved"]);
+  stop();
+});
+it("says when a claimed share couldn't be written, and keeps it", async () => {
+  const account = setup(), settled: string[] = [];
+  const stop = onClaimSettled((token, outcome) => settled.push(`${token}:${outcome}`));
+  account.commit.mockImplementationOnce(() => Promise.reject(Error("disk full")));
+  scope.pending.mockResolvedValueOnce({ ...payload("claimed-b"), scope: "disposable-local-parent:1:personal", claimed: true });
+  await mount(ShareCapture);
+  expect(settled).toEqual(["claimed-b:failed"]);
+  expect(scope.acknowledge).not.toHaveBeenCalledWith("claimed-b");
+  stop();
+});
 it("a share added from the waiting card never starts AI, even with automatic organizing on and matching numbers", async () => {
   const account = setup(); Object.assign(account.state.bootstrap!.profile, { ai_consent: true, auto_process_shares: true, auto_process_epoch: 0 });
   scope.pending.mockResolvedValueOnce({ ...payload(), scope: "disposable-local-parent:1:personal", claimed: true, automatic_epoch: 0 }); await mount(ShareCapture);

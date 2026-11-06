@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, View } from "react-native";
 import { useUser } from "@clerk/expo";
 import { useBaby } from "@/lib/context";
 import * as Share from "@/modules/hafa-baby-share/src";
-import { onSharesChanged } from "../lib/share-session-state";
-import { addWaitingShares, removeWaitingShare, shareKeptUntil, shareLabel, shareWhen } from "../lib/waiting-shares";
+import { onClaimSettled, onSharesChanged } from "../lib/share-session-state";
+import { addWaitingShares, expiredNotice, removeWaitingShare, shareKeptUntil, shareLabel, shareWhen } from "../lib/waiting-shares";
 import { Button, Card, Copy, Icon, Notice, PressTarget, radii, tap, useColors, useToast } from "./ui";
 
 /** "Not now" holds until the app is next opened fresh, and only for the account that said it. */
@@ -17,7 +17,12 @@ const notNow = new Set<string>();
 export function WaitingShares() {
   const b = useBaby(), c = useColors(), toast = useToast(), { user } = useUser();
   const owner = b.owner, generation = b.state.bootstrap?.generation;
-  const [rows, setRows] = useState<Share.WaitingShare[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [rows, setRows] = useState<Share.WaitingShare[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState(""),
+    [adding, setAdding] = useState(false), [gone, setGone] = useState("");
+  // What's been claimed and is on its way into the outbox. Nothing's announced until it's there.
+  const settling = useRef({ waiting: new Set<string>(), saved: 0 });
+  const latest = useRef(b), alive = useRef(true);
+  latest.current = b;
   const load = useCallback(async () => {
     if (!owner) return setRows([]);
     const next = await Share.waitingShares(owner).catch(() => [] as Share.WaitingShare[]);
@@ -29,18 +34,47 @@ export function WaitingShares() {
     const stop = onSharesChanged(() => void load());
     return () => { app.remove(); stop(); };
   }, [load]);
-  if (!rows.length || !owner || !generation) return null;
+  useEffect(() => {
+    alive.current = true;
+    const stop = onClaimSettled((token, outcome) => {
+      const now = settling.current;
+      if (!now.waiting.delete(token)) return;
+      if (outcome === "saved") now.saved++;
+      if (now.waiting.size) return;
+      setAdding(false);
+      if (now.saved) {
+        tap("success");
+        toast("Added to your saved posts");
+      }
+      // A failure has its own alert, and a share the app can't take gets its own card.
+      if (outcome === "gone") setError("That share is no longer on this phone.");
+    });
+    return () => { alive.current = false; stop(); };
+  }, []);
+  if (!owner || !generation) return null;
+  if (adding) return <Card style={{ gap: 4 }}>
+    <Copy kind="label">Adding to your saved posts…</Copy>
+    <Copy kind="small" tone="muted">It’s safe on this phone.</Copy>
+  </Card>;
+  if (!rows.length) return gone || error ? <Card style={{ gap: 12 }}>
+    <Notice error={!gone}>{gone || error}</Notice>
+    <Button variant="ghost" title="OK" onPress={() => { setGone(""); setError(""); }} />
+  </Card> : null;
   const one = rows.length === 1, account = user?.primaryEmailAddress?.emailAddress || "this account";
   async function add() {
     setBusy(true);
     setError("");
+    setGone("");
     try {
-      const added = await addWaitingShares(rows.map((row) => row.token), owner!, generation!, b.current);
-      if (added !== rows.length) setError("Some of this couldn’t be added just now. It’s still on this phone.");
-      if (added) {
-        tap("success");
-        toast("Added to your saved posts");
+      // Fenced by this card still being mounted, for this account, on this space: claiming under an old one would only lose it.
+      const result = await addWaitingShares(rows.map((row) => row.token), owner!, generation!, () =>
+        alive.current && latest.current.current() && latest.current.owner === owner && latest.current.state.bootstrap?.generation === generation);
+      if (result.claimed.length) {
+        settling.current = { waiting: new Set(result.claimed), saved: 0 };
+        setAdding(true);
       }
+      if (result.expired) setGone(expiredNotice(result.expired));
+      if (result.refused) setError("Some of this couldn’t be added just now. It’s still on this phone.");
     } catch {
       setError("This couldn’t be added just now. It’s still on this phone.");
     } finally {
@@ -70,6 +104,7 @@ export function WaitingShares() {
       </View>)}
     </View>
     <Copy kind="small" tone="muted">{`Adding to ${account}. Only you will see ${one ? "it" : "them"}.`}</Copy>
+    {!!gone && <Notice>{gone}</Notice>}
     {!!error && <Notice error>{error}</Notice>}
     <Button title={one ? "Add to my saved posts" : `Add all ${rows.length}`} busy={busy} onPress={() => void add()} />
     {one && <Button secondary title="Not mine, remove it" disabled={busy} onPress={() => remove(rows[0].token)} />}

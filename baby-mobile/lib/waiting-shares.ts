@@ -22,6 +22,7 @@ export function shareWhen(share: WaitingShare, now = new Date()) {
   return `${day}, ${clock(shared)}`;
 }
 export const shareKeptUntil = (share: WaitingShare) => `kept until ${shortDate(new Date(share.kept_until))}`;
+export const expiredNotice = (count: number) => `${count === 1 ? "That share was" : "Those shares were"} only kept for 30 days, so ${count === 1 ? "it’s" : "they’re"} gone from this phone.`;
 export const signInNotice = (count: number) => `${counted(count, "share")} ${count === 1 ? "is" : "are"} waiting on this phone. Sign in to add ${count === 1 ? "it" : "them"}.`;
 /** Sign-out and erase keep clearing everything on the phone. These say so first. */
 export const removedWarning = (count: number) => `${counted(count, "share")} waiting here will be removed.`;
@@ -50,18 +51,24 @@ export async function confirmSignOut(signOut: () => void) {
   ]);
 }
 
-/** Adds these under this account, or as many as it still can. Takes its turn with sign-out, so the two can't cross. */
+/**
+ * Says these are this account's, or as many as it still can. Takes its turn with sign-out, so the two can't cross. It only
+ * changes who they belong to: they aren't saved until the drain has written them to the outbox, and `onClaimSettled` says so.
+ */
 export async function addWaitingShares(tokens: string[], owner: string, generation: number, current: () => boolean) {
-  const added = await serializeShareSession(async () => {
-    let done = 0;
+  const result = await serializeShareSession(async () => {
+    const done = { claimed: [] as string[], expired: 0, refused: 0 };
     for (const token of tokens) {
-      if (!current() || isShareSessionSuspended()) break;
-      if (await Share.claimShare(token, owner, generation)) done++;
+      if (!current() || isShareSessionSuspended()) { done.refused++; continue; }
+      const answer = await Share.claimShare(token, owner, generation);
+      if (answer === "claimed") done.claimed.push(token);
+      else if (answer === "expired") done.expired++;
+      else done.refused++;
     }
     return done;
   });
-  if (added) sharesChanged();
-  return added;
+  sharesChanged();
+  return result;
 }
 export async function removeWaitingShare(token: string) {
   const removed = await serializeShareSession(() => Share.discardShare(token));
