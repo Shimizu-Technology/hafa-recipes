@@ -354,7 +354,7 @@ it("starts a bottle from the last one and saves when a milk is chosen", async ()
   setup();
   await mount(rows);
   await press("Bottle", rows);
-  expect(texts()).toContain("2.5 oz");
+  expect(texts()).toContain("2.5");
   expect(texts()).toContain("Same as last time");
   await press("Formula", rows);
   expect(lastSave().data).toEqual({ method: "bottle", amount: 2.5, unit: "oz", contents: "formula" });
@@ -366,19 +366,20 @@ it("defaults to ounces, steps the amount, and keeps the last unit used", async (
   setup();
   await mount();
   await press("Bottle");
-  expect(texts()).toContain("3 oz");
+  expect(texts()).toContain("3");
   await press("More");
-  expect(texts()).toContain("3.5 oz");
+  expect(texts()).toContain("3.5");
   await press("Less"); await press("Less");
-  expect(texts()).toContain("2.5 oz");
-  await press("2.5 oz");
-  expect(texts()).toContain("80 mL");
+  expect(texts()).toContain("2.5");
+  await press("Milliliters");
+  expect(texts()).toContain("80");
   await press("Breast milk");
   expect(lastSave().data).toMatchObject({ amount: 80, unit: "ml", contents: "breast_milk" });
   const rows = [bottle("ml", { amount: 80, unit: "ml" })];
   await act(async () => renderer!.update(view(rows)));
   await press("Bottle", rows);
-  expect(texts()).toContain("80 mL");
+  expect(texts()).toContain("80");
+  expect(target("Milliliters")!.props.accessibilityState.selected).toBe(true);
 });
 
 it("saves a diaper on one choice in stored words, with no sheet and no Save", async () => {
@@ -838,4 +839,46 @@ it("reads and offers times on the family's clock, not the phone's", async () => 
   await press("Change time");
   await press("Pick a time");
   expect(renderer!.root.findAll((n) => String(n.type) === "DateField")[0].props.timeZone).toBe("Asia/Tokyo");
+});
+
+describe("ounces or milliliters", () => {
+  const openBottle = async (rows = [] as BabyRecord[]) => { setup(); await mount(rows); await press("Bottle", rows); };
+  it("starts in ounces, with one plain tap to milliliters and back, whatever the note says", async () => {
+    await openBottle();
+    expect(texts()).toContain("3");
+    expect(target("Ounces")!.props.accessibilityState.selected).toBe(true);
+    await press("Milliliters");
+    expect(texts()).toContain("90");
+    expect(target("Milliliters")!.props.accessibilityState.selected).toBe(true);
+    await press("Ounces");
+    expect(texts()).toContain("3");
+  });
+  it("still has the switch when the note says it's the same as last time", async () => {
+    await openBottle([bottle("last", { amount: 2.5, unit: "oz", contents: "formula" })]);
+    expect(texts()).toContain("Same as last time");
+    expect(target("Milliliters")).toBeDefined();
+    await press("Milliliters");
+    expect(texts()).toContain("80");
+  });
+  it("switching twice gives the same bottle back, and what's saved holds only the amount and unit", async () => {
+    await openBottle([bottle("last", { amount: 10, unit: "ml", contents: "formula" })]);
+    await press("Ounces");
+    expect(texts()).toContain("0.5");
+    await press("Milliliters");
+    expect(texts()).toContain("10");
+    await press("Ounces");
+    await press("Breast milk");
+    expect(lastSave().data).toEqual({ method: "bottle", amount: 0.5, unit: "oz", contents: "breast_milk" });
+  });
+  it("tapping the unit it's already in changes nothing", async () => {
+    await openBottle();
+    await press("Ounces");
+    expect(texts()).toContain("3");
+    expect(target("Ounces")!.props.accessibilityState.selected).toBe(true);
+  });
+  it("remembers milliliters from the last bottle", async () => {
+    await openBottle([bottle("last", { amount: 120, unit: "ml", contents: "formula" })]);
+    expect(target("Milliliters")!.props.accessibilityState.selected).toBe(true);
+    expect(texts()).toContain("120");
+  });
 });

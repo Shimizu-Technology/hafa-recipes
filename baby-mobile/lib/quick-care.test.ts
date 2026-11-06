@@ -1,8 +1,8 @@
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id}` }; });
-import { careWrite, logCare, updateCare } from "./quick-care";
+import { bottleStart, careWrite, changeUnit, lastAmountUnit, logCare, pumpStart, pumpStep, stepAmount, updateCare } from "./quick-care";
 import { advancePending, pendingRecords } from "./outbox";
-import { emptyState, type BabyRecord, type DeviceState, type Mutation } from "./models";
+import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 
 function account() {
   const b = {
@@ -75,4 +75,52 @@ it("applies an alongside change in the same write as the save, or neither", asyn
     })
   ).rejects.toThrow("already ended");
   expect(b.state.outbox).toHaveLength(1);
+});
+
+describe("which unit an amount starts in", () => {
+  const log = (kind: "feeding" | "pumping", unit: "oz" | "ml", amount: number, child = "baby", at = "2026-11-03T00:00:00.000Z") =>
+    optimisticRecord({ id: `${kind}-${unit}-${at}-${child}`, kind, title: "", body: "", child_id: child, occurred_at: at, data: { ...(kind === "feeding" ? { method: "bottle" } : {}), amount, unit } });
+  it("is ounces before anything's logged", () => {
+    expect(bottleStart([], "baby")).toMatchObject({ unit: "oz", amount: 3, fromLast: false });
+    expect(pumpStart([], "baby")).toMatchObject({ unit: "oz", amount: 3, fromLast: false });
+  });
+  it("is the last one's, for a bottle or for pumping", () => {
+    expect(bottleStart([log("feeding", "ml", 120)], "baby")).toMatchObject({ unit: "ml", amount: 120, fromLast: true });
+    expect(pumpStart([log("pumping", "ml", 60)], "baby")).toMatchObject({ unit: "ml", amount: 60, fromLast: true });
+  });
+  it("carries over from the other when one has no history, or from another baby", () => {
+    expect(bottleStart([], "baby", "ml")).toMatchObject({ unit: "ml", amount: 90, fromLast: false });
+    expect(pumpStart([], "baby", "ml")).toMatchObject({ unit: "ml", amount: 90, fromLast: false });
+    expect(bottleStart([log("feeding", "oz", 4)], "baby", "ml")).toMatchObject({ unit: "oz", amount: 4 });
+  });
+  it("finds the unit she last used, across bottles, pumping and babies", () => {
+    expect(lastAmountUnit([])).toBeUndefined();
+    expect(lastAmountUnit([log("feeding", "oz", 4, "baby", "2026-11-01T00:00:00.000Z"), log("pumping", "ml", 60, "sister", "2026-11-02T00:00:00.000Z")])).toBe("ml");
+  });
+  it("converts sensibly both ways, and comes back to where it started", () => {
+    const there = changeUnit({ amount: 3, unit: "oz" });
+    expect(there).toMatchObject({ amount: 90, unit: "ml" });
+    expect(changeUnit(there)).toEqual({ amount: 3, unit: "oz" });
+    expect(changeUnit({ amount: 4.5, unit: "oz" })).toMatchObject({ amount: 140, unit: "ml" });
+    expect(changeUnit({ amount: 2.25, unit: "oz" }, pumpStep).amount % 5).toBe(0);
+    expect(changeUnit(changeUnit({ amount: 2.25, unit: "oz" }, pumpStep), pumpStep)).toEqual({ amount: 2.25, unit: "oz" });
+  });
+  it.each([
+    [10, undefined], [5, undefined], [5, pumpStep], [10, pumpStep], [7, pumpStep], [15, undefined],
+  ])("switching twice gives back %s mL exactly", (amount, steps) => {
+    const there = changeUnit({ amount, unit: "ml" }, steps);
+    expect(there.unit).toBe("oz");
+    expect(changeUnit(there, steps)).toEqual({ amount, unit: "ml" });
+  });
+  it("is stable however many times she switches", () => {
+    let choice: ReturnType<typeof changeUnit> = { amount: 10, unit: "ml" };
+    for (let n = 0; n < 6; n++) choice = changeUnit(choice);
+    expect(choice).toEqual({ amount: 10, unit: "ml" });
+  });
+  it("a step counts from what's on screen, and leaves nothing to restore", () => {
+    const there = changeUnit({ amount: 10, unit: "ml" });
+    const stepped = { amount: stepAmount(there, 1), unit: there.unit };
+    expect(stepped).toEqual({ amount: 1, unit: "oz" });
+    expect(changeUnit(stepped)).toMatchObject({ amount: 30, unit: "ml" });
+  });
 });

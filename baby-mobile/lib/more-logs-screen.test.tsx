@@ -252,11 +252,24 @@ describe("typing a pumping amount", () => {
     setup();
     await mount();
     await press("Pumping");
-    await press("oz");
+    await press("Milliliters");
     await typeAmount("7", "mL");
     await press("Left");
     expect(saved()[0]).toMatchObject({ kind: "pumping", data: { side: "left", amount: 7, unit: "ml" } });
     expect(scope.toast).not.toHaveBeenCalled();
+  });
+  it("gives back a typed amount after switching there and back, and saves only the amount and unit", async () => {
+    setup();
+    await mount();
+    await press("Pumping");
+    await press("Milliliters");
+    await typeAmount("7", "mL");
+    await press("Ounces");
+    expect(amount().props.value).toBe("0.25");
+    await press("Milliliters");
+    expect(amount("mL").props.value).toBe("7");
+    await press("Left");
+    expect(saved()[0].data).toEqual({ side: "left", amount: 7, unit: "ml" });
   });
   it("keeps a decimal in ounces, and the buttons carry on from what she typed", async () => {
     setup();
