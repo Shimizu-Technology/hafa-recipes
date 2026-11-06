@@ -46,3 +46,46 @@ async def test_a_search_that_fails_is_not_tried_again(baby_api, stub):  # noqa: 
     result = await post_question(baby_api, "How should babies sleep?")
     assert result.json()["message"].startswith("Here is what your entries say.")
     assert len(research_bodies(stub)) == 1
+
+
+def passing_failures(fake, *statuses):
+    """The check says these first, and then its usual answer."""
+    remaining, real = list(statuses), fake.check_reply
+
+    def reply(body):
+        if remaining:
+            fake.checks.append(body)
+            return httpx.Response(remaining.pop(0), text="busy")
+        return real(body)
+
+    fake.check_reply = reply
+
+
+@pytest.mark.parametrize("statuses", [(503,), (429,), (500, 502)])
+async def test_a_passing_failure_on_the_check_is_tried_again(baby_api, stub, statuses):  # noqa: F811
+    await enable(baby_api)
+    passing_failures(stub, *statuses)
+    response = await ask(baby_api, message="Please tell me about this")
+    assert response.status_code == 200 and response.json()["message"] == "Stub answer"
+    assert len(stub.checks) == len(statuses) + 2  # Those tries, and then the question and the answer.
+
+
+async def test_three_failures_on_the_check_still_mean_no_answer(baby_api, stub):  # noqa: F811
+    from app.domains.baby.ask_safety import CANT_ANSWER
+
+    await enable(baby_api)
+    passing_failures(stub, 503, 503, 503)
+    body = (await ask(baby_api, message="Please tell me about this")).json()
+    assert body["help"] == CANT_ANSWER and stub.sent == [] and len(stub.checks) == 3
+
+
+async def test_the_tries_all_fit_inside_the_checks_time_limit(baby_api, stub, monkeypatch):  # noqa: F811
+    from app.domains.baby import ask_check, provider
+    from app.domains.baby.ask_safety import CANT_ANSWER
+
+    await enable(baby_api)
+    monkeypatch.setattr(ask_check, "CHECK_SECONDS", 0.05)
+    monkeypatch.setattr(provider, "RETRY_DELAYS", (5, 5))
+    passing_failures(stub, 503)
+    body = (await ask(baby_api, message="Please tell me about this")).json()
+    assert body["help"] == CANT_ANSWER and stub.sent == []

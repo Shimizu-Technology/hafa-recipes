@@ -707,7 +707,7 @@ async def test_the_budget_says_where_to_go_and_keeps_its_code(baby_api, stub):  
 @needs_database
 async def test_a_provider_failure_says_where_to_go(baby_api, stub):  # noqa: F811
     await enable(baby_api)
-    stub.replies = [httpx.Response(500, text="down")]
+    stub.replies = [httpx.Response(500, text="down") for _ in range(3)]
     response = await question_with_ai(baby_api, stub)
     assert response.status_code == 503 and CANT_ANSWER_LINE in response.json()["detail"]
 
