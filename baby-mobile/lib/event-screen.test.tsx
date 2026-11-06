@@ -23,7 +23,7 @@ vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile", openEvent: vi.fn() }));
-vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections" }));
+vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections", VisitLinks: "VisitLinks" }));
 vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
 vi.mock("@/lib/visits", () => import("./visits"));
 vi.mock("@/components/event-fields", () => import("../components/event-fields"));
@@ -534,6 +534,62 @@ describe("any event works", () => {
       expect(b.state.outbox[0].space_id).toBe(destination);
       await act(async () => renderer!.unmount());
     }
+  });
+  const familyWithBaby = (b: any) => { inFamily(b); b.state.bootstrap = { ...b.state.bootstrap, children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] }; b.state.selectedChild = "baby"; };
+  const who = () => found("FilterChips", (p) => p.label === "Who can see this");
+  const words = () => renderer!.root.findAll((n) => String(n.type) === "Copy").flatMap((n) => n.children).join(" ");
+  it("says plainly why Just me leaves the family's baby off, and puts her back on Shared", async () => {
+    const b = setup([]);
+    familyWithBaby(b);
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    await act(async () => nameField().props.onChange("Check-up"));
+    await act(async () => more().props.onPress());
+    expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("baby");
+    expect(words()).not.toContain("can’t be on");
+    await act(async () => who().props.onChange("just_me"));
+    expect(words()).toContain("A Just me event can’t be on the family’s baby.");
+    await act(async () => who().props.onChange("shared"));
+    expect(words()).not.toContain("can’t be on");
+    expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("baby");
+    await press("Button", "Save event");
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { child_id: "baby" } });
+  });
+  it("doesn't put a baby back if she chose no baby before going to Just me", async () => {
+    const b = setup([]);
+    familyWithBaby(b);
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    await act(async () => more().props.onPress());
+    await act(async () => found("FilterChips", (p) => p.label === "Who is it for?").props.onChange(""));
+    await act(async () => who().props.onChange("just_me"));
+    await act(async () => who().props.onChange("shared"));
+    expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("");
+  });
+  it("names the baby while More details is shut, on an event with nothing else", async () => {
+    setup([{ ...event({}, "e"), child_id: "baby", data: { timezone: guam, all_day: true, category: "other", attendees: [] } }]);
+    mock.params = { kind: "event", id: "e" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(false);
+    expect(more().props.accessibilityLabel).toBe("More details. Noa");
+  });
+  it("names no baby on an event for the whole family", async () => {
+    setup([{ ...event({}, "e"), child_id: null, data: { timezone: guam, all_day: true, category: "other", attendees: [] } }]);
+    mock.params = { kind: "event", id: "e" };
+    await mount(Edit);
+    expect(more().props.accessibilityLabel).toBe("More details");
+  });
+  it("keeps a visit's questions and notes in sight after it stops being an appointment, with no Book next", async () => {
+    const family = { ...event({ recurrence: null, category: "family" }, "was"), title: "Was a visit" },
+      question = optimisticRecord({ id: "q", kind: "question", title: "Ask about sleep", body: "", child_id: null, occurred_at: "2026-11-01T00:00:00.000Z", data: { event_id: "was" } });
+    setup([family, question]);
+    mock.params = { id: "was" };
+    await mount(EventDetail);
+    expect(renderer!.root.findAll((n) => String(n.type) === "VisitLinks")[0].props.visit.id).toBe("was");
+    expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(0);
+    expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")).toHaveLength(0);
+    await press("Button", "Delete event");
+    expect(mock.alerts[0][1]).toContain("Its questions and notes stay in your Journal");
   });
   it("with the family flag off, asks nothing and adds nothing", async () => {
     const b = await openNew();

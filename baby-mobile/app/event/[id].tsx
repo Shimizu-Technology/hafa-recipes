@@ -10,9 +10,9 @@ import { dayKey, recordDay } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { Button, Card, Copy, Grouped, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { CategoryTile, openEvent } from "@/components/event-row";
-import { VisitSections } from "@/components/visit-sections";
+import { VisitLinks, VisitSections } from "@/components/visit-sections";
 import { useUpcomingEvents } from "@/lib/use-events";
-import { visitAfter } from "@/lib/visits";
+import { visitAfter, visitNotes, visitQuestions } from "@/lib/visits";
 import { familySpaces } from "../../lib/spaces";
 
 /** One event, on the date she opened. A repeating event says which dates a change reaches before making it. */
@@ -75,9 +75,9 @@ export default function EventDetail() {
     {appointment && <Button size="lg" icon="calendar-outline" title="Book next"
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
     {booked && <Row numericDetail title="Next visit" detail={eventWhen(booked, today, timezone)} icon="calendar-outline" onPress={() => openEvent(booked)} />}
-    {appointment && <VisitSections visit={row} />}
+    {appointment ? <VisitSections visit={row} /> : <VisitLinks visit={row} />}
     {asking === "edit" ? scopes : <Button secondary size="lg" icon="pencil-outline" title="Edit event" onPress={() => repeating ? setAsking("edit") : edit()} />}
-    {asking === "delete" ? scopes : <Button variant="destructive" title="Delete event" onPress={() => repeating ? setAsking("delete") : Alert.alert("Delete this event?", appointment ? "This removes it from your calendar. Its questions and notes stay in your Journal." : "This removes it from your calendar.", [
+    {asking === "delete" ? scopes : <Button variant="destructive" title="Delete event" onPress={() => repeating ? setAsking("delete") : Alert.alert("Delete this event?", appointment || visitQuestions(b.records, row.id).length + visitNotes(b.records, row.id).length > 0 ? "This removes it from your calendar. Its questions and notes stay in your Journal." : "This removes it from your calendar.", [
       { text: "Keep it", style: "cancel" },
       { text: "Delete event", style: "destructive", onPress: () => void remove(deleteAll, "Event removed.") },
     ])} />}

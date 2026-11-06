@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Text, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { allDayChanged, attendeesFrom, categoryChoices, categoryValue, chooseCategory, dayName, detailsLine, detailsSet, herCategories, quickEvent, quickEvents, reminderChoices, reminderValue, repeatName, selectedSuggestion, startingAt, usedEventNames } from "@/lib/events";
@@ -37,7 +37,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     [people, setPeople] = useState((data.attendees ?? []).join(", ")),
     reminders = data.reminder_minutes ?? [], remindersOn = !!b.state.bootstrap!.reminders?.push,
     labels = useMemo(() => [...new Set([...herCategories(pendingRecords(b.state)), ...(data.category_label ? [data.category_label] : [])])], [draft.existing]),
-    [naming, setNaming] = useState(false),
+    [naming, setNaming] = useState(false), setAside = useRef<string | null | undefined>(null),
     bootstrap = b.state.bootstrap!, choice = choiceFor(bootstrap, draft),
     space = choice?.space_id,
     // An event and its baby stay in one space, so only the babies in this one are offered.
@@ -45,10 +45,15 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     place = choice ? (choice.shared ? "Shared with family" : "Just me") : "",
     // Choosing where it goes can't leave it pointing at a baby who isn't there.
     share = (shared: boolean) => {
-      const target = shared ? familyId(bootstrap) : bootstrap.personal_space_id,
-        keeps = children.some((child) => child.id === draft.child_id && child.space_id === target);
-      change({ shared, child_id: keeps ? draft.child_id : null });
-    };
+      const target = shared ? familyId(bootstrap) : bootstrap.personal_space_id, wanted = shared && !draft.child_id ? setAside.current : draft.child_id,
+        keeps = children.some((child) => child.id === wanted && child.space_id === target);
+      // Set aside rather than lost, so switching back puts her back.
+      setAside.current = !shared && !keeps ? draft.child_id : null;
+      change({ shared, child_id: keeps ? wanted : null });
+    },
+    // A private event can't be on a baby the family shares. Only said when there's one it could have been on.
+    offFamilyBaby = !!choice && !choice.shared && children.some((child) => child.space_id !== bootstrap.personal_space_id),
+    baby = draft.child_id ? children.find((child) => child.id === draft.child_id) : undefined;
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="What’s happening?" />
@@ -59,7 +64,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       ? <DateField label="When" dateOnly value={key} onChange={(day) => change({ occurred_at: zonedInstant(day, 0, 0, zone).toISOString() })} trailing={<AllDay on onPress={() => change(allDayChanged(draft, false))} />} />
       : <DateField label="When" timeZone={zone} value={draft.occurred_at} onChange={(start) => change(startingAt(draft, start))} trailing={<AllDay on={false} onPress={() => change(allDayChanged(draft, true))} />} />}
     {/* Book next carries over what the last visit had, and is still one tap from saving. */}
-    <Disclosure title="More details" detail={[detailsLine(draft, remindersOn), place].filter(Boolean).join(" · ")} startOpen={(draft.existing || quick) && detailsSet(draft, remindersOn)}>
+    <Disclosure title="More details" detail={[detailsLine(draft, remindersOn), baby && babyLabel(baby, bootstrap), place].filter(Boolean).join(" · ")} startOpen={(draft.existing || quick) && detailsSet(draft, remindersOn)}>
       {!one && <Copy kind="small">Repeat</Copy>}
       {!one && <FilterChips label="Repeat" value={rule?.frequency ?? ""} options={[{ label: "Doesn’t repeat", value: "" }, ...repeats]}
         onChange={(frequency) => set({ recurrence: frequency ? { ...rule, interval: rule?.frequency === frequency ? rule.interval : 1, frequency: frequency as EventRecurrence["frequency"] } : null })} />}
@@ -81,6 +86,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       {!!choice && <Copy kind="small">Who can see this</Copy>}
       {!!choice && <FilterChips label="Who can see this" value={choice.shared ? "shared" : "just_me"} options={[{ label: "Shared with family", value: "shared" }, { label: "Just me", value: "just_me" }]}
         onChange={(value) => share(value === "shared")} />}
+      {offFamilyBaby && <Copy kind="small" tone="muted">A Just me event can’t be on the family’s baby.</Copy>}
     </Disclosure>
   </>;
 }

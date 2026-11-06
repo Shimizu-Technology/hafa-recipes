@@ -87,6 +87,21 @@ export function VisitSections({ visit }: { visit: Visit }) {
     </View>
   </>;
 }
+/** What's already on an event that's no longer an appointment. Changing its category doesn't take her words away. */
+export function VisitLinks({ visit }: { visit: Pick<BabyRecord, "id"> }) {
+  const b = useBaby(), questions = visitQuestions(b.records, visit.id), notes = visitNotes(b.records, visit.id);
+  useVisitRecords(visit.id, true);
+  return <>
+    {questions.length > 0 && <View style={{ gap: 10 }}>
+      <Copy kind="heading">Questions for the doctor</Copy>
+      <Grouped>{questions.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.question} onPress={() => openRecord(row)} />)}</Grouped>
+    </View>}
+    {notes.length > 0 && <View style={{ gap: 10 }}>
+      <Copy kind="heading">What the doctor said</Copy>
+      <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.journal} onPress={() => openRecord(row)} />)}</Grouped>
+    </View>}
+  </>;
+}
 function linked(b: ReturnType<typeof useBaby>, row: BabyRecord, eventId: string | null) {
   return { id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "save" as const, record: { ...row, data: { ...row.data, event_id: eventId } }, files: [] };
 }
