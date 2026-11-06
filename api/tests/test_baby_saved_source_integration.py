@@ -176,7 +176,9 @@ async def test_pre_upgrade_source_creation_replay_preserves_original_fingerprint
 
 
 @pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
-async def test_unreadable_photo_retry_improves_the_same_private_source(baby_api, monkeypatch, tmp_path):
+@pytest.mark.parametrize("family_enabled", [False, True])
+async def test_unreadable_photo_retry_improves_the_same_private_source(baby_api, monkeypatch, tmp_path, family_enabled):
+    baby_api.settings.baby_family_enabled = family_enabled
     from pillow_heif import from_pillow
 
     from app.domains.baby import processing

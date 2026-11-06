@@ -254,7 +254,7 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         BabyImport.id != row.id, BabyImport.status.in_(["queued", "processing"])).limit(1))
     if active:
         raise HTTPException(409, "This source is already processing")
-    row.request = {**row.request, "attachment_ids": source.data.get("attachment_ids", []),
+    refreshed_request = {**row.request, "attachment_ids": source.data.get("attachment_ids", []),
                    "url": source.data.get("url"),
                    "text": (source.body or source.data.get("user_text")) if source.data.get("url") or source.data.get("attachment_ids") else row.request.get("text")}
     await validate_relations(
@@ -262,10 +262,11 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         access,
         generation,
         source.child_id,
-        {"attachment_ids": row.request.get("attachment_ids", [])},
+        {"attachment_ids": refreshed_request["attachment_ids"]},
     )
     if access.enabled:
         member = await membership_for(db, row.app_user_id)
+    row.request = refreshed_request
     # Retry is an explicit request, independent of automatic-share permission.
     if row.request.get("automatic"):
         row.request = {
