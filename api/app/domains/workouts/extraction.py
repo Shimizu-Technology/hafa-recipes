@@ -812,7 +812,7 @@ class ProductionSourceAcquirer:
                         SourceImage(
                             f"image:{index}",
                             "data:image/webp;base64,"
-                            + base64.b64encode(normalized_image.data).decode(),
+                            + base64.b64encode(normalized_image.data).decode(), normalized=True,
                         )
                     )
                     source.metadata.coverage_notes.append(
@@ -904,7 +904,7 @@ class ProductionSourceAcquirer:
                     result.append(
                         SourceImage(
                             f"image:{index}",
-                            "data:image/webp;base64," + base64.b64encode(normalized.data).decode(),
+                            "data:image/webp;base64," + base64.b64encode(normalized.data).decode(), normalized=True,
                         )
                     )
         return result
