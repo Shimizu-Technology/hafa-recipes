@@ -66,9 +66,11 @@ export function TrackerContent({ pushed = false }: { pushed?: boolean }) {
     expecting = !!child && !logging && todayStage(child, keyDate(today)) !== "none",
     stage = child ? trackerStage(child, keyDate(today)) : "born",
     onNow = child ? trackersFor(stage).filter((tracker) => trackerOn(tracker, stage, child.details)) : [],
+    // A link can show a baby other than the selected one. A screen a tile opens goes by the selected one, so those wait until she switches.
+    elsewhere = pushed && !!scope && scope !== timingChild(b.state, keyDate(today))?.id,
     // Add logs today, so another day keeps a way to log the rest, short of what she's turned off.
-    moreShown = day !== today ? panelTrackers(stage).filter((tracker) => child?.details?.tracking?.[trackingKey(tracker.id, stage)] !== false)
-      : onNow.filter((tracker) => tracker.opens !== "quick-log" || !logging),
+    moreShown = (day !== today ? panelTrackers(stage).filter((tracker) => child?.details?.tracking?.[trackingKey(tracker.id, stage)] !== false)
+      : onNow.filter((tracker) => tracker.opens !== "quick-log" || !logging)).filter((tracker) => !elsewhere || tracker.opens === "panel"),
     // Before the birth she lands on the calendar. Day has what she can log, Today and Add have it too.
     view = chosenView ?? (expecting ? "month" : "day"),
     stats = useCareStats(view === "stats" ? statsChoice : null, scope),
@@ -94,7 +96,7 @@ export function TrackerContent({ pushed = false }: { pushed?: boolean }) {
     if (linked) { setPicked(linked === today ? null : linked); setView("day"); }
     if (pushed && params.child) setLinkedChild(params.child);
   }, [params.day, params.child, params.at]);
-  const addEvent = (key: string) => router.push({ pathname: "/edit", params: { kind: "event", day: key } }),
+  const addEvent = (key: string) => router.push({ pathname: "/edit", params: { kind: "event", day: key, ...(pushed && scope ? { child: scope } : {}) } }),
     pick = (key: string) => setPicked(key === today ? null : key),
     logRow = (entry: (typeof rows)[number]) => <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} logged={familyLine(entry, care.all, b.state.bootstrap, b.owner)} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />,
     blank = (() => {
@@ -156,6 +158,7 @@ export function TrackerContent({ pushed = false }: { pushed?: boolean }) {
       <View>
         {/* Ask goes by the selected baby, so it can't be offered about a different one on screen. */}
         {!future && askV2Active(b.state.bootstrap) && (!pushed || scope === b.state.selectedChild) && <QuietRow title="Ask about this day" onPress={() => router.push({ pathname: "/ask-entry", params: { date: day } })} />}
+        {elsewhere && <QuietRow title={`Switch to ${child!.name} for timers and more`} onPress={() => void b.commit((s) => ({ ...s, selectedChild: scope }))} />}
         <QuietRow title="Care history" onPress={() => router.push("/care-history")} />
         {!!child && canChangeBaby(b.state.bootstrap, child) && <QuietRow title="What shows" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
       </View>

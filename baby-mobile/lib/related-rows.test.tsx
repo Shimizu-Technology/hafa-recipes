@@ -31,7 +31,17 @@ afterEach(async () => { await act(async () => renderer?.unmount()); renderer = u
 it("names its day and its baby in words, and keeps its visit with them", async () => {
   await mount(writing({ child_id: "mia" }));
   expect(rows().map((props) => [props.title, props.detail])).toEqual([["On October 26", "Open this day"], ["For Mia", "Baby profile"]]);
-  expect(renderer!.root.findAll((n) => String(n.type) === "RecordVisit")).toHaveLength(1);
+});
+it("only looks for a visit on a question, or an entry that's on one", async () => {
+  const visits = () => renderer!.root.findAll((n) => String(n.type) === "RecordVisit").length;
+  await mount(writing({ child_id: "mia" }));
+  expect(visits()).toBe(0);
+  await act(async () => renderer?.unmount());
+  await mount(writing({ child_id: "mia", data: { event_id: "visit" } }));
+  expect(visits()).toBe(1);
+  await act(async () => renderer?.unmount());
+  await mount(writing({ child_id: "mia", kind: "question" }));
+  expect(visits()).toBe(1);
 });
 it("carries its own baby and day to Tracker with a fresh token, leaving the selected baby alone", async () => {
   m.baby.state.selectedChild = "noa";

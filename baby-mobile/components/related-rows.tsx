@@ -35,7 +35,8 @@ export function RelatedRows({ record }: { record: BabyRecord }) {
         {!!baby && <Row title={`For ${babyLabel(baby, bootstrap)}`} detail="Baby profile" icon="person-outline"
           onPress={() => router.push({ pathname: "/child", params: { id: baby.id } })} />}
       </Grouped>}
-      <RecordVisit record={record} />
+      {/* Offering a visit is for a question. A journal entry only shows the one it's already on, so nothing is fetched for the rest. */}
+      {(record.kind === "question" || !!record.data.event_id) && <RecordVisit record={record} />}
     </View>
   </Section>;
 }

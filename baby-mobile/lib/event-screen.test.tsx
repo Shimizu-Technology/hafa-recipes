@@ -160,6 +160,21 @@ it("All future sends both parts with the baby it shows, when a held draft has on
   expect(split.series.child_id).toBe("ours");
   expect(split.event.child_id).toBe("ours");
 });
+it("adding from a day that shows one baby is for that baby, whichever is selected", async () => {
+  setup([]);
+  Object.assign(mock.baby.state.bootstrap, { children: [{ id: "baby", name: "Noa", revision: 1 }, { id: "sister", name: "Mia", revision: 1 }] });
+  mock.baby.state.selectedChild = "baby";
+  mock.params = { kind: "event", day: "2026-12-20", child: "sister" };
+  await mount(Edit);
+  expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("sister");
+});
+it("ignores a baby in the link who isn't on this account", async () => {
+  setup([]);
+  mock.baby.state.selectedChild = "baby";
+  mock.params = { kind: "event", day: "2026-12-20", child: "gone" };
+  await mount(Edit);
+  expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("baby");
+});
 it("All future can't start before the date it changes from, which the old series keeps", async () => {
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };

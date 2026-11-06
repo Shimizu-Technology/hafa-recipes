@@ -54,6 +54,7 @@ vi.mock("@/components/calendar-day", () => import("../components/calendar-day"))
 vi.mock("@/components/tracker-stats", () => ({ TrackerStats: "TrackerStats" }));
 vi.mock("@/lib/use-care-stats", () => ({ useCareStats: (choice: unknown, child: unknown) => { mock.statsAsks.push([choice, child]); return { loading: false, refresh: mock.statsRefresh }; } }));
 import Tracker, { TrackerContent } from "../app/(tabs)/tracker/index";
+import Day from "../app/day";
 import { TimelineRow, timelineDetail } from "../components/tracker-day";
 import { timelineKinds } from "./tracker";
 import { ChildFilter } from "@/components/child-filter";
@@ -151,6 +152,35 @@ describe("opened on top of an entry, for its baby and day", () => {
     two();
     mock.params = { day: "2026-10-26", child: "removed", at: "1" };
     await open();
+    expect(mock.summaries.at(-1)![0]).toBe("baby");
+  });
+  it("won't open a screen that goes by the selected baby from another baby's day, and offers to switch", async () => {
+    two();
+    await open();
+    expect(mock.more.at(-1).shown.every((tracker: any) => tracker.opens === "panel")).toBe(true);
+    const row = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").find((n) => /^Switch to/.test(n.props.title));
+    expect(row()).toBeDefined();
+    await act(async () => row()!.props.onPress());
+    expect(mock.baby.commit).toHaveBeenCalledTimes(1);
+    expect(mock.baby.commit.mock.calls[0][0]({ selectedChild: "baby" }).selectedChild).toBe("sister");
+  });
+  it("has nothing to switch when the link's baby is the selected one", async () => {
+    two();
+    mock.params = { ...mock.params, child: "baby" };
+    await open();
+    expect(renderer!.root.findAll((n) => String(n.type) === "QuietRow").some((n) => /^Switch to/.test(n.props.title))).toBe(false);
+  });
+  it("says a link's baby has gone, rather than showing and logging for another", async () => {
+    two();
+    mock.params = { day: "2026-10-26", child: "removed", at: "1" };
+    await act(async () => { renderer = create(<Day />); });
+    expect(JSON.stringify(renderer!.toJSON())).toMatch(/isn’t on this account now/);
+    expect(mock.summaries).toEqual([]);
+  });
+  it("still opens a linked day with no baby named", async () => {
+    two();
+    mock.params = { day: "2026-10-26", at: "1" };
+    await act(async () => { renderer = create(<Day />); });
     expect(mock.summaries.at(-1)![0]).toBe("baby");
   });
   it("leaves the tab itself on the selected baby, whatever a link says", async () => {
