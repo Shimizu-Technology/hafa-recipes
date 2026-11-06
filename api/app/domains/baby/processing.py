@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import read_bytes
-from app.domains.baby.provider import budget_failure_message
+from app.domains.baby.provider import MAX_SOURCE_IMAGES, budget_failure_message
 from app.domains.baby.schemas import CategorySuggestion, SourceData, SourceRelevance
 from app.domains.workouts.budget import BudgetError
 from app.domains.workouts.extraction import (
@@ -123,6 +123,12 @@ def states_bounds(quote, weeks, ages, unit):
 
     A lower bound of 0 is the same as no start, so it needs no stated number.
     """
+    # Hashtags are literal source text too; preserve their quote while reading
+    # the explicitly named trimester, not a guessed age from a topic.
+    quote = [part for word in quote for part in (
+        [word[:-9], "trimester"] if word in {"firsttrimester", "secondtrimester", "thirdtrimester", "fourthtrimester"}
+        else [word]
+    )]
     said = stated_numbers(quote)
     week_bounds, age_bounds = set(said), set(said)
     if {"trimester", "trimesters"} & set(quote):
@@ -345,7 +351,27 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             break
         retained.append(SourcePart(part.location, part.text[:remaining]))
         remaining -= len(part.text)
-    source.parts, source.images = retained, source.images[:8]
+    source.parts = retained
+    if len(source.images) > MAX_SOURCE_IMAGES:
+        source.metadata.coverage_notes.append(
+            f"Only the first {MAX_SOURCE_IMAGES} of {len(source.images)} images were read; remaining images were left out."
+        )
+    # Remote images are already normalized; uploaded images still need the same
+    # dimensions/byte bounds before the model, with no retained derived media.
+    from app.image_validation import decode_and_validate_base64_image, normalize_thumbnail_image
+
+    images, total = [], 0
+    for image in source.images[:MAX_SOURCE_IMAGES]:
+        try:
+            valid = decode_and_validate_base64_image(image.data_url.split(",", 1)[1], max_bytes=4 * 1024 * 1024)
+            normalized = normalize_thumbnail_image(valid, max_dimension=1600)
+            if total + len(normalized.data) > 12 * 1024 * 1024:
+                raise ValueError("Combined image limit")
+            total += len(normalized.data)
+            images.append(SourceImage(image.location, "data:image/webp;base64," + base64.b64encode(normalized.data).decode()))
+        except Exception:
+            source.metadata.coverage_notes.append(f"Image {image.location} could not be read; its details may be missing.")
+    source.images = images
     title = source.metadata.title
     summary, topics = None, request.get("topics", [])
     key_points, steps = [], []
@@ -391,7 +417,10 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         for part in source.parts
         if part.text.strip()
     ][:100]
-    text = "\n\n".join(part.text for part in source.parts)[:100000]
+    readable = "\n\n".join(part.text for part in source.parts)
+    if len(readable) > 100000:
+        source.metadata.coverage_notes.append("Read text exceeds the saved-text limit; some text was left out.")
+    text = readable[:100000]
     notes = list(dict.fromkeys([*source.metadata.coverage_notes, *failures]))[:30]
     incomplete = failures or not text or any(
         not sampling_disclosure(note) for note in source.metadata.coverage_notes
@@ -418,5 +447,5 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         "status": status,
         "error": budget_failure_message(budget_failure)
         if budget_failure
-        else ("Some source details need review. Your original is saved." if failures else None),
+        else (failures[0] if failures else None),
     }

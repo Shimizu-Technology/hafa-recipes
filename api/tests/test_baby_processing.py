@@ -14,7 +14,7 @@ async def test_import_keeps_text_and_only_accepts_actual_visual_locations(monkey
     source = SourceBundle(
         SourceMetadata(title="Original video", platform="tiktok"),
         parts=[SourcePart("caption", "Original creator claim")],
-        images=[SourceImage("image:0", "data:image/png;base64,fixture")],
+        images=[SourceImage("image:0", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg==")],
     )
 
     class Acquirer:
@@ -312,3 +312,47 @@ async def test_extraction_contract_requires_and_returns_a_source_title(monkeypat
     monkeypatch.setattr(provider, "json_call", json_call)
     result = await provider.extract(SourceBundle(SourceMetadata(), parts=[SourcePart("text", "Feeding cues")]))
     assert result.title == "Recognizing feeding cues"
+
+
+async def test_labelled_slide_lists_survive_source_schema_and_image_cap(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.domains.baby.provider import BabyProvider
+
+    image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg=="
+    source = SourceBundle(SourceMetadata(), images=[SourceImage(f"image:{i}", image) for i in range(36)])
+    class Acquirer:
+        def __init__(self, **kwargs): pass
+        async def acquire(self, *args, **kwargs): return source
+    result = ExtractionOutput(title="Hospital bag", summary="The creator lists packing items.",
+        key_points=["For labor: heating pad; excited to try a comb. (slide 2)"],
+        visual_text=[{"location":"image:34", "text":"for postpartum"}, {"location":"image:35", "text":"omitted image"}],
+        relevance={"stage":"postpartum", "quote":"for postpartum"},
+        suggested_category={"name":"Hospital Bag", "confidence":.9})
+    calls = AsyncMock(return_value=result)
+    monkeypatch.setattr(BabyProvider, "json_call", calls)
+    # Inspect the real provider's image list and prompt without spending.
+    await BabyProvider().extract(source)
+    assert sum(c.get("type")=="image_url" for c in calls.call_args.kwargs["content"]) == 35
+    assert calls.call_args.kwargs["max_tokens"] == 6000
+    monkeypatch.setattr(processing, "ProductionSourceAcquirer", Acquirer)
+    provider = SimpleNamespace(enabled=True, extract=AsyncMock(return_value=result))
+    saved = await processing.process_capture({"url":"https://example.com/post"}, [], provider, may_use_ai=True, gate=AsyncMock())
+    assert saved["data"]["key_points"] == result.key_points
+    assert saved["data"]["suggested_category"]["name"] == "Hospital Bag"
+    assert saved["data"]["relevance"]["stage"] == "postpartum"
+    assert "omitted image" not in saved["data"]["source_text"]
+    assert saved["status"] == "incomplete" and any("35 of 36" in n for n in saved["data"]["coverage_notes"])
+
+
+def test_trimester_hashtag_is_stated_timing_without_transcript():
+    relevance = processing.stated_relevance(
+        {"stage":"pregnancy", "pregnancy_week_min":28, "quote":"#thirdtrimester"},
+        ["Hospital bag #thirdtrimester"],
+    )
+    assert relevance and relevance.pregnancy_week_min == 28
+
+
+def test_expanded_photo_output_is_reserved_before_call():
+    from app.domains.baby.budget import upper_bound
+    assert upper_bound("baby_extraction", "gpt-5.6-luna", images=True, max_output_tokens=6000) == 535800

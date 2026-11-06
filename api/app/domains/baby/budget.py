@@ -125,7 +125,7 @@ class QuestionBudget:
         self.research_calls += 1
 
 
-def upper_bound(capability, model, *, images=False, duration=None):
+def upper_bound(capability, model, *, images=False, duration=None, max_output_tokens=LEGACY_MAX_OUTPUT):
     # Reuse the platform's verified conservative model/endpoint envelope
     # calculation, without borrowing Workouts' permissions, data or ledger.
     if capability == "baby_transcription":
@@ -139,7 +139,7 @@ def upper_bound(capability, model, *, images=False, duration=None):
     else:
         envelope = ProviderEnvelope(
             endpoint="chat_completions",
-            max_output_tokens=LEGACY_MAX_OUTPUT,
+            max_output_tokens=max_output_tokens,
             includes_images=images,
             service_tier="default",
             sdk_max_retries=0,
@@ -172,11 +172,11 @@ async def spent(db, owner, attempts_counted):
     return total, owner_total, count
 
 
-async def reserve(capability, model, *, images=False, duration=None, sessions=None):
+async def reserve(capability, model, *, images=False, duration=None, max_output_tokens=LEGACY_MAX_OUTPUT, sessions=None):
     context = current_ai_context()
     if not context.user_id:
         raise BudgetError("workouts_ai_budget_unavailable")
-    amount = upper_bound(capability, model, images=images, duration=duration)
+    amount = upper_bound(capability, model, images=images, duration=duration, max_output_tokens=max_output_tokens)
     async with (sessions or AsyncSessionLocal)() as db:
         member = await membership_for(db, context.user_id, write=True)
         if not member.profile.get("ai_consent"):

@@ -172,3 +172,38 @@ async def test_pre_upgrade_source_creation_replay_preserves_original_fingerprint
     changed = await baby_api.client.post("/api/v1/baby/records", headers=shared.GEN,
                                         json={**request, "data": {**request["data"], "key_points": ["New claim"]}})
     assert changed.status_code == 409
+
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_unreadable_photo_retry_improves_the_same_private_source(baby_api):
+    from app.domains.baby.runtime import BabyWorker
+    c = baby_api.client
+    body = {"id": str(uuid4()), "url": "https://www.tiktok.com/@synthetic/photo/123"}
+    created = await c.post("/api/v1/baby/imports", headers=shared.GEN, json=body)
+    assert created.status_code == 200
+    record_id = created.json()["record_id"]
+
+    async def unreadable(*args, **kwargs):
+        return {"data": {"status":"incomplete", "source_text":""}, "status":"incomplete",
+                "error":"The linked source could not be read. The original link remains saved."}
+
+    worker = BabyWorker(baby_api.sessions, processor=unreadable)
+    assert await worker.tick()
+    assert (await c.get(f"/api/v1/baby/records/{record_id}")).json()["data"]["url"] == body["url"]
+    retried = await c.post(f"/api/v1/baby/imports/{body['id']}/retry", headers=shared.GEN)
+    assert retried.status_code == 200 and retried.json()["record_id"] == record_id
+
+    async def readable(*args, **kwargs):
+        return {"title":"Hospital bag", "status":"ready", "data":{
+            "status":"ready", "source_text":"for labor: heating pad", "summary":"The creator's list.",
+            "key_points":["For labor: heating pad. (slide 2)"],
+            "evidence":[{"location":"image:1", "text":"for labor: heating pad"}]}}
+
+    worker.processor = readable
+    assert await worker.tick()
+    saved = (await c.get(f"/api/v1/baby/records/{record_id}")).json()
+    assert saved["title"] == "Hospital bag" and saved["data"]["status"] == "ready"
+    assert saved["data"]["key_points"] == ["For labor: heating pad. (slide 2)"]
+    assert saved["data"]["url"] == body["url"]
+    assert (await c.get("/api/v1/baby/records?kind=source")).json()["total"] == 1
+    assert (await c.get(f"/api/v1/baby/records/{record_id}", headers={"X-Test-Owner":"other"})).status_code == 404

@@ -23,6 +23,8 @@ from app.domains.baby.budget import SEARCH_CALL_MICROUSD, AskCall, reserve, rese
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
 
+MAX_SOURCE_IMAGES = 35
+
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 DAILY_LIMIT_CODE = "baby_ai_daily_limit"
 DAILY_LIMIT_MESSAGE = (
@@ -57,7 +59,7 @@ class ExtractionOutput(DomainModel):
         default_factory=list, max_length=30
     )
     topics: list[str] = Field(default_factory=list, max_length=30)
-    visual_text: list[Evidence] = Field(default_factory=list, max_length=30)
+    visual_text: list[Evidence] = Field(default_factory=list, max_length=70)
     # Parsed defensively in processing: a malformed timing or category guess
     # drops only that suggestion, never the organized source.
     relevance: Any = None
@@ -220,6 +222,7 @@ class BabyProvider:
         await self._reserve(
             capability,
             model,
+            max_output_tokens=max_tokens,
             images=any(item.get("type") == "image_url" for item in content)
             if isinstance(content, list)
             else False,
@@ -228,11 +231,12 @@ class BabyProvider:
         async with AIInvocationTracker(
             capability=capability,
             primary_model=model,
-            prompt_version="baby-private-v1",
+            prompt_version="baby-photo-evidence-v2" if capability == "baby_extraction" else "baby-private-v1",
             schema_version="baby-v1",
             allow_canary=False,
             rollout_variant="primary",
         ) as invocation:
+            data = None
             try:
                 async with httpx.AsyncClient(
                     timeout=75, transport=httpx.AsyncHTTPTransport(retries=0)
@@ -264,10 +268,10 @@ class BabyProvider:
                 invocation.succeed(data)
                 return result
             except asyncio.CancelledError:
-                invocation.fail("cancelled")
+                invocation.fail("cancelled", data)
                 raise
             except Exception as failure:
-                invocation.fail("baby_provider_failed")
+                invocation.fail("baby_provider_failed", data)
                 raise provider_failure(failure) from None
 
     async def extract(self, source, categories=None):
@@ -287,10 +291,10 @@ class BabyProvider:
                 ),
             }
         ]
-        for image in source.images[:8]:
+        for image in source.images[:MAX_SOURCE_IMAGES]:
             content.extend(
                 [
-                    {"type": "text", "text": f"Sample location: {image.location}"},
+                    {"type": "text", "text": f"Source location: {image.location} (image:N means slide N+1)"},
                     {"type": "image_url", "image_url": {"url": image.data_url, "detail": "high"}},
                 ]
             )
@@ -301,13 +305,20 @@ class BabyProvider:
                 "Return JSON {title,summary,key_points:[],steps:[],topics,visual_text:[{location,text}],relevance,suggested_category}. "
                 "title is a short, descriptive title grounded in the source, never a generic placeholder. "
                 "Write a concise summary (1-3 sentences) attributed to the source/creator, using ONLY supported source claims. "
-                "key_points contains up to 12 useful, actionable source-supported takeaways, each at most 600 characters. "
+                "Read all supplied images in order. On-image text and labels are primary source content, especially "
+                "when the caption is thin. Capture labelled lists (e.g. for labor, baby, mom, self-care, nursing, postpartum) "
+                "as grouped key_points, preserving the listed items and their slide numbers; do not turn a packing list into steps. "
+                "key_points contains up to 12 useful, source-supported takeaways, each at most 600 characters. "
+                "Group related items to retain coverage. Label visual facts '(slide N)' using the provided image index + 1. "
                 "steps contains up to 30 ordered steps, each at most 600 characters, ONLY when explicitly given in the source; "
                 "otherwise return []. Never invent medical or care instructions or expand a promotional caption into a procedure. "
                 "Attribute advice to the source, preserve uncertainty and conflicting claims. Do not prescribe, diagnose, "
                 "endorse medical advice, infer an age, or activate routines. Missing details remain missing. "
                 "visual_text is literal readable text from each image, with the exact provided image location; omit unreadable text. "
-                "Do not put text that is merely inferred from an image in visual_text. Up to 12 brief topic names. "
+                "Do not put text that is merely inferred from an image in visual_text. Keep the literal labels and useful "
+                "qualifiers (e.g. 'excited to try') in visual_text, up to 70 entries. A product or creator's medical claim is "
+                "only their claim: never state that it works or is recommended. Music/lyrics do not support care advice. "
+                "Up to 12 brief topic names. "
                 "Sources may concern pregnancy, postpartum care, feeding, labor preparation, relationships, or anything the parent saved. "
                 "relevance is null unless the source itself (caption, speech or on-screen text) states WHEN the advice applies. "
                 "Otherwise relevance is {stage:'pregnancy'|'postpartum'|'baby'|null,pregnancy_week_min,pregnancy_week_max,"
@@ -323,6 +334,7 @@ class BabyProvider:
             ),
             content=content,
             output_model=ExtractionOutput,
+            max_tokens=6000,
         )
 
     async def answer(
