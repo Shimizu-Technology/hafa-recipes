@@ -23,7 +23,7 @@ import { TimingEditor, TimingRow } from "@/components/timing-editor";
 import { RecordVisit } from "@/components/visit-sections";
 import { ShareToggle } from "@/components/share-toggle";
 import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
-import { ensureAiConsent } from "../../lib/ai-consent";
+import { SourceRecovery } from "@/components/source-recovery";
 import { babyLabel, isCaregiver } from "../../lib/spaces";
 import { ApiError } from "../../lib/api";
 export default function RecordDetail() {
@@ -249,33 +249,7 @@ export default function RecordDetail() {
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
       />}
       </Grouped>
-      {record.kind === "source" && <Section title="Read this post">
-        <Button
-          secondary
-          title={data.status === "saved" ? "Read original with AI" : "Try reading this post again"}
-          icon="sparkles-outline"
-          onPress={() => {
-            void ensureAiConsent(b).then((allowed) => !allowed ? undefined : b
-              .queue({
-                id: Crypto.randomUUID(),
-                type: "import",
-                record_id: record.id,
-                attachment_ids: data.attachment_ids,
-                generation: b.state.bootstrap!.generation,
-                url: data.url,
-                text: [record.body, data.source_text].filter(Boolean).join("\n\n") || undefined,
-                files: [],
-                child_id: record.child_id,
-                topics: data.topics,
-              })
-              .then(() => toast("Original preserved. Processing is queued.")))
-              .catch((e) => setError(messageFor(e)));
-          }}
-        />
-        <Button secondary title="Add screenshots or missing text" icon="images-outline"
-          onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: "source" } })} />
-        <Copy kind="small" tone="muted">Add photos in the editor, then choose Process & organize with AI. This updates the same saved post.</Copy>
-      </Section>}
+      <SourceRecovery record={record} onError={setError} />
       <Button
         variant="destructive"
         title="Delete this entry"

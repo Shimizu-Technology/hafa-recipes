@@ -57,3 +57,11 @@ it("keeps actual incomplete/budget/provider failures in attention cards with ret
 it.each(["cancelled","canceled"])("keeps %s sources visible with Retry",status=>{
   expect(importRetryable(status,null)).toBe(true); expect(importCardVisible(status,null)).toBe(true);
 });
+
+it.each([
+  "This post is private or needs permission. Available text and your original link are saved.",
+  "This post is no longer available. Available text and your original link are saved.",
+])("shows the recognized source state: %s", (message) => {
+  expect(importProblem(message)).toBe(message);
+  expect(importProblem("private provider text from an unknown error")).not.toContain("provider text");
+});

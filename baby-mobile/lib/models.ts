@@ -210,6 +210,7 @@ export interface RecordData {
   url?: string;
   topics?: string[];
   source_text?: string;
+  user_text?: string;
   summary?: string;
   key_points?: string[];
   steps?: string[];
