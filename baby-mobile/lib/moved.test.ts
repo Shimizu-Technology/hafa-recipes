@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepInPersonal, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain } from "./outbox";
+import { keepInPersonal, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState } from "./outbox";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -130,18 +130,16 @@ describe("leaving a family, or being removed", () => {
     const draft = { ...write("shared"), body: "half typed", revision: 3, space_id: family, files: [], existing: true } as EditorDraft;
     const next = withoutFamily({ ...before(), drafts: { "record:shared": draft } }, family, uuid);
     expect(next.drafts).toEqual({});
-    const kept = next.outbox.find((m) => m.type === "save" && m.record.id === "shared") as Extract<Mutation, { type: "save" }>;
-    expect(kept).toMatchObject({ left_space: family, error: notSentMessage, record: { body: "half typed" } });
+    expect(next.heldDrafts![0].draft).toMatchObject({ body: "half typed", space_id: family });
+    expect(next.outbox.some((m) => m.type === "save" && m.record.id === "shared")).toBe(false);
   });
   it.each(["", "words I did not save"])("never sends an opened or edited draft on rejoin (%s)", (body) => {
     const draft = { ...write("shared", "event"), body, revision: 3, space_id: family, files: [], existing: true } as EditorDraft;
     const left = withoutFamily({ ...before(), drafts: { "record:shared": draft } }, family, uuid);
     const back = retryUnavailable(rejoined(upgradedState(left), boot()));
-    const held = back.outbox.find((m) => m.type === "save" && m.record.id === "shared")!;
-    expect(held).toMatchObject({ draft_only: true, error: expect.any(String) });
-    expect(retryMutation(held)).toBe(held);
-    expect(pendingRecords(back).some((r) => r.id === "shared")).toBe(false);
-    expect(draftsBeforeFamily(back, boot()).outbox).toEqual(back.outbox);
+    expect(back.heldDrafts![0].draft.body).toBe(body);
+    expect(back.outbox.some((m) => m.type === "save" && m.record.id === "shared")).toBe(false);
+    expect(draftsBeforeFamily(back, boot()).heldDrafts).toEqual(back.heldDrafts);
     expect(settledDraft(draft, back).body).toBe(body);
   });
   it("keeps a saved change separate from the editor draft it preceded", () => {
@@ -151,20 +149,23 @@ describe("leaving a family, or being removed", () => {
     expect(queuedChain(left.outbox, left.outbox[0])).toHaveLength(1);
     const back = rejoined(left, boot());
     expect(back.outbox[0]).toMatchObject({ id: saved.id, error: undefined, left_space: undefined });
-    expect(back.outbox[1]).toMatchObject({ draft_only: true, left_space: family });
+    expect(back.outbox).toHaveLength(1);
+    expect(back.heldDrafts![0].draft.body).toBe("unsaved");
     expect(rejoined(back, boot()).outbox).toEqual(back.outbox);
     const kept = keepInPersonal(left, left.outbox[0], uuid).outbox;
     expect(kept.at(-1)).toMatchObject({ record: { body: "words" } });
-    expect(kept[0]).toMatchObject({ draft_only: true, record: { body: "unsaved" } });
+    expect(kept).toHaveLength(1);
+    expect(left.heldDrafts![0].draft.body).toBe("unsaved");
   });
   it("holds ambiguous saves stopped by the old build for an explicit personal save", () => {
     const old = state({ version: 2, outbox: [{ ...queued, left_space: family, error: notSentMessage }] });
     const next = rejoined(upgradedState(old), boot());
-    expect(next.outbox[0]).toMatchObject({ draft_only: true, error: expect.any(String) });
-    const kept = keepInPersonal(next, next.outbox[0], uuid);
+    expect(next.outbox).toEqual([]);
+    expect(next.heldDrafts![0].draft.body).toBe("words");
+    const kept = keepHeldDraft(next, next.heldDrafts![0].id, uuid);
     expect(kept.outbox[0].space_id).toBe(personal);
     expect(kept.outbox[0].error).toBeUndefined();
-    expect(kept.outbox[0].draft_only).toBeUndefined();
+    expect(kept.heldDrafts).toEqual([]);
     expect(upgradedState(upgradedState(old))).toEqual(upgradedState(old));
   });
   it("takes a new draft's lost baby off it, and leaves the words", () => {
@@ -237,3 +238,50 @@ describe("Keep in my personal space", () => {
   });
 });
 
+
+describe("unfinished work stays outside the queue", () => {
+  const draft = (body: string): EditorDraft => ({ ...write("entry", "feeding", "baby"), body, space_id: family, files: [{ id: "photo", uri: "file:///photo", name: "private.jpg", mime_type: "image/jpeg" }], existing: true });
+  it("never inherits an unsaved file or an ancestor from recovery when the saved editor reopens", () => {
+    const left = withoutFamily(state({ drafts: { d: draft("unsaved") } }), family, uuid), back = rejoined(left, boot());
+    expect(inheritedFiles(back, "entry")).toEqual([]);
+    expect(baseOf(back, "entry")).toEqual({ after: [] });
+    const save = edit("entry", 1);
+    expect(waitingForEarlier([...back.outbox, save], save)).toBe(false);
+    expect(back.heldDrafts![0].draft.files[0].name).toBe("private.jpg");
+  });
+  it("keeps exactly one of two shown drafts, retaining the other's different words and files", () => {
+    const left = withoutFamily(state({ drafts: { a: draft("long unsaved words"), b: draft("original words") } }), family, uuid);
+    const first = keepHeldDraft(left, left.heldDrafts![0].id, uuid);
+    expect((first.outbox[0] as any).record.body).toBe("long unsaved words");
+    expect(first.heldDrafts![0].draft.body).toBe("original words");
+    expect(keepHeldDraft(first, left.heldDrafts![0].id, uuid)).toBe(first);
+    expect(heldDraftWarning(2)).toContain("2 later saved changes");
+  });
+  it("migrates uncertain stopped ancestors with every follow-up, but releases a provably saved base", () => {
+    const saved = { ...edit("saved", 2), base: { after: [] }, left_space: family, space_id: family, draft_only: true },
+      uncertain = { ...edit("entry", 1), left_space: family, space_id: family },
+      tap: Mutation = { id: "tap", generation: 1, space_id: family, type: "feed_action", record_id: "entry", action: { id: "tap", action: "finish", at: "2026-11-06T00:00:00Z" } };
+    const next = rejoined(upgradedState(state({ version: 3, outbox: [uncertain, tap, saved] })), boot());
+    expect(next.outbox.map((m) => m.id)).toEqual([saved.id]);
+    expect(next.outbox[0]).toMatchObject({ left_space: undefined, error: undefined });
+    expect(next.heldDrafts![0].followups).toEqual([tap]);
+  });
+  it("retains Keep on this phone on rejoin, clears its stale family error, and allows deliberate Retry", () => {
+    const row = { ...edit("entry", 1), space_id: family, left_space: family, localOnly: true, error: notSentMessage };
+    const next = rejoined(state({ outbox: [row] }), boot()).outbox[0];
+    expect(next.localOnly).toBe(true); expect(next.left_space).toBeUndefined(); expect(next.error).toBeUndefined();
+    expect(retryMutation(next).localOnly).toBe(false);
+  });
+  it("uses the family generation for a queued row's editor and survives its generation changing", () => {
+    const next = withoutFamily(state({ drafts: { d: draft("words") } }), family, uuid);
+    expect(next.version).toBe(deviceVersion); expect(emptyState().version).toBe(deviceVersion);
+    expect(next.heldDrafts![0].draft.generation).toBe(1);
+    expect(fencedState(next, { generation: 2, spaces: boot().spaces!.map((space) => ({ ...space, generation: space.generation + 1 })) }).heldDrafts).toEqual(next.heldDrafts);
+  });
+});
+
+it("detaches an unreadable family baby from a queued personal journal without changing its words or intent", () => {
+  const note = { ...edit("note", 1), record: write("note", "journal", "baby") } as Mutation;
+  const next = withoutFamily(state({ outbox: [note] }), family, uuid);
+  expect(next.outbox[0]).toMatchObject({ space_id: personal, record: { child_id: null, body: "words" } });
+});

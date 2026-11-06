@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
 import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { keepInPersonal, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { keepInPersonal, keepHeldDraft, heldDraftWarning, queueRemovedUploads, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { savedDetails } from "../lib/saved-details";
@@ -78,6 +78,23 @@ export default function Sync() {
         busy={b.syncing || busy}
         onPress={() => void run(b.sync)}
       />
+      {!!b.state.heldDrafts?.length && <Section title="Unfinished drafts · not sent">
+        {b.state.heldDrafts.map((held) => <Card key={held.id}>
+          <Copy kind="heading">{held.draft.title || "Untitled draft"}</Copy>
+          <Copy>{held.draft.body || "Your unfinished details and files are kept here."}</Copy>
+          <Copy kind="small" tone="muted">{held.draft.files.length ? `${held.draft.files.length} local file(s). ` : ""}This draft won’t sync. Keeping it makes a personal copy without family links.</Copy>
+          <Button secondary title="Keep this draft in my personal space" disabled={busy || b.syncing} onPress={() => Alert.alert("Keep this draft?", heldDraftWarning(held.followups?.length), [
+            { text: "Cancel", style: "cancel" }, { text: "Keep this draft", onPress: () => void run(async () => {
+              await b.commit((s) => keepHeldDraft(s, held.id, Crypto.randomUUID)); await b.sync();
+            }) },
+          ])} />
+          <Button variant="destructive" title="Discard this unfinished draft" disabled={busy || b.syncing} onPress={() => Alert.alert("Discard this draft?", heldDraftWarning(held.followups?.length), [
+            { text: "Keep draft", style: "cancel" }, { text: "Discard draft", style: "destructive", onPress: () => void run(async () => {
+              await b.commit((s) => queueRemovedUploads(s, { ...s, heldDrafts: s.heldDrafts?.filter((one) => one.id !== held.id) }));
+            }) },
+          ])} />
+        </Card>)}
+      </Section>}
       {b.state.outbox.length ? (
         <Section title={pendingChanges(b.state.outbox.length)}>
           {b.state.outbox.map((m) => (
@@ -102,9 +119,7 @@ export default function Sync() {
                     : m.record.title}
               </Copy>
               <Copy kind="small" tone="muted">
-                {m.draft_only
-                  ? "Unfinished draft · not sent"
-                  : m.left_space
+                {m.left_space
                   ? "Not sent"
                   : m.localOnly
                   ? "Kept on this phone · not syncing"
@@ -131,7 +146,7 @@ export default function Sync() {
               ) : (
                 <Copy>{m.record.body || "Care details and attachments are saved with this change."}</Copy>
               )}
-              {m.draft_only ? <Notice>This may be an unfinished draft. It won’t be sent to your family. Keep a copy in your personal space, or discard it.</Notice> : m.error && <Notice error>{m.error}</Notice>}
+              {m.error && <Notice error>{m.error}</Notice>}
               {!!m.left_space && queuedChain(b.state.outbox, m).some((row) => row.type === "save") && (
                 <Button
                   secondary
@@ -261,7 +276,7 @@ export default function Sync() {
                     await b.commit(s => ({ ...s, outbox: s.outbox.map(row => row.id === m.id ? { ...row, localOnly: true } : row) }));
                   })} />
               )}
-              {!m.draft_only && !m.left_space && !m.conflict && (m.error || m.localOnly) && (
+              {!m.left_space && !m.conflict && (m.error || m.localOnly) && (
                 <Button secondary title="Retry" busy={busy} onPress={() => void run(() => retry(m))} />
               )}
               <Button

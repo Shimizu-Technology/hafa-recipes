@@ -214,11 +214,16 @@ describe("reviewing a conflict before replacing the saved version", () => {
   });
 });
 
-it("holds an unfinished family draft without Retry and offers an explicit personal save", async () => {
-  setup([save("draft", "entry", { draft_only: true, left_space: "family", error: "Not sent" })]);
+it("keeps unfinished work separate, never offers Retry, and confirms exact-row Keep and Discard", async () => {
+  const b = setup([]);
+  b.state.heldDrafts = [{ id: "held", draft: { ...(save("draft") as any).record, files: [] }, followups: [action()] }];
   await act(async () => { renderer = create(<Sync />); });
-  const buttons = renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.title);
-  expect(buttons).toContain("Keep in my personal space");
-  expect(buttons).not.toContain("Retry");
-  expect(JSON.stringify(renderer!.toJSON())).toContain("It won’t be sent to your family");
+  const buttons = () => renderer!.root.findAll((n) => String(n.type) === "Button");
+  expect(buttons().map((n) => n.props.title)).not.toContain("Retry");
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("1 pending change");
+  await act(async () => buttons().find((n) => n.props.title === "Keep this draft in my personal space")!.props.onPress());
+  expect(scope.alerts.at(-1)!.message).toContain("1 later saved change");
+  expect(b.commit).not.toHaveBeenCalled();
+  await act(async () => buttons().find((n) => n.props.title === "Discard this unfinished draft")!.props.onPress());
+  expect(scope.alerts.at(-1)!.message).toContain("1 later saved change");
 });

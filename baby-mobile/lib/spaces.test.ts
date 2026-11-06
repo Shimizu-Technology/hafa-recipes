@@ -233,7 +233,7 @@ describe("what an older build mustn't read", () => {
 describe("updating from a build with no spaces", () => {
   const taps = (error: string): Mutation => ({ id: "t", generation: 2, type: "feed_action", record_id: "a", action: { id: "t", action: "finish", at: "2026-11-05T00:00:00.000Z" }, error, sent: true });
   const running = { child_id: "baby", generation: 2, started_at: "2026-11-05T00:00:00.000Z", segments: [{ side: "left" as const, started_at: "2026-11-05T00:00:00.000Z" }] };
-  const old = (): DeviceState => ({ ...emptyState(), bootstrap: off(), feedTimer: running, selectedChild: "baby",
+  const old = (): DeviceState => ({ ...emptyState(), version: 1, bootstrap: off(), feedTimer: running, selectedChild: "baby",
     records: [optimisticRecord(write("a", "diaper"))], fileUploads: { f: "u" },
     drafts: { d: { id: "d", kind: "journal", title: "draft", body: "typed", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {}, files: [] } },
     outbox: [{ ...save("q", "diaper", "baby") }, { ...save("gone", "diaper"), error: unavailableMessage }] });

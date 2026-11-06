@@ -65,9 +65,9 @@ export const spaceFence = (bootstrap: Bootstrap, space?: string): Fence =>
  * Family work on this phone, which an older build mustn't read: it would discard a queued family tap and offer no way
  * back. It refuses a vault of the next version outright, and overwrites nothing.
  */
-export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox">) {
+export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox" | "heldDrafts">) {
   const personal = state.bootstrap?.personal_space_id, elsewhere = (space?: string) => !!space && space !== personal;
-  return familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
+  return !!state.heldDrafts?.length || familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
 }
 /** What can be saved to a family if she says so. Care goes with its baby. */
 const choosable = new Set<Kind>(["source", "journal", "question", "routine", "event", "collection"]);

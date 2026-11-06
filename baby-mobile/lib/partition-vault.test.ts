@@ -229,3 +229,12 @@ describe("family work and a build 35 phone", () => {
     expect(p.family.disk.size).toBe(before.size);
   });
 });
+
+it("fences held-drafts-only storage from the shipped build 35 vault and round-trips every held file", async () => {
+  const { holdsFamilyWork } = await import("./spaces");
+  const f = fixture(), state = { records: [], outbox: [], heldDrafts: [{ id: "held", draft: { body: "unsaved", files: [{ uri: "file:///private.jpg" }] } }] },
+    make = () => createPartitionVault(f.secret, "held-owner", f.uuid, f.files, (_, value) => value, (s) => holdsFamilyWork(s as never) ? 2 : 1);
+  await make().write(state);
+  expect(await make().read()).toEqual(state);
+  await expect(build35(f.secret, "held-owner", f.uuid, f.files).read()).rejects.toThrow(/recovery|overwritten/);
+});
