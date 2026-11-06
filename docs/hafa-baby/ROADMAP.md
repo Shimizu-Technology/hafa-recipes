@@ -420,6 +420,10 @@ Keep `BABY_FAMILY_ENABLED=false` in production while deploying this stack. The l
 
 `GET /changes` is client-3-only and returns 404 with the family gate off. `cursor` and optional `access_version` are JSON maps of space UUIDs to integers (at most eight spaces); `limit` is 1–100 per space. The response has `spaces`, the next `cursor` map, `has_more`, and `removed_space_ids`. Each space page includes `id`, `generation`, `access_version`, `cursor`, `has_more`, `reset`, and `items`. Items carry `seq` and `entity`; removals carry `id`, `removed: true`, and `seq`. No raw import requests, capability hashes or tokens are returned. Pass the last access versions on subsequent pages: `reset: true` requires a fresh snapshot from zero. A missing former space must be purged locally. Pages release their access locks before returning the response and never hold locks during external processing.
 
+### Rollback floor: `category_label`
+
+Once any event has a `category_label`, the API rolls forward only. A release from before it refuses the field: labelled events drop off the calendar, and edits to them are refused, until it's rolled forward again. The rows stay stored. Before any event has one, rolling back is safe.
+
 ### Rehearsal gate: `BABY_FAMILY_TEST_USERS`
 
 Comma-separated application user ids. While it's set, only those accounts can create, preview or accept an invite or answer the phone check; everyone else gets the same `404` as invites off. A client-3 bootstrap says `family_available: false` for them, so the next build hides the Family row. A build from before that field still shows the row, and its invite requests get the `404`. Someone already in a family keeps the row and everything in it, except making new invites. Unset or blank changes nothing. It's only a rollout gate.
