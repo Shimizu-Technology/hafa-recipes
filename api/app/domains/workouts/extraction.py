@@ -151,6 +151,12 @@ class SourceImage:
     data_url: str
     normalized: bool = False
 
+    @property
+    def payload_bytes(self):
+        length = len(self.data_url) - self.data_url.find(",") - 1
+        padding = 2 if self.data_url.endswith("==") else int(self.data_url.endswith("="))
+        return max(0, length * 3 // 4 - padding)
+
 
 @dataclass
 class SourceBundle:
@@ -759,7 +765,7 @@ class ProductionSourceAcquirer:
         if source.photo_slides is not None or video_service.is_tiktok_photo_post(normalized):
             await source.report("reading_images")
             try:
-                from app.services.photo_posts import download_photo_images
+                from app.services.photo_posts import PhotoSourceError, download_photo_images
 
                 slides = source.photo_slides
                 if slides is None:
@@ -779,7 +785,9 @@ class ProductionSourceAcquirer:
                 source.images = [SourceImage(f"image:{index}", "data:image/webp;base64," + data, normalized=True)
                                  for index, data in images]
                 source.metadata.coverage_notes.extend(notes)
-            except Exception:
+            except Exception as exc:
+                if isinstance(exc, PhotoSourceError):
+                    source.acquisition_failures.append(AcquisitionFailure("images", exc.code))
                 source.metadata.coverage_notes.append(
                     "Source images unavailable; available captions remain usable."
                 )
@@ -2042,7 +2050,7 @@ class WorkoutExtractor:
             # share the same context bounds as an initial multimodal capture.
             if sum(len(part.text) for part in source.parts) > MAX_TEXT_CHARS:
                 raise ExtractionFailure("source_text_limit")
-            if (len(source.images) > (MAX_PHOTO_IMAGES if source.photo_slides is not None else MAX_IMAGES) or sum(len(image.data_url) * 3 // 4
+            if (len(source.images) > (MAX_PHOTO_IMAGES if source.photo_slides is not None else MAX_IMAGES) or sum(image.payload_bytes
                                                        for image in source.images) > MAX_TOTAL_IMAGE_BYTES):
                 raise ExtractionFailure("source_image_limit")
             await source.report("extracting_workout")
@@ -2144,7 +2152,7 @@ class WorkoutExtractor:
                 raise ExtractionFailure("source_text_limit")
             if (
                 len(source.images) > (MAX_PHOTO_IMAGES if source.photo_slides is not None else MAX_IMAGES)
-                or sum(len(image.data_url) * 3 // 4 for image in source.images)
+                or sum(image.payload_bytes for image in source.images)
                 > MAX_TOTAL_IMAGE_BYTES
             ):
                 raise ExtractionFailure("source_image_limit")

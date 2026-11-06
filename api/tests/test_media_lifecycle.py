@@ -340,14 +340,15 @@ async def test_photo_canary_requires_caption_and_every_slide_without_audio(monit
     monitor.service.extract_video_frames.assert_not_awaited()
 
 
-@pytest.mark.parametrize("stage", ["metadata", "page_maintenance", "page_read", "page_shape"])
-async def test_photo_canary_metadata_error_keeps_safe_stage_and_redactor_tags(monitor, monkeypatch, stage):
+@pytest.mark.parametrize(("stage", "code"), [(stage, "SOURCE_RESPONSE_INVALID") for stage in
+    ["metadata", "page_maintenance", "page_read", "page_shape"]] + [("page_status", "SOURCE_UNAVAILABLE")])
+async def test_photo_canary_metadata_error_keeps_safe_stage_and_redactor_tags(monitor, monkeypatch, stage, code):
     from app.domains.workouts.privacy import redact_workouts_event
     from app.services.photo_posts import PhotoSourceError
-    monitor.service.fetch_photo_post = AsyncMock(side_effect=PhotoSourceError("SOURCE_RESPONSE_INVALID", stage=stage))
+    monitor.service.fetch_photo_post = AsyncMock(side_effect=PhotoSourceError(code, stage=stage))
     response = await monitor.client.post("/internal/import-health/tiktok-photo", headers={"X-Import-Health-Fixture":"https://www.tiktok.com/@synthetic/photo/123"})
     assert response.status_code == 503 and response.json()["stage"] == stage
-    assert response.json()["error_code"] == "SOURCE_RESPONSE_INVALID"
+    assert response.json()["error_code"] == code
     event = redact_workouts_event({"tags":{"monitor":"import-health", "platform":"tiktok-photo", "stage":stage}, "message":"private"})
     assert event["tags"]["platform"] == "tiktok-photo" and event["tags"]["stage"] == stage
     assert "private" not in str(event)

@@ -436,3 +436,61 @@ async def test_photo_media_retry_retains_newly_read_caption_and_photo_identity(m
     assert source.photo_slides==[["https://cdn.example/one"]]
     assert source.parts[0].text=="Newly available caption" and source.metadata.title=="Checklist"
     assert source.images[0].normalized
+
+async def test_instagram_anonymous_video_retains_session_error_and_caption(monkeypatch):
+    from app.services.video import VideoMetadata, VideoService
+    service=VideoService()
+    monkeypatch.setattr(service,"_get_video_metadata_ytdlp",AsyncMock(return_value=VideoMetadata(error_code="RATE_LIMITED")))
+    monkeypatch.setattr(service,"fetch_photo_post",AsyncMock(return_value={"title":"Video","description":"Available caption",
+        "uploader":"Creator","slides":None,"duration":12}))
+    result=await service.get_video_metadata_ytdlp("https://www.instagram.com/p/Synthetic/")
+    assert result.error_code=="RATE_LIMITED" and result.description=="Available caption" and result.photo_slides is None
+
+async def test_workout_busy_photo_without_caption_is_retryable(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.domains.workouts.extraction import (
+        ExtractionRequest,
+        ProductionSourceAcquirer,
+        SourceBundle,
+        SourceMetadata,
+        WorkoutExtractor,
+    )
+    from app.domains.workouts.imports import RETRYABLE
+    source=SourceBundle(SourceMetadata(url="https://www.tiktok.com/@synthetic/photo/123",platform="tiktok"))
+    source.photo_slides=[["https://cdn.example/one"]]
+    monkeypatch.setattr(photos,"download_photo_images",AsyncMock(side_effect=photos.PhotoSourceError("MEDIA_BUSY")))
+    await ProductionSourceAcquirer(video_service=SimpleNamespace()).acquire_media(source,None)
+    assert source.acquisition_failures[0].code=="MEDIA_BUSY"
+    provider=SimpleNamespace(enabled=True,extract=AsyncMock())
+    result=await WorkoutExtractor(provider=provider,acquirer=SimpleNamespace(acquire=AsyncMock(return_value=source))).extract(
+        ExtractionRequest(kind="url",source_url=source.metadata.url,ai_consent=True))
+    assert result.error_code=="source_or_provider_unavailable" and result.error_code in RETRYABLE
+    provider.extract.assert_not_awaited()
+
+@pytest.mark.parametrize("extra",[0,1])
+async def test_workout_payload_bounds_exclude_data_url_prefix_and_padding(extra):
+    import base64
+    from types import SimpleNamespace
+
+    from app.domains.workouts.extraction import (
+        MAX_TOTAL_IMAGE_BYTES,
+        ExtractionFailure,
+        ExtractionRequest,
+        SourceBundle,
+        SourceImage,
+        SourceMetadata,
+        SourcePart,
+        WorkoutExtractor,
+    )
+    size=MAX_TOTAL_IMAGE_BYTES+extra
+    source=SourceBundle(SourceMetadata(url="https://www.tiktok.com/@synthetic/photo/123",platform="tiktok"),
+        parts=[SourcePart("caption","Synthetic caption")],
+        images=[SourceImage("image:0","data:image/webp;base64,"+base64.b64encode(bytes(size)).decode(),normalized=True)])
+    source.photo_slides=[[]]
+    assert source.images[0].payload_bytes==size
+    provider=SimpleNamespace(enabled=True,extract=AsyncMock(side_effect=ExtractionFailure("provider_test_reached")))
+    result=await WorkoutExtractor(provider=provider,acquirer=SimpleNamespace(acquire=AsyncMock(return_value=source))).extract(
+        ExtractionRequest(kind="url",source_url=source.metadata.url,ai_consent=True))
+    assert result.error_code==("source_image_limit" if extra else "provider_test_reached")
+    assert provider.extract.await_count==(0 if extra else 1)

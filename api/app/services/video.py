@@ -1695,6 +1695,7 @@ class VideoService:
                 uploader=post["uploader"] or metadata.uploader,
                 thumbnail=next((mirrors[0] for mirrors in (post["slides"] or []) if mirrors), post.get("thumbnail")),
                 duration=post.get("duration", 0), photo_slides=post["slides"],
+                error_code=metadata.error_code if post["slides"] is None else None,
             )
         except asyncio.CancelledError:
             raise
