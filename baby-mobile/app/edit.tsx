@@ -27,7 +27,7 @@ import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
-import { babiesFor, babyLabel, caregiverKeeps, choiceFor, stampedDraft } from "../lib/spaces";
+import { babiesFor, babyLabel, caregiverKeeps, choiceFor, fittingChild, stampedDraft } from "../lib/spaces";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -281,7 +281,8 @@ export default function Edit() {
       const id = Crypto.randomUUID();
       const splitId = Crypto.randomUUID();
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
-        const from = stampedDraft(b.state, b.state.drafts[slot], given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records));
+        const fitted = { ...given, child_id: fittingChild(b.state.bootstrap!, given, b.records.find((row) => row.id === given.id)) },
+          from = stampedDraft(b.state, b.state.drafts[slot], fitted.kind === "event" ? eventWrite(fitted) : withFittingVisit(fitted, b.records));
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, shared: ____, ...record } = from,
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;
         return {
@@ -460,19 +461,19 @@ export default function Edit() {
       {!!error && <Notice error>{error}</Notice>}
       {log?.about !== "her" && (showDetails || !["journal", "question", "collection", "source"].includes(draft.kind)) && b.state.bootstrap!.children.length > 0 && (
         <Chips
-          value={draft.child_id ?? ""}
+          value={fittingChild(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)) ?? ""}
           label="Who is this for?"
           options={[
             // Care always belongs to a baby; older general care entries can still be reassigned.
             ...((isCare(draft.kind) || staysWithBaby(draft) || log?.about === "baby") && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
               ? []
               : [{ label: "For me / general", value: "" }]),
-            ...babiesFor(b.state.bootstrap!.children, draft, b.state.bootstrap!.personal_space_id).map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
+            ...babiesFor(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)).map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
           ]}
           onChange={(id) => change({ child_id: id || null })}
         />
       )}
-      {caregiverKeeps(b.state.bootstrap, draft) && <Copy kind="small" tone="muted">This stays with you. Caregivers share care logs and the calendar, not posts or notes.</Copy>}
+      {caregiverKeeps(b.state, draft) && <Copy kind="small" tone="muted">Only you can see this. It isn’t shared with the family.</Copy>}
       {draft.kind === "source" && <Field label="Original link" purpose="url" value={draft.data.url ?? ""}
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}

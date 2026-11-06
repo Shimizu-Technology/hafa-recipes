@@ -260,13 +260,23 @@ describe("editing one of the extra logs", () => {
     await mount(Edit);
     expect(found("Chips", (p) => p.label === "Who is this for?").props.options.map((option: any) => option.value)).toEqual(["ours"]);
   });
+  it("doesn't offer a saved family event a baby the API would refuse", async () => {
+    setup([{ ...event({}, "seen"), child_id: "ours", space_id: "fam" }]);
+    Object.assign(mock.baby.state.bootstrap, { personal_space_id: "mine", spaces: [{ id: "mine", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+      children: [{ id: "ours", name: "Noa", revision: 1, space_id: "fam", generation: 1 }, { id: "test", name: "Test", revision: 1, space_id: "mine", generation: 1 }] });
+    mock.params = { id: "seen", kind: "event" };
+    await mount(Edit);
+    const chooser = renderer!.root.findAll((n) => JSON.stringify(n.props.options ?? []).includes("ours"));
+    expect(chooser.length).toBeGreaterThan(0);
+    expect(JSON.stringify(chooser[0].props.options)).not.toContain("test");
+  });
   it("tells a caregiver a new post stays with them", async () => {
     setup([]);
     Object.assign(mock.baby.state.bootstrap, { personal_space_id: "mine", spaces: [{ id: "mine", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "caregiver", generation: 1, access_version: 1 }],
       children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] });
     mock.params = { kind: "source" };
     await mount(Edit);
-    expect(JSON.stringify(renderer!.toJSON())).toMatch(/This stays with you\. Caregivers share care logs and the calendar/);
+    expect(JSON.stringify(renderer!.toJSON())).toMatch(/Only you can see this\. It isn’t shared with the family\./);
   });
   it("18: won't save a log at a time that hasn't happened", async () => {
     const account = setup([log("medicine", "Tylenol", { name: "Tylenol" })]);

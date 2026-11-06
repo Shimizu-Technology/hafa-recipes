@@ -8,7 +8,7 @@ import { recordDay, zonedInstant } from "@/lib/tracker";
 import { DateField } from "./date-field";
 import { Disclosure } from "./disclosure";
 import { Copy, Field, FilterChips, Icon, Notice, PressTarget, fonts, tap, typeScale, useColors } from "./ui";
-import { babyLabel, choiceFor, familySpaces } from "../lib/spaces";
+import { babiesFor, babyLabel, choiceFor, familySpaces, fittingChild } from "../lib/spaces";
 
 const familyId = (bootstrap: NonNullable<ReturnType<typeof useBaby>["state"]["bootstrap"]>) => familySpaces(bootstrap)[0]?.id;
 const frequencies: EventRecurrence["frequency"][] = ["daily", "weekly", "monthly", "yearly"];
@@ -41,7 +41,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     bootstrap = b.state.bootstrap!, choice = choiceFor(bootstrap, draft),
     space = choice?.space_id,
     // An event and its baby stay in one space, so only the babies in this one are offered.
-    babies = space ? children.filter((child) => child.space_id === space) : children,
+    babies = draft.existing ? babiesFor(bootstrap, draft, b.records.find((row) => row.id === draft.id)) : space ? children.filter((child) => child.space_id === space) : children,
     place = choice ? (choice.shared ? "Shared with family" : "Just me") : "",
     // Choosing where it goes can't leave it pointing at a baby who isn't there.
     share = (shared: boolean) => {
@@ -76,7 +76,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       <Field label="Location (optional)" value={data.location ?? ""} maxLength={240} onChange={(location) => set({ location })} placeholder="Clinic, church, grandma’s house…" />
       <Field label="Who’s coming (optional)" value={people} onChange={(typed) => { setPeople(typed); set({ attendees: attendeesFrom(typed) }); }} placeholder="Grandma, Auntie Rose" />
       {!one && babies.length > 0 && <Copy kind="small">Who is it for?</Copy>}
-      {!one && babies.length > 0 && <FilterChips label="Who is it for?" value={draft.child_id ?? ""}
+      {!one && babies.length > 0 && <FilterChips label="Who is it for?" value={fittingChild(bootstrap, draft, b.records.find((row) => row.id === draft.id)) ?? ""}
         options={[{ label: choice && !choice.shared ? "Just me" : "Whole family", value: "" }, ...babies.map((child) => ({ label: babyLabel(child, b.state.bootstrap), value: child.id }))]} onChange={(id) => change({ child_id: id || null })} />}
       {/* Only once reminders are on: a choice that does nothing yet would be a promise. One she already has is kept. */}
       {!one && remindersOn && <Copy kind="small">Reminder</Copy>}

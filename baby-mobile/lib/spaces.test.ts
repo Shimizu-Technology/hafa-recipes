@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addMutation, deviceVersion, draftsBeforeFamily, fencedState, pendingRecords, retiredSpaces, retryUnavailable, upgradedState, withKnownSpaces } from "./outbox";
-import { babiesFor, caregiverKeeps, familyOpen, babyLabel, stampedDraft, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
-import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Mutation, type RecordData } from "./models";
+import { babiesFor, caregiverKeeps, fittingChild, familyOpen, babyLabel, stampedDraft, canAddBaby, canChangeBaby, choiceFor, fenceOf, generationOf, holdsFamilyWork, isCaregiver, spaceForNew, unavailableMessage } from "./spaces";
+import { emptyState, optimisticRecord, type BabySpace, type Bootstrap, type DeviceState, type Kind, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
 const own: BabySpace = { id: personal, kind: "personal", role: "parent", generation: 2, access_version: 1 },
@@ -293,36 +293,69 @@ describe("Shared or Just me on a new entry", () => {
 });
 
 describe("which babies an entry can be for", () => {
-  const children = [{ id: "ours", space_id: family }, { id: "mine", space_id: personal }];
-  const entry = (kind: "feeding" | "journal" | "source", space_id?: string, child_id: string | null = "ours", existing = true) => ({ kind, space_id, child_id, existing });
+  const twins = boot([own, shared], { children: [{ id: "baby", name: "Baby", revision: 1, space_id: family, generation: 1 }, { id: "sib", name: "Sib", revision: 1, space_id: family, generation: 1 }, { id: "mine", name: "Mine", revision: 1, space_id: personal, generation: 2 }] });
+  const entry = (kind: Kind, space_id?: string, child_id: string | null = "baby", existing = true, shared?: boolean) => ({ kind, space_id, child_id, existing, shared });
+  const ids = (found: { id: string }[]) => found.map((one) => one.id);
   it("keeps a saved family log to the family's babies", () => {
-    expect(babiesFor(children, entry("feeding", family), personal).map((one) => one.id)).toEqual(["ours"]);
+    expect(ids(babiesFor(twins, entry("feeding", family)))).toEqual(["baby", "sib"]);
   });
   it("keeps a saved personal log to this account's own", () => {
-    expect(babiesFor(children, entry("feeding", personal, "mine"), personal).map((one) => one.id)).toEqual(["mine"]);
+    expect(ids(babiesFor(twins, entry("feeding", personal, "mine")))).toEqual(["mine"]);
+  });
+  it("goes by the row when a held draft is from before the move", () => {
+    expect(ids(babiesFor(twins, entry("feeding", personal), { space_id: family }))).toEqual(["baby", "sib"]);
+  });
+  it("treats a row with no space as personal, as everything was then", () => {
+    expect(ids(babiesFor(twins, entry("feeding", undefined, "mine")))).toEqual(["mine"]);
+  });
+  it("keeps a saved event to its space", () => {
+    expect(ids(babiesFor(twins, entry("event", family)))).toEqual(["baby", "sib"]);
   });
   it("lets a personal journal entry name either, which the API allows", () => {
-    expect(babiesFor(children, entry("journal", personal, null), personal)).toEqual(children);
+    expect(ids(babiesFor(twins, entry("journal", personal, null)))).toEqual(["baby", "sib", "mine"]);
   });
-  it("offers every baby on a new entry, which goes where its baby is", () => {
-    expect(babiesFor(children, entry("feeding", family, "ours", false), personal)).toEqual(children);
+  it("keeps a saved family journal entry to the family", () => {
+    expect(ids(babiesFor(twins, entry("journal", family)))).toEqual(["baby", "sib"]);
   });
-  it("offers every baby on a row from before spaces", () => {
-    expect(babiesFor(children, entry("feeding"), personal)).toEqual(children);
+  it("offers every baby on new care, which goes where its baby is", () => {
+    expect(ids(babiesFor(twins, entry("feeding", undefined, "baby", false)))).toEqual(["baby", "sib", "mine"]);
   });
-  it("never hides the baby it's already for", () => {
-    expect(babiesFor(children, entry("feeding", family, "mine"), personal).map((one) => one.id)).toEqual(["ours", "mine"]);
+  it("follows Shared or Just me on a new post", () => {
+    expect(ids(babiesFor(twins, entry("source", undefined, null, false)))).toEqual(["baby", "sib"]);
+    expect(ids(babiesFor(twins, entry("source", undefined, null, false, false)))).toEqual(["mine"]);
+  });
+  it("offers every baby with the flag off, and leaves out nothing it can't tell apart", () => {
+    const unscoped = off();
+    expect(ids(babiesFor(unscoped, entry("feeding", family)))).toEqual(unscoped.children.map((child) => child.id));
+  });
+  it("leaves out a baby with no known space once the API lists spaces", () => {
+    const partly = boot([own, shared], { children: [...twins.children, { id: "old", name: "Old", revision: 1 }] });
+    expect(ids(babiesFor(partly, entry("feeding", family)))).toEqual(["baby", "sib"]);
+  });
+  it("sends the saved baby when a held draft's can't go with the row", () => {
+    expect(fittingChild(twins, entry("feeding", family, "mine"), { space_id: family, child_id: "baby" })).toBe("baby");
+  });
+  it("sends none on a new post whose baby doesn't fit, and it comes back with the choice", () => {
+    expect(fittingChild(twins, entry("source", undefined, "mine", false))).toBeNull();
+    expect(fittingChild(twins, entry("source", undefined, "mine", false, false))).toBe("mine");
+  });
+  it("leaves a baby this phone hasn't heard of for the API to answer", () => {
+    expect(fittingChild(twins, entry("feeding", family, "new"), { space_id: family })).toBe("new");
   });
 });
 describe("a caregiver keeping something to themselves", () => {
-  const helper = boot([own, { ...shared, role: "caregiver" }]);
+  const helper = state(boot([own, { ...shared, role: "caregiver" }]));
+  const draft = (kind: Kind, child_id: string | null = null, data: RecordData = {}, existing = false) => ({ kind, child_id, data, existing });
   it.each(["source", "journal", "question"] as const)("says a new %s isn't shared", (kind) => {
-    expect(caregiverKeeps(helper, { kind, existing: false })).toBe(true);
+    expect(caregiverKeeps(helper, draft(kind))).toBe(true);
   });
-  it("says nothing on care, an entry already saved, or to a parent", () => {
-    expect(caregiverKeeps(helper, { kind: "feeding", existing: false })).toBe(false);
-    expect(caregiverKeeps(helper, { kind: "source", existing: true })).toBe(false);
-    expect(caregiverKeeps(boot([own, shared]), { kind: "source", existing: false })).toBe(false);
+  it("says it on their own log, which stays with them", () => {
+    expect(caregiverKeeps(helper, draft("custom", null, { label: "Blood pressure" }))).toBe(true);
+  });
+  it("says nothing on care that's shared, an entry already saved, or to a parent", () => {
+    expect(caregiverKeeps(helper, draft("feeding", "baby"))).toBe(false);
+    expect(caregiverKeeps(helper, draft("source", null, {}, true))).toBe(false);
+    expect(caregiverKeeps(state(), draft("source"))).toBe(false);
   });
 });
 describe("who can change a baby's profile", () => {

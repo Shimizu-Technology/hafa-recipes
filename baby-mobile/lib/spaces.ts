@@ -96,17 +96,37 @@ export function stampedDraft(state: Pick<DeviceState, "bootstrap">, held: Editor
     space = choice?.space_id ?? (placed.space_id && (!held || placed.child_id === held.child_id) ? placed.space_id : spaceForNew(state, placed)!);
   return { ...placed, ...(choice ? { shared: choice.shared } : {}), space_id: space, generation: bootstrap!.spaces!.find((one) => one.id === space)?.generation ?? bootstrap!.generation };
 }
+type ChoosingBaby = Pick<Bootstrap, "children" | "spaces" | "personal_space_id"> & Partial<Bootstrap>;
+type ChoosingDraft = Pick<EditorDraft, "kind" | "existing" | "space_id" | "shared" | "child_id">;
+type SavedRow = { space_id?: string; child_id?: string | null };
 /**
- * The babies an entry can be for. An entry already saved stays in its space, so it can't take a baby from another: the
- * API refuses that. A personal journal entry is the one thing that can name a baby in any space.
+ * The babies an entry can be for, since the API refuses a baby from another space. A saved entry stays where it is, and
+ * the row knows that better than a draft held from before a move. A new one goes where its choice says, and otherwise
+ * follows its baby. A personal journal entry is the one thing that can name a baby in any space.
  */
-export function babiesFor<T extends { id: string; space_id?: string }>(children: T[], draft: Pick<EditorDraft, "kind" | "existing" | "space_id" | "child_id">, personal?: string) {
-  if (!draft.existing || !draft.space_id || (draft.kind === "journal" && draft.space_id === personal)) return children;
-  return children.filter((child) => !child.space_id || child.space_id === draft.space_id || child.id === draft.child_id);
+export function babiesFor(bootstrap: ChoosingBaby, draft: ChoosingDraft, saved?: SavedRow) {
+  const { children, personal_space_id: personal } = bootstrap;
+  if (!spacesLive(bootstrap)) return children;
+  if (draft.existing) {
+    const space = saved?.space_id ?? draft.space_id ?? personal;
+    return draft.kind === "journal" && space === personal ? children : children.filter((child) => child.space_id === space);
+  }
+  const choice = choiceFor(bootstrap as Bootstrap, draft);
+  if (!choice || draft.kind === "event" || (draft.kind === "journal" && !choice.shared)) return children;
+  return children.filter((child) => child.space_id === choice.space_id);
 }
-/** A caregiver can still keep a post or a note, but it isn't shared, and nothing else on the way there would say so. */
-export const caregiverKeeps = (bootstrap: Pick<Bootstrap, "spaces"> | null | undefined, draft: Pick<EditorDraft, "kind" | "existing">) =>
-  isCaregiver(bootstrap) && !draft.existing && !caregiverKinds.has(draft.kind);
+/**
+ * The baby a draft really goes with. One it can't take isn't shown as chosen, so it isn't sent: a saved entry keeps the
+ * baby it has, and a new one has none. A baby this phone hasn't heard of is left for the API to answer.
+ */
+export function fittingChild(bootstrap: ChoosingBaby, draft: ChoosingDraft, saved?: SavedRow) {
+  const { child_id: child } = draft;
+  if (!child || !bootstrap.children.some((known) => known.id === child) || babiesFor(bootstrap, draft, saved).some((fits) => fits.id === child)) return child;
+  return draft.existing ? saved?.child_id ?? null : null;
+}
+/** A caregiver can still keep a post or their own log, but it isn't shared, and nothing else on the way there would say so. */
+export const caregiverKeeps = (state: Pick<DeviceState, "bootstrap">, draft: Pick<EditorDraft, "kind" | "existing" | "child_id" | "data">) =>
+  isCaregiver(state.bootstrap) && !draft.existing && spaceForNew(state, draft) === state.bootstrap!.personal_space_id;
 /** A baby's name, and whose it is when this account has both kinds, so two called the same can be told apart. */
 export function babyLabel(child: { name: string; space_id?: string }, bootstrap?: Pick<Bootstrap, "children" | "personal_space_id"> | null) {
   const personal = bootstrap?.personal_space_id, spaces = (bootstrap?.children ?? []).map((one) => one.space_id);
