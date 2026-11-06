@@ -92,11 +92,10 @@ describe("Private or Shared, on writing", () => {
   });
 });
 it("never lists a journal entry's words twice, and shows what's under a title she chose", async () => {
-  expect(await shown(row("journal", {}, "First day felt good", "First day felt good"))).toEqual(expect.objectContaining({ title: "First day felt good", detail: "Journal entry · 2:14 PM" }));
-  await act(async () => renderer!.unmount());
-  expect((await shown(row("journal", {}, "First kick", "After dinner"))).detail).toBe("After dinner · 2:14 PM");
-  await act(async () => renderer!.unmount());
-  expect((await shown(row("journal", {}, "First day felt good", "First day felt good\nThen home"))).detail).toBe("Then home · 2:14 PM");
-  await act(async () => renderer!.unmount());
-  expect((await shown(row("journal", { provenance: "clinician_instruction" }, "What my doctor told me", "Rest"))).detail).toBe("Clinician instruction · Rest · 2:14 PM");
+  // A journal row keeps the phone's clock, so only the words are checked here.
+  const detail = async (record: BabyRecord) => { const seen = await shown(record); await act(async () => renderer!.unmount()); return seen; };
+  expect(await detail(row("journal", {}, "First day felt good", "First day felt good"))).toEqual(expect.objectContaining({ title: "First day felt good", detail: expect.stringMatching(/^Journal entry · \d/) }));
+  expect((await detail(row("journal", {}, "First kick", "After dinner"))).detail).toMatch(/^After dinner · \d/);
+  expect((await detail(row("journal", {}, "First day felt good", "First day felt good\nThen home"))).detail).toMatch(/^Then home · \d/);
+  expect((await detail(row("journal", { provenance: "clinician_instruction" }, "What my doctor told me", "Rest"))).detail).toMatch(/^Clinician instruction · Rest · \d/);
 });
