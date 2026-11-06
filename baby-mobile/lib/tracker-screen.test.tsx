@@ -27,19 +27,21 @@ vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: (...args: unknown[]) 
 vi.mock("@/lib/events", () => import("./events"));
 vi.mock("@/lib/use-events", () => ({ useEvents: () => mock.events }));
 vi.mock("@/components/event-row", () => ({ ComingUp: "ComingUp", EventRow: "EventRow" }));
+vi.mock("../components/event-row", () => ({ EventRow: "EventRow", ComingUp: "ComingUp" }));
 vi.mock("@/components/feed-timer", () => ({ LegacyTimer: "LegacyTimer" }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
   mock.requests.push(options);
   return { all: mock.care, rows: mock.care, loading: false, error: options.occurred_from ? mock.error : "", refresh: vi.fn() };
 } }));
 const ui = vi.hoisted(() => ({
-  Button: "Button", FilterChips: "FilterChips", PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
+  Button: "Button", FilterChips: "FilterChips", Segmented: "Segmented", QuietRow: "QuietRow", PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
   fonts: {}, radii: {}, typeScale: { caption: {} }, useColors: () => ({}),
 }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/record-row", () => ({ kindIcon: {}, recordIcon: () => "ellipse" }));
-vi.mock("@/components/tab-stack", () => ({ HeaderPill: "HeaderPill" }));
+vi.mock("@/components/tab-stack", () => ({ HeaderPill: "HeaderPill", HeaderIconButton: "HeaderIconButton" }));
+vi.mock("../components/tab-stack", () => ({ HeaderPill: "HeaderPill", HeaderIconButton: "HeaderIconButton" }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
@@ -47,6 +49,7 @@ vi.mock("@/components/more-logs", () => ({ MoreLogs: (props: any) => { mock.more
 vi.mock("@/components/quick-log", () => ({ QuickLog: (props: any) => { mock.quick.push(props); return "quick-log"; } }));
 vi.mock("@/components/tracker-day", () => import("../components/tracker-day"));
 vi.mock("@/components/tracker-month", () => ({ TrackerMonth: "TrackerMonth" }));
+vi.mock("@/components/calendar-day", () => import("../components/calendar-day"));
 vi.mock("@/components/tracker-stats", () => ({ TrackerStats: "TrackerStats" }));
 vi.mock("@/lib/use-care-stats", () => ({ useCareStats: (choice: unknown, child: unknown) => { mock.statsAsks.push([choice, child]); return { loading: false, refresh: mock.statsRefresh }; } }));
 import Tracker from "../app/(tabs)/tracker/index";
@@ -110,7 +113,7 @@ describe("one baby at a time", () => {
 
 describe("Stats", () => {
   const stats = () => renderer!.root.findByType("TrackerStats" as never);
-  const views = () => renderer!.root.findAll((n) => String(n.type) === "FilterChips").find((n) => n.props.label === "Tracker view")!;
+  const views = () => renderer!.root.findAll((n) => String(n.type) === "Segmented").find((n) => n.props.label === "Tracker view")!;
   it("is one tap from Day, and asks for nothing until it's open", async () => {
     await mount();
     expect(mock.statsAsks.at(-1)![0]).toBeNull();
@@ -230,20 +233,209 @@ it("shows what's on the phone when it can't reach the service", async () => {
   expect(titles().join(" ")).toContain("Diaper · Pee");
 });
 
-it("before the birth, opens on the calendar and the tools, with no quick log, and a day still opens", async () => {
-  mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10" }];
-  await mount();
-  expect(screen().props.footer).toBeFalsy();
-  expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(1);
-  const rows = () => renderer!.root.findAll((n) => String(n.type) === "Row");
-  expect(rows().map((n) => n.props.title)).toEqual(["Contraction timer", "Kick counter", "Doctor summary", "Care history", "What shows"]);
-  await act(async () => rows()[0].props.onPress());
-  expect(mock.push).toHaveBeenCalledWith("/contractions");
-  await act(async () => rows()[1].props.onPress());
-  expect(mock.push).toHaveBeenCalledWith("/kicks");
-  await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onOpen("2026-11-02"));
-  expect(screen().props.footer).toBeFalsy();
-  expect(renderer!.root.findAll((n) => String(n.type) === "Empty")[0].props.body).toContain("once the baby’s here");
+describe("each view has its own things, once", () => {
+  const expecting = () => { mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10" }]; };
+  const quiet = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").map((n) => n.props.title);
+  const buttons = () => renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.title);
+  const empties = () => renderer!.root.findAll((n) => String(n.type) === "Empty");
+  const view = () => renderer!.root.findAll((n) => String(n.type) === "Segmented")[0];
+  const show = (name: string) => act(async () => view().props.onChange(name));
+
+  it("is one tidy control", async () => {
+    await mount();
+    expect(view().props.options.map((o: any) => o.label)).toEqual(["Day", "Calendar", "Stats"]);
+    expect(view().props.label).toBe("Tracker view");
+  });
+  it("Day has care history and what shows, and no doctor summary or add button", async () => {
+    await mount();
+    expect(quiet()).toEqual(["Care history", "What shows"]);
+    expect(buttons()).not.toContain("Add event");
+    expect(renderer!.root.findAll((n) => String(n.type) === "Row")).toHaveLength(0);
+  });
+  it("Calendar has none of those, and adds on the selected day with a small +", async () => {
+    await mount();
+    await show("month");
+    expect(quiet().filter((title) => ["Doctor summary", "Care history", "What shows"].includes(title))).toEqual([]);
+    expect(buttons()).not.toContain("Add event");
+    const plus = () => renderer!.root.findAll((n) => String(n.type) === "HeaderIconButton")[0];
+    expect(plus().props.label).toContain("November 4");
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onPick("2026-12-24"));
+    expect(plus().props.label).toContain("December 24");
+    await act(async () => plus().props.onPress());
+    expect(mock.push).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: "event", day: "2026-12-24" } });
+  });
+  it("tapping a date stays on Calendar and shows that day's events", async () => {
+    const item = { event_id: "e", original_start: "2026-11-20T00:00:00Z", occurrence_start: "2026-11-20T00:00:00Z", title: "Baptism" };
+    mock.events = { items: [item], byDay: new Map([["2026-11-20", [item]]]), failed: false, complete: true };
+    await mount();
+    await show("month");
+    expect(renderer!.root.findAll((n) => String(n.type) === "EventRow")).toHaveLength(0);
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onPick("2026-11-20"));
+    expect(view().props.value).toBe("month");
+    expect(renderer!.root.findAll((n) => String(n.type) === "EventRow").map((n) => n.props.item.title)).toEqual(["Baptism"]);
+    mock.events = { items: [], byDay: new Map(), failed: false, complete: true };
+  });
+  it("leaves out of Coming up what the selected day already shows", async () => {
+    const item = { event_id: "e", original_start: "2026-11-04T00:00:00Z", occurrence_start: "2026-11-04T00:00:00Z", title: "Today's" };
+    mock.events = { items: [item], byDay: new Map([["2026-11-04", [item]]]), failed: false, complete: true };
+    await mount();
+    await show("month");
+    expect(renderer!.root.findAll((n) => String(n.type) === "ComingUp")[0].props.except).toEqual([item]);
+    mock.events = { items: [], byDay: new Map(), failed: false, complete: true };
+  });
+  it("a past date can still be opened for its logs, and a date ahead has no such thing", async () => {
+    await mount();
+    await show("month");
+    const month = () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0];
+    await act(async () => month().props.onPick("2026-10-26"));
+    expect(quiet()).toContain("Open this day");
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").find((n) => n.props.title === "Open this day")!.props.onPress());
+    expect(view().props.value).toBe("day");
+    expect(lastQuick().pastDay).toEqual({ key: "2026-10-26", timezone: "Pacific/Guam" });
+    await show("month");
+    await act(async () => month().props.onPick("2026-12-01"));
+    expect(quiet()).not.toContain("Open this day");
+  });
+  describe("a date's logs, under its events", () => {
+    const logs = (count: number) => Array.from({ length: count }, (_, index) => row(`d${index}`, "diaper", new Date(Date.UTC(2026, 9, 26, 2 + index)).toISOString(), { type: "wet" }));
+    const timeline = () => renderer!.root.findAllByType(TimelineRow);
+    const onCalendar = async (rows: BabyRecord[], day = "2026-10-26") => {
+      mock.care = rows;
+      await mount();
+      await show("month");
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onPick(day));
+    };
+    it("shows them inline, newest first, with the + and Open this day still there", async () => {
+      await onCalendar(logs(2));
+      expect(view().props.value).toBe("month");
+      expect(timeline().map((n) => n.props.record.id)).toEqual(["d1", "d0"]);
+      expect(quiet()).toContain("Open this day");
+      expect(renderer!.root.findAll((n) => String(n.type) === "HeaderIconButton")).toHaveLength(1);
+    });
+    it("keeps a long day short, and See all opens the rest right there", async () => {
+      await onCalendar(logs(6));
+      expect(timeline()).toHaveLength(4);
+      expect(quiet()).toContain("See all 6");
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").find((n) => n.props.title === "See all 6")!.props.onPress());
+      expect(timeline()).toHaveLength(6);
+      expect(view().props.value).toBe("month");
+      expect(quiet()).not.toContain("See all 6");
+    });
+    it("has no See all for a short day, and folds again on another date", async () => {
+      await onCalendar(logs(6));
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "QuietRow").find((n) => n.props.title === "See all 6")!.props.onPress());
+      await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onPick("2026-10-27"));
+      expect(timeline()).toHaveLength(0);
+      expect(quiet().some((title) => String(title).startsWith("See all"))).toBe(false);
+    });
+    it("shows only that day's, and each still opens to change", async () => {
+      await onCalendar([...logs(1), row("other", "diaper", "2026-10-28T02:00:00.000Z", { type: "wet" })]);
+      expect(timeline().map((n) => n.props.record.id)).toEqual(["d0"]);
+    });
+  });
+  it("First log and Born still open the day", async () => {
+    await mount();
+    await show("month");
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0].props.onOpen("2026-10-26"));
+    expect(view().props.value).toBe("day");
+  });
+  it("Stats keeps its numbers to itself, and tells Stats whether Growth belongs", async () => {
+    await mount();
+    await show("stats");
+    expect(quiet()).toEqual([]);
+    expect(renderer!.root.findAll((n) => String(n.type) === "TrackerStats")[0].props.growth).toBe(true);
+  });
+  it("before the birth, lands on the calendar with no tools in the way", async () => {
+    expecting();
+    mock.more = [];
+    await mount();
+    expect(screen().props.footer).toBeFalsy();
+    expect(view().props.value).toBe("month");
+    expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(1);
+    expect(renderer!.root.findAll((n) => String(n.type) === "Row")).toHaveLength(0);
+    expect(mock.more).toEqual([]);
+  });
+  it("expecting Day talks about what she can log now, and offers it, timers too", async () => {
+    expecting();
+    await mount();
+    await show("day");
+    const [empty] = empties();
+    expect(empty.props.title).toBe("Nothing logged today");
+    expect(empty.props.body).toContain("kicks, contractions, how you’re feeling and more");
+    expect(empty.props.body).not.toMatch(/feeds|diapers|baby’s here/i);
+    expect(mock.more.at(-1).shown.map((tracker: any) => tracker.id)).toEqual(["kicks", "contractions", "feeling", "my_weight", "blood_pressure", "vitamins"]);
+    expect(mock.more.at(-1).title).toBe("Log now");
+  });
+  it("expecting, its words and buttons follow what she's switched off", async () => {
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10", details: { tracking: { expecting_kicks: false, expecting_contractions: false, expecting_feeling: false, expecting_my_weight: false } } }];
+    await mount();
+    await show("day");
+    expect(empties()[0].props.body).toContain("blood pressure and vitamins and medicine");
+    expect(mock.more.at(-1).shown.map((tracker: any) => tracker.id)).toEqual(["blood_pressure", "vitamins"]);
+  });
+  it("expecting, with everything off, points at What shows", async () => {
+    const off = Object.fromEntries(["kicks", "contractions", "feeling", "my_weight", "blood_pressure", "vitamins"].map((id) => [`expecting_${id}`, false]));
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10", details: { tracking: off } }];
+    await mount();
+    await show("day");
+    expect(empties()[0].props.body).toContain("What shows");
+  });
+  it("expecting, a past day still takes logs, and leaves out the live timers", async () => {
+    expecting();
+    await mount();
+    await show("day");
+    await press("Day before");
+    expect(mock.more.at(-1).pastDay).toEqual({ key: "2026-11-03", timezone: "Pacific/Guam" });
+    expect(mock.more.at(-1).shown.map((tracker: any) => tracker.id)).toEqual(["feeling", "my_weight", "blood_pressure", "vitamins"]);
+    expect(empties()[0].props.title).toBe("Nothing logged this day");
+    expect(mock.more.at(-1).title).toBe("Add to this day");
+  });
+  it("a day ahead points to the one place that adds to it", async () => {
+    await mount();
+    await press("Day after");
+    const [empty] = empties();
+    expect(empty.props.title).toBe("Nothing planned yet");
+    await act(async () => empty.props.action.props.onPress());
+    expect(view().props.value).toBe("month");
+  });
+  it("with no baby yet, says the one thing to do", async () => {
+    mock.baby.state.bootstrap.children = [];
+    await mount();
+    const [empty] = empties();
+    expect(empty.props.body).not.toMatch(/once the baby/);
+    await act(async () => empty.props.action.props.onPress());
+    expect(mock.push).toHaveBeenCalledWith("/child");
+  });
+  it("with a baby and no dates, asks for a date", async () => {
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1 }];
+    await mount();
+    const [empty] = empties();
+    await act(async () => empty.props.action.props.onPress());
+    expect(mock.push).toHaveBeenCalledWith({ pathname: "/child", params: { id: "baby" } });
+  });
+  it("after the birth, with everything off, a blank day doesn't point at buttons that aren't there", async () => {
+    const off = Object.fromEntries(["breast", "bottle", "diaper", "sleep"].map((id) => [id, false]));
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25", details: { tracking: off } }];
+    await mount();
+    expect(empties()[0].props.body).toContain("What shows");
+    expect(empties()[0].props.body).not.toContain("below");
+  });
+  it("doesn't call a day empty when it couldn't read the calendar", async () => {
+    expecting();
+    mock.events = { items: [], byDay: new Map(), failed: true, complete: true };
+    await mount();
+    expect(copy().join(" ")).not.toContain("Nothing on the calendar");
+    mock.events = { items: [], byDay: new Map(), failed: false, complete: false };
+    await act(async () => renderer!.update(<Tracker />));
+    expect(copy().join(" ")).not.toContain("Nothing on the calendar");
+    mock.events = { items: [], byDay: new Map(), failed: false, complete: true };
+    await act(async () => renderer!.update(<Tracker />));
+    expect(copy().join(" ")).toContain("Nothing on the calendar");
+  });
+  it("after the birth, a blank day points at the buttons below", async () => {
+    await mount();
+    expect(empties()[0].props.body).toBe("Tap a button below to add one.");
+  });
 });
 
 it("goes straight to the day and the log once she's born, with nothing else to choose", async () => {
@@ -253,7 +445,7 @@ it("goes straight to the day and the log once she's born, with nothing else to c
   await act(async () => renderer!.update(<Tracker />));
   expect(renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")).toHaveLength(0);
   expect(screen().props.footer).toBeTruthy();
-  expect(renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toEqual(["Doctor summary", "Growth", "Care history", "What shows"]);
+  expect(renderer!.root.findAll((n) => String(n.type) === "QuietRow").map((n) => n.props.title)).toEqual(["Care history", "What shows"]);
 });
 
 describe("Tracker follows the trackers", () => {
@@ -285,12 +477,13 @@ describe("Tracker follows the trackers", () => {
     expect(shown).toContain("pumping");
     expect(shown).not.toContain("medicine");
   });
-  it("before the birth, its tool rows and panels follow the switches too", async () => {
+  it("before the birth, its tiles follow the switches too", async () => {
     mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10", details: { tracking: { expecting_kicks: false, expecting_blood_pressure: false } } }];
     await mount();
-    const rows = renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title);
-    expect(rows).toContain("Contraction timer");
-    expect(rows).not.toContain("Kick counter");
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "Segmented")[0].props.onChange("day"));
+    const shown = ids(mock.more.at(-1).shown);
+    expect(shown).toContain("contractions");
+    expect(shown).not.toContain("kicks");
   });
 });
 
@@ -325,7 +518,7 @@ it("says a one-line note or question once, and keeps a title that adds something
 
 it("opens a day from the calendar, back in the Day view with its quick log", async () => {
   await mount();
-  const chips = () => renderer!.root.findAll((n) => String(n.type) === "FilterChips")[0];
+  const chips = () => renderer!.root.findAll((n) => String(n.type) === "Segmented")[0];
   expect(chips().props.options.map((o: any) => o.label)).toEqual(["Day", "Calendar", "Stats"]);
   await act(async () => chips().props.onChange("month"));
   expect(screen().props.footer).toBeFalsy();

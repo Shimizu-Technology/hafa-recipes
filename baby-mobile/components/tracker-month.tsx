@@ -28,8 +28,10 @@ export function stepMonth(month: string, by: number) {
   return monthKey(dayKey(date));
 }
 
-/** The calendar: tap a day to open it. A dot means there's something on it, and never says whether that's good. */
-export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today: string; day: string; childId: string | null; birthDate?: string | null; onOpen: (key: string) => void }) {
+/** The calendar: tap a day to choose it, and what's chosen shows beneath. A dot means there's something on it, and never says whether that's good. */
+export function TrackerMonth({ today, day, childId, birthDate, onPick, onOpen, children }: { today: string; day: string; childId: string | null; birthDate?: string | null; onPick: (key: string) => void;
+  /** First log and Born go straight to their day. */
+  onOpen: (key: string) => void; children?: React.ReactNode }) {
   const b = useBaby(), c = useColors(), { fontScale } = useWindowDimensions(), timezone = b.state.bootstrap!.profile.timezone,
     [month, setMonth] = useState(monthKey(day)), [remote, setRemote] = useState<Record<string, { days: Record<string, CareDay>; others: ReadonlyMap<string, readonly string[]> }>>({}), [error, setError] = useState(false),
     [firstDay, setFirstDay] = useState<string | undefined>(undefined),
@@ -38,7 +40,8 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
   const events = useEvents(childId, grid.weeks[0][0], grid.weeks[grid.weeks.length - 1][6]),
     // Up to three colours a day, in the order they fall. A day's category names are in its label, so colour isn't the only signal.
     kinds = (key: string) => [...new Set((events.byDay.get(key) ?? []).map((item) => item.category ?? "other"))],
-    shownKinds = [...new Set(grid.weeks.flat().filter((key) => monthKey(key) === month).flatMap(kinds))];
+    // Colours that mean something: an event with no category has nothing to explain.
+    shownKinds = [...new Set(grid.weeks.flat().filter((key) => monthKey(key) === month).flatMap(kinds))].filter((kind) => kind !== "other");
   const gone = useDeleted(), waiting = b.state.outbox.length;
   // Coming back to the tab, and whenever a queued change leaves, because that change is now in these answers.
   useFocusEffect(useCallback(() => {
@@ -57,7 +60,9 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
     void firstCareDay(latest.current, childId, timezone).then((key) => { if (active) setFirstDay(key); }).catch(() => undefined);
     return () => { active = false; };
   }, [childId, timezone]);
-  const saved = remote[cacheKey], overlay = dayOverlay(b.state, childId, timezone), other = otherDayMark(b, childId, timezone, saved?.others, gone),
+  // The line at the top of the page says it's offline, unless a notice or a failed change has that line instead.
+  const offlineSaid = (b.online === false || !!b.unreachable) && !b.state.feedNotices?.length && !b.state.outbox.some((change) => (change.error || change.conflict) && !change.localOnly),
+    saved = remote[cacheKey], overlay = dayOverlay(b.state, childId, timezone), other = otherDayMark(b, childId, timezone, saved?.others, gone),
     has = (key: string) => other(key) || overlay(saved?.days[key], key).dots.some((mark) => mark !== "event"),
     label = keyDate(`${month}-01`).toLocaleDateString(undefined, { month: "long", year: "numeric" }),
     jumps = [firstDay && { key: firstDay, label: "First log" }, birthDate && birthDate !== firstDay && { key: birthDate, label: "Born" }].filter(Boolean) as { key: string; label: string }[];
@@ -66,7 +71,8 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
       <PressTarget accessibilityRole="button" accessibilityLabel="Previous month" onPress={() => setMonth(stepMonth(month, -1))} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
         <Icon name="chevron-back" size={22} color={c.text} />
       </PressTarget>
-      <View style={{ flex: 1, alignItems: "center" }}><Copy kind="heading" align="center">{label}</Copy></View>
+      {/* A month is one line whatever the text size: at the largest it broke mid-word and pushed the days off the screen. */}
+      <View style={{ flex: 1, alignItems: "center" }}><Copy kind="heading" align="center" lines={1} limit={1.3}>{label}</Copy></View>
       <PressTarget accessibilityRole="button" accessibilityLabel="Next month" onPress={() => setMonth(stepMonth(month, 1))} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
         <Icon name="chevron-forward" size={22} color={c.text} />
       </PressTarget>
@@ -77,13 +83,13 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
       </View>
       {grid.weeks.map((week) => <View key={week[0]} style={{ flexDirection: "row" }}>
         {week.map((key) => {
-          const date = keyDate(key), other = monthKey(key) !== month, isToday = key === today, dot = has(key), on = kinds(key);
-          return <PressTarget key={key} accessibilityRole="button" accessibilityState={{ selected: key === day }}
-            accessibilityLabel={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}${dot ? ", has entries" : ""}${on.length ? `, ${on.map(categoryName).join(", ")}` : ""}${isToday ? ", today" : ""}`}
-            onPress={() => onOpen(key)}
+          const date = keyDate(key), other = monthKey(key) !== month, isToday = key === today, dot = has(key), on = kinds(key), named = on.filter((kind) => kind !== "other"), chosen = key === day;
+          return <PressTarget key={key} accessibilityRole="button" accessibilityState={{ selected: chosen }}
+            accessibilityLabel={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}${dot ? ", has entries" : ""}${named.length ? `, ${named.map(categoryName).join(", ")}` : on.length ? ", has an event" : ""}${isToday ? ", today" : ""}`}
+            onPress={() => { if (other) setMonth(monthKey(key)); onPick(key); }}
             style={{ flex: 1, minHeight: 56, alignItems: "center", justifyContent: "center", gap: 2, opacity: other ? 0.5 : 1 }}>
-            <View style={{ minWidth: 30, minHeight: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: isToday ? c.action : "transparent" }}>
-              <Text key={fontScale} maxFontSizeMultiplier={1.3} style={{ fontFamily: isToday ? fonts.semibold : fonts.medium, fontSize: 16, lineHeight: 21, fontVariant: ["tabular-nums"], color: isToday ? c.onAction : other ? c.muted : c.text }}>{date.getDate()}</Text>
+            <View style={{ minWidth: 30, minHeight: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: chosen ? c.action : "transparent" }}>
+              <Text key={fontScale} maxFontSizeMultiplier={1.3} style={{ fontFamily: chosen || isToday ? fonts.semibold : fonts.medium, fontSize: 16, lineHeight: 21, fontVariant: ["tabular-nums"], color: chosen ? c.onAction : isToday ? c.accentText : other ? c.muted : c.text }}>{date.getDate()}</Text>
             </View>
             <View style={{ flexDirection: "row", gap: 3, height: 6, alignItems: "center" }}>
               {dot && <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: c.muted }} />}
@@ -99,15 +105,14 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
         <Text key={fontScale} maxFontSizeMultiplier={1.3} style={{ fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.muted }}>{categoryName(kind)}</Text>
       </View>)}
     </View>}
-    {error && <Notice>Showing what’s on this phone. Older dots will come back when you reconnect.</Notice>}
-    {jumps.map((jump) => <PressTarget key={jump.label} accessibilityRole="button" accessibilityLabel={`${jump.label}, ${friendlyDate(jump.key)}`} accessibilityHint="Opens that day" onPress={() => onOpen(jump.key)}
-      style={{ minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, borderRadius: 20, backgroundColor: c.surface }}>
-      <Icon name={jump.label === "Born" ? "heart-outline" : "flag-outline"} size={20} color={c.accentText} />
-      <View style={{ flex: 1 }}>
-        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.text }}>{jump.label}</Text>
-        <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontSize: 13, lineHeight: 17, color: c.muted, fontVariant: ["tabular-nums"] }}>{friendlyDate(jump.key)}</Text>
-      </View>
-      <Icon name="chevron-forward" size={18} color={c.muted} />
-    </PressTarget>)}
+    {error && !offlineSaid && <Notice>Showing what’s on this phone. Older dots will come back when you reconnect.</Notice>}
+    {children}
+    {jumps.length > 0 && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {jumps.map((jump) => <PressTarget key={jump.label} accessibilityRole="button" accessibilityLabel={`${jump.label}, ${friendlyDate(jump.key)}`} accessibilityHint="Opens that day" onPress={() => onOpen(jump.key)}
+        style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Icon name={jump.label === "Born" ? "heart-outline" : "flag-outline"} size={16} color={c.accentText} />
+        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.medium, fontSize: 14, lineHeight: 19, color: c.muted, fontVariant: ["tabular-nums"] }}>{`${jump.label} · ${friendlyDate(jump.key)}`}</Text>
+      </PressTarget>)}
+    </View>}
   </View>;
 }

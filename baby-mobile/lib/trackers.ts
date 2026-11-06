@@ -84,6 +84,14 @@ export function trackerOn(tracker: Tracker, stage: Stage, details?: ChildDetails
   return tracker.defaultOn.includes(stage);
 }
 
+const spoken: Record<string, string> = { kicks: "kicks", contractions: "contractions", feeling: "how you’re feeling", my_weight: "your weight", vitamins: "vitamins and medicine" };
+/** "kicks, contractions, how you’re feeling and more", for a blank day: what she has a button for, in words. */
+export function loggableWords(list: readonly Tracker[]) {
+  const names = list.map((tracker) => spoken[tracker.id] ?? tracker.label.toLowerCase());
+  if (names.length > 3) return `${names.slice(0, 3).join(", ")} and more`;
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "";
+}
+
 /** Where a tile goes when it can't open a panel in place. Add has them all, with room for the keyboard. */
 export const trackerRoute = (tracker: Tracker) => (tracker.opens === "panel" || tracker.opens === "quick-log" ? { pathname: "/add" as const, params: { open: tracker.id } } : tracker.opens);
 
