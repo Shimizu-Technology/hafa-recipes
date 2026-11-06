@@ -25,7 +25,6 @@ ALLOWED_IMAGE_FORMATS = {
     "HEIF": "image/heif",
 }
 
-
 _MODEL_IMAGE_SLOTS = asyncio.Semaphore(2)
 
 
