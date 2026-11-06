@@ -27,20 +27,20 @@ enum BabyShareTheme {
     buttonFont: font("DMSans-SemiBold", 17, .semibold),
     brandFont: font("DMSans-Regular", 14, .regular),
     brandName: "Håfa Baby",
-    doneTitle: "Done",
     mark: { BabyShareMark() }
   )
   static func content(_ state: BabyShareSheetState) -> HafaShareContent {
     let words = state.words
     let icon: String?
     switch state {
-    case .saving: icon = nil
+    case .saving, .stillWorking: icon = nil
     case .saved, .organizing: icon = "checkmark"
     case .family: icon = "person.2"
     case .waiting, .notConnected: icon = "iphone"
     case .notSignedIn: icon = "person.crop.circle"
+    case .failed: icon = "exclamationmark"
     }
-    return HafaShareContent(icon: icon, isProblem: false, title: words.title, detail: words.detail)
+    return HafaShareContent(icon: icon, isProblem: state == .failed, title: words.title, detail: words.detail)
   }
 }
 

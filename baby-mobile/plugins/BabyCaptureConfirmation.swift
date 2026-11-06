@@ -1,7 +1,9 @@
   private func redirectToHostApp(type: RedirectType) {
     guard let producer = babyProducer else { return }
+    babyPublished = true
     // It's safely on the phone now, so closing is safe too: what this doesn't deliver, the app will.
-    babySheet?.showDone()
+    showBabySheet(.saving)
+    babySheet?.showAction(BabyShareSheetState.saving.buttonTitle)
     DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.completeConfirmation(status: nil) }
     DispatchQueue.global(qos: .utility).async { [weak self] in
       BabyShareSession.enqueue(producer.capture.id, storage: producer.storage) { status in
@@ -16,7 +18,6 @@
     showBabySheet(.after(scope: producer.capture.scope, signedIn: producer.capture.signedIn, status: status))
   }
   private var babySheet: HafaShareSheetView?
-  private var babySheetClosed = false
   private func showBabySheet(_ state: BabyShareSheetState) {
     let first = babySheet == nil
     if first {
@@ -32,17 +33,11 @@
     }
     babySheet?.show(BabyShareTheme.content(state), animated: !first)
     guard state != .saving else { return }
-    babySheet?.showDone()
+    babySheet?.showAction(state.buttonTitle)
     let words = state.words
     UIAccessibility.post(notification: .announcement, argument: [words.title, words.detail].compactMap { $0 }.joined(separator: ". "))
     // With VoiceOver or Switch Control on, it waits to be read and for Done.
     if words.closesItself, !UIAccessibility.isVoiceOverRunning, !UIAccessibility.isSwitchControlRunning {
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finishConfirmation() }
     }
-  }
-  private func finishConfirmation() {
-    guard !babySheetClosed else { return }
-    babySheetClosed = true
-    captureConfirmationFinished = true
-    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
   }

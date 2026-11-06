@@ -5,7 +5,7 @@ import UIKit
 struct HafaShareTheme {
   let background, title, detail, action, onAction, tile, glyph, problemTile, problemGlyph: UIColor
   let titleFont, detailFont, buttonFont, brandFont: UIFont
-  let brandName, doneTitle: String
+  let brandName: String
   let mark: () -> UIView
 }
 
@@ -72,7 +72,6 @@ final class HafaShareSheetView: UIView {
     let scroll = UIScrollView(), content = UIView()
     scroll.alwaysBounceVertical = false
     var style = UIButton.Configuration.filled()
-    style.title = theme.doneTitle
     style.cornerStyle = .capsule
     style.baseBackgroundColor = theme.action
     style.baseForegroundColor = theme.onAction
@@ -140,7 +139,10 @@ final class HafaShareSheetView: UIView {
     guard animated, !UIAccessibility.isReduceMotionEnabled else { return apply() }
     UIView.transition(with: stack, duration: 0.2, options: .transitionCrossDissolve, animations: apply)
   }
-  func showDone() { done.isHidden = false }
+  func showAction(_ title: String) {
+    done.configuration?.title = title
+    done.isHidden = false
+  }
 
   override func traitCollectionDidChange(_ previous: UITraitCollection?) {
     super.traitCollectionDidChange(previous)

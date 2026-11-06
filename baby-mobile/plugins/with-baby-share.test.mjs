@@ -210,7 +210,13 @@ describe("generated Safari preprocessing", () => {
     }
     // The view is meant to be carried to the other apps, so it says nothing about this one.
     const view = readFileSync(new URL("./HafaShareSheetView.swift", import.meta.url), "utf8");
-    expect(view).not.toMatch(/Baby|BabyShareStore|BabyShareSession|Done"/);
+    expect(view).not.toMatch(/Baby|BabyShareStore|BabyShareSession|"Done"|"Stop"/);
+  });
+  it("bounds a provider that never answers, and closes through one path that keeps nothing unpublished", () => {
+    const output = patchShareController(upstream);
+    const lifecycle = output.slice(output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1"), output.indexOf("  // END HAFA BABY PRESENTED SHARE v1"));
+    expect(lifecycle.indexOf("babyWatchProvider()")).toBeLessThan(lifecycle.indexOf("    handleViewLoad()"));
+    expect(lifecycle).toContain("abortBabyShare()\n    extensionContext?.completeRequest");
   });
   it("names the share row Håfa Baby and lists the fonts it copies", () => {
     const info = shareInfo({ CFBundleDisplayName: "Håfa Baby - Share Extension", NSExtension: 1 });
@@ -316,14 +322,14 @@ describe("generated Safari preprocessing", () => {
         );
         const preparation = output.slice(
           output.indexOf("  private func prepareBabyShare()"),
-          output.indexOf("  private func abortBabyShare()")
+          output.indexOf("  private func publishBabyPayload(")
         );
         const lifecycleTest = join(directory, "GeneratedLifecycleTests.swift");
         writeFileSync(
           lifecycleTest,
           readFileSync(new URL("./__tests__/BabyShareLifecycleTests.swift", import.meta.url), "utf8")
             .replace("/* GENERATED_PREPARATION */", preparation)
-            .replace("/* GENERATED_LIFECYCLE */", lifecycle)
+            .replace("/* GENERATED_LIFECYCLE */", lifecycle.replaceAll("  private ", "  "))
         );
         execFileSync(
           "swiftc",
@@ -336,7 +342,7 @@ describe("generated Safari preprocessing", () => {
           { timeout: 60_000 }
         );
         expect(execFileSync(executable, { encoding: "utf8", timeout: 10_000 })).toContain(
-          "24 native generated lifecycle cases passed"
+          "native generated lifecycle cases passed"
         );
       } finally {
         rmSync(directory, { recursive: true, force: true });

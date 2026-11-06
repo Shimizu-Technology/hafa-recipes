@@ -43,6 +43,8 @@ const upstreamLifecycle = `  override func viewDidLoad() {
 `;
 const presentedLifecycle = `${lifecycleStart}
   private var babyShareStarted = false
+  private var babyPublished = false
+  private var babySheetClosed = false
   override func viewDidLoad() {
     super.viewDidLoad()
     // Painted before anything else can take time, so no share ever sits on a blank sheet.
@@ -57,7 +59,29 @@ const presentedLifecycle = `${lifecycleStart}
     // A failed early preparation must never retry with a newer privacy epoch.
     guard !babyShareStarted, babyProducer != nil else { return }
     babyShareStarted = true
+    babyWatchProvider()
     handleViewLoad()
+  }
+  // A provider that never answers gets nowhere else, since everything after it waits for publication.
+  private func babyWatchProvider() {
+    DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.stillWorkingAfter) { [weak self] in
+      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      self.showBabySheet(.stillWorking)
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.giveUpAfter) { [weak self] in
+      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      self.captureConfirmationFinished = true
+      self.abortBabyShare()
+      self.showBabySheet(.failed)
+    }
+  }
+  // Every way of closing the sheet. Before publication nothing is kept, and a provider answering late finds its capture retired.
+  private func finishConfirmation() {
+    guard !babySheetClosed else { return }
+    babySheetClosed = true
+    captureConfirmationFinished = true
+    abortBabyShare()
+    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
   }
 ${lifecycleEnd}
 
