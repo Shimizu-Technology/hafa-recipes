@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import re
 from urllib.parse import urljoin
 
 import httpx
@@ -24,8 +25,10 @@ PHOTO_ERROR_CODES = frozenset({
 class PhotoSourceError(ValueError):
     """Content-free acquisition code across the guarded subprocess boundary."""
 
-    def __init__(self, code):
+    def __init__(self, code, *, stage="metadata", exception_type="PhotoSourceError"):
         self.code = code if code in PHOTO_ERROR_CODES else "SOURCE_UNAVAILABLE"
+        self.stage = stage if stage in {"metadata", "page_read", "page_shape", "page_maintenance"} else "metadata"
+        self.exception_type = exception_type if isinstance(exception_type, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", exception_type) else "PhotoSourceError"
         super().__init__(self.code)
 
 
@@ -147,6 +150,24 @@ async def probe_photo_post(service, url, *, on_stage=None):
             "slides": len(post["slides"]), "images_read": len(images),
             "caption_chars": len(post["description"]), "coverage_notes": len(notes),
         }
+
+
+async def diagnose_photo_post(service, url):
+    """Read-only operator report: counts, fixed stages and exception types only."""
+    stage = "metadata"
+    def record_stage(value):
+        nonlocal stage
+        stage = value
+    try:
+        result = await probe_photo_post(service, url, on_stage=record_stage)
+        return {**result, "stage": "complete" if result["status"] == "ok" else stage,
+                "exception_type": None if result["status"] == "ok" else "IncompleteCoverage"}
+    except Exception as exc:
+        safe = PhotoSourceError("SOURCE_UNAVAILABLE", stage=getattr(exc, "stage", "metadata"),
+                                exception_type=getattr(exc, "exception_type", type(exc).__name__))
+        return {"status": "failed", "stage": safe.stage if isinstance(exc, PhotoSourceError) else stage,
+                "exception_type": safe.exception_type,
+                "slides": 0, "images_read": 0, "caption_chars": 0, "coverage_notes": 0}
 
 
 def parse_instagram_photo(info):

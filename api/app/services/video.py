@@ -476,7 +476,7 @@ class VideoService:
         return None
     
     async def fetch_photo_post(self, url: str) -> dict:
-        """Always use the isolated, cookie-free public boundary, including Recipes."""
+        """Guarded public pages; TikTok gets a fresh, host-bound session jar."""
         import json
 
         from app.services.photo_posts import PhotoSourceError
@@ -500,7 +500,9 @@ class VideoService:
                 except (ValueError, TypeError):
                     raise PhotoSourceError("SOURCE_RESPONSE_INVALID") from None
                 if process.returncode != 0:
-                    raise PhotoSourceError(post.get("error_code", "SOURCE_UNAVAILABLE"))
+                    raise PhotoSourceError(post.get("error_code", "SOURCE_UNAVAILABLE"),
+                                           stage=post.get("stage", "metadata"),
+                                           exception_type=post.get("exception_type", "PhotoSourceError"))
                 return post
             except asyncio.TimeoutError:
                 raise PhotoSourceError("TIMEOUT") from None

@@ -8,19 +8,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.ai_governance import ai_request_context  # noqa: E402
-from app.services.photo_posts import probe_photo_post  # noqa: E402
+from app.services.photo_posts import diagnose_photo_post  # noqa: E402
 from app.services.video import public_video_service  # noqa: E402
 
 
 async def main():
     with ai_request_context(route="/internal/import-health"):
-        try:
-            result = await probe_photo_post(
-                public_video_service,
-                "https://www.tiktok.com/@maileelton/photo/7697377006715030814",
-            )
-        except Exception:
-            result = {"status": "failed", "slides": 0, "images_read": 0, "caption_chars": 0}
+        result = await diagnose_photo_post(
+            public_video_service,
+            "https://www.tiktok.com/@maileelton/photo/7697377006715030814",
+        )
         print(json.dumps(result))
         return 0 if result["status"] == "ok" else 1
 

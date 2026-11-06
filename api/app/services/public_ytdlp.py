@@ -12,7 +12,7 @@ import os
 import re
 import shutil
 import sys
-from functools import partial
+from functools import cached_property, partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -21,6 +21,7 @@ import httpx
 import yt_dlp
 from curl_cffi.requests.exceptions import RequestException as CurlRequestError
 from fastapi import HTTPException
+from yt_dlp.cookies import YoutubeDLCookieJar
 from yt_dlp.downloader import get_suitable_downloader
 from yt_dlp.downloader.dash import DashSegmentsFD
 from yt_dlp.downloader.external import FFmpegFD
@@ -95,10 +96,19 @@ class PublicRH(ImpersonateRequestHandler):
     _SUPPORTED_PROXY_SCHEMES = None
     _SUPPORTED_FEATURES = None
 
-    def __init__(self, *, trusted_proxy=None, no_cookies=False, **kwargs):
+    def __init__(self, *, trusted_proxy=None, no_cookies=False, page_origin=None, **kwargs):
         super().__init__(**kwargs)
         self.trusted_proxy = trusted_proxy
         self.no_cookies = no_cookies
+        self.page_origin = page_origin
+
+    def _check_page_origin(self, url):
+        if self.page_origin and urlsplit(url)[:2] != urlsplit(self.page_origin)[:2]:
+            raise RequestError("Photo page origin changed")
+
+    def _get_cookiejar(self, request):
+        # A page-scoped session cannot borrow an extractor-supplied jar.
+        return self.cookiejar if self.page_origin else super()._get_cookiejar(request)
 
     def _check_extensions(self, extensions):
         super()._check_extensions(extensions)
@@ -106,6 +116,7 @@ class PublicRH(ImpersonateRequestHandler):
             extensions.pop(key, None)
 
     def _send(self, request):
+        self._check_page_origin(request.url)
         if target := self._get_request_target(request):
             return self._send_impersonated(request, target)
         client = None
@@ -120,7 +131,7 @@ class PublicRH(ImpersonateRequestHandler):
             # HTTPX handles decoding; never advertise unavailable brotli/zstd.
             headers["Accept-Encoding"] = "gzip, deflate"
             headers.pop("Proxy-Authorization", None)
-            if self.no_cookies:
+            if self.no_cookies or self.page_origin:
                 headers.pop("Cookie", None)
                 headers.pop("Authorization", None)
             outgoing = client.build_request(
@@ -134,6 +145,13 @@ class PublicRH(ImpersonateRequestHandler):
                 if response.next_request is None:
                     break
                 outgoing = response.next_request
+                if self.page_origin:
+                    try:
+                        self._check_page_origin(str(outgoing.url))
+                    except RequestError:
+                        response.close()
+                        client.close()
+                        raise
                 if self.no_cookies:
                     outgoing.headers.pop("Cookie", None)
                     outgoing.headers.pop("Authorization", None)
@@ -162,10 +180,11 @@ class PublicRH(ImpersonateRequestHandler):
 
     def _send_impersonated(self, request, target):
         url, method, data = request.url, request.method, request.data
+        self._check_page_origin(url)
         headers = httpx.Headers(self._get_impersonate_headers(request))
         headers.pop("Host", None)
         headers.pop("Proxy-Authorization", None)
-        if self.no_cookies:
+        if self.no_cookies or self.page_origin:
             headers.pop("Cookie", None)
             headers.pop("Authorization", None)
         for hop in range(6):
@@ -182,6 +201,7 @@ class PublicRH(ImpersonateRequestHandler):
                 )
                 if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("Location"):
                     next_url = urljoin(url, response.headers["Location"])
+                    self._check_page_origin(next_url)
                     if hop == 5:
                         raise RequestError("Public media redirect limit reached")
                     # Cookies are selected from the jar for the new URL. Never
@@ -216,7 +236,8 @@ class PublicYoutubeDL(yt_dlp.YoutubeDL):
         # Never register unpinned handlers, even as a lower-priority fallback.
         return super().build_request_director([
             partial(PublicRH, trusted_proxy=self.params.get("proxy"),
-                    no_cookies=self.params.get("public_photo_no_cookies", False)),
+                    no_cookies=self.params.get("public_photo_no_cookies", False),
+                    page_origin=self.params.get("public_photo_page_origin")),
         ])
 
     def dl(self, name, info, subtitle=False, test=False):
@@ -264,17 +285,78 @@ def _decoder_wrappers(directory):
 
 
 class PhotoYoutubeDL(PublicYoutubeDL):
+    def _check_page_payload(self, payload):
+        pass
+
     def urlopen(self, request):
         response = super().urlopen(request)
         try:
             payload = response.read(5 * 1024 * 1024 + 1)
             if len(payload) > 5 * 1024 * 1024:
                 raise ValueError("Photo page limit")
+            self._check_page_payload(payload)
             return Response(io.BytesIO(payload), url=response.url, headers=dict(response.headers),
                             status=response.status, reason=response.reason,
                             extensions=response.extensions)
         finally:
             response.close()
+
+
+class TikTokPhotoYoutubeDL(PhotoYoutubeDL):
+    """A fresh TikTok-only session; never load or save an account's cookies."""
+
+    def __init__(self, params):
+        params = {**params, "cookiefile": None, "cookiesfrombrowser": None,
+                  "http_headers": {}, "public_photo_no_cookies": False,
+                  "public_photo_page_origin": "https://www.tiktok.com"}
+        super().__init__(params)
+
+    @cached_property
+    def cookiejar(self):
+        return YoutubeDLCookieJar()
+
+    def save_cookies(self):
+        pass  # Never persist this page session, even if SDK options change.
+
+    def _check_page_payload(self, payload):
+        if b"site maintenance" in payload.lower() and b"__UNIVERSAL_DATA_FOR_REHYDRATION__" not in payload:
+            raise TikTokPhotoReadError("page_maintenance", "SiteMaintenance")
+
+    def close(self):
+        try:
+            super().close()
+        finally:
+            self.cookiejar.clear()
+
+
+class TikTokPhotoReadError(ValueError):
+    """Content-free final stage, after one retry within the import deadline."""
+
+    def __init__(self, stage, exception_type):
+        self.stage, self.exception_type = stage, exception_type
+        super().__init__("SOURCE_RESPONSE_INVALID")
+
+
+def _read_tiktok_photo(downloader, url, identifier):
+    from yt_dlp.extractor.tiktok import TikTokIE
+
+    from app.services.photo_posts import parse_tiktok_photo
+
+    # Keep TikTok's newly issued session cookies for the retry, but never beyond
+    # this downloader. The parent subprocess deadline bounds both attempts.
+    for attempt in range(2):
+        stage = "page_read"
+        try:
+            item, status = TikTokIE(downloader)._extract_web_data_and_status(url, identifier)
+            stage = "page_shape"
+            if status != 0:
+                raise ValueError("Photo unavailable")
+            return parse_tiktok_photo(item, identifier)
+        except Exception as exc:
+            if attempt:
+                raise TikTokPhotoReadError(
+                    getattr(exc, "stage", stage), getattr(exc, "exception_type", type(exc).__name__),
+                ) from None
 
 
 def photo_json(url):
@@ -283,9 +365,7 @@ def photo_json(url):
     Keep the private call here, in the killed-on-timeout guarded subprocess.
     Shape drift is an error, never a successful empty/thumbnail-only carousel.
     """
-    from yt_dlp.extractor.tiktok import TikTokIE
-
-    from app.services.photo_posts import parse_instagram_photo, parse_tiktok_photo
+    from app.services.photo_posts import parse_instagram_photo
 
     parsed_url = urlsplit(url)
     if parsed_url.hostname in {"m.tiktok.com", "tiktok.com"} and not parsed_url.username and not parsed_url.port:
@@ -294,9 +374,10 @@ def photo_json(url):
     instagram = re.fullmatch(r"https://www\.instagram\.com/p/[A-Za-z0-9_-]+/?", url)
     if not match and not instagram:
         raise ValueError("Invalid photo URL")
-    with PhotoYoutubeDL({
+    downloader_class = TikTokPhotoYoutubeDL if match else PhotoYoutubeDL
+    with downloader_class({
         "quiet": True, "no_warnings": True, "cachedir": False,
-        "socket_timeout": 15, "retries": 0, "extractor_retries": 0,
+        "socket_timeout": 10 if match else 15, "retries": 0, "extractor_retries": 0,
         "public_photo_no_cookies": True, "ignore_no_formats_error": True,
         "remote_components": set(), "js_runtimes": {},
         "enable_file_urls": False, "nocheckcertificate": False,
@@ -316,12 +397,7 @@ def photo_json(url):
                         "duration": info.get("duration") or 0, "slides": None,
                         "thumbnail": (entries[0].get("thumbnails") or [{}])[-1].get("url")}
             return parse_instagram_photo(info)
-        item, status = TikTokIE(downloader)._extract_web_data_and_status(
-            url.replace("/photo/", "/video/"), match[2],
-        )
-        if status != 0:
-            raise ValueError("Photo unavailable")
-        return parse_tiktok_photo(item, match[2])
+        return _read_tiktok_photo(downloader, url.replace("/photo/", "/video/"), match[2])
 
 
 def main(argv=None):
@@ -335,11 +411,14 @@ def main(argv=None):
             print(json.dumps(photo_json(arguments[1])))
             return 0
         except Exception as exc:
-            from app.services.photo_posts import PHOTO_ERROR_CODES
+            from app.services.photo_posts import PhotoSourceError
             from app.services.video import get_friendly_video_error
 
             code = "SOURCE_RESPONSE_INVALID" if isinstance(exc, ValueError) else get_friendly_video_error(str(exc), "tiktok")[0]
-            print(json.dumps({"error_code": code if code in PHOTO_ERROR_CODES else "SOURCE_UNAVAILABLE"}))
+            error = PhotoSourceError(code, stage=getattr(exc, "stage", "metadata"),
+                                     exception_type=getattr(exc, "exception_type", type(exc).__name__))
+            print(json.dumps({"error_code": error.code, "stage": error.stage,
+                              "exception_type": error.exception_type}))
             return 1
     # parse_options alone does not invoke user update/exec/plugin workflows.
     plugin_dirs.value = []

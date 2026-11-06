@@ -291,6 +291,57 @@ def test_native_redirects_revalidate_and_preserve_cookie_identity(curl_wire):
     assert not server.errors
 
 
+def test_photo_session_keeps_only_its_own_page_cookies_then_discards_them(curl_wire, tmp_path, capsys, caplog):
+    start, _, _ = curl_wire
+    def reply(path):
+        return (302, {"Location": "/caption", "Set-Cookie": "page=synthetic-secret; Secure; Path=/"}, b"") if path == "/start" else (200, {}, b"caption")
+    server = start(reply=reply)
+    origin = f"https://source.test:{server.port}"
+    cookiefile = tmp_path / "instagram.cookies"
+    cookiefile.write_text("must never be read or overwritten")
+    for path in ("/start", "/caption"):
+        with public.TikTokPhotoYoutubeDL({"quiet": True, "cookiefile": str(cookiefile),
+                "cookiesfrombrowser": ("chrome",), "http_headers": {"Cookie": "instagram=private"}}) as dl:
+            assert dl.params["public_photo_page_origin"] == "https://www.tiktok.com"
+            assert dl.params["cookiefile"] is None and dl.params["cookiesfrombrowser"] is None
+            assert not list(dl.cookiejar)
+            # Only the fixture origin changes; native jar and transport stay real.
+            dl.params["public_photo_page_origin"] = origin
+            with browser_request(dl, origin + path, headers={"Cookie": "injected=private", "Authorization": "private"}) as response:
+                assert response.read() == b"caption"
+        assert not list(dl.cookiejar)
+    assert b"Cookie:" not in server.requests[0] and b"Authorization:" not in server.requests[0]
+    assert b"page=synthetic-secret" in server.requests[1]
+    assert b"Cookie:" not in server.requests[2]  # independent import starts empty
+    assert cookiefile.read_text() == "must never be read or overwritten"
+    assert not server.errors
+    captured = capsys.readouterr()
+    assert "synthetic-secret" not in captured.out + captured.err + caplog.text
+
+
+@pytest.mark.parametrize("target", ["https://alternate.test/cdn", "http://source.test/cdn", "https://source.test/cdn"])
+def test_photo_page_redirect_cannot_take_session_off_origin(curl_wire, target):
+    start, _, lookups = curl_wire
+    server = start(reply=lambda path: (302, {"Location": target, "Set-Cookie": "page=private; Domain=.test; Secure; Path=/"}, b""))
+    with public.TikTokPhotoYoutubeDL({"quiet": True}) as dl:
+        dl.params["public_photo_page_origin"] = f"https://source.test:{server.port}"
+        with pytest.raises(RequestError):
+            browser_request(dl, f"https://source.test:{server.port}/start")
+    assert lookups == ["source.test"] and len(server.requests) == 1
+    assert not server.errors
+
+
+def test_photo_page_rejects_foreign_cookiejar_and_direct_cdn_request():
+    from yt_dlp.cookies import YoutubeDLCookieJar
+    with public.TikTokPhotoYoutubeDL({"quiet": True}) as dl:
+        handler = next(iter(dl._request_director.handlers.values()))
+        foreign = YoutubeDLCookieJar()
+        request = Request("https://cdn.example/image", extensions={"cookiejar": foreign})
+        assert handler._get_cookiejar(request) is dl.cookiejar
+        with pytest.raises(RequestError):
+            dl.urlopen(request)
+
+
 @pytest.mark.parametrize("hostname,expected", [("bücher.test", "xn--bcher-kva.test"), ("source.test.", "source.test")])
 def test_curl_and_policy_use_identical_canonical_hostnames(curl_wire, hostname, expected):
     start, sni, lookups = curl_wire

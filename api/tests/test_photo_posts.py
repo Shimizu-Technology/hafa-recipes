@@ -70,7 +70,8 @@ def test_photo_adapter_uses_locked_private_method_and_rewritten_url(monkeypatch,
     calls = []
     def read(self, url, identifier):
         calls.append((url, identifier))
-        assert self._downloader.params["public_photo_no_cookies"] is True
+        assert self._downloader.params["public_photo_no_cookies"] is False
+        assert self._downloader.params["public_photo_page_origin"] == "https://www.tiktok.com"
         return item(), 0
     monkeypatch.setattr(TikTokIE, "_extract_web_data_and_status", read)
     assert public_ytdlp.photo_json(f"https://{host}/@creator/photo/123")["slides"]
@@ -203,7 +204,7 @@ def test_photo_cli_shape_failure_prints_only_safe_code(monkeypatch, capsys):
         raise ValueError("private source text and token")
     monkeypatch.setattr(public_ytdlp, "photo_json", invalid)
     assert public_ytdlp.main(["--public-photo-json", "https://www.tiktok.com/@creator/photo/123"]) == 1
-    assert capsys.readouterr().out.strip() == '{"error_code": "SOURCE_RESPONSE_INVALID"}'
+    assert __import__("json").loads(capsys.readouterr().out) == {"error_code": "SOURCE_RESPONSE_INVALID", "stage": "metadata", "exception_type": "ValueError"}
 
 
 async def test_photo_subprocess_rate_limit_reaches_metadata_without_raw_errors(monkeypatch):
@@ -216,3 +217,35 @@ async def test_photo_subprocess_rate_limit_reaches_metadata_without_raw_errors(m
     service = VideoService()
     metadata = await service.get_video_metadata_ytdlp("https://www.tiktok.com/@creator/photo/123")
     assert metadata.error_code == "RATE_LIMITED"
+
+
+@pytest.mark.parametrize("recover", [False, True])
+def test_maintenance_retries_once_with_same_ephemeral_jar_and_safe_stage(monkeypatch, recover):
+    from yt_dlp.extractor.tiktok import TikTokIE
+    calls = []
+    def read(self, url, identifier):
+        calls.append(self._downloader.cookiejar)
+        if recover and len(calls) == 2:
+            return item(), 0
+        self._downloader._check_page_payload(b"<html>Site Maintenance</html>")
+    monkeypatch.setattr(TikTokIE, "_extract_web_data_and_status", read)
+    if recover:
+        assert public_ytdlp.photo_json("https://www.tiktok.com/@creator/photo/123")["slides"]
+    else:
+        with pytest.raises(public_ytdlp.TikTokPhotoReadError) as raised:
+            public_ytdlp.photo_json("https://www.tiktok.com/@creator/photo/123")
+        assert (raised.value.stage, raised.value.exception_type) == ("page_maintenance", "SiteMaintenance")
+    assert len(calls) == 2 and calls[0] is calls[1] and not list(calls[0])
+
+
+def test_retry_shape_drift_fails_loudly_without_source_text(monkeypatch, capsys):
+    from yt_dlp.extractor.tiktok import TikTokIE
+    calls = []
+    def read(self, *args):
+        calls.append(1)
+        return {"desc": "private source text"}, 0
+    monkeypatch.setattr(TikTokIE, "_extract_web_data_and_status", read)
+    assert public_ytdlp.main(["--public-photo-json", "https://www.tiktok.com/@creator/photo/123"]) == 1
+    output = capsys.readouterr().out
+    assert len(calls) == 2 and "private source text" not in output
+    assert '"stage": "page_shape"' in output and '"exception_type": "ValueError"' in output

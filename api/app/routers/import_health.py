@@ -144,6 +144,7 @@ async def import_health(platform: str, request: Request):
             code = "SOURCE_RESPONSE_INVALID"
         except PhotoSourceError as exc:
             code = exc.code
+            stage = exc.stage
         except TimeoutError:
             code = "TIMEOUT"
         except Exception:
