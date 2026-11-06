@@ -16,7 +16,7 @@ from sqlalchemy import func, select, text
 from app.domains.baby.access import AccessChanged, access_for, family_enabled, touch
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.imports import admit_import
-from app.domains.baby.lifecycle import digest, now
+from app.domains.baby.lifecycle import digest, now, source_creation_hashes
 from app.domains.baby.models import BabyImport, BabyRecord
 from app.domains.baby.schemas import (
     DEFAULT_SOURCE_TITLE,
@@ -366,7 +366,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
             if (
                 source.app_user_id != credential.app_user_id
                 or source.generation != credential.generation
-                or source.creation_hash != original_hash
+                or source.creation_hash not in source_creation_hashes(original)
                 or source.deleted_at is not None
             ):
                 raise HTTPException(409, "Source identity already used")

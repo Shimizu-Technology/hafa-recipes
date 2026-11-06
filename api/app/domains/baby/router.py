@@ -37,6 +37,7 @@ from app.domains.baby.lifecycle import (
     personal_child_link,
     readable_journal_children,
     settle_running_feeds,
+    source_creation_hashes,
     validate_relations,
 )
 from app.domains.baby.models import (
@@ -170,7 +171,7 @@ async def record_reply(db, row, access):
 
 
 # Clients that predate these fields omit them; only an explicit null clears one.
-SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text")
+SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text", "legacy_saved_text")
 PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
 
 
@@ -1021,7 +1022,7 @@ async def create_record(
             access.grant(prior)
         if (
             not access.enabled and (prior.app_user_id != user.id or prior.generation != generation)
-        ) or prior.creation_hash != fingerprint:
+        ) or prior.creation_hash not in source_creation_hashes(body):
             raise HTTPException(409, "This save identity was already used with different content")
         if prior.deleted_at:
             raise HTTPException(410, "This entry was removed; create a new entry")

@@ -378,3 +378,59 @@ async def test_import_attachment_union_keeps_eight_and_rejects_ninth(baby_api,mo
     accepted=await c.post("/api/v1/baby/imports",headers=shared.GEN,
         json={"id":str(uuid4()),"record_id":body["id"],"attachment_ids":[assets[0]]})
     assert accepted.status_code==200
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("known_original",[False,True])
+async def test_legacy_text_survives_without_becoming_acquired_input(baby_api,monkeypatch,known_original):
+    from uuid import UUID
+
+    from app.domains.baby import processing
+    from app.domains.baby.provider import ExtractionOutput
+    from app.domains.baby.runtime import BabyWorker
+    from app.domains.workouts.extraction import SourceBundle, SourceMetadata, SourcePart
+    c=baby_api.client
+    await c.patch("/api/v1/baby/profile",headers=shared.GEN,json={"ai_consent":True})
+    note="Legacy original parent note"
+    earlier="Old acquired caption and model-read labels"
+    if known_original:
+        job=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"url":"https://example.com/post","text":note})).json()
+        record_id=job["record_id"]
+        async with baby_api.sessions() as db:
+            row=await db.get(BabyImport,UUID(job["id"]))
+            row.status="incomplete"
+            await db.commit()
+    else:
+        body=shared.payload("source",body="",data={"url":"https://example.com/post","source_text":"Original save","status":"saved"})
+        saved=await c.post("/api/v1/baby/records",headers=shared.GEN,json=body)
+        assert saved.status_code==200
+        record_id=body["id"]
+    async with baby_api.sessions() as db:
+        source=await db.get(BabyRecord,UUID(record_id))
+        source.data={**source.data,"source_text":earlier,"status":"incomplete"}
+        source.data.pop("user_text",None)
+        source.revision+=1
+        await db.commit()
+    class Acquirer:
+        def __init__(self,**kwargs): pass
+        async def acquire(self,*args,**kwargs):
+            return SourceBundle(SourceMetadata(title="Fresh"),parts=[SourcePart("caption","Fresh caption")])
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    seen=[]
+    class Provider:
+        enabled=True
+        def __init__(self,**kwargs): pass
+        async def extract(self,source,categories=None):
+            seen.append([part.text for part in source.parts])
+            return ExtractionOutput(title="Fresh",summary="Fresh summary")
+    worker=BabyWorker(baby_api.sessions,provider_factory=Provider)
+    for _ in range(2):
+        queued=await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"record_id":record_id,"text":earlier})
+        assert queued.status_code==200,queued.text
+        assert await worker.tick()
+    result=(await c.get(f"/api/v1/baby/records/{record_id}")).json()["data"]
+    assert all(earlier not in parts for parts in seen)
+    if known_original:
+        assert result["user_text"]==note and all(note in parts for parts in seen)
+    else:
+        assert result["legacy_saved_text"]==earlier and all(parts==["Fresh caption"] for parts in seen)
+        assert result["source_text"]=="Fresh caption"

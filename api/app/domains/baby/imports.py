@@ -14,6 +14,7 @@ from app.domains.baby.lifecycle import (
     now,
     owned,
     personal_child_link,
+    source_note,
     validate_relations,
 )
 from app.domains.baby.models import BabyImport, BabyRecord
@@ -133,10 +134,12 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         attachment_ids = list(dict.fromkeys([*source.data.get("attachment_ids", []), *request["attachment_ids"]]))
         if len(attachment_ids) > 8:
             raise HTTPException(422, "A source can keep up to eight attachments")
+        linked = bool(body.url or source.data.get("url") or source.data.get("attachment_ids") or request["attachment_ids"])
+        note, note_patch = await source_note(db, source) if linked else (None, {})
         request = {
             **request,
             "url": body.url or source.data.get("url"),
-            "text": (source.body or source.data.get("user_text")) if (body.url or source.data.get("url") or source.data.get("attachment_ids") or request["attachment_ids"])
+            "text": note if linked
                     else (body.text or source.data.get("source_text")),
             "attachment_ids": attachment_ids,
             "topics": request["topics"] or source.data.get("topics", []),
@@ -149,7 +152,7 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         caption_title = original_text.splitlines()[0][:100] if original_text else DEFAULT_SOURCE_TITLE
         if automatic and source.revision == 1 and source.title in {DEFAULT_SOURCE_TITLE, caption_title}:
             request["automatic_title"] = source.title
-        source.data = {**source.data, "status": "queued", "attachment_ids": request["attachment_ids"]}
+        source.data = {**source.data, **note_patch, "status": "queued", "attachment_ids": request["attachment_ids"]}
         source.revision, source.updated_at = source.revision + 1, now()
     else:
         source_id = uuid5(NAMESPACE_URL, f"hafa-baby-source:{user.id}:{generation}:{body.id}")
@@ -257,9 +260,11 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         BabyImport.id != row.id, BabyImport.status.in_(["queued", "processing"])).limit(1))
     if active:
         raise HTTPException(409, "This source is already processing")
+    linked = bool(row.request.get("url") or source.data.get("url") or source.data.get("attachment_ids"))
+    note, note_patch = await source_note(db, source) if linked else (None, {})
     refreshed_request = {**row.request, "attachment_ids": source.data.get("attachment_ids", []),
                    "url": source.data.get("url"),
-                   "text": (source.body or source.data.get("user_text")) if source.data.get("url") or source.data.get("attachment_ids") else row.request.get("text")}
+                   "text": note if linked else row.request.get("text")}
     await validate_relations(
         db,
         access,
@@ -279,7 +284,7 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         }
     row.status, row.error, row.consent_epoch = "queued", None, member.consent_epoch
     row.lease_token, row.lease_until, row.updated_at = None, None, now()
-    source.data = {**source.data, "status": "queued"}
+    source.data = {**source.data, **note_patch, "status": "queued"}
     source.revision, source.updated_at = source.revision + 1, now()
     await touch(source, access.grant(source) if access.enabled else None)
     await touch(row, access.grant(row) if access.enabled else None)

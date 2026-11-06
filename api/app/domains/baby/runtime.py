@@ -20,7 +20,7 @@ from app.domains.baby.access import (
     family_enabled,
     touch,
 )
-from app.domains.baby.lifecycle import now, owned, validate_relations
+from app.domains.baby.lifecycle import now, owned, source_note, validate_relations
 from app.domains.baby.models import (
     BABY_TABLES,
     BabyAttachment,
@@ -260,14 +260,16 @@ class BabyWorker:
                 return True
             except HTTPException:
                 return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
+            linked = bool(request.get("url") or source.data.get("url") or source.data.get("attachment_ids"))
+            note, note_patch = await source_note(db, source) if linked else (None, {})
             request["url"] = source.data.get("url")
             request["attachment_ids"] = source.data.get("attachment_ids", [])
-            if request.get("url") or request["attachment_ids"]:
-                request["text"] = source.body or source.data.get("user_text")
+            if linked:
+                request["text"] = note
             source.revision += 1
             source.updated_at = now()
             baseline_revision = source.revision
-            source.data = {**source.data, "status": "processing"}
+            source.data = {**source.data, **note_patch, "status": "processing"}
             await touch(source, access.target)
             await touch(row, access.target)
             await db.commit()
@@ -434,6 +436,7 @@ def keep_user_decisions(current, organized):
     organized = dict(organized)
     organized.pop("attachment_ids", None)
     organized.pop("user_text", None)
+    organized.pop("legacy_saved_text", None)
     if (organized.get("status") in {"incomplete", "failed"} and current.get("source_text")
             and (current.get("url") or current.get("attachment_ids"))
             and not any(item.get("text") and item.get("location") != "user_note"
