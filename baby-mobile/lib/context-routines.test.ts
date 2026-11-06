@@ -81,7 +81,7 @@ import { BabyProvider, useBaby } from "./context";
 import { ApiError, MovedError } from "./api";
 import { notSentMessage } from "./outbox";
 import { unavailableMessage } from "./spaces";
-import { uploadFile } from "./files";
+import { clearFiles, uploadFile } from "./files";
 import { runningFeed } from "./feed-reducer";
 import { switchFeed } from "./running-feed";
 import { reminderNotificationData } from "./notification-route";
@@ -1588,7 +1588,7 @@ describe("a family's protocol, through the sync loop", () => {
     expect(baby.state.records.map((row) => row.id)).toEqual(["feed"]);
   });
   it("still sends a stamped change if the flag goes off, and doesn't refuse every save over a family's generation", async () => {
-    const save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), row = { id: "m", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "m", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+    const save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), row = { id: "m", generation: 1, space_id: personal, type: "save" as const, base: { after: [] }, files: [], record: { id: "m", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
     const shared = { ...row, id: "s", generation: 9, space_id: family, record: { ...row.record, id: "s" } };
     setup({ ...bootstrap }, { bootstrap: { ...bootstrap }, outbox: [row, shared] } as never, { save });
     await mount(); await flush();
@@ -2018,4 +2018,16 @@ it("keeps a late editor cleanup outside the queue and ordinary draft slots after
   expect(baby.state.heldDrafts![0].draft.body).toBe("unsaved words");
   await act(async () => { await baby.saveDraft("record:shared", { ...draft, files: [...draft.files] }); });
   expect(baby.state.heldDrafts).toHaveLength(1);
+});
+
+it("keeps removed-family recovery files through the provider's personal-generation cleanup", async () => {
+  const own = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] },
+    file = { id: "held-photo", uri: "file:///held-photo", name: "held.jpg", mime_type: "image/jpeg" },
+    held = { id: "held", draft: { id: "entry", kind: "journal", title: "Held", body: "unsaved words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: {}, space_id: "former-family", files: [file] } };
+  mock.saved = { ...emptyState(), bootstrap: own, heldDrafts: [held], fileUploads: { [file.id]: "upload" } } as DeviceState;
+  mock.api.bootstrap = vi.fn(async () => ({ ...own, generation: 2, spaces: [{ ...own.spaces[0], generation: 2 }] }));
+  await mount();
+  expect(baby.state.heldDrafts).toEqual([held]); expect(baby.state.fileUploads).toEqual({ [file.id]: "upload" });
+  const cleanup = vi.mocked(clearFiles).mock.calls.at(-1)!;
+  expect(cleanup).toBeDefined(); expect((cleanup[1] as () => Set<string>)().has(file.uri)).toBe(true);
 });

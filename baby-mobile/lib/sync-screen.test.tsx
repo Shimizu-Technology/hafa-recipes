@@ -227,3 +227,28 @@ it("keeps unfinished work separate, never offers Retry, and confirms exact-row K
   await act(async () => buttons().find((n) => n.props.title === "Discard this unfinished draft")!.props.onPress());
   expect(scope.alerts.at(-1)!.message).toContain("1 later saved change");
 });
+
+it("confirms Keep and Discard for the selected snapshot, retains the other, and releases only removed uploads", async () => {
+  const b = setup([]), file = (id: string) => ({ id, uri: `file:///${id}`, uploaded_id: `upload-${id}`, name: `${id}.jpg`, mime_type: "image/jpeg" }),
+    held = (id: string) => ({ id, draft: { ...(save(id) as any).record, title: id, body: `${id} words`, space_id: "family", files: [file(id)] } });
+  b.state.bootstrap = { generation: 1, personal_space_id: "personal", children: [] };
+  b.state.heldDrafts = [held("one"), held("two")];
+  b.commit.mockImplementation(async (change: (s: DeviceState) => DeviceState) => { b.state = change(b.state); });
+  let sent!: () => void; b.sync.mockImplementation(() => new Promise<void>((resolve) => { sent = resolve; }));
+  await act(async () => { renderer = create(<Sync />); });
+  const buttons = () => renderer!.root.findAll((n) => String(n.type) === "Button"),
+    drafts = () => buttons().filter((n) => ["Keep this draft in my personal space", "Discard this unfinished draft"].includes(n.props.title));
+  await act(async () => buttons().filter((n) => n.props.title === "Keep this draft in my personal space")[1].props.onPress());
+  expect(b.commit).not.toHaveBeenCalled();
+  await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Keep this draft")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.sync).toHaveBeenCalledOnce(); expect(drafts().every((one) => one.props.disabled)).toBe(true);
+  await act(async () => { sent(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.state.outbox).toHaveLength(1); expect(b.state.outbox[0].record.body).toBe("two words");
+  expect(b.state.heldDrafts.map((one: any) => one.id)).toEqual(["one"]); expect(b.state.fileReleases).toEqual(["upload-two"]);
+  b.syncing = true; await act(async () => renderer!.update(<Sync />)); expect(drafts().every((one) => one.props.disabled)).toBe(true);
+  b.syncing = false; await act(async () => renderer!.update(<Sync />));
+  await act(async () => buttons().find((one) => one.props.title === "Discard this unfinished draft")!.props.onPress());
+  await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Discard draft")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.state.heldDrafts).toEqual([]); expect(b.state.fileReleases).toEqual(["upload-two", "upload-one"]);
+  expect(b.state.outbox[0].record.body).toBe("two words"); expect(b.sync).toHaveBeenCalledOnce();
+});

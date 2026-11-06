@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepInPersonal, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState } from "./outbox";
+import { keepInPersonal, addMutation, localFileUris, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState } from "./outbox";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -95,7 +95,7 @@ describe("a write that finds its row moved", () => {
 
 describe("leaving a family, or being removed", () => {
   const shared = row("shared", 3, family), mine = row("mine", 1, personal);
-  const queued: Mutation = { id: "q", generation: 1, space_id: family, type: "save", files: [], record: write("q", "diaper", "baby") };
+  const queued: Mutation = { id: "q", generation: 1, space_id: family, type: "save", base: { after: [] }, files: [], record: write("q", "diaper", "baby") };
   const tap: Mutation = { id: "t", generation: 1, space_id: family, type: "feed_action", record_id: "shared", action: { id: "t", action: "finish", at: "2026-11-05T00:00:00.000Z" } };
   const own: Mutation = { ...edit("mine", 1) };
   const before = () => state({ records: [shared, mine], outbox: [queued, tap, own], selectedChild: "baby",
@@ -158,7 +158,7 @@ describe("leaving a family, or being removed", () => {
     expect(left.heldDrafts![0].draft.body).toBe("unsaved");
   });
   it("holds ambiguous saves stopped by the old build for an explicit personal save", () => {
-    const old = state({ version: 2, outbox: [{ ...queued, left_space: family, error: notSentMessage }] });
+    const old = state({ version: 2, outbox: [{ ...queued, base: undefined, left_space: family, error: notSentMessage }] });
     const next = rejoined(upgradedState(old), boot());
     expect(next.outbox).toEqual([]);
     expect(next.heldDrafts![0].draft.body).toBe("words");
@@ -310,4 +310,42 @@ it("detaches an unreadable family baby from a queued personal journal without ch
   const note = { ...edit("note", 1), record: write("note", "journal", "baby") } as Mutation;
   const next = withoutFamily(state({ outbox: [note] }), family, uuid);
   expect(next.outbox[0]).toMatchObject({ space_id: personal, record: { child_id: null, body: "words" } });
+});
+
+
+describe("legacy editor provenance and dependency boundaries", () => {
+  const photo = { id: "private-file", uri: "file:///private", name: "private.jpg", mime_type: "image/jpeg" };
+  const uncertain = (): Extract<Mutation, { type: "save" }> => ({ id: "legacy", generation: 1, type: "save", space_id: family, files: [photo], record: write("entry", "feeding", "baby") });
+  const action = (id: string, space_id = family): Mutation => ({ id, generation: 1, type: "feed_action", space_id, record_id: "entry", action: { id, action: "finish", at: "2026-11-05T01:00:00Z" } });
+  it.each([2, 3, 4])("holds an old rejoined draft and its based edits even after departure flags were erased (version %s)", (version) => {
+    const first = uncertain(), later = { ...uncertain(), id: "later", base: { after: [first.id] }, record: { ...first.record, body: "based on unfinished words" } };
+    const next = upgradedState(state({ version, outbox: [first, later, action("finish")] }));
+    expect(next.outbox).toEqual([]); expect(next.heldDrafts![0].draft.files).toEqual([photo]);
+    expect(next.heldDrafts![0].followups?.map((m) => m.id)).toEqual(["later", "finish"]);
+    expect(rejoined(withoutFamily(next, family, uuid), boot()).outbox).toEqual([]);
+  });
+  it("does not take an independent saved edit, another space, or a child operation with the held draft", () => {
+    const first = uncertain(), otherSpace = { ...uncertain(), id: "personal", space_id: personal, base: { after: [first.id] } },
+      independent = { ...uncertain(), id: "saved", base: { after: [] }, record: { ...first.record, body: "really saved" } },
+      child: Mutation = { id: "child", type: "child_birth", child_id: "entry", space_id: family, generation: 1, birth_date: "2026-11-01", previous: null };
+    const next = upgradedState(state({ version: 3, outbox: [first, otherSpace, child, action("own-action", personal), independent, action("after-saved")] }));
+    expect(next.outbox.map((m) => m.id)).toEqual(["personal", "child", "own-action", "saved", "after-saved"]);
+    expect(next.heldDrafts![0].followups ?? []).toEqual([]);
+    expect(keepHeldDraft(next, first.id, uuid).outbox.map((m) => m.id)).toEqual(expect.arrayContaining(next.outbox.map((m) => m.id)));
+  });
+  it("records Save intent for a new queued row, so leaving and rejoining delivers the same write", () => {
+    const made = { ...uncertain(), id: "actually-saved", record: { ...uncertain().record, id: "new-entry" } }, queued = addMutation(state(), made);
+    expect(queued.outbox[0]).toMatchObject({ base: { after: [] } });
+    const next = rejoined(withoutFamily(queued, family, uuid), boot());
+    expect(next.outbox).toHaveLength(1); expect(next.outbox[0]).toMatchObject({ id: made.id, error: undefined, left_space: undefined });
+    expect(next.heldDrafts ?? []).toEqual([]);
+  });
+  it("keeps former-family drafts and file references when the personal generation changes", () => {
+    const draft: EditorDraft = { ...write("entry"), files: [photo], space_id: family }, held = { id: "held", draft },
+      old = state({ heldDrafts: [held], fileUploads: { [photo.id]: "uploaded" } });
+    old.bootstrap = { ...boot(), spaces: boot().spaces!.filter((space) => space.id === personal), children: [] };
+    const next = fencedState(old, { generation: 3, spaces: [{ ...old.bootstrap.spaces![0], generation: 3 }] });
+    expect(next.heldDrafts).toEqual([held]); expect(next.fileUploads).toEqual(old.fileUploads);
+    expect(localFileUris(next).has(photo.uri)).toBe(true);
+  });
 });
