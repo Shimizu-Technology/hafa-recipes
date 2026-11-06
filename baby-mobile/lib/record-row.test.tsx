@@ -91,3 +91,12 @@ describe("Private or Shared, on writing", () => {
     expect(await words("milestone", "fam")).not.toMatch(/Private|Shared/);
   });
 });
+it("never lists a journal entry's words twice, and shows what's under a title she chose", async () => {
+  expect(await shown(row("journal", {}, "First day felt good", "First day felt good"))).toEqual(expect.objectContaining({ title: "First day felt good", detail: "Journal entry · 2:14 PM" }));
+  await act(async () => renderer!.unmount());
+  expect((await shown(row("journal", {}, "First kick", "After dinner"))).detail).toBe("After dinner · 2:14 PM");
+  await act(async () => renderer!.unmount());
+  expect((await shown(row("journal", {}, "First day felt good", "First day felt good\nThen home"))).detail).toBe("Then home · 2:14 PM");
+  await act(async () => renderer!.unmount());
+  expect((await shown(row("journal", { provenance: "clinician_instruction" }, "What my doctor told me", "Rest"))).detail).toBe("Clinician instruction · Rest · 2:14 PM");
+});

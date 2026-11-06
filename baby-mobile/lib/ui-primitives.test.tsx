@@ -138,6 +138,34 @@ it("puts a panel's Save on the bar above the keyboard, for every field in it, an
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.inputAccessoryViewID).toBeUndefined();
   expect(renderer!.root.findAllByType("InputAccessoryView" as React.ElementType)).toHaveLength(0);
 });
+it("makes a field clear to use: its word focuses it, focus shows, and the caret stays in the brand colour", async () => {
+  const focus = vi.fn(), ref = React.createRef<any>();
+  await mount(<Field label="Name" value="" capitalize="words" inputRef={ref} onChange={() => {}} />);
+  const input = () => renderer!.root.findByType("TextInput" as React.ElementType).props;
+  expect(input()).toMatchObject({ autoCapitalize: "words", returnKeyType: "done", placeholderTextColor: expect.any(String) });
+  expect(input().selectionColor).toBeDefined();
+  const before = input().style;
+  await act(async () => input().onFocus());
+  expect(input().style.borderColor).not.toBe(before.borderColor);
+  // Only its colour changes, so focusing moves nothing.
+  expect(input().style.padding).toBe(before.padding);
+  expect(input().style.borderWidth).toBe(before.borderWidth);
+  const focusedCaret = input().selectionColor;
+  await act(async () => input().onBlur());
+  expect(input().selectionColor).not.toBe(focusedCaret);
+  const word = renderer!.root.findAll(n => String(n.type) === "Pressable" && n.props.accessible === false)[0];
+  (ref as { current: unknown }).current = { focus };
+  await act(async () => word.props.onPress());
+  expect(focus).toHaveBeenCalled();
+  // VoiceOver reads the label once, on the box.
+  expect(word.props.accessibilityElementsHidden).toBe(true);
+});
+it("shows a disabled field as disabled, and keeps single-line search clearable", async () => {
+  await mount(<Field label="Email" value="a@b.c" disabled clearable onChange={() => {}} />);
+  const input = renderer!.root.findByType("TextInput" as React.ElementType).props;
+  expect(input).toMatchObject({ editable: false, clearButtonMode: "while-editing", accessibilityState: { disabled: true } });
+  expect(renderer!.root.findAll(n => String(n.type) === "View" && n.props.style?.opacity === 0.6)).toHaveLength(1);
+});
 it("keeps full row labels and wrapping choices reachable at large text", async () => {
   mock.fontScale = 3.1;
   await mount(<><Row title="A long entry for this child's care" detail="A full description" onPress={() => {}} />
@@ -523,9 +551,10 @@ it.each(["light", "dark"])("keeps fields and nested cards visible inside a card 
     <Card><Field label="In a card" value="Ari" onChange={() => {}} /><Card><Copy>Nested</Copy></Card></Card></>);
   const inputs = renderer!.root.findAllByType("TextInput" as React.ElementType).map(input => input.props.style);
   expect(inputs[0]).toMatchObject({ backgroundColor: surface });
-  expect(inputs[0].borderWidth).toBeUndefined();
+  expect(inputs[0].borderColor).toBe("transparent");
   // On a white (warm-dark) card a field takes the page ground and a hairline instead of vanishing into it.
-  expect(inputs[1]).toMatchObject({ backgroundColor: ground, borderWidth: 1 });
+  expect(inputs[1]).toMatchObject({ backgroundColor: ground, borderWidth: 1.5 });
+  expect(inputs[1].borderColor).not.toBe("transparent");
   const cards = renderer!.root.findAll(n => String(n.type) === "View" && Array.isArray(n.props.style) && n.props.style[0]?.padding === 22)
     .map(card => card.props.style[0].backgroundColor);
   expect(cards).toEqual([surface, ground]);

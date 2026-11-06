@@ -28,7 +28,9 @@ import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
-import { babiesFor, babyLabel, caregiverKeeps, choiceFor, fittingChild, stampedDraft } from "../lib/spaces";
+import { ComposerOpening, JournalComposer } from "../components/journal-composer";
+import { firstWords, titleLimit, writtenTitle } from "../lib/journal-title";
+import { babiesFor, babyLabel, caregiverKeeps, choiceFor, fittingChild, stampedDraft, visibilityWord } from "../lib/spaces";
 import { useOpenJournal } from "../lib/use-open-journal";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
@@ -53,15 +55,8 @@ function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): Edit
                 : {},
   };
 }
-/** An untitled journal entry or question is listed by its first words. */
-function firstLine(d: EditorDraft) {
-  // Leave the server-owned source placeholder eligible for a processed title.
-  if (d.kind === "source") return "";
-  if (d.kind !== "journal" && d.kind !== "question") return "";
-  // Count characters, not UTF-16 units, so an emoji is never cut in half.
-  const line = [...d.body.trim().split("\n")[0].trim()];
-  return line.length > 60 ? line.slice(0, 59).join("").trimEnd() + "…" : line.join("");
-}
+/** An untitled journal entry or question is listed by its first words. A source's placeholder stays for a processed title. */
+const firstLine = (d: EditorDraft) => (d.kind === "journal" || d.kind === "question" ? firstWords(d.body) : "");
 export default function Edit() {
   const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string; child?: string }>(),
     b = useBaby(),
@@ -80,13 +75,17 @@ export default function Edit() {
     // Which tracker this entry is stays as it opened, so typing someone else's label can't swap the fields mid-word.
     openedAs = useRef<{ id: string; tracker?: Tracker } | null>(null),
     retired = useRef(false),
+    restored = useRef(false),
     working = useRef(false),
     changed = useRef(false);
+  /** A journal entry opened and left as it was is no unfinished draft. */
+  const keeps = (d: EditorDraft) => keepDraft(d, changed.current) && (d.kind !== "journal" || !d.existing || changed.current || restored.current);
   useEffect(() => {
     let active = true;
     void (async () => {
       try {
         let d = b.state.drafts[slot] && settledDraft(b.state.drafts[slot], b.state);
+        restored.current = !!d;
         if (!d && params.id) {
           let row = b.records.find((r) => r.id === params.id);
           if (!row || row.cache_partial) row = await b.api.record(params.id);
@@ -112,6 +111,11 @@ export default function Edit() {
         }
         d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
           : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
+        // A journal title that only repeats her first line isn't a title. It's made again on save, from whatever the body says then.
+        if (d.kind === "journal") {
+          const row = b.records.find((r) => r.id === d!.id);
+          if (!writtenTitle(d) || (row && d.title === row.title && !writtenTitle(row))) d = { ...d, title: "" };
+        }
         if (active) {
           latest.current = d;
           setDraft(d);
@@ -123,7 +127,7 @@ export default function Edit() {
     })();
     return () => {
       active = false;
-      if (!retired.current && latest.current) void b.saveDraft(slot, keepDraft(latest.current, changed.current) ? latest.current : null).catch(() => undefined);
+      if (!retired.current && latest.current) void b.saveDraft(slot, keeps(latest.current) ? latest.current : null).catch(() => undefined);
     };
   }, [slot]);
   useEffect(() => {
@@ -132,8 +136,8 @@ export default function Edit() {
     const timer = setTimeout(() => {
       if (retired.current) return;
       void b
-        .saveDraft(slot, keepDraft(draft, changed.current) ? draft : null)
-        .then(() => setSaved(keepDraft(draft, changed.current)))
+        .saveDraft(slot, keeps(draft) ? draft : null)
+        .then(() => setSaved(keeps(draft)))
         .catch((e) => setError(messageFor(e)));
     }, 400);
     return () => clearTimeout(timer);
@@ -143,7 +147,7 @@ export default function Edit() {
   useEffect(() => {
     const app = AppState.addEventListener("change", (s) => {
       if (s !== "active" && !retired.current && latest.current)
-        void b.saveDraft(slot, keepDraft(latest.current, changed.current) ? latest.current : null).catch(() => undefined);
+        void b.saveDraft(slot, keeps(latest.current) ? latest.current : null).catch(() => undefined);
     });
     return () => app.remove();
   }, [slot]);
@@ -239,7 +243,7 @@ export default function Edit() {
       !["feeding", "sleep", "diaper"].includes(d.kind) &&
       !d.data.url
     )
-      throw Error("Add a title, a note, or a source to keep.");
+      throw Error(d.kind === "journal" ? "Write something or add a photo to keep." : "Add a title, a note, or a source to keep.");
     if (logFormProblem.current) throw Error(logFormProblem.current);
     if (trackerFor(d)?.opens === "panel" && new Date(d.occurred_at).getTime() > Date.now() + 60_000) throw Error("That time hasn’t happened yet. Choose an earlier one.");
     if (isCare(d.kind) && !d.existing && !d.child_id && b.state.bootstrap!.children.length)
@@ -395,8 +399,8 @@ export default function Edit() {
       },
     ]);
   }
-  // Journal entries and doctor questions open on the writing area; other kinds keep notes after their details.
-  const writing = !!draft && (draft.kind === "journal" || draft.kind === "question" || draft.kind === "source");
+  // Doctor questions and posts open on the writing area; other kinds keep notes after their details. A journal entry has its own page.
+  const writing = !!draft && (draft.kind === "question" || draft.kind === "source");
   /** Its fields hold what she's typed, and the draft holds the last that made sense, so typing "37." doesn't lose the dot. */
   function logForm(form: LogForm, base: Record<string, unknown>) {
     try {
@@ -428,13 +432,10 @@ export default function Edit() {
           multiline
           value={draft.body}
           onChange={(body) => change({ body })}
-          placeholder={
-            draft.kind === "journal"
-              ? "How are you doing? What would you like to remember?"
-              : "Write anything you want to keep with this entry."
-          }
+          placeholder="Write anything you want to keep with this entry."
         />
       ));
+  if (!draft && !error && (params.kind ?? b.state.drafts[slot]?.kind ?? b.records.find((r) => r.id === params.id)?.kind) === "journal") return <ComposerOpening />;
   if (!draft)
     return (
       <Screen title="Your draft" back>
@@ -451,6 +452,53 @@ export default function Edit() {
       {(draft.existing || !!params.from || !!draft.title.trim()) && <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />}
     </Screen>
   );
+  const whoFor = <Chips
+    value={fittingChild(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)) ?? ""}
+    label="Who is this for?"
+    options={[
+      // Care always belongs to a baby; older general care entries can still be reassigned.
+      ...((isCare(draft.kind) || staysWithBaby(draft) || log?.about === "baby") && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
+        ? []
+        : [{ label: "For me / general", value: "" }]),
+      ...babiesFor(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)).map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
+    ]}
+    onChange={(id) => change({ child_id: id || null })}
+  />;
+  const sharing = (() => { const choice = choiceFor(b.state.bootstrap, draft);
+    return choice && <>
+      <Choice label="Shared with family" detail={sharedDetail(draft.kind)} selected={choice.shared} onPress={() => change({ shared: true })} />
+      <Choice label="Just me" selected={!choice.shared} onPress={() => change({ shared: false })} />
+    </>; })();
+  if (draft.kind === "journal") {
+    const clinician = <Choice
+      label="My clinician told me this"
+      detail="Marks it as a clinician instruction. It’s your label; AI does not verify it."
+      selected={draft.data.provenance === "clinician_instruction"}
+      onPress={() => data({ provenance: draft.data.provenance === "clinician_instruction" ? "caregiver_observation" : "clinician_instruction" })}
+    />;
+    const choice = choiceFor(b.state.bootstrap, draft), row = b.records.find((r) => r.id === draft.id), babies = b.state.bootstrap!.children,
+      forBaby = babies.length > 1 ? babies.find((baby) => baby.id === fittingChild(b.state.bootstrap!, draft, row)) : undefined;
+    return <JournalComposer draft={draft} change={change} saved={saved && changed.current} error={error} busy={busy}
+      status={[forBaby && babyLabel(forBaby, b.state.bootstrap), choice ? (choice.shared ? "Shared" : "Just me") : row && visibilityWord(row, b.state.bootstrap)].filter(Boolean).join(" · ") || undefined}
+      canDiscard={keepDraft(draft, changed.current)}
+      onAttach={(type) => void choose(type)}
+      onRemoveFile={(id) => void run(async () => {
+        // Private originals stay until device cleanup; another queued revision may still need this file.
+        change({ files: latest.current!.files.filter((file) => file.id !== id) });
+        await b.saveDraft(slot, latest.current!);
+      })}
+      // An upload still with the draft would bring the photo straight back when this saves.
+      onRemoveSaved={(id) => change({ data: { ...latest.current!.data, attachment_ids: latest.current!.data.attachment_ids?.filter((value) => value !== id) },
+        files: latest.current!.files.filter((file) => (file.uploaded_id ?? b.state.fileUploads?.[file.id]) !== id) })}
+      onSave={() => void save()} onDiscard={discard}
+      details={<>
+        {babies.length > 0 && <View style={{ gap: 8 }}><Copy kind="small">Who is this for?</Copy>{whoFor}</View>}
+        {choice && <View><Copy kind="small">Who can see this?</Copy>{sharing}</View>}
+        {caregiverKeeps(b.state, draft) && <Copy kind="small" tone="muted">Only you can see this. It isn’t shared with the family.</Copy>}
+        {!!writingWhere(b.state, draft) && <Copy kind="small" tone="muted">{writingWhere(b.state, draft)}</Copy>}
+        {clinician}
+      </>} />;
+  }
   return (
     <Screen
       title={
@@ -458,9 +506,7 @@ export default function Edit() {
           ? "Edit " + kindWord(draft.kind).toLowerCase()
           : draft.kind === "source"
             ? "Save a post"
-            : draft.kind === "journal"
-              ? "A moment to remember"
-              : draft.kind === "question"
+            : draft.kind === "question"
                 ? "For your next visit"
                 : kindWord(draft.kind)
       }
@@ -469,58 +515,27 @@ export default function Edit() {
       subtitle={saved ? "Draft saved privately on this device." : "Your draft stays here while you write."}
     >
       {!!error && <Notice error>{error}</Notice>}
-      {log?.about !== "her" && (showDetails || !["journal", "question", "collection", "source"].includes(draft.kind)) && b.state.bootstrap!.children.length > 0 && (
-        <Chips
-          value={fittingChild(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)) ?? ""}
-          label="Who is this for?"
-          options={[
-            // Care always belongs to a baby; older general care entries can still be reassigned.
-            ...((isCare(draft.kind) || staysWithBaby(draft) || log?.about === "baby") && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
-              ? []
-              : [{ label: "For me / general", value: "" }]),
-            ...babiesFor(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)).map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
-          ]}
-          onChange={(id) => change({ child_id: id || null })}
-        />
-      )}
+      {log?.about !== "her" && (showDetails || !["question", "collection", "source"].includes(draft.kind)) && b.state.bootstrap!.children.length > 0 && whoFor}
       {!!writingWhere(b.state, draft) && <Copy kind="small" tone="muted">{writingWhere(b.state, draft)}</Copy>}
       {caregiverKeeps(b.state, draft) && <Copy kind="small" tone="muted">Only you can see this. It isn’t shared with the family.</Copy>}
       {draft.kind === "source" && <Field label="Original link" purpose="url" value={draft.data.url ?? ""}
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}
-      {(() => { const choice = choiceFor(b.state.bootstrap, draft);
-        return choice && <>
-          <Choice label="Shared with family" detail={sharedDetail(draft.kind)} selected={choice.shared} onPress={() => change({ shared: true })} />
-          <Choice label="Just me" selected={!choice.shared} onPress={() => change({ shared: false })} />
-        </>; })()}
+      {sharing}
       {writing && <Button variant="ghost" title={showDetails ? "Hide optional details" : "Add photo, title or details"} onPress={() => setShowDetails(!showDetails)} />}
       {isLog && log!.id !== "note" && <LogFields id={log!.id} start={draft.log_form ?? formFrom(log!.id, draft.data, draft.title)} onChange={(form) => logForm(form, draft.data)} />}
-      {!isLog && ((!["feeding", "sleep", "diaper", "journal", "question", "source"].includes(draft.kind)) || showDetails) && (
+      {!isLog && ((!["feeding", "sleep", "diaper", "question", "source"].includes(draft.kind)) || showDetails) && (
         <Field
           label={["feeding", "sleep", "diaper"].includes(draft.kind) ? "Label (optional)" : writing ? "Title (optional)" : "Title"}
+          maxLength={titleLimit}
           value={draft.title}
           onChange={(title) => change({ title })}
           placeholder={
             draft.kind === "source"
               ? "Breastfeeding tips I want to remember"
-              : draft.kind === "journal"
-                ? "One little thing from today…"
-                : draft.kind === "routine"
-                  ? "Hospital bag, evening routine…"
-                  : kindWord(draft.kind)
-          }
-        />
-      )}
-      {draft.kind === "journal" && showDetails && (
-        <Choice
-          label="My clinician told me this"
-          detail="Marks it as a clinician instruction. It’s your label; AI does not verify it."
-          selected={draft.data.provenance === "clinician_instruction"}
-          onPress={() =>
-            data({
-              provenance:
-                draft.data.provenance === "clinician_instruction" ? "caregiver_observation" : "clinician_instruction",
-            })
+              : draft.kind === "routine"
+                ? "Hospital bag, evening routine…"
+                : kindWord(draft.kind)
           }
         />
       )}
@@ -658,6 +673,7 @@ export default function Edit() {
               <Card key={i.id} tone="soft">
                 <Field
                   label="Step"
+                  maxLength={500}
                   value={i.label}
                   onChange={(label) =>
                     data({ items: draft.data.items?.map((row) => (row.id === i.id ? { ...row, label } : row)) })
@@ -672,6 +688,7 @@ export default function Edit() {
             ))}
             <Field
               label="Add a step"
+              maxLength={500}
               value={item}
               onChange={setItem}
               placeholder="Something to pack, do, or remember"
@@ -751,7 +768,7 @@ export default function Edit() {
         />
       )}
       {!writing && draft.kind !== "collection" && notesField}
-      {(["source", "journal", "question"].includes(draft.kind)) && (!writing || showDetails) && (
+      {(["source", "question"].includes(draft.kind)) && (!writing || showDetails) && (
         <Section title="Photos & documents">
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
             <Button secondary title="Photos" icon="images-outline" busy={busy} onPress={() => void choose("photo")} />

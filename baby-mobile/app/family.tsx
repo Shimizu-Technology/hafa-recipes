@@ -199,7 +199,7 @@ function Join({ link, onBack }: { link: string | null; onBack: () => void }) {
         : <PhoneGate joining readiness={readiness} failed={failed} busy={busy || checking} onCheck={() => void check()} onConfirm={confirmPhones} />}
     </Section> : <Section title="Paste the code you were sent">
       <Button title="Paste" icon="clipboard-outline" size="lg" busy={busy} onPress={() => void Clipboard.getStringAsync().then((text) => { setCode(text); return look(text); })} />
-      <Field label="Code" value={code} onChange={setCode} placeholder="hfbi_v1…" />
+      <Field label="Code" purpose="code" value={code} onChange={setCode} placeholder="hfbi_v1…" />
       <Button secondary title="Check the code" disabled={!code.trim()} busy={busy} onPress={() => void look()} />
     </Section>}
     <Button variant="ghost" title="Not now" disabled={busy} onPress={onBack} />
@@ -212,7 +212,7 @@ function YourName() {
   return <Section title="What should they call you?">
     <Copy kind="small" tone="muted">Your family sees this on what you log.</Copy>
     {!!error && <Notice error>{error}</Notice>}
-    <Field label="Your name" value={name} onChange={setName} />
+    <Field label="Your name" capitalize="words" maxLength={120} value={name} onChange={setName} />
     <Button secondary title="Save name" disabled={!name.trim()} busy={busy} onPress={() => { setBusy(true); void b.api.profile({ ...profile, display_name: name.trim() }, b.state.bootstrap!.generation)
       .then(() => { setSaved(true); return b.refresh(); }).catch((failure: unknown) => setError(messageFor(failure))).finally(() => setBusy(false)); }} />
   </Section>;

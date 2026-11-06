@@ -225,7 +225,7 @@ export function Copy({
   );
 }
 /** Fixed bar above scrolling content so Back and Close never scroll away. */
-function TopBar({ back, close }: { back: boolean; close: boolean }) {
+export function TopBar({ back, close, trailing }: { back: boolean; close: boolean; trailing?: React.ReactNode }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)"));
   if (!back && !close) return null;
@@ -236,7 +236,8 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
         paddingHorizontal: 12,
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: close ? "flex-end" : "flex-start",
+        justifyContent: trailing ? "space-between" : close ? "flex-end" : "flex-start",
+        gap: 8,
         width: "100%",
         maxWidth: 720,
         alignSelf: "center",
@@ -270,6 +271,7 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
           </>
         )}
       </PressTarget>
+      {trailing}
     </View>
   );
 }
@@ -608,6 +610,8 @@ export function Field({
   returnKeyType,
   maxLength,
   autoFocus,
+  capitalize,
+  clearable,
 }: {
   label: string;
   value: string;
@@ -623,41 +627,57 @@ export function Field({
   returnKeyType?: TextInputProps["returnKeyType"];
   maxLength?: number;
   autoFocus?: boolean;
+  /** For names: "words". Everything else starts its sentences. */
+  capitalize?: TextInputProps["autoCapitalize"];
+  /** A clear button while typing, for a one-line search. iOS only. */
+  clearable?: boolean;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), onSurface = useContext(OnSurfaceContext),
     traits = inputTraits(purpose, Platform.OS, numeric),
     pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
     save = useContext(KeyboardSave),
+    own = useRef<TextInput>(null), input = inputRef ?? own, [focused, setFocused] = useState(false),
     [accessory] = useState(() => `field-done-${++accessoryCount}`);
   return (
-    <View style={{ gap: 7 }}>
-      <Copy kind="small">{label}</Copy>
+    <View style={{ gap: 7, opacity: disabled ? 0.6 : 1 }}>
+      {/* The word above the box focuses it too. VoiceOver reads it once, on the box. */}
+      <Pressable accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" disabled={disabled} onPress={() => input.current?.focus()}>
+        <Copy kind="small">{label}</Copy>
+      </Pressable>
       <TextInput
         key={fontScale}
-        ref={inputRef}
+        ref={input}
         accessibilityLabel={label}
+        accessibilityState={{ disabled: !!disabled }}
         value={value}
         onChangeText={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         placeholderTextColor={c.muted}
+        // With a textContentType set, iOS drops a caret colour it was given before focus and goes back to system blue.
+        selectionColor={focused ? c.accentText : c.muted}
         secureTextEntry={!!secret}
         editable={!disabled}
         multiline={multiline}
         autoFocus={autoFocus}
-        autoCapitalize={purpose || secret ? "none" : "sentences"}
+        autoCapitalize={purpose || secret ? "none" : capitalize ?? "sentences"}
         {...traits}
         maxLength={maxLength ?? traits.maxLength ?? (multiline ? 30000 : 1000)}
         onSubmitEditing={onSubmit}
-        returnKeyType={returnKeyType}
+        returnKeyType={returnKeyType ?? (multiline ? undefined : "done")}
+        clearButtonMode={clearable ? "while-editing" : undefined}
         inputAccessoryViewID={pad || multiline || save ? accessory : undefined}
         textAlignVertical={multiline ? "top" : "center"}
         maxFontSizeMultiplier={0}
         style={{
           backgroundColor: onSurface ? c.background : c.surface,
-          ...(onSurface ? { borderWidth: 1, borderColor: c.border } : {}),
+          // Always there and only its colour changes, so focusing never moves the text.
+          borderWidth: 1.5,
+          borderColor: focused ? c.accentText : onSurface ? c.border : "transparent",
           color: c.text,
           borderRadius: radii.field,
-          padding: 16,
+          padding: 14.5,
           fontFamily: fonts.regular,
           fontVariant: numeric ? ["tabular-nums"] : [],
           fontSize: 17,
