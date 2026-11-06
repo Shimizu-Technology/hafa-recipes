@@ -1,12 +1,12 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BabyRecord } from "./models";
 
-const m = vi.hoisted(() => ({ children: [] as unknown[] }));
+const m = vi.hoisted(() => ({ children: [] as unknown[], spaces: undefined as unknown }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text" }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
-vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { bootstrap: { children: m.children, profile: { timezone: "Pacific/Guam" } } } }) }));
+vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { bootstrap: { children: m.children, spaces: m.spaces, profile: { timezone: "Pacific/Guam" } } } }) }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("../components/ui", () => ({ Row: "Row", fonts: {}, useColors: () => ({}) }));
@@ -52,4 +52,42 @@ it("lists kicks and contractions by what they were", async () => {
 
 it("keeps a custom entry's own title beside its numbers", async () => {
   expect(await shown(row("custom", { label: "Bath", value: 2, unit: "min" }, "First bath with Dad"))).toEqual(expect.objectContaining({ title: "Bath · 2 min", detail: "First bath with Dad · 2:14 PM" }));
+});
+
+describe("Private or Shared, on writing", () => {
+  const family = (role: string) => { m.spaces = [{ id: "me", kind: "personal", role: "parent" }, { id: "fam", kind: "family", role }]; };
+  afterEach(() => { m.spaces = undefined; });
+  const words = async (kind: BabyRecord["kind"], space?: string) => {
+    const seen = await shown({ ...row(kind, {}, "Tonight", "", null), space_id: space });
+    await act(async () => renderer!.unmount());
+    return seen.detail as string;
+  };
+  it("doesn't say the day beside the block that already shows it, unless the year matters", async () => {
+    const seen = await shown({ ...row("journal", {}, "Tonight", "", null), occurred_at: "2026-01-05T09:00:00.000Z" });
+    expect(seen.detail).not.toMatch(/Jan/);
+    await act(async () => renderer!.unmount());
+    const older = await shown({ ...row("journal", {}, "Tonight", "", null), occurred_at: "2024-01-05T09:00:00.000Z" });
+    expect(older.detail).toMatch(/2024/);
+    await act(async () => renderer!.unmount());
+  });
+  it("tells a family's parent which is which, on an entry and a question", async () => {
+    family("parent");
+    const says = (text: string, label: "Private" | "Shared") => { expect(text).toContain(label); expect(text).not.toContain(label === "Private" ? "Shared" : "Private"); };
+    says(await words("journal", "me"), "Private");
+    says(await words("journal", "fam"), "Shared");
+    says(await words("question", "fam"), "Shared");
+    says(await words("question", "me"), "Private");
+    // From before there was a family, when everything was personal.
+    says(await words("journal"), "Private");
+  });
+  it("says nothing to a caregiver, or with no family at all", async () => {
+    family("caregiver");
+    expect(await words("journal", "me")).not.toMatch(/Private|Shared/);
+    m.spaces = undefined;
+    expect(await words("journal", "me")).not.toMatch(/Private|Shared/);
+  });
+  it("keeps the word off everything that isn't writing", async () => {
+    family("parent");
+    expect(await words("milestone", "fam")).not.toMatch(/Private|Shared/);
+  });
 });

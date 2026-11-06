@@ -136,6 +136,15 @@ export function babyLabel(child: { name: string; space_id?: string }, bootstrap?
   if (!personal || !spaces.includes(personal) || !spaces.some((space) => space && space !== personal)) return child.name;
   return `${child.name} · ${child.space_id === personal ? "Personal" : "Family"}`;
 }
+/**
+ * Private or Shared, on a journal entry or doctor question. Only a family's parents have both to tell apart, so nobody else
+ * gets a word about it. A row with no space is from before any family, and stayed personal.
+ */
+export function visibilityWord(row: { kind: Kind; space_id?: string }, bootstrap?: Pick<Bootstrap, "spaces"> | null) {
+  const families = familySpaces(bootstrap);
+  if ((row.kind !== "journal" && row.kind !== "question") || families[0]?.role !== "parent") return "";
+  return families.some((space) => space.id === row.space_id) ? "Shared" : "Private";
+}
 /** Helping in a family, not running it. The API refuses them the rest: this is so she's never offered what it'd refuse. */
 export const isCaregiver = (bootstrap?: Pick<Bootstrap, "spaces"> | null) => familySpaces(bootstrap)[0]?.role === "caregiver";
 export const canAddBaby = (bootstrap?: Pick<Bootstrap, "spaces"> | null) => !isCaregiver(bootstrap);

@@ -25,7 +25,7 @@ vi.mock("react-native", () => ({
 }));
 vi.mock("expo-router", async () => {
   const React = await import("react");
-  return { Stack: { Screen: "StackScreen" }, router: { push: scope.push },
+  return { Stack: { Screen: "StackScreen" }, router: { push: scope.push, navigate: scope.push },
     useFocusEffect: (callback: () => (() => void) | undefined) => React.useEffect(() => callback(), [callback]) };
 });
 vi.mock("expo-haptics", () => ({ selectionAsync: scope.haptic, NotificationFeedbackType: { Success: "success" } }));
@@ -242,9 +242,13 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0);
   // Add has these now: nothing here says it twice.
-  for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(0);
+  for (const label of ["Save a link", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(0);
   // Under the tiles, above everything else, so she needn't scroll for it in labour.
-  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Lists & routines"]);
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Lists & routines", "Journal"]);
+  scope.push.mockClear();
+  await act(async () => (find("Row", p => p.title === "Journal")[0].props.onPress as () => void)());
+  expect(scope.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/journal", params: expect.objectContaining({ filter: "all" }) }));
+  scope.push.mockClear();
   const order = renderer!.root.findAll((n) => ["PregnancyHero", "Row", "WeekDetails"].includes(String(n.type)) || String(n.props.accessibilityLabel) === "Vitamins & medicine").map((n) => String(n.type) === "Row" ? n.props.title : n.props.accessibilityLabel ?? String(n.type));
   expect([...new Set(order)].slice(0, 4)).toEqual(["PregnancyHero", "Vitamins & medicine", "Baby’s here?", "WeekDetails"]);
   await act(async () => (find("Row", p => p.title === "Baby’s here?")[0].props.onPress as () => void)());
