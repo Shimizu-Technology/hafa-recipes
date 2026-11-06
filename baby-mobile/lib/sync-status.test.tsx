@@ -26,3 +26,12 @@ it("with the flag on they do", async () => {
   await render({ push: true });
   expect(view.root.findAll((n) => String(n.type) === "PressTarget")).toHaveLength(1);
 });
+
+it("keeps unfinished drafts discoverable with no queued work or family notice", async () => {
+  await render(); scope.account.state.outbox = [];
+  scope.account.state.heldDrafts = [{ id: "held", draft: {} }];
+  await act(async () => view.update(<SyncStatus />));
+  const row = view.root.findAll((n) => String(n.type) === "Row")[0];
+  expect(row.props.title).toBe("1 unfinished draft");
+  expect(row.props.detail).toContain("on this phone");
+});

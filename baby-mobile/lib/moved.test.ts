@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { keepInPersonal, addMutation, localFileUris, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState } from "./outbox";
+import { keepInPersonal, addMutation, localFileUris, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState, holdEditor, sendHeldToFamily } from "./outbox";
+import legacy from "./fixtures/legacy-family-39-40.json";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
 
 const personal = "personal-space", family = "family-space";
@@ -302,7 +303,7 @@ describe("unfinished work stays outside the queue", () => {
     const next = withoutFamily(old, family, uuid);
     expect(next.version).toBe(deviceVersion); expect(emptyState().version).toBe(deviceVersion);
     expect(next.heldDrafts![0].draft.generation).toBe(7);
-    expect(fencedState(next, { generation: 2, spaces: boot().spaces!.map((space) => ({ ...space, generation: space.generation + 1 })) }).heldDrafts).toEqual(next.heldDrafts);
+    expect(fencedState(next, { generation: 3, spaces: boot().spaces!.map((space) => ({ ...space, generation: space.generation + 1 })) }).heldDrafts).toEqual([]);
   });
 });
 
@@ -318,14 +319,14 @@ describe("legacy editor provenance and dependency boundaries", () => {
   const uncertain = (): Extract<Mutation, { type: "save" }> => ({ id: "legacy", generation: 1, type: "save", space_id: family, files: [photo], record: write("entry", "feeding", "baby") });
   const action = (id: string, space_id = family): Mutation => ({ id, generation: 1, type: "feed_action", space_id, record_id: "entry", action: { id, action: "finish", at: "2026-11-05T01:00:00Z" } });
   it.each([2, 3, 4])("holds an old rejoined draft and its based edits even after departure flags were erased (version %s)", (version) => {
-    const first = uncertain(), later = { ...uncertain(), id: "later", base: { after: [first.id] }, record: { ...first.record, body: "based on unfinished words" } };
+    const first = { ...uncertain(), localOnly: false }, later = { ...uncertain(), id: "later", base: { after: [first.id] }, record: { ...first.record, body: "based on unfinished words" } };
     const next = upgradedState(state({ version, outbox: [first, later, action("finish")] }));
     expect(next.outbox).toEqual([]); expect(next.heldDrafts![0].draft.files).toEqual([photo]);
     expect(next.heldDrafts![0].followups?.map((m) => m.id)).toEqual(["later", "finish"]);
     expect(rejoined(withoutFamily(next, family, uuid), boot()).outbox).toEqual([]);
   });
   it("does not take an independent saved edit, another space, or a child operation with the held draft", () => {
-    const first = uncertain(), otherSpace = { ...uncertain(), id: "personal", space_id: personal, base: { after: [first.id] } },
+    const first = { ...uncertain(), localOnly: false }, otherSpace = { ...uncertain(), id: "personal", space_id: personal, base: { after: [first.id] } },
       independent = { ...uncertain(), id: "saved", base: { after: [] }, record: { ...first.record, body: "really saved" } },
       child: Mutation = { id: "child", type: "child_birth", child_id: "entry", space_id: family, generation: 1, birth_date: "2026-11-01", previous: null };
     const next = upgradedState(state({ version: 3, outbox: [first, otherSpace, child, action("own-action", personal), independent, action("after-saved")] }));
@@ -345,7 +346,58 @@ describe("legacy editor provenance and dependency boundaries", () => {
       old = state({ heldDrafts: [held], fileUploads: { [photo.id]: "uploaded" } });
     old.bootstrap = { ...boot(), spaces: boot().spaces!.filter((space) => space.id === personal), children: [] };
     const next = fencedState(old, { generation: 3, spaces: [{ ...old.bootstrap.spaces![0], generation: 3 }] });
-    expect(next.heldDrafts).toEqual([held]); expect(next.fileUploads).toEqual(old.fileUploads);
-    expect(localFileUris(next).has(photo.uri)).toBe(true);
+    expect(next.heldDrafts).toEqual([]); expect(next.fileUploads).toEqual({});
+    expect(localFileUris(next).has(photo.uri)).toBe(false);
   });
+});
+
+
+describe("shipped build39/40 queue migration", () => {
+  it("preserves fresh one-tap, Today, editor and share saves from executed old addMutation output", () => {
+    const next = upgradedState(state({ version: 2, outbox: legacy.fresh as Mutation[] }));
+    expect(next.outbox.map((m) => m.id)).toEqual(legacy.fresh.map((m) => m.id));
+    expect(next.heldDrafts ?? []).toEqual([]);
+    expect(rejoined(withoutFamily(next, family, uuid), boot()).outbox.map((m) => m.id)).toEqual(next.outbox.map((m) => m.id));
+  });
+  it("holds real old-rejoin output, including an import, with an upgrade notice", () => {
+    const next = upgradedState(state({ version: 2, outbox: legacy.rejoined as Mutation[] }));
+    expect(next.outbox).toEqual([]);
+    expect(next.heldDrafts?.find((h) => h.id === "save-shared-source")?.followups?.map((m) => m.id)).toEqual(["import"]);
+    expect(next.feedNotices?.join()).toMatch(/Sync & recovery/);
+    expect(next.heldDrafts?.find((h) => h.id === "save-feed")).toMatchObject({ uncertain: true });
+  });
+  it("does not hold a personal save when the space flag supplies no personal id", () => {
+    const old = state({ outbox: [{ ...edit("own"), localOnly: false }] });
+    old.bootstrap = { ...boot(), personal_space_id: undefined, spaces: undefined };
+    expect(upgradedState(old).heldDrafts ?? []).toEqual([]);
+  });
+  it("replaces late editor autosaves in one slot but preserves the departure snapshot", () => {
+    let next = withoutFamily(state({ drafts: { d: { ...write("entry"), space_id: family, files: [] } } }), family, uuid);
+    const departure = next.heldDrafts![0];
+    for (let at = 0; at < 25; at++) next = holdEditor(next, "d", { ...departure.draft, body: `latest ${at}` }, uuid);
+    expect(next.heldDrafts).toHaveLength(2);
+    expect(next.heldDrafts![0]).toEqual(departure);
+    expect(next.heldDrafts![1].draft.body).toBe("latest 24");
+  });
+  it("can keep the shown latest based Save instead of the earlier unfinished words", () => {
+    const first = { ...edit("entry"), space_id: family, localOnly: false }, later = { ...first, id: "real-save", base: { after: [first.id] }, record: { ...(first as any).record, body: "the real saved words" } };
+    const next = upgradedState(state({ outbox: [first, later] }));
+    expect(keepHeldDraft(next, first.id, uuid, true).outbox[0]).toMatchObject({ record: { body: "the real saved words" } });
+  });
+});
+
+it("explicitly sends ambiguous shipped work once with its dependent import and saved delivery ids", () => {
+  const held = upgradedState(state({ outbox: legacy.rejoined as Mutation[] }));
+  const sent = sendHeldToFamily(held, "save-shared-source");
+  expect(sent.outbox.map((m) => m.id)).toEqual(["save-shared-source", "import"]);
+  expect(sendHeldToFamily(sent, "save-shared-source")).toBe(sent);
+  expect(upgradedState(sent).outbox.map((m) => m.id)).toEqual(["save-shared-source", "import"]);
+  const former = { ...held, bootstrap: { ...boot(), spaces: boot().spaces!.filter((space) => space.id === personal) } };
+  expect(sendHeldToFamily(former, "save-shared-source")).toBe(former);
+});
+it("deduplicates an identical departure snapshot only after an explicit late Save", () => {
+  const draft = { ...write("entry"), space_id: family, files: [] }, left = withoutFamily(state({ drafts: { d: draft } }), family, uuid);
+  const saved = addMutation(left, { id: "late-save", type: "save", space_id: family, generation: 1, record: write("entry"), files: [] });
+  expect(saved.heldDrafts).toEqual([]);expect(saved.outbox.map((m) => m.id)).toEqual(["late-save"]);
+  expect(addMutation(left, { id: "different-save", type: "save", space_id: family, generation: 1, record: { ...write("entry"), body: "different" }, files: [] }).heldDrafts).toHaveLength(1);
 });

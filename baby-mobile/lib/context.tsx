@@ -30,6 +30,7 @@ import {
 import {
   addMutation,
   holdEditor,
+  withoutHeldDraft,
   draftsBeforeFamily,
   fencedState,
   localFileUris,
@@ -122,6 +123,7 @@ interface BabyContext {
   queue: (m: Mutation) => Promise<void>;
   /** Takes later queued changes to the same record with it. `server` is the record as read just now: null if it's gone. `child` is the same for a birth change. */
   discardQueued: (id: string, server?: BabyRecord | null, child?: Child) => Promise<void>;
+  discardHeld: (id: string) => Promise<void>;
   saveDraft: (key: string, draft: EditorDraft | null, valid?: () => boolean) => Promise<void>;
   getToken: () => Promise<string | null>;
   current: () => boolean;
@@ -248,7 +250,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
       // Only what's retiring goes. With a family this account is still in, captures and its files can still go there.
       if (!familySpaces(bootstrap).length) clearPendingShares();
       await clearReminders(ownerRef.current);
-      await clearFiles(ownerRef.current, () => localFileUris(fencedState(ref.current, bootstrap)));
+      await clearFiles(ownerRef.current, () => localFileUris(fencedState(ref.current, bootstrap)), () => {
+        const keep = localFileUris(fencedState(ref.current, bootstrap));
+        return new Set([...localFileUris(ref.current)].filter((uri) => !keep.has(uri)));
+      });
     }
     await commit((s) => {
       const fenced = fencedState(s, bootstrap),
@@ -257,14 +262,14 @@ export function BabyProvider({ children }: PropsWithChildren) {
         left = retiredSpaces(fenced, bootstrap).reduce((rows, space) => withoutFamily(rows, space, Crypto.randomUUID), fenced),
         next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap),
         familyBaby = bootstrap.children.find((child) => familySpaces(bootstrap).some((space) => space.id === child.space_id));
-      return {
+      return upgradedState({
         ...next,
         bootstrap,
         selectedChild: grew && familyBaby && !familySpaces(bootstrap).some((space) => space.id === bootstrap.children.find((child) => child.id === next.selectedChild)?.space_id)
           // Joining: what she logs next is for the family's baby. Her own stays, and queued work and drafts keep their destinations.
           ? familyBaby.id
           : bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
-      };
+      });
     }, lease);
     if (!current() || closing.current || deleting.current) return false;
     setReady(true);
@@ -904,6 +909,16 @@ export function BabyProvider({ children }: PropsWithChildren) {
             return removed.type === "child_birth" ? withoutBirth(left, removed, child) : removed.type === "child_tracking" ? withoutTracking(left, removed, child) : left;
           });
           void funcs.current.sync();
+        },
+        discardHeld: async (id) => {
+          let removed: string[] = [];
+          await commit((s) => {
+            if (busy.current) throw Error("Wait for the current sync to finish before discarding a draft.");
+            const next = withoutHeldDraft(s, id), staying = localFileUris(next);
+            removed = [...localFileUris(s)].filter((uri) => !staying.has(uri));
+            return next;
+          });
+          for (const uri of removed) if (!localFileUris(ref.current).has(uri)) await removeLocal(ownerRef.current, uri);
         },
         queue: async (m) => {
           await commit((s) => addMutation(s, m));

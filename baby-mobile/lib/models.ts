@@ -377,6 +377,10 @@ export const deviceVersion = 4;
 export interface HeldDraft {
   id: string;
   slot?: string;
+  /** Only late autosaves replace this row; departure snapshots stay separate. */
+  editor?: boolean;
+  /** Old Retry erased whether Save was pressed. Requires an explicit send decision. */
+  uncertain?: boolean;
   draft: EditorDraft;
   /** Legacy actions whose uncertain ancestor must be reviewed first. Never automatically replayed. */
   followups?: Mutation[];

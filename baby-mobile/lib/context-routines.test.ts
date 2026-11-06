@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import legacy from "./fixtures/legacy-family-39-40.json";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type RecordPage } from "./models";
 const mock = vi.hoisted(() => ({
   api: {} as any,
@@ -66,7 +67,7 @@ vi.mock("./device-vault", () => ({
   }),
 }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearPendingShares: () => mock.clearShares() }));
-vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: async () => {}, uploadFile: vi.fn() }));
+vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: vi.fn(async () => {}), uploadFile: vi.fn() }));
 vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
@@ -81,7 +82,7 @@ import { BabyProvider, useBaby } from "./context";
 import { ApiError, MovedError } from "./api";
 import { notSentMessage } from "./outbox";
 import { unavailableMessage } from "./spaces";
-import { clearFiles, uploadFile } from "./files";
+import { clearFiles, uploadFile, removeLocal } from "./files";
 import { runningFeed } from "./feed-reducer";
 import { switchFeed } from "./running-feed";
 import { reminderNotificationData } from "./notification-route";
@@ -2020,14 +2021,35 @@ it("keeps a late editor cleanup outside the queue and ordinary draft slots after
   expect(baby.state.heldDrafts).toHaveLength(1);
 });
 
-it("keeps removed-family recovery files through the provider's personal-generation cleanup", async () => {
+it("removes former-family recovery files through the provider's personal-generation cleanup", async () => {
   const own = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] },
     file = { id: "held-photo", uri: "file:///held-photo", name: "held.jpg", mime_type: "image/jpeg" },
     held = { id: "held", draft: { id: "entry", kind: "journal", title: "Held", body: "unsaved words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: {}, space_id: "former-family", files: [file] } };
   mock.saved = { ...emptyState(), bootstrap: own, heldDrafts: [held], fileUploads: { [file.id]: "upload" } } as DeviceState;
   mock.api.bootstrap = vi.fn(async () => ({ ...own, generation: 2, spaces: [{ ...own.spaces[0], generation: 2 }] }));
   await mount();
-  expect(baby.state.heldDrafts).toEqual([held]); expect(baby.state.fileUploads).toEqual({ [file.id]: "upload" });
+  expect(baby.state.heldDrafts).toEqual([]); expect(baby.state.fileUploads).toEqual({});
   const cleanup = vi.mocked(clearFiles).mock.calls.at(-1)!;
-  expect(cleanup).toBeDefined(); expect((cleanup[1] as () => Set<string>)().has(file.uri)).toBe(true);
+  expect(cleanup).toBeDefined(); expect((cleanup[1] as () => Set<string>)().has(file.uri)).toBe(false);
+});
+
+it.each([false, true])("Discard removes only the unreferenced held photo (also referenced: %s)", async (shared) => {
+  const own = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] },
+    file = { id: "photo", uri: "file:///private-photo", name: "photo.jpg", mime_type: "image/jpeg" },
+    draft = { id: "entry", kind: "journal", title: "Draft", body: "words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: {}, space_id: "p", files: [file] } as const;
+  mock.saved = { ...emptyState(), bootstrap: own, heldDrafts: [{ id: "held", draft: { ...draft, files: [file] } }], drafts: shared ? { other: { ...draft, files: [file] } } : {} } as DeviceState;
+  mock.api.bootstrap = vi.fn(async () => own); await mount(); vi.mocked(removeLocal).mockClear();
+  await act(async () => { await baby.discardHeld("held"); });
+  expect(baby.state.heldDrafts).toEqual([]);
+  if (shared) expect(removeLocal).not.toHaveBeenCalled();
+  else expect(removeLocal).toHaveBeenCalledWith(expect.any(String), file.uri);
+});
+
+it("rechecks old Retry evidence before sending when a flag-off bootstrap regains spaces", async () => {
+  const next = { ...bootstrap, generation: 2, personal_space_id: "personal-space", spaces: [{ id: "personal-space", kind: "personal", role: "parent", generation: 2, access_version: 1 }, { id: "family-space", kind: "family", role: "parent", generation: 1, access_version: 1 }] };
+  mock.saved = { ...emptyState(), bootstrap: { ...next, personal_space_id: undefined, spaces: undefined }, outbox: legacy.rejoined } as unknown as DeviceState;
+  mock.api.bootstrap = vi.fn(async () => next); await mount();
+  await act(async () => { await baby.sync(); });
+  expect(mock.api.save).not.toHaveBeenCalled(); expect(baby.state.outbox).toEqual([]);
+  expect(baby.state.heldDrafts!.some((held) => held.draft.body === "half typed")).toBe(true);
 });

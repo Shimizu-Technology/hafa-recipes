@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
 import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { keepInPersonal, keepHeldDraft, heldDraftWarning, queueRemovedUploads, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { keepInPersonal, keepHeldDraft, latestHeldSave, sendHeldToFamily, heldDraftWarning, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { savedDetails } from "../lib/saved-details";
@@ -79,21 +79,30 @@ export default function Sync() {
         onPress={() => void run(b.sync)}
       />
       {!!b.state.heldDrafts?.length && <Section title="Unfinished drafts · not sent">
-        {b.state.heldDrafts.map((held) => <Card key={held.id}>
+        {b.state.heldDrafts.map((held) => { const latest = latestHeldSave(held), family = b.state.bootstrap?.spaces?.find((space) => space.id === held.draft.space_id && space.kind === "family" && space.role === "parent" && space.generation === held.draft.generation); return <Card key={held.id}>
           <Copy kind="heading">{held.draft.title || "Untitled draft"}</Copy>
           <Copy>{held.draft.body || "Your unfinished details and files are kept here."}</Copy>
-          <Copy kind="small" tone="muted">{held.draft.files.length ? `${held.draft.files.length} local file(s). ` : ""}This draft won’t sync. Keeping it saves a personal copy, without the family baby or visit link.</Copy>
+          <Copy kind="small" tone="muted">{held.draft.files.length ? `${held.draft.files.length} local file(s). ` : ""}{held.uncertain ? "This may be unfinished. Nothing here will be sent without your choice." : "This draft won’t sync."} Keeping it saves a personal copy, without the family baby or visit link.</Copy>
           <Button secondary title="Keep this draft in my personal space" disabled={busy || b.syncing} onPress={() => Alert.alert("Keep this draft?", heldDraftWarning(held.followups?.length), [
             { text: "Cancel", style: "cancel" }, { text: "Keep this draft", onPress: () => void run(async () => {
               await b.commit((s) => keepHeldDraft(s, held.id, Crypto.randomUUID)); await b.sync();
             }) },
           ])} />
+          {latest && <>
+            <Copy kind="label">Later saved version</Copy><Copy>{latest.record.body || latest.record.title}</Copy>
+            <Button secondary title="Keep the later saved version privately" disabled={busy || b.syncing} onPress={() => Alert.alert("Keep the later version?", heldDraftWarning(held.followups?.length), [
+              { text: "Cancel", style: "cancel" }, { text: "Keep later version", onPress: () => void run(async () => { await b.commit((s) => keepHeldDraft(s, held.id, Crypto.randomUUID, true)); await b.sync(); }) },
+            ])} />
+          </>}
+          {held.uncertain && family && <Button title="Send to family" disabled={busy || b.syncing} onPress={() => Alert.alert("Send to family?", `This shares the draft shown above${held.followups?.length ? " and its later saved changes" : ""} with your family.`, [
+            { text: "Keep reviewing", style: "cancel" }, { text: "Send to family", onPress: () => void run(async () => { await b.commit((s) => sendHeldToFamily(s, held.id)); await b.sync(); }) },
+          ])} />}
           <Button variant="destructive" title="Discard this unfinished draft" disabled={busy || b.syncing} onPress={() => Alert.alert("Discard this draft?", heldDraftWarning(held.followups?.length), [
             { text: "Keep draft", style: "cancel" }, { text: "Discard draft", style: "destructive", onPress: () => void run(async () => {
-              await b.commit((s) => queueRemovedUploads(s, { ...s, heldDrafts: s.heldDrafts?.filter((one) => one.id !== held.id) }));
+              await b.discardHeld(held.id);
             }) },
           ])} />
-        </Card>)}
+        </Card>; })}
       </Section>}
       {b.state.outbox.length ? (
         <Section title={pendingChanges(b.state.outbox.length)}>
@@ -297,13 +306,13 @@ export default function Sync() {
             </Card>
           ))}
         </Section>
-      ) : (
+      ) : !b.state.heldDrafts?.length ? (
         <Empty
           icon="cloud-done-outline"
           title="Everything is caught up."
           body="There are no pending changes on this device. Your unfinished drafts stay here until you save or discard them."
         />
-      )}
+      ) : null}
       <Button
         secondary
         title="Export a private device text backup"

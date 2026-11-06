@@ -250,7 +250,9 @@ describe("updating from a build with no spaces", () => {
   });
   it("happens once", () => {
     const later = { ...upgradedState(old()), outbox: [{ ...save("gone", "diaper"), error: unavailableMessage }] };
-    expect(upgradedState(later)).toBe(later);
+    const next = upgradedState(later);
+    expect(next.outbox[0].error).toBe(unavailableMessage);
+    expect(upgradedState(next)).toBe(next);
   });
   it("leaves a real conflict for review, and only retries what said it was gone", () => {
     const conflict = { ...save("c", "diaper"), error: "Some details need review.", conflict: true };
