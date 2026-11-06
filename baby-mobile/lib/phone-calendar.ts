@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from "expo";
 import { dayName, repeatName } from "./events";
 import type { BabyRecord, EventOccurrence, EventRecurrence } from "./models";
-import { keyDate, recordDay } from "./tracker";
+import { keyDate, recordDay, zonedInstant } from "./tracker";
 
 /** What goes to the phone's calendar. Notes, who's coming and categories stay in the app: they can be private, and Google or Apple would hold them. */
 export interface PhoneEvent {
@@ -25,9 +25,15 @@ export function phoneEvent(row: Pick<BabyRecord, "data">, shown: EventOccurrence
       ? { startDate: dayIn(shown.occurrence_start, zone), endDate: shown.occurrence_end ? dayIn(new Date(new Date(shown.occurrence_end).getTime() - 1).toISOString(), zone) : dayIn(shown.occurrence_start, zone) }
       : { startDate: start, endDate: shown.occurrence_end ? new Date(shown.occurrence_end) : new Date(start.getTime() + hour), timeZone: zone };
   return { title: shown.title, ...time, allDay: shown.all_day, ...(shown.location ? { location: shown.location } : {}),
-    ...(carriesRule(row, shown) ? { recurrenceRule: { frequency: rule!.frequency, interval: rule!.interval ?? 1, ...(rule!.until ? { endDate: lastMoment(rule!.until) } : {}) } } : {}) };
+    ...(carriesRule(row, shown) ? { recurrenceRule: { frequency: rule!.frequency, interval: rule!.interval ?? 1, ...(rule!.until ? { endDate: lastMoment(rule!.until, shown.all_day ? undefined : zone) } : {}) } } : {}) };
 }
-const lastMoment = (key: string) => { const end = keyDate(key); end.setHours(23, 59, 59, 0); return end; };
+/** The end of a repeat's last day. A timed event's day is on its own calendar, however far the phone is from it. An all-day one is only a date, so it's the phone's. */
+function lastMoment(key: string, zone?: string) {
+  if (zone) return zonedInstant(key, 23, 59, zone);
+  const end = keyDate(key);
+  end.setHours(23, 59, 59, 0);
+  return end;
+}
 
 /** Which dates go, and what doesn't, in a line under the button. */
 export function phoneEventLine(row: Pick<BabyRecord, "data">, shown: EventOccurrence, today: string) {

@@ -46,7 +46,21 @@ describe("a repeating event", () => {
     const record = weekly(), event = phoneEvent(record, shown(record, "2026-11-16T00:00:00.000Z"));
     expect(event.startDate.toISOString()).toBe("2026-11-16T00:00:00.000Z");
     expect(event.recurrenceRule).toMatchObject({ frequency: "weekly", interval: 2 });
-    expect(localDay(event.recurrenceRule!.endDate!)).toEqual([2027, 3, 1]);
+    expect(event.recurrenceRule!.endDate!.toISOString()).toBe("2027-03-01T13:59:00.000Z");
+  });
+  it("ends on the last day on the event's own calendar, wherever the phone is", () => {
+    // Guam is ahead of a phone in Los Angeles, and Los Angeles is behind one on Guam. Each last day is the event's own.
+    const guamRepeat = row({ recurrence: { frequency: "daily", until: "2026-11-30" } }, "2026-11-20T23:00:00.000Z"),
+      laRepeat = row({ timezone: "America/Los_Angeles", recurrence: { frequency: "daily", until: "2026-11-30" } }, "2026-11-20T17:00:00.000Z");
+    const guamEnd = phoneEvent(guamRepeat, shown(guamRepeat)).recurrenceRule!.endDate!, laEnd = phoneEvent(laRepeat, shown(laRepeat)).recurrenceRule!.endDate!;
+    expect(guamEnd.toISOString()).toBe("2026-11-30T13:59:00.000Z");
+    expect(laEnd.toISOString()).toBe("2026-12-01T07:59:00.000Z");
+    // The Dec 1 showing, 9 AM on Guam, can't start before that end.
+    expect(guamEnd.getTime()).toBeLessThan(new Date("2026-11-30T23:00:00.000Z").getTime());
+  });
+  it("ends an all-day repeat on the phone's own date, as an all-day event is a date there", () => {
+    const record = row({ all_day: true, recurrence: { frequency: "yearly", until: "2030-11-20" } }, "2026-11-19T14:00:00.000Z");
+    expect(localDay(phoneEvent(record, shown(record)).recurrenceRule!.endDate!)).toEqual([2030, 11, 20]);
   });
   it("with no last day has none on the phone", () => {
     const record = row({ recurrence: { frequency: "yearly" } }, "2026-11-02T00:00:00.000Z");
