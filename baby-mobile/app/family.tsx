@@ -9,6 +9,7 @@ import { installationId, nativeSharingAvailable } from "@/modules/hafa-baby-shar
 import { Button, Card, Choice, Copy, Field, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { ApiError, PhonesNotReady } from "../lib/api";
 import { looksLikeCode } from "../lib/family";
+import { takeJoinLink } from "../lib/join-link";
 import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
 import { babyLabel, familyOpen, familySpaces, herLog, rowFence } from "../lib/spaces";
 import { leftFamilyNotice } from "../lib/outbox";
@@ -26,6 +27,7 @@ const everyPage = async (read: (offset: number) => Promise<{ items: BabyRecord[]
   return rows;
 };
 const notACode = "That doesn’t look like a family code. Check you copied all of it.";
+const notALink = "That link doesn’t have a working family code in it. Ask for a new one, or paste the code here.";
 /** Fixed words for what a code can come back with. */
 function codeProblem(failure: unknown) {
   if (!(failure instanceof ApiError) || failure.local) return messageFor(failure);
@@ -35,6 +37,9 @@ function codeProblem(failure: unknown) {
   if (failure.status === 403) return "Update Håfa Baby to join a family.";
   return messageFor(failure);
 }
+/** Leaving, removing and deleting can find the family or this account isn't what the screen showed. The API doesn't say which. */
+const changedUnderneath = (failure: unknown) => failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409);
+const familyActionProblem = (failure: unknown) => changedUnderneath(failure) ? "Something here just changed. Check the list and try again." : codeProblem(failure);
 type Role = "parent" | "caregiver";
 function RoleChoice({ role, onChange, disabled }: { role: Role; onChange: (role: Role) => void; disabled?: boolean }) {
   return <Section title="Who are they?">
@@ -61,13 +66,15 @@ function usePhones(setError: (message: string) => void) {
   const b = useBaby(), [readiness, setReadiness] = useState<FamilyReadiness | null>(null), [failed, setFailed] = useState(false), [checking, setChecking] = useState(false);
   async function check() {
     setChecking(true);
+    let waited: ReturnType<typeof setTimeout> | undefined;
     try {
       // This phone answers for itself first: a sighting of an older one takes back what it reported.
-      await askForShareSession();
+      // A slow answer doesn't hold up the check, which can say "still connecting" and be asked again.
+      await Promise.race([askForShareSession(), new Promise((settle) => { waited = setTimeout(settle, 8_000); })]);
       setReadiness(await b.api.readiness(nativeSharingAvailable ? await installationId() : undefined));
       setFailed(false);
     } catch { setFailed(true); setReadiness(null); }
-    finally { setChecking(false); }
+    finally { clearTimeout(waited); setChecking(false); }
   }
   function confirmPhones() {
     Alert.alert("Is that phone updated, or gone?", "Say yes if it’s updated, or nobody uses it now. If it’s used again on an older Håfa Baby, it won’t see your baby until it updates, and anything waiting on it stays on it.", [
@@ -128,7 +135,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     <RoleChoice role={role} onChange={setRole} disabled={busy} />
     {unread ? <Card>
       <Notice error>We couldn’t read what would be shared, so nothing has changed.</Notice>
-      <Button secondary title="Try again" onPress={readRows} />
+      <Button secondary title="Try again" onPress={() => { readRows(); if (failed) void check(); }} />
     </Card> : !rows ? <Loading label="Checking what you’ve saved…" /> : <>
       <Section title="What becomes shared">
         {whatBecomesShared(going, bootstrap.children.map((child) => child.name)).map((line) => <Copy key={line}>{line}</Copy>)}
@@ -148,8 +155,8 @@ function Invite({ onBack }: { onBack: () => void }) {
     <Button variant="ghost" title="Not now" disabled={busy} onPress={onBack} />
   </>;
 }
-function Join({ onBack }: { onBack: () => void }) {
-  const b = useBaby(), [code, setCode] = useState(""), [preview, setPreview] = useState<InvitePreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""),
+function Join({ link, onBack }: { link: string | null; onBack: () => void }) {
+  const b = useBaby(), [code, setCode] = useState(link ?? ""), [preview, setPreview] = useState<InvitePreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""),
     { readiness, setReadiness, failed, checking, check, confirmPhones } = usePhones(setError);
   async function look(text = code) {
     setError(""); setPreview(null);
@@ -163,6 +170,11 @@ function Join({ onBack }: { onBack: () => void }) {
     catch (failure) { setError(codeProblem(failure)); }
     finally { setBusy(false); }
   }
+  // A tapped link is the same as pasting: it's checked straight away, and joining still takes a tap.
+  useEffect(() => {
+    if (link === "") setError(notALink);
+    else if (link) void look(link);
+  }, []);
   async function join() {
     setBusy(true); setError("");
     try {
@@ -208,22 +220,37 @@ function YourName() {
 function InFamily() {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], fence = rowFence({ space_id: family.id, generation: family.generation }, bootstrap.generation),
     [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false), [role, setRole] = useState<Role>("parent"),
-    parent = family.role === "parent", alive = useRef(true);
-  async function load() {
+    parent = family.role === "parent", alive = useRef(true), newest = useRef(0), reading = useRef(false);
+  async function load(quiet = false) {
     if (!parent) return setMembers([]);
+    // Only the latest read counts: an older one finishing late would bring back someone just removed.
+    const mine = ++newest.current;
+    reading.current = true;
     try {
       const [people, codes] = await Promise.all([b.api.familyMembers(family.id), b.api.familyInvites(family.id)]);
-      if (!alive.current) return;
+      if (!alive.current || mine !== newest.current) return;
       setMembers(people.items.filter((member) => member.status === "active"));
       setInvites(codes.items.filter((row) => !row.used_at && !row.revoked_at && new Date(row.expires_at) > new Date()));
       setUnread(false);
-    } catch (failure) { if (alive.current) { setError(messageFor(failure)); setUnread(true); } }
+    } catch (failure) { if (alive.current && !quiet && mine === newest.current) { setError(messageFor(failure)); setUnread(true); } }
+    finally { if (mine === newest.current) reading.current = false; }
   }
-  useEffect(() => { void load(); return () => { alive.current = false; }; }, [family.id]);
-  async function run(action: () => Promise<unknown>) {
+  // Someone can join or leave while this is open, and it decides whether she's offered Leave or Delete.
+  useEffect(() => {
+    void load();
+    const again = setInterval(() => { if (!reading.current) void load(true); }, 30_000);
+    return () => { alive.current = false; clearInterval(again); };
+  }, [family.id]);
+  async function run(action: () => Promise<unknown>, problem = codeProblem) {
     setBusy(true); setError("");
     try { await action(); await load(); }
-    catch (failure) { setError(codeProblem(failure)); }
+    catch (failure) {
+      setError(problem(failure));
+      if (problem === familyActionProblem && changedUnderneath(failure)) {
+        await b.refresh().catch(() => undefined);
+        await load(true);
+      }
+    }
     finally { setBusy(false); }
   }
   // Until the API has said who's here, nobody can be told they're the last parent.
@@ -241,9 +268,11 @@ function InFamily() {
     {unread ? <Button secondary title="Try again" disabled={busy} onPress={() => void load()} /> : members === null ? <Loading label="Opening your family…" /> : !!members.length && <Section title="Who’s here">
       <Grouped>{members.map((member) => <Row key={member.app_user_id} title={member.display_name || "Family member"} detail={member.role === "parent" ? "Parent" : "Caregiver"} icon="person-outline" onPress={() => undefined} />)}</Grouped>
       {parent && members.filter((member) => member.app_user_id !== b.owner).map((member) => <Button key={member.app_user_id} variant="ghost" title={`Remove ${member.display_name || "this person"}`} disabled={busy}
-        onPress={() => Alert.alert(`Remove ${member.display_name || "this person"}?`, "They lose access right away, and what they logged stays. If their phone is offline, its copy clears the next time it connects.", [
+        onPress={() => Alert.alert(`Remove ${member.display_name || "this person"}?`, member.role === "parent"
+          ? "They’re a parent here. They lose the family’s baby, logs, saved posts and calendar right away, and only an invite from a parent here brings them back. Their Ask chats that used family entries are deleted, and their reminders for this family stop. What they logged stays, and so does their personal journal. Codes nobody has used yet stop working, and you can send new ones. If their phone is offline, its copy clears the next time it connects."
+          : "They lose access right away, and what they logged stays. Codes nobody has used yet stop working, and you can send new ones. If their phone is offline, its copy clears the next time it connects.", [
           { text: "Keep them", style: "cancel" },
-          { text: "Remove", style: "destructive", onPress: () => void run(() => b.api.removeMember(family.id, member.app_user_id, fence)) },
+          { text: "Remove", style: "destructive", onPress: () => void run(() => b.api.removeMember(family.id, member.app_user_id, fence), familyActionProblem) },
         ])} />)}
     </Section>}
     {!parent && <Section title="You’re helping as a caregiver">
@@ -259,21 +288,23 @@ function InFamily() {
       <Button secondary title="Export my Baby data" icon="download-outline" disabled={busy} onPress={() => void run(async () => { await exportFile(await b.api.export(), b.owner); })} />
       <Button variant="destructive" title="Delete this family" disabled={busy} onPress={() => Alert.alert("Delete this family for good?", "Export anything you want to keep first. This can’t be undone.", [
         { text: "Keep it", style: "cancel" },
-        { text: "Delete family", style: "destructive", onPress: () => void run(async () => { await b.api.deleteFamily(family.id, fence); await afterwards(); toast("Your family was deleted."); }) },
+        { text: "Delete family", style: "destructive", onPress: () => void run(async () => { await b.api.deleteFamily(family.id, fence); await afterwards(); toast("Your family was deleted."); }, familyActionProblem) },
       ])} />
     </Section> : !unread && members !== null && <Button variant="destructive" title="Leave this family" disabled={busy} onPress={() => Alert.alert("Leave this family?", "You lose access right away. Your own journal and space stay yours, and what you logged stays with the family. Ask chats that used the family’s entries are deleted. If another of your phones is offline, its copy clears the next time it connects.", [
       { text: "Stay", style: "cancel" },
-      { text: "Leave", style: "destructive", onPress: () => void run(async () => { await b.api.leaveFamily(family.id, fence); await afterwards(); toast("You left the family."); }) },
+      { text: "Leave", style: "destructive", onPress: () => void run(async () => { await b.api.leaveFamily(family.id, fence); await afterwards(); toast("You left the family."); }, familyActionProblem) },
     ])} />}
   </>;
 }
 export default function Family() {
-  const b = useBaby(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], [step, setStep] = useState<"start" | "invite" | "join">("start");
-  if (!familyOpen(bootstrap)) return <Screen title="Family" back><Notice>Family sharing isn’t open yet. Everything you log stays safe in your own space.</Notice></Screen>;
-  if (family) return <Screen title="Family" back><YourName /><InFamily /></Screen>;
+  const b = useBaby(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], [link] = useState(takeJoinLink), [step, setStep] = useState<"start" | "invite" | "join">(link === null ? "start" : "join"),
+    [alreadyIn] = useState(link !== null && !!family);
+  if (!familyOpen(bootstrap)) return <Screen title="Family" back><Notice>{link === null ? "Family sharing isn’t open yet. Everything you log stays safe in your own space."
+    : "Family sharing isn’t open on your account yet, so this invitation wasn’t used. Everything you log stays safe in your own space. Try the link again later."}</Notice></Screen>;
+  if (family) return <Screen title="Family" back>{alreadyIn && <Notice>You’re already in a family, so this invitation wasn’t used.</Notice>}<YourName /><InFamily /></Screen>;
   return <Screen title={step === "invite" ? "Invite someone" : step === "join" ? "Join a family" : "Family"} back>
     {step !== "start" && <YourName />}
-    {step === "invite" ? <Invite onBack={() => setStep("start")} /> : step === "join" ? <Join onBack={() => setStep("start")} /> : <>
+    {step === "invite" ? <Invite onBack={() => setStep("start")} /> : step === "join" ? <Join link={link} onBack={() => setStep("start")} /> : <>
       <Section title="Share with your family">
         <Copy>Log feeds and appointments together, and each keep your own journal.</Copy>
         <Button title="Invite someone" icon="person-add-outline" size="lg" onPress={() => setStep("invite")} />

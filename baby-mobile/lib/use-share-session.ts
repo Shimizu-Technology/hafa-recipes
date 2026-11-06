@@ -33,12 +33,10 @@ export function useShareSession() {
   const access = `${spacesLive(b.state.bootstrap)}:${accessKey(b.state.bootstrap)}`;
   useEffect(() => {
     if (Platform.OS !== "ios" || !Share.nativeSharingAvailable || !b.owner || !generation || !active) return;
-    let alive = true, running = false;
+    let alive = true, running: Promise<void> | null = null;
     const ticket = beginShareSessionSync();
     const current = () => alive && isShareSessionCurrent(ticket) && b.current();
-    const sync = async () => {
-      if (!current() || running) return;
-      running = true;
+    const send = async () => {
       try {
         await serializeShareSession(async () => {
           if (!current()) return;
@@ -60,11 +58,12 @@ export function useShareSession() {
       } catch {
         // Keep an existing same-account capability when offline. Expired tokens
         // only produce the truthful local-save confirmation in the extension.
-      } finally { running = false; }
+      }
     };
+    const sync = () => current() ? running ??= send().finally(() => { running = null; }) : Promise.resolve();
     void sync();
     const listener = AppState.addEventListener("change", state => { if (state === "active") void sync(); });
-    const stopAsking = onShareSessionAsked(() => void sync());
+    const stopAsking = onShareSessionAsked(sync);
     return () => { alive = false; listener.remove(); stopAsking(); };
   }, [b.api, b.owner, generation, active, automaticEpoch, access]);
 }

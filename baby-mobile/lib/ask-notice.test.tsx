@@ -9,8 +9,13 @@ vi.mock("react-native", () => ({
 }));
 vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { push: scope.push }, useFocusEffect: () => undefined, useLocalSearchParams: () => ({}) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => ({}) }));
+vi.mock("../components/ask-answer", () => ({ AnswerText: "AnswerText", WebSources: "WebSources" }));
+vi.mock("../components/ask-history", () => ({ AskHistory: "AskHistory" }));
+vi.mock("@/lib/care-format", () => ({ friendlyDate: (value: string) => value }));
+vi.mock("@/lib/ai-consent", () => ({ ASK_UPDATE_TITLE: "Ask can now do more", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
 vi.mock("@/lib/chat-citations", () => ({ citationExcerpt: () => "", readableCitations: (text: string) => text }));
 vi.mock("@/components/record-row", () => ({ kindIcon: {} }));
+vi.mock("@/lib/models", () => ({ kindName: {} }));
 vi.mock("@/lib/use-ask-session", () => ({ useAskSession: () => ({}) }));
 vi.mock("../components/tab-stack", () => ({ HeaderIconButton: "HeaderIconButton", HeaderPill: "HeaderPill", TabActions: "TabActions", headerActions: () => ({}) }));
 vi.mock("@/components/ui", () => ({
@@ -18,7 +23,7 @@ vi.mock("@/components/ui", () => ({
   Icon: "Icon", Loading: "Loading", Notice: "Notice", PressTarget: "PressTarget", Row: "Row", Screen: "Screen", Section: "Section",
   fonts: { semibold: "semibold" }, radii: { notice: 20 }, useColors: () => ({ tile: "tile", accentText: "clay", muted: "muted" }),
 }));
-import { AiNotice } from "../components/ask-screen";
+import { AiNotice, AskUpdateNotice, CantAnswer } from "../components/ask-screen";
 
 let renderer: ReactTestRenderer | undefined;
 const copy = () => renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
@@ -42,4 +47,23 @@ it("stacks the link under the line at large text sizes", async () => {
   scope.fontScale = 2;
   await act(async () => { renderer = create(<AiNotice service consent={false} />); });
   expect(renderer!.root.findAll((n) => (n.type as unknown) === "View")[0].props.style).toMatchObject({ flexDirection: "column" });
+});
+
+it("offers the new Ask in one line, and only Review acts", async () => {
+  const onReview = vi.fn();
+  await act(async () => { renderer = create(<AskUpdateNotice onReview={onReview} />); });
+  expect(copy().join(" ")).toMatch(/search trusted sites online/);
+  expect(onReview).not.toHaveBeenCalled();
+  renderer!.root.findAll((n) => n.props.accessibilityLabel === "Review what Ask can do")[0].props.onPress();
+  expect(onReview).toHaveBeenCalledTimes(1);
+});
+
+it("says where to go whenever Ask can't answer", async () => {
+  await act(async () => { renderer = create(<CantAnswer error="Håfa Baby could not save this change." />); });
+  expect(renderer!.root.findAll((n) => (n.type as unknown) === "Notice")[0].props.children).toBe("Håfa Baby could not save this change.");
+  expect(copy()).toEqual(["If this might be urgent, open Help or call 911."]);
+  const help = renderer!.root.findAll((n) => (n.type as unknown) === "Button")[0];
+  expect(help.props.title).toBe("Open Help");
+  await act(async () => help.props.onPress());
+  expect(scope.push).toHaveBeenCalledWith("/help");
 });

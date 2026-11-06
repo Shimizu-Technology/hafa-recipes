@@ -3,7 +3,7 @@ import type { BabyApi } from "./api";
 
 const native = vi.hoisted(() => ({ list: vi.fn(), download: vi.fn(), size: 3, copy: vi.fn(), remove: vi.fn(), move: vi.fn(), print: vi.fn(), share: vi.fn(), bytes: vi.fn(async () => new Uint8Array([65, 66, 67])) }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
-vi.mock("expo-file-system/legacy", () => ({ documentDirectory: "file:///private/", makeDirectoryAsync: vi.fn(), copyAsync: native.copy, deleteAsync: native.remove, moveAsync: native.move, readDirectoryAsync: native.list, downloadAsync: native.download }));
+vi.mock("expo-file-system/legacy", () => ({ documentDirectory: "file:///private/", makeDirectoryAsync: vi.fn(), copyAsync: native.copy, deleteAsync: native.remove, moveAsync: native.move, readDirectoryAsync: native.list, downloadAsync: native.download, FileSystemSessionType: { BACKGROUND: 0, FOREGROUND: 1 } }));
 vi.mock("expo-file-system", () => ({
   File: class {
     get size() { return native.size; }
@@ -13,6 +13,7 @@ vi.mock("expo-file-system", () => ({
 vi.mock("expo-crypto", () => ({ randomUUID: () => "copy-id" }));
 vi.mock("expo-sharing", () => ({ shareAsync: native.share, isAvailableAsync: async () => true }));
 vi.mock("expo-print", () => ({ printToFileAsync: native.print }));
+import { readdirSync, readFileSync } from "node:fs";
 import { clearFiles, directory, exportOnePagePdf, openAttachment, preserveFile, uploadFile } from "./files";
 
 describe("sharing a one-page PDF", () => {
@@ -154,5 +155,30 @@ describe("opening a family file", () => {
     const api = { lease: () => 1, assertLease: () => undefined, attachment: async () => ({ mime_type: "image/jpeg" }), attachmentUrl: (id: string) => "https://api.test/" + id, fileHeaders: () => ({ "X-Baby-Client": "3" }) } as unknown as BabyApi;
     await openAttachment(api, "photo", async () => "token", "owner", () => true);
     expect(native.download.mock.calls[0][2].headers).toEqual({ Authorization: "Bearer token", "X-Baby-Client": "3" });
+  });
+});
+
+describe("nothing here can relaunch the app", () => {
+  it("opening an attachment downloads in the foreground, since a background session can wake a closed app", async () => {
+    native.download.mockClear();
+    const api = { lease: () => 1, assertLease() {}, attachment: async () => ({ mime_type: "image/jpeg" }), attachmentUrl: () => "https://example.test/a", fileHeaders: () => ({ "X-Baby-Client": "2" }) } as never;
+    await openAttachment(api, "photo", async () => "token", "owner", () => true).catch(() => undefined);
+    expect(native.download).toHaveBeenCalledOnce();
+    expect(native.download.mock.calls[0][2]).toMatchObject({ sessionType: 1 });
+    expect(native.download.mock.calls[0][2].headers.Authorization).toBe("Bearer token");
+  });
+  it("every transfer the app starts through expo-file-system names its session", () => {
+    const transfer = /\b(downloadAsync|uploadAsync|createDownloadResumable|createUploadTask|downloadFileAsync)\(/;
+    const root = new URL("../", import.meta.url).pathname, found: string[] = [];
+    const walk = (folder: string) => {
+      for (const entry of readdirSync(root + folder, { withFileTypes: true })) {
+        const path = `${folder}/${entry.name}`;
+        if (entry.isDirectory()) walk(path);
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\./.test(entry.name) && transfer.test(readFileSync(root + path, "utf8"))) found.push(path);
+      }
+    };
+    ["app", "components", "lib"].forEach(walk);
+    expect(found).toEqual(["lib/files.ts"]);
+    expect(readFileSync(root + "lib/files.ts", "utf8").match(/sessionType: FileSystem\.FileSystemSessionType\.FOREGROUND/g)).toHaveLength(1);
   });
 });

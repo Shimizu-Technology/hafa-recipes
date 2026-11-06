@@ -53,11 +53,17 @@ it("has CDC's 15 signs in order, each opening CDC's own detail, with attribution
   expect(mock.open).toHaveBeenLastCalledWith(cdcWarningSignsUrl);
 });
 it("says nothing of ours: every line of text is CDC's or a service's own name", () => {
-  const allowed = new Set([cdcUrgentOpening, cdcUrgentClosing, ...cdcUrgentSigns.flatMap((sign) => [sign.title, sign.detail]), ...helpLines.map((line) => line.name), cdcWarningSignsSource, "988lifeline.org", "HRSA"]);
+  const allowed = new Set([cdcUrgentOpening, cdcUrgentClosing, ...cdcUrgentSigns.flatMap((sign) => [sign.title, sign.detail]), ...helpLines.flatMap((line) => line.note ? [line.note] : []), ...helpLines.map((line) => line.name), cdcWarningSignsSource, "988lifeline.org", "HRSA"]);
   for (const text of copy()) expect(allowed, String(text)).toContain(text);
 });
 it("keeps CDC's sentences word for word", () => {
   expect(cdcUrgentOpening).toBe("Urgent maternal warning signs, during pregnancy and in the year after delivery. Seek medical care immediately if you experience any signs or symptoms that are listed below. The symptoms below can be a sign of a life-threatening condition.");
   expect(cdcUrgentSigns[3]).toEqual({ title: "Fever of 100.4°F or higher", detail: "You have a temperature of 100.4°F (38°C) or higher." });
   expect(cdcUrgentSigns[5].title).toBe("Thoughts about harming yourself or your baby");
+});
+
+it("says the maternal hotline's connection from Guam isn't confirmed, until a Guam test is recorded", () => {
+  const hotline = helpLines.find((line) => line.name === "National Maternal Mental Health Hotline")!;
+  expect(hotline.note).toMatch(/Guam/);
+  expect(copy()).toContain(hotline.note);
 });

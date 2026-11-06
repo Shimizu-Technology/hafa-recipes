@@ -97,6 +97,8 @@ export async function openAttachment(
   try {
     const result = await FileSystem.downloadAsync(api.attachmentUrl(id), target, {
       headers: { Authorization: `Bearer ${token}`, ...api.fileHeaders() },
+      // Expo's default is a background session, which iOS can relaunch a closed app for.
+      sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
     });
     api.assertLease(lease);
     if (!current()) throw Error("Your account changed.");

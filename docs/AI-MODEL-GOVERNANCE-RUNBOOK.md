@@ -124,6 +124,46 @@ times as much and responding more slowly. Keep Luna as the default for both
 chat capabilities. Do not add a Terra chat tier until a new, named case set
 shows a repeatable quality gain that justifies its latency and cost.
 
+Håfa Baby's Ask has its own synthetic dataset, `api/evals/golden/baby_ask_v1.json`,
+run by the same command. It covers recall, totals, dates, research, medical
+boundaries, urgent symptoms, malicious saved text, and journal leakage between
+two people, with assertions on tool calls and outbound search queries. Every run
+states its cost first, and a paid run needs a ceiling it stops at:
+
+```bash
+.venv/bin/python -m evals.run_chat_model_eval \
+  --dataset evals/golden/baby_ask_v1.json \
+  --models gpt-6-luna gpt-6.1-terra --runs-per-case 3 --dry-run
+```
+
+Replace `--dry-run` with `--env-file /absolute/path/to/local-eval.env
+--confirm-cost-usd <ceiling>` for a paid run. `--categories research` and
+`--research-model <model>` compare research alone. The ceiling is hard: each call's
+worst case is reserved before it is sent, search fees count, and each call is priced
+at its own model. Haiku needs the SDK for that
+run only: `uv run --with anthropic python -m evals.run_chat_model_eval ...`. Its
+adapter lives under `api/evals/`, and production has no Anthropic path or consent
+for it. Tool results come from the golden file, so this measures what a model does
+with what it's given; `tests/test_baby_ask_tools.py` proves what the server hands
+over. Admission prices these models in `app/domains/baby/budget.py`, where a model
+not listed fails closed.
+
+Ask's main safety layer is a small model check before and after each answer
+(`app/domains/baby/ask_check.py`); the patterns are only a free floor under it. Its
+real miss rate can't come from tests with a fake provider, so it has its own dataset,
+run the same way:
+
+```bash
+uv run --with anthropic python -m evals.run_chat_model_eval \
+  --dataset evals/golden/baby_safety_check_v1.json \
+  --models gpt-6-luna claude-haiku-5-5 gpt-6.1-terra \
+  --reasoning-effort low --runs-per-case 3 --dry-run
+```
+
+The report holds the prompts and every verdict, and gives misses, false alarms and
+checks with no verdict per model, with and without the floor. A check with no verdict
+means no answer in production, so it counts on its own, as neither a miss nor a pass.
+
 ## Canary rollout
 
 Canaries are configured independently by capability:

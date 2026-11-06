@@ -3,8 +3,8 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
-vi.mock("react-native", () => ({ View: "View", Image: "Image", Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
+const mock = vi.hoisted(() => ({ phone: { available: true, added: [] as unknown[], result: "saved" }, title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
+vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
 vi.mock("expo-document-picker", () => ({}));
@@ -23,12 +23,13 @@ vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile", openEvent: vi.fn() }));
-vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections" }));
+vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections", VisitLinks: "VisitLinks" }));
 vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
 vi.mock("@/lib/visits", () => import("./visits"));
+vi.mock("@/lib/phone-calendar", () => ({ phoneCalendarAvailable: () => mock.phone.available, phoneEvent: () => ({ title: "from-helper" }), phoneEventLine: () => "Only the title, time and place are copied.", addToPhoneCalendar: async (event: unknown) => { mock.phone.added.push(event); return mock.phone.result; } }));
 vi.mock("@/components/event-fields", () => import("../components/event-fields"));
-const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
-  Screen: ({ children, footer }: { children: unknown; footer?: unknown }) => [children, footer], useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
+const ui = vi.hoisted(() => ({ fonts: {}, typeScale: {}, tap: () => undefined, FilterChips: "FilterChips", Icon: "Icon", PressTarget: "PressTarget", Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
+  Screen: ({ children, footer, title }: { children: unknown; footer?: unknown; title?: string }) => { mock.title = title; return [children, footer]; }, useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
@@ -104,7 +105,7 @@ it("adds Baptism with a tap on its kind and Save, with no signal, and queues it 
   const b = setup([], false);
   mock.params = { kind: "event", day: "2026-12-20" };
   await mount(Edit);
-  await act(async () => { found("Chips", (p) => p.label === "What’s it for?").props.onChange("Baptism"); });
+  await act(async () => { found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Baptism"); });
   await press("Button", "Save event");
   expect(b.state.outbox).toHaveLength(1);
   expect(b.state.outbox[0]).toMatchObject({ type: "save", record: { kind: "event", title: "Baptism", child_id: null, occurred_at: "2026-12-19T14:00:00.000Z", data: { all_day: true, category: "celebration", timezone: guam } } });
@@ -125,7 +126,7 @@ it("says plainly when a new repeat would go over the limit, before she leaves th
   const rows = Array.from({ length: 200 }, (_, n) => event({}, `s${n}`)), b = setup(rows);
   mock.params = { kind: "event", day: "2026-12-20" };
   await mount(Edit);
-  await act(async () => { found("Chips", (p) => p.label === "What’s it for?").props.onChange("Birthday"); });
+  await act(async () => { found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Birthday"); });
   await press("Button", "Save event");
   expect(b.state.outbox).toEqual([]);
   expect(mock.toast.mock.calls[0][0]).toContain("You can keep up to 200 repeating events.");
@@ -145,11 +146,25 @@ it("All future from a later date queues one change that holds both parts, so nei
   expect(split.event.data.recurrence.until).toBeUndefined();
   expect(mock.dismissTo).toHaveBeenCalledWith("/(tabs)/tracker");
 });
+it("All future sends both parts with the baby it shows, when a held draft has one that can't go with the family's event", async () => {
+  const b = setup([{ ...event(), child_id: "ours", space_id: "fam" }]);
+  Object.assign(b.state.bootstrap, { personal_space_id: "mine", spaces: [{ id: "mine", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+    children: [{ id: "ours", name: "Noa", revision: 1, space_id: "fam", generation: 1 }, { id: "test", name: "Test", revision: 1, space_id: "mine", generation: 1 }] });
+  mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };
+  await mount(Edit);
+  await act(async () => { found("FilterChips", (p) => p.label === "Who is it for?").props.onChange("test"); });
+  expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("ours");
+  await press("Button", "Save changes");
+  const [split] = b.state.outbox as any[];
+  expect(split.type).toBe("event_split");
+  expect(split.series.child_id).toBe("ours");
+  expect(split.event.child_id).toBe("ours");
+});
 it("All future can't start before the date it changes from, which the old series keeps", async () => {
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };
   await mount(Edit);
-  await act(async () => { found("DateField", (p) => p.label === "Date and time").props.onChange("2026-11-09T00:00:00.000Z"); });
+  await act(async () => { found("DateField", (p) => p.label === "When").props.onChange("2026-11-09T00:00:00.000Z"); });
   await press("Button", "Save changes");
   expect(b.state.outbox).toEqual([]);
   expect(mock.toast.mock.calls[0][0]).toContain("can’t start before the date you’re changing");
@@ -158,7 +173,7 @@ it("edits just one date as a change on the series, and offers only what one date
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "one", at: "2026-11-09T00:00:00.000Z" };
   await mount(Edit);
-  expect(renderer!.root.findAll((n) => String(n.type) === "Chips").map((n) => n.props.label)).toEqual(["Category"]);
+  expect(renderer!.root.findAll((n) => String(n.type) === "FilterChips").map((n) => n.props.label)).toEqual(["Category"]);
   await act(async () => { found("Field", (p) => p.label === "Location (optional)").props.onChange("Clinic"); });
   await press("Button", "Save changes");
   expect(b.state.outbox[0]).toMatchObject({ record: { title: "Class", occurred_at: "2026-11-02T00:00:00.000Z", revision: 4, data: { reminder_minutes: [60], exceptions: [{ original_start: "2026-11-09T00:00:00.000Z", cancelled: false, overrides: { location: "Clinic" } }] } } });
@@ -198,7 +213,7 @@ it("Book next opens a form already filled in, and saves a new visit through the 
   const b = setup([visit()], false);
   mock.params = { kind: "event", from: "class", at: "2026-11-02T00:00:00.000Z" };
   await mount(Edit);
-  expect(renderer!.root.findAll((n) => n.props.label === "What’s it for?")).toHaveLength(0);
+  expect(renderer!.root.findAll((n) => n.props.label === "Suggestions")).toHaveLength(0);
   await press("Button", "Save next visit");
   const [change] = b.state.outbox;
   expect(change).toMatchObject({ type: "save", record: { kind: "event", title: "OB visit", occurred_at: "2026-11-16T00:00:00.000Z", child_id: null,
@@ -250,6 +265,32 @@ describe("editing one of the extra logs", () => {
     mock.params = { id: "dose", kind: "medicine" };
     await mount(Edit);
     expect(found("Chips", (p) => p.label === "Who is this for?").props.options.map((option: any) => option.label)).toEqual(["Noa"]);
+  });
+  it("doesn't offer a saved family log a baby the API would refuse", async () => {
+    setup([{ ...log("feeding", "Feed", {}, "fed"), child_id: "ours", space_id: "fam" }]);
+    Object.assign(mock.baby.state.bootstrap, { personal_space_id: "mine", spaces: [{ id: "mine", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+      children: [{ id: "ours", name: "Noa", revision: 1, space_id: "fam", generation: 1 }, { id: "test", name: "Test", revision: 1, space_id: "mine", generation: 1 }] });
+    mock.params = { id: "fed", kind: "feeding" };
+    await mount(Edit);
+    expect(found("Chips", (p) => p.label === "Who is this for?").props.options.map((option: any) => option.value)).toEqual(["ours"]);
+  });
+  it("doesn't offer a saved family event a baby the API would refuse", async () => {
+    setup([{ ...event({}, "seen"), child_id: "ours", space_id: "fam" }]);
+    Object.assign(mock.baby.state.bootstrap, { personal_space_id: "mine", spaces: [{ id: "mine", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+      children: [{ id: "ours", name: "Noa", revision: 1, space_id: "fam", generation: 1 }, { id: "test", name: "Test", revision: 1, space_id: "mine", generation: 1 }] });
+    mock.params = { id: "seen", kind: "event" };
+    await mount(Edit);
+    const chooser = renderer!.root.findAll((n) => JSON.stringify(n.props.options ?? []).includes("ours"));
+    expect(chooser.length).toBeGreaterThan(0);
+    expect(JSON.stringify(chooser[0].props.options)).not.toContain("test");
+  });
+  it("tells a caregiver a new post stays with them", async () => {
+    setup([]);
+    Object.assign(mock.baby.state.bootstrap, { personal_space_id: "mine", spaces: [{ id: "mine", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "caregiver", generation: 1, access_version: 1 }],
+      children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] });
+    mock.params = { kind: "source" };
+    await mount(Edit);
+    expect(JSON.stringify(renderer!.toJSON())).toMatch(/Only you can see this\. It isn’t shared with the family\./);
   });
   it("18: won't save a log at a time that hasn't happened", async () => {
     const account = setup([log("medicine", "Tylenol", { name: "Tylenol" })]);
@@ -311,5 +352,328 @@ describe("from the re-check of #543: typed log input outlives the editor", () =>
     const record = account.state.outbox.find((m: Mutation) => m.type === "save")?.record;
     expect(record).toMatchObject({ title: "120/76", data: { label: "Blood pressure" } });
     expect(record).not.toHaveProperty("log_form");
+  });
+});
+
+describe("the form opens on a name, a date and Save", () => {
+  const texts = () => renderer!.root.findAll((n) => typeof n.type === "string").flatMap((n) => n.children.filter((child) => typeof child === "string")).join(" ");
+  const nameField = () => found("Field", (p) => p.label === "Name");
+  const more = () => renderer!.root.findAll((n) => n.props.accessibilityLabel === "More details" || String(n.props.accessibilityLabel).startsWith("More details"))[0];
+  const openNew = async () => { setup([]); mock.params = { kind: "event", day: "2026-11-20" }; await mount(Edit); };
+  const remindersOn = (b: any) => { b.state.bootstrap = { ...b.state.bootstrap, reminders: { push: true } }; return b; };
+
+  it("has nothing before the name, and everything else behind one More details", async () => {
+    await openNew();
+    expect(renderer!.root.findAll((n) => String(n.type) === "Field").map((n) => n.props.label)).toEqual(["Name"]);
+    for (const hidden of ["Repeat", "Category", "Location", "Note", "Who"]) expect(texts()).not.toContain(hidden);
+    expect(more()).toBeDefined();
+    await act(async () => more().props.onPress());
+    expect(renderer!.root.findAll((n) => String(n.type) === "Field").map((n) => n.props.label)).toEqual(expect.arrayContaining(["Name", "Location (optional)", "Who’s coming (optional)", "Note (optional)"]));
+  });
+  it("a car appointment saves with just a typed name, no kind asked for", async () => {
+    await openNew();
+    await act(async () => nameField().props.onChange("Car appointment"));
+    await press("Button", "Save event");
+    const queued = mock.baby.state.outbox[0];
+    expect(queued.record).toMatchObject({ kind: "event", title: "Car appointment" });
+    expect(queued.record.data.all_day).toBe(true);
+    expect(new Date(queued.record.occurred_at).toISOString()).toBe("2026-11-19T14:00:00.000Z");
+  });
+  it("a suggestion fills the name, and she can still change it", async () => {
+    await openNew();
+    await act(async () => found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Birthday"));
+    expect(nameField().props.value).toBe("Birthday");
+    await act(async () => nameField().props.onChange("Noa’s birthday"));
+    await press("Button", "Save event");
+    expect(mock.baby.state.outbox[0].record).toMatchObject({ title: "Noa’s birthday", data: { recurrence: { frequency: "yearly" }, category: "celebration" } });
+  });
+  it("says what a suggestion set, while More details stays shut", async () => {
+    await openNew();
+    await act(async () => found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Birthday"));
+    expect(more().props.accessibilityState.expanded).toBe(false);
+    expect(texts()).toContain("Every year");
+  });
+  it("offers the names she's used before, newest first, once each", async () => {
+    setup([{ ...event({ category: "other" }, "a"), updated_at: "2026-10-01T00:00:00.000Z" }, { ...event({}, "b"), title: "Dentist", updated_at: "2026-11-05T00:00:00.000Z" }, { ...event({}, "c"), title: "dentist", updated_at: "2026-11-01T00:00:00.000Z" }]);
+    mock.params = { kind: "event" };
+    await mount(Edit);
+    const names = found("FilterChips", (p) => p.label === "Suggestions").props.options.map((o: any) => o.label);
+    expect(names.filter((name: string) => /dentist/i.test(name))).toEqual(["Dentist"]);
+    expect(names).toContain("Class");
+    expect(names.indexOf("Dentist")).toBeLessThan(names.indexOf("Class"));
+  });
+  it("opens an existing event with what it already has showing", async () => {
+    remindersOn(setup([event({ location: "Clinic", attendees: ["Grandma"], reminder_minutes: [1440] })]));
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(true);
+    expect(found("Field", (p) => p.label === "Location (optional)").props.value).toBe("Clinic");
+    expect(found("Field", (p) => p.label === "Who’s coming (optional)").props.value).toBe("Grandma");
+    expect(found("FilterChips", (p) => p.label === "Reminder").props.value).toBe("1440");
+  });
+  it("opens a plain event with More details shut", async () => {
+    setup([{ ...event(), data: { timezone: guam, all_day: true, category: "other", attendees: [] } }]);
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(false);
+  });
+  it("keeps who's coming as names, and never breaks the API's rule on them", async () => {
+    await openNew();
+    await act(async () => nameField().props.onChange("Baptism"));
+    await act(async () => more().props.onPress());
+    await act(async () => found("Field", (p) => p.label === "Who’s coming (optional)").props.onChange("Grandma, grandma ,, Auntie Rose,"));
+    await press("Button", "Save event");
+    expect(mock.baby.state.outbox[0].record.data.attendees).toEqual(["Grandma", "Auntie Rose"]);
+  });
+  it("sets one reminder, and clears it, once reminders are on", async () => {
+    remindersOn(setup([]));
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    await act(async () => more().props.onPress());
+    const reminder = () => found("FilterChips", (p) => p.label === "Reminder");
+    await act(async () => reminder().props.onChange("1440"));
+    expect(reminder().props.value).toBe("1440");
+    await act(async () => reminder().props.onChange(""));
+    await act(async () => nameField().props.onChange("Baptism"));
+    await press("Button", "Save event");
+    expect(mock.baby.state.outbox[0].record.data.reminder_minutes).toEqual([]);
+  });
+  it("keeps reminders it has no chip for until she picks one", async () => {
+    remindersOn(setup([event({ reminder_minutes: [30, 120] })]));
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    await press("Button", "Save changes");
+    expect(mock.baby.state.outbox[0].record.data.reminder_minutes).toEqual([30, 120]);
+  });
+  it("doesn't offer to discard a form nothing has been put in", async () => {
+    await openNew();
+    expect(renderer!.root.findAll((n) => n.props.title === "Discard this draft")).toHaveLength(0);
+    await act(async () => nameField().props.onChange("Dentist"));
+    expect(renderer!.root.findAll((n) => n.props.title === "Discard this draft")).toHaveLength(1);
+  });
+  it("with reminders off, offers no reminder, and says nothing about one", async () => {
+    await openNew();
+    await act(async () => more().props.onPress());
+    expect(renderer!.root.findAll((n) => n.props.label === "Reminder")).toHaveLength(0);
+    expect(texts()).not.toMatch(/Reminder|notifications/);
+  });
+  it("with reminders off, keeps one she already has, without calling it out or opening More details for it", async () => {
+    setup([{ ...event({ recurrence: null, reminder_minutes: [1440] }), data: { timezone: guam, all_day: true, category: "other", attendees: [], reminder_minutes: [1440] } }]);
+    mock.params = { kind: "event", id: "class" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(false);
+    expect(more().props.accessibilityLabel).toBe("More details");
+    await press("Button", "Save changes");
+    expect(mock.baby.state.outbox[0].record.data.reminder_minutes).toEqual([1440]);
+  });
+  it("with reminders off, the event's own screen doesn't promise one", async () => {
+    setup([event({ reminder_minutes: [1440], recurrence: null }, "party")]);
+    mock.params = { id: "party" };
+    await mount(EventDetail);
+    expect(texts()).not.toContain("Reminder");
+  });
+  it("shows who's coming and the reminder on the event", async () => {
+    remindersOn(setup([event({ attendees: ["Grandma", "Auntie Rose"], reminder_minutes: [1440], recurrence: null }, "party")]));
+    mock.params = { id: "party" };
+    await mount(EventDetail);
+    expect(texts()).toContain("Grandma, Auntie Rose");
+    expect(texts()).toContain("1 day before");
+  });
+});
+
+describe("any event works", () => {
+  const nameField = () => found("Field", (p) => p.label === "Name");
+  const more = () => renderer!.root.findAll((n) => String(n.props.accessibilityLabel).startsWith("More details"))[0];
+  const category = () => found("FilterChips", (p) => p.label === "Category");
+  const openNew = async (rows: BabyRecord[] = []) => { const b = setup(rows); mock.params = { kind: "event", day: "2026-11-20" }; await mount(Edit); return b; };
+
+  it("types a category once and it's there next time", async () => {
+    const b = await openNew();
+    await act(async () => nameField().props.onChange("Oil change"));
+    await act(async () => more().props.onPress());
+    await act(async () => category().props.onChange("new"));
+    await act(async () => found("Field", (p) => p.label === "Your category").props.onChange(" Car "));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0].record.data).toMatchObject({ category: "other", category_label: "Car" });
+    await act(async () => renderer!.unmount());
+    mock.params = { kind: "event" };
+    await mount(Edit);
+    await act(async () => more().props.onPress());
+    expect(category().props.options.map((o: any) => o.label)).toContain("Car");
+  });
+  it("a birthday, a dentist visit and a car appointment each save with no type chosen", async () => {
+    for (const title of ["Dentist", "Car appointment", "Birthday party"]) {
+      const b = await openNew();
+      await act(async () => nameField().props.onChange(title));
+      await press("Button", "Save event");
+      expect(b.state.outbox[0].record).toMatchObject({ title, data: { category: "other" } });
+      expect(b.state.outbox[0].record.data.category_label).toBeUndefined();
+      await act(async () => renderer!.unmount());
+    }
+  });
+  it("calls only an explicit doctor's appointment one, so a car appointment doesn't open doctor questions", async () => {
+    const car = { ...event({ recurrence: null, category: "other", category_label: "Car" }, "car"), title: "Car appointment" };
+    setup([car]);
+    mock.params = { id: "car" };
+    await mount(EventDetail);
+    expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(0);
+    expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")).toHaveLength(0);
+    await act(async () => renderer!.unmount());
+    setup([{ ...event({ recurrence: null, category: "appointment" }, "dr"), title: "Dr. Cruz" }]);
+    mock.params = { id: "dr" };
+    await mount(EventDetail);
+    expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(1);
+  });
+  it("says what a doctor's appointment brings, once she's chosen it", async () => {
+    await openNew();
+    await act(async () => found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Doctor’s appointment"));
+    const copy = renderer!.root.findAll((n) => String(n.type) === "Copy").flatMap((n) => n.children).join(" ");
+    expect(copy).toContain("questions");
+  });
+  it("names an event without a category plainly, and never Other", async () => {
+    setup([{ ...event({ recurrence: null, category: "other" }, "plain"), title: "Picnic" }]);
+    mock.params = { id: "plain" };
+    await mount(EventDetail);
+    expect(mock.title).toBe("Event");
+  });
+  it("in a family, says it's shared while shut, and Just me clears a baby the API wouldn't let it keep", async () => {
+    const b = setup([]);
+    b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+      children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
+    b.state.selectedChild = "baby";
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    expect(more().props.accessibilityLabel).toContain("Shared with family");
+    await act(async () => nameField().props.onChange("Date night"));
+    await act(async () => more().props.onPress());
+    const who = () => found("FilterChips", (p) => p.label === "Who can see this");
+    expect(who().props.value).toBe("shared");
+    await act(async () => who().props.onChange("just_me"));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "me", record: { title: "Date night", child_id: null } });
+    expect(b.state.outbox[0].record.data.just_me).toBeUndefined();
+  });
+  it("in a family, saves to the family with no choice made", async () => {
+    const b = setup([]);
+    b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
+      children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    await act(async () => nameField().props.onChange("Baptism"));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { title: "Baptism" } });
+  });
+  const inFamily = (b: any) => { b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }], children: [] }; };
+  it("Book next goes where the form says: a shared visit's next one is shared, a private one's stays private", async () => {
+    for (const [space, shown, destination] of [["fam", "Shared with family", "fam"], ["me", "Just me", "me"]]) {
+      const b = setup([{ ...event({ recurrence: null, category: "appointment" }, "dr"), title: "Dr. Cruz", space_id: space }]);
+      inFamily(b);
+      mock.params = { kind: "event", from: "dr", at: "2026-11-02T00:00:00.000Z" };
+      await mount(Edit);
+      expect(more().props.accessibilityLabel).toContain(shown);
+      await press("Button", "Save next visit");
+      expect(b.state.outbox[0].space_id).toBe(destination);
+      await act(async () => renderer!.unmount());
+    }
+  });
+  const familyWithBaby = (b: any) => { inFamily(b); b.state.bootstrap = { ...b.state.bootstrap, children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] }; b.state.selectedChild = "baby"; };
+  const who = () => found("FilterChips", (p) => p.label === "Who can see this");
+  const words = () => renderer!.root.findAll((n) => String(n.type) === "Copy").flatMap((n) => n.children).join(" ");
+  it("says plainly why Just me leaves the family's baby off, and puts her back on Shared", async () => {
+    const b = setup([]);
+    familyWithBaby(b);
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    await act(async () => nameField().props.onChange("Check-up"));
+    await act(async () => more().props.onPress());
+    expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("baby");
+    expect(words()).not.toContain("can’t be on");
+    await act(async () => who().props.onChange("just_me"));
+    expect(words()).toContain("A Just me event can’t be on the family’s baby.");
+    await act(async () => who().props.onChange("shared"));
+    expect(words()).not.toContain("can’t be on");
+    expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("baby");
+    await press("Button", "Save event");
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { child_id: "baby" } });
+  });
+  it("doesn't put a baby back if she chose no baby before going to Just me", async () => {
+    const b = setup([]);
+    familyWithBaby(b);
+    mock.params = { kind: "event", day: "2026-11-20" };
+    await mount(Edit);
+    await act(async () => more().props.onPress());
+    await act(async () => found("FilterChips", (p) => p.label === "Who is it for?").props.onChange(""));
+    await act(async () => who().props.onChange("just_me"));
+    await act(async () => who().props.onChange("shared"));
+    expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("");
+  });
+  it("names the baby while More details is shut, on an event with nothing else", async () => {
+    setup([{ ...event({}, "e"), child_id: "baby", data: { timezone: guam, all_day: true, category: "other", attendees: [] } }]);
+    mock.params = { kind: "event", id: "e" };
+    await mount(Edit);
+    expect(more().props.accessibilityState.expanded).toBe(false);
+    expect(more().props.accessibilityLabel).toBe("More details. Noa");
+  });
+  it("names no baby on an event for the whole family", async () => {
+    setup([{ ...event({}, "e"), child_id: null, data: { timezone: guam, all_day: true, category: "other", attendees: [] } }]);
+    mock.params = { kind: "event", id: "e" };
+    await mount(Edit);
+    expect(more().props.accessibilityLabel).toBe("More details");
+  });
+  it("keeps a visit's questions and notes in sight after it stops being an appointment, with no Book next", async () => {
+    const family = { ...event({ recurrence: null, category: "family" }, "was"), title: "Was a visit" },
+      question = optimisticRecord({ id: "q", kind: "question", title: "Ask about sleep", body: "", child_id: null, occurred_at: "2026-11-01T00:00:00.000Z", data: { event_id: "was" } });
+    setup([family, question]);
+    mock.params = { id: "was" };
+    await mount(EventDetail);
+    expect(renderer!.root.findAll((n) => String(n.type) === "VisitLinks")[0].props.visit.id).toBe("was");
+    expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(0);
+    expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")).toHaveLength(0);
+    await press("Button", "Delete event");
+    expect(mock.alerts[0][1]).toContain("Its questions and notes stay in your Journal");
+  });
+  it("with the family flag off, asks nothing and adds nothing", async () => {
+    const b = await openNew();
+    await act(async () => more().props.onPress());
+    expect(renderer!.root.findAll((n) => n.props.label === "Who can see this")).toHaveLength(0);
+    await act(async () => nameField().props.onChange("Baptism"));
+    await press("Button", "Save event");
+    expect(b.state.outbox[0].space_id).toBeUndefined();
+  });
+});
+
+describe("adding to the phone's calendar", () => {
+  const open = async () => { setup([event({ recurrence: null }, "e")]); mock.params = { id: "e" }; await mount(EventDetail); };
+  const buttons = () => renderer!.root.findAll((n) => n.props.title === "Add to my phone’s calendar");
+  beforeEach(() => { mock.phone = { available: true, added: [], result: "saved" }; });
+  it("is one tap, and says so when it's saved", async () => {
+    await open();
+    await press("Button", "Add to my phone’s calendar");
+    expect(mock.phone.added).toEqual([{ title: "from-helper" }]);
+    expect(mock.toast).toHaveBeenCalledWith("Added to your phone’s calendar.");
+  });
+  it("says nothing when she cancels the sheet, or the phone can't tell", async () => {
+    for (const result of ["canceled", "done"]) {
+      await open();
+      mock.phone.result = result; mock.toast.mockClear();
+      await press("Button", "Add to my phone’s calendar");
+      expect(mock.toast).not.toHaveBeenCalled();
+      await act(async () => renderer!.unmount());
+    }
+  });
+  it("says so plainly when the sheet won't open", async () => {
+    mock.phone.result = "unavailable";
+    await open();
+    await press("Button", "Add to my phone’s calendar");
+    expect(mock.toast).toHaveBeenCalledWith("Your phone’s calendar couldn’t open.");
+  });
+  it("isn't there on a binary without it", async () => {
+    mock.phone.available = false;
+    await open();
+    expect(buttons()).toHaveLength(0);
+  });
+  it("copies nothing until she taps", async () => {
+    await open();
+    expect(mock.phone.added).toEqual([]);
   });
 });

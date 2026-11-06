@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
+import { ASK_CONSENT_BODY } from "@/lib/ai-consent";
 import { messageFor, pendingChanges } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
@@ -41,8 +42,9 @@ export default function Settings() {
   }
   async function consent(value: boolean) {
     await run(async () => {
+      const version = b.state.bootstrap!.ask_consent_version;
       const result = await b.api.profile({ ...profile, ai_consent: value,
-        ...(!value ? { auto_process_shares: false } : {}) }, b.state.bootstrap!.generation);
+        ...(!value ? { auto_process_shares: false } : version ? { acknowledge_ai_consent_version: version } : {}) }, b.state.bootstrap!.generation);
       await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
       toast(value ? "AI processing enabled." : "AI permission removed.");
     });
@@ -75,7 +77,7 @@ export default function Settings() {
       {familyOpen(b.state.bootstrap) && <Section title="Family">
         <Grouped><Row title="Family" detail={familySpaces(b.state.bootstrap)[0]?.role === "caregiver" ? "You’re helping as a caregiver" : familySpaces(b.state.bootstrap).length ? "Who’s here, and invites" : "Share with another parent or caregiver"} icon="people-outline" onPress={() => router.push("/family")} /></Grouped>
       </Section>}
-      <Section title="Your little ones">
+      {(canAddBaby(b.state.bootstrap) || b.state.bootstrap!.children.some((child) => canChangeBaby(b.state.bootstrap, child))) && <Section title="Your little ones">
         <Grouped>{b.state.bootstrap!.children.filter((child) => canChangeBaby(b.state.bootstrap, child)).map((child) => (
           <Row
             key={child.id}
@@ -87,15 +89,15 @@ export default function Settings() {
           />
         ))}</Grouped>
         {canAddBaby(b.state.bootstrap) && <Button variant="ghost" title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />}
-      </Section>
+      </Section>}
       <View onLayout={event => setAiOffset(event.nativeEvent.layout.y)}>
       <Card tone="soft">
         <Copy kind="heading">Optional AI processing</Copy>
-        <Copy>
+        {b.state.bootstrap!.ask_consent_version ? <Copy>{ASK_CONSENT_BODY}</Copy> : <Copy>
           When you request processing, OpenAI receives the selected source text, images, audio or sampled video frames.
           When you ask a question, OpenAI receives your question, relevant authorized Baby records, and recent
           conversation context.
-        </Copy>
+        </Copy>}
         <Copy tone="muted">
           Recipes and Workouts data are not included. You can withdraw permission at any time. Previously processed
           results stay in your library until you delete them. Imported advice does not activate a care schedule.
@@ -109,7 +111,8 @@ export default function Settings() {
             else
               Alert.alert(
                 "Allow optional AI processing?",
-                "OpenAI will process the sources and personal context described here when you use imports or Ask. You can turn this off at any time.",
+                b.state.bootstrap!.ask_consent_version ? ASK_CONSENT_BODY
+                  : "OpenAI will process the sources and personal context described here when you use imports or Ask. You can turn this off at any time.",
                 [
                   { text: "Keep off", style: "cancel" },
                   { text: "Allow processing", onPress: () => void consent(true) },

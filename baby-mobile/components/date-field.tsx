@@ -11,6 +11,7 @@ export function DateField({
   optional = false,
   timeZone,
   maximumDate,
+  trailing,
 }: {
   label: string;
   value?: string | null;
@@ -21,6 +22,8 @@ export function DateField({
   timeZone?: string | null;
   /** The latest date the picker allows. */
   maximumDate?: Date;
+  /** Something that belongs on the same row, as All day does. */
+  trailing?: React.ReactNode;
 }) {
   const [mode, setMode] = useState<"date" | "time" | null>(null),
     [draft, setDraft] = useState(new Date()),
@@ -63,6 +66,7 @@ export function DateField({
           />
         )}
         {optional && !!value && <Button variant="ghost" title="Clear date" onPress={() => onChange("")} />}
+        {trailing}
       </View>
       {mode && Platform.OS === "android" && (
         <DateTimePicker

@@ -91,7 +91,7 @@ export default function Routines() {
 
       <Row
         title="Have a schedule in a photo?"
-        detail="Save it to your library, then ask Håfa Baby to draft steps you review before any reminder starts."
+        detail="Save it to your library to keep it with your records."
         icon="document-outline"
         onPress={() => router.push({ pathname: "/edit", params: { kind: "source" } })}
       />

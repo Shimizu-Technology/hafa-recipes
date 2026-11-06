@@ -27,7 +27,7 @@ import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
-import { babyLabel, choiceFor, stampedDraft } from "../lib/spaces";
+import { babiesFor, babyLabel, caregiverKeeps, choiceFor, fittingChild, stampedDraft } from "../lib/spaces";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -101,6 +101,8 @@ export default function Edit() {
         if (!d && params.from) {
           const from = b.records.find((r) => r.id === params.from) ?? await b.api.record(params.from);
           d = nextVisitDraft(Crypto.randomUUID(), from, occurrenceAt(from, params.at));
+          // The next visit of one she kept to herself stays with her.
+          if (from.space_id && from.space_id === b.state.bootstrap!.personal_space_id) d = { ...d, shared: false };
         }
         d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
           : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
@@ -278,8 +280,11 @@ export default function Edit() {
       // Keep the original in the durable outbox before its optional import.
       const id = Crypto.randomUUID();
       const splitId = Crypto.randomUUID();
+      // Everything saved from this draft, including the second half of a split, goes with the baby it shows.
+      const fit = (given: EditorDraft) => ({ ...given, child_id: fittingChild(b.state.bootstrap!, given, b.records.find((row) => row.id === given.id)) });
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
-        const from = stampedDraft(b.state, b.state.drafts[slot], given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records));
+        const fitted = fit(given),
+          from = stampedDraft(b.state, b.state.drafts[slot], fitted.kind === "event" ? eventWrite(fitted) : withFittingVisit(fitted, b.records));
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, shared: ____, ...record } = from,
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;
         return {
@@ -313,7 +318,7 @@ export default function Edit() {
             },
             files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
           };
-          const split = d.kind === "event" ? splitEvent(d, splitId) : undefined;
+          const split = d.kind === "event" ? splitEvent(fit(d), splitId) : undefined;
           // One change holding both parts: this series can't end unless the next one starts.
           const saved = addMutation(s, split ? { id: splitId, generation, type: "event_split", series: prepared.record, event: split, from_start: d.event_edit!.original_start, files: [], ...(prepared.base ? { base: prepared.base } : {}) } : prepared);
           return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });
@@ -434,7 +439,8 @@ export default function Edit() {
       {!!error && <Notice error>{error}</Notice>}
       <EventFields draft={draft} change={change} quick={!params.from} today={dayKey(profileToday(new Date(), b.state.bootstrap!.profile.timezone))} />
       {movesAwayFromDateChanges(draft) && <Notice>Changes you made to single dates won’t carry over to the new dates. If you don’t want that, leave the first date as it is.</Notice>}
-      <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
+      {/* Nothing typed yet is nothing to throw away, and back already leaves. */}
+      {(draft.existing || !!params.from || !!draft.title.trim()) && <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />}
     </Screen>
   );
   return (
@@ -457,18 +463,19 @@ export default function Edit() {
       {!!error && <Notice error>{error}</Notice>}
       {log?.about !== "her" && (showDetails || !["journal", "question", "collection", "source"].includes(draft.kind)) && b.state.bootstrap!.children.length > 0 && (
         <Chips
-          value={draft.child_id ?? ""}
+          value={fittingChild(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)) ?? ""}
           label="Who is this for?"
           options={[
             // Care always belongs to a baby; older general care entries can still be reassigned.
             ...((isCare(draft.kind) || staysWithBaby(draft) || log?.about === "baby") && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
               ? []
               : [{ label: "For me / general", value: "" }]),
-            ...b.state.bootstrap!.children.map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
+            ...babiesFor(b.state.bootstrap!, draft, b.records.find((row) => row.id === draft.id)).map((c) => ({ label: babyLabel(c, b.state.bootstrap), value: c.id })),
           ]}
           onChange={(id) => change({ child_id: id || null })}
         />
       )}
+      {caregiverKeeps(b.state, draft) && <Copy kind="small" tone="muted">Only you can see this. It isn’t shared with the family.</Copy>}
       {draft.kind === "source" && <Field label="Original link" purpose="url" value={draft.data.url ?? ""}
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}

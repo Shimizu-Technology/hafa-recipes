@@ -18,6 +18,7 @@ from app.domains.baby.access import (
     family_open_to,
     touch,
 )
+from app.domains.baby.ask_gate import ASK_CONSENT_VERSION, ask_v2_on
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
@@ -79,7 +80,7 @@ from app.domains.baby.schemas import (
     SourceRelevance,
     Stage,
 )
-from app.domains.baby.security import BabyRoute, new_kinds_enabled
+from app.domains.baby.security import BabyRoute, new_kinds_enabled, push_enabled
 from app.domains.baby.sessions import SESSION_KINDS
 from app.domains.baby.stats import (
     MAX_CUSTOM_DAYS,
@@ -88,6 +89,7 @@ from app.domains.baby.stats import (
     custom_days,
     last_days,
     number_in,
+    own_log_stats,
     rolling_24h,
     session_stats,
 )
@@ -391,7 +393,14 @@ async def bootstrap_state(user, db, *, create, request):
         "generation": member.generation,
         "active": member.status == "active",
         "ai_available": BabyProvider().enabled,
+        # Present only while the new Ask is on: the disclosure version the app must show.
+        "ask_consent_version": ASK_CONSENT_VERSION if ask_v2_on() else None,
     }
+    if push_enabled():
+        # Only with the flag on, so a phone reads nothing else about it and asks nothing of it until then.
+        from app.domains.baby.push import device_routines_ready
+
+        result["reminders"] = {"push": True, **({"routines": True} if await device_routines_ready(db) else {})}
     if access and access.client == "3":
         families = [g.id for g in access.spaces if g.space.status == "active" and g.space.kind == "family"]
         # Everyone who has been in this account's families, since what someone logged stays after they leave.
@@ -443,16 +452,22 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
     access.check_generation(generation)
     member = access.member
     job_access = replace(access, spaces=access.member_spaces) if access.enabled else access
+    current_profile = Profile.model_validate(member.profile)
     values = {
-        **Profile.model_validate(member.profile).model_dump(),
+        **current_profile.model_dump(),
         **body.model_dump(exclude_unset=True, exclude={"ai_consent_version", "acknowledge_ai_consent_version"}),
     }
     try:
         profile = Profile.model_validate(values)
     except ValidationError:
         raise HTTPException(422, "Choose valid profile settings") from None
+    if body.acknowledge_ai_consent_version is not None:
+        if body.acknowledge_ai_consent_version != ASK_CONSENT_VERSION or not profile.ai_consent:
+            raise HTTPException(422, "Review the current AI permission before accepting it")
+        profile.ai_consent_version = ASK_CONSENT_VERSION
     if not profile.ai_consent:
         profile.auto_process_shares = False
+        profile.ai_consent_version = 0
     previous_automatic = bool(
         member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
     )
@@ -968,7 +983,8 @@ async def care_range_stats(
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
     result = await care_stats(db, access, member.generation, child_id, zone, stats_range, spans=True)
-    return await session_stats(db, access, member.generation, child_id, zone, result, stats_range)
+    result = await session_stats(db, access, member.generation, child_id, zone, result, stats_range)
+    return await own_log_stats(db, access, member.generation, zone, result, stats_range)
 
 
 @router.get("/records/{identifier}")

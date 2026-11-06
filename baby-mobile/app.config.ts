@@ -19,7 +19,7 @@ const config: ExpoConfig = {
     appleTeamId: "4T358A5S74",
     supportsTablet: false,
     usesAppleSignIn: true,
-    associatedDomains: ["webcredentials:clerk.hafa-recipes.com"],
+    associatedDomains: ["webcredentials:clerk.hafa-recipes.com", "applinks:shimizu-technology.com"],
     entitlements: {
       "com.apple.developer.default-data-protection": "NSFileProtectionComplete",
       // Lets a reminder someone chose come through quiet hours. Apple's App ID needs this capability too.
@@ -28,7 +28,8 @@ const config: ExpoConfig = {
     infoPlist: { ITSAppUsesNonExemptEncryption: false },
     icon: { light: "./assets/icon.png", dark: "./assets/icon-dark.png", tinted: "./assets/icon-tinted.png" },
   },
-  android: { package: "com.shimizutechnology.hafababy", allowBackup: false, predictiveBackGestureEnabled: true },
+  // The calendar module's plugin applies by itself and would ask for these. The add-event sheet needs neither.
+  android: { package: "com.shimizutechnology.hafababy", allowBackup: false, predictiveBackGestureEnabled: true, blockedPermissions: ["android.permission.READ_CALENDAR", "android.permission.WRITE_CALENDAR"] },
   web: { bundler: "metro", output: "single" },
   plugins: [
     "expo-router",
@@ -67,6 +68,14 @@ const config: ExpoConfig = {
     "expo-document-picker",
     "expo-sharing",
     "expo-notifications",
+    // Its plugin applies by itself if it isn't listed, with usage strings for access this app never asks for.
+    // The app only opens the system's add-event sheet and never asks for access. Apple still requires these words because the module can.
+    ["expo-calendar", {
+      calendarPermission: "Håfa Baby adds an event to your calendar only when you ask it to.",
+      writeOnlyCalendarPermission: "Håfa Baby adds an event to your calendar only when you ask it to.",
+      writeOnlyAccess: true,
+      remindersPermission: "Håfa Baby doesn't use your reminders.",
+    }],
     "@react-native-community/datetimepicker",
     ["expo-build-properties", { ios: { deploymentTarget: "17.0" }, android: { minSdkVersion: 26 } }],
     "./plugins/with-baby-share.cjs",

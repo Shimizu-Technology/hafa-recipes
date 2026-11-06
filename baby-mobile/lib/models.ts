@@ -6,6 +6,8 @@ export interface Profile {
   ai_consent: boolean;
   auto_process_shares?: boolean;
   auto_process_epoch?: number;
+  /** Which AI disclosure this person acknowledged; the server only raises it on acknowledgment. */
+  ai_consent_version?: number;
 }
 /** Optional setup answers. Any of them may be missing, and an older API sends none. */
 export interface ChildDetails {
@@ -87,6 +89,8 @@ export interface Bootstrap {
   people?: Record<string, string>;
   /** Only with the API's push flag on. Until it says so this phone asks for nothing and offers nothing. */
   reminders?: { push?: boolean; routines?: boolean };
+  /** Set only while the new Ask is on: the disclosure version to show and acknowledge. */
+  ask_consent_version?: number | null;
 }
 export interface Attachment {
   id: string;
@@ -168,6 +172,7 @@ export interface EventOverrides {
   all_day?: boolean;
   title?: string;
   category?: EventCategory | null;
+  category_label?: string | null;
   location?: string | null;
   attendees?: string[];
 }
@@ -186,6 +191,8 @@ export interface EventOccurrence {
   timezone: string;
   title: string;
   category: EventCategory | null;
+  /** Her own name for it. The API sends it from this release on, so an older answer has none. */
+  category_label?: string | null;
   location: string | null;
   attendees: string[];
   child_id: string | null;
@@ -194,6 +201,7 @@ export interface EventOccurrence {
   revision: number;
 }
 export interface RecordData {
+  /** Ask suggested this. The server keeps it through every edit, and it can't become a reminder. */
   /** Which of CDC's milestones this records. The title keeps the words she checked, even if CDC later rewords them. */
   milestone_id?: string;
   /** What a custom entry is, such as "Shot". */
@@ -242,8 +250,12 @@ export interface RecordData {
   end?: string | null;
   all_day?: boolean;
   category?: EventCategory | null;
+  /** Her own name for the kind of event. Only a category of "other", or none, shows it. */
+  category_label?: string | null;
   location?: string | null;
   attendees?: string[];
+  /** Minutes before the start; for an all-day event, before 9 AM on its first day. */
+  reminder_minutes?: number[];
   recurrence?: EventRecurrence | null;
   exceptions?: EventException[];
   [key: string]: unknown;
@@ -301,17 +313,29 @@ export interface Citation {
   /** Present on newer responses; older stored conversations omit it. */
   kind?: Kind;
 }
+/** A link from the trusted list a new-Ask answer used. */
+export interface WebSource {
+  url: string;
+  title: string;
+  domain: string;
+  ref?: string;
+}
+export type AskHelp = "urgent_maternal" | "harm" | "baby_unwell" | "mental_health" | "cant_answer";
 export interface Proposal {
   kind: Kind;
   title: string;
   body: string;
   data: RecordData;
+  /** A suggested event's start. Other kinds are dated when she saves them. */
+  occurred_at?: string;
 }
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
   proposal?: Proposal;
+  sources?: WebSource[];
+  help?: AskHelp | null;
   id?: string;
 }
 export interface Conversation {
@@ -321,13 +345,18 @@ export interface Conversation {
   child_id: string | null;
   title?: string;
   updated_at?: string;
+  /** Set when this chat was opened about one day. */
+  focus_date?: string | null;
   messages?: ChatMessage[];
 }
 export interface ChatResult {
-  conversation_id: string;
+  /** Null only when an urgent reply couldn't be kept in the chat: she still gets the reply. */
+  conversation_id: string | null;
   message: string;
   citations: Citation[];
   proposal?: Proposal;
+  sources?: WebSource[];
+  help?: AskHelp | null;
 }
 /**
  * What a save or draft was built on: the queued changes to this record it already showed, oldest first. Only these can

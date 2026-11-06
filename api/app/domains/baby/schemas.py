@@ -58,6 +58,8 @@ class Profile(DomainModel):
     ai_consent: StrictBool = False
     auto_process_shares: StrictBool = False
     auto_process_epoch: Annotated[int, Field(strict=True, ge=0)] = 0
+    # Which disclosure this person acknowledged. Only the acknowledgment below raises it.
+    ai_consent_version: Annotated[int, Field(strict=True, ge=0)] = 0
 
     @field_validator("timezone")
     @classmethod
@@ -80,9 +82,9 @@ class ProfilePatch(DomainModel):
     timezone: str | None = Field(default=None, max_length=80)
     ai_consent: StrictBool | None = None
     auto_process_shares: StrictBool | None = None
-    # A later app may send these. This release has no use for them, and must not refuse its save.
-    ai_consent_version: object = None
-    acknowledge_ai_consent_version: object = None
+    # Apps send their whole cached profile back, so this field never changes anything.
+    ai_consent_version: Annotated[int, Field(strict=True, ge=0)] | None = None
+    acknowledge_ai_consent_version: Annotated[int, Field(strict=True, ge=1)] | None = None
 
 
 TrackerId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]
@@ -405,6 +407,7 @@ EventCategory = Literal["appointment", "family", "celebration", "milestone", "re
 # Outside these years a date is a typo, and calendar maths would overflow.
 EVENT_YEARS = range(2000, 2101)
 MAX_EVENT_DAYS = 366
+MAX_CATEGORY_LABEL = 60
 
 
 def labels(values):
@@ -415,6 +418,11 @@ def labels(values):
     if not all(cleaned) or len({value.casefold() for value in cleaned}) != len(cleaned):
         raise ValueError("Each name must be filled in once")
     return cleaned
+
+
+def trimmed_label(value):
+    """Before the length is checked, since that's what's kept. Blank means none."""
+    return value.strip() or None if isinstance(value, str) else value
 
 
 class EventRecurrence(DomainModel):
@@ -436,7 +444,7 @@ class EventRecurrence(DomainModel):
 class EventOverrides(DomainModel):
     """What one occurrence changes. A new ``all_day`` needs a new ``start``.
 
-    A field left out keeps the series' value. Null clears an ``end``, ``category`` or ``location``;
+    A field left out keeps the series' value. Null clears an ``end``, ``category``, ``category_label`` or ``location``;
     the others always have a value, so null is refused (clear ``attendees`` with an empty list).
     """
 
@@ -445,6 +453,7 @@ class EventOverrides(DomainModel):
     all_day: StrictBool | None = None
     title: str | None = Field(default=None, min_length=1, max_length=240)
     category: EventCategory | None = None
+    category_label: str | None = Field(default=None, max_length=MAX_CATEGORY_LABEL)
     location: str | None = Field(default=None, max_length=240)
     attendees: list[Label] | None = Field(default=None, max_length=30)
 
@@ -466,6 +475,11 @@ class EventOverrides(DomainModel):
     @classmethod
     def trimmed_location(cls, value):
         return value and value.strip()
+
+    @field_validator("category_label", mode="before")
+    @classmethod
+    def trimmed_label(cls, value):
+        return trimmed_label(value)
 
     @field_validator("attendees")
     @classmethod
@@ -509,6 +523,9 @@ class EventData(DomainModel):
     all_day: StrictBool = False
     timezone: str = Field(max_length=80)
     category: EventCategory | None = None
+    # Her own name for the kind of event, typed once. Only a category of "other" or none shows it, so an older
+    # build that changes the category changes what shows. Omitted when empty, as reminder_minutes is.
+    category_label: str | None = Field(default=None, max_length=MAX_CATEGORY_LABEL, exclude_if=lambda value: value is None)
     location: str | None = Field(default=None, max_length=240)
     attendees: list[Label] = Field(default_factory=list, max_length=30)
     recurrence: EventRecurrence | None = None
@@ -524,6 +541,11 @@ class EventData(DomainModel):
     @classmethod
     def trimmed_location(cls, value):
         return value.strip() or None if value is not None else None
+
+    @field_validator("category_label", mode="before")
+    @classmethod
+    def trimmed_label(cls, value):
+        return trimmed_label(value)
 
     @field_validator("attendees")
     @classmethod
@@ -793,12 +815,26 @@ class ChatRequest(DomainModel):
     scope: Literal["all", "library", "journal", "care"] = "all"
     record_id: UUID | None = None
     child_id: UUID | None = None
+    # Sent by builds that can show web sources, and "Ask about this day". Older builds and the old path ignore them.
+    ask_v2: StrictBool = False
+    focus_date: date | None = None
 
     @field_validator("message")
     @classmethod
     def meaningful_message(cls, value):
         if not value.strip():
             raise ValueError("Enter a message")
+        return value.strip()
+
+
+class ConversationPatch(DomainModel):
+    title: str = Field(min_length=1, max_length=100)
+
+    @field_validator("title")
+    @classmethod
+    def meaningful_title(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a name")
         return value.strip()
 
 

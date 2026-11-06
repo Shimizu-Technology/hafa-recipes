@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "./context";
+import { ApiError } from "./api";
+import { askV2Active } from "./ask-sources";
 import { messageFor, type ChatMessage, type Conversation, type EditorDraft, type Proposal, type Scope } from "./models";
 
-export interface AskContext { scope: Scope; record_id: string | null; child_id: string | null }
+export interface AskContext { scope: Scope; record_id: string | null; child_id: string | null; focus_date?: string }
 export function askDraftKey(context: AskContext, conversation?: string) {
-  return "chat:v2:" + JSON.stringify([context.scope, context.record_id, context.child_id, conversation ?? null]);
+  return "chat:v2:" + JSON.stringify([context.scope, context.record_id, context.child_id, conversation ?? null, ...(context.focus_date ? [context.focus_date] : [])]);
 }
 interface Session {
   context: AskContext;
@@ -20,18 +22,18 @@ interface Session {
 type Account = ReturnType<typeof useBaby>;
 interface DraftSession { owner?: symbol; version: number; question: string; requestId?: string }
 const draftSessions = new WeakMap<object, Map<string, DraftSession>>();
-export function useAskSession(recordId?: string, active = true) {
+export function useAskSession(recordId?: string, active = true, focusDate?: string) {
   const [attempt, setAttempt] = useState(0);
   const b = useBaby(),
     key = JSON.stringify([b.owner, b.state.bootstrap?.generation, b.api.lease(),
-      b.state.bootstrap?.profile.ai_consent, b.state.selectedChild, recordId ?? null, attempt]);
+      b.state.bootstrap?.profile.ai_consent, b.state.selectedChild, recordId ?? null, attempt, focusDate ?? null]);
   const live = useRef({ b, key, active });
   live.current = { b, key, active };
   const mounted = useRef(true), sequence = useRef(0), initialized = useRef(false), working = useRef(false), historyRequest = useRef(0),
     token = useRef(Symbol("Ask screen")),
     owned = useRef<{ entry: DraftSession; key: string; version: number } | undefined>(undefined);
   const initial: Session = {
-    context: { scope: "all", record_id: recordId ?? null, child_id: b.state.selectedChild },
+    context: { scope: "all", record_id: recordId ?? null, child_id: b.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) },
     messages: [], question: "", resolving: !!recordId,
   };
   const [session, setSession] = useState<Session>(initial),
@@ -146,7 +148,7 @@ export function useAskSession(recordId?: string, active = true) {
     setHistory([]); setShowHistory(false); setError("");
     const row = account.records.find((item) => item.id === recordId);
     if (!recordId) {
-      activate({ scope: "all", record_id: null, child_id: account.state.selectedChild });
+      activate({ scope: "all", record_id: null, child_id: account.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) });
       return;
     }
     activeAccount.current = account;
@@ -182,7 +184,6 @@ export function useAskSession(recordId?: string, active = true) {
   async function send() {
     const snapshot = current.current, account = live.current.b;
     if (!live.current.active || !owned.current || owned.current.entry.owner !== token.current || working.current || snapshot.resolving || !snapshot.question.trim() || activeKey.current !== live.current.key) return;
-    if (!account.state.bootstrap?.profile.ai_consent) { setError("Enable optional AI processing in Settings first."); return; }
     const operation = ticket(), requestId = snapshot.requestId ?? Crypto.randomUUID(), text = snapshot.question.trim(),
       sent = { ...snapshot, question: text, requestId };
     setShowHistory(false);
@@ -190,17 +191,21 @@ export function useAskSession(recordId?: string, active = true) {
     try {
       await save(sent, account);
       if (!operation.valid()) return;
-      const result = await account.api.chat({ ...snapshot.context,
+      const { focus_date, ...context } = snapshot.context, v2 = askV2Active(account.state.bootstrap);
+      const result = await account.api.chat({ ...context,
         record_id: snapshot.context.record_id ?? undefined, conversation_id: snapshot.conversation,
-        request_id: requestId, message: text }, account.state.bootstrap!.generation);
+        request_id: requestId, message: text, ...(v2 ? { ask_v2: true, ...(focus_date ? { focus_date } : {}) } : {}) }, account.state.bootstrap!.generation);
       if (!operation.valid()) return;
       await account.saveDraft(askDraftKey(snapshot.context, snapshot.conversation), null, operation.valid);
       if (!operation.valid()) return;
       const entry = owned.current!.entry; entry.question = ""; entry.requestId = undefined;
-      activate(snapshot.context, result.conversation_id, [...snapshot.messages, { role: "user", content: text },
-        { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal }], snapshot.focusedTitle);
-    } catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
-    finally { if (operation.valid()) { working.current = false; setBusy(false); } }
+      activate(snapshot.context, result.conversation_id ?? undefined, [...snapshot.messages, { role: "user", content: text },
+        { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal, sources: result.sources, help: result.help }], snapshot.focusedTitle);
+    } catch (failure) {
+      // The screen says where to go with this, whatever the failure. Anything Ask recognized as urgent was already answered.
+      if (operation.valid()) setError(account.state.bootstrap?.profile.ai_consent ? messageFor(failure)
+        : "Ask needs AI processing turned on in Settings.");
+    } finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
   async function openHistory() {
     if (!live.current.active) return;
@@ -218,7 +223,8 @@ export function useAskSession(recordId?: string, active = true) {
     try {
       const result = await operation.account.api.conversation(id);
       if (!operation.valid()) return;
-      const context: AskContext = { scope: result.scope, record_id: result.record_id, child_id: result.child_id };
+      const context: AskContext = { scope: result.scope, record_id: result.record_id, child_id: result.child_id,
+        ...(result.focus_date ? { focus_date: result.focus_date } : {}) };
       activate(context, id, result.messages ?? [], operation.account.records.find((row) => row.id === context.record_id)?.title);
       setShowHistory(false);
     } catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
@@ -228,11 +234,40 @@ export function useAskSession(recordId?: string, active = true) {
     if (!live.current.active) return null;
     const operation = ticket(false), id = Crypto.randomUUID(), key = "proposal:" + id;
     const value: EditorDraft = { id, kind: proposal.kind, title: proposal.title, body: proposal.body,
-      child_id: current.current.context.child_id, occurred_at: new Date().toISOString(),
+      child_id: current.current.context.child_id, occurred_at: proposal.occurred_at ?? new Date().toISOString(),
       data: { ...proposal.data, ...(proposal.kind === "routine" ? { enabled: false } : {}) }, files: [] };
     try { await operation.account.saveDraft(key, value, operation.valid); if (operation.valid()) return { key, kind: proposal.kind }; }
     catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
     return null;
+  }
+  async function renameConversation(id: string, title: string) {
+    const operation = ticket(false);
+    try {
+      const saved = await operation.account.api.renameConversation(id, title, operation.account.state.bootstrap!.generation);
+      if (operation.valid()) setHistory((items) => items.map((item) => item.id === id ? { ...item, title: saved.title } : item));
+      return true;
+    } catch (failure) { if (operation.valid()) setError(messageFor(failure)); return false; }
+  }
+  async function deleteConversation(id: string) {
+    const operation = ticket(false);
+    try {
+      await operation.account.api.deleteConversation(id, operation.account.state.bootstrap!.generation);
+    } catch (failure) {
+      // Already gone from another phone is what was asked for.
+      if (!(failure instanceof ApiError && failure.status === 404)) {
+        if (operation.valid()) setError(messageFor(failure));
+        return false;
+      }
+    }
+    if (!operation.valid()) return true;
+    setHistory((items) => items.filter((item) => item.id !== id));
+    if (current.current.conversation === id) {
+      void operation.account.saveDraft(askDraftKey(current.current.context, id), null, operation.valid).catch(() => undefined);
+      const context = { scope: "all" as const, record_id: null, child_id: live.current.b.state.selectedChild };
+      activate(context);
+      setShowHistory(true);
+    }
+    return true;
   }
   function startNew() {
     if (!live.current.active || working.current) return;
@@ -240,14 +275,14 @@ export function useAskSession(recordId?: string, active = true) {
     const operation = ticket(), prior = current.current,
       // On a screen opened for one entry, a new chat stays on it. Anywhere else it is a general chat,
       // whatever the conversation on screen searched: scope has no other control now.
-      onEntry = !!recordId && prior.context.record_id === recordId;
+      onEntry = (!!recordId && prior.context.record_id === recordId) || (!!focusDate && prior.context.focus_date === focusDate);
     activate(onEntry ? prior.context : { scope: "all", record_id: null, child_id: live.current.b.state.selectedChild },
       undefined, [], onEntry ? prior.focusedTitle : undefined);
     setShowHistory(false);
     update({ ...current.current, requestId: undefined });
     void save(current.current).catch(() => { if (operation.valid()) setError("Could not save this question draft. Try again."); });
   }
-  return { ...session, history, showHistory, busy, error, send, openHistory, load, review, startNew, selectScope,
+  return { ...session, history, showHistory, busy, error, send, openHistory, load, review, startNew, selectScope, renameConversation, deleteConversation,
     retryFocus: () => setAttempt((value) => value + 1),
     setQuestion: (question: string) => { if (live.current.active && owned.current?.entry.owner === token.current && !working.current && !current.current.resolving) update({ ...current.current, question, requestId: undefined }); } };
 }

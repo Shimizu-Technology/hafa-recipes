@@ -52,18 +52,18 @@ def test_proposals_require_review_and_cannot_enable_reminders_or_attach_files():
     assert record("journal", {"provenance": "clinician_instruction"}).data["provenance"] == "clinician_instruction"
     with pytest.raises(ValueError):
         reviewed_proposal({"kind": "journal", "title": "Advice", "data": {"provenance": "clinician_instruction"}})
-    proposal = reviewed_proposal(
-        {
-            "kind": "routine",
-            "title": "Hospital bag",
-            "body": "Review first",
-            "data": {
-                "routine_type": "checklist",
-                "items": [{"id": "one", "label": "Documents", "done": False}],
-            },
-        }
-    )
-    assert proposal["data"]["enabled"] is False
+    with pytest.raises(ValueError):
+        reviewed_proposal(
+            {
+                "kind": "routine",
+                "title": "Hospital bag",
+                "body": "Review first",
+                "data": {
+                    "routine_type": "checklist",
+                    "items": [{"id": "one", "label": "Documents", "done": False}],
+                },
+            }
+        )
     with pytest.raises(ValueError):
         reviewed_proposal(
             {"kind": "feeding", "title": "Prescription", "data": {"method": "bottle"}}

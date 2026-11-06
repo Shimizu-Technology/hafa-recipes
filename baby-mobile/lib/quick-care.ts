@@ -134,19 +134,24 @@ const firstAmount = { oz: 3, ml: 90 } as const;
 
 export interface BottleChoice { amount: number; unit: "oz" | "ml"; contents?: NonNullable<RecordData["contents"]>; fromLast: boolean }
 
+/** The unit she last measured anything in, on any baby, for what has no history of its own. */
+export function lastAmountUnit(rows: readonly BabyRecord[]): "oz" | "ml" | undefined {
+  return rows.filter((row) => (row.kind === "pumping" || (row.kind === "feeding" && row.data.method === "bottle")) && row.data.unit).sort(newestFirst)[0]?.data.unit as "oz" | "ml" | undefined;
+}
+
 /** A bottle starts from the last one: same amount, same unit, same milk. Ounces until she uses something else. */
-export function bottleStart(rows: BabyRecord[], childId: string | null): BottleChoice {
+export function bottleStart(rows: BabyRecord[], childId: string | null, usual: "oz" | "ml" = "oz"): BottleChoice {
   const last = rows.filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "bottle").sort(newestFirst)[0];
-  const unit = last?.data.unit ?? "oz", amount = last?.data.amount;
+  const unit = last?.data.unit ?? usual, amount = last?.data.amount;
   return typeof amount === "number" && amount > 0
     ? { amount, unit, contents: last!.data.contents ?? undefined, fromLast: true }
     : { amount: firstAmount[unit], unit, contents: last?.data.contents ?? undefined, fromLast: false };
 }
 
 /** The same for pumping: what came out last time, in the same unit. */
-export function pumpStart(rows: BabyRecord[], childId: string | null): BottleChoice {
+export function pumpStart(rows: BabyRecord[], childId: string | null, usual: "oz" | "ml" = "oz"): BottleChoice {
   const last = rows.filter((row) => row.kind === "pumping" && row.child_id === childId).sort(newestFirst)[0],
-    unit = last?.data.unit ?? "oz", amount = last?.data.amount;
+    unit = last?.data.unit ?? usual, amount = last?.data.amount;
   return typeof amount === "number" && amount > 0 ? { amount, unit, fromLast: true } : { amount: firstAmount[unit], unit, fromLast: false };
 }
 
@@ -158,9 +163,12 @@ export function stepAmount(choice: Pick<BottleChoice, "amount" | "unit">, direct
   return Math.max(step, Math.round((choice.amount + direction * step) / step) * step);
 }
 
-/** The same bottle in the other unit, on the nearest step. */
-export function changeUnit(choice: Pick<BottleChoice, "amount" | "unit">, steps: Record<"oz" | "ml", number> = bottleStep): Pick<BottleChoice, "amount" | "unit"> {
-  const unit = choice.unit === "oz" ? "ml" : "oz", step = steps[unit],
-    converted = choice.unit === "oz" ? choice.amount * ozToMl : choice.amount / ozToMl;
-  return { unit, amount: Math.max(step, Math.round(converted / step) * step) };
+/** An amount on screen. `before` is what it was in the other unit before a switch, so switching back loses nothing. */
+export type AmountChoice = Pick<BottleChoice, "amount" | "unit"> & { before?: number };
+/** The same bottle in the other unit, on the nearest step, or exactly what it was if she's switching back. Only a step or typing changes that. */
+export function changeUnit(choice: AmountChoice, steps: Record<"oz" | "ml", number> = bottleStep): AmountChoice {
+  const unit = choice.unit === "oz" ? "ml" : "oz", step = steps[unit];
+  if (choice.before) return { unit, amount: choice.before };
+  const converted = choice.unit === "oz" ? choice.amount * ozToMl : choice.amount / ozToMl;
+  return { unit, amount: Math.max(step, Math.round(converted / step) * step), ...(choice.amount > 0 ? { before: choice.amount } : {}) };
 }

@@ -81,6 +81,18 @@ describe("the share credential", () => {
     await act(async () => { askForShareSession(); });
     expect(baby.api.request).toHaveBeenCalledTimes(2);
   });
+  it("settles once this phone has answered, so the check that follows includes it", async () => {
+    const baby = account({ personal_space_id: personal, spaces: [own] }, { space_id: personal });
+    await mount(baby);
+    const response = baby.api.request.getMockImplementation()!;
+    let answer = () => {};
+    baby.api.request.mockImplementationOnce(async (...args) => { await new Promise<void>((done) => { answer = done; }); return response(...args); });
+    let settled = false;
+    await act(async () => { void askForShareSession()!.then(() => { settled = true; }); });
+    expect(settled).toBe(false);
+    await act(async () => { answer(); });
+    expect(settled).toBe(true);
+  });
   it("gets a new one each time the app comes forward, so a capture refused with a 401 meanwhile is back in play", async () => {
     const baby = account({ personal_space_id: personal, spaces: [own] }, { space_id: personal });
     await mount(baby);

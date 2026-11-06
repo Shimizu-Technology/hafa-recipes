@@ -26,9 +26,7 @@ from app.domains.baby.models import (
     BabySpaceMember,
 )
 from app.domains.baby.share_models import BabyShareCapture, BabyShareCredential
-
-# Logs about the person, not a baby: `about: "her"` in baby-mobile/lib/trackers.ts. They stay with her.
-HER_LOG_LABELS = frozenset({"How I'm feeling", "My weight", "Blood pressure", "Vitamins and medicine"})
+from app.domains.baby.stats import HER_LOG_LABELS
 
 
 def her_log(row):

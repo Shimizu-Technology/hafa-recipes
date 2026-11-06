@@ -1,24 +1,29 @@
 """Baby-specific prompts over existing configured credentials and usage accounting.
 
-No development paid calls by default, no implicit fallback/retry, no provider
-storage, and no Recipes or Workouts context. Callers supply a revocable gate.
+No development paid calls by default, no implicit fallback, no provider storage,
+and no Recipes or Workouts context. Callers supply a revocable gate. The only
+retry is Ask's answers and safety check on a provider's 429 or 5xx, and each try
+is gated and reserved again, so it can't get round consent or the ceilings.
 """
 
 import asyncio
 import json
 import math
+import time
 from pathlib import Path
 from typing import Annotated, Any
 
 import httpx
+from fastapi import HTTPException
 from pydantic import Field
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
-from app.domains.baby.budget import reserve
+from app.domains.baby.budget import SEARCH_CALL_MICROUSD, AskCall, reserve, reserve_ask
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
 
+RESPONSES_URL = "https://api.openai.com/v1/responses"
 DAILY_LIMIT_CODE = "baby_ai_daily_limit"
 DAILY_LIMIT_MESSAGE = (
     "Daily AI limit reached. Your originals and available text are saved. Try again later."
@@ -36,6 +41,10 @@ def budget_failure_message(failure):
 
 class ProviderUnavailable(Exception):
     """Content-free operational failure."""
+
+
+class ContextChanged(Exception):
+    """Who can see what changed during an answer: everything gathered so far is thrown away."""
 
 
 class ExtractionOutput(DomainModel):
@@ -58,13 +67,47 @@ class ExtractionOutput(DomainModel):
 class AnswerOutput(DomainModel):
     message: str = Field(min_length=1, max_length=12000)
     citation_ids: list[str] = Field(default_factory=list, max_length=12)
+    safety: str | None = None
     proposal: dict | None = None
+    quotes: list[dict] = Field(default_factory=list)
+
+
+class ProviderBusy(ProviderUnavailable):
+    """A 429 or 5xx, which may pass. It reads as any other failure once the tries run out."""
+
+
+# Ask's answers, and the check in front of them. Imports have their own retries, and a search costs more than it's worth trying twice.
+RETRIED = frozenset({"baby_chat", "baby_ask", "baby_safety"})
+RETRY_DELAYS = (0.5, 1.5)
+# Old builds stop waiting at 45 seconds, so no try starts this late. The safety check's own, shorter limit also covers its tries.
+RETRY_WINDOW_SECONDS = 20
+
+
+def provider_failure(failure):
+    message = "AI could not finish; your original information is saved"
+    status = failure.response.status_code if isinstance(failure, httpx.HTTPStatusError) else None
+    return ProviderBusy(message) if status == 429 or (status and status >= 500) else ProviderUnavailable(message)
+
+
+async def with_retries(capability, attempt):
+    if capability not in RETRIED:
+        return await attempt()
+    started = time.monotonic()
+    for delay in RETRY_DELAYS:
+        try:
+            return await attempt()
+        except ProviderBusy:
+            if time.monotonic() - started + delay > RETRY_WINDOW_SECONDS:
+                raise
+            await asyncio.sleep(delay)
+    return await attempt()
 
 
 class BabyProvider:
     def __init__(self, *, gate=None):
         self.gate = gate
         self.budget_error: BudgetError | None = None
+        self.old_path = False
 
     def _key(self, settings):
         if settings.environment == "production":
@@ -100,7 +143,77 @@ class BabyProvider:
             self.budget_error = failure
             raise
 
+    async def admit_ask_call(self, capability, call):
+        """Gate, reserve this one call, gate again: withdrawing consent stops the next call."""
+        await self.admitted(capability)
+        try:
+            await reserve_ask(capability, call, consent_only=self.old_path)
+        except BudgetError as failure:
+            self.budget_error = failure
+            raise
+        await self.admitted(capability)
+
+    async def responses_call(self, *, capability, model, prompt_version, body, searches=0):
+        return await with_retries(capability, lambda: self.responses_attempt(
+            capability=capability, model=model, prompt_version=prompt_version, body=body, searches=searches,
+        ))
+
+    async def responses_attempt(self, *, capability, model, prompt_version, body, searches=0):
+        """One Responses request: admitted first, tracked, and never stored by the provider."""
+        body = {**body, "model": model, "store": False, "service_tier": "default"}
+        call = AskCall(
+            model=model,
+            input_bytes=len(json.dumps(body, ensure_ascii=False).encode()),
+            max_output_tokens=body["max_output_tokens"],
+            searches=searches,
+        )
+        await self.admit_ask_call(capability, call)
+        async with AIInvocationTracker(
+            capability=capability,
+            primary_model=model,
+            prompt_version=prompt_version,
+            schema_version="baby-ask-v2",
+            allow_canary=False,
+            rollout_variant="primary",
+        ) as invocation:
+            data = None
+            try:
+                async with httpx.AsyncClient(
+                    timeout=75, transport=httpx.AsyncHTTPTransport(retries=0)
+                ) as client:
+                    response = await client.post(
+                        RESPONSES_URL,
+                        headers={"Authorization": f"Bearer {self._key(get_settings())}"},
+                        json=body,
+                    )
+                response.raise_for_status()
+                # Paid for from here on, so even a reply that's discarded keeps its usage and request ID.
+                data = response.json()
+                invocation.extra_cost_microusd = SEARCH_CALL_MICROUSD * sum(
+                    item.get("type") == "web_search_call" for item in data.get("output", [])
+                )
+                if data.get("status") != "completed" or data.get("error"):
+                    raise ValueError("Incomplete response")
+                if self.gate:
+                    await self.gate()  # A revoked result never reaches the next round.
+                invocation.succeed(data)
+                return data
+            except asyncio.CancelledError:
+                invocation.fail("cancelled", data)
+                raise
+            except (HTTPException, ContextChanged):
+                invocation.fail("baby_answer_discarded", data)
+                raise
+            except Exception as failure:
+                invocation.fail("baby_provider_failed", data)
+                raise provider_failure(failure) from None
+
     async def json_call(self, *, capability, instructions, content, output_model, max_tokens=2400):
+        return await with_retries(capability, lambda: self.json_attempt(
+            capability=capability, instructions=instructions, content=content, output_model=output_model, max_tokens=max_tokens,
+        ))
+
+    async def json_attempt(self, *, capability, instructions, content, output_model, max_tokens=2400):
         await self.admitted(capability)
         settings = get_settings()
         model = getattr(settings, "baby_ai_model", None) or settings.recipe_chat_model
@@ -153,11 +266,9 @@ class BabyProvider:
             except asyncio.CancelledError:
                 invocation.fail("cancelled")
                 raise
-            except Exception:
+            except Exception as failure:
                 invocation.fail("baby_provider_failed")
-                raise ProviderUnavailable(
-                    "AI could not finish; your original information is saved"
-                ) from None
+                raise provider_failure(failure) from None
 
     async def extract(self, source, categories=None):
         content = [
@@ -231,8 +342,7 @@ class BabyProvider:
                 "General organizational help is allowed; label general information separate from saved evidence. "
                 "Do not diagnose, personalize pregnancy/feeding/medical schedules, recommend doses, or imply normality "
                 "from incomplete logs. For a medical decision encourage the user's clinician; urgent symptoms need urgent care. "
-                "Only suggest editable checklists/schedules, journal entries, or questions when requested; never claim you saved them. "
-                "A routine proposal data is {routine_type:'checklist'|'schedule',items:[{id,label,done:false}],enabled:false,repeat:'none'}. "
+                "Only suggest journal entries or questions when requested; never claim you saved them. "
                 "Never propose enabled reminders. Use clear plain language; no unsupported health predictions. "
                 "Record times carry the parent's own UTC offset and now_local is their current local time; "
                 "quote clock times as those local times (never UTC), written like 7:25 PM unless the parent uses 24-hour times. "

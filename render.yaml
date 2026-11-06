@@ -21,9 +21,11 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /up
     envVars:
-      # Keep these defaults off. Enable through a reviewed Blueprint change
-      # following the R1 runbook so later sync cannot undo the rollout.
+      # A record of what production runs, not what sets it: the live service
+      # isn't on a Blueprint, so each flag is changed on the service itself.
+      # Never turn BABY_FAMILY_ENABLED off once a family exists. Roll back with
+      # BABY_INVITES_ENABLED. See the R1 runbook.
       - key: BABY_FAMILY_ENABLED
-        value: "false"
+        value: "true"
       - key: BABY_INVITES_ENABLED
-        value: "false"
+        value: "true"

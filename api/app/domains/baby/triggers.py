@@ -11,7 +11,7 @@ Each reminder's reason is checked again when it is read, so a late plan is harml
 from datetime import UTC, datetime, time, timedelta
 from itertools import islice
 from uuid import UUID
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -64,6 +64,7 @@ LOCK_SCREEN.update({
     "import": "A saved post has an update.",
     "feed_interval": "Feed reminder.",
     "running_timer": "A timer is still running.",
+    "routine": "A moment for your routine.",
 })
 
 
@@ -432,6 +433,81 @@ async def pregnancy_week_words(db, row, access, prefs):
     return Words(f"Week {week} is here{tips}.", {"child_id": str(child.id), "week": week}, due)
 
 
+# Routines: a phone that holds one fires it itself, so this row is for Today and for phones that don't.
+
+
+ROUTINE_STAYS = timedelta(hours=24)  # On Today, unless the next one comes first or it is dismissed.
+
+
+def routine_schedule(data):
+    """What a phone reports holding. An edit that doesn't change when it fires doesn't change this."""
+    return f"{data.get('reminder_at')}|{data.get('repeat') or 'none'}|{data.get('timezone') or ''}"
+
+
+def routine_times(data, moment):
+    """When it fires, from a day before ``moment`` to ``PLAN_AHEAD`` after. A repeat keeps its wall clock in its own zone."""
+    try:
+        start = datetime.fromisoformat(data["reminder_at"])
+        zone = ZoneInfo(data.get("timezone") or "UTC")
+        first = start.astimezone(zone)
+    except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError):
+        return
+    earliest, latest = moment - ROUTINE_STAYS, moment + PLAN_AHEAD
+    repeat = data.get("repeat") or "none"
+    if repeat == "none":
+        if earliest <= start <= latest:
+            yield start.astimezone(UTC)
+        return
+    day, last = max(first.date(), earliest.astimezone(zone).date()), latest.astimezone(zone).date()
+    while day <= last:
+        if repeat == "daily" or day.weekday() == first.weekday():
+            due = datetime.combine(day, first.timetz().replace(tzinfo=None), zone).astimezone(UTC)
+            if due >= start and earliest <= due <= latest:
+                yield due
+        day += timedelta(days=1)
+
+
+def routine_stands(data):
+    return bool(data.get("enabled")) and bool(data.get("reminder_at")) and not (
+        data.get("items") and all(item.get("done") for item in data["items"])
+    )
+
+
+async def plan_routines(db, plan, access, prefs, moment):
+    plan.owned.add("routine")
+    rows = await db.scalars(
+        kind_query(access, access.member.generation, ("routine",), BabyRecord).execution_options(populate_existing=True)
+    )
+    for row in rows:
+        if not routine_stands(row.data) or not may_hear(access, "routine", row.space_id):
+            continue
+        times = list(routine_times(row.data, moment))
+        past = [due for due in times if due <= moment]
+        # Only the newest that has passed stays on Today, and only one that's recent is worth bringing up now.
+        for due in [*past[-1:], *(due for due in times if due > moment)]:
+            key = f"{row.id}:{int(due.timestamp())}"
+            plan.keep("routine", key)
+            if due >= moment - GRACE:
+                plan.add("routine", key, row.space_id, due, {
+                    "record_id": str(row.id), "schedule": routine_schedule(row.data),
+                    "expires_at": (due + ROUTINE_STAYS).isoformat(),
+                })
+
+
+async def routine_words(db, row, access, prefs):
+    record = await readable(db, access, BabyRecord, UUID(row.payload["record_id"]))
+    if record is None or record.kind != "routine" or not routine_stands(record.data):
+        return None
+    schedule_now = routine_schedule(record.data)
+    if schedule_now != row.payload["schedule"]:
+        return None
+    return Words(
+        f"Reminder: {clipped(record.title)}.",
+        {"record_id": str(record.id), "child_id": str(record.child_id) if record.child_id else None},
+        held_as=(str(record.id), schedule_now),
+    )
+
+
 # STUB until K4a (milestones) and K4b (well visits) land with approved content. The settings exist so
 # the app can show them; nothing is scheduled, and no window or age may be written here without that review.
 STUB_KINDS = ("milestone_window", "well_visit")
@@ -443,12 +519,12 @@ async def nothing_yet(db, row, access, prefs):
 
 RESOLVERS.update({
     "event": event_words, "visit_prep": visit_prep_words, "import": import_words, "feed_interval": feed_words,
-    "running_timer": running_words, "pregnancy_week": pregnancy_week_words,
+    "running_timer": running_words, "pregnancy_week": pregnancy_week_words, "routine": routine_words,
     **dict.fromkeys(STUB_KINDS, nothing_yet),
 })
 PLANNERS = {
     "event": plan_events, "visit_prep": plan_visit_prep, "import": plan_imports, "feed_interval": plan_feeds,
-    "running_timer": plan_running, "pregnancy_week": plan_pregnancy_weeks,
+    "running_timer": plan_running, "pregnancy_week": plan_pregnancy_weeks, "routine": plan_routines,
 }
 
 

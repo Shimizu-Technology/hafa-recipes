@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { AccessibilityInfo, Animated, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
+import { pendingRecords } from "../lib/outbox";
 import { messageFor, type BabyRecord, type Child } from "@/lib/models";
 import { retimedActions, runningFeed, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
 import { careGlance, nextSide } from "@/lib/care-glance";
-import { amendCare, bottleStart, careWrite, changeUnit, logCare, stepAmount, updateCare, type BottleChoice } from "@/lib/quick-care";
+import { amendCare, bottleStart, careWrite, changeUnit, lastAmountUnit, logCare, stepAmount, updateCare, type AmountChoice, type BottleChoice } from "@/lib/quick-care";
 import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
 import { activeTimer, clockText, type FeedSide } from "@/lib/feed-timer";
 import { feedWrite, finishFeed, startFeed, switchFeed, undoShown } from "@/lib/running-feed";
@@ -209,42 +210,46 @@ export function Panel({ title, detail, at, now, day, timeZone, needTime, onTime,
 
 const amountDone = "amount-done";
 /** An amount to step up or down, whose middle changes the unit. */
-export function AmountStepper({ amount, onChange, note, steps, typing }: { amount: Pick<BottleChoice, "amount" | "unit">; onChange: (next: Pick<BottleChoice, "amount" | "unit">) => void; note?: string; steps?: Record<"oz" | "ml", number>;
-  /** The number can be typed as well. Then only the unit's word changes the unit, and nothing typed is an amount of 0. */
+export function AmountStepper({ amount, onChange, note, steps, typing }: { amount: AmountChoice; onChange: (next: AmountChoice) => void; note?: string; steps?: Record<"oz" | "ml", number>;
+  /** The number can be typed as well, and nothing typed is an amount of 0. */
   typing?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [text, setText] = useState<string | null>(null),
     unitWord = amount.unit === "oz" ? "oz" : "mL",
-    otherUnit = amount.unit === "oz" ? "milliliters" : "ounces",
-    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); setText(null); onChange({ ...amount, amount: stepAmount(amount, direction, steps) }); }}
+    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); setText(null); onChange({ unit: amount.unit, amount: stepAmount(amount, direction, steps) }); }}
       style={{ width: 64, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
       <Icon name={direction > 0 ? "add" : "remove"} size={24} color={c.text} />
-    </PressTarget>;
+    </PressTarget>,
+    // Both units in sight, so the one she wants is one tap whatever else is on the panel.
+    unit = (value: "oz" | "ml", word: string, spoken: string) => {
+      const on = amount.unit === value;
+      return <PressTarget key={value} accessibilityRole="radio" accessibilityLabel={spoken} accessibilityState={{ selected: on, checked: on }} onPress={() => { if (on) return; tap(); setText(null); onChange(changeUnit(amount, steps)); }}
+        style={{ minWidth: 48, minHeight: 56, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: on ? c.action : "transparent" }}>
+        <Text key={fontScale} maxFontSizeMultiplier={1.6} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: on ? c.onAction : c.text }}>{word}</Text>
+      </PressTarget>;
+    };
   return <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: c.tile }}>
     {step(-1, "Less")}
-    {typing ? <View style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
-        <TextInput key={fontScale} accessibilityLabel={`Amount in ${unitWord}`} value={text ?? String(amount.amount)} keyboardType="decimal-pad" selectTextOnFocus maxLength={8} inputAccessoryViewID={amountDone} maxFontSizeMultiplier={0}
-          onChangeText={(typed) => { const number = Number(typed); setText(typed); onChange({ ...amount, amount: typed && number > 0 ? number : 0 }); }}
-          style={{ minWidth: 56, minHeight: 44, textAlign: "right", fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }} />
-        <PressTarget accessibilityRole="button" accessibilityLabel={unitWord} accessibilityHint={`Changes to ${otherUnit}`} onPress={() => { tap(); setText(null); onChange(changeUnit(amount, steps)); }}
-          style={{ minWidth: 44, minHeight: 44, alignItems: "flex-start", justifyContent: "center" }}>
-          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, textDecorationLine: "underline" }}>{unitWord}</Text>
-        </PressTarget>
+    <View style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center", paddingVertical: 4, gap: 2 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        {typing ? <TextInput key={fontScale} accessibilityLabel={`Amount in ${unitWord}`} value={text ?? String(amount.amount)} keyboardType="decimal-pad" selectTextOnFocus maxLength={8} inputAccessoryViewID={amountDone} maxFontSizeMultiplier={0}
+          onChangeText={(typed) => { const number = Number(typed); setText(typed); onChange({ unit: amount.unit, amount: typed && number > 0 ? number : 0 }); }}
+          style={{ minWidth: 48, minHeight: 44, textAlign: "right", fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }} />
+          : <Text key={fontScale} accessibilityLabel={`${amount.amount} ${unitWord}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{String(amount.amount)}</Text>}
+        <View accessibilityRole="radiogroup" accessibilityLabel="Unit" style={{ flexDirection: "row", borderRadius: 14, padding: 2, backgroundColor: c.surface }}>
+          {unit("oz", "oz", "Ounces")}
+          {unit("ml", "mL", "Milliliters")}
+        </View>
       </View>
-      <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted, textAlign: "center" }}>{note ?? "Tap the number to type it"}</Text>
-      <KeyboardDone id={amountDone} />
-    </View> : <PressTarget accessibilityRole="button" accessibilityLabel={`${amount.amount} ${unitWord}`} accessibilityHint={`Changes to ${otherUnit}`}
-      onPress={() => { tap(); onChange(changeUnit(amount, steps)); }} style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
-      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{`${amount.amount} ${unitWord}`}</Text>
-      <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{note ?? "Tap to change unit"}</Text>
-    </PressTarget>}
+      {!!(note ?? (typing && "Tap the number to type it")) && <Text key={`d:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted, textAlign: "center" }}>{note ?? "Tap the number to type it"}</Text>}
+      {typing && <KeyboardDone id={amountDone} />}
+    </View>
     {step(1, "More")}
   </View>;
 }
 
 /** The amount, the unit, and the two milks. Choosing a milk saves it. */
 function BottlePanel({ start, detail, at, now, day, timeZone, needTime, onTime, onSave }: { start: BottleChoice; detail?: string; at: string | null; now: Date; day?: PastDay; timeZone?: string | null; needTime?: boolean; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
-  const [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
+  const [bottle, setBottle] = useState<AmountChoice>({ amount: start.amount, unit: start.unit }),
     same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit;
   return <Panel title="Bottle" detail={detail} at={at} now={now} day={day} timeZone={timeZone} needTime={needTime} onTime={onTime}>
     <AmountStepper amount={bottle} onChange={setBottle} note={same ? "Same as last time" : undefined} />
@@ -456,7 +461,7 @@ export function QuickPanels({ quick, keepsPlace }: { quick: Quick;
           onPress={() => void side(choice)} />)}
       </View>
     </Panel>}
-    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} detail={whose} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change} onSave={(choice) => void bottle(choice)} />}
+    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id, lastAmountUnit(pendingRecords(b.state)))} detail={whose} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change} onSave={(choice) => void bottle(choice)} />}
     {panel === "diaper" && <Panel title="Diaper" detail={whose} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {diaperChoices.map((choice) => <Option key={choice.type} label={choice.label} onPress={() => void diaper(choice.label, choice.type)} />)}

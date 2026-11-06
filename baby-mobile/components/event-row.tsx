@@ -1,7 +1,7 @@
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { categoryName, eventClock, eventWhen, nextEvent } from "@/lib/events";
+import { eventClock, eventKindName, eventWhen, nextEvent } from "@/lib/events";
 import type { EventCategory, EventOccurrence } from "@/lib/models";
 import { useUpcomingEvents } from "@/lib/use-events";
 import { NextVisitQuestions, type useVisitDrafts } from "./visit-sections";
@@ -21,15 +21,15 @@ export function CategoryTile({ category, size = 36 }: { category?: EventCategory
 /** An event among the logs on a day's timeline. */
 export function EventRow({ item, day }: { item: EventOccurrence; day: string }) {
   const b = useBaby(), c = useColors(), { fontScale } = useWindowDimensions(), when = eventClock(item, day, b.state.bootstrap?.profile.timezone), stacked = fontScale >= 1.5,
-    detail = [categoryName(item.category), item.location].filter(Boolean).join(" · ");
-  return <PressTarget accessibilityRole="button" accessibilityLabel={`${when}, ${item.title}. ${detail}`} accessibilityHint="Opens this event" onPress={() => openEvent(item)}
+    detail = [eventKindName(item), item.location].filter(Boolean).join(" · ");
+  return <PressTarget accessibilityRole="button" accessibilityLabel={[`${when}, ${item.title}`, detail].filter(Boolean).join(". ")} accessibilityHint="Opens this event" onPress={() => openEvent(item)}
     style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: stacked ? 4 : 10, minHeight: 62, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: c.surface }}>
     <Text key={`w:${fontScale}`} maxFontSizeMultiplier={0} style={{ width: stacked ? undefined : Math.ceil(66 * Math.min(fontScale, 1.5)), ...typeScale.caption, fontSize: 13, lineHeight: 18, color: c.muted, fontVariant: ["tabular-nums"] }}>{when}</Text>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: stacked ? undefined : 1, minWidth: 0, alignSelf: stacked ? "stretch" : undefined }}>
       <CategoryTile category={item.category} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text key={`t:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.text }}>{item.title}</Text>
-        <Text key={`d:${fontScale}`} numberOfLines={1} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, fontSize: 13, lineHeight: 17, color: c.muted }}>{detail}</Text>
+        {!!detail && <Text key={`d:${fontScale}`} numberOfLines={1} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, fontSize: 13, lineHeight: 17, color: c.muted }}>{detail}</Text>}
       </View>
       <Icon name="chevron-forward" size={18} color={c.muted} />
     </View>
@@ -40,9 +40,12 @@ const EventListRow = ({ item, today, timeZone }: { item: EventOccurrence; today:
     hint="Opens this event" onPress={() => openEvent(item)} />;
 
 /** Next on the calendar, under the month. */
-export function ComingUp({ childId, today }: { childId: string | null; today: string }) {
+export function ComingUp({ childId, today, except = [] }: { childId: string | null; today: string;
+  /** What's already on the page, so it isn't listed twice. */
+  except?: readonly EventOccurrence[] }) {
   const b = useBaby(), timeZone = b.state.bootstrap?.profile.timezone, { items } = useUpcomingEvents(childId, today), now = new Date(),
-    next = nextEvent(items, now, timeZone), list = next ? items.slice(items.indexOf(next), items.indexOf(next) + 4) : [];
+    next = nextEvent(items, now, timeZone), shown = (item: EventOccurrence) => !except.some((one) => one.event_id === item.event_id && one.original_start === item.original_start),
+    list = next ? items.slice(items.indexOf(next)).filter(shown).slice(0, 4) : [];
   return list.length ? <View style={{ gap: 8 }}>
     <Copy kind="heading">Coming up</Copy>
     <Grouped>{list.map((item) => <EventListRow key={`${item.event_id}:${item.original_start}`} item={item} today={today} timeZone={timeZone} />)}</Grouped>
@@ -55,7 +58,7 @@ export function NextEvent({ childId, today, now, drafts, quiet }: { childId: str
   const b = useBaby(), timeZone = b.state.bootstrap?.profile.timezone, { items } = useUpcomingEvents(childId, today), next = nextEvent(items, now, timeZone);
   const appointment = next?.category === "appointment";
   if (!next && quiet) return null;
-  if (!next) return <Row title="Add to the calendar" detail="An appointment, baptism or family visit" icon="calendar-outline"
+  if (!next) return <Row title="Add to the calendar" detail="A visit, a birthday, anything with a date" icon="calendar-outline"
     onPress={() => router.push({ pathname: "/edit", params: { kind: "event", day: today } })} />;
   return <View style={{ gap: 8 }}>
     <Copy kind="label" tone="muted">Next up</Copy>

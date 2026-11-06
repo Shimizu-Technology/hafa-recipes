@@ -1,5 +1,4 @@
 import { ClerkProvider, useAuth } from "@clerk/expo";
-import { tokenCache } from "@clerk/expo/token-cache";
 import { Stack, ThemeProvider, DarkTheme, DefaultTheme } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -9,6 +8,7 @@ import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { ShareIntentProvider } from "expo-share-intent";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
+import { clerkTokenCache } from "@/lib/clerk-token-cache";
 import { BabyProvider } from "@/lib/context";
 import { SignupGate } from "@/components/signup-gate";
 import { AccountGate } from "@/components/account-gate";
@@ -40,6 +40,7 @@ function Routes() {
       contentStyle: { backgroundColor: c.background } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="privacy" />
+      <Stack.Screen name="join" />
       <Stack.Protected guard={!isSignedIn}>
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
@@ -114,7 +115,7 @@ export default function Root() {
           <ShareIntentProvider
             options={{ resetOnBackground: false, scheme: "hafababy", debug: false, disabled: Platform.OS === "web" }}
           >
-            <ClerkProvider publishableKey={configuration.clerkKey} tokenCache={tokenCache}>
+            <ClerkProvider publishableKey={configuration.clerkKey} tokenCache={clerkTokenCache}>
               <ShareSessionGuard />
               <StockShareBoundary><Routes /></StockShareBoundary>
             </ClerkProvider>

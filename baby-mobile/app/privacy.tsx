@@ -1,6 +1,9 @@
 import { Button, Card, Copy, Screen, Section } from "@/components/ui";
 import { router } from "expo-router";
+import { useBabyIfSignedIn } from "@/lib/context";
+import { ASK_CONSENT_BODY } from "@/lib/ai-consent";
 export default function Privacy() {
+  const askV2 = !!useBabyIfSignedIn()?.state.bootstrap?.ask_consent_version;
   return (
     <Screen title="Privacy" subtitle="Privacy & processing in Håfa Baby" back>
       <Section title="Your information">
@@ -17,6 +20,7 @@ export default function Privacy() {
           images, audio or sampled video frames to organize sources. Questions can include relevant Baby records and
           recent conversation context. Turn permission off in Settings to stop new AI requests.
         </Copy>
+        {askV2 && <Copy>{ASK_CONSENT_BODY}</Copy>}
         <Copy>
           Saved summaries and conversations remain until you delete them. AI may miss details or make mistakes. Original
           sources remain available, and proposed records are reviewed before saving. Imported advice does not activate

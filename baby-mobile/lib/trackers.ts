@@ -50,7 +50,7 @@ export const trackers: readonly Tracker[] = [
 export const keepItems: readonly { kind: Kind; label: string; detail: string }[] = [
   { kind: "source", label: "Video or link", detail: "Video, link, screenshot, or document" },
   { kind: "journal", label: "Journal", detail: "A thought, a memory, or a photo" },
-  { kind: "event", label: "Calendar", detail: "An appointment, baptism or family visit" },
+  { kind: "event", label: "Calendar", detail: "A visit, a birthday, anything with a date" },
   { kind: "question", label: "Doctor question", detail: "Bring your questions to the next visit" },
   { kind: "routine", label: "List", detail: "A checklist or a routine you review first" },
 ];
@@ -82,6 +82,14 @@ export function trackerOn(tracker: Tracker, stage: Stage, details?: ChildDetails
   if (stage === "born" && details?.feeding && tracker.id === "breast") return details.feeding !== "bottle";
   if (stage === "born" && details?.feeding && tracker.id === "bottle") return details.feeding !== "nursing";
   return tracker.defaultOn.includes(stage);
+}
+
+const spoken: Record<string, string> = { kicks: "kicks", contractions: "contractions", feeling: "how you’re feeling", my_weight: "your weight", vitamins: "vitamins and medicine" };
+/** "kicks, contractions, how you’re feeling and more", for a blank day: what she has a button for, in words. */
+export function loggableWords(list: readonly Tracker[]) {
+  const names = list.map((tracker) => spoken[tracker.id] ?? tracker.label.toLowerCase());
+  if (names.length > 3) return `${names.slice(0, 3).join(", ")} and more`;
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "";
 }
 
 /** Where a tile goes when it can't open a panel in place. Add has them all, with room for the keyboard. */

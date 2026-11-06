@@ -35,10 +35,13 @@ export function revokeShareAuthority(): Promise<void> {
   return revoke(true);
 }
 
-let asked: (() => void) | null = null;
-/** The Family screen wants a fresh answer about this phone, and getting a credential as client 3 is how it gives one. */
+let asked: (() => Promise<void>) | null = null;
+/**
+ * The Family screen wants a fresh answer about this phone, and getting a credential as client 3 is how it gives one.
+ * It settles once the phone has answered, or failed to, so what's read next includes it.
+ */
 export const askForShareSession = () => asked?.();
-export const onShareSessionAsked = (listener: () => void) => {
+export const onShareSessionAsked = (listener: () => Promise<void>) => {
   asked = listener;
   return () => { if (asked === listener) asked = null; };
 };
