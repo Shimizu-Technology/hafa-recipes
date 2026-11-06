@@ -194,3 +194,50 @@ async def test_the_reproduced_forms_are_on_the_floor_and_cost_nothing(baby_api, 
                                      "My 3 month old is not drinking from a cup yet", "Should I wet the washcloth with water?"])
 def test_the_new_forms_leave_ordinary_questions_alone(message):
     assert classify(message) is None
+
+
+def passing_check_failures(fake, *statuses):
+    remaining, real = list(statuses), fake.check_reply
+
+    def reply(body):
+        if remaining:
+            fake.checks.append(body)
+            return httpx.Response(remaining.pop(0), text="busy")
+        return real(body)
+
+    fake.check_reply = reply
+
+
+@pytest.mark.parametrize("client", [None, "2", "3"])
+async def test_a_passing_503_on_the_check_doesnt_reach_old_builds(baby_api, flag_off, client):
+    passing_check_failures(flag_off, 503, 429)
+    body = (await old_question(baby_api, headers=await old_headers(baby_api, client))).json()
+    assert body["message"] == "Old path answer" and set(body) == OLD_FIELDS and len(flag_off.checks) == 3
+
+
+async def test_an_urgent_verdict_still_arrives_after_a_passing_503(baby_api, flag_off):
+    passing_check_failures(flag_off, 503)
+    flag_off.question_verdict = {"urgent": "baby_unwell"}
+    assert (await old_question(baby_api)).json()["message"] == MESSAGES[BABY_UNWELL]
+
+
+async def test_three_503s_on_the_check_still_mean_no_answer_for_old_builds(baby_api, flag_off):
+    passing_check_failures(flag_off, 503, 503, 503)
+    body = (await old_question(baby_api)).json()
+    assert body["message"] == cant_answer(CHECK_FAILED) and flag_off.sent == [] and len(flag_off.checks) == 3
+
+
+async def test_a_passing_503_on_the_old_answer_is_tried_again(baby_api, flag_off):
+    real, failed = flag_off.handler, []
+
+    def handler(request):
+        if "chat/completions" in str(request.url) and not failed:
+            failed.append(request)
+            return httpx.Response(503, text="busy")
+        return real(request)
+
+    flag_off.handler = handler
+    assert (await old_question(baby_api)).json()["message"] == "Old path answer"
+    async with baby_api.sessions() as db:
+        kept = list(await db.scalars(select(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_chat")))
+    assert len(failed) == 1 and len(kept) == 2  # Each try is on the ledger.

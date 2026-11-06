@@ -76,13 +76,14 @@ async def test_bad_provider_shapes_save_nothing_and_leak_nothing(baby_api, stub,
 async def test_retries_each_reserve_and_stop_at_three(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     request_id = "9a0c3f1e-53a2-4c1d-8b62-0d5e8c7a1f00"
-    stub.replies = [httpx.Response(500, text="PRIVATE_ERROR") for _ in range(3)]
+    stub.replies = [httpx.Response(500, text="PRIVATE_ERROR") for _ in range(9)]
     for _ in range(3):
         assert (await ask(baby_api, request_id=request_id)).status_code == 503
     assert (await ask(baby_api, request_id=request_id)).status_code == 429
-    assert len(stub.sent) == 3
+    # Three attempts at the question, and three tries in each.
+    assert len(stub.sent) == 9
     async with baby_api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_ask")) == 3
+        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_ask")) == 9
 
 
 async def test_a_slow_answer_stops_at_the_limit_and_keeps_its_reservation(baby_api, stub, monkeypatch):  # noqa: F811
