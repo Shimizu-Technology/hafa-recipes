@@ -105,3 +105,21 @@ async def test_photo_metadata_bypasses_audio_and_keeps_caption(monkeypatch):
     assert source.parts[0].text == "Caption" and source.metadata.creator == "Creator"
     assert source.images[0].location == "image:0" and source.metadata.coverage_notes
     service.download_audio.assert_not_awaited()
+
+
+def test_one_malformed_slide_keeps_caption_and_other_slides_in_place():
+    source = item()
+    source["imagePost"]["images"][0] = {"unrecognized": "shape"}
+    parsed = photos.parse_tiktok_photo(source, "123")
+    assert parsed["description"] == "Hospital bag"
+    assert parsed["slides"] == [[], ["https://cdn.example/c"]]
+
+
+def test_instagram_adapter_keeps_single_image_after_expected_no_video(monkeypatch):
+    from yt_dlp.extractor.instagram import InstagramIE
+    monkeypatch.setattr(InstagramIE, "_real_initialize", lambda self: None)
+    def raw(self, url):
+        self.raise_no_formats("There is no video in this post", expected=True)
+        return {"description":"Caption", "thumbnails":[{"url":"https://cdn.example/one", "width":100, "height":100}]}
+    monkeypatch.setattr(InstagramIE, "_real_extract", raw)
+    assert public_ytdlp.photo_json("https://www.instagram.com/p/Synthetic/")["slides"] == [["https://cdn.example/one"]]

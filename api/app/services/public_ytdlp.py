@@ -294,7 +294,8 @@ def photo_json(url):
     with PhotoYoutubeDL({
         "quiet": True, "no_warnings": True, "cachedir": False,
         "socket_timeout": 15, "retries": 0, "extractor_retries": 0,
-        "public_photo_no_cookies": True, "remote_components": set(), "js_runtimes": {},
+        "public_photo_no_cookies": True, "ignore_no_formats_error": True,
+        "remote_components": set(), "js_runtimes": {},
         "enable_file_urls": False, "nocheckcertificate": False,
     }) as downloader:
         if instagram:

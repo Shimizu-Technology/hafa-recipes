@@ -911,6 +911,9 @@ class RecipeExtractor:
                     success=False,
                     error="Could not download images from this TikTok post.",
                     error_code="IMAGE_DOWNLOAD_FAILED",
+                    raw_text=post["description"],
+                    source_evidence={"modalities": ["metadata"], "coverageNotes": coverage_notes,
+                                     "sourceArtifactsRetained": False},
                     friendly_error="We couldn't download the images from this post. Please try again later."
                 )
             

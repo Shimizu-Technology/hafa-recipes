@@ -26,9 +26,12 @@ def parse_tiktok_photo(item, identifier):
     slides = []
     for slide in post["images"]:
         urls = slide.get("imageURL", {}).get("urlList") if isinstance(slide, dict) else None
-        if not isinstance(urls, list) or not urls or not all(isinstance(u, str) for u in urls):
-            raise ValueError("Photo image shape changed")
+        # Keep holes in their original positions: one malformed slide must not
+        # discard the caption and every other readable slide.
+        urls = [u for u in urls if isinstance(u, str)] if isinstance(urls, list) else []
         slides.append(list(dict.fromkeys(urls))[:3])
+    if not any(slides):
+        raise ValueError("Photo image shape changed")
     author = item.get("author") or {}
     return {
         "title": str(post.get("title") or item.get("desc") or "TikTok photo post")[:240],
