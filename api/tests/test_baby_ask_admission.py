@@ -51,8 +51,8 @@ def test_a_small_call_reserves_its_own_size_at_cache_write_rates():
 
 def test_each_search_adds_its_call_fee_and_a_context_of_results():
     searched = AskCall(model="gpt-6-luna", input_bytes=1_000, max_output_tokens=2_000, searches=2)
-    # Three model turns of 128,000 tokens, 2,000 output, and two $0.01 calls.
-    assert ask_upper_bound(searched) == 48_000 + 1000 + 20_000
+    # Three 128,000-token turns cross long-context pricing; retain both search fees.
+    assert ask_upper_bound(searched) == 96_000 + 1500 + 20_000
 
 
 @pytest.mark.parametrize(
@@ -349,7 +349,7 @@ async def test_metered_import_settles_actual_cost_and_keeps_attempt(baby_api, mo
     with question():
         ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
                                image_count=5, max_output_tokens=6000)
-    usage = {"usage":{"prompt_tokens":3000, "completion_tokens":1000}}
+    usage = {"usage":{"prompt_tokens":3000, "completion_tokens":1000,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}}
     await budget.settle(ticket, usage)
     await budget.settle(ticket, usage)  # delivery/re-entry does not double-charge
     rows = await admissions(baby_api)
@@ -388,3 +388,28 @@ async def test_unexpected_overrun_is_charged_and_stops_the_call(baby_api, monkey
 def test_the_safety_check_counts_as_ask_in_budget_and_attempts():
     # Two checks on top of up to five tool rounds and a final answer, for fifty questions a day.
     assert "baby_safety" in budget.ASK_CAPABILITIES and budget.ASK_MAX_ATTEMPTS == 400
+
+@needs_database
+@pytest.mark.parametrize("details,input_tokens,output_tokens,expected",[
+    ({"cached_tokens":1000,"cache_write_tokens":1500},3000,100,615),
+    ({"cached_tokens":1000},3000,100,640),
+    ({"cached_tokens":50000,"cache_write_tokens":100000},300000,1000,113800),
+])
+async def test_settlement_prices_cached_writes_and_long_context(baby_api,monkeypatch,details,input_tokens,output_tokens,expected):
+    await consented(baby_api,monkeypatch)
+    with question():
+        ticket=await reserve("baby_extraction","gpt-5.6-luna",input_bytes=input_tokens,max_output_tokens=6000)
+    await budget.settle(ticket,{"usage":{"prompt_tokens":input_tokens,"completion_tokens":output_tokens,"prompt_tokens_details":details}})
+    assert (await admissions(baby_api))[0].reserved_microusd==expected
+
+
+@needs_database
+async def test_stale_low_price_configuration_cannot_release_below_published_floor(baby_api,monkeypatch):
+    await consented(baby_api,monkeypatch)
+    with question():
+        ticket=await reserve("baby_extraction","gpt-5.6-luna",input_bytes=5000,max_output_tokens=6000)
+    configured=get_settings().model_copy(update={"ai_model_pricing":{"gpt-5.6-luna":{
+        "input_per_million":.001,"output_per_million":.001,"cached_input_per_million":0}}})
+    monkeypatch.setattr(budget,"get_settings",lambda:configured)
+    await budget.settle(ticket,{"usage":{"prompt_tokens":3000,"completion_tokens":1000,"prompt_tokens_details":{"cache_write_tokens":0}}})
+    assert (await admissions(baby_api))[0].reserved_microusd==1800

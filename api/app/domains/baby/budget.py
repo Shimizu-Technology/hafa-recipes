@@ -45,6 +45,8 @@ BABY_MODEL_PRICES = {
     "gpt-6-astra": ModelPrice(Decimal("10.00"), Decimal("12.50"), Decimal("50.00")),
     "claude-haiku-5-5": ModelPrice(Decimal("0.10"), Decimal("0.125"), Decimal("0.50")),
 }
+CACHED_INPUT_FLOORS = {"gpt-5.6-luna": Decimal("0.02"), "gpt-5.6-terra": Decimal("0.20"),
+                       "gpt-6-luna": Decimal("0.01"), "gpt-6.1-terra": Decimal("0.05"), "gpt-6-astra": Decimal("1.00")}
 # Priced so an evaluation can state its cost. It has no adapter or consent text in production.
 EVAL_ONLY_MODELS = frozenset({"claude-haiku-5-5"})
 ASK_CAPABILITIES = ("baby_ask", "baby_research", "baby_safety")
@@ -100,7 +102,9 @@ def ask_upper_bound(call, *, evaluating=False):
     if max(call.input_bytes + FRAMING_TOKENS, SEARCH_CONTEXT_TOKENS if call.searches else 0) > LONG_CONTEXT_TOKENS:
         raise BudgetError("workouts_ai_envelope_unsupported")
     price = BABY_MODEL_PRICES[call.model]
-    tokens_cost = tokens * max(price.input, price.cache_write) + call.max_output_tokens * price.output
+    long = tokens > LONG_CONTEXT_TOKENS
+    tokens_cost = (tokens * max(price.input, price.cache_write) * (2 if long else 1)
+                   + call.max_output_tokens * price.output * (Decimal("1.5") if long else 1))
     return int(tokens_cost.to_integral_value(rounding=ROUND_CEILING)) + call.searches * SEARCH_CALL_MICROUSD
 
 
@@ -144,7 +148,8 @@ def upper_bound(capability, model, *, images=False, duration=None, max_output_to
             raise BudgetError("workouts_ai_envelope_unsupported")
         configured = get_settings().ai_model_pricing.get(model, {})
         floor_input, floor_output = STANDARD_TOKEN_PRICES[model]
-        input_rate = max(floor_input, Decimal(str(configured.get("input_per_million", 0))))
+        input_rate = max(floor_input, Decimal(str(configured.get("input_per_million", 0))),
+                         Decimal(str(configured.get("cached_input_per_million", 0))))
         output_rate = max(floor_output, Decimal(str(configured.get("output_per_million", 0))))
         # Keep the existing long-context/cache-write headroom and price floors.
         return int((tokens * input_rate * Decimal("2.5")
@@ -217,12 +222,37 @@ async def settle(reservation, response, *, extra_cost=0, sessions=None):
     if (any(type(n) is not int or n < 0 for n in (incoming, outgoing, cached, extra_cost))
             or cached > incoming):
         return
-    prices = get_settings().ai_model_pricing.get(reservation.model)
-    if not prices:
+    def value(item, key, default=None):
+        return item.get(key, default) if isinstance(item, dict) else getattr(item, key, default)
+    raw_usage = value(response, "usage")
+    details = value(raw_usage, "prompt_tokens_details") or value(raw_usage, "input_tokens_details")
+    written = value(details, "cache_write_tokens")
+    # Older providers omit this breakdown. Price the unknown portion at the
+    # maximum supported default (30m) write rate rather than release it as free.
+    written = incoming - cached if written is None else written
+    if type(written) is not int or not 0 <= written <= incoming - cached:
         return
-    amount = max(1, int(((incoming - cached) * Decimal(str(prices["input_per_million"]))
-                        + cached * Decimal(str(prices.get("cached_input_per_million", prices["input_per_million"])))
-                        + outgoing * Decimal(str(prices["output_per_million"]))
+    write_details = value(details, "cache_write_tokens_details")
+    long_writes = value(write_details, "ttl_12h_tokens", 0)
+    if type(long_writes) is not int or not 0 <= long_writes <= written:
+        return
+    prices = get_settings().ai_model_pricing.get(reservation.model)
+    if not prices or reservation.model not in CACHED_INPUT_FLOORS:
+        return
+    if reservation.model in STANDARD_TOKEN_PRICES:
+        input_floor, output_floor = STANDARD_TOKEN_PRICES[reservation.model]
+    else:
+        input_floor, _, output_floor = BABY_MODEL_PRICES[reservation.model]
+    input_rate = max(input_floor, Decimal(str(prices["input_per_million"])))
+    cache_rate = max(CACHED_INPUT_FLOORS[reservation.model], Decimal(str(prices.get("cached_input_per_million", prices["input_per_million"]))))
+    output_rate = max(output_floor, Decimal(str(prices["output_per_million"])))
+    if incoming > LONG_CONTEXT_TOKENS:
+        input_rate, cache_rate, output_rate = input_rate * 2, cache_rate * 2, output_rate * Decimal("1.5")
+    amount = max(1, int(((incoming - cached - written) * input_rate
+                        + cached * cache_rate
+                        + (written - long_writes) * input_rate * Decimal("1.25")
+                        + long_writes * input_rate * Decimal("2.5")
+                        + outgoing * output_rate
                         + extra_cost).to_integral_value(rounding=ROUND_CEILING)))
     async with (sessions or AsyncSessionLocal)() as db:
         await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
