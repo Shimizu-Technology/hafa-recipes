@@ -16,7 +16,7 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import HTTPException
-from pydantic import Field, field_validator
+from pydantic import Field, model_validator
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
@@ -63,19 +63,22 @@ class ExtractionOutput(DomainModel):
     topics: list[str] = Field(default_factory=list, max_length=30)
     visual_text: list[Evidence] = Field(default_factory=list, max_length=70)
     omitted_details: bool = False
-    @field_validator("visual_text", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def group_slide_labels(cls, entries):
-        # A list-heavy carousel can have hundreds of labels on 35 slides.
-        # Keep returned literal labels grouped by their original image.
-        if not isinstance(entries, list):
-            return entries
-        grouped = {}
-        for value in entries:
-            entry = Evidence.model_validate(value)
-            grouped.setdefault(entry.location, []).append(entry.text)
-        return [{"location": location, "text": "\n".join(labels)}
-                for location, labels in grouped.items()]
+    def group_slide_labels(cls, value):
+        if not isinstance(value, dict) or not isinstance(value.get("visual_text"), list):
+            return value
+        grouped, trimmed = {}, False
+        for raw in value["visual_text"]:
+            raw = raw.model_dump() if isinstance(raw, Evidence) else raw
+            if isinstance(raw, dict) and isinstance(raw.get("text"), str) and len(raw["text"]) > 12000:
+                raw, trimmed = {**raw, "text": raw["text"][:12000]}, True
+            entry = Evidence.model_validate(raw)
+            text = "\n".join(filter(None, [grouped.get(entry.location), entry.text]))
+            trimmed = trimmed or len(text) > 12000
+            grouped[entry.location] = text[:12000]
+        return {**value, "visual_text": [{"location": location, "text": text} for location, text in grouped.items()],
+                "omitted_details": True if trimmed else value.get("omitted_details", False)}
 
     # Parsed defensively in processing: a malformed timing or category guess
     # drops only that suggestion, never the organized source.
@@ -376,10 +379,15 @@ class BabyProvider:
             raise
         except Exception:
             source.metadata.coverage_notes.append("The overall summary could not be combined; available image details were kept.")
+        from app.domains.baby.processing import stated_relevance
+
+        relevance = next((r.relevance for r in results if stated_relevance(r.relevance,
+            [source.metadata.title or "", *(p.text for p in source.parts if p.location != "user_note"),
+             *(entry.text for entry in r.visual_text)]) is not None), None)
         return ExtractionOutput(title=title, summary=summary,
             key_points=points, steps=collect("steps", 30), topics=collect("topics", 30),
             visual_text=[entry for result in results for entry in result.visual_text],
-            relevance=next((r.relevance for r in results if r.relevance), None),
+            relevance=relevance,
             suggested_category=next((r.suggested_category for r in results if r.suggested_category), None))
 
     async def _extract_batch(self, source, categories=None):
