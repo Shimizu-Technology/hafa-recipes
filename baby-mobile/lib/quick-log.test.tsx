@@ -860,6 +860,16 @@ describe("ounces or milliliters", () => {
     await press("Milliliters");
     expect(texts()).toContain("80");
   });
+  it("switching twice gives the same bottle back, and what's saved holds only the amount and unit", async () => {
+    await openBottle([bottle("last", { amount: 10, unit: "ml", contents: "formula" })]);
+    await press("Ounces");
+    expect(texts()).toContain("0.5");
+    await press("Milliliters");
+    expect(texts()).toContain("10");
+    await press("Ounces");
+    await press("Breast milk");
+    expect(lastSave().data).toEqual({ method: "bottle", amount: 0.5, unit: "oz", contents: "breast_milk" });
+  });
   it("tapping the unit it's already in changes nothing", async () => {
     await openBottle();
     await press("Ounces");

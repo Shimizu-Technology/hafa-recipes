@@ -6,7 +6,7 @@ import { pendingRecords } from "../lib/outbox";
 import { messageFor, type BabyRecord, type Child } from "@/lib/models";
 import { retimedActions, runningFeed, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
 import { careGlance, nextSide } from "@/lib/care-glance";
-import { amendCare, bottleStart, careWrite, changeUnit, lastAmountUnit, logCare, stepAmount, updateCare, type BottleChoice } from "@/lib/quick-care";
+import { amendCare, bottleStart, careWrite, changeUnit, lastAmountUnit, logCare, stepAmount, updateCare, type AmountChoice, type BottleChoice } from "@/lib/quick-care";
 import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
 import { activeTimer, clockText, type FeedSide } from "@/lib/feed-timer";
 import { feedWrite, finishFeed, startFeed, switchFeed, undoShown } from "@/lib/running-feed";
@@ -210,12 +210,12 @@ export function Panel({ title, detail, at, now, day, timeZone, needTime, onTime,
 
 const amountDone = "amount-done";
 /** An amount to step up or down, whose middle changes the unit. */
-export function AmountStepper({ amount, onChange, note, steps, typing }: { amount: Pick<BottleChoice, "amount" | "unit">; onChange: (next: Pick<BottleChoice, "amount" | "unit">) => void; note?: string; steps?: Record<"oz" | "ml", number>;
+export function AmountStepper({ amount, onChange, note, steps, typing }: { amount: AmountChoice; onChange: (next: AmountChoice) => void; note?: string; steps?: Record<"oz" | "ml", number>;
   /** The number can be typed as well, and nothing typed is an amount of 0. */
   typing?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [text, setText] = useState<string | null>(null),
     unitWord = amount.unit === "oz" ? "oz" : "mL",
-    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); setText(null); onChange({ ...amount, amount: stepAmount(amount, direction, steps) }); }}
+    step = (direction: 1 | -1, label: string) => <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={() => { tap(); setText(null); onChange({ unit: amount.unit, amount: stepAmount(amount, direction, steps) }); }}
       style={{ width: 64, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
       <Icon name={direction > 0 ? "add" : "remove"} size={24} color={c.text} />
     </PressTarget>,
@@ -232,7 +232,7 @@ export function AmountStepper({ amount, onChange, note, steps, typing }: { amoun
     <View style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center", paddingVertical: 4, gap: 2 }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 8 }}>
         {typing ? <TextInput key={fontScale} accessibilityLabel={`Amount in ${unitWord}`} value={text ?? String(amount.amount)} keyboardType="decimal-pad" selectTextOnFocus maxLength={8} inputAccessoryViewID={amountDone} maxFontSizeMultiplier={0}
-          onChangeText={(typed) => { const number = Number(typed); setText(typed); onChange({ ...amount, amount: typed && number > 0 ? number : 0 }); }}
+          onChangeText={(typed) => { const number = Number(typed); setText(typed); onChange({ unit: amount.unit, amount: typed && number > 0 ? number : 0 }); }}
           style={{ minWidth: 48, minHeight: 44, textAlign: "right", fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }} />
           : <Text key={fontScale} accessibilityLabel={`${amount.amount} ${unitWord}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{String(amount.amount)}</Text>}
         <View accessibilityRole="radiogroup" accessibilityLabel="Unit" style={{ flexDirection: "row", borderRadius: 14, padding: 2, backgroundColor: c.surface }}>
@@ -249,7 +249,7 @@ export function AmountStepper({ amount, onChange, note, steps, typing }: { amoun
 
 /** The amount, the unit, and the two milks. Choosing a milk saves it. */
 function BottlePanel({ start, detail, at, now, day, timeZone, needTime, onTime, onSave }: { start: BottleChoice; detail?: string; at: string | null; now: Date; day?: PastDay; timeZone?: string | null; needTime?: boolean; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
-  const [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
+  const [bottle, setBottle] = useState<AmountChoice>({ amount: start.amount, unit: start.unit }),
     same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit;
   return <Panel title="Bottle" detail={detail} at={at} now={now} day={day} timeZone={timeZone} needTime={needTime} onTime={onTime}>
     <AmountStepper amount={bottle} onChange={setBottle} note={same ? "Same as last time" : undefined} />

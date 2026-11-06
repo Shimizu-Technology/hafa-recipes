@@ -163,9 +163,12 @@ export function stepAmount(choice: Pick<BottleChoice, "amount" | "unit">, direct
   return Math.max(step, Math.round((choice.amount + direction * step) / step) * step);
 }
 
-/** The same bottle in the other unit, on the nearest step. */
-export function changeUnit(choice: Pick<BottleChoice, "amount" | "unit">, steps: Record<"oz" | "ml", number> = bottleStep): Pick<BottleChoice, "amount" | "unit"> {
-  const unit = choice.unit === "oz" ? "ml" : "oz", step = steps[unit],
-    converted = choice.unit === "oz" ? choice.amount * ozToMl : choice.amount / ozToMl;
-  return { unit, amount: Math.max(step, Math.round(converted / step) * step) };
+/** An amount on screen. `before` is what it was in the other unit before a switch, so switching back loses nothing. */
+export type AmountChoice = Pick<BottleChoice, "amount" | "unit"> & { before?: number };
+/** The same bottle in the other unit, on the nearest step, or exactly what it was if she's switching back. Only a step or typing changes that. */
+export function changeUnit(choice: AmountChoice, steps: Record<"oz" | "ml", number> = bottleStep): AmountChoice {
+  const unit = choice.unit === "oz" ? "ml" : "oz", step = steps[unit];
+  if (choice.before) return { unit, amount: choice.before };
+  const converted = choice.unit === "oz" ? choice.amount * ozToMl : choice.amount / ozToMl;
+  return { unit, amount: Math.max(step, Math.round(converted / step) * step), ...(choice.amount > 0 ? { before: choice.amount } : {}) };
 }

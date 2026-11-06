@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { pendingRecords } from "../lib/outbox";
-import { careWrite, lastAmountUnit, logCare, pumpStart, pumpStep, type BottleChoice } from "@/lib/quick-care";
+import { careWrite, lastAmountUnit, logCare, pumpStart, pumpStep, type AmountChoice, type BottleChoice } from "@/lib/quick-care";
 import { friendlyTime, timeAgo } from "@/lib/care-format";
 import { dataFrom, feelingWords, lastDose, lastLog, logTitle, noteLabel, recentCustomLabels, recentMedicines, recentVitamins, startForm, type LogForm } from "@/lib/more-logs";
 import type { Tracker } from "@/lib/trackers";
@@ -58,7 +58,7 @@ const pumpMost = 10000;
 /** The amount from last time, stepped or typed, and a side. Choosing a side saves it. */
 function PumpPanel({ start, detail, panelProps, onSave }: { start: BottleChoice; detail?: string; panelProps: PanelProps; onSave: (side: keyof typeof sideWords, amount: Pick<BottleChoice, "amount" | "unit">) => void }) {
   // Follows `start` until she changes it, since the last amount can arrive after the panel opens.
-  const [changed, setAmount] = useState<Pick<BottleChoice, "amount" | "unit"> | null>(null), amount = changed ?? { amount: start.amount, unit: start.unit },
+  const [changed, setAmount] = useState<AmountChoice | null>(null), amount = changed ?? { amount: start.amount, unit: start.unit },
     same = start.fromLast && amount.amount === start.amount && amount.unit === start.unit,
     [empty, setEmpty] = useState(false), c = useColors(), { fontScale } = useWindowDimensions();
   return <Panel title="Pumping" detail={detail} {...panelProps}>
