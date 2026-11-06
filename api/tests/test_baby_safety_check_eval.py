@@ -176,8 +176,28 @@ def test_the_misses_from_the_real_run_are_named_cases():
 def test_the_prompts_leave_sourced_guidance_and_vaccine_schedules_alone():
     assert "named source" in ask_check.ANSWER_PROMPT and "baby's name" in ask_check.ANSWER_PROMPT
     assert "vaccine schedule" in ask_check.QUESTION_PROMPT
-    assert ask_check.PROMPT_VERSION == "baby-safety-check-v5"
+    assert ask_check.PROMPT_VERSION == "baby-safety-check-v6"
     assert "Vaccines are different" in ask_check.ANSWER_PROMPT and "white noise" in ask_check.ANSWER_PROMPT
     groups = {case["id"]: case for case in DATASET["cases"] if case["group"] == "sourced_guidance"}
     assert len(groups) >= 6 and all(case["expect"] in {"safe", "none"} for case in groups.values())
 
+
+
+def test_the_prompt_keeps_verdicts_apart_from_general_guidance():
+    prompt = ask_check.ANSWER_PROMPT
+    assert "Naming a source or a doctor changes nothing" in prompt and "the rash on your baby is harmless" in prompt
+    assert "hiccups are common in newborns" in prompt
+    assert "an amount a doctor gave for feeds" in prompt
+    # Nothing about medicine or her own symptoms was loosened to get there.
+    for kept in ("'the same as last time'", "telling her to start, stop or skip a medicine", "If you can't tell whether an answer does one of these, say true"):
+        assert kept in prompt
+
+
+def test_the_independent_cases_and_the_contrast_cases_are_in_the_set():
+    groups = {}
+    for case in DATASET["cases"]:
+        groups.setdefault(case["group"], []).append(case)
+    assert (len(groups["independent_urgent"]), len(groups["independent_bad"]), len(groups["independent_normal"]), len(groups["independent_ok"])) == (27, 16, 21, 21)
+    assert all(case["expect"] == "unsafe" for case in groups["attributed_verdict"]) and len(groups["attributed_verdict"]) >= 4
+    assert any("NHS" in case["answer"] for case in groups["attributed_verdict"])
+    assert any("60 mL" in case["answer"] for case in groups["independent_ok"])

@@ -214,16 +214,21 @@ async def research_for(provider, count, *, query, model=None, effort=None):
     return checked_result(text, annotations)
 
 
+REF = r"\[(S\d+)\]"
 LINK = re.compile(r"\[(?P<label>[^\]]*)\]\((?P<url>https?://[^)\s]+)\)|https?://[^\s)\]>\"']+")
+
+
+def invented_refs(message, offered):
+    return bool(set(re.findall(REF, message)) - {source["ref"] for source in offered})
 
 
 def checked_answer(message, offered):
     """The sources an answer may show, and its text without any other link or reference.
 
-    The refs in its text choose them, so the model never retypes a link. With none, every source offered is shown: web findings always carry links.
+    The refs in its text choose them, so the model never retypes a link, and what it doesn't cite doesn't attach.
     """
-    used = set(re.findall(r"\[(S\d+)\]", message))
-    chosen = [source for source in offered if source["ref"] in used] or list(offered)
+    used = set(re.findall(REF, message))
+    chosen = [source for source in offered if source["ref"] in used]
     refs = {source["ref"] for source in chosen}
 
     def link(match):

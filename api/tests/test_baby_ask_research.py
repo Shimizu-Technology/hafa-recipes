@@ -176,8 +176,8 @@ def test_an_answer_keeps_only_the_links_it_was_given():
     # The refs in its text choose, so a link the model mistypes can't lose a source.
     assert [source["ref"] for source in checked_answer("The AAP says so [S2].", offered)[1]] == ["S2"]
     assert [source["ref"] for source in checked_answer("Both say so [S1][S2].", offered)[1]] == ["S1", "S2"]
-    # Web findings always carry links, even if the model listed none.
-    assert [source["ref"] for source in checked_answer("Back to sleep", offered)[1]] == ["S1", "S2"]
+    # What it doesn't cite doesn't attach.
+    assert checked_answer("Back to sleep", offered)[1] == []
     assert checked_answer("From your entries", []) == ("From your entries", [])
 
 

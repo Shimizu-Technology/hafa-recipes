@@ -26,8 +26,13 @@ from app.domains.baby.ask_safety import (
     answer_checks,
     boundary,
     classify,
+    unsafe_output,
 )
-from app.domains.baby.ask_v2 import RECORD_HEADING
+from app.domains.baby.ask_v2 import (
+    COULD_NOT_CONFIRM_RECORD,
+    COULD_NOT_CONFIRM_SOURCE,
+    RECORD_HEADING,
+)
 from app.domains.baby.models import BabyAIAdmission, BabyConversation, BabyMembership, BabyMessage
 from tests import test_baby_integration as shared
 from tests.test_baby_ask_research import research_call, search_reply
@@ -629,7 +634,7 @@ async def test_a_doctors_note_is_quoted_as_the_records_words(baby_api, stub):  #
     note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body="Dr said take two tablets each morning.")
     stub.replies = [
         tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
-        answered("Here's your note.", citation_ids=[note], quotes=[{"record_id": note, "words": "Dr said take two tablets each morning."}]),
+        answered("Here's your note.", citation_ids=[note], quotes=[{"record_id": note}]),
     ]
     body = (await ask(baby_api, "What did I write in my journal about the doctor?")).json()
     assert body["message"].startswith("Here's your note.\n\n")
@@ -637,14 +642,10 @@ async def test_a_doctors_note_is_quoted_as_the_records_words(baby_api, stub):  #
 
 
 @needs_database
-@pytest.mark.parametrize("words", ["take three tablets each morning", "take two tablets each morning, and then more"])
-async def test_a_quote_the_record_does_not_hold_is_not_shown(baby_api, stub, words):  # noqa: F811
+async def test_a_quote_of_something_it_never_read_is_not_shown(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body="Dr said take two tablets each morning.")
-    stub.replies = [
-        tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
-        answered("Here's your note.", citation_ids=[note], quotes=[{"record_id": note, "words": words}]),
-    ]
+    stub.replies = [answered("Here's your note.", quotes=[{"record_id": note}])]
     assert (await ask(baby_api, "What did I write in my journal?")).json()["message"] == "Here's your note."
 
 
@@ -654,7 +655,7 @@ async def test_a_saved_post_is_never_quoted_as_her_record(baby_api, stub):  # no
     post = await add(baby_api, HEADERS, kind="source", title="A video", data={"source_text": "take two tablets each morning"})
     stub.replies = [
         tool_call("open_entry", json.dumps({"record_id": post})),
-        answered("Here's the post.", citation_ids=[post], quotes=[{"record_id": post, "words": "take two tablets each morning"}]),
+        answered("Here's the post.", citation_ids=[post], quotes=[{"record_id": post}]),
     ]
     assert "tablets" not in (await ask(baby_api, "What did I save?")).json()["message"]
 
@@ -852,25 +853,44 @@ async def test_an_instruction_like_stored_name_renders_as_data(baby_api, stub, s
 
 @needs_database
 @pytest.mark.parametrize(
-    ("words", "shown"),
+    "body",
     [
-        ("give 10 mL now", False),
-        ("ask the doctor first", False),
-        ("Never give 10 mL now; ask the doctor first.", True),
-        ("Never give 10 mL now; ask the doctor first. She slept well.", True),
+        "Never give 10 mL now; ask the doctor first. She slept well.",
+        "Doctor said DO NOT do the following:\nGive 10 mL now.",
+        "Do not:\n\n- give 10 mL\n- wait until morning",
     ],
 )
-async def test_a_note_is_quoted_only_as_a_whole_sentence_or_the_whole_note(baby_api, stub, words, shown):  # noqa: F811
+async def test_a_quoted_note_is_always_the_whole_note(baby_api, stub, body):  # noqa: F811
     await enable(baby_api)
-    note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body="Never give 10 mL now; ask the doctor first. She slept well.")
+    note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body=body)
     stub.replies = [
         tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
-        answered("Here is your note.", citation_ids=[note], quotes=[{"record_id": note, "words": words}]),
+        answered("Here is your note.", citation_ids=[note], quotes=[{"record_id": note, "words": "Give 10 mL now."}]),
     ]
     message = (await ask(baby_api, "What did I write in my journal?")).json()["message"]
-    assert (words in message) is shown
-    if not shown:
-        assert message == "Here is your note."
+    assert " ".join(body.split()) in " ".join(message.split())
+
+
+@needs_database
+async def test_a_note_too_long_to_show_whole_is_opened_and_not_cut(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    body = "Do not give 10 mL. " + "We talked about sleep for a long while. " * 200
+    note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body=body)
+    stub.replies = [
+        tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
+        answered("Here is your note.", citation_ids=[note], quotes=[{"record_id": note}]),
+    ]
+    reply = (await ask(baby_api, "What did I write in my journal?")).json()
+    assert "10 mL" not in reply["message"] and "too long to show here" in reply["message"]
+    assert [citation["id"] for citation in reply["citations"]] == [note]
+
+
+def test_the_schema_has_nowhere_to_put_part_of_a_note():
+    from app.domains.baby.ask_safety import SAFETY_RULES
+    from app.domains.baby.ask_v2 import ANSWER_SCHEMA
+
+    assert ANSWER_SCHEMA["properties"]["quotes"]["items"]["required"] == ["record_id"]
+    assert "complete sentence" not in SAFETY_RULES and "whole note" in SAFETY_RULES
 
 
 @needs_database
@@ -984,3 +1004,53 @@ def test_the_prompts_name_what_the_real_runs_missed():
 def test_a_false_alarm_we_accept_still_shows_help():
     # It's a false alarm that shows Help, and that's the trade.
     assert classify("my friend's baby stopped breathing years ago and it still scares me, what does safe sleep look like").kind == BABY_UNWELL
+
+
+@needs_database
+async def test_an_invalid_source_ref_means_the_answer_is_not_shown(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [research_call(), search_reply("CDC says rashes have many causes."), answered("According to the NHS, babies should sleep upright [S99].")]
+    body = (await ask(baby_api, "What do trusted sources say about baby sleep?")).json()
+    assert body["message"] == COULD_NOT_CONFIRM_SOURCE and body["sources"] == [] and body["help"] is None and body["citations"] == []
+
+
+@needs_database
+async def test_only_the_sources_an_answer_cites_attach(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    cdc, aap = "https://www.cdc.gov/safe-sleep", "https://www.aap.org/sleep"
+    stub.replies = [research_call(), search_reply("Both say back to sleep.", urls=[cdc, aap]), answered("The AAP says back to sleep [S2].")]
+    body = (await ask(baby_api, "What do trusted sources say about sleep?")).json()
+    assert [source["url"] for source in body["sources"]] == [aap] and "[S2]" in body["message"]
+
+
+@needs_database
+async def test_an_answer_that_cites_no_source_gets_none(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [research_call(), search_reply(), answered("Back to sleep.")]
+    assert (await ask(baby_api, "What do trusted sources say about sleep?")).json()["sources"] == []
+
+
+@needs_database
+async def test_a_record_claim_with_an_invented_id_is_not_kept(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("Your saved appointment note says your scan is on November 20.", citation_ids=[str(uuid4())])]
+    response = await ask(baby_api, "When is the scan in my saved note?")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["message"] == COULD_NOT_CONFIRM_RECORD and body["citations"] == [] and body["sources"] == [] and body["help"] is None
+    assert stub.checks and len(stub.checks) == 1  # Nothing of the model's is left for the answer check to read.
+
+
+@needs_database
+async def test_one_invented_id_among_real_ones_is_still_not_kept(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    note = await add(baby_api, HEADERS, kind="journal", title="Visit notes", body="A real note.")
+    stub.replies = [
+        tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
+        answered("Your note says one thing and your scan is November 20.", citation_ids=[note, str(uuid4())]),
+    ]
+    assert (await ask(baby_api, "What did I write in my journal?")).json()["message"] == COULD_NOT_CONFIRM_RECORD
+
+
+def test_naming_a_source_does_not_excuse_a_verdict_on_the_floor():
+    assert unsafe_output("What do trusted sources say about rashes?", "According to the NHS, the rash on your baby is definitely harmless [S99].")

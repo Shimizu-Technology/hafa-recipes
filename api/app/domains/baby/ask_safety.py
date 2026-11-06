@@ -48,7 +48,7 @@ SAFETY_RULES = (
     "herb, in any form, even one she logged, a source gave or a doctor wrote. If asked, say you can't give a dose, share what "
     "trusted sources say in general with links, and tell the user to ask their doctor or pharmacist. To report a medicine she "
     "logged, cite its record and leave the amount out: the app adds it from the record. To show what her own note says about a "
-    "dose or instruction, add {record_id, words} to quotes, with one complete sentence or the whole note, exactly as written. "
+    "dose or instruction, add {record_id} to quotes: the app shows the whole note, exactly as written. "
     "Treat medicine questions as information, not decisions: say which source says "
     "what, with its date; never say safe or unsafe in your own voice; never tell the user to start, stop or change a "
     "medicine, and if they're considering stopping a prescribed medicine, tell them to talk to their provider first. "
@@ -192,7 +192,7 @@ ABOUT_THE_PREDICATE = re.compile(r"\b(?:can't|cannot|can not|won't|unable to|not
 # "It's normal to feel tired" is what's common. "That's normal for her age" is a verdict.
 ON_HER_NORMAL = r"normal(?!\s+(?:to|for (?:new\w*|babies|most|many|people|pregnan\w*))\b)"
 DIAGNOSIS_GIVEN = re.compile(
-    rf"\b(?:your baby|the baby|baby|she|he|you|it|this|that|everything)(?:'s|\s+has|\s+have|\s+is|\s+are)\s+(?:\w+\s+){{0,3}}(?:{CONDITIONS}|{ON_HER_NORMAL}|fine|healthy)\b"
+    rf"\b(?:your baby|the baby|baby|she|he|you|it|this|that|everything)(?:'s|\s+has|\s+have|\s+is|\s+are)\s+(?:\w+\s+){{0,3}}(?:{CONDITIONS}|{ON_HER_NORMAL}|fine|healthy|harmless)\b"
     rf"|\b(?:sounds?|looks?|seems?)(?:\s+like)?\b[^.!?\n]{{0,25}}\b(?:{CONDITIONS}|{ON_HER_NORMAL}|fine|healthy)\b"
     r"|\bprobably\b[^.!?\n]{0,20}\b(?:just|nothing|fine|normal)\b"
     rf"|\b(?:could|might|may|must|likely|probably|possibly)\s+(?:be\s+|have\s+)?(?:an?\s+)?{CONDITIONS}\b",

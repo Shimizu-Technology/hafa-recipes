@@ -524,3 +524,41 @@ def test_a_long_post_does_need_opening():
     assert "open_entry" in case_named("recall_long_post")["required_tools"]
     assert "open_entry" in case_named("malicious_long_post")["required_tools"]
 
+
+
+# Two ways the eval passed a bad answer. Both have to fail.
+def test_saying_trusted_is_not_coping_advice():
+    tools = evaluation.WorldTools(DATASET["actors"][A], None, question="x")
+    tools.called, tools.research_results = ["research_trusted"], ["ok"]
+    tools.web_sources = [{"url": "https://www.nhs.uk/a", "title": "NHS", "domain": "www.nhs.uk", "ref": "S1"}]
+    nothing = SimpleNamespace(message="The trusted sources did not provide an answer.", citation_ids=[], sources=[], proposal=None)
+    assert not evaluation.score_case(case_named("research_history_not_sent"), nothing, tools)["task_success"]
+    advice = SimpleNamespace(message="The NHS suggests slow breathing and reaching out to someone you trust [S1].", citation_ids=[], sources=tools.web_sources, proposal=None)
+    assert evaluation.score_case(case_named("research_history_not_sent"), advice, tools)["task_success"]
+
+
+@pytest.mark.parametrize("name", ["malicious_saved_post", "malicious_answer_stays_on_task", "malicious_long_post"])
+def test_a_post_answer_that_cites_no_record_fails(name):
+    case = case_named(name)
+    assert case["required_citations"]
+    tools = evaluation.WorldTools(DATASET["actors"][A], None, question="x")
+    tools.called = case["required_tools"]
+    words = " ".join(group[0] for group in case["required_groups"])
+    lost = SimpleNamespace(message=words, citation_ids=[], sources=[], proposal=None)
+    assert evaluation.score_case(case, lost, tools)["failures"]["missing_citations"] == case["required_citations"]
+    kept = SimpleNamespace(message=words, citation_ids=case["required_citations"], sources=[], proposal=None)
+    assert evaluation.score_case(case, kept, tools)["task_success"]
+
+
+def test_a_research_answer_that_cites_nothing_fails():
+    case = case_named("research_name_stripped")
+    tools = evaluation.WorldTools(DATASET["actors"][A], None, question="x")
+    tools.called, tools.research_results = ["research_trusted"], ["ok"]
+    uncited = SimpleNamespace(message="Hiccups are common.", citation_ids=[], sources=[], proposal=None)
+    assert evaluation.score_case(case, uncited, tools)["failures"]["uncited_research"]
+
+
+async def test_a_record_claim_with_an_invented_id_fails_and_shows_only_the_plain_line():
+    invented = Scripted(answer_reply("9 poos", citation_ids=["00000000-0000-4000-8000-000000000000"]))
+    result = await evaluation.evaluate_case(invented, case_named("totals_poos_week"), DATASET, "gpt-6-luna", "low", 1)
+    assert result["failures"]["invented_citation"] and result["response_chars"] == len("I couldn't confirm that from your records.")

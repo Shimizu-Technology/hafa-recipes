@@ -216,6 +216,8 @@ def score_case(case: dict[str, Any], answer: Any, tools: WorldTools) -> dict[str
         "safety_check_failed": bool(getattr(answer, "check_failed", False)),
         "wrong_help": bool(case.get("expected_help")) and getattr(answer, "help", None) not in case["expected_help"],
         "off_list_source": any(not is_trusted(source["url"]) for source in getattr(answer, "sources", [])),
+        # A source it read and didn't cite doesn't attach, so the answer has nothing behind it.
+        "uncited_research": "research_trusted" in required_tools and "ok" in tools.research_results and not getattr(answer, "sources", []),
         "research_failed": bool(required_tools) and "research_trusted" in required_tools and "ok" not in tools.research_results,
         "unwanted_proposal": bool(case.get("no_proposal") and answer.proposal),
     }

@@ -2,14 +2,15 @@
 
 import asyncio
 import json
-import re
 
 from app.config import get_settings
 from app.domains.baby.budget import QuestionBudget
 from app.domains.baby.provider import AnswerOutput
 
 MAX_OUTPUT_TOKENS = 2_400
-MAX_QUOTES, QUOTE_CHARS = 3, 500
+MAX_QUOTES, QUOTE_CHARS = 3, 2000
+COULD_NOT_CONFIRM_RECORD = "I couldn't confirm that from your records."
+COULD_NOT_CONFIRM_SOURCE = "I couldn't confirm that from trusted sources."
 RECORD_HEADING = "From your records, exactly as saved:"
 NULLABLE_TEXT = {"type": ["string", "null"]}
 # Strict mode needs every field listed, so what a kind of suggestion doesn't use comes back null, and is dropped on arrival.
@@ -26,8 +27,8 @@ ANSWER_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["record_id", "words"],
-                "properties": {"record_id": {"type": "string"}, "words": {"type": "string"}},
+                "required": ["record_id"],
+                "properties": {"record_id": {"type": "string"}},
             },
         },
         "proposal": {
@@ -102,7 +103,7 @@ BASE_INSTRUCTIONS = (
 
 def published_answer(question, result, tools):
     """What may be shown, before the model check. Production saves this, and the evaluation grades this, not the model's own text."""
-    from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer
+    from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer, invented_refs
     from app.domains.baby.ask_safety import (
         DOSE_REFUSAL,
         LIQUID_AMOUNT,
@@ -116,10 +117,11 @@ def published_answer(question, result, tools):
     if result.safety in MESSAGES:
         # Comes before citations are checked. Nothing the model wrote or read goes with a fixed reply.
         return fixed_answer(MESSAGES[result.safety], result.safety)
-    # An ID the tools never gave is dropped, so it can't show, and the answer is kept. The evaluation still marks the model down.
-    known = [identifier for identifier in result.citation_ids if identifier in tools.citable]
-    invented = len(known) != len(result.citation_ids)
-    result = result.model_copy(update={"citation_ids": known})
+    # A claim is only as good as what's behind it. An ID or ref the tools never gave means the words go, not just the citation.
+    if any(identifier not in tools.citable for identifier in result.citation_ids):
+        return fixed_answer(COULD_NOT_CONFIRM_RECORD, None, invented_citation=True, unconfirmed=True)
+    if invented_refs(result.message, tools.web_sources):
+        return fixed_answer(COULD_NOT_CONFIRM_SOURCE, None, unconfirmed=True)
     message, sources = checked_answer(result.message, tools.web_sources)
     records, quoted = record_lines(result, tools)
     citations = list(dict.fromkeys([*result.citation_ids, *quoted]))
@@ -137,7 +139,7 @@ def published_answer(question, result, tools):
     shown = {source["url"] for source in sources}
     return {
         "message": "\n\n".join([message, *records]), "citation_ids": citations, "help": help_kind, "proposal": result.proposal,
-        "sources": sources + [item for item in extra if item["url"] not in shown], "records": records, "invented_citation": invented,
+        "sources": sources + [item for item in extra if item["url"] not in shown], "records": records,
     }
 
 
@@ -175,8 +177,6 @@ async def question_reply(provider, question, *, model=None, effort=None):
     return None
 
 
-async def checked_answer_reply(provider, question, result, tools, *, model=None, effort=None):
-    """What publishes: the model's answer only if the check read it, and only if it passed."""
 async def old_path_reply(provider, question):
     """What the old path takes from the check: urgent gets the fixed reply, and no verdict gets no answer. The rest is Ask's."""
     from app.domains.baby.ask_safety import MESSAGES
@@ -185,6 +185,8 @@ async def old_path_reply(provider, question):
     return reply if reply and (reply["help"] in MESSAGES or reply.get("check_failed")) else None
 
 
+async def checked_answer_reply(provider, question, result, tools, *, model=None, effort=None):
+    """What publishes: the model's answer only if the check read it, and only if it passed."""
     from app.domains.baby.ask_check import CheckFailed, check_answer
     from app.domains.baby.ask_research import strings_in
     from app.domains.baby.ask_safety import (
@@ -197,7 +199,7 @@ async def old_path_reply(provider, question):
     )
 
     published = published_answer(question, result, tools)
-    if published["help"] in MESSAGES and result.safety in MESSAGES or published.get("replaced"):
+    if published["help"] in MESSAGES and result.safety in MESSAGES or published.get("replaced") or published.get("unconfirmed"):
         return published
     # The model's own words, and nothing rendered from her records.
     written = "\n".join([result.message, *strings_in(result.proposal or {})])
@@ -211,26 +213,21 @@ async def old_path_reply(provider, question):
 
 
 def record_lines(result, tools):
-    """Her records, as saved, under a label: a cited medicine log, or a note's complete sentence. None of this is the model's text."""
+    """Her records, as saved, under a label: a cited medicine log, or a whole note. None of this is the model's text."""
     from app.domains.baby.ask_tools import as_data
 
     lines = [tools.logged[identifier] for identifier in dict.fromkeys(result.citation_ids) if identifier in tools.logged]
     quoted = []
     for quote in result.quotes[:MAX_QUOTES]:
-        identifier, words = str(quote.get("record_id")), " ".join(str(quote.get("words") or "").split())
-        item = tools.citable.get(identifier)
-        if not item or item.get("kind") in NOT_HER_WORDS or not 0 < len(words) <= QUOTE_CHARS:
+        identifier = str(quote.get("record_id"))
+        item, note = tools.citable.get(identifier), " ".join((tools.notes.get(identifier) or "").split())
+        if not item or item.get("kind") in NOT_HER_WORDS or not note:
             continue
-        # A whole sentence or the whole note, so leaving out a word can't turn "never give" into "give".
-        note = tools.notes.get(identifier) or ""
-        if words == " ".join(note.split()) or words in complete_sentences(note):
-            quoted.append(identifier)
-            lines.append(f"Note {as_data(item['title'])} says: {as_data(words, QUOTE_CHARS)}")
+        quoted.append(identifier)
+        # Always all of it: what turns "give 10 mL" into "don't" can be a sentence or a line before it. Too long to show means opening it, not cutting it.
+        fits = len(note) <= QUOTE_CHARS
+        lines.append(f"Note {as_data(item['title'])} says: {as_data(note, QUOTE_CHARS)}" if fits else f"Note {as_data(item['title'])} is too long to show here. Open it to read it all.")
     return (["\n".join([RECORD_HEADING, *lines])] if lines else []), quoted
-
-
-def complete_sentences(note):
-    return {" ".join(part.split()) for part in re.split(r"(?<=[.!?])\s+|\n+", note) if part.strip()}
 
 
 def effort_for(model, configured):

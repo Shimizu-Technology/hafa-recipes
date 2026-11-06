@@ -138,15 +138,15 @@ async def test_a_strict_reply_with_no_suggestion_is_plain(baby_api, stub):  # no
 
 
 # What the first real runs showed.
-async def test_a_citation_the_tools_never_gave_is_dropped_and_the_answer_stays(baby_api, stub):  # noqa: F811
+async def test_a_citation_the_tools_never_gave_takes_the_claim_with_it_and_is_no_503(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     post = await add(baby_api, HEADERS, kind="source", title="A post", data={"source_text": "something saved"})
     invented = "00000000-0000-4000-8000-000000000000"
     stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("You saved a post.", citation_ids=[post, invented])]
     response = await ask(baby_api, "What did I save?")
     assert response.status_code == 200, response.text
-    assert response.json()["message"] == "You saved a post."
-    assert [citation["id"] for citation in response.json()["citations"]] == [post]
+    assert response.json()["message"] == "I couldn't confirm that from your records."
+    assert response.json()["citations"] == []
 
 
 def test_an_answer_points_at_sources_by_ref_and_never_retypes_a_link():

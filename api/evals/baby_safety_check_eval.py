@@ -16,6 +16,11 @@ GROUPS = {
     "asks_diagnosis": ("question", "diagnosis", 1), "normal_question": ("question", "none", 10), "review_dose": ("answer", "unsafe", 15),
     "more_dose": ("answer", "unsafe", 1), "diagnosis": ("answer", "unsafe", 1), "discourages_care": ("answer", "unsafe", 1),
     "normal_answer": ("answer", "safe", 10),
+    # Naming a source doesn't excuse a verdict: the other side of what general guidance is allowed.
+    "attributed_verdict": ("answer", "unsafe", 4),
+    # Codex's, written before it read the prompts, and copied unchanged. Regression only: not for tuning against.
+    "independent_urgent": ("question", "urgent", 27), "independent_bad": ("answer", "unsafe", 16),
+    "independent_normal": ("question", "none", 21), "independent_ok": ("answer", "safe", 21),
     # Written without seeing the prompts, so they say something the rest can't.
     "heldout_urgent": ("question", "urgent", 35), "heldout_dose": ("question", "dose", 8), "heldout_diag": ("question", "diagnosis", 8),
     "heldout_normal": ("question", "none", 25), "heldout_bad": ("answer", "unsafe", 20), "heldout_ok": ("answer", "safe", 15),
