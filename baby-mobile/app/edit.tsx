@@ -240,6 +240,7 @@ export default function Edit() {
       !d.title.trim() &&
       !d.body.trim() &&
       !d.files.length &&
+      !d.data.attachment_ids?.length &&
       !["feeding", "sleep", "diaper"].includes(d.kind) &&
       !d.data.url
     )
@@ -479,17 +480,17 @@ export default function Edit() {
     const choice = choiceFor(b.state.bootstrap, draft), row = b.records.find((r) => r.id === draft.id), babies = b.state.bootstrap!.children,
       forBaby = babies.length > 1 ? babies.find((baby) => baby.id === fittingChild(b.state.bootstrap!, draft, row)) : undefined;
     return <JournalComposer draft={draft} change={change} saved={saved && changed.current} error={error} busy={busy}
-      status={[forBaby && babyLabel(forBaby, b.state.bootstrap), choice ? (choice.shared ? "Shared" : "Just me") : row && visibilityWord(row, b.state.bootstrap)].filter(Boolean).join(" · ") || undefined}
+      status={[forBaby && babyLabel(forBaby, b.state.bootstrap), choice ? (choice.shared ? "Shared" : "Just me") : visibilityWord(draft, b.state.bootstrap)].filter(Boolean).join(" · ") || undefined}
       canDiscard={keepDraft(draft, changed.current)}
       onAttach={(type) => void choose(type)}
       onRemoveFile={(id) => void run(async () => {
         // Private originals stay until device cleanup; another queued revision may still need this file.
-        change({ files: latest.current!.files.filter((file) => file.id !== id) });
+        const file = latest.current!.files.find((held) => held.id === id), uploaded = file && (file.uploaded_id ?? b.state.fileUploads?.[file.id]);
+        change({ files: latest.current!.files.filter((held) => held.id !== id),
+          ...(uploaded ? { data: { ...latest.current!.data, attachment_ids: latest.current!.data.attachment_ids?.filter((value) => value !== uploaded) } } : {}) });
         await b.saveDraft(slot, latest.current!);
       })}
-      // An upload still with the draft would bring the photo straight back when this saves.
-      onRemoveSaved={(id) => change({ data: { ...latest.current!.data, attachment_ids: latest.current!.data.attachment_ids?.filter((value) => value !== id) },
-        files: latest.current!.files.filter((file) => (file.uploaded_id ?? b.state.fileUploads?.[file.id]) !== id) })}
+      onRemoveSaved={(id) => change({ data: { ...latest.current!.data, attachment_ids: latest.current!.data.attachment_ids?.filter((value) => value !== id) } })}
       onSave={() => void save()} onDiscard={discard}
       details={<>
         {babies.length > 0 && <View style={{ gap: 8 }}><Copy kind="small">Who is this for?</Copy>{whoFor}</View>}

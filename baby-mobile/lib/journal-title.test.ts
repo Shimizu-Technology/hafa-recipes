@@ -30,8 +30,6 @@ it("reads a title that only repeats the first line as no title at all", () => {
   expect(writtenTitle(journal("first day felt good", "First day felt good."))).toBe("");
   expect(writtenTitle(journal("First day felt good", "First day felt good\nand the second line"))).toBe("");
   expect(writtenTitle(journal("  First  day felt good ", "First day felt good"))).toBe("");
-  // Older builds kept the title when she added to the line.
-  expect(writtenTitle(journal("First day felt good", "First day felt good and then we went home"))).toBe("");
 });
 it("recognises what older builds saved, and what this one saves", () => {
   const body = "We went for a walk this morning, and the whole neighbourhood stopped to say hello\nThen home";
@@ -51,7 +49,7 @@ it("keeps what she really wrote", () => {
   expect(writtenTitle(journal("Just a title", ""))).toBe("Just a title");
   expect(writtenTitle(journal("What my doctor told me", "Rest and fluids"))).toBe("What my doctor told me");
   expect(writtenTitle(journal("Later that night", "Later that week we went home"))).toBe("Later that night");
-  expect(writtenTitle(journal("First day felt", "First day feltless and tired"))).toBe("First day felt");
+  expect(writtenTitle(journal("Our first Christmas", "Our first Christmas was quiet"))).toBe("Our first Christmas");
 });
 it("gives every entry a preview that doesn't say the title again", () => {
   expect(journalPreview(journal("First kick", "Felt it after dinner"))).toBe("Felt it after dinner");
@@ -60,5 +58,11 @@ it("gives every entry a preview that doesn't say the title again", () => {
   const body = "We went for a walk this morning, and the whole neighbourhood stopped to say hello";
   expect(journalPreview(journal(firstWords(body), body))).toBe("neighbourhood stopped to say hello");
   expect(journalPreview(journal("Journal entry", ""))).toBe("");
+  expect(journalPreview(journal("Journal entry", "A note"))).toBe("A note");
+  // A title she chose can open the same way as the body, and a title can carry its own punctuation.
+  expect(journalPreview(journal("Our first Christmas", "Our first Christmas was quiet"))).toBe("was quiet");
+  expect(journalPreview(journal("Good!", "Good. Then home"))).toBe("Then home");
+  // What older builds cut through an emoji leaves nothing stray at the start of the preview.
+  expect(journalPreview(journal("👶🏽".repeat(29) + "👶…", "👶🏽".repeat(40)))).toBe("👶🏽".repeat(10));
   expect([...journalPreview(journal("Title", "word ".repeat(100)))].length).toBeLessThanOrEqual(90);
 });

@@ -211,7 +211,7 @@ it("offers the photo, camera and file through one small control", async () => {
   await act(async () => control("Add a photo or file").props.onPress());
   expect(scope.sheet.mock.calls[0][0].options).toEqual(["Cancel", "Photo library", "Take a photo", "Choose a file"]);
 });
-it("shows a photo once, however far along its upload is, and removing a saved one also lets go of its upload", async () => {
+it("shows a photo once, however far along its upload is, from the copy on this phone, and removing it lets go of its upload", async () => {
   const file = { id: "f1", uri: "file:///a.jpg", name: "a.jpg", mime_type: "image/jpeg", uploaded_id: "up-1" };
   const draft: EditorDraft = { ...entry({ data: { attachment_ids: ["up-1", "up-2"] } }), files: [file], existing: true };
   const account = setup([entry()], { "record:old": draft });
@@ -219,9 +219,22 @@ it("shows a photo once, however far along its upload is, and removing a saved on
   scope.params = { id: "old" };
   await open();
   expect(control("Add a photo or file. 2 added.")).toBeDefined();
-  await act(async () => control("Remove saved attachment 1").props.onPress());
+  expect(account.api.attachment).toHaveBeenCalledTimes(1);
+  expect(account.api.attachment).toHaveBeenCalledWith("up-2");
+  await act(async () => control("Remove a.jpg").props.onPress());
   await act(async () => { await vi.advanceTimersByTimeAsync(500); await account.drain(); });
   expect(account.state.drafts["record:old"]).toMatchObject({ files: [], data: { attachment_ids: ["up-2"] } });
+  await act(async () => control("Remove saved attachment 1").props.onPress());
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); await account.drain(); });
+  expect(account.state.drafts["record:old"].data.attachment_ids).toEqual([]);
+});
+it("still saves a photo-only entry whose title was only the kind's name", async () => {
+  const account = setup([entry({ title: "Journal entry", body: "", data: { attachment_ids: ["up-1"] } })]);
+  account.api.attachment = vi.fn(() => new Promise(() => undefined));
+  scope.params = { id: "old" };
+  await open();
+  expect(input("Title, optional").props.value).toBe("");
+  expect((await save(account)).title).toBe("Journal entry");
 });
 it("keeps every control reachable at the largest text, with the date moved into a labelled calendar", async () => {
   setup();
@@ -249,8 +262,8 @@ it("says who can see it without opening anything, for a parent in a family, and 
   expect(texts().flat()).toContain("Shared");
   expect(texts().flat()).not.toContain("Just me");
 });
-it("says who can see a saved entry too, and where a new one goes", async () => {
-  const account = setup([entry({ space_id: "fam" })]);
+it("says who can see a saved entry too, even one only just fetched, and where a new one goes", async () => {
+  const account = setup([], { "record:old": { ...entry({ space_id: "fam" }), files: [], existing: true } });
   account.state.bootstrap = { ...account.state.bootstrap, personal_space_id: "me", spaces: [
     { id: "me", kind: "personal", role: "owner", generation: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1 }] };
   scope.params = { id: "old" };

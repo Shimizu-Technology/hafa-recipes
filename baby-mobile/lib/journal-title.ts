@@ -11,12 +11,19 @@ const firstLineOf = (body: string) => oneLine(body.trim().split("\n")[0]);
 /** Case and closing punctuation don't make them different words. */
 const words = (text: string) => oneLine(text).toLocaleLowerCase().replace(/[\s.!?,;:…]+$/, "");
 
+/** A skin tone, a variation selector or a joiner: part of the emoji before it. */
+const joins = (letter?: string) => {
+  const point = letter?.codePointAt(0) ?? 0;
+  return point === 0x200d || point === 0xfe0f || (point >= 0x1f3fb && point <= 0x1f3ff);
+};
 /** Her words, cut at a space where there is one and never through an emoji, with what would dangle taken off. */
 function shortened(text: string, limit: number) {
   const letters = [...text];
   if (letters.length <= limit) return text;
-  const room = letters.slice(0, limit - 1).join(""), space = room.lastIndexOf(" ");
-  const cut = (space >= limit / 2 ? room.slice(0, space) : room).replace(/[‍️]+$/, "");
+  let end = limit - 1;
+  while (end > 0 && (joins(letters[end]) || letters[end - 1] === "‍")) end--;
+  const room = letters.slice(0, end).join(""), space = room.lastIndexOf(" ");
+  const cut = space >= limit / 2 ? room.slice(0, space) : room;
   return (cut.replace(/[\s,;:.\-–—(]+$/, "") || cut) + "…";
 }
 
@@ -24,17 +31,15 @@ function shortened(text: string, limit: number) {
 export const firstWords = (body: string) => shortened(firstLineOf(body), shortTitle);
 
 /**
- * Whether a title only says the body's first line again. The API keeps no mark of who wrote a title, so this reads the words:
- * the whole line; `firstWords` now, or the 59 letters and an ellipsis older builds cut; or three words or more that the line
- * opens with, which is what an older build's title became once she added to the line. One or two words can be a title she chose.
+ * Whether a title only says the body's first line again: the whole line, `firstWords`, or the 59 letters and an ellipsis older
+ * builds cut. The API keeps no mark of who wrote a title, so this reads the words. A title that's only the start of the line
+ * stays: "Our first Christmas" over "Our first Christmas was quiet" can be one she chose, and a title is never hers to lose.
  */
 export function repeatsBody(title: string, body: string) {
   const heading = oneLine(title), line = firstLineOf(body);
   if (!heading || !line) return false;
   const start = words(heading), whole = words(line);
-  if (start === whole) return true;
-  if (heading.endsWith("…")) return start.length >= shortestCut && whole.startsWith(start);
-  return start.split(" ").length >= 3 && whole.startsWith(`${start} `);
+  return start === whole || (heading.endsWith("…") && start.length >= shortestCut && whole.startsWith(start));
 }
 
 /** The title she chose, or nothing when it's only her first line or the kind's name. It's what the editor shows and a row can lean on. */
@@ -44,14 +49,14 @@ export function writtenTitle({ kind, title, body }: Pick<BabyRecord, "kind" | "t
 }
 
 /**
- * What a journal row says under its title. Under one she chose, the body. Under her first words, what comes after them,
- * so the same words are never listed twice and an entry with more to it says so.
+ * What a journal row says under its title: the body, leaving out the words the title already said, whoever wrote them.
+ * So the same words are never listed twice, and an entry with more to it says so.
  */
-export function journalPreview(row: Pick<BabyRecord, "kind" | "title" | "body">) {
-  const body = oneLine(row.body);
-  if (!body) return "";
-  if (writtenTitle(row)) return shortened(body, 90);
-  const start = oneLine(row.title).replace(/…$/, "").trimEnd();
-  const rest = body.toLocaleLowerCase().startsWith(start.toLocaleLowerCase()) ? body.slice(start.length).replace(/^[\s.!?,;:]+/, "") : body;
-  return shortened(rest, 90);
+export function journalPreview({ title, body }: Pick<BabyRecord, "title" | "body">) {
+  const text = oneLine(body), start = words(title);
+  if (!text) return "";
+  if (!start || !text.toLocaleLowerCase().startsWith(start)) return shortened(text, 90);
+  const rest = [...text.slice(start.length).replace(/^[\s.!?,;:…]+/, "")];
+  while (joins(rest[0])) rest.shift();
+  return shortened(rest.join(""), 90);
 }

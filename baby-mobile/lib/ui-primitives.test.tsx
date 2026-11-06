@@ -139,8 +139,8 @@ it("puts a panel's Save on the bar above the keyboard, for every field in it, an
   expect(renderer!.root.findAllByType("InputAccessoryView" as React.ElementType)).toHaveLength(0);
 });
 it("makes a field clear to use: its word focuses it, focus shows, and the caret stays in the brand colour", async () => {
-  const focus = vi.fn(), ref = React.createRef<any>();
-  await mount(<Field label="Name" value="" capitalize="words" inputRef={ref} onChange={() => {}} />);
+  const focus = vi.fn();
+  await act(async () => { renderer = create(<Field label="Name" value="" capitalize="words" onChange={() => {}} />, { createNodeMock: () => ({ focus }) }); });
   const input = () => renderer!.root.findByType("TextInput" as React.ElementType).props;
   expect(input()).toMatchObject({ autoCapitalize: "words", returnKeyType: "done", placeholderTextColor: expect.any(String) });
   expect(input().selectionColor).toBeDefined();
@@ -150,11 +150,10 @@ it("makes a field clear to use: its word focuses it, focus shows, and the caret 
   // Only its colour changes, so focusing moves nothing.
   expect(input().style.padding).toBe(before.padding);
   expect(input().style.borderWidth).toBe(before.borderWidth);
-  const focusedCaret = input().selectionColor;
+  expect(input().selectionColor).toBe(uiForIcon.palettes.light.accentText);
   await act(async () => input().onBlur());
-  expect(input().selectionColor).not.toBe(focusedCaret);
+  expect(input().selectionColor).toBe(uiForIcon.palettes.light.muted);
   const word = renderer!.root.findAll(n => String(n.type) === "Pressable" && n.props.accessible === false)[0];
-  (ref as { current: unknown }).current = { focus };
   await act(async () => word.props.onPress());
   expect(focus).toHaveBeenCalled();
   // VoiceOver reads the label once, on the box.

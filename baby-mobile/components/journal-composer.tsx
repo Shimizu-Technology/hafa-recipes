@@ -91,10 +91,9 @@ export function JournalComposer({ draft, change, saved, error, busy, status, det
     const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboard(false));
     return () => { show.remove(); hide.remove(); };
   }, []);
-  const uploaded = (file: EditorDraft["files"][number]) => file.uploaded_id ?? b.state.fileUploads?.[file.id],
-    savedIds = draft.data.attachment_ids ?? [],
-    // Once it's uploaded, a new photo is in both lists until the record settles. It's still one photo.
-    localFiles = draft.files.filter((file) => { const id = uploaded(file); return !id || !savedIds.includes(id); }),
+  // Once it's uploaded, a new photo is in both lists until the record settles. It's one photo, and the copy here shows offline.
+  const localFiles = draft.files, held = new Set(localFiles.map((file) => file.uploaded_id ?? b.state.fileUploads?.[file.id])),
+    savedIds = (draft.data.attachment_ids ?? []).filter((id) => !held.has(id)),
     count = savedIds.length + localFiles.length,
     shown = useRef(count), roomy = fontScale < dateWordsFit;
   // A photo she's just added can be below a long entry, and she should see it arrive.
