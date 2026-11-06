@@ -221,7 +221,7 @@ class CaptureRequest(DomainModel):
             body="",
             child_id=None,
             occurred_at=self.occurred_at,
-            data=SourceData(url=self.url, source_text=self.text, status="saved").model_dump(
+            data=SourceData(url=self.url, source_text=self.text, user_text=self.text if self.url else None, status="saved").model_dump(
                 mode="json"
             ),
         )

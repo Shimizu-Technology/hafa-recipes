@@ -149,8 +149,9 @@ def stated_relevance(raw, readable):
     """
     if not isinstance(raw, dict) or not isinstance(raw.get("quote"), str):
         return None
-    statement = words(re.sub(r"#\w+", "", raw["quote"]))
-    if not set(statement) & {"week", "weeks", "month", "months", "day", "days", "trimester", "trimesters",
+    statement_text = re.sub(r"#\w+", "", raw["quote"])
+    statement = words(statement_text)
+    if statement_text != raw["quote"] and not set(statement) & {"week", "weeks", "month", "months", "day", "days", "trimester", "trimesters",
                              "pregnancy", "pregnant", "postpartum", "labor", "labour", "newborn", "birth"}:
         return None  # A topic/creator hashtag is not a statement of when advice applies.
     quote = words(raw["quote"])
@@ -165,7 +166,7 @@ def stated_relevance(raw, readable):
         whole_number(raw.get(key), 120 if unit == "months" else 520) if unit else None
         for key in ("baby_age_min", "baby_age_max")
     ]
-    if not states_bounds(quote, weeks, ages, unit):
+    if not states_bounds(statement, weeks, ages, unit):
         return None
     scale = 52 / 12 if unit == "months" else 1
     ages = [None if value is None else round(value * scale) for value in ages]

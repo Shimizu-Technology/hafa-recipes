@@ -348,10 +348,11 @@ async def test_labelled_slide_lists_survive_source_schema_and_image_cap(monkeypa
     assert saved["status"] == "incomplete" and any("35 of 36" in n for n in saved["data"]["coverage_notes"])
 
 
-def test_trimester_hashtag_alone_does_not_file_timing():
+@pytest.mark.parametrize("hashtag", ["#thirdtrimester", "#37weekspregnant"])
+def test_trimester_hashtag_alone_does_not_file_timing(hashtag):
     relevance = processing.stated_relevance(
-        {"stage":"pregnancy", "pregnancy_week_min":28, "quote":"#thirdtrimester"},
-        ["Hospital bag #thirdtrimester"],
+        {"stage":"pregnancy", "pregnancy_week_min":28, "quote":hashtag},
+        ["Hospital bag " + hashtag],
     )
     assert relevance is None
     stated = processing.stated_relevance(
