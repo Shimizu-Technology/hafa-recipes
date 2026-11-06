@@ -229,6 +229,14 @@ function patchNonImageStaging(text) {
   text = text.replace(screenshot, "guard let containerURL = self.babyProducer?.capture.directory else {");
   const copy = "let copied = Self.copyFile(at: url, to: newPath)";
   if (text.split(copy).length !== 3) throw Error("Håfa Baby nonimage copy changed; refusing unsafe generation.");
+  // Under the API's own name, since Apple's resolver answers audio/x-m4a for .m4a and audio/vnd.wave for .wav, which it refuses.
+  const resolved = "let mimeType = url.mimeType(ext: fileExtension)";
+  if (text.split(resolved).length !== 3) throw Error("Håfa Baby file type changed; refusing unsafe generation.");
+  text = text.replaceAll(
+    resolved,
+    `let resolvedMime = url.mimeType(ext: fileExtension)
+    let mimeType = BabyShareSheetState.canonicalMime(resolvedMime, name: fileName) ?? resolvedMime`
+  );
   // Refused before copying where the size is known, and after where it wasn't.
   text = text.replaceAll(
     copy,

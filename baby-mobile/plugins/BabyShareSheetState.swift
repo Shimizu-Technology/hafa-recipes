@@ -62,19 +62,35 @@ enum BabyShareSheetState: Equatable {
     }
   }
 
-  // The same rule as lib/file-type.ts and lib/files.ts, asked before a file is copied. What the app would refuse
-  // must never get into the queue, where it would hold up every share behind it and could never succeed.
-  static let maxFileBytes = 25 * 1024 * 1024
-  private static let fileExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "pdf", "mp4", "mov", "webm", "3gp", "m4v", "mp3", "m4a", "aac", "wav", "ogg"]
-  static func refusal(mimeType: String?, name: String?, size: Int?) -> BabyShareSheetState? {
+  // What the API takes: ALLOWED in api/app/domains/baby/attachments.py, which a test reads so the two can't drift. Apple
+  // and other apps name some of these differently, and the same container gets the API's name before anything is stored.
+  // Anything else is refused here, because the API would refuse it for ever and it would never be delivered.
+  static let fileTypes: Set<String> = [
+    "image/jpeg", "image/heic", "image/heif", "image/png", "image/webp", "image/gif", "application/pdf",
+    "video/mp4", "video/quicktime", "video/webm",
+    "audio/mpeg", "audio/mp4", "audio/wav", "audio/x-wav", "audio/webm", "audio/ogg",
+  ]
+  private static let aliases = [
+    "image/jpg": "image/jpeg", "audio/mp3": "audio/mpeg", "audio/x-mp3": "audio/mpeg", "audio/x-m4a": "audio/mp4", "audio/m4a": "audio/mp4",
+    "audio/vnd.wave": "audio/wav", "audio/wave": "audio/wav",
+  ]
+  private static let fileExtensions = [
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp", "gif": "image/gif", "heic": "image/heic", "heif": "image/heif",
+    "pdf": "application/pdf", "mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm", "mp3": "audio/mpeg", "m4a": "audio/mp4", "wav": "audio/wav", "ogg": "audio/ogg",
+  ]
+  // The name the API knows this file by, or nil if it won't take it. The same rule as lib/file-type.ts.
+  static func canonicalMime(_ mimeType: String?, name: String?) -> String? {
     let mime = mimeType?.components(separatedBy: ";")[0].trimmingCharacters(in: .whitespaces).lowercased() ?? ""
-    let supported: Bool
     if !mime.isEmpty, mime != "application/octet-stream" {
-      supported = mime == "application/pdf" || (["image/", "video/", "audio/"].contains { mime.hasPrefix($0) && mime.count > $0.count && !mime.contains("*") })
-    } else {
-      supported = fileExtensions.contains(name?.components(separatedBy: ".").last?.lowercased() ?? "")
+      let canonical = aliases[mime] ?? mime
+      return fileTypes.contains(canonical) ? canonical : nil
     }
-    if !supported { return .unsupported }
+    return fileExtensions[name?.components(separatedBy: ".").last?.lowercased() ?? ""]
+  }
+  // Asked before a file is copied. What can't be delivered must never get into the queue. The 25 MB is lib/files.ts's and the API's.
+  static let maxFileBytes = 25 * 1024 * 1024
+  static func refusal(mimeType: String?, name: String?, size: Int?) -> BabyShareSheetState? {
+    guard canonicalMime(mimeType, name: name) != nil else { return .unsupported }
     if let size, size > maxFileBytes { return .tooBig }
     return nil
   }

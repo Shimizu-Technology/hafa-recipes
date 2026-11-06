@@ -16,4 +16,11 @@ it("recognizes missing native MIME conservatively without overriding a known uns
   expect(supportedFileMime(" Image/PNG; charset=binary ")).toBe("image/png");
   expect(supportedFileMime("application/zip", "fake.jpg")).toBeNull();
   expect(supportedFileMime(undefined, "unknown")).toBeNull();
+  // What Apple's resolver answers, under the name the API takes, and what the API would refuse for ever.
+  expect(supportedFileMime("audio/x-m4a", "voice.m4a")).toBe("audio/mp4");
+  expect(supportedFileMime("audio/vnd.wave", "voice.wav")).toBe("audio/wav");
+  expect(supportedFileMime("audio/aac", "voice.aac")).toBeNull();
+  expect(supportedFileMime("video/3gpp", "clip.3gp")).toBeNull();
+  expect(supportedFileMime("video/x-m4v", "clip.m4v")).toBeNull();
+  expect(supportedFileMime(undefined, "clip.m4v")).toBeNull();
 });
