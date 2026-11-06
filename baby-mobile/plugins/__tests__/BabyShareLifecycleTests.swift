@@ -3,13 +3,8 @@ import Foundation
 // The generator test injects the actual generated lifecycle and preparation
 // methods here. UIKit's presentation callbacks are driven explicitly; capture
 // creation, privacy clear, and stale publication use the real shared store.
-private enum TestColor { case clear }
-private final class TestView {
-  var backgroundColor: TestColor?
-  var isOpaque = true
-}
+private enum BabyShareSheetState { case saving }
 private class TestViewController {
-  let view = TestView()
   var loaded = 0, appeared = 0
   func viewDidLoad() { loaded += 1 }
   func viewDidAppear(_ animated: Bool) { appeared += 1 }
@@ -20,8 +15,9 @@ private final class GeneratedController: TestViewController {
   let babyCaptureId = UUID().uuidString
   var babyProducer: (storage: BabyShareStore, capture: BabyShareStore.Capture)?
   var preparationFails = false
-  var storeRequests = 0, providerStarts = 0, errors = 0
+  var storeRequests = 0, providerStarts = 0, errors = 0, painted = 0, paintedBeforeStore = false
   init(hideView: Bool, storage: BabyShareStore) { self.hideView = hideView; self.storage = storage }
+  func showBabySheet(_ state: BabyShareSheetState) { painted += 1; paintedBeforeStore = storeRequests == 0 }
   func babyShareStore() throws -> BabyShareStore {
     storeRequests += 1
     if preparationFails { throw BabyShareStore.Failure.unavailable }
@@ -57,7 +53,7 @@ private struct BabyShareLifecycleTests {
       try check(controller.loaded == 1, "super load remains called")
       try check(controller.providerStarts == 0, "no provider starts during presentation")
       try check(controller.babyProducer != nil && controller.storeRequests == 1, "capture epoch acquired synchronously")
-      try check(controller.view.isOpaque == !hideView, "hidden extension appearance retained")
+      try check(controller.painted == 1 && controller.paintedBeforeStore, "the sheet is painted before anything can take time")
       controller.viewDidAppear(true)
       controller.viewDidAppear(false)
       try check(controller.providerStarts == 1, "provider runs once after completed presentation")

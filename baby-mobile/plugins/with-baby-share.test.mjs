@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { patchShareController } = require("./with-baby-share.cjs");
+const { patchShareController, shareFonts, shareInfo } = require("./with-baby-share.cjs");
 const upstream = readFileSync(
   join(
     dirname(require.resolve("expo-share-intent/package.json")),
@@ -190,6 +190,50 @@ describe("generated Safari preprocessing", () => {
     expect(output).toContain("automaticEpoch: capture.automaticEpoch");
     expect(output).not.toContain('"hfws_v1."');
   });
+  it("paints Baby Soft at load, with the app's real tokens and no blank or clear view", () => {
+    const output = patchShareController(upstream);
+    const lifecycle = output.slice(output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1"), output.indexOf("  private func handleViewLoad()"));
+    expect(lifecycle).not.toContain(".clear");
+    expect(lifecycle.indexOf("showBabySheet(.saving)")).toBeLessThan(lifecycle.indexOf("_ = prepareBabyShare()"));
+    expect(output).not.toContain("preferredContentSize");
+    const theme = readFileSync(new URL("./BabyShareTheme.swift", import.meta.url), "utf8");
+    const ui = readFileSync(new URL("../components/ui.tsx", import.meta.url), "utf8");
+    const palette = (name) => {
+      const block = ui.slice(ui.indexOf(`const ${name}`), ui.indexOf("};", ui.indexOf(`const ${name}`)));
+      return (token) => block.match(new RegExp(`\\b${token}: "#([0-9A-Fa-f]{6})"`))?.[1].toUpperCase();
+    };
+    const light = palette("light"), dark = palette("dark");
+    const tokens = { background: "background", title: "text", detail: "muted", action: "action", onAction: "onAction", tile: "hero", glyph: "accentText", problemTile: "errorBg", problemGlyph: "error" };
+    for (const [role, token] of Object.entries(tokens)) {
+      expect(light(token), token).toBeTruthy();
+      expect(theme).toContain(`${role}: colour(0x${light(token)}, 0x${dark(token)})`);
+    }
+    // The view is meant to be carried to the other apps, so it says nothing about this one.
+    const view = readFileSync(new URL("./HafaShareSheetView.swift", import.meta.url), "utf8");
+    expect(view).not.toMatch(/Baby|BabyShareStore|BabyShareSession|Done"/);
+  });
+  it("names the share row Håfa Baby and lists the fonts it copies", () => {
+    const info = shareInfo({ CFBundleDisplayName: "Håfa Baby - Share Extension", NSExtension: 1 });
+    expect(info.CFBundleDisplayName).toBe("Håfa Baby");
+    expect(info.NSExtension).toBe(1);
+    expect(info.UIAppFonts).toEqual(["Newsreader_500Medium.ttf", "DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf"]);
+    for (const font of shareFonts) expect(readFileSync(require.resolve(font)).length).toBeGreaterThan(1000);
+  });
+  it.skipIf(process.platform !== "darwin")(
+    "typechecks the whole generated extension against the iOS SDK, which parsing alone wouldn't",
+    () => {
+      const directory = mkdtempSync(join(tmpdir(), "Håfa share typecheck "));
+      try {
+        const generated = join(directory, "ShareViewController.swift");
+        writeFileSync(generated, patchShareController(upstream).replace("<GROUPIDENTIFIER>", "group.test").replace("<SCHEME>", "test").replace("<HIDEVIEW>", "true"));
+        const sdk = execFileSync("xcrun", ["--sdk", "iphonesimulator", "--show-sdk-path"], { encoding: "utf8" }).trim();
+        execFileSync("xcrun", ["swiftc", "-typecheck", "-swift-version", "5", "-sdk", sdk, "-target", "arm64-apple-ios17.0-simulator", generated], { timeout: 110_000, stdio: "pipe" });
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+    120_000
+  );
   it.skipIf(process.platform !== "darwin")(
     "executes the exact embedded Foundation decoder against valid and malformed native values",
     () => {

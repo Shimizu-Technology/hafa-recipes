@@ -1,6 +1,7 @@
   private func redirectToHostApp(type: RedirectType) {
     guard let producer = babyProducer else { return }
-    showConfirmation(.saving, finished: false)
+    // It's safely on the phone now, so closing is safe too: what this doesn't deliver, the app will.
+    babySheet?.showDone()
     DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.completeConfirmation(status: nil) }
     DispatchQueue.global(qos: .utility).async { [weak self] in
       BabyShareSession.enqueue(producer.capture.id, storage: producer.storage) { status in
@@ -10,49 +11,38 @@
   }
   private var captureConfirmationFinished = false
   private func completeConfirmation(status: String?) {
-    guard !captureConfirmationFinished else { return }
+    guard !captureConfirmationFinished, let producer = babyProducer else { return }
     captureConfirmationFinished = true
-    guard let producer = babyProducer else { return }
-    showConfirmation(.after(scope: producer.capture.scope, signedIn: producer.capture.signedIn, status: status), finished: true)
+    showBabySheet(.after(scope: producer.capture.scope, signedIn: producer.capture.signedIn, status: status))
   }
-  private var captureTitle: UILabel?
-  private var captureDetail: UILabel?
-  private var captureSpinner: UIActivityIndicatorView?
-  private var captureDone: UIButton?
-  private func showConfirmation(_ state: BabyShareSheetState, finished: Bool) {
-    let title = state.words.title, detail = state.words.detail
-    if captureTitle == nil {
-      view.backgroundColor = UIColor(red: 0.06, green: 0.08, blue: 0.07, alpha: 1)
-      view.isOpaque = true; preferredContentSize = CGSize(width: 420, height: 400)
-      let scroll = UIScrollView(); scroll.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(scroll)
-      NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-        scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-        scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-        scroll.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)])
-      let stack = UIStackView(); stack.axis = .vertical; stack.spacing = 20
-      stack.translatesAutoresizingMaskIntoConstraints = false; scroll.addSubview(stack)
-      let brand = UILabel(); brand.text = "Håfa Baby"; brand.textColor = .white
-      brand.font = .preferredFont(forTextStyle: .title2); brand.adjustsFontForContentSizeCategory = true
-      let heading = UILabel(); heading.textColor = .white; heading.numberOfLines = 0
-      heading.font = .preferredFont(forTextStyle: .headline); heading.adjustsFontForContentSizeCategory = true
-      heading.accessibilityTraits.insert(.header)
-      let message = UILabel(); message.textColor = UIColor(white: 0.82, alpha: 1); message.numberOfLines = 0
-      message.font = .preferredFont(forTextStyle: .body); message.adjustsFontForContentSizeCategory = true
-      let spinner = UIActivityIndicatorView(style: .medium); spinner.color = .white; spinner.hidesWhenStopped = true
-      let done = UIButton(type: .system); var style = UIButton.Configuration.filled(); style.title = "Done"
-      style.baseBackgroundColor = UIColor(red: 0.16, green: 0.40, blue: 0.34, alpha: 1)
-      style.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 20)
-      done.configuration = style; done.addTarget(self, action: #selector(finishConfirmation), for: .touchUpInside)
-      [brand, heading, message, spinner, done].forEach { stack.addArrangedSubview($0) }
-      NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 24),
-        stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -24),
-        stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -48),
-        stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 24),
-        stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -24)])
-      captureTitle = heading; captureDetail = message; captureSpinner = spinner; captureDone = done
+  private var babySheet: HafaShareSheetView?
+  private var babySheetClosed = false
+  private func showBabySheet(_ state: BabyShareSheetState) {
+    let first = babySheet == nil
+    if first {
+      let sheet = HafaShareSheetView(theme: BabyShareTheme.value)
+      sheet.onDone = { [weak self] in self?.finishConfirmation() }
+      sheet.translatesAutoresizingMaskIntoConstraints = false
+      view.backgroundColor = BabyShareTheme.value.background
+      view.isOpaque = true
+      view.addSubview(sheet)
+      NSLayoutConstraint.activate([sheet.leadingAnchor.constraint(equalTo: view.leadingAnchor), sheet.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        sheet.topAnchor.constraint(equalTo: view.topAnchor), sheet.bottomAnchor.constraint(equalTo: view.bottomAnchor)])
+      babySheet = sheet
     }
-    captureTitle?.text = title; captureDetail?.text = detail; captureDone?.isEnabled = finished
-    if finished { captureSpinner?.stopAnimating(); UIAccessibility.post(notification: .announcement, argument: title) }
-    else { captureSpinner?.startAnimating() }
+    babySheet?.show(BabyShareTheme.content(state), animated: !first)
+    guard state != .saving else { return }
+    babySheet?.showDone()
+    let words = state.words
+    UIAccessibility.post(notification: .announcement, argument: [words.title, words.detail].compactMap { $0 }.joined(separator: ". "))
+    // With VoiceOver or Switch Control on, it waits to be read and for Done.
+    if words.closesItself, !UIAccessibility.isVoiceOverRunning, !UIAccessibility.isSwitchControlRunning {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finishConfirmation() }
+    }
   }
-  @objc private func finishConfirmation() { captureConfirmationFinished = true; extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
+  private func finishConfirmation() {
+    guard !babySheetClosed else { return }
+    babySheetClosed = true
+    captureConfirmationFinished = true
+    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+  }
