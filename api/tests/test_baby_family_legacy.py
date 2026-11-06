@@ -180,6 +180,9 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     assert {row["id"] for row in conversations["items"]} == {answer["conversation_id"]}
     assert hidden_conversation_id not in str(conversations)
     await call("GET", f"/api/v1/baby/conversations/{answer['conversation_id']}")
+    # Renaming and deleting belong to the new Ask, which these builds and this flag don't have.
+    await call("PATCH", f"/api/v1/baby/conversations/{answer['conversation_id']}", expected=404, json={"title": "Renamed"})
+    await call("DELETE", f"/api/v1/baby/conversations/{answer['conversation_id']}", expected=404)
     credential = await call("POST", "/api/v1/baby/share/session", expected=201, json={"installation_id": str(uuid4())})
     capability = {"Authorization": "Bearer " + credential["token"]}
     await call("POST", "/api/v1/baby/share/captures", expected=202, headers=capability, json=native.capture())

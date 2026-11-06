@@ -7,6 +7,7 @@ import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
+import { askV2Active } from "@/lib/ask-sources";
 import { Button, Card, FilterChips, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
@@ -148,6 +149,8 @@ export default function Library() {
     </> : <>
       {category && <Button variant="ghost" title={`Edit category: ${category.title}`} icon="pencil-outline"
         onPress={() => router.push({ pathname: "/edit", params: { kind: "collection", id: category.id } })} />}
+      {category && askV2Active(b.state.bootstrap) && <Button variant="ghost" title="Ask about this category" icon="sparkles-outline"
+        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: category.id } })} />}
       {!!history.error && <><Notice error>{history.error} Saved posts already on this device remain available.</Notice>
         <Button secondary title="Try loading posts again" onPress={history.refresh} busy={history.loading} /></>}
       {suggested.length > 0 && !selecting && <Button secondary icon="checkmark-done-outline" busy={deciding === "all"} disabled={!!deciding}

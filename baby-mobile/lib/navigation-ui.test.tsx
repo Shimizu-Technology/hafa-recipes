@@ -38,6 +38,9 @@ vi.mock("expo-router", () => ({
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true, NavigationContext: React.createContext(undefined) }));
+vi.mock("@/lib/ask-sources", async () => await import("./ask-sources"));
+vi.mock("@/lib/models", async () => await import("./models"));
+vi.mock("@/lib/ai-consent", () => ({ ASK_CONSENT_BODY: "", ASK_UPDATE_TITLE: "", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));

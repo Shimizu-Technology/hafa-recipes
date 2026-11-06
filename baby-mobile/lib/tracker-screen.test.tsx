@@ -12,6 +12,7 @@ vi.mock("expo-router", async () => {
   const { useEffect } = await import("react");
   return { Stack: { Screen: () => null }, router: { push: mock.push }, useLocalSearchParams: () => mock.params, useFocusEffect: (fn: () => void) => useEffect(fn, [fn]) };
 });
+vi.mock("@/lib/ask-sources", async () => await import("./ask-sources"));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
@@ -216,6 +217,21 @@ it("opens a day from a link, and ignores anything that isn't a date", async () =
   expect(copy().join(" ")).toContain("Oct 26");
   await act(async () => { mock.params = { day: "../../secrets", at: "2" }; renderer!.update(<Tracker />); });
   expect(copy().join(" ")).toContain("Oct 26");
+});
+
+it("offers Ask about this day only with the new Ask accepted, and never for a day ahead", async () => {
+  const askRow = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow" && n.props.title === "Ask about this day");
+  await mount();
+  expect(askRow()).toEqual([]);
+  Object.assign(mock.baby.state.bootstrap, { ask_consent_version: 1, profile: { ...mock.baby.state.bootstrap.profile, ai_consent: true, ai_consent_version: 1 } });
+  await act(async () => renderer?.unmount());
+  await mount();
+  await act(async () => askRow()[0].props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/ask-entry", params: { date: "2026-11-04" } });
+  await act(async () => renderer?.unmount());
+  mock.params = { day: "2026-11-10" };
+  await mount();
+  expect(askRow()).toEqual([]);
 });
 
 it("opens an entry from the timeline, to change it", async () => {

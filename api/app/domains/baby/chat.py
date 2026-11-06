@@ -9,21 +9,33 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import String, and_, case, cast, func, or_, select
+from sqlalchemy import String, and_, case, cast, delete, func, or_, select
 
 from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
+from app.domains.baby.ask_gate import ask_v2_allowed, ask_v2_on
+from app.domains.baby.ask_research import strings_in
+from app.domains.baby.ask_safety import (
+    CANT_ANSWER,
+    CANT_ANSWER_LINE,
+    boundary,
+    cant_answer,
+    classify,
+    unsafe_suggestion,
+)
 from app.domains.baby.dependencies import Access, Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
 from app.domains.baby.provider import (
     DAILY_LIMIT_CODE,
+    AnswerOutput,
     BabyProvider,
+    ContextChanged,
     budget_failure_message,
 )
-from app.domains.baby.queries import child_timing, legacy_client, records_query
-from app.domains.baby.schemas import V1_KINDS, ChatRequest, RecordCreate
+from app.domains.baby.queries import child_timing, legacy_client, records_query, row_scope
+from app.domains.baby.schemas import V1_KINDS, ChatRequest, ConversationPatch, RecordCreate
 from app.domains.baby.security import BabyRoute
 from app.domains.baby.stats import care_stats, custom_days, last_feed
 
@@ -31,7 +43,7 @@ router = APIRouter(tags=["baby"], route_class=BabyRoute)
 SCOPE_KINDS = {
     "library": ("source", "collection"),
     "journal": ("journal", "question"),
-    "care": ("feeding", "sleep", "diaper", "routine", "medicine"),
+    "care": ("feeding", "sleep", "diaper", "routine", "medicine", "pumping", "temperature", "growth", "contraction", "kick_session", "custom"),
 }
 STOPWORDS = frozenset(
     "a an and are as at be been by can could did do does for from had has have how i in is it me my of on or our should that the their them there these they this to us was we were what when where which who why will with would you your about please saved find show tell "
@@ -63,6 +75,10 @@ MATCH_LIMIT = 12
 OUTSIDE_RANGE_LIMIT = 6
 PACK_CHILDREN = 12
 BRIEF_EXCERPT = 1500  # So one long saved video cannot crowd out a day of care logs.
+
+
+def focus_date_of(messages):
+    return next((row.content["focus_date"] for row in messages if row.role == "user" and row.content.get("focus_date")), None)
 
 
 def conversation_response(row):
@@ -109,6 +125,8 @@ def message_response(row, *, legacy=False):
         if row.role == "assistant" else row.content.get("message", ""),
         "citations": citations_for(row.content.get("citations", []), legacy=legacy),
         "proposal": row.content.get("proposal"),
+        "sources": row.content.get("sources", []),
+        "help": row.content.get("help"),
         "created_at": row.created_at,
         "status": row.content.get("status", "ready"),
     }
@@ -509,8 +527,6 @@ async def context_pack(db, owner, generation, request, zone, *, tracked=None):
     today = now().astimezone(zone).date()
     # A focused or Saved or Journal conversation is not about care, so it isn't sent any.
     with_care = not request.record_id and request.scope in {"all", "care"}
-    from app.domains.baby.queries import row_scope
-
     query = select(BabyChild).where(
         row_scope(BabyChild, owner, generation),
         BabyChild.deleted_at.is_(None),
@@ -542,27 +558,58 @@ async def context_pack(db, owner, generation, request, zone, *, tracked=None):
     return pack
 
 
-def reviewed_proposal(raw):
+NOT_WRITTEN_TEXT = ("provenance", "timezone", "end")  # Fixed values, checked by the schema.
+
+
+class NotOffered(ValueError):
+    """Refused on every path: the old one drops the suggestion and keeps its answer, too."""
+
+
+def reviewed_proposal(raw, *, events=False):
+    """Ask suggests a journal note, a doctor question or a one-off event, and nothing it writes skips the checks."""
     if raw is None:
         return None
-    if not isinstance(raw, dict) or set(raw) - {"kind", "title", "body", "data"}:
+    if isinstance(raw, dict) and raw.get("kind") == "routine":
+        raise NotOffered("Ask doesn't suggest routines or checklists")
+    is_event = events and isinstance(raw, dict) and raw.get("kind") == "event"
+    if not isinstance(raw, dict) or set(raw) - {"kind", "title", "body", "data", *(("occurred_at",) if is_event else ())}:
         raise ValueError("Invalid proposal")
-    if raw.get("kind") not in {"routine", "journal", "question"}:
+    if raw.get("kind") not in {"journal", "question"} and not is_event:
         raise ValueError("Unsupported proposal")
-    proposal = RecordCreate.model_validate({**raw, "occurred_at": now()})
-    if proposal.kind == "routine" and (
-        proposal.data.get("enabled") or proposal.data.get("reminder_at")
-    ):
-        raise ValueError("AI cannot activate reminders")
+    proposal = RecordCreate.model_validate({**raw, "occurred_at": raw["occurred_at"]} if is_event else {**raw, "occurred_at": now()})
+    if is_event and (proposal.data.get("recurrence") or proposal.data.get("exceptions")):
+        raise ValueError("A suggested event is one date; she can make it repeat while reviewing")
+    written = {key: value for key, value in proposal.data.items() if key not in NOT_WRITTEN_TEXT}
+    if unsafe_suggestion(proposal.kind, proposal.title, proposal.body, *strings_in(written)):
+        raise NotOffered("This suggestion doesn't pass the medical checks")
     if proposal.data.get("attachment_ids"):
         raise ValueError("AI cannot attach private files")
     if proposal.data.get("provenance") == "clinician_instruction":
         raise ValueError("Only the caregiver can identify clinician instructions")
-    return {key: getattr(proposal, key) for key in ("kind", "title", "body", "data")}
+    return {
+        **{key: getattr(proposal, key) for key in ("kind", "title", "body", "data")},
+        **({"occurred_at": proposal.occurred_at.isoformat()} if is_event else {}),
+    }
 
 
-class ContextChanged(Exception):
-    pass
+def legacy_proposal(raw):
+    try:
+        return reviewed_proposal(raw)
+    except NotOffered:
+        return None
+
+
+def offered_proposal(raw):
+    """A suggestion the rules refuse is just left out. The answer itself is still worth having."""
+    try:
+        return reviewed_proposal(raw, events=True)
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+def access_snapshot(access):
+    """What this person can reach. Any difference means an answer in progress started under other rules."""
+    return tuple((g.id, g.generation, g.role, g.access_version) for g in access.spaces) if access.enabled else ()
 
 
 def chat_scopes(access):
@@ -581,12 +628,14 @@ def conversation_scope(model, access):
         [str(g.id) for g in readable.spaces])
 
 
-async def verify_context(db, access, tracked):
-    readable, _ = chat_scopes(access)
+async def verify_context(db, access, tracked, *, generation=None):
+    readable = chat_scopes(access)[0] if access.enabled else access.actor
     for model, key in ((BabyRecord, "records"), (BabyChild, "children")):
         snapshots = tracked[key]
+        if not snapshots:
+            continue
         rows = list(await db.scalars(select(model).where(
-            model.id.in_(snapshots), readable.condition(model), model.deleted_at.is_(None)
+            model.id.in_(snapshots), row_scope(model, readable, generation), model.deleted_at.is_(None)
         ).order_by(model.id).with_for_update().execution_options(populate_existing=True)))
         if len(rows) != len(snapshots) or any(
             (row.space_id, row.generation, row.revision) != snapshots[row.id] for row in rows
@@ -619,7 +668,7 @@ async def get_conversation(identifier: UUID, user: User, db: Database, client: C
         BabyConversation.id == identifier, conversation_scope(BabyConversation, access)))
     if row is None:
         raise HTTPException(404, "Item unavailable")
-    messages = await db.scalars(
+    messages = list(await db.scalars(
         select(BabyMessage)
         .where(
             conversation_scope(BabyMessage, access),
@@ -627,11 +676,59 @@ async def get_conversation(identifier: UUID, user: User, db: Database, client: C
         )
         .order_by(BabyMessage.created_at, BabyMessage.id)
         .limit(500)
-    )
+    ))
     return {
         **await conversation_reply(db, row, access),
+        "focus_date": focus_date_of(messages),
         "messages": [message_response(message, legacy=legacy_client(client)) for message in messages],
     }
+
+
+def require_new_ask(client):
+    # Until the new Ask is on, and for builds that predate conversations they can manage, these don't exist.
+    if not ask_v2_on() or legacy_client(client):
+        raise HTTPException(404, "Not found")
+
+
+async def conversation_for_change(db, identifier, access):
+    row = await db.scalar(select(BabyConversation).where(
+        BabyConversation.id == identifier, conversation_scope(BabyConversation, access)
+    ).with_for_update())
+    if row is None:
+        raise HTTPException(404, "Item unavailable")
+    return row
+
+
+@router.patch("/conversations/{identifier}")
+async def rename_conversation(
+    identifier: UUID, body: ConversationPatch, user: User, db: Database, generation: Generation,
+    client: Client = None, access: Access = None,
+):
+    require_new_ask(client)
+    access.check_generation(generation)
+    row = await conversation_for_change(db, identifier, access)
+    # Renaming isn't new activity, so the conversation keeps its place in the list.
+    row.title = body.title
+    await touch(row, access.target)
+    reply = await conversation_reply(db, row, access)
+    await db.commit()
+    return reply
+
+
+@router.delete("/conversations/{identifier}", status_code=204)
+async def delete_conversation(
+    identifier: UUID, user: User, db: Database, generation: Generation,
+    client: Client = None, access: Access = None,
+):
+    """Removes the conversation and every message in it, for good. An answer still on its way is discarded."""
+    require_new_ask(client)
+    access.check_generation(generation)
+    row = await conversation_for_change(db, identifier, access)
+    await db.execute(delete(BabyMessage).where(
+        BabyMessage.conversation_id == row.id, BabyMessage.app_user_id == user.id
+    ))
+    await db.delete(row)
+    await db.commit()
 
 
 @router.post("/chat")
@@ -639,7 +736,17 @@ async def chat(
     body: ChatRequest, user: User, db: Database, generation: Generation, client: Client = None,
     access: Access = None,
 ):
-    return await answer_chat(body, user, db, generation, client, access)
+    try:
+        return await answer_chat(body, user, db, generation, client, access)
+    except HTTPException as failure:
+        raise says_where_to_go(failure) from None
+
+
+def says_where_to_go(failure):
+    """Every way Ask can't answer, so wording the urgent check misses still gets her to Help."""
+    detail = failure.detail
+    return HTTPException(failure.status_code, {**detail, "message": f"{detail['message']} {CANT_ANSWER_LINE}"}
+                         if isinstance(detail, dict) else f"{detail} {CANT_ANSWER_LINE}")
 
 
 def question_identity(body):
@@ -647,13 +754,103 @@ def question_identity(body):
     return digest(body.model_dump(mode="json", exclude={"ask_v2", *(() if body.focus_date else ("focus_date",))}))
 
 
+async def child_names(db, access, user_id):
+    """For recognizing a baby by name. Not knowing them must not stop an urgent reply."""
+    try:
+        scope = chat_scopes(access)[0] if access.enabled else user_id
+        return list(await db.scalars(select(BabyChild.name).where(
+            row_scope(BabyChild, scope, access.member.generation), BabyChild.deleted_at.is_(None))))
+    except Exception:
+        await db.rollback()
+        return []
+
+
+async def readable_or_none(db, model, scope, generation, identifier):
+    try:
+        return identifier and (await owned(db, model, scope, generation, identifier)).id
+    except HTTPException:
+        return None
+
+
+async def save_fixed_reply(body, user, db, generation, access, reply):
+    access.check_generation(generation)
+    readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
+    if access.enabled and access.target.id != access.personal_space_id:
+        raise ValueError("Ask conversations belong in the personal space")
+    answer_id = uuid5(NAMESPACE_URL, f"hafa-baby-answer:{user.id}:{generation}:{body.request_id}")
+    prior = await db.get(BabyMessage, body.request_id, populate_existing=True)
+    conversation = None
+    if prior:
+        if prior.app_user_id != user.id or prior.generation != generation:
+            raise ValueError("This question identity belongs to something else")
+        if await db.get(BabyMessage, answer_id):
+            return prior.conversation_id
+        conversation = await db.get(BabyConversation, prior.conversation_id)
+        prior.content = {**prior.content, "status": "ready", "lease_until": None}
+    elif body.conversation_id:
+        try:
+            conversation = await owned(db, BabyConversation, private, generation, body.conversation_id)
+        except HTTPException:
+            conversation = None
+        if conversation and await db.scalar(select(func.count()).select_from(BabyMessage).where(
+                BabyMessage.conversation_id == conversation.id)) >= 500:
+            conversation = None
+    if conversation is None:
+        conversation = BabyConversation(
+            app_user_id=user.id, space_id=access.member.personal_space_id, generation=generation,
+            title=body.message[:100], scope=body.scope, created_at=now(), updated_at=now(),
+            record_id=await readable_or_none(db, BabyRecord, readable, generation, body.record_id),
+            child_id=await readable_or_none(db, BabyChild, readable, generation, body.child_id),
+        )
+        db.add(conversation)
+        await touch(conversation, access.target)
+        await db.flush()
+    if not prior:
+        prior = BabyMessage(
+            id=body.request_id, app_user_id=user.id, space_id=access.member.personal_space_id, generation=generation,
+            conversation_id=conversation.id, role="user", created_at=now(),
+            content={"hash": question_identity(body), "message": body.message, "attempts": 0, "status": "ready"},
+        )
+        db.add(prior)
+    answer = BabyMessage(
+        id=answer_id, app_user_id=user.id, space_id=access.member.personal_space_id, generation=generation,
+        conversation_id=conversation.id, role="assistant", content=reply, created_at=now(),
+    )
+    db.add(answer)
+    conversation.updated_at = now()
+    await touch(prior, access.target)
+    await touch(answer, access.target)
+    await touch(conversation, access.target)
+    await db.commit()
+    return conversation.id
+
+
+async def fixed_reply(body, user, db, generation, access, message, help_kind):
+    """Say it first. Keeping it in the chat comes second: a reason it can't be saved doesn't stop the reply."""
+    reply = {"message": message, "citations": [], "proposal": None, "sources": [], "help": help_kind}
+    try:
+        conversation_id = await save_fixed_reply(body, user, db, generation, access, reply)
+    except Exception:
+        await db.rollback()
+        conversation_id = None
+    return {"conversation_id": conversation_id, **reply}
+
+
 async def answer_chat(body, user, db, generation, client, access, *, retries=2):
+    # After sign-in and access, and before anything that could say no: the AI being off, a limit, a budget, consent.
+    urgent = classify(body.message, await child_names(db, access, user.id))
+    if urgent:
+        return await fixed_reply(body, user, db, generation, access, urgent.message, urgent.kind)
     access.check_generation(generation)
     member = access.member
     readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
     if access.enabled and access.target.id != access.personal_space_id:
         raise HTTPException(422, "Ask conversations belong in your personal Baby space")
-    tracked = {"records": {}, "children": {}} if access.enabled else None
+    # Old conversations scoped to one area keep the search they began with.
+    use_v2 = body.ask_v2 and body.scope == "all" and not legacy_client(client) and ask_v2_allowed(member.profile)
+    tracked = {"records": {}, "children": {}} if access.enabled or use_v2 else None
+    if use_v2 and (limit := boundary(body.message)):
+        return await fixed_reply(body, user, db, generation, access, cant_answer(limit), CANT_ANSWER)
     if not member.profile.get("ai_consent"):
         raise HTTPException(403, "Enable AI processing in settings before asking a question")
     provider = BabyProvider()
@@ -783,11 +980,15 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     zone = parent_zone(member.profile.get("timezone"))
     pack = await context_pack(db, readable, generation, body, zone,
                               **({"tracked": tracked} if tracked is not None else {}))
-    context, displays, requested_range = await retrieve(
-        db, readable, generation, body, zone, legacy=legacy_client(client),
-        child_names=[item["name"] for item in pack["children"]],
-        **({"tracked": tracked} if tracked is not None else {})
-    )
+    context, displays, requested_range = [], {}, None
+    if use_v2 and body.record_id:
+        await owned(db, BabyRecord, readable, generation, body.record_id)
+    if not use_v2:
+        context, displays, requested_range = await retrieve(
+            db, readable, generation, body, zone, legacy=legacy_client(client),
+            child_names=[item["name"] for item in pack["children"]],
+            **({"tracked": tracked} if tracked is not None else {})
+        )
     history_rows = list(
         await db.scalars(
             select(BabyMessage)
@@ -805,8 +1006,13 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         for item in reversed(history_rows)
     ]
     epoch, conversation_id = member.consent_epoch, conversation.id
+    # A day's chat stays on its day when reopened, whatever the next request remembers.
+    focus_day = None
+    if use_v2:
+        focus_day = body.focus_date.isoformat() if body.focus_date else focus_date_of(history_rows)
     prior.content = {
         **prior.content,
+        **({"focus_date": focus_day} if focus_day else {}),
         "status": "processing",
         "attempts": prior.content.get("attempts", 0) + 1,
         "lease_until": (now() + timedelta(minutes=3)).isoformat(),
@@ -816,31 +1022,89 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     personal_space_id = access.personal_space_id
     await db.commit()
 
+    question_access = access_snapshot(access)
+
+    async def checked_access(check):
+        fresh = await access_for(check, user.id, client=client,
+                                 space_id=personal_space_id if access.enabled else None,
+                                 generation=generation)
+        current = fresh.member
+        if (
+            not current.profile.get("ai_consent")
+            or current.consent_epoch != epoch
+            or (use_v2 and not ask_v2_allowed(current.profile))
+        ):
+            raise HTTPException(403, "AI processing permission changed")
+        if use_v2 and access_snapshot(fresh) != question_access:
+            raise ContextChanged()
+        return fresh
+
     async def gate():
         from app.db.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as check:
-            fresh = await access_for(check, user.id, client=client,
-                                     space_id=personal_space_id if access.enabled else None,
-                                     generation=generation)
-            current = fresh.member
-            if not current.profile.get("ai_consent") or current.consent_epoch != epoch:
-                raise HTTPException(403, "AI processing permission changed")
+            await checked_access(check)
 
     provider.gate = gate
+    provider.old_path = not use_v2
+    published = None
     try:
         with ai_request_context(
             request_id=str(body.request_id), user_id=user.id, job_id=None, route="/api/v1/baby/chat"
         ):
-            result = await provider.answer(
-                message=body.message,
-                context=context,
-                history=history,
-                now_local=now().astimezone(zone).isoformat(timespec="minutes"),
-                context_pack=pack,
-                requested_range=requested_range,
-            )
+            if use_v2:
+                from app.domains.baby.ask_tools import AskTools
+                from app.domains.baby.ask_v2 import (
+                    answer_question,
+                    checked_answer_reply,
+                    question_reply,
+                )
+
+                published = await question_reply(provider, body.message)
+                if published:
+                    result, context, displays = AnswerOutput(message=published["message"]), [], {}
+                else:
+                    tools = AskTools(
+                        user_id=user.id, client=client, personal_space_id=personal_space_id,
+                        family=access.enabled, generation=generation, zone=zone, tracked=tracked,
+                        child_id=body.child_id, check=checked_access, provider=provider, question=body.message,
+                        focus_id=body.record_id,
+                        history=[item["message"] for item in history if item["message"] != body.message],
+                    )
+                    focus = {"kind": "entry", "record_id": str(body.record_id)} if body.record_id else (
+                        {"kind": "day", "date": focus_day} if focus_day else None
+                    )
+                    tools.forced_tools[:0] = [{"entry": "open_entry", "day": "day_log"}[focus["kind"]]] if focus else []
+                    if focus and focus["kind"] == "day":
+                        tools.permissions.add("logs")
+                    result = await answer_question(
+                        provider, tools=tools, message=body.message, history=history,
+                        now_local=now().astimezone(zone).isoformat(timespec="minutes"),
+                        context_pack=pack, focus=focus,
+                    )
+                    context, displays = list(tools.citable.values()), tools.displays
+                    published = await checked_answer_reply(
+                        provider, body.message, result.model_copy(update={"message": clean_assistant_message(result.message)}), tools,
+                    )
+            else:
+                from app.domains.baby import ask_v2
+
+                # Word lists can't catch every way of saying it, so the old path gets the question check too.
+                published = await ask_v2.old_path_reply(provider, body.message)
+                if published:
+                    result, context, displays = AnswerOutput(message=published["message"]), [], {}
+                else:
+                    result = await provider.answer(
+                        message=body.message,
+                        context=context,
+                        history=history,
+                        now_local=now().astimezone(zone).isoformat(timespec="minutes"),
+                        context_pack=pack,
+                        requested_range=requested_range,
+                    )
         allowed = {item["id"]: item for item in context}
+        if published:
+            result = result.model_copy(update={"citation_ids": published["citation_ids"], "proposal": published["proposal"]})
         if any(identifier not in allowed for identifier in result.citation_ids):
             raise ValueError("Unsupported citation")
         citations = [
@@ -852,8 +1116,10 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             }
             for identifier in dict.fromkeys(result.citation_ids)
         ]
-        proposal = reviewed_proposal(result.proposal)
+        proposal = offered_proposal(result.proposal) if use_v2 else legacy_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
+        if published:
+            payload.update(message=published["message"], sources=published["sources"], help=published["help"])
         access = await access_for(db, user.id, client=client,
                                   space_id=personal_space_id if access.enabled else None,
                                   generation=generation, write=True)
@@ -863,8 +1129,12 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             raise HTTPException(
                 403, "AI processing permission changed; this response was discarded"
             )
-        if access.enabled:
-            await verify_context(db, access, tracked)
+        if use_v2 and not ask_v2_allowed(current.profile):
+            raise HTTPException(
+                403, "AI processing permission changed; this response was discarded"
+            )
+        if access.enabled or use_v2:
+            await verify_context(db, access, tracked, generation=generation)
         # Legacy completion retains its existing citation revision check.
         for citation in citations if not access.enabled else []:
             current_record = await owned(db, BabyRecord, user.id, generation, UUID(citation["id"]))

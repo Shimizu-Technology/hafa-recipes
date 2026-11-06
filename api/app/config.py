@@ -94,6 +94,26 @@ class Settings(BaseSettings):
                 "cached_input_per_million": 0.20,
                 "output_per_million": 12.00,
             },
+            "gpt-6-luna": {
+                "input_per_million": 0.10,
+                "cached_input_per_million": 0.01,
+                "output_per_million": 0.50,
+            },
+            "gpt-6.1-terra": {
+                "input_per_million": 1.00,
+                "cached_input_per_million": 0.05,
+                "output_per_million": 5.00,
+            },
+            "gpt-6-astra": {
+                "input_per_million": 10.00,
+                "cached_input_per_million": 1.00,
+                "output_per_million": 50.00,
+            },
+            "claude-haiku-5-5": {
+                "input_per_million": 0.10,
+                "cached_input_per_million": 0.01,
+                "output_per_million": 0.50,
+            },
         }
     )
 
@@ -247,6 +267,16 @@ class Settings(BaseSettings):
     baby_worker_enabled: bool = False
     baby_ai_enabled: bool = False
     baby_ai_model: str = ""
+    baby_ask_v2_enabled: bool = False
+    # Who approved Ask's medical wording, and when. Production stays off without it.
+    baby_ask_clinician_approval: str = ""
+    baby_ask_model: str = "gpt-6-luna"
+    baby_ask_reasoning_effort: str = "low"
+    baby_ask_research_model: str = ""
+    baby_ask_research_reasoning_effort: str = "low"
+    # The small check before and after each answer. Without a verdict there's no answer.
+    baby_ask_safety_model: str = "gpt-6-luna"
+    baby_ask_safety_reasoning_effort: str = "low"
     baby_local_storage_dir: str | None = None
     baby_development_ai_api_key: SecretStr | None = None
     # Accept the record kinds that migration 055 allows. Set only after it is applied.
@@ -306,6 +336,9 @@ class Settings(BaseSettings):
 
         if self.openai_reasoning_effort not in {"none", "low", "medium", "high", "xhigh"}:
             raise ValueError("OPENAI_REASONING_EFFORT must be none, low, medium, high, or xhigh")
+        for effort in (self.baby_ask_reasoning_effort, self.baby_ask_research_reasoning_effort, self.baby_ask_safety_reasoning_effort):
+            if effort not in {"none", "low", "medium", "high", "xhigh", "max"}:
+                raise ValueError("Baby Ask reasoning effort must be none, low, medium, high, xhigh, or max")
         supported_canary_capabilities = {
             "recipe_extraction",
             "ocr",

@@ -187,6 +187,7 @@ async def record_ai_invocation(
     error_code: str | None,
     latency_ms: int,
     response: Any = None,
+    extra_cost_microusd: int = 0,
 ) -> None:
     """Persist and log only allowlisted operational metadata."""
 
@@ -203,6 +204,8 @@ async def record_ai_invocation(
             "output_tokens": usage["output_tokens"],
         },
     )
+    if cost is not None:
+        cost += extra_cost_microusd  # Priced per call rather than per token, such as a web search.
     provider_request_id = _value(response, "id")
     record = AIInvocation(
         request_id=context.request_id,
@@ -290,6 +293,7 @@ class AIInvocationTracker:
         self.status = "provider_error"
         self.error_code: str | None = "unclassified_provider_error"
         self.response: Any = None
+        self.extra_cost_microusd = 0
         self._started = 0.0
 
     async def __aenter__(self) -> "AIInvocationTracker":
@@ -337,6 +341,7 @@ class AIInvocationTracker:
             error_code=self.error_code,
             latency_ms=latency_ms,
             response=self.response,
+            extra_cost_microusd=self.extra_cost_microusd,
         )
         return False
 

@@ -58,6 +58,8 @@ class Profile(DomainModel):
     ai_consent: StrictBool = False
     auto_process_shares: StrictBool = False
     auto_process_epoch: Annotated[int, Field(strict=True, ge=0)] = 0
+    # Which disclosure this person acknowledged. Only the acknowledgment below raises it.
+    ai_consent_version: Annotated[int, Field(strict=True, ge=0)] = 0
 
     @field_validator("timezone")
     @classmethod
@@ -80,9 +82,9 @@ class ProfilePatch(DomainModel):
     timezone: str | None = Field(default=None, max_length=80)
     ai_consent: StrictBool | None = None
     auto_process_shares: StrictBool | None = None
-    # A later app may send these. This release has no use for them, and must not refuse its save.
-    ai_consent_version: object = None
-    acknowledge_ai_consent_version: object = None
+    # Apps send their whole cached profile back, so this field never changes anything.
+    ai_consent_version: Annotated[int, Field(strict=True, ge=0)] | None = None
+    acknowledge_ai_consent_version: Annotated[int, Field(strict=True, ge=1)] | None = None
 
 
 TrackerId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]
@@ -813,7 +815,7 @@ class ChatRequest(DomainModel):
     scope: Literal["all", "library", "journal", "care"] = "all"
     record_id: UUID | None = None
     child_id: UUID | None = None
-    # A later release's app sends these. After a rollback they're accepted and answered as an ordinary question.
+    # Sent by builds that can show web sources, and "Ask about this day". Older builds and the old path ignore them.
     ask_v2: StrictBool = False
     focus_date: date | None = None
 
@@ -822,6 +824,17 @@ class ChatRequest(DomainModel):
     def meaningful_message(cls, value):
         if not value.strip():
             raise ValueError("Enter a message")
+        return value.strip()
+
+
+class ConversationPatch(DomainModel):
+    title: str = Field(min_length=1, max_length=100)
+
+    @field_validator("title")
+    @classmethod
+    def meaningful_title(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a name")
         return value.strip()
 
 

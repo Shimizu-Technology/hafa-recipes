@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { friendlyDate } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
+import { ASK_UPDATE_TITLE, acknowledgeAsk, needsAskAcknowledgment } from "@/lib/ai-consent";
+import { CANT_ANSWER_LINE, answeredCalmly, unavailablePlaceholder } from "../lib/ask-sources";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
+import { AnswerText, WebSources } from "./ask-answer";
+import { AskHistory } from "./ask-history";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
-import type { Proposal } from "@/lib/models";
+import { kindName, type Proposal } from "@/lib/models";
 import { babyLabel, isCaregiver } from "../lib/spaces";
 import { Button, Card, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
@@ -19,8 +24,8 @@ const suggestions = [
 ];
 
 /**
- * Why Ask can't send yet, as one compact line above the question box. Consent still gates sending: the composer
- * stays read-only and Send disabled until AI processing is allowed in Settings.
+ * Why Ask can't answer most questions yet, as one compact line above the question box. The box itself always works:
+ * the server answers anything urgent with the AI off, and a person shouldn't have to find that out in Settings.
  */
 export function AiNotice({ service, consent }: { service: boolean; consent: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
@@ -38,6 +43,30 @@ export function AiNotice({ service, consent }: { service: boolean; consent: bool
     </PressTarget>}
   </View>;
 }
+/** Ask keeps working as it did. This only offers the new one, and nothing changes until it is accepted. */
+/** Whenever Ask can't answer: so a wording the urgent check misses, or no connection at all, still gets her to Help. */
+export function CantAnswer({ error }: { error: string }) {
+  return <>
+    <Notice error>{error}</Notice>
+    <Copy kind="small">{CANT_ANSWER_LINE}</Copy>
+    <Button secondary title="Open Help" onPress={() => router.push("/help")} />
+  </>;
+}
+
+export function AskUpdateNotice({ onReview }: { onReview: () => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <View accessibilityRole="summary" style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "flex-start" : "center",
+    gap: 10, paddingVertical: 10, paddingLeft: 14, paddingRight: 6, borderRadius: radii.notice, backgroundColor: c.tile }}>
+    <Icon name="sparkles-outline" size={18} color={c.accentText} />
+    <View style={{ flex: fontScale >= 1.5 ? undefined : 1 }}>
+      <Copy kind="small" tone="muted">{ASK_UPDATE_TITLE}: it can look through everything you can see, and search trusted sites online.</Copy>
+    </View>
+    <PressTarget accessibilityRole="button" accessibilityLabel="Review what Ask can do" onPress={onReview}
+      style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.accentText }}>Review</Text>
+    </PressTarget>
+  </View>;
+}
 /** Ask isn't part of helping as a caregiver, whichever link lands here. Her own chats stay stored, for when she leaves. */
 export default function AskScreen({ back = false }: { back?: boolean }) {
   return isCaregiver(useBaby().state.bootstrap)
@@ -48,20 +77,22 @@ function AskChat({ back }: { back: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
   const b = useBaby(),
-    params = useLocalSearchParams<{ record_id?: string }>(),
+    params = useLocalSearchParams<{ record_id?: string; date?: string }>(),
     { fontScale, height } = useWindowDimensions(),
     composerMinimum = Math.max(46, Math.ceil(17 * fontScale * 1.45 + 24)),
-    chat = useAskSession(params.record_id, screenFocused),
+    chat = useAskSession(params.record_id, screenFocused, params.date),
     { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
-  const focused = !!chat.context.record_id, askedAbout = b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id);
+  const focusedDay = chat.context.focus_date, focused = !!chat.context.record_id || !!focusedDay,
+    askedAbout = b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id),
+    focusedCategory = b.records.some((row) => row.id === chat.context.record_id && row.kind === "collection");
   async function review(proposal: Proposal) {
     const result = await chat.review(proposal);
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
   }
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
-    canSend = available && !busy && !chat.resolving && !!question.trim(),
+    canSend = !busy && !chat.resolving && !!question.trim(),
     c = useColors(),
-    answered = messages.some((m) => m.role === "assistant"),
+    answered = answeredCalmly(messages),
     seen = !!b.state.askNoticeSeen,
     // New chat and History stay in the header from every state. Neither can interrupt an answer on its way.
     locked = chat.resolving || busy,
@@ -88,20 +119,21 @@ function AskChat({ back }: { back: boolean }) {
       onRefresh={() => b.sync()}
       back={back}
       title={focused ? "Ask about this" : "Ask"}
-      subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
+      subtitle={focusedDay ? friendlyDate(focusedDay) : focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={<View style={{ gap: 10 }}>
         {!available && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
+        {available && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}
-            accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
+            accessibilityLabel={focusedDay ? "Ask about this day" : focusedCategory ? "Ask about this category" : focused ? "Ask about this source or entry" : "Your question"}
             value={question}
             onChangeText={chat.setQuestion}
             placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…"
-              : !b.state.bootstrap!.ai_available ? "Ask isn’t available yet" : "Turn on AI in Settings to ask"}
+              : unavailablePlaceholder(fontScale)}
             placeholderTextColor={c.muted}
-            editable={available && !busy && !chat.resolving}
+            editable={!busy && !chat.resolving}
             multiline
             maxLength={4000}
             maxFontSizeMultiplier={0}
@@ -128,42 +160,28 @@ function AskChat({ back }: { back: boolean }) {
       <Stack.Screen options={headerActions(back ? actions : <TabActions action={actions} />)} />
       {focused && (
         <>
-          <Notice>Questions use this saved entry and its own child profile, including general entries.</Notice>
-          <Button secondary title="Ask without a specific entry" onPress={() => chat.selectScope("all")} />
+          <Notice>{focusedDay ? "Questions start with this day’s log." : focusedCategory ? "Questions start with the posts in this category." : "Questions use this saved entry and its own child profile, including general entries."}</Notice>
+          <Button secondary title={focusedDay ? "Ask about everything" : "Ask without a specific entry"} onPress={() => chat.selectScope("all")} />
         </>
       )}
       <Copy kind="small" tone="muted">
         {[chat.context.child_id ? "For " + (askedAbout ? babyLabel(askedAbout, b.state.bootstrap) : "the conversation’s child profile") : "",
           // A conversation keeps searching where it began, so it says so next to the child.
-          focused ? (chat.context.child_id ? "" : "General / personal entry") : scopeLine[chat.context.scope]].filter(Boolean).join(" · ")}
+          focusedDay || focusedCategory ? "" : focused ? (chat.context.child_id ? "" : "General / personal entry") : scopeLine[chat.context.scope]].filter(Boolean).join(" · ")}
       </Copy>
       {chat.resolving && !busy && (
         <Button secondary title="Try opening this entry again" onPress={chat.retryFocus} />
       )}
-      {showHistory && (
-        <Section title="Your conversations">
-          {history.length ? (
-            <Grouped>{history.map((h) => (
-              <Row
-                key={h.id}
-                title={h.title || "A previous conversation"}
-                numericDetail
-                detail={h.updated_at ? new Date(h.updated_at).toLocaleDateString() : undefined}
-                icon="chatbubbles-outline"
-                onPress={() => void load(h.id)}
-              />
-            ))}</Grouped>
-          ) : (
-            <Copy tone="muted">Your conversations will appear here.</Copy>
-          )}
-        </Section>
-      )}
+      {showHistory && <AskHistory items={history} manageable={!!b.state.bootstrap!.ask_consent_version} onOpen={(id) => void load(id)}
+        onRename={chat.renameConversation} onDelete={chat.deleteConversation} />}
       {!showHistory && !messages.length && (
         <View style={{ gap: 12 }}>
-          <Copy kind="heading">{focused ? "Ask about this entry." : "Start with something on your mind."}</Copy>
+          <Copy kind="heading">{focusedDay ? "Ask about this day." : focusedCategory ? "Ask about this category." : focused ? "Ask about this entry." : "Start with something on your mind."}</Copy>
           <Copy tone="muted">
-            {focused
-              ? "Ask for a summary, find a detail, or draft a checklist from this source. You will review any proposed changes."
+            {focusedDay
+              ? "Ask for a summary or find a detail. You will review any proposed changes."
+              : focused
+              ? "Ask for a summary, find a detail, or draft a question for your doctor. You will review any proposed changes."
               : "Ask across your saved posts, journal and care logs. Try one of these:"}
           </Copy>
           {!focused && <Grouped separatorInset={16}>{suggestions.map((text) => (
@@ -192,11 +210,12 @@ function AskChat({ back }: { back: boolean }) {
           </View>
         ) : (
           <View key={m.id ?? index} style={{ gap: 12 }}>
-            <Copy>{readableCitations(m.content, m.citations)}</Copy>
+            {!!m.help && <Button title="Open Help" onPress={() => router.push("/help")} />}
+            <AnswerText text={readableCitations(m.content, m.citations)} sources={m.sources} />
             {!!m.citations?.length && (
               <View style={{ gap: 8 }}>
                 <Copy kind="small" tone="muted">
-                  From your saved entries
+                  From your entries
                 </Copy>
                 <Grouped>{m.citations.map((citation, sourceIndex) => (
                   <Row
@@ -210,17 +229,21 @@ function AskChat({ back }: { back: boolean }) {
                 ))}</Grouped>
               </View>
             )}
+            <WebSources sources={m.sources} />
             {m.proposal && (
               <Card tone="soft">
                 <Copy kind="heading">Proposed: {m.proposal.title}</Copy>
-                <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
-                <Button secondary title="Review suggestion" onPress={() => void review(m.proposal!)} />
+                {/* A build without an editor for this kind can't open it, so it says what to do instead. */}
+                {kindName[m.proposal.kind] ? <>
+                  <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
+                  <Button secondary title="Review suggestion" onPress={() => void review(m.proposal!)} />
+                </> : <Copy tone="muted">Nothing has been added. This version of the app can’t open this suggestion, so add it yourself if you’d like it.</Copy>}
               </Card>
             )}
           </View>
         )
       )}
-      {!!error && <Notice error>{error}</Notice>}
+      {!!error && <CantAnswer error={error} />}
       {busy && <Loading label="Looking through your saved entries…" />}
       {!showHistory && showNotice && (
         <Copy kind="small" tone="muted">

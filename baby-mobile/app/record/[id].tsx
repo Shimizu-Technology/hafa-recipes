@@ -244,7 +244,7 @@ export default function RecordDetail() {
         onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: record.kind } })}
       />
       {!isCaregiver(b.state.bootstrap) && <Row
-        title="Ask about this entry"
+        title={record.kind === "collection" ? "Ask about this category" : "Ask about this entry"}
         icon="sparkles-outline"
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
       />}

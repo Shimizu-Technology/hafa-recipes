@@ -49,10 +49,12 @@ export const cdcUrgentSigns: readonly { title: string; detail: string }[] = [
 export const cdcUrgentClosing = "This list is not meant to cover every symptom you might have. If you feel like something just isn't right, or you aren't sure if it's serious, talk to your health care provider. Be sure to tell them if you are pregnant or were pregnant within the last year.";
 
 /** Numbers to reach someone, with each service's own name. `sms` where the service says it takes texts. */
-export const helpLines: readonly { name: string; source?: { name: string; url: string }; actions: readonly { label: string; url: string }[] }[] = [
+export const helpLines: readonly { name: string; source?: { name: string; url: string }; note?: string; actions: readonly { label: string; url: string }[] }[] = [
   { name: "911", actions: [{ label: "Call 911", url: "tel:911" }] },
   { name: "988 Suicide & Crisis Lifeline", source: { name: "988lifeline.org", url: "https://988lifeline.org/" },
     actions: [{ label: "Call 988", url: "tel:988" }, { label: "Text 988", url: "sms:988" }] },
+  // Remove the note once a call and a text from a Guam phone are recorded.
   { name: "National Maternal Mental Health Hotline", source: { name: "HRSA", url: "https://mchb.hrsa.gov/national-maternal-mental-health-hotline" },
+    note: "We haven’t confirmed this number connects from Guam yet. If it doesn’t, call or text 988.",
     actions: [{ label: "Call 1-833-TLC-MAMA (1-833-852-6262)", url: "tel:18338526262" }, { label: "Text 1-833-TLC-MAMA (1-833-852-6262)", url: "sms:18338526262" }] },
 ];
