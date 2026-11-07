@@ -25,6 +25,7 @@ QUESTION_PROMPT = (
     "urgent: what the message describes as happening now or very recently. "
     "'baby_emergency' for a baby not breathing, severe trouble breathing (struggling for each breath or barely able to cry), "
     "blue or gray lips/tongue/face, inability to wake, very weak/not moving, grunting with each breath, or choking on an object. "
+    "Emergency signs take priority over every other baby sign: unresponsive, won’t respond or unable to wake means baby_emergency even with jerking or seizure. "
     "'baby_er' for green vomit, floppy muscle tone, weak suck or weak/strange cry, or a baby with ribs pulling in when breathing. "
     "'baby_unwell' for other baby signs needing care: less severe breathing trouble, a fall/injury, seizure or jerking, fever, no wet diapers or not feeding. "
     "'urgent_maternal' for a pregnant or postpartum parent who may need urgent care: heavy bleeding, severe headache or vision "
