@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import re
 import secrets
 import shutil
 import time
@@ -15,20 +16,27 @@ from sqlalchemy import text
 from app.ai_governance import ai_request_context
 from app.config import get_settings
 from app.db import AsyncSessionLocal
+from app.services.photo_posts import PhotoSourceError
 from app.services.video import VIDEO_ERROR_PATTERNS, get_friendly_video_error, video_service
+
+
+class PhotoCanaryFailure(Exception):
+    pass
+
 
 router = APIRouter(include_in_schema=False)
 CANARIES = {
     "instagram": "https://www.instagram.com/reel/DehHrUVg7kB/",
     "tiktok": "https://www.tiktok.com/@feelgoodfoodie/video/6922938178559069446",
     "youtube": "https://www.youtube.com/watch?v=ATVUcl3Bv4U",
+    "tiktok-photo": None,  # Authenticated workflow supplies its masked repository secret.
 }
 DEADLINE_SECONDS = 180
 ERROR_CODES = frozenset(item["code"] for item in VIDEO_ERROR_PATTERNS.values()) | {
     "SOURCE_RESPONSE_INVALID", "SOURCE_UNAVAILABLE", "INSTAGRAM_ERROR", "TIKTOK_ERROR",
     "YOUTUBE_ERROR", "UNKNOWN_ERROR", "MEDIA_BUSY", "TIMEOUT", "SYSTEM_ERROR",
     "NO_AUDIO", "AUDIO_TOO_LARGE", "VIDEO_TOO_LONG", "NO_VIDEO_FRAMES",
-    "VIDEO_FRAME_EXTRACTION_FAILED", "NO_METADATA", "CHECK_FAILED",
+    "VIDEO_FRAME_EXTRACTION_FAILED", "NO_METADATA", "CHECK_FAILED", "FIXTURE_MISSING",
 }
 
 
@@ -38,9 +46,9 @@ async def import_health(platform: str, request: Request):
     stage = "auth"
     platform = platform if platform in CANARIES else "unknown"
 
-    def result(code=None, http_status=503):
+    def result(code=None, http_status=503, status=None):
         return JSONResponse({
-            "status": "failed" if code else "ok", "platform": platform,
+            "status": status or ("failed" if code else "ok"), "platform": platform,
             "stage": stage, "error_code": code,
             "elapsed": round(time.monotonic() - started, 3),
         }, status_code=http_status if code else 200, headers={"Cache-Control": "no-store"})
@@ -62,6 +70,14 @@ async def import_health(platform: str, request: Request):
                 async for chunk in request.stream():
                     if chunk:
                         return result("INVALID_INPUT", 400)
+                fixture = None
+                if platform == "tiktok-photo":
+                    stage = "fixture"
+                    fixture = request.headers.get("x-import-health-fixture", "").strip()
+                    if not fixture:
+                        return result("NOT_CONFIGURED", 200, status="not_configured")
+                    if not re.fullmatch(r"https://www\.tiktok\.com/@[A-Za-z0-9._-]+/photo/\d+", fixture):
+                        return result("INVALID_INPUT", 400)
                 stage = "lock"
                 async with AsyncSessionLocal() as db, db.begin():
                     # Cross-worker overlap exclusion only, never a once/day claim.
@@ -70,7 +86,20 @@ async def import_health(platform: str, request: Request):
                     })
                     if not locked:
                         return result("CHECK_BUSY", 409)
-                    url = CANARIES[platform]
+                    url = fixture or CANARIES[platform]
+                    def photo_stage(value):
+                        nonlocal stage
+                        stage = value
+
+                    if platform == "tiktok-photo":
+                        from app.services.photo_posts import probe_photo_post
+
+                        stage = "metadata"
+                        photo = await probe_photo_post(video_service, url, on_stage=photo_stage)
+                        if photo["status"] != "ok":
+                            raise PhotoCanaryFailure()
+                        stage = "complete"
+                        return result()
                     stage = "metadata"
                     metadata = await video_service.get_video_metadata_ytdlp(url)
                     code = metadata.error_code
@@ -120,12 +149,21 @@ async def import_health(platform: str, request: Request):
                         code = code if code in ERROR_CODES else "CHECK_FAILED"
                     else:
                         stage = "complete"
+        except PhotoCanaryFailure:
+            code = "SOURCE_RESPONSE_INVALID"
+        except PhotoSourceError as exc:
+            code = exc.code
+            stage = exc.stage
+            if platform == "tiktok-photo" and code in {"VIDEO_PRIVATE", "VIDEO_REMOVED", "NOT_FOUND"}:
+                code, stage = "FIXTURE_MISSING", "fixture"
         except TimeoutError:
             code = "TIMEOUT"
         except Exception:
             code = "CHECK_FAILED"
-        if code:
+        if code and platform != "tiktok-photo":
             # One event per failed invocation; grouping is not deduplication.
+            # The new photo fixture is reported only by the workflow summary;
+            # no new Sentry alert until its alert owner/recipient is confirmed.
             with sentry_sdk.isolation_scope() as scope:
                 scope.set_tag("monitor", "import-health")
                 scope.set_tag("platform", platform)

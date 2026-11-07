@@ -62,11 +62,12 @@ MAX_IMAGE_BYTES = 4 * 1024 * 1024
 MAX_EXTRACTION_IMAGE_PIXELS = 4_000_000
 MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGES = 8
+MAX_PHOTO_IMAGES = 35
 MAX_WEB_BYTES = 2 * 1024 * 1024
 MAX_ACQUISITION_SECONDS = 90
 MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
-PROMPT_VERSION = "workout-extraction-evidence-v8"
+PROMPT_VERSION = "workout-extraction-evidence-v9"
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
 
@@ -163,6 +164,7 @@ class SourceBundle:
     parts: list[SourcePart] = field(default_factory=list)
     images: list[SourceImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    photo_slides: list[list[str]] | None = field(default=None, repr=False)
     paid_recovery_denied: bool = False
     acquisition_failures: list[AcquisitionFailure] = field(default_factory=list, repr=False)
     progress: ProgressCallback | None = field(default=None, repr=False, compare=False)
@@ -389,7 +391,9 @@ def provider_messages(source: SourceBundle) -> list[dict]:
         content.append(
             {"type": "image_url", "image_url": {"url": image.data_url, "detail": "high"}}
         )
-    return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}]
+    photo = ("\nRead text and labels on every supplied photo as primary source evidence when the caption is thin. "
+             "Preserve photo locations in evidence (image:0 is slide 1). Music/lyrics do not establish exercises or doses.") if source.photo_slides is not None else ""
+    return [{"role": "system", "content": SYSTEM_PROMPT + photo}, {"role": "user", "content": content}]
 
 
 def workout_response_format() -> dict:
@@ -737,6 +741,7 @@ class ProductionSourceAcquirer:
                 thumbnail_url=self._metadata_text(getattr(metadata, "thumbnail", None), 2000),
             )
         )
+        source.photo_slides = getattr(metadata, "photo_slides", None)
         source.acquisition_failures.extend(acquired.failures)
         if duration is not None and duration > get_settings().video_max_duration_seconds:
             raise ExtractionFailure("video_duration_limit", source=source)
@@ -757,16 +762,32 @@ class ProductionSourceAcquirer:
             return source
         deadline = deadline or asyncio.get_running_loop().time() + MAX_ACQUISITION_SECONDS
         normalized = source.metadata.url
-        if video_service.is_tiktok_photo_post(normalized):
+        if source.photo_slides is not None or video_service.is_tiktok_photo_post(normalized):
             await source.report("reading_images")
             try:
-                urls = await self._within_deadline(
-                    video_service.fetch_tiktok_photo_images(normalized), deadline
+                from app.services.photo_posts import PhotoSourceError, download_photo_images
+
+                slides = source.photo_slides
+                if slides is None:
+                    post = await self._within_deadline(video_service.fetch_photo_post(normalized), deadline)
+                    slides = post["slides"]
+                    source.metadata.title = source.metadata.title or self._metadata_text(post.get("title"), 200)
+                    source.metadata.creator = source.metadata.creator or self._metadata_text(post.get("uploader"), 200)
+                    caption = self._metadata_text(post.get("description"), 12000)
+                    if caption and not any(part.location == "caption" for part in source.parts):
+                        source.parts.append(SourcePart("caption", caption))
+                        if "caption" not in source.metadata.channels:
+                            source.metadata.channels.append("caption")
+                source.photo_slides = slides
+                images, notes = await download_photo_images(
+                    slides, deadline=deadline, referer=f"https://www.{source.metadata.platform}.com/",
                 )
-                source.images = await self._within_deadline(
-                    self._download_images(urls[:MAX_IMAGES]), deadline
-                )
-            except Exception:
+                source.images = [SourceImage(f"image:{index}", "data:image/webp;base64," + data, normalized=True)
+                                 for index, data in images]
+                source.metadata.coverage_notes.extend(notes)
+            except Exception as exc:
+                if isinstance(exc, PhotoSourceError):
+                    source.acquisition_failures.append(AcquisitionFailure("images", exc.code))
                 source.metadata.coverage_notes.append(
                     "Source images unavailable; available captions remain usable."
                 )
@@ -774,9 +795,10 @@ class ProductionSourceAcquirer:
             await self._audio(source, normalized, provider, video_service, deadline)
             await source.report("reading_frames")
             try:
-                frames = await self._within_deadline(
-                    video_service.extract_video_frames(normalized), deadline
-                )
+                if deadline - asyncio.get_running_loop().time() < 1:
+                    raise asyncio.TimeoutError
+                frame_reader = video_service.extract_video_frames
+                frames = await self._within_deadline(frame_reader(normalized), deadline)
                 if not frames.success or not frames.frames:
                     if getattr(frames, "error_code", None):
                         source.acquisition_failures.append(AcquisitionFailure("frames", frames.error_code))
@@ -2028,7 +2050,7 @@ class WorkoutExtractor:
             # share the same context bounds as an initial multimodal capture.
             if sum(len(part.text) for part in source.parts) > MAX_TEXT_CHARS:
                 raise ExtractionFailure("source_text_limit")
-            if (len(source.images) > MAX_IMAGES or sum(len(image.data_url) * 3 // 4
+            if (len(source.images) > (MAX_PHOTO_IMAGES if source.photo_slides is not None else MAX_IMAGES) or sum(image.payload_bytes
                                                        for image in source.images) > MAX_TOTAL_IMAGE_BYTES):
                 raise ExtractionFailure("source_image_limit")
             await source.report("extracting_workout")
@@ -2129,8 +2151,8 @@ class WorkoutExtractor:
             if sum(len(part.text) for part in source.parts) > MAX_TEXT_CHARS:
                 raise ExtractionFailure("source_text_limit")
             if (
-                len(source.images) > MAX_IMAGES
-                or sum(len(image.data_url) * 3 // 4 for image in source.images)
+                len(source.images) > (MAX_PHOTO_IMAGES if source.photo_slides is not None else MAX_IMAGES)
+                or sum(image.payload_bytes for image in source.images)
                 > MAX_TOTAL_IMAGE_BYTES
             ):
                 raise ExtractionFailure("source_image_limit")

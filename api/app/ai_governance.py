@@ -24,7 +24,7 @@ PROMPT_VERSIONS = {
     "recipe_extraction": "recipe-extraction-v4",
     "pasted_text": "recipe-pasted-text-v3",
     "ocr": "recipe-ocr-v4",
-    "tiktok_slideshow": "recipe-tiktok-slideshow-v2",
+    "tiktok_slideshow": "recipe-tiktok-slideshow-v3",
     "video_frames": "recipe-video-frames-v3",
     "image_classification": "recipe-image-classification-v1",
     "cover_selection": "recipe-cover-v1",

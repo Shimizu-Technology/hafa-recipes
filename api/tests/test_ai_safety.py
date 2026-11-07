@@ -549,7 +549,7 @@ async def test_tiktok_photo_metadata_uses_killable_async_process(monkeypatch):
         async def communicate(self):
             self.returncode = 0
             return (
-                b'{"entries":[{"url":"https://cdn.example.test/photo.jpg"}]}',
+                b'{"slides":[["https://cdn.example.test/photo.jpg"]]}',
                 b"",
             )
 

@@ -276,18 +276,20 @@ async def test_monitor_unexpected_failure_does_not_expose_exception(monitor):
     assert "secret" not in response.text and not monitor.locks
 
 
-@pytest.mark.parametrize("failure", [None, "missing_token", "service", "malformed", "timeout", "curl"])
+@pytest.mark.parametrize("failure", [None, "missing_token", "service", "photo", "malformed", "timeout", "curl"])
 def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_results(
     monkeypatch, tmp_path, capsys, failure,
 ):
     workflow = (Path(__file__).parents[2] / ".github/workflows/import-health.yml").read_text()
     script = textwrap.dedent(workflow.split("python3 - <<'PY'\n")[1].rsplit("          PY", 1)[0])
+    assert "secrets.TIKTOK_PHOTO_CANARY_URL" in workflow and "vars.TIKTOK_PHOTO_CANARY_URL" not in workflow
     assert "schedule:" in workflow and "workflow_dispatch:" in workflow
     assert "pull_request:" not in workflow and "cancel-in-progress: false" in workflow
-    assert "contents: read" in workflow and "timeout-minutes: 12" in workflow
+    assert "contents: read" in workflow and "timeout-minutes: 16" in workflow
     summary = tmp_path / "summary"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     monkeypatch.setenv("IMPORT_HEALTH_TOKEN", "" if failure == "missing_token" else "synthetic-secret")
+    monkeypatch.setenv("TIKTOK_PHOTO_CANARY_URL", "https://www.tiktok.com/@synthetic/photo/123")
     calls = []
 
     def curl(argv, **kwargs):
@@ -298,8 +300,11 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
         assert '--retry' not in argv and '--location' not in argv
         assert argv[argv.index("--max-time") + 1] == "210"
         assert kwargs["timeout"] == 220 and 'Bearer synthetic-secret' in kwargs["input"]
+        assert ("X-Import-Health-Fixture: https://www.tiktok.com/@synthetic/photo/123" in kwargs["input"]) == (platform == "tiktok-photo")
         response = {"platform": platform, "status": "ok", "stage": "complete",
                     "error_code": None, "elapsed": 12.0}
+        if platform == "tiktok-photo" and failure == "photo":
+            response.update(status="failed", stage="images", error_code="SOURCE_RESPONSE_INVALID")
         if platform == "instagram":
             if failure == "timeout":
                 raise subprocess.TimeoutExpired("curl", 220)
@@ -309,7 +314,7 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
                 response.update(stage="private provider caption", error_code="cookie secret")
         Path(argv[argv.index("--output") + 1]).write_text(json.dumps(response))
         return SimpleNamespace(returncode=28 if failure == "curl" else 0,
-                               stdout="503" if failure == "service" and platform == "instagram" else "200")
+                               stdout="503" if (failure == "service" and platform == "instagram") or (failure == "photo" and platform == "tiktok-photo") else "200")
 
     monkeypatch.setattr(subprocess, "run", curl)
     with pytest.raises(SystemExit) as stopped:
@@ -318,8 +323,74 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
     if failure == "missing_token":
         assert not calls
     else:
-        assert calls == ["instagram", "tiktok", "youtube"]
+        assert calls == ["instagram", "tiktok", "youtube", "tiktok-photo"]
         output = summary.read_text() + capsys.readouterr().out
         assert "synthetic-secret" not in output and "cookie secret" not in output
         assert "private provider caption" not in output
         assert output.count("| instagram |") == 1
+
+
+@pytest.mark.parametrize("photo_status", ["ok", "failed"])
+async def test_photo_canary_requires_caption_and_every_slide_without_audio(monitor, monkeypatch, photo_status):
+    probe = AsyncMock(return_value={"status": photo_status, "slides": 2, "images_read": 2, "caption_chars": 30})
+    monkeypatch.setattr("app.services.photo_posts.probe_photo_post", probe)
+    response = await monitor.client.post("/internal/import-health/tiktok-photo", headers={"X-Import-Health-Fixture":"https://www.tiktok.com/@synthetic/photo/123"})
+    assert response.status_code == (200 if photo_status == "ok" else 503)
+    assert response.json()["error_code"] == (None if photo_status == "ok" else "SOURCE_RESPONSE_INVALID")
+    monitor.service.download_audio.assert_not_awaited()
+    monitor.service.extract_video_frames.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("stage", "code"), [(stage, "SOURCE_RESPONSE_INVALID") for stage in
+    ["metadata", "page_maintenance", "page_read", "page_shape"]] + [("page_status", "SOURCE_UNAVAILABLE")])
+async def test_photo_canary_metadata_error_keeps_safe_stage_and_redactor_tags(monitor, monkeypatch, stage, code):
+    from app.domains.workouts.privacy import redact_workouts_event
+    from app.services.photo_posts import PhotoSourceError
+    monitor.service.fetch_photo_post = AsyncMock(side_effect=PhotoSourceError(code, stage=stage))
+    response = await monitor.client.post("/internal/import-health/tiktok-photo", headers={"X-Import-Health-Fixture":"https://www.tiktok.com/@synthetic/photo/123"})
+    assert response.status_code == 503 and response.json()["stage"] == stage
+    assert response.json()["error_code"] == code
+    event = redact_workouts_event({"tags":{"monitor":"import-health", "platform":"tiktok-photo", "stage":stage}, "message":"private"})
+    assert event["tags"]["platform"] == "tiktok-photo" and event["tags"]["stage"] == stage
+    assert "private" not in str(event)
+
+async def test_unconfigured_photo_fixture_is_not_configured_without_reading_or_new_sentry_alert(monitor):
+    response=await monitor.client.post("/internal/import-health/tiktok-photo")
+    assert response.status_code==200 and response.json()["error_code"]=="NOT_CONFIGURED"
+    assert response.json()["status"] == "not_configured"
+    assert response.json()["stage"]=="fixture"
+    monitor.service.get_video_metadata_ytdlp.assert_not_awaited()
+    monitor.capture.assert_not_called()
+
+@pytest.mark.parametrize("code",["VIDEO_PRIVATE","VIDEO_REMOVED","NOT_FOUND"])
+async def test_disappeared_photo_fixture_is_not_parser_drift(monitor,code):
+    from app.services.photo_posts import PhotoSourceError
+    monitor.service.fetch_photo_post=AsyncMock(side_effect=PhotoSourceError(code,stage="page_status"))
+    response=await monitor.client.post("/internal/import-health/tiktok-photo",headers={"X-Import-Health-Fixture":"https://www.tiktok.com/@synthetic/photo/123"})
+    assert response.status_code==503 and response.json()["error_code"]=="FIXTURE_MISSING"
+    assert response.json()["stage"]=="fixture"
+    monitor.capture.assert_not_called()
+
+
+@pytest.mark.parametrize("instagram_failure", [False, True])
+def test_scheduled_unconfigured_photo_is_skipped_without_hiding_other_failures(monkeypatch, tmp_path, capsys, instagram_failure):
+    workflow = (Path(__file__).parents[2] / ".github/workflows/import-health.yml").read_text()
+    script = textwrap.dedent(workflow.split("python3 - <<'PY'\n")[1].rsplit("          PY", 1)[0])
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary"))
+    monkeypatch.setenv("IMPORT_HEALTH_TOKEN", "synthetic")
+    monkeypatch.delenv("TIKTOK_PHOTO_CANARY_URL", raising=False)
+    calls = []
+    def curl(argv, **kwargs):
+        platform = argv[-1].rsplit("/", 1)[-1]
+        calls.append(platform)
+        failed = platform == "instagram" and instagram_failure
+        Path(argv[argv.index("--output") + 1]).write_text(json.dumps({"platform":platform,
+            "status":"failed" if failed else "ok", "stage":"metadata" if failed else "complete",
+            "error_code":"RATE_LIMITED" if failed else None, "elapsed":1}))
+        return SimpleNamespace(returncode=0, stdout="503" if failed else "200")
+    monkeypatch.setattr(subprocess, "run", curl)
+    with pytest.raises(SystemExit) as stopped:
+        exec(compile(script, "import-health.yml", "exec"), {})
+    assert bool(stopped.value.code) == instagram_failure
+    assert calls == ["instagram", "tiktok", "youtube"]
+    assert "tiktok-photo: not configured stage=fixture code=NOT_CONFIGURED" in capsys.readouterr().out
