@@ -29,6 +29,9 @@ public final class HafaBabyShareModule: Module {
     Function("clear") { (keepWaiting: Bool?, recoveringOwner: String?) throws in
       try self.safely { _ = try BabyShareSession.disable(storage: self.store(), preserveUnassigned: keepWaiting ?? false, recoveringOwner: recoveringOwner) }
     }
+    AsyncFunction("suspendSession") { () async throws in
+      try await BabyShareSession.clear(storage: self.store(), lapse: true)
+    }
     AsyncFunction("clearSession") { (preserveUnassigned: Bool?) async throws in
       try await BabyShareSession.clear(storage: self.store(), preserveUnassigned: preserveUnassigned ?? false)
     }

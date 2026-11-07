@@ -58,7 +58,7 @@ export function ShareCapture() {
               if (!(await returnClaim(native.token, owner))) { retry = true; return; }
               settle("failed");
               sharesChanged();
-              Alert.alert("Your share is still on this phone", "Your personal space changed while adding it. Tap Add again to keep it in your saved posts.");
+              Alert.alert("Your share is still on this phone", "Your personal space changed while adding it. Check your waiting shares and saved posts. Shares can be added within 30 days.");
               continue;
             }
             if (!acknowledge(native.token)) return;

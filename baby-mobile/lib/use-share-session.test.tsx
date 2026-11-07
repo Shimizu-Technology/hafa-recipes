@@ -2,16 +2,16 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mock = vi.hoisted(() => ({ baby: null as any, foreground: null as null | ((state: string) => void), previous: null as string | null,
-  clearSession: vi.fn(async () => undefined), configureSession: vi.fn(async () => undefined), noteSignedIn: vi.fn(async () => undefined) }));
+const mock = vi.hoisted(() => ({ signedIn: true, baby: null as any, foreground: null as null | ((state: string) => void), previous: null as string | null,
+  suspendSession: vi.fn(async () => undefined), clearSession: vi.fn(async () => undefined), configureSession: vi.fn(async () => undefined), noteSignedIn: vi.fn(async () => undefined) }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" }, AppState: { addEventListener: (_: string, fn: (state: string) => void) => { mock.foreground = fn; return { remove() {} }; } } }));
-vi.mock("@clerk/expo", () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: true }) }));
+vi.mock("@clerk/expo", () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: mock.signedIn }) }));
 vi.mock("./context", () => ({ useBaby: () => mock.baby }));
 vi.mock("./config", () => ({ configuration: { apiBase: "https://api.test" } }));
-vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, sessionOwner: async () => mock.previous, clearSession: mock.clearSession,
+vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, sessionOwner: async () => mock.previous, clearSession: mock.clearSession, suspendSession: mock.suspendSession,
   installationId: async () => "install", configureSession: mock.configureSession, noteSignedIn: mock.noteSignedIn }));
 vi.mock("./share-session-state", async (original) => ({ ...(await original<object>()) }));
-vi.mock("../modules/hafa-baby-share/src", () => ({ clearSession: mock.clearSession }));
+vi.mock("../modules/hafa-baby-share/src", () => ({ clearSession: mock.clearSession, suspendSession: mock.suspendSession }));
 import { askForShareSession } from "./share-session-state";
 import { ShareSessionGuard, useShareSession } from "./use-share-session";
 
@@ -28,7 +28,7 @@ const mount = async (baby: any) => {
   mock.baby = baby;
   await act(async () => { renderer = create(<Probe />); });
 };
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); mock.previous = null; });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); mock.previous = null; mock.signedIn = true; });
 afterEach(async () => { await act(async () => renderer?.unmount()); vi.unstubAllGlobals(); });
 
 describe("the share sheet's sign-in note", () => {
@@ -131,4 +131,14 @@ describe("the share credential", () => {
     await mount(account({}));
     expect(mock.clearSession).toHaveBeenCalledTimes(1);
   });
+});
+
+it("a signed-out lapse suspends authority without privacy-clearing originals, including retry after unlock", async () => {
+  mock.signedIn = false;
+  mock.suspendSession.mockRejectedValueOnce(Error("protected data locked"));
+  await act(async () => { renderer = create(<ShareSessionGuard />); });
+  expect(mock.suspendSession).toHaveBeenCalledOnce();
+  expect(mock.clearSession).not.toHaveBeenCalled();
+  await act(async () => { mock.foreground?.("active"); });
+  expect(mock.suspendSession).toHaveBeenCalledTimes(2);
 });

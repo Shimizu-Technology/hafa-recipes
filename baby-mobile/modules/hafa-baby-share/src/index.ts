@@ -43,6 +43,7 @@ const bridge = requireOptionalNativeModule<{
   installationId(): Promise<string>;
   configureSession(token: string, base: string, expires: string, owner: string, generation: number, automaticEpoch: number, destination: string | null): Promise<void>;
   sessionOwner(): Promise<string | null>;
+  suspendSession(): Promise<void>;
   clearSession(preserveUnassigned: boolean): Promise<void>;
   removalShareCount(): Promise<number>;
   waitingShareCount(): Promise<number>;
@@ -63,6 +64,7 @@ export const acknowledgeShare = (token: string) => bridge?.acknowledge(token) ??
 export const clearPendingShares = (keepWaiting = false, recoveringOwner: string | null = null) => bridge?.clear(keepWaiting, recoveringOwner);
 export const installationId = () => bridge?.installationId() ?? Promise.reject(Error("Native sharing unavailable"));
 export const sessionOwner = () => bridge?.sessionOwner() ?? Promise.resolve(null);
+export const suspendSession = () => bridge?.suspendSession() ?? Promise.resolve();
 export const clearSession = (preserveUnassigned = false) => bridge?.clearSession(preserveUnassigned) ?? Promise.resolve();
 export const removalShareCount = () => bridge?.removalShareCount() ?? Promise.resolve(0);
 export const waitingShareCount = () => bridge?.waitingShareCount() ?? Promise.resolve(0);
