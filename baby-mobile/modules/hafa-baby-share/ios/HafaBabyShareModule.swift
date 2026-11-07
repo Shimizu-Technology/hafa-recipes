@@ -23,6 +23,7 @@ public final class HafaBabyShareModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("HafaBabyShare")
+    AsyncFunction("noteSignedIn") { () throws in try self.safely { try self.store().noteSignedIn() } }
     AsyncFunction("pending") { () throws -> [String: Any]? in try self.safely { try self.snapshot() } }
     Function("acknowledge") { (token: String) throws -> Bool in try self.safely { try self.store().acknowledge(token) } }
     Function("clear") { (keepWaiting: Bool?, recoveringOwner: String?) throws in

@@ -1,8 +1,9 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { useBaby } from "./context";
 import type { BabyRecord, Kind } from "./models";
 import { allPages } from "./use-events";
+import { replaceRecord } from "./outbox";
 import { withVisitRows } from "./visits";
 
 /**
@@ -36,4 +37,26 @@ export function useVisitRecords(id: string | undefined, loose = false) {
     })().catch(() => undefined);
     return () => { active = false; };
   }, [id, loose, b.state.bootstrap?.generation]));
+}
+
+/** Occurrence lists omit the event's space; resolve it before offering a write. */
+export function useVisitEvent(id: string | undefined) {
+  const b = useBaby(), event = id ? b.records.find((row) => row.id === id && row.kind === "event") : undefined,
+    [unavailable, setUnavailable] = useState(false), [, redraw] = useState(0), latest = useRef(b);
+  latest.current = b;
+  useEffect(() => {
+    if (!id || event && !event.cache_partial) return;
+    let active = true; setUnavailable(false);
+    const account = latest.current, lease = account.api.lease(), generation = account.state.bootstrap?.generation;
+    void account.api.record(id).then(async (found) => {
+      if (!active || !account.current()) return;
+      await account.commit((state) => {
+        account.api.assertLease(lease);
+        return state.bootstrap?.generation === generation ? { ...state, records: replaceRecord(state.records, found) } : state;
+      });
+      if (active && account.current()) redraw((value) => value + 1);
+    }).catch(() => { if (active) setUnavailable(true); });
+    return () => { active = false; };
+  }, [id, event?.id, event?.cache_partial, b.state.bootstrap?.generation]);
+  return { event, unavailable };
 }

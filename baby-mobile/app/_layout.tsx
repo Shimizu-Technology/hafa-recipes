@@ -51,6 +51,8 @@ function Routes() {
         <Stack.Screen name="record/[id]" />
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="privacy-data" />
         <Stack.Screen name="family" />
         <Stack.Screen name="child" />
         <Stack.Screen name="what-shows" />
