@@ -5,7 +5,7 @@ import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { contractionDetail, hourLine, lastHour, ownContractions, runningContractions, secondsWords, withGaps } from "@/lib/contractions";
 import { messageFor, type BabyRecord } from "@/lib/models";
-import { cdcWarningSignsLine, cdcWarningSignsSource, cdcWarningSignsUrl, contractionGuidance, contractionSourceUrl, pretermSourceUrl } from "@/lib/medical-wording";
+import { cdcWarningSignsLine, cdcWarningSignsSource, cdcWarningSignsUrl, contractionGuidance, contractionSourceUrl, pretermSourceUrl, medlinePretermSourceUrl } from "@/lib/medical-wording";
 import { careWrite, logCare, queueSessionAction } from "@/lib/quick-care";
 import { friendlyTime } from "@/lib/care-format";
 import { pregnancyProgress, profileToday, timingChild } from "@/lib/timing";
@@ -84,7 +84,8 @@ export default function Contractions() {
     </View>
     <Copy kind="small">This timer records contractions. Your care team tells you when to call or go in.</Copy>
     <MedicalSource source="ACOG, when labor begins" url={contractionSourceUrl} />
-    <MedicalSource source="MedlinePlus, preterm labor" url={pretermSourceUrl} />
+    <MedicalSource source="ACOG, preterm labor" url={pretermSourceUrl} />
+    <MedicalSource source="MedlinePlus, preterm labor" url={medlinePretermSourceUrl} />
     <HealthNote />
   </Screen>;
 }

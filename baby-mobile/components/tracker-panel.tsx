@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { babyFeverLine, babyFeverUrl, cdcWarningSignsUrl } from "../lib/medical-wording";
+import { babyFeverLine, babyFeverUrl, babyTemperatureNote, babyIllnessUrl, cdcWarningSignsUrl, postpartumBloodPressureLine, postpartumBloodPressureRoute, postpartumBloodPressureUrl } from "../lib/medical-wording";
 import { MedicalSource } from "./medical-source";
 import { bodyLimit, overBy } from "../lib/text-limits";
 import { useEffect, useRef, useState } from "react";
@@ -145,11 +145,17 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
     {behind && <OnThisPhone />}
     {id === "temperature" && <>
       <Copy kind="small">{babyFeverLine}</Copy>
+      <Copy kind="small">{babyTemperatureNote}</Copy>
+      <MedicalSource source="AAP, fever in a young baby" url={babyIllnessUrl} />
       <MedicalSource source="AAP, fever and your baby" url={babyFeverUrl} />
       <Button secondary title="Open Help" onPress={() => router.push("/help")} />
     </>}
     {id === "blood_pressure" && <>
-      <Copy kind="small">This saves a reading without assessing it. Ask your care team what readings need a call. For urgent symptoms, seek care immediately.</Copy>
+      <Copy kind="small">This saves a reading without assessing it. During pregnancy, ask your care team what readings need a call and keep their plan.</Copy>
+      <Copy kind="label">After delivery, ACOG says:</Copy>
+      <Copy kind="small">{`“${postpartumBloodPressureLine}”`}</Copy>
+      <Copy kind="small">{postpartumBloodPressureRoute}</Copy>
+      <MedicalSource source="ACOG, after childbirth" url={postpartumBloodPressureUrl} />
       <MedicalSource source="CDC, urgent maternal warning signs" url={cdcWarningSignsUrl} />
       <Button secondary title="Open Help" onPress={() => router.push("/help")} />
     </>}

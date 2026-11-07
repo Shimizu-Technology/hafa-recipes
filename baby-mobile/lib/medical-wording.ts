@@ -15,13 +15,41 @@ export const cdcMovementDetail = "You feel that your baby has stopped moving or 
 /** Reviewed F3/F4. No timing rule or “okay” result. Unknown week retains the preterm warning. */
 export function contractionGuidance(pregnancyWeek: number | undefined): string {
   return pregnancyWeek === undefined || pregnancyWeek < 37
-    ? "Before 37 weeks, regular or frequent contractions or tightening, even without pain, can be a sign of preterm labor. Call your care team right away or go to the hospital."
+    ? "Before 37 weeks, don’t wait if you have any signs of preterm labor. Call your care team right away or go to the hospital. Signs include regular or frequent contractions or tightening, often painless; mild abdominal cramps with or without diarrhea; watery, bloody or mucus discharge, or more discharge; pelvic or lower belly pressure; a constant low, dull backache; or your water breaking with a gush or trickle."
     : "If you think you’re in labor or aren’t sure, call your care team. Go to the hospital if your water breaks without contractions, you bleed heavily, have constant severe pain, or your baby moves less.";
 }
 export const contractionSourceUrl = "https://www.acog.org/womens-health/faqs/how-to-tell-when-labor-begins";
-export const pretermSourceUrl = "https://medlineplus.gov/ency/patientinstructions/000486.htm";
+export const pretermSourceUrl = "https://www.acog.org/womens-health/faqs/preterm-labor-and-birth";
+export const medlinePretermSourceUrl = "https://medlineplus.gov/ency/patientinstructions/000486.htm";
 export const babyFeverUrl = "https://www.healthychildren.org/English/health-issues/conditions/fever/Pages/Fever-and-Your-Baby.aspx";
-export const babyFeverLine = "For a baby 3 months or younger, AAP says to call the doctor immediately for a rectal temperature of 100.4°F (38°C) or higher, even with no other symptoms.";
+export const babyFeverLine = "For a baby 3 months or younger, call the doctor immediately at 100.4°F (38°C) or higher, even without other symptoms. AAP uses this fever cutoff for rectal, mouth, ear and forehead readings; underarm fever may have a lower cutoff.";
+
+
+export const babyIllnessUrl = "https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Newborn+Illness+-+How+to+Recognize";
+export const babyBreathingUrl = "https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Breathing+Trouble";
+export const babyTemperatureNote = "Rectal readings are most reliable for infants. AAP advises against ear thermometers under 6 months. For fever under 12 weeks, do not give fever medicine before being seen.";
+export const babyEmergencySigns = [
+  "Not breathing or severe trouble breathing: struggling for each breath, or barely able to cry.",
+  "Blue or gray lips, tongue or face.",
+  "Can’t be woken, not moving or very weak.",
+  "New moaning or grunting with each breath.",
+] as const;
+export const newbornErSigns = [
+  "Green vomit (bile).",
+  "Floppy or decreased muscle tone.",
+  "A weak suck or difficulty keeping up sucking.",
+  "A weak or strange cry.",
+] as const;
+export const feedingWarningSigns = [
+  "Breastfeeding fewer than 8 times in 24 hours most days.",
+  "Not seeing or hearing swallowing, trouble staying latched, clicking sounds, or fussiness after breastfeeding.",
+  "Continued weight loss after day 5.",
+  "Fewer than 6 wet diapers and fewer than 3 stools per day by 5 days old.",
+  "Skin that looks yellow.",
+] as const;
+export const postpartumBloodPressureUrl = "https://www.acog.org/womens-health/experts-and-stories/the-latest/3-conditions-to-watch-for-after-childbirth";
+export const postpartumBloodPressureLine = "Call your doctor right away if you check your blood pressure and get a systolic reading of 140 mm Hg or higher and/or a diastolic reading of 90 mm Hg or higher.";
+export const postpartumBloodPressureRoute = "If you can’t reach your ob-gyn, or if you feel you need immediate care, call 911 or go to the hospital.";
 
 /** CDC’s warning signs were rechecked live on 2026-11-07. Urgent actions stay before any disclosure. */
 export const cdcUrgentOpening = "Urgent maternal warning signs, during pregnancy and in the year after delivery. Seek medical care immediately if you experience any signs or symptoms that are listed below. The symptoms below can be a sign of a life-threatening condition.";

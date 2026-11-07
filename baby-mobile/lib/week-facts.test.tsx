@@ -138,3 +138,11 @@ describe("after birth", () => {
     expect(renderer!.root.findAll((n) => String(n.type) === "PressTarget").map((n) => n.props.accessibilityLabel).join()).toContain("healthychildren.org");
   });
 });
+
+
+it("shows AAP’s whole-body shaking warning with the week-3 jitteriness fact", async () => {
+  mock.approved = true;
+  await act(async () => { renderer = create(<AgeFacts age={{ unit: "week", age: 3 }} />); });
+  expect(words()).toContain("jerky or jittery");
+  expect(words()).toContain("If your baby’s whole body is shaking, call their doctor.");
+});

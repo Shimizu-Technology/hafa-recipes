@@ -1,7 +1,7 @@
 import { HealthNote } from "../components/health-note";
 import { Linking, View } from "react-native";
 import { router } from "expo-router";
-import { cdcUrgentClosing, cdcUrgentOpening, cdcUrgentSigns, cdcWarningSignsSource, cdcWarningSignsUrl, helpLines, babyFeverLine, babyFeverUrl, cdcReuseNote } from "@/lib/medical-wording";
+import { cdcUrgentClosing, cdcUrgentOpening, cdcUrgentSigns, cdcWarningSignsSource, cdcWarningSignsUrl, helpLines, babyFeverLine, babyFeverUrl, babyIllnessUrl, babyBreathingUrl, babyEmergencySigns, newbornErSigns, feedingWarningSigns, babyTemperatureNote, cdcReuseNote } from "@/lib/medical-wording";
 import { useBabyIfSignedIn } from "@/lib/context";
 import { callLines, nextContactPrompt } from "../lib/contacts";
 import { profileToday } from "@/lib/timing";
@@ -29,6 +29,28 @@ export default function Help() {
       {callLines(bootstrap, today).map((call) => <CallContact key={call.key} line={call} />)}
       {!!prompt && <QuietRow title={prompt.title} onPress={() => router.push(prompt.child ? { pathname: "/child", params: { id: prompt.child, doctor: "1" } } : { pathname: "/profile", params: { open: prompt.open } })} />}
     </View>
+    <Section title="When your baby seems unwell">
+      <Copy kind="label">Call 911 now for these baby emergency signs</Copy>
+      <Button title="Call 911 now for your baby" onPress={() => open("tel:911", "Call 911")} />
+      {babyEmergencySigns.map((sign) => <Copy key={sign}>{`• ${sign}`}</Copy>)}
+      <MedicalSource source="AAP, newborn emergency signs" url={babyIllnessUrl} />
+      <MedicalSource source="AAP, breathing trouble" url={babyBreathingUrl} />
+      <Copy kind="label">Go to the ER now for these newborn signs</Copy>
+      {newbornErSigns.map((sign) => <Copy key={sign}>{`• ${sign}`}</Copy>)}
+      <MedicalSource source="AAP, when a newborn needs the ER" url={babyIllnessUrl} />
+      <Copy>Call your baby’s doctor now if your baby seems sick or hurt. This is not every warning sign.</Copy>
+      <Copy>{babyFeverLine}</Copy>
+      <Copy>{babyTemperatureNote}</Copy>
+      <MedicalSource source="AAP, fever and your baby" url={babyFeverUrl} />
+      <MedicalSource source="AAP, fever in a young baby" url={babyIllnessUrl} />
+      <Copy>Blood in poop, or white, grey or unusually pale poop, needs your baby’s doctor. Call them rather than waiting for a pattern in the logs.</Copy>
+      <MedicalSource source="AAP, stool colours" url="https://www.healthychildren.org/English/ages-stages/baby/Pages/The-Many-Colors-of-Poop.aspx" />
+      <Copy kind="label">Feeding and diaper warning signs</Copy>
+      <Copy>CDC lists these concerns for newborn breastfeeding. Speak to your baby’s doctor right away if you are worried. These are warning signs, not a feeding schedule or a verdict from your logs.</Copy>
+      {feedingWarningSigns.map((sign) => <Copy key={sign}>{`• ${sign}`}</Copy>)}
+      <Copy>These logs cannot tell you that your baby is okay.</Copy>
+      <MedicalSource source="CDC, newborn breastfeeding basics" url="https://www.cdc.gov/infant-toddler-nutrition/breastfeeding/newborn-basics.html" />
+    </Section>
     <Section title="Urgent maternal warning signs">
       <Copy>{cdcUrgentOpening}</Copy>
       <View style={{ gap: 4 }}>
@@ -38,15 +60,7 @@ export default function Help() {
       <MedicalSource source={cdcWarningSignsSource} url={cdcWarningSignsUrl} />
       <Copy kind="small" tone="muted">{cdcReuseNote}</Copy>
     </Section>
-    <Section title="When your baby seems unwell">
-      <Copy>Call your baby’s doctor now if your baby seems sick or hurt. In an emergency, call 911.</Copy>
-      <Copy>{babyFeverLine}</Copy>
-      <MedicalSource source="AAP, fever and your baby" url={babyFeverUrl} />
-      <Copy>Blood in poop, or white, grey or unusually pale poop, needs your baby’s doctor. Call them rather than waiting for a pattern in the logs.</Copy>
-      <MedicalSource source="AAP, stool colours" url="https://www.healthychildren.org/English/ages-stages/baby/Pages/The-Many-Colors-of-Poop.aspx" />
-      <Copy>If you are worried about feeding or your baby’s health, call their doctor right away. These logs cannot tell you that your baby is okay.</Copy>
-      <MedicalSource source="CDC, newborn breastfeeding basics" url="https://www.cdc.gov/infant-toddler-nutrition/breastfeeding/newborn-basics.html" />
-    </Section>
+
     <HealthNote />
   </Screen>;
 }

@@ -560,3 +560,22 @@ describe("from the re-check of #543", () => {
     expect(onOpen).toHaveBeenCalledWith(true, expect.any(Number));
   });
 });
+
+
+it("shows ACOG’s fixed postpartum 140 and/or 90 call route before any reading is entered", async () => {
+  setup(); await mount(); await press("Blood pressure");
+  const text = JSON.stringify(renderer!.toJSON());
+  expect(text).toContain("After delivery, ACOG says:");
+  expect(text).toContain("Call your doctor right away if you check your blood pressure and get a systolic reading of 140 mm Hg or higher and/or a diastolic reading of 90 mm Hg or higher.");
+  expect(text).toContain("If you can’t reach your ob-gyn");
+  expect(text).toContain("call 911 or go to the hospital");
+  expect(text).toContain("without assessing it");
+  expect(saved()).toEqual([]);
+});
+
+it("shows fever-method caveats on the temperature form, not just Help", async () => {
+  setup(); await mount(); await press("Temperature");
+  const text = JSON.stringify(renderer!.toJSON());
+  for (const phrase of ["100.4°F (38°C)", "mouth, ear and forehead", "underarm fever may have a lower cutoff", "under 6 months", "under 12 weeks", "do not give fever medicine before being seen"])
+    expect(text).toContain(phrase);
+});
