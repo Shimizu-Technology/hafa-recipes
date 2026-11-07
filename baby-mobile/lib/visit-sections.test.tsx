@@ -3,7 +3,11 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EventOccurrence, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, focuses: new Set<() => void>(), upcoming: [] as any[], push: vi.fn(), toast: vi.fn(), ids: 0 }));
+const mock = vi.hoisted(() => ({ baby: null as any, focuses: new Set<() => void>(), upcoming: [] as any[], push: vi.fn(), toast: vi.fn(), ids: 0, deferEffects: false }));
+vi.mock("react", async () => {
+  const actual = await vi.importActual<typeof import("react")>("react");
+  return { ...actual, useEffect: (run: Parameters<typeof actual.useEffect>[0], deps: Parameters<typeof actual.useEffect>[1]) => actual.useEffect(mock.deferEffects ? () => undefined : run, deps) };
+});
 vi.mock("react-native", () => ({ View: "View" }));
 vi.mock("expo-router", () => ({ router: { push: mock.push }, useFocusEffect: (fn: () => void) => React.useEffect(() => { mock.focuses.add(fn); fn(); return () => { mock.focuses.delete(fn); }; }, [fn]) }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `id-${++mock.ids}` }));
@@ -43,7 +47,7 @@ async function add(label: string, action: string, text: string) {
   await act(async () => { all("Field").find((n) => n.props.label === label)!.props.onChange(text); });
   await act(async () => { await all("Button").find((n) => n.props.title === action)!.props.onPress(); });
 }
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.ids = 0; mock.upcoming = []; mock.focuses.clear(); });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.ids = 0; mock.upcoming = []; mock.focuses.clear(); mock.deferEffects = false; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("adds a question from the appointment through the outbox, links it, and clears for the next", async () => {
@@ -369,6 +373,20 @@ describe("family visit capture", () => {
     b.state.bootstrap.spaces.find((space: any) => space.id === "f").role = "parent";
     await act(async () => renderer!.update(<VisitSections visit={visit} />));
     expect(all("Choice").filter((n) => n.props.label === "Keep to myself")[1].props.selected).toBe(true);
+  });
+  it("keeps a caregiver's retained Shared note private before passive narrowing effects run", async () => {
+    const b = family(); await mount(<VisitSections visit={visit} />);
+    await act(async () => all("Choice").filter((n) => n.props.label === "Share with the family on this visit")[1].props.onPress());
+    await act(async () => all("Field").find((n) => n.props.label === "In your words")!.props.onChange("Retained shared words"));
+    await act(async () => renderer!.unmount());
+    b.state.bootstrap.spaces.find((space: any) => space.id === "f").role = "caregiver";
+    mock.deferEffects = true;
+    await mount(<VisitSections visit={visit} />);
+    const said = all("Copy").map((n) => n.props.children).join(" ");
+    expect(said).not.toContain("Shared with family on this visit.");
+    expect(said).toContain("It won’t be attached to the shared visit.");
+    await act(async () => { await all("Button").find((n) => n.props.title === "Save this note")!.props.onPress(); });
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "p", record: { data: { event_id: null } } });
   });
   it("preserves a caregiver's permitted question capture on their own personal visit", async () => {
     const b = family("caregiver"), personal = { ...visit, id: "personal-visit", space_id: "p", child_id: null };

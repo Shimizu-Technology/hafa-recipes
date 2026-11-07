@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { keepInPersonal, addMutation, localFileUris, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState, holdEditor, sendHeldToFamily } from "./outbox";
 import legacy from "./fixtures/legacy-family-39-40.json";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
-import { visitWriteProblem, visitLinkMessage, keepVisitInPersonal } from "./outbox";
+import { retryVisitLinks, visitWriteProblem, visitLinkMessage, keepVisitInPersonal } from "./outbox";
 
 const personal = "personal-space", family = "family-space";
 const boot = (): Bootstrap => ({ generation: 2, ai_available: false, profile: { display_name: "", timezone: "UTC", ai_consent: false }, personal_space_id: personal,
@@ -482,4 +482,13 @@ it("omits an absent optional held section at each mutation and generation fence"
   expect(Object.hasOwn(addMutation(none, edit("new")), "heldDrafts")).toBe(false);
   expect(Object.hasOwn(fencedState(none, { generation: 3, spaces: boot().spaces }), "heldDrafts")).toBe(false);
   expect(Object.hasOwn(fencedState(none, { generation: 2, spaces: boot().spaces!.map((s) => ({ ...s, generation: 9 })) }), "heldDrafts")).toBe(false);
+});
+
+
+it("does not auto-retry a same-space server refusal without a proven earlier mismatch", () => {
+  const event = { ...row("visit", 1), kind: "event" as const }, note = { ...edit("note"), error: visitLinkMessage, record: write("note", "journal", null, { event_id: event.id }) } as Mutation;
+  const current = state({ records: [event], outbox: [note] });
+  expect(retryVisitLinks(current, current)).toBe(current);
+  expect(retryVisitLinks(current, state({ outbox: [note] }))).toBe(current);
+  expect(retryVisitLinks(current, state({ records: [{ ...event, space_id: family }], outbox: [note] })).outbox[0].error).toBeUndefined();
 });
