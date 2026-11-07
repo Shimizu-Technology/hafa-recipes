@@ -30,3 +30,13 @@ export function importProblem(error?: string | null) {
   if (error === aiUnavailableMessage) return aiUnavailableMessage;
   return "Some information could not be extracted. Your original source is kept.";
 }
+
+
+// Only server-owned codes map to visible text; never display arbitrary detail.
+export const sourceRefusalMessages: Readonly<Record<string, string>> = {
+  source_retry_limit: "This post reached its processing limit. Your saved reading and originals are kept. You can still add screenshots or notes.",
+  source_queue_full: "Five posts are already waiting. Let them finish before processing another. You can still add screenshots or notes.",
+  source_daily_limit: "Today's import allowance is used. Your library is available. Try tomorrow; you can still add screenshots or notes.",
+  source_already_processing: "This post is already processing. Wait for it to finish; you can still add screenshots or notes.",
+  source_attachment_limit: "A post can keep up to eight attachments. Remove one before adding another screenshot.",
+};

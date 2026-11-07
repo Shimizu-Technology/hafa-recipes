@@ -26,6 +26,7 @@ import {
   trackingStep,
   withSettled,
   withoutChain,
+  withoutRefusedRetry,
   queuedChain,
   laterChangesNotice,
   feedEdit,
@@ -596,4 +597,18 @@ describe("what a save was built on", () => {
       expect(feedEdit(bottle)).toBe(bottle);
     });
   });
+});
+
+it("clearing a refused reread keeps later screenshot edits, originals and drafts", () => {
+  const original = optimisticRecord({id:"source",kind:"source",title:"Saved",body:"",child_id:null,occurred_at:"2026-11-07T00:00:00Z",data:{attachment_ids:["original"]}});
+  const state: DeviceState = {...emptyState(), records:[original], outbox:[
+    {id:"refused",type:"import",record_id:original.id,generation:1,error:"Processing limit",files:[]},
+    {id:"screenshot-edit",type:"save",generation:1,record:{...original,data:{attachment_ids:["original","new-shot"]}},files:[{id:"shot",uri:"file:///screenshot.png",name:"Screenshot",mime:"image/png"}] as any,base:{after:["refused"]}},
+  ]};
+  const cleared = withoutRefusedRetry(state, "refused");
+  expect(cleared.outbox.map((item) => item.id)).toEqual(["screenshot-edit"]);
+  expect(cleared.records).toEqual(state.records);
+  expect(cleared.fileUploads).toEqual(state.fileUploads);
+  expect(cleared.settled?.refused).toEqual({discarded:true});
+  expect(pendingRecords(cleared)[0].data.attachment_ids).toEqual(["original","new-shot"]);
 });

@@ -5,6 +5,9 @@ const mock = vi.hoisted(() => ({ baby: null as any, caregiver: false, consent: v
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/ai-consent", () => ({ ensureAiConsent: (...args: any[]) => mock.consent(...args) }));
 vi.mock("@/lib/spaces", () => ({ isCaregiver: () => mock.caregiver }));
+vi.mock("../lib/spaces", () => ({ rowFence: () => 1 }));
+vi.mock("../lib/outbox", () => ({ withoutRefusedRetry: (state: any, id: string) => ({ ...state, outbox: state.outbox.filter((item: any) => item.id !== id) }) }));
+vi.mock("@/lib/import-status", () => import("./import-status"));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "mutation-id" }));
 vi.mock("expo-router", () => ({ router: { push: (...args: any[]) => mock.push(...args) } }));
 vi.mock("@/lib/models", () => import("./models"));
@@ -13,7 +16,8 @@ vi.mock("../components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy
 vi.mock("../components/disclosure", () => ({ Disclosure: "Disclosure" }));
 import { SourceContent } from "../components/source-content";
 import { Linking } from "react-native";
-import { importRetryable } from "./import-status";
+import { importRetryable, sourceRefusalMessages } from "./import-status";
+import { ImportUpdates } from "../components/import-updates";
 import { SourceRecovery } from "../components/source-recovery";
 import type { BabyRecord } from "./models";
 it("shows read failures and the original above disclosures on an older API source", async () => {
@@ -40,7 +44,7 @@ const onError = vi.fn();
 async function recovery(record = source()) {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mock.caregiver = false; mock.consent.mockResolvedValue(true); mock.baby = { owner: "owner",
-    state: { bootstrap: { generation: 1 }, outbox: [], imports: [] }, queue: vi.fn(async () => {}) };
+    state: { bootstrap: { generation: 1 }, outbox: [], imports: [] }, commit: vi.fn(async (update: any) => { mock.baby.state = update(mock.baby.state); }), queue: vi.fn(async () => {}) };
   await act(async () => { recoveryView = create(<SourceRecovery record={record} onError={onError} />); });
   return recoveryView!;
 }
@@ -58,7 +62,7 @@ it("works with a current API source that has no new user_text field", async () =
   expect(mock.baby.queue.mock.calls[0][0].text).toBeUndefined();
   expect(record.data.source_text).toBe("Previous caption and AI labels");
 });
-it.each(["ready", "queued", "processing", undefined])("doesn't offer an improvement action for %s", async (status) => {
+it.each(["queued", "processing", undefined])("doesn't offer an improvement action for %s", async (status) => {
   const record = source(); record.data.status = status as any;
   expect((await recovery(record)).toJSON()).toBeNull();
 });
@@ -106,4 +110,37 @@ it("keeps older saved text separate from a new read and never resubmits it", asy
   await act(async () => view.root.findAllByType("Button" as React.ElementType)[0].props.onPress());
   expect(mock.baby.queue.mock.calls[0][0].text).toBeUndefined();
   await act(async () => content.unmount());
+});
+
+it("keeps a quiet re-read action on a ready source", async () => {
+  const view = await recovery(source("ready"));
+  expect(JSON.stringify(view.toJSON())).toContain("Process this post again");
+  await act(async () => view.root.findAllByType("Button" as React.ElementType)[0].props.onPress());
+  expect(mock.baby.queue).toHaveBeenCalledTimes(1);
+});
+it.each(Object.entries(sourceRefusalMessages))("shows and clears %s without blocking screenshots", async (_code, error) => {
+  const record = source(); const view = await recovery(record);
+  mock.baby.state.outbox = [{ id: "refused", type: "import", record_id: record.id, error }];
+  await act(async () => view.update(<SourceRecovery record={record} onError={onError} />));
+  const buttons = view.root.findAllByType("Button" as React.ElementType);
+  expect(JSON.stringify(view.toJSON())).toContain(error);
+  expect(JSON.stringify(view.toJSON())).not.toContain("Waiting to process");
+  const screenshots = buttons.find((item) => item.props.title === "Add screenshots or missing text")!;
+  expect(screenshots.props.disabled).toBe(false);
+  await act(async () => screenshots.props.onPress());
+  expect(mock.push).toHaveBeenCalledTimes(1);
+  await act(async () => buttons.find((item) => item.props.title === "Clear processing request")!.props.onPress());
+  expect(mock.baby.state.outbox).toEqual([]);
+});
+
+it.each(Object.values(sourceRefusalMessages))("Library retry shows the refusal: %s", async (error) => {
+  await recovery();
+  mock.baby.state.imports = [{id:"job", record_id:"saved-post", status:"incomplete"}];
+  mock.baby.records = [source()];
+  mock.baby.api = {retryJob: vi.fn(async () => { throw Error(error); })};
+  await act(async () => recoveryView!.update(<ImportUpdates />));
+  const button = recoveryView!.root.findAllByType("Button" as React.ElementType).find((item) => item.props.title === "Retry processing")!;
+  await act(async () => button.props.onPress());
+  expect(JSON.stringify(recoveryView!.toJSON())).toContain(error);
+  expect(mock.baby.api.retryJob).toHaveBeenCalledTimes(1);
 });
