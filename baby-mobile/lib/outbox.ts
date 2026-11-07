@@ -3,7 +3,7 @@ import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
 import { withSessionAction } from "./session-actions";
 import { deviceVersion, careKinds, pendingChanges } from "./models";
 import { trackedKinds } from "./trackers";
-import { familySpaces, remindersOn, generationOf, goneBabyMessage, spaceForNew, spacesLive, stuckTapMessage, unavailableMessage } from "./spaces";
+import { caregiverCanWrite, familySpaces, remindersOn, generationOf, goneBabyMessage, spaceForNew, spacesLive, stuckTapMessage, unavailableMessage } from "./spaces";
 import type { BabyRecord, Bootstrap, Child, DeviceState, EditorDraft, ImportJob, Kind, Mutation, RecordWrite, SaveBase, SettledChange } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
@@ -51,13 +51,14 @@ function targetOf(state: DeviceState, m: Mutation) {
 }
 export function addMutation(state: DeviceState, mutation: Mutation) {
   if (state.outbox.some((m) => m.id === mutation.id)) return state;
+  const { heldDrafts: _, ...rest } = state;
   const space = spacesLive(state.bootstrap) ? mutation.space_id ?? targetOf(state, mutation) : undefined,
     stamped = space ? { ...mutation, space_id: space, generation: generationOf(state.bootstrap, space) ?? mutation.generation } : mutation,
     unbased = stamped.type === "save" && !stamped.base;
   const queued = unbased && stamped.type === "save" ? { ...stamped, base: baseOf(state, stamped.record.id) } : stamped,
     heldDrafts = queued.type === "save" ? state.heldDrafts?.filter((held) => held.followups?.length || held.draft.space_id !== space ||
       !(["id", "kind", "title", "body", "child_id", "occurred_at", "revision"] as const).every((key) => held.draft[key] === queued.record[key]) || !same(held.draft.data, queued.record.data) || !same(held.draft.files, queued.files)) : state.heldDrafts;
-  return { ...state, heldDrafts, outbox: [...state.outbox, queued] };
+  return { ...rest, ...(heldDrafts ? { heldDrafts } : {}), outbox: [...state.outbox, queued] };
 }
 /** The queued changes already in the copy she sees. An editor keeps this from the moment it opens. */
 export function baseOf(state: DeviceState, id: string): SaveBase {
@@ -129,7 +130,7 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, dueReminders: ____, dismissing: _____, upcomingReminders: ______, ...rest } = state,
+    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, dueReminders: ____, dismissing: _____, upcomingReminders: ______, heldDrafts: _______, ...rest } = state,
       kept = (id?: string) => !!id && surviving.has(id),
       familyBaby = (id?: string | null) => kept(state.bootstrap?.children?.find((child) => child.id === id)?.space_id),
       outbox = state.outbox.filter((m) => kept(m.space_id)),
@@ -143,7 +144,7 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
       fileUploads: Object.fromEntries(Object.entries(state.fileUploads).filter(([id]) => fileIds.has(id))),
       fileReleases: [],
       drafts,
-      heldDrafts,
+      ...(heldDrafts ? { heldDrafts } : {}),
       outbox,
       imports: state.imports.filter((job) => kept(job.space_id)),
       selectedChild: familyBaby(state.selectedChild) ? state.selectedChild : null,
@@ -154,11 +155,12 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
     };
   }
   if (retired.size) {
+    const { heldDrafts, ...rest } = state;
     const gone = (id?: string) => !!id && retired.has(id);
     return {
-      ...state,
+      ...rest,
       records: state.records.filter((row) => !gone(row.space_id)),
-      heldDrafts: state.heldDrafts?.filter((held) => !gone(held.draft.space_id)),
+      ...(heldDrafts ? { heldDrafts: heldDrafts.filter((held) => !gone(held.draft.space_id)) } : {}),
       drafts: Object.fromEntries(Object.entries(state.drafts).filter(([, draft]) => !gone(draft.space_id))),
       outbox: state.outbox.filter((m) => !gone(m.space_id)),
       ...(state.dueReminders ? { dueReminders: state.dueReminders.filter((item) => !gone(item.space_id)) } : {}),
@@ -340,10 +342,11 @@ function quarantineEditorSaves(saved: DeviceState): DeviceState {
       implicit = ["feed_action", "session_action", "delete", "event_split", "import"].includes(m.type),
       prior = base ? based?.at : implicit ? records.map((id) => latest.get(key(space, id))).find((at) => at !== undefined) : undefined;
     if (uncertain && m.type === "save") {
-      heldDrafts.push({ id: m.id, uncertain: !m.draft_only, draft: { ...m.record, files: m.files, space_id: space, generation: m.generation, existing: !!m.record.revision } });
-      remember(m, heldDrafts.length - 1, space); changed = true;
+      const known = heldDrafts.findIndex((held) => held.id === m.id);
+      if (known < 0) heldDrafts.push({ id: m.id, uncertain: !m.draft_only, draft: { ...m.record, files: m.files, space_id: space, generation: m.generation, existing: !!m.record.revision } });
+      remember(m, known < 0 ? heldDrafts.length - 1 : known, space); changed = true;
     } else if (prior !== undefined) {
-      const held = heldDrafts[prior]; heldDrafts[prior] = { ...held, followups: [...(held.followups ?? []), m] };
+      const held = heldDrafts[prior]; heldDrafts[prior] = { ...held, followups: held.followups?.some((one) => one.id === m.id) ? held.followups : [...(held.followups ?? []), m] };
       remember(m, prior, space); changed = true;
     } else {
       if (m.type === "save" && !base && !m.left_space && !("localOnly" in m)) { outbox.push({ ...m, base: { after: outbox.filter((earlier) => mutationRecordIds(earlier).includes(m.record.id)).map((earlier) => earlier.id) } }); changed = true; }
@@ -381,14 +384,20 @@ export function keepHeldDraft(state: DeviceState, id: string, uuid: () => string
 }
 /** The later saved words stay separately reviewable, without guessing which snapshot she wants. */
 export const latestHeldSave = (held: NonNullable<DeviceState["heldDrafts"]>[number]) => [...(held.followups ?? [])].reverse().find((m): m is Extract<Mutation, { type: "save" }> => m.type === "save");
-export const withoutHeldDraft = (state: DeviceState, id: string) => queueRemovedUploads(state, { ...state, heldDrafts: state.heldDrafts?.filter((one) => one.id !== id) });
+export const withoutHeldDraft = (state: DeviceState, id: string) => state.heldDrafts ? queueRemovedUploads(state, { ...state, heldDrafts: state.heldDrafts.filter((one) => one.id !== id) }) : state;
+/** A caregiver may recover care, but not a question, journal, source or import they cannot share. */
+export function canSendHeldToFamily(state: DeviceState, held: NonNullable<DeviceState["heldDrafts"]>[number]) {
+  const family = state.bootstrap?.spaces?.find((one) => one.id === held.draft.space_id && one.kind === "family");
+  return !!held.uncertain && !!family && family.generation === held.draft.generation && (family.role === "parent" ||
+    family.role === "caregiver" && caregiverCanWrite(held.draft.kind) && (held.followups ?? []).every((m) =>
+      m.type === "save" ? caregiverCanWrite(m.record.kind) : ["feed_action", "session_action", "delete", "event_split"].includes(m.type)));
+}
 /** An explicit Save decision for ambiguous old work. Original delivery IDs preserve idempotency. */
 export function sendHeldToFamily(state: DeviceState, id: string): DeviceState {
-  const held = state.heldDrafts?.find((one) => one.id === id), space = held?.draft.space_id,
-    family = state.bootstrap?.spaces?.find((one) => one.id === space && one.kind === "family" && one.role === "parent");
-  if (!held?.uncertain || !family || family.generation !== held.draft.generation) return state;
+  const held = state.heldDrafts?.find((one) => one.id === id), space = held?.draft.space_id;
+  if (!held || !canSendHeldToFamily(state, held)) return state;
   const { kind, title, body, child_id, occurred_at, data, revision } = held.draft;
-  const save: Mutation = { id: held.id, type: "save", base: { after: [] }, space_id: space, generation: family.generation,
+  const save: Mutation = { id: held.id, type: "save", base: { after: [] }, space_id: space, generation: held.draft.generation!,
     record: { id: held.draft.id, kind, title, body, child_id, occurred_at, data, ...(revision ? { revision } : {}) }, files: held.draft.files };
   return { ...state, heldDrafts: state.heldDrafts!.filter((one) => one.id !== id), outbox: [...state.outbox, save, ...(held.followups ?? []).map(retryMutation)] };
 }

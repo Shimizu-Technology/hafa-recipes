@@ -285,3 +285,13 @@ it("offers an explicit confirmed Send to family for ambiguous old work", async (
   await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Send to family")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
   expect(b.state.outbox).toMatchObject([{ id: "old-delivery", space_id: "f", base: { after: [] } }]); expect(b.state.heldDrafts).toEqual([]); expect(b.sync).toHaveBeenCalledOnce();
 });
+
+it.each([false, true])("only offers confirmed Send for ambiguous work, never a true unfinished draft (uncertain %s)", async (uncertain) => {
+  const b = setup([]);
+  b.state.bootstrap = { generation: 1, children: [], personal_space_id: "p", spaces: [{ id: "f", kind: "family", role: "parent", generation: 1 }] };
+  b.state.heldDrafts = [{ id: "h", uncertain, draft: { id: "row", kind: "journal", title: "My words", body: "Unfinished", child_id: null, occurred_at: "2026-11-07T00:00:00Z", data: {}, files: [], space_id: "f", generation: 1 } }];
+  await act(async () => { renderer = create(<Sync />); });
+  const send = renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Send to family");
+  expect(send).toHaveLength(uncertain ? 1 : 0);
+  if (uncertain) { send[0].props.onPress(); expect(b.commit).not.toHaveBeenCalled(); expect(scope.alerts.at(-1)!.buttons.map((b) => b.text)).toContain("Keep reviewing"); }
+});

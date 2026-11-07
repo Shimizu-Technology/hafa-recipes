@@ -44,3 +44,15 @@ it("shows the upgrade explanation together with the unfinished-draft count", asy
   const row = view.root.findAll((n) => String(n.type) === "Row")[0];
   expect(row.props.title).toBe("1 unfinished draft"); expect(row.props.detail).toBe(heldUpgradeNotice);
 });
+
+it("shows a rejected-tap notice alongside held work, even after an upgrade notice", async () => {
+  await render(); scope.account.state.outbox = []; scope.account.state.heldDrafts = [{ id: "held", draft: {} }];
+  scope.account.state.feedNotices = [heldUpgradeNotice, "A tap could not be applied"];
+  scope.account.commit = vi.fn();
+  await act(async () => view.update(<SyncStatus />));
+  const rows = view.root.findAll((n) => String(n.type) === "Row");
+  expect(rows.map((n) => n.props.title)).toContain("A tap wasn’t added");
+  expect(rows.map((n) => n.props.title)).toContain("1 unfinished draft");
+  rows.find((n) => n.props.title === "A tap wasn’t added")!.props.onPress();
+  expect(scope.account.commit.mock.calls[0][0](scope.account.state).feedNotices).toEqual([heldUpgradeNotice]);
+});

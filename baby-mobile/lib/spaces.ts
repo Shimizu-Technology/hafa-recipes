@@ -37,6 +37,7 @@ export const rowFence = (row: { generation?: number; space_id?: string }, genera
   row.space_id && row.generation !== undefined ? { generation: row.generation, space_id: row.space_id } : generation;
 /** Mirrors the API's list: what a caregiver may read and write in a family. */
 const caregiverKinds = new Set<Kind>(["feeding", "sleep", "diaper", "routine", "event", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth", "milestone", "custom"]);
+export const caregiverCanWrite = (kind: Kind) => caregiverKinds.has(kind);
 /** A log about her, not the baby. It goes with her, not with the family. */
 export const herLog = (record: Pick<RecordWrite, "kind" | "data" | "child_id">) => !record.child_id && trackerFor(record)?.about === "her";
 /**

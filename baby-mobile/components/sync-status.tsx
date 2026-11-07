@@ -4,16 +4,17 @@ import { noticeTitle, waitingToSend, recoverySummary, heldUpgradeNotice } from "
 import { Copy, Icon, PressTarget, Row, useColors } from "./ui";
 export function SyncStatus() {
   const b = useBaby(), c = useColors();
-  const notice = b.state.feedNotices?.[0], drafts = b.state.heldDrafts?.length ?? 0;
-  if (notice && !drafts) return <Row title={noticeTitle(notice)} detail={notice} icon="information-circle-outline" hint="Dismisses this" trailing={<Icon name="close" size={17} color={c.muted} />}
-    onPress={() => void b.commit((state) => ({ ...state, feedNotices: state.feedNotices?.slice(1) }))} />;
+  const drafts = b.state.heldDrafts?.length ?? 0, notice = b.state.feedNotices?.find((one) => !drafts || one !== heldUpgradeNotice);
+  if (notice) return <><Row title={noticeTitle(notice)} detail={notice} icon="information-circle-outline" hint="Dismisses this" trailing={<Icon name="close" size={17} color={c.muted} />}
+    onPress={() => void b.commit((state) => ({ ...state, feedNotices: state.feedNotices?.filter((one) => one !== notice) }))} />
+    {!!drafts && <Row title={recoverySummary(b.state)} detail="Your unfinished words stay on this phone. Review them when you’re ready." icon="document-text-outline" onPress={() => router.push("/sync")} />}</>;
   const waiting = waitingToSend(b.state), failed = waiting.filter(m => (m.error || m.conflict) && !m.localOnly).length;
   // Not reaching Håfa isn't a problem to fix: her work waits here, and goes when it can.
   if (failed || (b.error && !b.unreachable))
     return <Row title={failed ? `${failed} change${failed === 1 ? " needs" : "s need"} attention` : "Sync needs attention"}
       detail={[(!b.unreachable && b.error) || "Your work is safe on this phone. Review the failed changes.", drafts ? `${drafts} unfinished draft${drafts === 1 ? " is" : "s are"} also kept here.` : ""].filter(Boolean).join(" ")}
       icon="cloud-upload-outline" onPress={() => router.push("/sync")} />;
-  if (drafts) return <Row title={recoverySummary(b.state)} detail={notice === heldUpgradeNotice ? notice : "Your unfinished words stay on this phone. Review them when you’re ready."} icon="document-text-outline" onPress={() => router.push("/sync")} />;
+  if (drafts) return <Row title={recoverySummary(b.state)} detail={b.state.feedNotices?.includes(heldUpgradeNotice) ? heldUpgradeNotice : "Your unfinished words stay on this phone. Review them when you’re ready."} icon="document-text-outline" onPress={() => router.push("/sync")} />;
   const offline = !b.online || b.unreachable;
   if (!offline && !waiting.length) return null;
   const message = offline ? waiting.length ? "Saved on this phone · offline" : "Offline · showing what’s on this phone"

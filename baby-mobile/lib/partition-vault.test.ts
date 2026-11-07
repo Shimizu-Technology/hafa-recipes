@@ -238,3 +238,12 @@ it("fences held-drafts-only storage from the shipped build 35 vault and round-tr
   expect(await make().read()).toEqual(state);
   await expect(build35(f.secret, "held-owner", f.uuid, f.files).read()).rejects.toThrow(/recovery|overwritten/);
 });
+
+it("omits any undefined optional section, including projected values and previously saved sections", async () => {
+  const f = fixture(), make = () => createPartitionVault(f.secret, "owner", f.uuid, f.files, (section, v) => section === "projected" ? undefined : v);
+  await make().write({ outbox: ["queued"], heldDrafts: [], feedTimer: { record_id: "running" }, projected: 1 });
+  expect(await make().read()).toEqual({ outbox: ["queued"], heldDrafts: [], feedTimer: { record_id: "running" } });
+  await make().write({ outbox: ["queued"], heldDrafts: undefined, feedTimer: undefined, bootstrap: undefined, futureOptionalField: undefined });
+  expect(await make().read()).toEqual({ outbox: ["queued"] });
+  expect([...f.disk.values()]).not.toContain("heldDrafts:undefined");
+});

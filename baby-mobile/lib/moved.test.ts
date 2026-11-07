@@ -404,3 +404,38 @@ it("deduplicates an identical departure snapshot only after an explicit late Sav
   expect(saved.heldDrafts).toEqual([]);expect(saved.outbox.map((m) => m.id)).toEqual(["late-save"]);
   expect(addMutation(left, { id: "different-save", type: "save", space_id: family, generation: 1, record: { ...write("entry"), body: "different" }, files: [] }).heldDrafts).toHaveLength(1);
 });
+
+it("does not duplicate a held row re-added by older-build recovery, or its import", () => {
+  const held = upgradedState(state({ outbox: legacy.rejoined as Mutation[] }));
+  const recovered = { ...held, outbox: legacy.rejoined as Mutation[] };
+  const next = upgradedState(recovered);
+  expect(next.heldDrafts).toEqual(held.heldDrafts);
+  expect(next.outbox).toEqual([]);
+});
+it("normalizes fresh old Saves before later edits establish their dependency baseline", () => {
+  const next = upgradedState(state({ outbox: legacy.fresh as Mutation[] }));
+  expect(next.outbox.filter((m) => m.type === "save").every((m) => !!m.base)).toBe(true);
+  expect(withoutFamily(state({ outbox: [{ ...edit("old"), space_id: family, left_space: family, generation: 1 }] }), family, uuid).outbox).toEqual([]);
+});
+it.each(["unfinished", "wrong generation", "personal", "caregiver question"])("refuses Send to family for %s", (reason) => {
+  const held = upgradedState(state({ outbox: legacy.rejoined as Mutation[] }));
+  const one = held.heldDrafts![0];
+  if (reason === "unfinished") one.uncertain = false;
+  if (reason === "wrong generation") one.draft.generation = 999;
+  if (reason === "personal") one.draft.space_id = personal;
+  if (reason === "caregiver question") { held.bootstrap!.spaces!.find((s) => s.id === family)!.role = "caregiver"; one.draft.kind = "question"; }
+  expect(sendHeldToFamily(held, one.id)).toBe(held);
+});
+it("lets a caregiver explicitly send a retried old care log with its original baby and delivery id", () => {
+  const old = state({ outbox: [{ ...edit("care"), space_id: family, generation: 1, localOnly: false, record: write("care", "diaper", "baby") } as Mutation] });
+  old.bootstrap!.spaces!.find((s) => s.id === family)!.role = "caregiver";
+  const held = upgradedState(old), sent = sendHeldToFamily(held, "m-care");
+  expect(sent.outbox).toHaveLength(1); expect(sent.outbox[0]).toMatchObject({ id: "m-care", space_id: family, record: { child_id: "baby", kind: "diaper" } });
+});
+
+it("omits an absent optional held section at each mutation and generation fence", () => {
+  const none = state();
+  expect(Object.hasOwn(addMutation(none, edit("new")), "heldDrafts")).toBe(false);
+  expect(Object.hasOwn(fencedState(none, { generation: 3, spaces: boot().spaces }), "heldDrafts")).toBe(false);
+  expect(Object.hasOwn(fencedState(none, { generation: 2, spaces: boot().spaces!.map((s) => ({ ...s, generation: 9 })) }), "heldDrafts")).toBe(false);
+});

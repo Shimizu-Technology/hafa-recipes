@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
 import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { keepInPersonal, keepHeldDraft, latestHeldSave, sendHeldToFamily, heldDraftWarning, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { canSendHeldToFamily, keepInPersonal, keepHeldDraft, latestHeldSave, sendHeldToFamily, heldDraftWarning, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { savedDetails } from "../lib/saved-details";
@@ -79,7 +79,7 @@ export default function Sync() {
         onPress={() => void run(b.sync)}
       />
       {!!b.state.heldDrafts?.length && <Section title="Unfinished drafts · not sent">
-        {b.state.heldDrafts.map((held) => { const latest = latestHeldSave(held), family = b.state.bootstrap?.spaces?.find((space) => space.id === held.draft.space_id && space.kind === "family" && space.role === "parent" && space.generation === held.draft.generation); return <Card key={held.id}>
+        {b.state.heldDrafts.map((held) => { const latest = latestHeldSave(held); return <Card key={held.id}>
           <Copy kind="heading">{held.draft.title || "Untitled draft"}</Copy>
           <Copy>{held.draft.body || "Your unfinished details and files are kept here."}</Copy>
           <Copy kind="small" tone="muted">{held.draft.files.length ? `${held.draft.files.length} local file(s). ` : ""}{held.uncertain ? "This may be unfinished. Nothing here will be sent without your choice." : "This draft won’t sync."} Keeping it saves a personal copy, without the family baby or visit link.</Copy>
@@ -94,7 +94,7 @@ export default function Sync() {
               { text: "Cancel", style: "cancel" }, { text: "Keep later version", onPress: () => void run(async () => { await b.commit((s) => keepHeldDraft(s, held.id, Crypto.randomUUID, true)); await b.sync(); }) },
             ])} />
           </>}
-          {held.uncertain && family && <Button title="Send to family" disabled={busy || b.syncing} onPress={() => Alert.alert("Send to family?", `This shares the draft shown above${held.followups?.length ? " and its later saved changes" : ""} with your family.`, [
+          {canSendHeldToFamily(b.state, held) && <Button title="Send to family" disabled={busy || b.syncing} onPress={() => Alert.alert("Send to family?", `This shares the draft shown above${held.followups?.length ? " and its later saved changes" : ""} with your family.`, [
             { text: "Keep reviewing", style: "cancel" }, { text: "Send to family", onPress: () => void run(async () => { await b.commit((s) => sendHeldToFamily(s, held.id)); await b.sync(); }) },
           ])} />}
           <Button variant="destructive" title="Discard this unfinished draft" disabled={busy || b.syncing} onPress={() => Alert.alert("Discard this draft?", heldDraftWarning(held.followups?.length), [
