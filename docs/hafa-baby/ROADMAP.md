@@ -498,3 +498,31 @@ The conservative default for a baby with unspecified age and breathing trouble
 is ER. Choking over-triage is retained; no treatment instructions or dose added.
 #639 and #640 remain unmerged; integration and R5 follow the hotfix.
 No production configuration or V2 flag change is authorized here.
+
+### November 7 re-check integration and private API configuration
+
+R1–R4 from the independent medical re-check are integrated from the standalone
+hotfix into this held API branch. Main's two conflicts retained the reviewed
+branch's guards before the newer hotfix was integrated. Poisoning never drops
+an independent maternal or infant warning: the fixed replies preserve both
+people and Poison Control, with baby 911 first and maternal immediate-care/911
+before baby ER/doctor. Model-selected and generated composite labels use the
+same fixed replies. No diagnosis, dose or home treatment was added.
+
+The API normalizes mobile's `private-family` to `private_family`. Unknown or
+empty explicit audience values become `disabled`, so Baby AI fails closed
+without crashing the shared Recipes/Workouts service. Omitted audience remains
+`public`, which still needs the review marker plus both public release records.
+
+For Leon to configure private use on Render after review (not changed by this task):
+
+- `BABY_HEALTH_RELEASE_AUDIENCE=private_family` (underscore preferred; hyphen accepted).
+- `BABY_HEALTH_REVIEWED_VERSION=baby-health-2026-11-07-m1-m8` acknowledges the dated agent review at Leon's direction, never clinician approval.
+- `BABY_HEALTH_PRIVATE_USERS` is a comma-separated list of Leon's and Kami's stable application user IDs, not Clerk subjects. Empty denies everyone.
+- Keep `BABY_ASK_CLINICIAN_APPROVAL` and `BABY_WHO_CHART_PERMISSION` empty for this private use. Public or paid use requires actual clinician review and WHO chart permission; the mobile public build gate also remains closed.
+- Leave `BABY_ASK_V2_ENABLED` unset until the final safety/whole-Ask evidence and independent review are accepted, the family binary is installed, and deployed consent/access/source/budget/revocation checks pass. No production setting or flag was changed here.
+
+R5 extends Help on the mobile branch with choking on an object and passing out
+under 911, and any breathing trouble under one year under ER. Existing urgent
+phone actions remain first. The family build must stay internal to TestFlight;
+it uses agent-reviewed information and must not be submitted as a public app.
