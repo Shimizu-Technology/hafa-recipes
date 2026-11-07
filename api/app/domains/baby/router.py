@@ -1160,8 +1160,9 @@ async def patch_record(
         values["data"] = {key: value for key, value in values["data"].items() if key not in VISIT_PRIVATE_FIELDS}
         values["data"].update({key: value for key, value in row.data.items() if key in VISIT_PRIVATE_FIELDS})
     if row.kind == "event":
-        if isinstance(body.data, dict) and body.data.get("provider_default") and (("provider_default_at" in body.data and body.data["provider_default_at"] != row.data.get("provider_default_at")) or not row.data.get("provider_default")):
-            values["data"]["provider_default_at"] = int(now().timestamp() * 1000)
+        saved = values["data"]
+        if saved.get("provider_default") and (saved.get("provider_default_at") != row.data.get("provider_default_at") or not row.data.get("provider_default")):
+            saved["provider_default_at"] = int(now().timestamp() * 1000)
         from app.domains.baby.access import medical_visit
         if medical_visit(row.data):
             values["data"]["medical_visit"] = True

@@ -9,7 +9,7 @@ import { recordDay, zonedInstant } from "@/lib/tracker";
 import { DateField } from "./date-field";
 import { Disclosure } from "./disclosure";
 import { Button, Choice, Copy, Field, FilterChips, Icon, Notice, PressTarget, fonts, tap, typeScale, useColors } from "./ui";
-import { babiesFor, babyLabel, choiceFor, familySpaces, fittingChild, generationOf } from "../lib/spaces";
+import { babiesFor, babyLabel, choiceFor, familySpaces, fittingChild, generationOf, spaceForNew } from "../lib/spaces";
 import { eventNoteWhere } from "../lib/writing-places";
 
 const familyId = (bootstrap: NonNullable<ReturnType<typeof useBaby>["state"]["bootstrap"]>) => familySpaces(bootstrap)[0]?.id;
@@ -41,7 +41,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     labels = useMemo(() => [...new Set(["Class", ...herCategories(pendingRecords(b.state)), ...(data.category_label ? [data.category_label] : [])])], [draft.existing]),
     [naming, setNaming] = useState(false), setAside = useRef<string | null | undefined>(null),
     bootstrap = b.state.bootstrap!, choice = choiceFor(bootstrap, draft),
-    space = choice?.space_id,
+    space = choice?.space_id ?? draft.space_id ?? spaceForNew(b.state, draft),
     // An event and its baby stay in one space, so only the babies in this one are offered.
     babies = draft.existing ? babiesFor(bootstrap, draft, b.records.find((row) => row.id === draft.id)) : space ? children.filter((child) => child.space_id === space) : children,
     place = choice ? (choice.shared ? "Shared with family" : "Just me") : "",

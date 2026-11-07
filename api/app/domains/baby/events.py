@@ -515,14 +515,14 @@ async def split_series(
     row = await series_for_edit(db, access, generation, identifier, client)
     event, zone = repeating(row)
     from app.domains.baby.access import VISIT_PRIVATE_FIELDS, caregiver_visit, medical_visit
-    if row.data.get("paste_origin") and new.data.get("paste_origin") != row.data["paste_origin"] and row.app_user_id != access.actor:
-        raise HTTPException(403, "Only the person who added the original words can remove or change them")
     if caregiver_visit(row, access):
         if new.data.get("category") != row.data.get("category"):
             raise HTTPException(403, "Only a parent can change a visit category")
         new.body = row.body
         new.data = {key: value for key, value in new.data.items() if key not in VISIT_PRIVATE_FIELDS}
         new.data.update({key: value for key, value in row.data.items() if key in VISIT_PRIVATE_FIELDS})
+    if row.data.get("paste_origin") and new.data.get("paste_origin") != row.data["paste_origin"] and row.app_user_id != access.actor:
+        raise HTTPException(403, "Only the person who added the original words can remove or change them")
     if medical_visit(row.data):
         new.data["medical_visit"] = True
     revision_matches(row, body.revision)

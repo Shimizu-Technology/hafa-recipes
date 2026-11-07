@@ -149,3 +149,21 @@ async def test_visit_series_writers_keep_medical_and_contributor_protection(baby
         await db.commit()
     occurrence = await c.put(path + "/occurrences", headers=records.headers(family, "other"), json={"revision": 2, "original_start": START, "overrides": {"category": "other"}})
     assert occurrence.status_code == 403, occurrence.text
+
+
+async def test_caregiver_future_split_restores_hidden_source_before_contributor_check(baby_api, family):
+    baby_api.settings.baby_new_kinds_enabled = True
+    c = baby_api.client
+    source = {"text": "Visit words", "start": 0, "end": 11, "original": False}
+    body = shared.payload("event", body="Medical notes", data={"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "paste_origin": source, "results": "Medical result"})
+    assert (await c.post(API + "/records", headers=records.headers(family), json=body)).status_code == 200
+    async with baby_api.sessions() as db:
+        (await db.get(BabySpaceMember, (family, "other"))).role = "caregiver"
+        await db.commit()
+    replacement = {**body, "id": str(uuid4()), "body": "", "occurred_at": "2026-10-21T12:00:00+10:00", "data": {"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}}}
+    result = await c.post(f"{API}/events/{body['id']}/split", headers=records.headers(family, "other"), json={"revision": 1, "from_start": replacement["occurred_at"], "event": replacement})
+    assert result.status_code == 200, result.text
+    parent = await c.get(f"{API}/records/{replacement['id']}", headers=records.headers(family))
+    assert parent.json()["data"]["paste_origin"] == source
+    assert parent.json()["body"] == "Medical notes"
+    assert parent.json()["data"]["results"] == "Medical result"

@@ -88,7 +88,7 @@ export default function EventDetail() {
     </Card>
     {medical && !!row.data.follow_up && <Button secondary title="Make a follow-up calendar item" onPress={() => void (async () => {
       const id = Crypto.randomUUID(), slot = `follow-up:${id}`;
-      await b.commit((state) => ({ ...state, drafts: { ...state.drafts, [slot]: { id, kind: "event", title: "Follow up", body: row.data.follow_up!, child_id: row.child_id, occurred_at: zonedInstant(today, 0, 0, timezone).toISOString(), files: [], shared: false,
+      await b.commit((state) => ({ ...state, drafts: { ...state.drafts, [slot]: { id, kind: "event", title: "Follow up", body: row.data.follow_up!, child_id: child?.space_id && child.space_id !== b.state.bootstrap!.personal_space_id ? null : row.child_id, occurred_at: zonedInstant(today, 0, 0, timezone).toISOString(), files: [], shared: false,
         data: { timezone, category: "reminder", all_day: true, reminder_minutes: [] } } } }));
       router.push({ pathname: "/edit", params: { draft: slot, kind: "event" } });
     })().catch((e) => setError(messageFor(e)))} />}

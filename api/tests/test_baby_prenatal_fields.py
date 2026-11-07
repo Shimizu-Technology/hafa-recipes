@@ -203,3 +203,33 @@ async def test_bootstrap_advertises_reviewed_import_support(baby_api):
     reply = await baby_api.client.post("/api/v1/baby/bootstrap", headers={"X-Baby-Client": "2"})
     assert reply.status_code == 200, reply.text
     assert reply.json()["visit_import_available"] is True
+
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable database required")
+async def test_caregiver_cannot_change_provider_default_ordering(baby_api, family):
+    from app.domains.baby.models import BabySpaceMember
+    from tests.test_baby_family_records import headers
+
+    await allow_events(baby_api)
+    c = baby_api.client
+    body = shared.payload("event", data={"category": "appointment", "timezone": "Pacific/Guam", "provider_default": True, "provider_default_at": 1, "doctor": "Dr Parent"})
+    saved = await c.post("/api/v1/baby/records", headers=headers(family), json=body)
+    assert saved.status_code == 200, saved.text
+    timestamp = saved.json()["data"]["provider_default_at"]
+    async with baby_api.sessions() as db:
+        (await db.get(BabySpaceMember, (family, "other"))).role = "caregiver"
+        await db.commit()
+    edited = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=headers(family, "other"), json={"revision": 1, "data": {"category": "appointment", "timezone": "Pacific/Guam", "location": "New place", "provider_default": True, "provider_default_at": 9999999999999}})
+    assert edited.status_code == 200, edited.text
+    parent = await c.get(f"/api/v1/baby/records/{body['id']}", headers=headers(family))
+    assert parent.json()["data"]["provider_default_at"] == timestamp
+    assert parent.json()["data"]["doctor"] == "Dr Parent"
+    assert parent.json()["data"]["location"] == "New place"
+
+
+def test_automatic_family_moves_keep_even_cleared_paste_metadata_personal():
+    from app.domains.baby.moves import stays_personal
+
+    assert stays_personal({"paste_origin": None})
+    assert stays_personal({"just_me": True})
+    assert not stays_personal({"just_me": False})

@@ -186,6 +186,8 @@ Decided November 4, 2026 with Leon and Kami. These extend the API contract above
 and win where the two differ. Details may be tightened together, never changed
 independently in API and client.
 
+Optional visit metadata is defined by `EventData` in `api/app/domains/baby/schemas.py`: `clinician_age`, `doctor`, `due_date_snapshot`, `results`, `result_status`, `follow_up`, `provider_default`, `provider_default_at`, `medical_visit`, `just_me`, and `paste_origin`. Journal also accepts `paste_origin` (verbatim text, source start/end offsets, original marker). Bootstrap advertises `visit_import_available` before attributed imports can be confirmed.
+
 ### 1 The core rule: two kinds of space
 
 Everyone has one **personal space**. A **family space** is separate and is created the first time someone invites another person. **Private means "stored in your personal space."** There's no visibility flag to filter on.
@@ -193,7 +195,13 @@ Everyone has one **personal space**. A **family space** is separate and is creat
 - Access has one rule: you can read a row if its `space_id` is a space you're an active member of (caregivers also get a kind filter).
 - **Shared by default, stored in the family space when one exists:** baby profiles, care logs, contractions, kicks, events, milestones, doctor questions, lists, saved posts and categories.
 - **Personal by default:** journal entries and reviewed pregnancy-note imports (including the original note); sharing each imported item is explicit. **Always personal:** Ask chats.
-- Caregivers can see visit calendar details, but not visit notes, results, follow-up, clinic pregnancy weeks or original pasted words; the API and Ask context enforce this. Visit privacy survives category changes and series edits. Only the contributor may remove original pasted words, including on shared moments. Pregnancy-week estimates/snapshots apply only before the child’s birth date. Prenatal imports target an expecting child and ask which one only when more than one is available. Private pasted visits stay personal when a family is first created. The API advertises import support before confirmation; queued attributed writes wait through an API rollback.
+- Caregivers can see visit calendar details, but not visit notes, results, follow-up, clinic pregnancy weeks or original pasted words; the API and Ask context enforce this.
+- Visit privacy survives category changes and series edits.
+- Only the contributor may remove original pasted words, including on shared moments.
+- Pregnancy-week estimates/snapshots apply only before the child’s birth date.
+- Prenatal imports target an expecting child and ask which one only when more than one is available.
+- Private pasted visits stay personal when a family is first created.
+- The API advertises import support before confirmation; queued attributed writes wait through an API rollback.
 - The per-item toggle "Shared with family / Just me" (saved posts, categories, and one journal entry at a time) **moves the row** with one function, `move_record()`. A journal entry its writer shares is a family row like any other: every parent can read it, and each parent's Ask can use it. Un-sharing moves it back. Only the writer can share or un-share a journal entry.
 - Choosing "Just me" also sets `data.just_me: true`. This is not an access rule, which stays the space. It only tells Create family to leave that row in the personal space.
 - **Same-space references only.** A collection, its members, a suggested category, and a record's attachments must all be in the record's space, enforced in `validate_relations`. Care records live in their child's space. The one exception: a personal journal entry may point to a family child. If that child can't be read any more (the person left, or the child was deleted), the link is ignored on read and cleared on the next edit. Nothing ever writes into another person's personal space.

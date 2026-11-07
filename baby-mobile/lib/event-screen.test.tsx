@@ -762,3 +762,25 @@ it("normalizes the future replacement snapshot for a born child", async () => {
   expect(b.state.outbox[0].type).toBe("event_split");
   expect(b.state.outbox[0].event.data.due_date_snapshot).toBeNull();
 });
+
+it("hides medical fields when a caregiver creates a family appointment without an explicit space", async () => {
+  const b = setup([]);
+  b.state.bootstrap.personal_space_id = "personal";
+  b.state.bootstrap.spaces = [{ id: "fam", kind: "family", role: "caregiver", generation: 1 }];
+  b.state.bootstrap.children = [{ id: "baby", name: "Noa", revision: 1, space_id: "fam" }];
+  b.state.drafts.newVisit = { id: "new-visit", kind: "event", title: "Checkup", body: "", child_id: "baby", occurred_at: "2026-11-09T00:00:00Z", files: [], data: { category: "appointment", timezone: guam } };
+  mock.params = { kind: "event", draft: "newVisit" };await mount(Edit);
+  const labels = renderer!.root.findAll((n) => String(n.type) === "Field").map((n) => n.props.label);
+  expect(labels).not.toContain("Results (optional)");expect(labels).not.toContain("Clinic’s stated week (optional)");expect(labels).not.toContain("Doctor (optional)");
+  await press("Button", "Save event");
+  expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { child_id: "baby" } });
+});
+it.each([true, false])("saves a private follow-up with a valid child link (family child: %s)", async (familyChild) => {
+  const row = { ...event({ category: "appointment", recurrence: null, follow_up: "Bring the report" }, "followup-visit"), child_id: "baby", space_id: familyChild ? "fam" : "personal" };
+  const b = setup([row]);b.state.bootstrap.personal_space_id = "personal";
+  b.state.bootstrap.spaces = [{ id: "personal", kind: "personal", role: "parent", generation: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1 }];
+  b.state.bootstrap.children = [{ id: "baby", name: "Noa", revision: 1, space_id: row.space_id }];
+  mock.params = { id: row.id };await mount(EventDetail);await press("Button", "Make a follow-up calendar item");
+  const target = mock.push.mock.calls.at(-1)![0];await act(async () => renderer!.unmount());mock.params = target.params;await mount(Edit);await press("Button", "Save event");
+  expect(b.state.outbox[0]).toMatchObject({ space_id: "personal", record: { body: "Bring the report", child_id: familyChild ? null : "baby", data: { reminder_minutes: [] } } });
+});
