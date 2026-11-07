@@ -64,7 +64,7 @@ export function ShareCapture() {
           if (native && !captureBelongs(native.scope, owner, bootstrap)) return;
           if (!native && !stock.hasShareIntent) return;
           if (!native && !stockShareScope.allow(stock.shareIntent, owner, generation)) return;
-          if (native?.status) {
+          if (native?.status && !native.claimed) {
             // Persist progress discovery before retiring the native receipt.
             if (native.import_id || native.status === "deferred") {
               const job = { id: native.import_id || native.capture_id, record_id: native.record_id,
@@ -84,7 +84,7 @@ export function ShareCapture() {
           const text = shared.text || undefined;
           const url = native ? native.url : stock.shareIntent.webUrl || stock.shareIntent.meta?.url ||
             text?.match(/https?:\/\/[^\s]+/)?.[0];
-          const id = native?.capture_id ?? Crypto.randomUUID();
+          const id = native?.record_id ?? Crypto.randomUUID();
           const saveId = `share-save:${id}`;
           if (baby.state.outbox.some(m => m.id === saveId) || baby.state.records.some(r => r.id === id)) {
             if (native) { if (!acknowledge(native.token)) return; settle("saved"); continue; }
