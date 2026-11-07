@@ -21,6 +21,7 @@ vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/files", () => ({ preserveFile: vi.fn(), removeLocal: vi.fn() }));
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
+vi.mock("../components/journal-composer", () => ({ JournalComposer: "JournalComposer", ComposerOpening: "ComposerOpening" }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile", openEvent: vi.fn() }));
 vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections", VisitLinks: "VisitLinks" }));
@@ -692,4 +693,18 @@ describe("adding to the phone's calendar", () => {
     await open();
     expect(mock.phone.added).toEqual([]);
   });
+});
+
+it("passes the shown occurrence date to visit capture, including a moved date", async () => {
+  const event = { ...optimisticRecord({ id: "visit", kind: "event", title: "Visit", body: "", child_id: "baby", occurred_at: "2026-11-01T00:00:00Z", data: { category: "appointment", timezone: "UTC", recurrence: { frequency: "weekly" }, exceptions: [{ original_start: "2026-11-08T00:00:00Z", overrides: { start: "2026-11-09T00:00:00Z" } }] } }), revision: 1 };
+  setup([event]); mock.params = { id: event.id, at: "2026-11-08T00:00:00Z" };
+  await mount(EventDetail);
+  expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")[0].props.visit.occurred_at).toBe("2026-11-09T00:00:00.000Z");
+});
+
+it("passes an occurrence all-day override to visit capture", async () => {
+  const original = "2026-11-09T00:00:00.000Z";
+  setup([event({ category: "appointment", all_day: false, exceptions: [{ original_start: original, overrides: { all_day: true } }] })]);
+  mock.params = { id: "class", at: original }; await mount(EventDetail);
+  expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")[0].props.visit.data.all_day).toBe(true);
 });

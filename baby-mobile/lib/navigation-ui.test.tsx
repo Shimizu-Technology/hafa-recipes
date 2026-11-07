@@ -187,12 +187,14 @@ describe("signing out from the recovery screen", () => {
     await act(async () => buttons.find((one) => one.text === "Sign out and clear")!.onPress!());
     expect(mock.baby.signOut).toHaveBeenCalledOnce();
   });
-  it("is one tap on an ordinary failure, with nothing to lose", async () => {
+  it("warns when a failed load cannot establish that there is nothing to lose", async () => {
     const { AccountGate } = await import("../components/account-gate");
     mock.baby.ready = false; mock.baby.error = "Could not connect."; mock.baby.signOut = vi.fn(async () => undefined);
     await mount(<AccountGate>inside</AccountGate>);
     await press("Sign out");
-    expect(mock.baby.signOut).toHaveBeenCalledOnce();
+    expect(mock.baby.signOut).not.toHaveBeenCalled();
+    const { Alert } = await import("react-native");
+    expect(vi.mocked(Alert.alert).mock.calls.at(-1)![0]).toBe("Sign out and clear this phone?");
   });
 });
 describe("a caregiver and Ask", () => {

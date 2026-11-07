@@ -42,6 +42,7 @@ vi.mock("@/lib/files", () => ({ preserveFile: scope.copy, removeLocal: scope.rem
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
+vi.mock("../components/journal-composer", () => ({ JournalComposer: "JournalComposer", ComposerOpening: "ComposerOpening" }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
   get nativeSharingAvailable() { return scope.native; }, pendingShare: scope.pending, acknowledgeShare: scope.acknowledge, returnClaim: scope.returnClaim,
 }));
@@ -83,6 +84,7 @@ async function press(text: string) {
   expect(button, text).toBeDefined();
   await act(async () => { button.props.onPress(); });
 }
+const composer = () => renderer!.root.findAll((node) => String(node.type) === "JournalComposer")[0].props;
 const payload = (token = "capture-A", files: unknown[] = []) => ({ token, capture_id: token, record_id: token,
   scope: "disposable-local-parent:1", occurred_at: "2026-10-21T07:50:00.123Z", url: "https://example.test/advice", text: "Saved tip", files });
 beforeEach(() => {
@@ -112,8 +114,8 @@ it("does not recreate a saved draft when its serialized commit is held through a
   const account = setup(), gate = held<void>();
   account.holdCommit(gate.promise);
   await mount(Edit);
-  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Field" && node.props.label === "Notes")[0].props.onChange("A memory to keep"));
-  await press("Save journal entry");
+  await act(async () => composer().change({ body: "A memory to keep" }));
+  await act(async () => composer().onSave());
   await act(async () => { await vi.advanceTimersByTimeAsync(450); scope.foreground?.("background"); renderer!.unmount(); });
   renderer = undefined;
   await act(async () => { gate.release(); await gate.promise; await account.drain(); });
@@ -248,8 +250,8 @@ describe("an editor opened while the feed's Switch was still queued", () => {
 it("resumes draft protection when the save commit fails", async () => {
   const account = setup(); account.commit.mockRejectedValueOnce(Error("Device storage unavailable"));
   await mount(Edit);
-  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Field" && node.props.label === "Notes")[0].props.onChange("Keep this after failure"));
-  await press("Save journal entry");
+  await act(async () => composer().change({ body: "Keep this after failure" }));
+  await act(async () => composer().onSave());
   await act(async () => { scope.foreground?.("background"); await account.drain(); });
   expect(account.state.outbox).toHaveLength(0);
   expect(account.state.drafts["new:journal"].body).toBe("Keep this after failure");

@@ -550,3 +550,10 @@ describe("opening a private file", () => {
     expect(api(() => ({})).fileHeaders()).toEqual({ "X-Baby-Client": "2" });
   });
 });
+
+it.each(["Related items must be in the same Baby space", "Unrelated validation", "Related items must be in the same Baby space: provider text"])("classifies only the exact relation reason: %s", async (detail) => {
+  const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ detail }, { status: 422 })), api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+  const error = await api.save(row, 1).catch((error) => error);
+  expect(error.reason).toBe(detail === "Related items must be in the same Baby space" ? "related_space" : undefined);
+  expect(error.message).not.toContain("provider text");
+});

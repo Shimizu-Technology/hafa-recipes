@@ -39,7 +39,7 @@ export function CategoryPicker({ sourceIds, onClose, onSaved }: {
       action={<Button variant="ghost" title="Cancel" disabled={busy} onPress={onClose} />}>
       {!!error && <Notice error>{error}</Notice>}
       {creating ? <>
-        <Field label="Category name" value={name} onChange={setName} placeholder="Sleep, getting ready…" />
+        <Field label="Category name" maxLength={240} value={name} onChange={setName} placeholder="Sleep, getting ready…" />
         <Button title="Create & organize" disabled={!name.trim()} busy={busy} onPress={() => void organize()} />
       </> : <Button secondary title="New category" icon="add" disabled={busy} onPress={() => setCreating(true)} />}
       {history.loading && !history.rows.length && <Loading label="Loading categories…" />}

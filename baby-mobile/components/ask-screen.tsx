@@ -133,6 +133,7 @@ function AskChat({ back }: { back: boolean }) {
             placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…"
               : unavailablePlaceholder(fontScale)}
             placeholderTextColor={c.muted}
+            selectionColor={c.accentText}
             editable={!busy && !chat.resolving}
             multiline
             maxLength={4000}

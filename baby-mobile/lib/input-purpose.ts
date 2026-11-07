@@ -1,10 +1,13 @@
 import type { TextInputProps } from "react-native";
-export type InputPurpose = "email" | "current-password" | "new-password" | "verification-code" | "url";
+export type InputPurpose = "email" | "current-password" | "new-password" | "verification-code" | "url" | "code";
 export function inputTraits(
   purpose: InputPurpose | undefined,
   platform: string,
   numeric = false
-): Pick<TextInputProps, "autoComplete" | "textContentType" | "keyboardType" | "autoCorrect" | "maxLength"> {
+): Pick<TextInputProps, "autoComplete" | "textContentType" | "keyboardType" | "autoCorrect" | "spellCheck" | "maxLength"> {
+  // A code someone pasted or typed exactly, so nothing may correct or capitalise it.
+  if (purpose === "code")
+    return { autoComplete: "off", textContentType: "none", keyboardType: "default", autoCorrect: false, spellCheck: false };
   if (purpose === "url")
     return { autoComplete: "off", textContentType: "URL", keyboardType: "url", autoCorrect: false };
   if (purpose === "email")

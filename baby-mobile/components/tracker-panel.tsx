@@ -1,3 +1,4 @@
+import { bodyLimit, overBy } from "../lib/text-limits";
 import { useEffect, useRef, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
@@ -79,7 +80,8 @@ function WhereItGoes({ children }: { children: string }) {
 
 function NotePanel({ detail, where, panelProps, onSave }: { detail?: string; where: string; panelProps: PanelProps; onSave: (text: string) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [note, setNote] = useState(""), [empty, setEmpty] = useState(false),
-    onPress = () => { const text = note.trim(); setEmpty(!text); if (text) onSave(text); };
+    // The field says so when it's over the limit, and the words stay until she's shortened them.
+    onPress = () => { const text = note.trim(); setEmpty(!text); if (text && !overBy(text, bodyLimit)) onSave(text); };
   return <Panel title="Note" detail={detail} {...panelProps}>
     <OnSurface><KeyboardSave.Provider value={{ label: "Save note", onPress }}><Field multiline label="What to remember" value={note} autoFocus onChange={(text) => { setNote(text); setEmpty(false); }} /></KeyboardSave.Provider></OnSurface>
     <WhereItGoes>{where}</WhereItGoes>
