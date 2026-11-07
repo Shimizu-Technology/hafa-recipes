@@ -14,7 +14,7 @@ vi.mock("expo-crypto", async () => {
 });
 vi.mock("../components/ui", async () => {
   const React = await import("react");
-  return Object.fromEntries(["Button", "Card", "Choice", "Copy", "Field", "FilterChips", "Notice", "Row", "Screen"].map((name) => [name, (props: any) => React.createElement(name, props, props.children)]));
+  return Object.fromEntries(["Button", "Card", "Choice", "Copy", "Field", "FilterChips", "Notice", "Row", "Screen"].map((name) => [name, (props: any) => { const { footer, ...rest } = props; return React.createElement(name, rest, props.children, footer); }]));
 });
 import PasteVisits from "../app/paste-visits";
 let tree: ReactTestRenderer;
@@ -64,7 +64,7 @@ it("uses the shared space for item identity across two family members", async ()
     mock.b.owner = owner;
     mock.b.state = { ...emptyState(), bootstrap: { generation: 1, personal_space_id: owner, profile: { timezone: "Pacific/Guam" }, children: [], spaces: [{ id: owner, kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] } };
     await review("2026-11-09 Clinic class");
-    await act(async () => host("Choice", "label", "Share this item with family").props.onPress());
+    await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());
     await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
     const event = mock.b.state.outbox.find((item: any) => item.record.kind === "event");
     expect(event.space_id).toBe("family"); ids.push(event.record.id);

@@ -456,7 +456,21 @@ class RoutineData(DomainModel):
         return self
 
 
+class PasteOrigin(DomainModel):
+    text: str = Field(max_length=100000)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    original: StrictBool = False
+
+    @model_validator(mode="after")
+    def exact_span(self):
+        if self.end - self.start != len(self.text.encode("utf-16-le")) // 2:
+            raise ValueError("The original span must cover its exact words")
+        return self
+
+
 class JournalData(DomainModel):
+    paste_origin: PasteOrigin | None = Field(default=None, exclude_if=lambda value: value is None)
     just_me: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
     provenance: Literal["caregiver_observation", "clinician_instruction"] = "caregiver_observation"
@@ -588,6 +602,9 @@ class EventData(DomainModel):
     one) is the midnight after its last day. Other ends are the moment it finishes.
     """
 
+    provider_default_at: int | None = Field(default=None, ge=0, le=9999999999999, exclude_if=lambda value: value is None)
+    provider_default: StrictBool = Field(default=False, exclude_if=lambda value: not value)
+    paste_origin: PasteOrigin | None = Field(default=None, exclude_if=lambda value: value is None)
     clinician_age: str | None = Field(default=None, max_length=120, exclude_if=lambda value: value is None)
     doctor: str | None = Field(default=None, max_length=240, exclude_if=lambda value: value is None)
     due_date_snapshot: date | None = Field(default=None, exclude_if=lambda value: value is None)

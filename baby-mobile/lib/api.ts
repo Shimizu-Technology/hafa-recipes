@@ -318,6 +318,7 @@ export function createBabyApi(
     search: (q: string, kind?: Kind, child_id?: string | null,
       filters: Pick<RecordFilters, "kinds" | "include_general" | "offset" | "limit" | "collection_id" | "topic" | "uncategorized"> = {}) =>
       request<RecordPage>("/search?" + query({ q, kind, child_id, limit: 100, ...filters })),
+    visitDefaults: (g: Fence) => request<{ doctor: string | null; location: string | null } | null>("/visit-defaults/read", "POST", {}, g),
     record: (id: string) => request<BabyRecord>(`/records/${encodeURIComponent(id)}`),
     /** Totals and dots per calendar day, inclusive, on the profile's clock. No child means the logs that have none. */
     careSummary: (from: string, to: string, child_id?: string | null) =>

@@ -25,3 +25,12 @@ describe("pregnancy history without interpretation", () => {
     expect(mixed.map((row) => row.day)).toEqual(["2026-04-01", "", "", "2026-11-10"]);
   });
 });
+
+it("keeps an ordinal gap and distinguishes a dated memory from visits without renumbering", () => {
+  const note = "We told family on April 4\n\n6th Visit - September 16, 2026\n27 weeks\n\n8th visit - October 15, 2026\n32 weeks";
+  const rows = pasteVisits(note);
+  expect(rows.map((row) => row.kind)).toEqual(["journal", "event", "event"]);
+  expect(rows.map((row) => row.title)).toEqual(["We told family on April 4", "6th Visit", "8th visit"]);
+  expect(rows[0].day).toBe("");
+  expect(rows.map((row) => row.text).join("")).toBe(note);
+});

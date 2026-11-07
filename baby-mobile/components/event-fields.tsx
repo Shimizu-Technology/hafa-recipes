@@ -1,5 +1,5 @@
 import { estimatedAge } from "../lib/prenatal";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { allDayChanged, attendeesFrom, categoryChoices, categoryValue, chooseCategory, dayName, detailsLine, detailsSet, herCategories, quickEvent, quickEvents, reminderChoices, reminderValue, repeatName, selectedSuggestion, startingAt, usedEventNames } from "@/lib/events";
@@ -8,8 +8,8 @@ import { pendingRecords } from "@/lib/outbox";
 import { recordDay, zonedInstant } from "@/lib/tracker";
 import { DateField } from "./date-field";
 import { Disclosure } from "./disclosure";
-import { Copy, Field, FilterChips, Icon, Notice, PressTarget, fonts, tap, typeScale, useColors } from "./ui";
-import { babiesFor, babyLabel, choiceFor, familySpaces, fittingChild } from "../lib/spaces";
+import { Button, Choice, Copy, Field, FilterChips, Icon, Notice, PressTarget, fonts, tap, typeScale, useColors } from "./ui";
+import { babiesFor, babyLabel, choiceFor, familySpaces, fittingChild, generationOf } from "../lib/spaces";
 import { eventNoteWhere } from "../lib/writing-places";
 
 const familyId = (bootstrap: NonNullable<ReturnType<typeof useBaby>["state"]["bootstrap"]>) => familySpaces(bootstrap)[0]?.id;
@@ -56,6 +56,16 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     // A private event can't be on a baby the family shares. Only said when there's one it could have been on.
     offFamilyBaby = !!choice && !choice.shared && children.some((child) => child.space_id !== bootstrap.personal_space_id),
     baby = draft.child_id ? babies.find((child) => child.id === draft.child_id) : undefined;
+  const [defaults, setDefaults] = useState<{ doctor: string | null; location: string | null } | null>(null);
+  const defaultSpace = space ?? draft.space_id ?? bootstrap.personal_space_id;
+  const defaultsKey = `${defaultSpace ?? "personal"}:${generationOf(bootstrap, defaultSpace) ?? bootstrap.generation}`;
+  useEffect(() => {
+    let active = true; setDefaults(b.state.visitDefaults?.[defaultsKey] ?? null);
+    if (data.category !== "appointment" || !b.api.visitDefaults) return;
+    const lease = b.api.lease();
+    void b.api.visitDefaults({ generation: generationOf(bootstrap, defaultSpace) ?? bootstrap.generation, ...(defaultSpace ? { space_id: defaultSpace } : {}) }).then((value) => { b.api.assertLease(lease); if (active) { setDefaults(value); void b.commit((state) => { b.api.assertLease(lease); return active ? { ...state, visitDefaults: { ...state.visitDefaults, [defaultsKey]: value } } : state; }).catch(() => {}); } }).catch(() => {});
+    return () => { active = false; };
+  }, [defaultsKey, data.category]);
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="What’s happening?" />
@@ -66,6 +76,8 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       ? <DateField label="When" dateOnly value={key} onChange={(day) => change({ occurred_at: zonedInstant(day, 0, 0, zone).toISOString() })} trailing={<AllDay on onPress={() => change(allDayChanged(draft, false))} />} />
       : <DateField label="When" timeZone={zone} value={draft.occurred_at} onChange={(start) => change(startingAt(draft, start))} trailing={<AllDay on={false} onPress={() => change(allDayChanged(draft, true))} />} />}
     {data.category === "appointment" && !one && <>
+      {defaults && <Button secondary title="Use saved clinic and doctor" onPress={() => set(defaults)} />}
+      <Choice label="Offer this clinic and doctor on future visits in this space" selected={!!data.provider_default} onPress={() => set({ provider_default: !data.provider_default, provider_default_at: Date.now() })} />
       <FilterChips label="Previous clinic and doctor" value="" options={pendingRecords(b.state).filter((row) => row.kind === "event" && row.data.category === "appointment" && row.space_id === (space ?? draft.space_id) && (row.data.doctor || row.data.location)).slice(0, 5).map((row) => ({ label: [row.data.doctor, row.data.location].filter(Boolean).join(" · "), value: row.id }))} onChange={(id) => { const previous = b.records.find((row) => row.id === id); if (previous) set({ doctor: previous.data.doctor ?? null, location: previous.data.location ?? null }); }} />
       {!!estimatedAge(key, data.due_date_snapshot ?? baby?.due_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(key, data.due_date_snapshot ?? baby?.due_date)}</Copy>}
       <Field label="Clinic’s stated week (optional)" value={data.clinician_age ?? ""} maxLength={120} onChange={(clinician_age) => set({ clinician_age })} placeholder="Their words, for example 12w6d" />

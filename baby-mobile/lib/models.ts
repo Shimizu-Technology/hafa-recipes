@@ -216,6 +216,9 @@ export interface EventOccurrence {
   revision: number;
 }
 export interface RecordData {
+  provider_default_at?: number | null;
+  provider_default?: boolean;
+  paste_origin?: { text: string; start: number; end: number; original: boolean } | null;
   clinician_age?: string | null;
   doctor?: string | null;
   due_date_snapshot?: string | null;
@@ -613,6 +616,7 @@ export interface UpcomingReminder {
   data: Record<string, unknown>;
 }
 export interface DeviceState {
+  visitDefaults?: Record<string, { doctor: string | null; location: string | null } | null>;
   feedTimer?: FeedTimer;
   /** What the API said is waiting, for the offline copy. */
   upcomingReminders?: UpcomingReminder[];

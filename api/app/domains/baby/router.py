@@ -177,7 +177,7 @@ async def record_reply(db, row, access):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text", "legacy_saved_text")
-PATCH_ADDITIONS = {"event": ("clinician_age", "doctor", "due_date_snapshot", "results", "result_status", "follow_up"), "diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
+PATCH_ADDITIONS = {"event": ("provider_default_at", "provider_default", "paste_origin", "clinician_age", "doctor", "due_date_snapshot", "results", "result_status", "follow_up"), "diaper": ("color",), "journal": ("event_id", "just_me", "paste_origin"), "collection": ("just_me",), "question": ("event_id",)}
 
 
 def reconciled_event(data, start):
@@ -1025,6 +1025,29 @@ async def get_record(
     return await record_reply(db, visible_to(row, client), access)
 
 
+def pasted_replay(prior, body):
+    """Replay only an identical attributed capture, keeping its first capture time and due-date snapshot."""
+    origin = body.data.get("paste_origin")
+    if not origin or origin != prior.data.get("paste_origin"):
+        return False
+    if any(getattr(prior, key) != getattr(body, key) for key in ("kind", "title", "body", "child_id")):
+        return False
+    if not origin.get("original") and prior.occurred_at != body.occurred_at:
+        return False
+    return {k: v for k, v in prior.data.items() if k != "due_date_snapshot"} == {k: v for k, v in body.data.items() if k != "due_date_snapshot"}
+
+
+@router.post("/visit-defaults/read")
+async def visit_defaults(user: User, db: Database, generation: Generation, access: Access):
+    """Read the explicitly selected saved provider snapshot in this space, including uncached history."""
+    access.check_generation(generation)
+    conditions = [row_scope(BabyRecord, access, generation), BabyRecord.deleted_at.is_(None), BabyRecord.kind == "event", BabyRecord.data["provider_default"].as_boolean().is_(True)]
+    if access.enabled:
+        conditions.append(BabyRecord.space_id == access.target.id)
+    row = await db.scalar(select(BabyRecord).where(*conditions).order_by(BabyRecord.data["provider_default_at"].as_float().desc().nulls_last(), BabyRecord.updated_at.desc(), BabyRecord.id).limit(1))
+    return {"doctor": row.data.get("doctor"), "location": row.data.get("location")} if row else None
+
+
 @router.post("/records")
 async def create_record(
     body: RecordCreate,
@@ -1050,7 +1073,7 @@ async def create_record(
             access.grant(prior)
         if (
             not access.enabled and (prior.app_user_id != user.id or prior.generation != generation)
-        ) or prior.creation_hash not in source_creation_hashes(body):
+        ) or (prior.creation_hash not in source_creation_hashes(body) and not pasted_replay(prior, body)):
             raise HTTPException(409, "This save identity was already used with different content")
         if prior.deleted_at:
             raise HTTPException(410, "This entry was removed; create a new entry")
