@@ -34,7 +34,7 @@ it("saves permission only after Allow processing, then proceeds", async () => {
   const result = ensureAiConsent(b);
   press("Allow processing");
   await expect(result).resolves.toBe(true);
-  expect(b.api.profile).toHaveBeenCalledWith(expect.objectContaining({ ai_consent: true, display_name: "Kai" }), 3);
+  expect(b.api.profile).toHaveBeenCalledWith({ ai_consent: true }, 3);
   expect(b.state.bootstrap.profile.ai_consent).toBe(true);
 });
 

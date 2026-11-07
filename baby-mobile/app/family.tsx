@@ -213,7 +213,7 @@ function YourName() {
     <Copy kind="small" tone="muted">Your family sees this on what you log.</Copy>
     {!!error && <Notice error>{error}</Notice>}
     <Field label="Your name" value={name} onChange={setName} />
-    <Button secondary title="Save name" disabled={!name.trim()} busy={busy} onPress={() => { setBusy(true); void b.api.profile({ ...profile, display_name: name.trim() }, b.state.bootstrap!.generation)
+    <Button secondary title="Save name" disabled={!name.trim()} busy={busy} onPress={() => { setBusy(true); void b.api.profile({ display_name: name.trim() }, b.state.bootstrap!.generation)
       .then(() => { setSaved(true); return b.refresh(); }).catch((failure: unknown) => setError(messageFor(failure))).finally(() => setBusy(false)); }} />
   </Section>;
 }
