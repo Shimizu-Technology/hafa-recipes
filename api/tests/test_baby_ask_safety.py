@@ -312,7 +312,7 @@ async def assert_fixed(response, stub):  # noqa: F811
         expected_kind, expected = URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL]
     elif question in {"My newborn has a fever", "My newborn has a temperature of 38.5", "My newborn has a fevr",
                       "The newborn has a fever. What do sources recommend?", "My infant has not had a wet diaper all day"}:
-        expected_kind, expected = BABY_UNWELL, "Call your baby's doctor now or seek urgent care."
+        expected_kind, expected = BABY_UNWELL, "Call your baby's doctor now or seek urgent care. If you think your baby has a life-threatening emergency, call 911."
     elif question == "Sunny is limp":
         expected_kind, expected = BABY_UNWELL, "Go to the emergency room now for your baby."
     else:

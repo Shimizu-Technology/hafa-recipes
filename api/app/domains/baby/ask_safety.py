@@ -27,7 +27,7 @@ MESSAGES = {
     # https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Breathing+Trouble
     BABY_EMERGENCY: "Call 911 now. Your baby may be having a life-threatening emergency.",
     BABY_ER: "Go to the emergency room now for your baby.",
-    BABY_UNWELL: "Call your baby's doctor now or seek urgent care.",
+    BABY_UNWELL: "Call your baby's doctor now or seek urgent care. If you think your baby has a life-threatening emergency, call 911.",
 }
 # Keep both existing sourced replies. These are internal labels; mobile Help values stay unchanged.
 MIXED_BABY = {BABY_EMERGENCY: "maternal_baby_emergency", BABY_ER: "maternal_baby_er", BABY_UNWELL: "maternal_baby_unwell"}

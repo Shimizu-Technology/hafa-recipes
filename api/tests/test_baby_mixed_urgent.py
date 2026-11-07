@@ -13,7 +13,7 @@ needs_database = pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable 
 MATERNAL = "Seek medical care immediately. Please call 911 or go to the nearest emergency room if you are experiencing a medical emergency."
 BABY_911 = "Call 911 now. Your baby may be having a life-threatening emergency."
 BABY_ER = "Go to the emergency room now for your baby."
-BABY_DOCTOR = "Call your baby's doctor now or seek urgent care."
+BABY_DOCTOR = "Call your baby's doctor now or seek urgent care. If you think your baby has a life-threatening emergency, call 911."
 # Leon's three exact reproductions, followed by ten additional phrasings/orders.
 CASES = [
     ("I have heavy bleeding and my baby has a fever", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
@@ -105,3 +105,31 @@ async def test_actual_old_generation_prompt_includes_the_shared_mixed_rule(monke
     monkeypatch.setattr(provider.BabyProvider, "json_call", fake_json)
     await provider.BabyProvider().answer(message="What did I save?", context=[], history=[], now_local="2026-11-07T12:00:00+10:00")
     assert ask_safety.MIXED_RULE in captured["instructions"]
+
+
+@pytest.mark.parametrize("question", [
+    "baby had a seizure that lasted 6 minutes",
+    "baby has purple spots and a fever",
+    "baby has a fever and a stiff neck",
+    "she had a seizure with her fever",
+    "baby is having trouble breathing",
+])
+def test_r1_fixed_floor_always_keeps_911_fallback(question):
+    result = ask_safety.classify(question)
+    assert result is not None
+    assert "call 911" in result.message.lower()
+    if "doctor" in result.message:
+        assert result.message == BABY_DOCTOR
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("I'm soaking a pad every hour and baby has a fever", MATERNAL + "\n\n" + BABY_DOCTOR),
+    ("im having chest pain and my baby has a fever", MATERNAL + "\n\n" + BABY_DOCTOR),
+    ("my baby has a fever and I have chest pain", MATERNAL + "\n\n" + BABY_DOCTOR),
+    ("My water broke. My baby is floppy", MATERNAL + "\n\n" + BABY_ER),
+    ("I have a terrible headache and blurry vision. Also baby has a fever of 100.5", MATERNAL + "\n\n" + BABY_DOCTOR),
+    ("I'm bleeding heavily, and baby has a fever", MATERNAL + "\n\n" + BABY_DOCTOR),
+    ("I have chest pain. my baby is floppy", MATERNAL + "\n\n" + BABY_ER),
+])
+def test_r2_report_mixed_phrasings_preserve_both(question, expected):
+    assert ask_safety.classify(question).message == expected

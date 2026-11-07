@@ -12,7 +12,7 @@ baby_api = shared.baby_api
 needs_database = pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 EMERGENCY = "Call 911 now. Your baby may be having a life-threatening emergency."
 ER = "Go to the emergency room now for your baby."
-DOCTOR = "Call your baby's doctor now or seek urgent care."
+DOCTOR = "Call your baby's doctor now or seek urgent care. If you think your baby has a life-threatening emergency, call 911."
 CASES = [
     "my baby is barely breathing", "my newborn is limp and wont respond", "my 1mo jerking and eyes fixed to one side wont respond", "my baby isn't breathing", "baby's lips are blue", "he won't wake up", "my newborn looks gray",
     "her lips look bluish", "my baby is struggling for each breath", "my newborn is very weak",
