@@ -598,3 +598,29 @@ not only an isolated rerun of the formerly failing movement case, plus the full
 required native matrix, final review, reviewed internal family binary and isolated
 deployed consent/access/revocation/source/budget checks. Leave the production
 flag unset. No production configuration was changed by this task.
+
+The final paid V2 run uses `baby-ask-v2-6-movement-context`: movement education
+passed, but the **complete whole-Ask run is 57/58**, with the general teething
+answer replaced by a safety refusal. The cause of that refusal is not established
+from the privacy-bounded report; do not treat it as a passing complete eval.
+The safety check retained 1,590 verdicts: 3.53% model-only misses, zero misses
+after the fixed floor, zero model false alarms/errors, 1.4% floor false alarms.
+A zero-call replay verifies the final floor; all 588 existing eval inputs have
+unchanged floor outcomes. Old generation's explicit safety field is capture-tested
+and has not been separately sampled live. No further paid calls will run: recorded
+spend/reservations are $0.772048; the conservative entire-task upper bound, keeping
+earlier unresolved caps, is $1.912048 of the $2 ceiling. Native acceptance and
+final review remain gates regardless of test/CI counts. The detailed dated ledger
+and raw/replayed evidence are in the held content PR's medical report.
+
+Combined canonical `./scripts/check.sh` passed on code/test head
+`55be9ace245807c3bca8d68eb7cc93fbaf5f4d6b` (API source
+`77e52ff383b413440cb43c1ae5d0d3170b623eca`): 6,738 API tests passed, 47 existing
+skips; Baby 2,857/141 files, Recipes 1,610/201, Admin 14/4, Workouts 1,901/122
+plus one existing skip. TypeScript, Doctor 21/21, runtime audits, web checks,
+all-platform exports and native-bundle checks passed. The gate used an owned
+PG16 UTF-8/C.UTF-8 disposable database with the synthetic postgres role and no
+global SSL override. This is automated acceptance, not native UI acceptance.
+The isolated native build never reached a health screen; all requested R5 matrix
+dimensions and cold relaunch remain blocked/not run. No merge, production setting
+change or flag change was performed.
