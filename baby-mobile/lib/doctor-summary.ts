@@ -7,6 +7,7 @@ import { kindWord, type BabyRecord, type Child, type DeviceState, type Kind } fr
 import { mutationRecordId, pendingRecords } from "./outbox";
 import { addDays, clockIn, dayRange, keyDate, recordDay } from "./tracker";
 import { moreKinds, trackerFor } from "./trackers";
+import { noTitle } from "./journal-title";
 
 /** A page holds a month of daily rows and still has room for the rest. */
 export const summaryMaxDays = 31;
@@ -157,6 +158,8 @@ function clipped(text: string, letters: number) {
 /** A question or note typed straight on a visit takes its first line as its title, so the words needn't be said twice. */
 export const repeatsTitle = ({ title, body }: Pick<BabyRecord, "title" | "body">) => {
   const start = title.trim().replace(/…$/, "");
+  // An entry with no title of its own: the kind's name says nothing a summary needs.
+  if (start === noTitle) return !!body.trim();
   return !!start && body.trim().startsWith(start);
 };
 /** What a row on the screen says: the words once, or a title and what's under it. */

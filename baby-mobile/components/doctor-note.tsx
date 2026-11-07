@@ -43,7 +43,7 @@ function ChildNote({ childId }: { childId: string | null }) {
   return <Card tone="soft">
     <View style={{ gap: 7 }}>
       <Copy kind="label">{doctorNoteTitle}</Copy>
-      <TextInput key={fontScale} accessibilityLabel={doctorNoteTitle} value={text} multiline maxLength={4000} maxFontSizeMultiplier={0} placeholderTextColor={c.muted} placeholder="Write it here"
+      <TextInput key={fontScale} accessibilityLabel={doctorNoteTitle} value={text} multiline maxLength={4000} maxFontSizeMultiplier={0} placeholderTextColor={c.muted} selectionColor={c.accentText} placeholder="Write it here"
         onChangeText={(value) => { editing.current = true; setText(value); }} onBlur={save}
         style={{ minHeight: 64, padding: 12, borderRadius: radii.field, backgroundColor: c.surface, color: c.text, fontFamily: fonts.regular, fontSize: 16, lineHeight: 22, textAlignVertical: "top" }} />
       <Copy kind="small" tone="muted">{doctorNoteWhere(b.state.bootstrap, saved)}</Copy>

@@ -21,6 +21,7 @@ vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/files", () => ({ preserveFile: vi.fn(), removeLocal: vi.fn() }));
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
+vi.mock("../components/journal-composer", () => ({ JournalComposer: "JournalComposer", ComposerOpening: "ComposerOpening" }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile", openEvent: vi.fn() }));
 vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections", VisitLinks: "VisitLinks" }));
