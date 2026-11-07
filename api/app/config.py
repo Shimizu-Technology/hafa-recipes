@@ -272,7 +272,7 @@ class Settings(BaseSettings):
     # Required for public/paid use; private family use has the recorded agent review.
     baby_ask_clinician_approval: str = ""
     # Agent-reviewed by Leon's decision, 2026-11-07. Public/paid releases retain both gates.
-    baby_health_release_audience: Literal["private_family", "public", "paid"] = "public"
+    baby_health_release_audience: Literal["private_family", "public", "paid", "disabled"] = "public"
     baby_health_reviewed_version: str = ""
     # Stable application user IDs, never Clerk subjects. Empty denies private-family AI.
     baby_health_private_users: str = ""
@@ -291,6 +291,13 @@ class Settings(BaseSettings):
     # Push registration, settings and delivery. Off means no routes, no worker and no new queries.
     baby_push_enabled: bool = False
     expo_access_token: SecretStr | None = None
+
+    @field_validator("baby_health_release_audience", mode="before")
+    @classmethod
+    def normalize_baby_health_audience(cls, value):
+        """Accept the mobile spelling; unknown values disable Baby AI, never the shared API."""
+        audience = value.strip().lower().replace("-", "_") if isinstance(value, str) else ""
+        return audience if audience in {"private_family", "public", "paid"} else "disabled"
 
     @field_validator("workouts_ai_budget_database_url", mode="before")
     @classmethod

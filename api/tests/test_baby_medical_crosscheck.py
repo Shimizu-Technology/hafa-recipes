@@ -130,3 +130,30 @@ async def test_old_answer_publishes_the_vaccine_closing_and_sources_even_without
     reply = await ask_v2.checked_old_answer_reply(None, "What do sources say about vaccines?", AnswerOutput(message="Ask can show the published positions."))
     assert reply["message"].endswith("Your baby's doctor can tell you what's due.")
     assert reply["help"] is None and reply["sources"] == list(ask_safety.VACCINE_SOURCES)
+
+
+@pytest.mark.parametrize("value,normalized,allowed", [
+    ("private_family", "private_family", True), ("private-family", "private_family", True),
+    ("  PRIVATE-FAMILY  ", "private_family", True), ("public", "public", False),
+    ("paid", "paid", False), ("", "disabled", False), ("privte-family", "disabled", False),
+    ("unknown", "disabled", False), (None, "disabled", False),
+])
+def test_real_settings_audience_alias_and_invalid_values_do_not_stop_shared_api(monkeypatch, value, normalized, allowed):
+    from app.config import Settings
+    configured = Settings(_env_file=None, database_url="postgresql://localhost/health_test", openai_api_key="test-key",
+                          baby_health_release_audience=value, baby_health_reviewed_version=ask_gate.HEALTH_REVIEW_VERSION,
+                          baby_health_private_users="owner", baby_ask_v2_enabled=True)
+    assert configured.baby_health_release_audience == normalized
+    monkeypatch.setattr(ask_gate, "get_settings", lambda: configured)
+    assert ask_gate.health_release_allowed("owner") is allowed
+    assert ask_gate.ask_v2_on("owner") is allowed
+    assert not ask_gate.health_release_allowed("other")
+
+
+@pytest.mark.parametrize("route", ["maternal_poisoning", "baby_emergency_poisoning", "maternal_baby_emergency_poisoning",
+                                    "maternal_baby_er_poisoning", "maternal_baby_unwell_poisoning"])
+def test_poison_composites_are_supported_by_checks_and_generated_safety_schemas(route):
+    assert AnswerOutput(message="discard", safety=route).safety == route
+    assert route in ask_check.QuestionVerdict.model_json_schema()["properties"]["urgent"]["enum"]
+    assert route in ask_v2.ANSWER_SCHEMA["properties"]["safety"]["enum"]
+    assert "1-800-222-1222" in ask_safety.MESSAGES[route]

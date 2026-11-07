@@ -3967,7 +3967,10 @@
       "check": "question",
       "expect": "urgent",
       "expect_route": "baby_emergency",
-      "question": "Kai isnt breathing"
+      "question": "Kai isnt breathing",
+      "child_names": [
+        "Kai"
+      ]
     },
     {
       "id": "independent_recheck_151",
@@ -3983,7 +3986,10 @@
       "check": "question",
       "expect": "urgent",
       "expect_route": "baby_emergency",
-      "question": "kai is blue"
+      "question": "kai is blue",
+      "child_names": [
+        "Kai"
+      ]
     },
     {
       "id": "independent_recheck_poison_78",

@@ -26,13 +26,15 @@ for baby in ("baby_emergency", "baby_er", "baby_unwell"):
 def expected(row):
     route = row["route"]
     if route in {"poison", "maternal_poison"}:
-        if not hasattr(ask_safety, "POISON"):
+        if not hasattr(ask_safety, "POISONING"):
             route = row["base_route"]
         else:
-            poison = ask_safety.MESSAGES[ask_safety.POISON]
+            poison = ask_safety.MESSAGES[ask_safety.POISONING]
             return poison if route == "poison" else MATERNAL + "\n\n" + poison
-    elif "base_route" in row and not hasattr(ask_safety, "POISON"):
+    elif "base_route" in row and not hasattr(ask_safety, "POISONING"):
         route = row["base_route"]
+    if row["question"] == "i took too many tylenol and baby is choking" and hasattr(ask_safety, "POISONING"):
+        return STRINGS[route] + "\n\n" + ask_safety.MESSAGES[ask_safety.POISONING]
     return STRINGS[route]
 
 
@@ -44,11 +46,14 @@ def test_independent_recheck_table_exact_shipped_string(row):
 
 @needs_database
 @pytest.mark.parametrize("v2", [False, True])
-@pytest.mark.parametrize("row", [row for row in CASES if row["route"] != "none" and row["question"].lower() != "kai is blue"], ids=lambda row: row["question"])
+@pytest.mark.parametrize("row", [row for row in CASES if row["route"] != "none"], ids=lambda row: row["question"])
 async def test_recheck_urgent_table_on_both_actual_ask_paths(baby_api, monkeypatch, v2, row):
     wanted = expected(row)
     if wanted is None:  # Poison support is absent from this hotfix's base.
         return
+    if "kai" in row["question"].lower():
+        created = await baby_api.client.post("/api/v1/baby/children", headers=HEADERS, json={"id": str(uuid4()), "name": "Kai"})
+        assert created.status_code == 200, created.text
     monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda _: False))
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS,
         json={"request_id": str(uuid4()), "message": row["question"], "ask_v2": v2})
