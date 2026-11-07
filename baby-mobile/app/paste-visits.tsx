@@ -27,6 +27,7 @@ export default function PasteVisits() {
   const family = familySpaces(b.state.bootstrap).find((space) => space.role === "parent");
   const visitCount = items?.filter((row) => row.kind === "event").length ?? 0, momentCount = items?.filter((row) => row.kind === "journal").length ?? 0;
   const chosen = items?.filter((row) => row.selected) ?? [],
+    needsPregnancy = chosen.some((row) => row.kind === "event") && !pregnancy,
     yearMissing = !!items?.some((row) => row.yearless && !validDay(row.day)),
     yearPending = chosen.some((row) => row.yearless) && year !== acceptedYear,
     suggestion = suggestedPasteYear(items ?? [], pregnancy?.due_date),
@@ -46,7 +47,7 @@ export default function PasteVisits() {
     setBusy(true); setError("");
     try {
       if (b.state.bootstrap!.visit_import_available !== true) throw Error("Connect to an updated Håfa Baby service before confirming. Your review is still here.");
-      if (expecting.length > 1 && !pregnancy) throw Error("Choose the expecting baby for these prenatal visits.");
+      if (needsPregnancy) throw Error(expecting.length ? "Choose the expecting baby for these visits." : "Add an expecting baby profile to save visits. You can still save moments.");
       const chosen = items!.filter((row) => row.selected);
       if (yearPending) throw Error("Choose the year for these dates before saving.");
       const lengthError = tooLong("", original, "original note") || chosen.map((row) => tooLong(row.title, row.text)).find(Boolean);
@@ -89,7 +90,7 @@ export default function PasteVisits() {
       setSaved(records); void b.sync();
     } catch (e) { setError(messageFor(e)); } finally { setBusy(false); }
   }
-  return <Screen title="Bring in pregnancy notes" back key={saved.length ? "saved" : reviewing ? "review" : "note"} footer={!saved.length ? items ? <Button title={saveLabel} disabled={!chosen.length || yearPending || chosen.some((row) => !validDay(row.day) || !row.title.trim())} busy={busy} onPress={() => void confirm()} /> : <Button title="Review your note" disabled={!original.trim()} onPress={review} /> : undefined}>
+  return <Screen title="Bring in pregnancy notes" back key={saved.length ? "saved" : reviewing ? "review" : "note"} footer={!saved.length ? items ? <Button title={saveLabel} disabled={!chosen.length || needsPregnancy || yearPending || chosen.some((row) => !validDay(row.day) || !row.title.trim())} busy={busy} onPress={() => void confirm()} /> : <Button title="Review your note" disabled={!original.trim()} onPress={review} /> : undefined}>
     {!!error && <Notice error>{error}</Notice>}
     {saved.length ? <><Notice>Saved on this phone. You can find these in Journal.</Notice>{saved.map((row) => <Row key={row.id} title={b.records?.find((known) => known.id === row.id)?.title ?? row.title} onPress={() => router.push({ pathname: row.kind === "event" ? "/event/[id]" : "/record/[id]", params: { id: row.id } })} />)}</> : <>
       {!items ? <>
@@ -101,7 +102,7 @@ export default function PasteVisits() {
         <Copy kind="heading">{visitCount} {visitCount === 1 ? "visit" : "visits"} and {momentCount} {momentCount === 1 ? "moment" : "moments"} from your note</Copy>
         <Copy>Check the dates and words below. Nothing is saved yet. Items stay personal unless you share them; your original note stays private.</Copy>
         {pregnancy && <Copy kind="small">Visits for {pregnancy.name}.</Copy>}
-        {!expecting.length && <Copy kind="small">You can add a baby profile later.</Copy>}
+        {!expecting.length && chosen.some((row) => row.kind === "event") && <Card style={{ gap: 12 }}><Copy>Add an expecting baby profile to save visits. You can still save moments.</Copy><Button secondary title="Add expecting baby" onPress={() => router.push({ pathname: "/child", params: { stage: "expecting" } })} /></Card>}
         {expecting.length > 1 && <FilterChips label="Expecting baby" value={pregnancyId} options={expecting.map((child) => ({ label: child.name, value: child.id }))} onChange={(id) => { setPregnancyId(id); setYear(suggestedPasteYear(items, expecting.find((child) => child.id === id)?.due_date) ?? ""); setAcceptedYear(""); }} />}
         {(yearMissing || yearPending) && <Card style={{ gap: 12 }}>
           <Field label="Which year were these?" value={year} onChange={setYear} />

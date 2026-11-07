@@ -2118,3 +2118,23 @@ it("rejects a late paste commit after an account switch even when its API lease 
   expect(apply).not.toHaveBeenCalled();
   expect(baby.state.outbox).toEqual([]);
 });
+
+it.each(["journal", "event"] as const)("retries an attributed %s after an API rollback and cold relaunch without losing its words", async (kind) => {
+  const text = "Private first test 💛";
+  const record = { id: "attributed", kind, title: "Original words", body: text, child_id: null, occurred_at: "2026-11-04T00:00:00Z", data: { paste_origin: { text, start: 0, end: text.length, original: kind === "journal" }, ...(kind === "event" ? { category: "appointment" as const, timezone: "UTC" } : {}) } };
+  let available = false;
+  mock.api = { bootstrap: vi.fn(async () => ({ ...bootstrap, visit_import_available: available })), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined,
+    save: vi.fn(async (given: any) => { if (!available) throw new ApiError("Import support is temporarily unavailable", 503); return { ...optimisticRecord(given), revision: 1 }; }) };
+  mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, visit_import_available: true }, outbox: [{ id: "write-attributed", generation: 1, type: "save", record, files: [] }] } as unknown as DeviceState;
+  await mount();await act(async () => { await baby.sync();await settle(); });
+  expect(baby.state.outbox).toHaveLength(1);expect(baby.state.outbox[0].error).toBeUndefined();
+  expect(baby.state.outbox[0]).toMatchObject({ record, attempts: 1 });
+  mock.saved = baby.state;
+  await act(async () => renderer!.unmount());renderer = undefined;
+  available = true;await mount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000);await settle();await baby.sync();await settle(); });
+  expect(baby.state.outbox).toEqual([]);
+  expect(mock.api.save).toHaveBeenLastCalledWith(record, 1);
+  expect(baby.state.records.filter((row) => row.id === record.id)).toHaveLength(1);
+  expect(baby.state.records.find((row) => row.id === record.id)?.data.paste_origin?.text).toBe(text);
+});

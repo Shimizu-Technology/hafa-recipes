@@ -23,7 +23,7 @@ let tree: ReactTestRenderer;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   mock.lease = 1; mock.changeOwner = false; mock.sequence = 0;
-  mock.b = { owner: "stable-app-owner", state: { ...emptyState(), bootstrap: { generation: 1, visit_import_available: true, personal_space_id: "me", profile: { timezone: "Pacific/Guam" }, children: [] } },
+  mock.b = { owner: "stable-app-owner", state: { ...emptyState(), bootstrap: { generation: 1, visit_import_available: true, personal_space_id: "me", profile: { timezone: "Pacific/Guam" }, children: [{ id: "pregnancy", name: "Baby", space_id: "me", due_date: "2026-12-10" }] } },
     api: { lease: () => mock.lease, assertLease: (lease: number) => { if (lease !== mock.lease) throw Error("Your account changed."); } },
     commit: vi.fn(async (change: any) => { mock.b.state = change(mock.b.state); }), sync: vi.fn(async () => {}) };
 });
@@ -64,7 +64,7 @@ it("uses the shared space for item identity across two family members", async ()
   const ids: string[] = [];
   for (const owner of ["parent-a", "parent-b"]) {
     mock.b.owner = owner;
-    mock.b.state = { ...emptyState(), bootstrap: { generation: 1, visit_import_available: true, personal_space_id: owner, profile: { timezone: "Pacific/Guam" }, children: [], spaces: [{ id: owner, kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] } };
+    mock.b.state = { ...emptyState(), bootstrap: { generation: 1, visit_import_available: true, personal_space_id: owner, profile: { timezone: "Pacific/Guam" }, children: [{ id: "family-baby", name: "Baby", space_id: "family", due_date: "2026-12-10" }], spaces: [{ id: owner, kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] } };
     await review("2026-11-09 Clinic class");
     await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());
     await act(async () => saveButton().props.onPress());
@@ -213,5 +213,44 @@ it("starts the review at the top without jumping during item edits", async () =>
   expect(after).not.toBe(before);
   await act(async () => host("Choice", "label", "Include this item").props.onPress());
   expect(host("Screen", "title", "Bring in pregnancy notes").props.mount).toBe(after);
+  await act(async () => tree.unmount());
+});
+
+it("never saves an unchecked candidate, while keeping the private original intact", async () => {
+  const note = "1st Visit - May 6, 2026\n8 weeks\n2nd Visit - June 3, 2026\n12 weeks";
+  await review(note);
+  const choices = tree.root.findAll((n) => String(n.type) === "Choice" && n.props.label === "Include this item");
+  await act(async () => choices[1].props.onPress());
+  expect(saveButton().props.title).toBe("Save 1 item");
+  await act(async () => saveButton().props.onPress());
+  expect(mock.b.state.outbox).toHaveLength(2);
+  expect(mock.b.state.outbox[0].record.body).toBe(note);
+  expect(mock.b.state.outbox.filter((m: any) => m.record.kind === "event").map((m: any) => m.record.title)).toEqual(["1st Visit"]);
+  await act(async () => tree.unmount());
+});
+it("requires an expecting profile for selected visits without saving even the original", async () => {
+  mock.b.state.bootstrap.children = [{ id: "born", name: "Baby", space_id: "me", due_date: "2026-12-10", birth_date: "2026-12-10" }];
+  await review("1st Visit - May 6, 2026\n8 weeks");
+  expect(saveButton().props.disabled).toBe(true);
+  expect(host("Button", "title", "Add expecting baby")).toBeDefined();
+  await act(async () => saveButton().props.onPress());
+  expect(mock.b.state.outbox).toHaveLength(0);expect(mock.b.commit).not.toHaveBeenCalled();
+  expect(JSON.stringify(tree.toJSON())).toContain("Add an expecting baby profile to save visits");
+  await act(async () => tree.unmount());
+});
+it.each([false, true])("allows moments without an expecting profile, with explicit family sharing (%s)", async (shared) => {
+  mock.b.state.bootstrap.children = [];
+  mock.b.state.bootstrap.spaces = [{ id: "me", kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }];
+  await review("First test on April 4, 2026\n\n1st Visit - May 6, 2026\n8 weeks");
+  const choices = tree.root.findAll((n) => String(n.type) === "Choice" && n.props.label === "Include this item");
+  await act(async () => choices[1].props.onPress());
+  if (shared) await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());
+  expect(saveButton().props.disabled).toBe(false);
+  await act(async () => saveButton().props.onPress());
+  expect(mock.b.state.outbox).toHaveLength(2);
+  expect(mock.b.state.outbox[0].space_id).toBe("me");
+  expect(mock.b.state.outbox[1].space_id).toBe(shared ? "family" : "me");
+  expect(mock.b.state.outbox[1].record.kind).toBe("journal");
+  expect(mock.b.state.outbox[1].record.child_id).toBeNull();
   await act(async () => tree.unmount());
 });

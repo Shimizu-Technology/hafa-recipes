@@ -11,6 +11,7 @@ from app.domains.baby.models import (
     BabyMembership,
     BabyMovedOut,
     BabyRecord,
+    BabySpaceMember,
 )
 from app.domains.baby.runtime import BabyWorker
 from app.domains.baby.share_models import BabyShareCredential
@@ -294,3 +295,25 @@ async def test_family_creation_does_not_publish_pasted_visits(baby_api, enabled,
     explicitly_shared = {**body, "id": str(uuid4())}
     shared_visit = await c.post("/api/v1/baby/records", headers=records.headers(family, generation=1), json=explicitly_shared)
     assert shared_visit.status_code == 200 and shared_visit.json()["space_id"] == str(family), shared_visit.text
+
+
+@pytest.mark.parametrize("protection", ["paste_origin", "just_me"])
+async def test_split_private_visit_stays_personal_after_source_removal_and_family_creation(baby_api, enabled, protection):
+    baby_api.settings.baby_new_kinds_enabled = True
+    c, h = baby_api.client, records.headers(enabled, generation=1)
+    data = {"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}}
+    data[protection] = {"text": "Visit words", "start": 0, "end": 11, "original": False} if protection == "paste_origin" else True
+    original = shared.payload("event", body="Visit words", data=data)
+    assert (await c.post("/api/v1/baby/records", headers=h, json=original)).status_code == 200
+    replacement = shared.payload("event", body="Visit words", occurred_at="2026-10-21T12:00:00+10:00", data={"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "paste_origin": None})
+    result = await c.post(f"/api/v1/baby/events/{original['id']}/split", headers=h, json={"revision": 1, "from_start": replacement["occurred_at"], "event": replacement})
+    assert result.status_code == 200, result.text
+    assert result.json()["event"]["data"]["just_me"] is True
+    family = await family_for(baby_api, enabled)
+    personal = await c.get(f"/api/v1/baby/records/{replacement['id']}", headers=h)
+    assert personal.status_code == 200 and personal.json()["space_id"] == str(enabled), personal.text
+    async with baby_api.sessions() as db:
+        db.add(BabySpaceMember(space_id=family, app_user_id="other", role="parent", status="active", access_version=1))
+        await db.commit()
+    family_rows = await c.get("/api/v1/baby/records", headers=records.headers(family, "other", generation=1))
+    assert family_rows.status_code == 200 and replacement["id"] not in family_rows.text

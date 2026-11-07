@@ -199,7 +199,7 @@ Everyone has one **personal space**. A **family space** is separate and is creat
 - Visit privacy survives category changes and series edits.
 - Only the contributor may remove original pasted words, including on shared moments.
 - Pregnancy-week estimates/snapshots apply only before the child’s birth date.
-- Prenatal imports target an expecting child and ask which one only when more than one is available.
+- Prenatal imports target an expecting child and ask which one only when more than one is available. Selected visits require an expecting profile; moments can be saved without one.
 - Private pasted visits stay personal when a family is first created.
 - The API advertises import support before confirmation; queued attributed writes wait through an API rollback.
 - The per-item toggle "Shared with family / Just me" (saved posts, categories, and one journal entry at a time) **moves the row** with one function, `move_record()`. A journal entry its writer shares is a family row like any other: every parent can read it, and each parent's Ask can use it. Un-sharing moves it back. Only the writer can share or un-share a journal entry.

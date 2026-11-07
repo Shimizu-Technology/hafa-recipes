@@ -23,7 +23,7 @@ from app.domains.baby.attachments import retire_unreferenced_attachments, upload
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
 from app.domains.baby.dependencies import Access, Client, Database, Generation, Limit, Offset, User
-from app.domains.baby.events import check_series_cap, day_marks
+from app.domains.baby.events import check_series_cap, day_marks, stamp_provider_default
 from app.domains.baby.events import router as events_router
 from app.domains.baby.feeds import retimed, same_action
 from app.domains.baby.imports import router as imports_router
@@ -1095,8 +1095,8 @@ async def create_record(
     saved = body.model_dump()
     if body.kind == "source" and (body.data.get("url") or body.data.get("attachment_ids")) and body.data.get("user_text") is None:
         saved["data"] = {**body.data, "user_text": body.data.get("source_text")}
-    if body.kind == "event" and body.data.get("provider_default"):
-        saved["data"] = {**saved["data"], "provider_default_at": int(now().timestamp() * 1000)}
+    if body.kind == "event":
+        stamp_provider_default(saved["data"])
     row = BabyRecord(
         **{**saved, "child_id": child_id},
         app_user_id=user.id,
@@ -1160,9 +1160,7 @@ async def patch_record(
         values["data"] = {key: value for key, value in values["data"].items() if key not in VISIT_PRIVATE_FIELDS}
         values["data"].update({key: value for key, value in row.data.items() if key in VISIT_PRIVATE_FIELDS})
     if row.kind == "event":
-        saved = values["data"]
-        if saved.get("provider_default") and (saved.get("provider_default_at") != row.data.get("provider_default_at") or not row.data.get("provider_default")):
-            saved["provider_default_at"] = int(now().timestamp() * 1000)
+        stamp_provider_default(values["data"], row.data)
         from app.domains.baby.access import medical_visit
         if medical_visit(row.data):
             values["data"]["medical_visit"] = True

@@ -167,3 +167,29 @@ async def test_caregiver_future_split_restores_hidden_source_before_contributor_
     assert parent.json()["data"]["paste_origin"] == source
     assert parent.json()["body"] == "Medical notes"
     assert parent.json()["data"]["results"] == "Medical result"
+
+
+@pytest.mark.parametrize("select_new", [False, True])
+async def test_split_provider_default_uses_server_time_only_for_a_new_selection(baby_api, family, monkeypatch, select_new):
+    from datetime import datetime, timedelta, timezone
+
+    from app.domains.baby import events
+
+    baby_api.settings.baby_new_kinds_enabled = True
+    clock = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
+    monkeypatch.setattr(events, "now", lambda: clock[0])
+    c, h = baby_api.client, records.headers(family)
+    original = shared.payload("event", data={"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "provider_default": True, "provider_default_at": 9999999999999, "doctor": "Series doctor"})
+    saved = await c.post(API + "/records", headers=h, json=original)
+    assert saved.status_code == 200, saved.text
+    first_stamp = saved.json()["data"]["provider_default_at"]
+    clock[0] += timedelta(seconds=10)
+    other = shared.payload("event", data={"category": "appointment", "timezone": "Pacific/Guam", "provider_default": True, "provider_default_at": 1, "doctor": "Other doctor"})
+    assert (await c.post(API + "/records", headers=h, json=other)).status_code == 200
+    clock[0] += timedelta(seconds=10)
+    replacement = {**original, "id": str(uuid4()), "occurred_at": "2026-10-21T12:00:00+10:00", "data": {"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "provider_default": True, "doctor": "Chosen doctor" if select_new else "Series doctor", **({"provider_default_at": 1} if select_new else {})}}
+    split = await c.post(f"{API}/events/{original['id']}/split", headers=h, json={"revision": 1, "from_start": replacement["occurred_at"], "event": replacement})
+    assert split.status_code == 200, split.text
+    assert split.json()["event"]["data"]["provider_default_at"] == (int(clock[0].timestamp() * 1000) if select_new else first_stamp)
+    defaults = await c.post(API + "/visit-defaults/read", headers=h)
+    assert defaults.status_code == 200 and defaults.json()["doctor"] == ("Chosen doctor" if select_new else "Other doctor"), defaults.text

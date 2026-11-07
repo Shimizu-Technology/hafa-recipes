@@ -37,6 +37,18 @@ from app.domains.baby.schemas import (
 from app.domains.baby.security import BabyRoute
 from app.domains.baby.stats import day_start, kind_query
 
+
+def stamp_provider_default(data, previous=None):
+    """Order explicit provider choices by server time, preserving omitted older metadata."""
+    previous = previous or {}
+    if data.get("provider_default"):
+        if "provider_default_at" not in data and previous.get("provider_default") and "provider_default_at" in previous:
+            data["provider_default_at"] = previous["provider_default_at"]
+        if data.get("provider_default_at") != previous.get("provider_default_at") or not previous.get("provider_default"):
+            data["provider_default_at"] = int(now().timestamp() * 1000)
+    return data
+
+
 router = APIRouter(route_class=BabyRoute)
 MAX_RANGE_DAYS = 400
 MAX_OCCURRENCES = 500
@@ -525,6 +537,10 @@ async def split_series(
         raise HTTPException(403, "Only the person who added the original words can remove or change them")
     if medical_visit(row.data):
         new.data["medical_visit"] = True
+    if (not access.enabled or access.target.space.kind == "personal") and (row.data.get("just_me") or row.data.get("paste_origin")):
+        # A series edit is not a sharing decision, even when its author removes the source words.
+        new.data["just_me"] = True
+    stamp_provider_default(new.data, row.data)
     revision_matches(row, body.revision)
     if not is_start(row.occurred_at, zone, event.rule, body.from_start):
         raise HTTPException(422, "That is not one of this event's dates")
