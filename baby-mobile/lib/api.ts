@@ -81,7 +81,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly local = false
+    readonly local = false,
+    readonly reason?: "related_space"
   ) {
     super(message);
   }
@@ -170,13 +171,14 @@ export function createBabyApi(
       if (!response.ok) {
         // Only this exact server-owned code selects a fixed local message.
         // Never reflect arbitrary backend/provider detail into private screens.
-        let dailyLimit = false,
+        let dailyLimit = false, relatedSpace = false,
           known = "";
         if (response.status === 422) {
           try {
             const error = await response.json();
             check();
             assertLease(captured);
+            relatedSpace = error?.detail === "Related items must be in the same Baby space";
             known = knownDetails.has(error?.detail) ? error.detail : "";
           } catch (failure) {
             if (failure instanceof ApiError) throw failure;
@@ -232,7 +234,7 @@ export function createBabyApi(
                               ? "Håfa Baby could not upload this attachment. It is safe on this phone. Retry the upload later."
                               : "Håfa Baby could not save this change. It is safe on this phone. Retry later."
                             : "Håfa Baby could not accept this change. Review its details before retrying.";
-        throw new ApiError(safe, response.status);
+        throw new ApiError(safe, response.status, false, relatedSpace ? "related_space" : undefined);
       }
       if (response.status === 204) return undefined as T;
       const value = (await response.json()) as T;

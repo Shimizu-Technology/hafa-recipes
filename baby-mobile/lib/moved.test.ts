@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { keepInPersonal, addMutation, localFileUris, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState, holdEditor, sendHeldToFamily } from "./outbox";
 import legacy from "./fixtures/legacy-family-39-40.json";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
+import { retryVisitLinks, visitWriteProblem, visitLinkMessage, keepVisitInPersonal } from "./outbox";
 
 const personal = "personal-space", family = "family-space";
 const boot = (): Bootstrap => ({ generation: 2, ai_available: false, profile: { display_name: "", timezone: "UTC", ai_consent: false }, personal_space_id: personal,
@@ -240,6 +241,49 @@ describe("Keep in my personal space", () => {
 });
 
 
+it("holds an old private visit question instead of following its family baby into sharing", () => {
+  const question = { ...edit("q"), record: write("q", "question", "baby", { event_id: "visit" }) } as Mutation;
+  const held = state({ outbox: [question] });
+  expect(visitWriteProblem(held, question)).toBe(true);
+  const next = retargeted(held, question, moved({ record: { id: "baby", name: "Baby" } as never }), uuid);
+  expect(next.outbox[0]).toMatchObject({ space_id: personal, error: visitLinkMessage });
+  const kept = keepVisitInPersonal(next, next.outbox[0], uuid);
+  expect(kept.outbox).toHaveLength(1);
+  expect(kept.outbox[0]).toMatchObject({ space_id: personal, record: { kind: "journal", body: "words", child_id: "baby" } });
+  expect((kept.outbox[0] as any).record.data.event_id).toBeUndefined();
+  expect((kept.outbox[0] as any).record.id).not.toBe("q");
+});
+it("holds a linked journal when its visit moved to another space", () => {
+  const note = { ...edit("note"), record: write("note", "journal", null, { event_id: "visit" }) } as Mutation;
+  expect(visitWriteProblem(state({ records: [row("visit", 2, family)], outbox: [note] }), note)).toBe(true);
+});
+
+it("Save privately on either stopped row makes one latest journal, and a repeated stale press makes none", () => {
+  const first = { ...edit("q", 1), record: write("q", "question", "baby", { event_id: "visit" }) } as Mutation, second = { ...first, id: "second", record: { ...(first as any).record, body: "latest words" } } as Mutation;
+  const source = state({ outbox: [first, second] });
+  const kept = keepVisitInPersonal(source, second, uuid);
+  expect(kept.outbox).toHaveLength(1); expect((kept.outbox[0] as any).record.body).toBe("latest words");
+  expect(keepVisitInPersonal(kept, first, uuid)).toBe(kept);
+});
+it("never follows a moved-baby answer into sharing an unlinked personal journal", () => {
+  const note = { ...edit("private", 1), record: write("private", "journal", "baby") } as Mutation;
+  const next = retargeted(state({ outbox: [note] }), note, moved({ record: { id: "baby", name: "Baby" } as never }), uuid);
+  expect(next.outbox[0].space_id).toBe(personal); expect(next.outbox[0].error).toMatch(/baby is no longer available/);
+  const kept = keepVisitInPersonal(next, next.outbox[0], uuid);
+  expect(kept.outbox).toHaveLength(1);
+  expect(kept.outbox[0]).toMatchObject({ space_id: personal, record: { kind: "journal", child_id: null, body: "words" } });
+});
+
+it("private visit recovery retains earlier local files still named by the latest save", () => {
+  const file = { id: "photo", uri: "file:///still-readable.jpg", uploaded_id: "attachment" },
+    first = { ...edit("q"), files: [file], record: write("q", "journal", null, { event_id: "visit", attachment_ids: ["attachment"] }) } as Mutation,
+    linked = { ...first, id: "linked", files: [] } as Mutation,
+    kept = keepVisitInPersonal(state({ outbox: [first, linked] }), linked, uuid);
+  expect((kept.outbox[0] as any).files).toHaveLength(1);
+  expect((kept.outbox[0] as any).files[0]).toMatchObject({ uri: file.uri });
+  expect((kept.outbox[0] as any).files[0].uploaded_id).toBeUndefined();
+});
+
 describe("unfinished work stays outside the queue", () => {
   const draft = (body: string): EditorDraft => ({ ...write("entry", "feeding", "baby"), body, space_id: family, files: [{ id: "photo", uri: "file:///photo", name: "private.jpg", mime_type: "image/jpeg" }], existing: true });
   it("never inherits an unsaved file or an ancestor from recovery when the saved editor reopens", () => {
@@ -438,4 +482,13 @@ it("omits an absent optional held section at each mutation and generation fence"
   expect(Object.hasOwn(addMutation(none, edit("new")), "heldDrafts")).toBe(false);
   expect(Object.hasOwn(fencedState(none, { generation: 3, spaces: boot().spaces }), "heldDrafts")).toBe(false);
   expect(Object.hasOwn(fencedState(none, { generation: 2, spaces: boot().spaces!.map((s) => ({ ...s, generation: 9 })) }), "heldDrafts")).toBe(false);
+});
+
+
+it("does not auto-retry a same-space server refusal without a proven earlier mismatch", () => {
+  const event = { ...row("visit", 1), kind: "event" as const }, note = { ...edit("note"), error: visitLinkMessage, record: write("note", "journal", null, { event_id: event.id }) } as Mutation;
+  const current = state({ records: [event], outbox: [note] });
+  expect(retryVisitLinks(current, current)).toBe(current);
+  expect(retryVisitLinks(current, state({ outbox: [note] }))).toBe(current);
+  expect(retryVisitLinks(current, state({ records: [{ ...event, space_id: family }], outbox: [note] })).outbox[0].error).toBeUndefined();
 });

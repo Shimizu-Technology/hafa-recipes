@@ -2009,6 +2009,50 @@ describe("telling the API what this phone holds", () => {
   });
 });
 
+describe("visit privacy at actual sync admission", () => {
+  const live = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "f", kind: "family", role: "parent", generation: 1, access_version: 1 }] },
+    event = { ...optimisticRecord({ id: "v", kind: "event", title: "Visit", body: "", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: { timezone: "UTC", category: "appointment" } }), space_id: "f" },
+    note = { id: "m", generation: 1, space_id: "p", type: "save", files: [], record: { id: "n", kind: "journal", title: "Private", body: "my words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: { event_id: "v" } } };
+  function setupVisit(cached: boolean, failure?: ApiError) {
+    mock.saved = { ...emptyState(), bootstrap: live, records: cached ? [event] : [], outbox: [note] } as DeviceState;
+    mock.api.bootstrap = vi.fn(async () => live);
+    mock.api.records = vi.fn(async (filters: any) => page(cached && !filters.kind ? [event] : []));
+    mock.api.changes = vi.fn(async () => ({ spaces: [], cursor: {}, has_more: false, removed_space_ids: [] }));
+    mock.api.save = vi.fn(async () => { throw failure ?? Error("A cross-space note must not reach save"); });
+  }
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  it("holds a known cross-space note before any save request", async () => {
+    setupVisit(true); await mount(); await flush();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.error).toBe("");
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(baby.state.outbox[0].error).toMatch(/can’t be attached across/);
+    expect((baby.state.outbox[0] as any).record.body).toBe("my words");
+  });
+  it("resumes a stopped visit write after changes move the event into its target space", async () => {
+    setupVisit(true);
+    const returned = { ...event, space_id: "p", revision: 2 };
+    mock.api.changes.mockResolvedValueOnce({ spaces: [{ id: "p", generation: 1, access_version: 1, cursor: 1, has_more: false, reset: false, items: [{ ...returned, entity: "record", seq: 1 }] }], cursor: { p: 1 }, has_more: false, removed_space_ids: [] });
+    mock.api.save = vi.fn(async (record: any) => ({ ...record, space_id: "p", revision: 1 }));
+    await mount(); await flush(); await act(async () => { await baby.sync(); await settle(); }); await flush();
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("does not retry an unrelated relation refusal when no link mismatch was repaired", async () => {
+    setupVisit(true, new ApiError("Related rows must stay together", 422, false, "related_space"));
+    mock.saved!.records = [{ ...event, space_id: "p" }];
+    mock.api.records = vi.fn(async () => page([{ ...event, space_id: "p" }]));
+    await mount(); await flush(); await act(async () => { await baby.sync(); await settle(); }); await flush();
+    expect(mock.api.save).toHaveBeenCalledOnce(); expect(baby.state.outbox[0].error).toMatch(/can’t be attached across/);
+  });
+  it.each([true, false])("maps only the exact API relation reason to cross-space recovery (%s)", async (relation) => {
+    setupVisit(false, new ApiError("Other invalid details", 422, false, relation ? "related_space" : undefined));
+    await mount(); await flush();
+    expect(mock.api.save).toHaveBeenCalledTimes(1);
+    expect(baby.state.outbox[0].error).toBe(relation ? "This note can’t be attached across personal and family spaces. Save it privately in Journal, without the visit link, or discard it." : "Other invalid details");
+  });
+});
+
 it("keeps a late editor cleanup outside the queue and ordinary draft slots after family removal", async () => {
   const live = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] };
   mock.api.bootstrap = vi.fn(async () => live); mock.saved = { ...emptyState(), bootstrap: live } as DeviceState;

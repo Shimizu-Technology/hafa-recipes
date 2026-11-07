@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EventOccurrence, type RecordData } from "./models";
-import { heldDrafts, holdDraft, looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withFittingVisit, withVisitRows } from "./visits";
+import { visitCapture, fitsVisit, heldDrafts, holdDraft, looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withFittingVisit, withVisitRows } from "./visits";
 
 const guam = "Pacific/Guam", isQuestion = (item: BabyRecord) => item.kind === "question";
 const row = (id: string, kind: BabyRecord["kind"], data: RecordData = {}, occurred_at = "2026-11-01T00:00:00Z", body = "") => optimisticRecord({ id, kind, title: id, body, child_id: null, occurred_at, data });
@@ -109,4 +109,29 @@ describe("reading one visit's records", () => {
       held = { ...emptyState(), records: [kept, gone, other, elsewhere] } as DeviceState;
     expect(withVisitRows(held, belongs, [kept], true).records.map((item) => item.id).sort()).toEqual(["diary", "kept", "q"]);
   });
+});
+
+it("does not offer a private question for a family visit even when its baby fits", () => {
+  expect(fitsVisit({ child_id: "baby", space_id: "p" }, { child_id: "baby", space_id: "f" })).toBe(false);
+  expect(looseQuestions([{ ...row("q", "question"), space_id: "p" }], { child_id: null, space_id: "f" })).toEqual([]);
+});
+
+it("refuses caregiver family questions and shared notes inside the capture commit; refuses removed/unknown visits", () => {
+  const event = { ...row("visit", "event"), space_id: "f" }, state = { ...emptyState(), records: [event], bootstrap: { generation: 1, personal_space_id: "p", profile: { timezone: "UTC" }, spaces: [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "caregiver" }] } } as DeviceState;
+  for (const [kind, share] of [["question", false], ["journal", true]] as const) expect(() => visitCapture(state, "n", kind, "words", event, share)).toThrow(/Keep your own note/);
+  const removed = { ...state, bootstrap: { ...state.bootstrap!, spaces: state.bootstrap!.spaces!.filter((s) => s.id !== "f") } };
+  expect(() => visitCapture(removed, "n", "journal", "words", event, false)).toThrow(/no longer available/);
+  expect(() => visitCapture({ ...state, records: [] }, "n", "journal", "words", { id: "unknown", child_id: null }, false)).toThrow(/Open this visit/);
+});
+it("keeps an all-day visit's day in its event zone when the profile is elsewhere", () => {
+  const event = { ...row("v", "event", { all_day: true, timezone: "Pacific/Guam" }), space_id: "f", occurred_at: "2026-11-14T14:00:00Z" }, state = { ...emptyState(), records: [event], bootstrap: { generation: 1, personal_space_id: "p", profile: { timezone: "America/Los_Angeles" }, spaces: [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "parent" }] } } as DeviceState;
+  const kept = visitCapture(state, "n", "journal", "words", event, false);
+  expect(kept.occurred_at).toBe("2026-11-15T20:00:00.000Z");
+});
+
+it.each([true, false])("keeps the effective occurrence all-day value over the base (%s)", (allDay) => {
+  const event = { ...row("visit", "event", { all_day: !allDay, timezone: "Pacific/Honolulu" }), space_id: "f" },
+    state = { ...emptyState(), records: [event], bootstrap: { personal_space_id: "p", generation: 1, children: [], profile: { timezone: guam }, spaces: [{ id: "f", kind: "family", role: "parent" }] } } as unknown as DeviceState,
+    at = "2026-11-08T09:30:00Z", visit = { ...event, occurred_at: at, data: { ...event.data, all_day: allDay } };
+  expect(visitCapture(state, "q", "question", "my words", visit, false).occurred_at).toBe(allDay ? "2026-11-07T02:00:00.000Z" : at);
 });
