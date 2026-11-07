@@ -3,13 +3,13 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EventOccurrence, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, focuses: new Set<() => void>(), upcoming: [] as any[], push: vi.fn(), toast: vi.fn(), ids: 0, deferEffects: false }));
+const mock = vi.hoisted(() => ({ baby: null as any, params: {} as Record<string, string>, focuses: new Set<() => void>(), upcoming: [] as any[], push: vi.fn(), toast: vi.fn(), ids: 0, deferEffects: false }));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof import("react")>("react");
   return { ...actual, useEffect: (run: Parameters<typeof actual.useEffect>[0], deps: Parameters<typeof actual.useEffect>[1]) => actual.useEffect(mock.deferEffects ? () => undefined : run, deps) };
 });
 vi.mock("react-native", () => ({ View: "View" }));
-vi.mock("expo-router", () => ({ router: { push: mock.push }, useFocusEffect: (fn: () => void) => React.useEffect(() => { mock.focuses.add(fn); fn(); return () => { mock.focuses.delete(fn); }; }, [fn]) }));
+vi.mock("expo-router", () => ({ router: { push: mock.push }, useLocalSearchParams: () => mock.params, useFocusEffect: (fn: () => void) => React.useEffect(() => { mock.focuses.add(fn); fn(); return () => { mock.focuses.delete(fn); }; }, [fn]) }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `id-${++mock.ids}` }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("./context", () => ({ useBaby: () => mock.baby }));
@@ -47,7 +47,7 @@ async function add(label: string, action: string, text: string) {
   await act(async () => { all("Field").find((n) => n.props.label === label)!.props.onChange(text); });
   await act(async () => { await all("Button").find((n) => n.props.title === action)!.props.onPress(); });
 }
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.ids = 0; mock.upcoming = []; mock.focuses.clear(); mock.deferEffects = false; });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.ids = 0; mock.upcoming = []; mock.focuses.clear(); mock.deferEffects = false; mock.params = {}; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("adds a question from the appointment through the outbox, links it, and clears for the next", async () => {
@@ -71,7 +71,7 @@ it("keeps what she typed when it can't be saved, and says why", async () => {
 it("opens this baby's doctor summary from the appointment", async () => {
   await mount(<VisitSections visit={{ id: "visit", child_id: "mia" }} />);
   await act(async () => { renderer!.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.title === "Doctor summary")!.props.onPress(); });
-  expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "mia" } });
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: "mia", visit: "visit", visitTitle: undefined, at: undefined, visitAt: undefined, series: undefined, allDay: undefined, eventZone: undefined } });
 });
 it("keeps a half-typed question and note when she leaves the appointment and comes back", async () => {
   setup([]);
@@ -435,4 +435,11 @@ it("carries a queued local attachment when linking before its first upload", asy
   mock.upcoming = [appointment("visit", "2099-11-08T00:00:00Z")]; await mount(<LinkQuestions rows={[question]} />);
   await act(async () => { await row("Add this question to OB visit").props.onPress(); });
   expect(b.state.outbox.at(-1).files).toEqual([file]);
+});
+
+it("carries the visit's actual date, repeat scope and all-day zone into its summary", async () => {
+  setup([]); mock.params = { at: "2026-11-07T14:00:00Z" }; const visit = { ...record("series", "event", { timezone: "Pacific/Guam", all_day: true, recurrence: { frequency: "weekly" } }), occurred_at: "2026-11-14T14:00:00Z", title: "Family check" };
+  await mount(<VisitSections visit={visit} />);
+  await act(async () => row("Doctor summary").props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: undefined, visit: "series", visitTitle: "Family check", at: visit.occurred_at, visitAt: mock.params.at, series: "1", allDay: "1", eventZone: "Pacific/Guam" } });
 });
