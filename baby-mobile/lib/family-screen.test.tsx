@@ -447,6 +447,57 @@ describe("opened from a family link", () => {
 
 describe("in a family", () => {
   const inFamily = (api: object = {}) => setup([own, shared], api);
+  it("keeps polling the new family and ignores a late old-family response", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const me = { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, c = { ...me, app_user_id: "c", display_name: "C" };
+      let oldReply!: (value: { items: typeof me[] }) => void, left = false;
+      const familyMembers = vi.fn((id: string) => id === family
+        ? new Promise<{ items: typeof me[] }>((resolve) => { oldReply = resolve; })
+        : Promise.resolve({ items: left ? [me] : [me, c] }));
+      const b = inFamily({ familyMembers });
+      await open();
+      b.state.bootstrap.spaces = [own, { ...shared, id: "second" }];
+      await act(async () => { view!.update(<Family />); });
+      expect(button("Remove C")).toBeDefined();
+      await act(async () => { oldReply({ items: [me] }); });
+      expect(button("Remove C")).toBeDefined();
+      expect(button("Delete this family")).toBeUndefined();
+      left = true;
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      expect(familyMembers).toHaveBeenLastCalledWith("second");
+      expect(button("Remove C")).toBeUndefined();
+      expect(button("Leave this family")).toBeUndefined();
+      expect(button("Delete this family")).toBeDefined();
+    } finally { vi.useRealTimers(); }
+  });
+  it("hides the previous family's members and actions while the new list loads", async () => {
+    const me = { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, c = { ...me, app_user_id: "c", display_name: "C" };
+    let newReply!: (value: { items: typeof me[] }) => void;
+    const b = inFamily({ familyMembers: vi.fn((id: string) => id === family ? Promise.resolve({ items: [me, c] })
+      : new Promise<{ items: typeof me[] }>((resolve) => { newReply = resolve; })) });
+    await open();
+    expect(button("Remove C")).toBeDefined();
+    b.state.bootstrap.spaces = [own, { ...shared, id: "second" }];
+    await act(async () => { view!.update(<Family />); });
+    expect(text()).not.toContain("Remove C");
+    for (const title of ["Remove C", "Leave this family", "Delete this family", "Invite someone"]) expect(button(title), title).toBeUndefined();
+    expect(text()).toContain("Opening your family");
+    await act(async () => { newReply({ items: [me] }); });
+    expect(button("Delete this family")).toBeDefined();
+  });
+  it("ignores the first StrictMode read when it finishes after the replayed read", async () => {
+    const me = { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, c = { ...me, app_user_id: "c", display_name: "C" };
+    let firstReply!: (value: { items: typeof me[] }) => void;
+    const familyMembers = vi.fn().mockImplementationOnce(() => new Promise<{ items: typeof me[] }>((resolve) => { firstReply = resolve; })).mockResolvedValue({ items: [me, c] });
+    inFamily({ familyMembers });
+    await act(async () => { view = create(<React.StrictMode><Family /></React.StrictMode>); });
+    expect(button("Remove C")).toBeDefined();
+    await act(async () => { firstReply({ items: [me] }); });
+    expect(button("Remove C")).toBeDefined();
+    expect(button("Delete this family")).toBeUndefined();
+  });
+
   it("lists who's in it and offers another invite", async () => {
     inFamily();
     await open();

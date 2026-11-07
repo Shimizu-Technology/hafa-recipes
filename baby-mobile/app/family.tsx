@@ -237,6 +237,7 @@ function InFamily() {
   }
   // Someone can join or leave while this is open, and it decides whether she's offered Leave or Delete.
   useEffect(() => {
+    alive.current = true;
     void load();
     const again = setInterval(() => { if (!reading.current) void load(true); }, 30_000);
     return () => { alive.current = false; clearInterval(again); };
@@ -301,7 +302,7 @@ export default function Family() {
     [alreadyIn] = useState(link !== null && !!family);
   if (!familyOpen(bootstrap)) return <Screen title="Family" back><Notice>{link === null ? "Family sharing isn’t open yet. Everything you log stays safe in your own space."
     : "Family sharing isn’t open on your account yet, so this invitation wasn’t used. Everything you log stays safe in your own space. Try the link again later."}</Notice></Screen>;
-  if (family) return <Screen title="Family" back>{alreadyIn && <Notice>You’re already in a family, so this invitation wasn’t used.</Notice>}<YourName /><InFamily /></Screen>;
+  if (family) return <Screen title="Family" back>{alreadyIn && <Notice>You’re already in a family, so this invitation wasn’t used.</Notice>}<YourName /><InFamily key={family.id} /></Screen>;
   return <Screen title={step === "invite" ? "Invite someone" : step === "join" ? "Join a family" : "Family"} back>
     {step !== "start" && <YourName />}
     {step === "invite" ? <Invite onBack={() => setStep("start")} /> : step === "join" ? <Join link={link} onBack={() => setStep("start")} /> : <>
