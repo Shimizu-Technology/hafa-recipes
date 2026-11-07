@@ -526,3 +526,44 @@ R5 extends Help on the mobile branch with choking on an object and passing out
 under 911, and any breathing trouble under one year under ER. Existing urgent
 phone actions remain first. The family build must stay internal to TestFlight;
 it uses agent-reviewed information and must not be submitted as a public app.
+
+### Current R1–R5 validation and remaining acceptance
+
+The standalone #643 hotfix is integrated, including the final distinction
+between maternal self-reports and observations of the baby's symptoms. Both
+people's guidance and poisoning guidance survive; emergency order is covered
+on the old and V2 HTTP paths. The general choking model case is non-urgent;
+the floor retains its conservative emergency response. Latest affected runs
+passed 115 standalone and 131 integrated tests.
+
+The full combined disposable-database gate passed on code/test head
+`83302dc8db0be6c4161f9a1a1925ac6d05d180f3`: API 6,698 passed/47 existing skips,
+Baby 2,857 passed, plus repository TypeScript, Doctor, build/export and native
+bundle checks. The standalone hotfix API passed 6,605 tests/47 existing skips;
+its final unchanged Baby stage was resumed after installing its missing local
+dependencies. No source or prompt was changed for that environment repair.
+
+The paid integrated safety run completed 1,590 checks. Corrected grading and a
+saved-verdict replay of the final code give 2.5% model misses, zero misses after
+the floor, no model false alarms/errors and 1.4% floor false alarms. This replay
+is not another independent run. Seven post-freeze worker-authored holdouts
+passed 21/21 model checks. Whole Ask completed 57/58; the two research failures
+are fixed, but `crosscheck_movement_general` still produces a guard replacement
+that fails the expected general response. Keep V2 off. Recorded successful
+eval usage totals $0.553873; including all unresolved earlier ceilings, the
+upper bound is $1.653873, inside the original $2. No further paid calls.
+
+R5 source/mounted-screen checks passed, but its new native matrix is blocked:
+the isolated iOS 18.5 QA app asserted in native Clerk.configure before health
+UI. The advised relaunch failed again, requiring device automation to stop.
+No new R5 native dimension passed; iOS 26.5 was not run after that stop. Prior
+native passes remain evidence only for their recorded pre-R5 build. The app,
+API/Metro and owned simulator were cleaned; the lock was released. Resume
+native QA only after resolving that startup block, with the specified stock
+devices and a fresh noclobber lock. The protected devices remain untouched.
+
+Final-head review, the native matrix, the remaining whole-Ask case, an internal
+family binary and deployed consent/access/revocation/source/budget checks remain
+before the V2 flag. No PR was merged and no production configuration was
+changed by this worker. The full item ledger, primary-source decisions,
+conservative defaults and evidence are in #640's medical review report.
