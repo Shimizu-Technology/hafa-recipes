@@ -203,8 +203,7 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
         { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal, sources: result.sources, help: result.help }], snapshot.focusedTitle);
     } catch (failure) {
       // The screen says where to go with this, whatever the failure. Anything Ask recognized as urgent was already answered.
-      if (operation.valid()) setError(account.state.bootstrap?.profile.ai_consent ? messageFor(failure)
-        : "Ask needs AI processing turned on in Settings.");
+      if (operation.valid()) setError(messageFor(failure));
     } finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
   async function openHistory() {

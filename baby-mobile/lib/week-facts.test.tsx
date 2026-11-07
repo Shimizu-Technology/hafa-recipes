@@ -20,7 +20,7 @@ let renderer: ReactTestRenderer | undefined;
 async function mount(week = 35) { await act(async () => { renderer = create(<WeekFacts week={week} />); }); }
 const words = () => JSON.stringify(renderer!.toJSON());
 const devButton = () => renderer!.root.findAll((n) => String(n.type) === "PressTarget").find((n) => String(n.props.accessibilityLabel).startsWith("Development only"));
-const waiting = "No reviewed facts for this week.";
+const waiting = "No facts for this week.";
 
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); mock.approved = false; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -110,7 +110,7 @@ describe("once the batch is approved", () => {
 });
 
 describe("after birth", () => {
-  const waitingAge = "No reviewed facts for this age.";
+  const waitingAge = "No facts for this age.";
   const line = ageBatches[0].periods[0].items[0].text;
   it("shows the waiting line and no fact in a release build while unapproved", async () => {
     vi.stubGlobal("__DEV__", false);

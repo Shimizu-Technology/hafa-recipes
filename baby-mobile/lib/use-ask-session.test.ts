@@ -484,12 +484,12 @@ it("with AI off, a question still goes to the server, which answers anything urg
   expect(result.messages[1]).toMatchObject({ content: "Call 911", help: "baby_unwell" });
 });
 
-it("with AI off, anything else explains itself", async () => {
+it("with AI off, a connection failure does not falsely ask for AI permission", async () => {
   const account = setup();
   account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!, profile: { ...account.state.bootstrap!.profile, ai_consent: false } } };
   account.api.chat.mockRejectedValueOnce(new Error("Request failed"));
   await mount();
   await question("How was today?");
   await act(async () => { await result.send(); });
-  expect(result.error).toMatch(/AI processing/);
+  expect(result.error).toBe("Request failed");
 });

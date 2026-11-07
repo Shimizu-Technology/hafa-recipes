@@ -18,7 +18,7 @@ function PreviewToggle({ preview, onPress, noun }: { preview: boolean; onPress: 
  * This week's size and three facts, on the week card. They come only from an approved batch. Until one covers this week
  * she sees the line below and no fact or number; a development build can look ahead, and a release build can't.
  */
-export const weekWaiting = "No reviewed facts for this week.";
+export const weekWaiting = "No facts for this week.";
 export function WeekFacts({ week, waiting = true }: { week: number;
   /** The week card says it instead, so here is only what's beyond it. */
   waiting?: boolean }) {
@@ -64,7 +64,7 @@ export function AgeFacts({ age }: { age: BabyAge }) {
     previewing = preview && !!found && !found.batch.approved;
   const toggle = canPreview() && ageHasDraft(age) && !found?.batch.approved && <PreviewToggle preview={preview} noun="lines" onPress={() => setPreview(!preview)} />;
   if (!found) return <View style={{ gap: 8 }}>
-    <Copy kind="small" tone="muted">No reviewed facts for this age.</Copy>
+    <Copy kind="small" tone="muted">No facts for this age.</Copy>
     {toggle}
   </View>;
   const { batch, content } = found, links = [...new Set([...content.items, batch.note].flatMap(factSources))];
