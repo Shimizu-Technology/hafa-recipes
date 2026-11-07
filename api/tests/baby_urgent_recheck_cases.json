@@ -640,6 +640,14 @@
     {
       "question": "I am bleeding heavily 12 weeks postpartum and my baby isn't moving",
       "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "My baby is not moving. I am 35 weeks pregnant. My newborn has a fever",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "I'm pregnant and baby is not moving and my newborn has a fever",
+      "route": "maternal_baby_unwell"
     }
   ]
 }
