@@ -28,12 +28,13 @@ CASES = [
     ("I have blurry vision and my newborn has a fever", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
     ("my baby is floppy and heavy bleeding", "maternal_baby_er", MATERNAL, BABY_ER),
     ("I can't breathe but my baby has a fever", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
+    ("Im bleeding heavily while nursing her and baby has a fever", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
     ("baby's lips are blue. Im soaking pads", "maternal_baby_emergency", BABY_911, MATERNAL),
 ]
 
 
 @pytest.mark.parametrize("question,route,first,second", CASES)
-def test_all_thirteen_mixed_phrasings_keep_both_exact_routes_in_priority_order(question, route, first, second):
+def test_mixed_phrasings_keep_both_exact_routes_in_priority_order(question, route, first, second):
     result = ask_safety.classify(question)
     assert result.message == first + "\n\n" + second
     assert result.kind == ("baby_unwell" if route == "maternal_baby_emergency" else "urgent_maternal")
@@ -85,6 +86,8 @@ async def test_model_question_check_routes_both_people_on_both_paths(baby_api, s
     ("I have heavy bleeding", MATERNAL),
     ("Im bleeding a lot", MATERNAL),
     ("heavy bleeding", MATERNAL),
+    ("I'm bleeding heavily while nursing her", MATERNAL),
+    ("Im bleeding a lot while holding him", MATERNAL),
 ])
 def test_single_patient_and_fragmented_temperature_routes_do_not_acquire_the_other_person(question, expected):
     assert ask_safety.classify(question).message == expected
@@ -143,3 +146,14 @@ def test_r2_report_mixed_phrasings_preserve_both(question, expected):
 ])
 def test_review_findings_keep_patient_fragments_and_fetal_concerns(question, expected):
     assert ask_safety.classify(question).message == expected
+
+
+@needs_database
+@pytest.mark.parametrize("v2", [False, True])
+async def test_an_incidental_infant_pronoun_cannot_downgrade_maternal_bleeding(baby_api, monkeypatch, v2):
+    monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda _: False))
+    response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS,
+        json={"request_id": str(uuid4()), "message": "I'm bleeding heavily while nursing her", "ask_v2": v2})
+    assert response.status_code == 200
+    assert response.json()["message"] == MATERNAL
+    assert response.json()["help"] == "urgent_maternal"
