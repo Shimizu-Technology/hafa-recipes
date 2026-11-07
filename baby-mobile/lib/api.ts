@@ -42,6 +42,15 @@ export const familyClient = 3 as const;
 export const sendsCareDetails = true;
 /** What a write is fenced by: a generation, and the space it's for. A bare generation is the personal space's. */
 export type Fence = number | { generation: number; space_id?: string | null };
+/**
+ * Only what a screen is changing, never the whole cached profile. A phone may have read it a while ago, so sending all of
+ * it could undo another phone's newer change, withdrawn AI permission included. The two keys below make a spread not compile.
+ */
+export type ProfileChange = Partial<Pick<Profile, "display_name" | "timezone" | "ai_consent" | "auto_process_shares">> & {
+  acknowledge_ai_consent_version?: number;
+  auto_process_epoch?: never;
+  ai_consent_version?: never;
+};
 const seriesLimit = "You can keep up to 200 repeating events";
 export const seriesLimitMessage = `${seriesLimit}. Delete one you no longer need, or save this one without repeating.`;
 /** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
@@ -81,7 +90,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly local = false
+    readonly local = false,
+    readonly reason?: "related_space"
   ) {
     super(message);
   }
@@ -170,13 +180,14 @@ export function createBabyApi(
       if (!response.ok) {
         // Only this exact server-owned code selects a fixed local message.
         // Never reflect arbitrary backend/provider detail into private screens.
-        let dailyLimit = false,
+        let dailyLimit = false, relatedSpace = false,
           known = "";
         if (response.status === 422) {
           try {
             const error = await response.json();
             check();
             assertLease(captured);
+            relatedSpace = error?.detail === "Related items must be in the same Baby space";
             known = knownDetails.has(error?.detail) ? error.detail : "";
           } catch (failure) {
             if (failure instanceof ApiError) throw failure;
@@ -232,7 +243,7 @@ export function createBabyApi(
                               ? "Håfa Baby could not upload this attachment. It is safe on this phone. Retry the upload later."
                               : "Håfa Baby could not save this change. It is safe on this phone. Retry later."
                             : "Håfa Baby could not accept this change. Review its details before retrying.";
-        throw new ApiError(safe, response.status);
+        throw new ApiError(safe, response.status, false, relatedSpace ? "related_space" : undefined);
       }
       if (response.status === 204) return undefined as T;
       const value = (await response.json()) as T;
@@ -287,10 +298,7 @@ export function createBabyApi(
       epoch++;
       return request<Bootstrap>("/enroll", "POST", {}, g);
     },
-    profile: (value: Profile & { acknowledge_ai_consent_version?: number }, g: Fence) => {
-      const { auto_process_epoch: _, ...patch } = value;
-      return request<Profile>("/profile", "PATCH", patch, g);
-    },
+    profile: (change: ProfileChange, g: Fence) => request<Profile>("/profile", "PATCH", change, g),
     child: (value: Partial<Child>, g: Fence) =>
       request<Child>(
         value.revision !== undefined ? `/children/${value.id}` : "/children",

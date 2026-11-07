@@ -46,7 +46,7 @@ export function confirmAiConsent(body = AI_CONSENT_BODY, title = AI_CONSENT_TITL
 /** Same server change as the Settings switch: turn AI processing on for this account. */
 export async function enableAiConsent(b: ReturnType<typeof useBaby>) {
   const bootstrap = b.state.bootstrap!;
-  const result = await b.api.profile({ ...bootstrap.profile, ai_consent: true,
+  const result = await b.api.profile({ ai_consent: true,
     ...(bootstrap.ask_consent_version ? { acknowledge_ai_consent_version: bootstrap.ask_consent_version } : {}) }, bootstrap.generation);
   await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
 }

@@ -1,3 +1,4 @@
+import { bodyLimit, overBy, tooLongWords } from "../lib/text-limits";
 import { useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
@@ -37,6 +38,7 @@ export default function WellVisits() {
   async function saveShot() {
     if (!childId) return;
     if (!name.trim()) return toast("Add the shot’s name.");
+    if (overBy(note, bodyLimit)) return toast(tooLongWords("note", overBy(note, bodyLimit)));
     if (!acceptableDay(day, child?.birth_date, todayKey)) return toast(`Choose a date from ${dayName(child?.birth_date ?? todayKey)} to today.`);
     const record = { ...careWrite("custom", childId, { label: shotLabel }, milestoneInstant(day, timeZone)), title: name.trim(), body: note.trim() };
     try {
