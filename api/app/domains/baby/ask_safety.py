@@ -369,7 +369,11 @@ def classify(message, child_names=()):
     after_birth = re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth|born|newborn|infant)\b", context, re.I)
     # A bare week count may be an infant's age or weeks after birth. "Kicked"
     # can also describe a born baby's body; neither establishes pregnancy.
-    pregnancy_context = not after_birth and re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", context, re.I)
+    pregnancy_context = any(
+        re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", part, re.I)
+        and not re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth)\b", part, re.I)
+        for part in kept
+    )
     ambiguous_weeks = not after_birth and not pregnancy_context and re.search(
         r"\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", context, re.I,
     )
@@ -413,10 +417,20 @@ def classify(message, child_names=()):
                               or re.search(r"\b(temp|temperature|fever)\b", part, re.I)))
         baby_parts.append(bool(baby_subject(part) or inherits_baby))
     maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
-    # Only join fragments when neither belongs to a maternal concern. This retains
-    # “my newborn has a temperature. 38.5 C” without mixing two people's symptoms.
+
+    def fetal_movement_part(part):
+        emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
+        return bool(pregnancy_context and (
+            emergencies in (["not moving"], ["isn't moving"])
+            or BABY_ER_WORDS.search(part) and re.search(r"\bmoving less|decreased movement\b", part, re.I) and not emergencies
+        ) and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
+
+    # Only join fragments when neither belongs to a maternal/fetal concern. This
+    # retains “my newborn has a temperature. 38.5 C” without merging a fetal
+    # movement concern with a separate born baby's illness.
     pairs = [" and ".join(part.rstrip(".!?; ") for part in kept[index:index + 2]) for index in range(len(kept) - 1)
-             if not any(maternal_parts[index:index + 2]) and not any(parent_subject(part) for part in kept[index:index + 2])]
+             if not any(maternal_parts[index:index + 2])
+             and not any(parent_subject(part) or fetal_movement_part(part) for part in kept[index:index + 2])]
     maternal = any(maternal_parts)
     poison = any(POISONING_WORDS.search(part) for part in kept)
     maternal = maternal or any(POISONING_WORDS.search(part) and parent_subject(part) for part in kept)
@@ -424,10 +438,7 @@ def classify(message, child_names=()):
     baby_kind = None
     rank = {BABY_UNWELL: 1, BABY_ER: 2, BABY_EMERGENCY: 3}
     for part, about_baby in [*zip(kept, baby_parts, strict=True), *((part, baby_subject(part)) for part in pairs)]:
-        emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
-        pregnancy_movement = (pregnancy_context and (emergencies in (["not moving"], ["isn't moving"]) or BABY_ER_WORDS.search(part) and re.search(r"\bmoving less|decreased movement\b", part, re.I) and not emergencies)
-                              and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
-        if pregnancy_movement:
+        if fetal_movement_part(part):
             fetal_movement = True
             continue
         candidate = (BABY_EMERGENCY if (BABY_EMERGENCY_WORDS.search(part) or (names and re.search(rf"\b(?:{'|'.join(names)}) (?:is |looks? )?(?:blue|gray|grey|purple)\b", part, re.I))) else
