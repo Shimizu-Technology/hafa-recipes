@@ -362,7 +362,7 @@ async def test_metered_import_settles_actual_cost_and_keeps_attempt(baby_api, mo
 
 
 @needs_database
-@pytest.mark.parametrize("usage", [None, {}, {"usage":{"prompt_tokens":1000}},
+@pytest.mark.parametrize("usage", [{"usage":{"prompt_tokens":0,"completion_tokens":0}}, {"usage":{"prompt_tokens":0,"completion_tokens":2}}, None, {}, {"usage":{"prompt_tokens":1000}},
     {"usage":{"prompt_tokens":True,"completion_tokens":1}},
     {"usage":{"prompt_tokens":1,"completion_tokens":-1}},
     {"usage":{"prompt_tokens":1,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":2}}}])
@@ -376,13 +376,14 @@ async def test_unmetered_or_invalid_usage_keeps_entire_reservation(baby_api, mon
 
 
 @needs_database
-async def test_unexpected_overrun_is_charged_and_stops_the_call(baby_api, monkeypatch):
+async def test_unexpected_overrun_is_charged_and_stops_the_call(baby_api, monkeypatch, caplog):
     await consented(baby_api, monkeypatch)
     with question():
         ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=1, max_output_tokens=1)
     with pytest.raises(BudgetError, match="workouts_ai_usage_invalid"):
         await budget.settle(ticket, {"usage":{"prompt_tokens":1000000,"completion_tokens":1}})
     assert (await admissions(baby_api))[0].reserved_microusd > ticket.amount
+    assert "baby_ai_reservation_overrun" in caplog.text
 
 
 def test_the_safety_check_counts_as_ask_in_budget_and_attempts():

@@ -80,3 +80,14 @@ def baby_mutation_paths():
         "chat": ("admit", "ready", "retry", "failure", "context_changed"),
         "captures": ("submit", "defer", "permission_changed", "missing_source", "admit", "retry_later"),
     }
+
+
+@pytest.fixture(autouse=True)
+def model_image_slot_loop(monkeypatch):
+    # pytest uses a fresh loop per test; production has one web-service loop.
+    import asyncio
+
+    from app import image_validation
+
+    monkeypatch.setattr(image_validation, "_MODEL_IMAGE_SLOTS",
+                        asyncio.Semaphore(image_validation.MODEL_IMAGE_CONCURRENCY))

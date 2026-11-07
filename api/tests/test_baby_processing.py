@@ -580,3 +580,55 @@ async def test_intermediate_legacy_reader_never_silently_claims_all_slides(monke
     result=await processing.process_capture({"url":url},[],
         SimpleNamespace(enabled=False),may_use_ai=False,gate=AsyncMock())
     assert any("at most eight slides" in note for note in result["data"]["coverage_notes"]) is not ordered_reader
+
+
+@pytest.mark.parametrize("unreadable", [False, True])
+async def test_condensed_and_textless_slides_are_ready_unless_reading_has_gaps(monkeypatch, unreadable):
+    from app.domains.baby import processing
+    from app.domains.baby.provider import BabyProvider
+    source = SourceBundle(SourceMetadata(platform="tiktok", url="https://www.tiktok.com/@synthetic/photo/123"),
+        parts=[SourcePart("caption", "Creator caption")],
+        images=[SourceImage("image:0", "data:image/webp;base64,aW1hZ2U=", normalized=True),
+                SourceImage("image:1", "data:image/webp;base64,aW1hZ2U=", normalized=True)])
+    monkeypatch.setattr(processing, "ProductionSourceAcquirer", lambda **kwargs: type("Acquirer", (), {"acquire": AsyncMock(return_value=source)})())
+    async def call(self, **kwargs):
+        return ExtractionOutput.model_validate({"title":"Labels", "summary":"Creator's list.", "omitted_details":True,
+            "unreadable_details": unreadable, "visual_text":[{"location":"image:0", "text":"Literal label"}, {"location":"image:1", "text":""}]})
+    monkeypatch.setattr(BabyProvider, "json_call", call)
+    monkeypatch.setattr(BabyProvider, "enabled", property(lambda self: True))
+    monkeypatch.setattr(processing.public_video_service, "fetch_photo_post", AsyncMock(), raising=False)
+    result = await processing.process_capture({"url":source.metadata.url}, [], BabyProvider(), may_use_ai=True, gate=AsyncMock())
+    assert result["status"] == ("incomplete" if unreadable else "ready")
+    assert "Literal label" in result["data"]["source_text"]
+    assert any("condensed" in note for note in result["data"]["coverage_notes"])
+
+
+async def test_batch_cannot_claim_another_batch_image_location(monkeypatch):
+    from app.domains.baby.provider import BabyProvider, ExtractionSummary
+    source = SourceBundle(SourceMetadata(), images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(6)])
+    async def call(self, **kwargs):
+        if kwargs["output_model"] is ExtractionSummary:
+            return ExtractionSummary(title="Labels", summary="Summary")
+        locations = [part["text"].split("Source location: ")[1].split(" ")[0] for part in kwargs["content"] if part.get("text", "").startswith("Source location:")]
+        foreign = "image:5" if "image:0" in locations else "image:0"
+        return ExtractionOutput(title="Labels", visual_text=[{"location":locations[0],"text":"Local label"}, {"location":foreign,"text":"Foreign invented label"}])
+    monkeypatch.setattr(BabyProvider, "json_call", call)
+    result = await BabyProvider().extract(source)
+    assert all(entry.text != "Foreign invented label" for entry in result.visual_text)
+    assert any("outside the supplied image locations" in note for note in source.metadata.coverage_notes)
+
+
+def test_normalization_is_limited_to_one_slot_on_shared_web_service():
+    import runpy
+
+    from app import image_validation as validation
+
+    fresh = runpy.run_path(validation.__file__)
+    assert fresh["MODEL_IMAGE_CONCURRENCY"] == 1
+    assert fresh["_MODEL_IMAGE_SLOTS"]._value == 1
+
+
+def test_blank_visual_entries_are_skipped_without_losing_other_labels():
+    result = ExtractionOutput(title="Labels", visual_text=[
+        {"location":"image:0", "text":"Literal label"}, {"location":"image:1", "text":""}, {"location":"image:2", "text":"  "}])
+    assert [entry.text for entry in result.visual_text] == ["Literal label"]

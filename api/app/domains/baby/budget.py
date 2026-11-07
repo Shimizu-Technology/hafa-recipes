@@ -1,5 +1,6 @@
 """Content-free durable paid admission; no provider retry can evade the ceiling."""
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
@@ -23,6 +24,8 @@ from app.domains.workouts.budget import (
     ProviderEnvelope,
     admission_upper_bound,
 )
+
+logger = logging.getLogger(__name__)
 
 GLOBAL_DAILY_CAP = 10_000_000
 OWNER_DAILY_CAP = 6_000_000
@@ -226,7 +229,7 @@ async def settle(reservation, response, *, extra_cost=0, sessions=None):
     incoming, outgoing = usage["input_tokens"], usage["output_tokens"]
     cached = usage["cached_input_tokens"] if usage["cached_input_tokens"] is not None else 0
     if (any(type(n) is not int or n < 0 for n in (incoming, outgoing, cached, extra_cost))
-            or cached > incoming):
+            or incoming == 0 or cached > incoming):
         return
     def value(item, key, default=None):
         return item.get(key, default) if isinstance(item, dict) else getattr(item, key, default)
@@ -272,6 +275,7 @@ async def settle(reservation, response, *, extra_cost=0, sessions=None):
     except (SQLAlchemyError, OSError, TimeoutError):
         pass  # The original reservation remains; keep the completed result.
     if amount > reservation.amount:
+        logger.error("baby_ai_reservation_overrun reserved_microusd=%d actual_microusd=%d", reservation.amount, amount)
         raise BudgetError("workouts_ai_usage_invalid")
 
 

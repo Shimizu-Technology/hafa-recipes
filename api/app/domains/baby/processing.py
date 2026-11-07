@@ -35,6 +35,10 @@ def sampling_disclosure(note):
         IMAGE_READING_DISCLOSURE,
     } or re.fullmatch(
         r"image:\d+ sampled at [0-9.e+-]+s; samples do not cover every frame\.", note
+    ) is not None or re.fullmatch(
+        r"AI condensed details in image batch \d+; read the saved text and originals for full wording\.", note
+    ) is not None or re.fullmatch(
+        r"Some (key points|steps|topics) were left out of the organized view; read the saved slide text and originals for more\.", note
     ) is not None
 
 

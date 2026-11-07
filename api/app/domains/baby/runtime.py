@@ -437,16 +437,23 @@ def keep_user_decisions(current, organized):
     organized.pop("attachment_ids", None)
     organized.pop("user_text", None)
     organized.pop("legacy_saved_text", None)
-    if (organized.get("status") in {"incomplete", "failed"} and current.get("source_text")
-            and (current.get("url") or current.get("attachment_ids"))
-            and not any(item.get("text") and item.get("location") != "user_note"
-                        for item in (organized.get("evidence") or []))):
-        # Keep earlier reading for display, without feeding it into this attempt.
+    def evidence(data):
+        return {item.get("location"): item["text"].strip()
+                for item in (data.get("evidence") or [])
+                if item.get("text", "").strip() and item.get("location") != "user_note"}
+    earlier, latest = evidence(current), evidence(organized)
+    weaker = (bool(current.get("summary") and not organized.get("summary"))
+              or any(text not in latest.get(location, "") for location, text in earlier.items())
+              or bool(current.get("source_text") and (not latest or (not earlier
+                  and current["source_text"] not in (organized.get("source_text") or "")))))
+    if organized.get("status") != "ready" and weaker and (current.get("url") or current.get("attachment_ids")):
+        # A partial reread must not turn a saved image reading into caption-only
+        # evidence. Retain the earlier reading together, never reuse it as input.
         for key in ("source_text", "summary", "evidence", "key_points", "steps", "creator",
-                    "platform", "thumbnail_url", "suggested_category"):
+                    "platform", "thumbnail_url", "suggested_category", "relevance", "topics"):
             organized.pop(key, None)
         organized["coverage_notes"] = [
-            "Previously saved text is shown. This attempt could not reread the source.",
+            "Previously saved text is shown. This attempt could not reread as much of the source.",
             *organized.get("coverage_notes", []),
         ][:30]
     if (current.get("relevance") or {}).get("origin") == "user":

@@ -25,11 +25,12 @@ ALLOWED_IMAGE_FORMATS = {
     "HEIF": "image/heif",
 }
 
-_MODEL_IMAGE_SLOTS = asyncio.Semaphore(2)
+MODEL_IMAGE_CONCURRENCY = 1
+_MODEL_IMAGE_SLOTS = asyncio.Semaphore(MODEL_IMAGE_CONCURRENCY)
 
 
-async def normalize_model_image(data, *, max_bytes, encoded=False, allow_heif=False, declared_content_type=None):
-    """Validate/decode/resize off the shared event loop, at most two at once.
+async def normalize_model_image(data, *, max_bytes, encoded=False, allow_heif=False, declared_content_type=None, max_pixels=MAX_IMAGE_PIXELS):
+    """Validate/decode/resize off the shared event loop, at most one at once.
 
     A cancelled waiter cannot free its slot while its native decoder still runs.
     """
@@ -37,7 +38,7 @@ async def normalize_model_image(data, *, max_bytes, encoded=False, allow_heif=Fa
         raise ImageValidationError("Image exceeds the input limit")
     def render():
         payload = base64.b64decode(data, validate=True) if encoded else data
-        valid = validate_image_bytes(payload, max_bytes=max_bytes, allow_heif=allow_heif, declared_content_type=declared_content_type)
+        valid = validate_image_bytes(payload, max_bytes=max_bytes, allow_heif=allow_heif, declared_content_type=declared_content_type, max_pixels=max_pixels)
         return normalize_thumbnail_image(valid, max_dimension=1600)
     await _MODEL_IMAGE_SLOTS.acquire()
     task = asyncio.create_task(asyncio.to_thread(render))
@@ -51,6 +52,10 @@ async def normalize_model_image(data, *, max_bytes, encoded=False, allow_heif=Fa
 
 class ImageValidationError(ValueError):
     """Raised when image bytes do not satisfy the application contract."""
+
+
+class ImagePixelLimitError(ImageValidationError):
+    """Rejected before decoding an image whose declared pixel count is unsafe."""
 
 
 @dataclass(frozen=True)
@@ -253,6 +258,7 @@ def validate_image_bytes(
     max_bytes: int,
     declared_content_type: str | None = None,
     allow_heif: bool = False,
+    max_pixels: int = MAX_IMAGE_PIXELS,
 ) -> ValidatedImage:
     """Validate bytes and dimensions; HEIF callers opt in and normalize before AI use."""
     if not image_data:
@@ -272,10 +278,10 @@ def validate_image_bytes(
                 width, height = image.size
                 if width < 1 or height < 1:
                     raise ImageValidationError("Image dimensions are invalid")
+                if width * height > min(max_pixels, MAX_IMAGE_PIXELS):
+                    raise ImagePixelLimitError("Image contains too many pixels")
                 if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
                     raise ImageValidationError("Image dimensions are too large")
-                if width * height > MAX_IMAGE_PIXELS:
-                    raise ImageValidationError("Image contains too many pixels")
 
                 image.verify()
     except ImageValidationError:
