@@ -662,6 +662,10 @@ struct BabyShareStoreTests {
       try check(files[0]["fileName"] as? String == "photo.jpg", "under its own name")
       try check(try moved.acknowledge(capture["token"] as! String), "and it hands off")
       capture = try BabySharePayload.next(moved)!
+      try check(capture["blocked"] as? String == "unreadable" && capture["capture_id"] as? String == gone.id.lowercased(), "missing original reports its terminal outcome once")
+      capture = try BabySharePayload.next(moved)!
+      try check(capture["blocked"] as? String == "unreadable" && capture["capture_id"] as? String == foreign.id.lowercased(), "foreign capture path reports its own refusal")
+      capture = try BabySharePayload.next(moved)!
       files = capture["files"] as! [[String: Any]]
       try check(capture["capture_id"] as? String == legacy.id.lowercased(), "a file gone and one naming another capture's folder are both set aside, and the queue moves on")
       try check(FileManager.default.fileExists(atPath: URL(string: files[0]["path"] as! String)!.path), "an old container-root file is found too")

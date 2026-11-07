@@ -34,6 +34,9 @@ enum BabySharePayload {
       // No account has said it's theirs, so there's nothing to tell yet. The drain stops at these anyway.
       if saved.scope == nil { result?["files"] = files; return result ?? ["token": saved.token, "capture_id": id, "record_id": id, "files": files] }
       guard try storage.block(saved.token, reason: "unreadable") else { throw BabyShareStore.Failure.invalid }
+      // Deliver the terminal outcome once, so a claimed card can settle and Today can refresh its refusal card.
+      return ["token": saved.token, "capture_id": id.lowercased(), "record_id": id.lowercased(),
+        "scope": saved.scope!, "claimed": saved.claimed, "files": [], "blocked": "unreadable"]
     }
     return nil
   }

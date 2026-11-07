@@ -64,6 +64,11 @@ export function ShareCapture() {
           if (native && !captureBelongs(native.scope, owner, bootstrap)) return;
           if (!native && !stock.hasShareIntent) return;
           if (!native && !stockShareScope.allow(stock.shareIntent, owner, generation)) return;
+          if (native?.blocked) {
+            settle("blocked");
+            sharesChanged();
+            continue;
+          }
           if (native?.status) {
             // Persist progress discovery before retiring the native receipt.
             if (native.import_id || native.status === "deferred") {

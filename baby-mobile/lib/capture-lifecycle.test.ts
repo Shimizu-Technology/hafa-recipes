@@ -550,6 +550,19 @@ describe("a draft from before the family", () => {
   });
 });
 
+it("settles a native unreadable claim and continues to the next capture", async () => {
+  const account = setup(), outcomes: unknown[] = [];
+  const stop = onClaimSettled((token, outcome) => outcomes.push([token, outcome]));
+  scope.pending.mockResolvedValueOnce({ ...payload(), claimed: true, blocked: "unreadable" })
+    .mockResolvedValueOnce(payload("capture-B")).mockResolvedValue(null);
+  await mount(ShareCapture);
+  await act(async () => { await account.drain(); });
+  expect(outcomes).toContainEqual(["capture-A", "blocked"]);
+  expect(scope.acknowledge).not.toHaveBeenCalledWith("capture-A");
+  expect(account.state.outbox).toHaveLength(1);
+  expect(account.state.outbox[0].id).toBe("share-save:capture-B");
+  stop();
+});
 it("retries a failed acknowledgement and lets later claimed captures settle", async () => {
   const account = setup(), first = { ...payload(), claimed: true }, second = { ...payload("capture-B"), claimed: true };
   scope.pending.mockResolvedValueOnce(first).mockResolvedValueOnce(first).mockResolvedValueOnce(second).mockResolvedValue(null);

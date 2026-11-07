@@ -18,6 +18,7 @@ export interface NativeShare {
   status?: "saved" | "deferred" | "queued";
   /** Someone said this one, shared under no account, was theirs. It never counts as permission for AI. */
   claimed?: boolean;
+  blocked?: "unreadable";
   import_id?: string;
   url?: string;
   text?: string;
