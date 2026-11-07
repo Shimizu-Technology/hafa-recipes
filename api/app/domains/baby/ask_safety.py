@@ -362,7 +362,13 @@ def classify(message, child_names=()):
     pregnancy_context = re.search(r"\b(pregnan\w*|womb|trimester|unborn|kick\w*)\b|\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", " ".join(kept), re.I)
 
     def baby_subject(part):
-        return bool(BABY_WORDS.search(part) or part.strip().lower() == "seizure" or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I)))
+        baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
+        maternal_sign = MATERNAL_SIGNS.search(part)
+        # “I'm bleeding while nursing her” describes the parent. A later baby
+        # pronoun must not turn an explicit maternal symptom into infant illness.
+        if baby and maternal_sign and maternal_sign.start() < baby.start() and re.search(r"^\W*(?:i\b|im\b|my (?:water|bleeding|head|vision|chest|leg|calf|hands|face|incision)\b)", part, re.I):
+            return False
+        return bool(baby or part.strip().lower() == "seizure")
 
     # A patient transition can occur without punctuation or “and”. Split only
     # when the preceding symptom belongs to the other patient.
