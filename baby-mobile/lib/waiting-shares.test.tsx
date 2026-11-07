@@ -84,6 +84,24 @@ describe("the card", () => {
     expect(w.toast).toHaveBeenCalledExactlyOnceWith("Added to your saved posts");
     expect(text()).not.toContain("Adding to your saved posts…");
   });
+  it("reconciles a save arriving before the native claim returns", async () => {
+    w.rows = [row()];
+    w.claim.mockImplementationOnce(async () => { claimSettled("a:1", "saved"); return "claimed"; });
+    await mount();
+    await press("Add to my saved posts");
+    expect(w.toast).toHaveBeenCalledExactlyOnceWith("Added to your saved posts");
+    expect(text()).not.toContain("Adding to your saved posts…");
+  });
+  it("settles earlier successful claims when a later claim throws", async () => {
+    w.rows = [row(), row({ token: "b:1" })];
+    w.claim.mockResolvedValueOnce("claimed").mockRejectedValueOnce(Error("store unavailable"));
+    await mount();
+    await press("Add all 2");
+    expect(text()).toContain("Adding to your saved posts…");
+    await act(async () => { claimSettled("a:1", "saved"); });
+    expect(w.toast).toHaveBeenCalledExactlyOnceWith("Added to your saved posts");
+    expect(text()).not.toContain("Adding to your saved posts…");
+  });
   it("doesn't say Added for a share that turns out not to fit, or that couldn't be written", async () => {
     for (const outcome of ["blocked", "failed"] as const) {
       w.rows = [row({ token: `${outcome}:1` })];
