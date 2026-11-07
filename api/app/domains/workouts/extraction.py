@@ -148,6 +148,13 @@ class SourcePart:
 class SourceImage:
     location: str
     data_url: str
+    normalized: bool = False
+
+    @property
+    def payload_bytes(self):
+        length = len(self.data_url) - self.data_url.find(",") - 1
+        padding = 2 if self.data_url.endswith("==") else int(self.data_url.endswith("="))
+        return max(0, length * 3 // 4 - padding)
 
 
 @dataclass
@@ -783,7 +790,7 @@ class ProductionSourceAcquirer:
                         SourceImage(
                             f"image:{index}",
                             "data:image/webp;base64,"
-                            + base64.b64encode(normalized_image.data).decode(),
+                            + base64.b64encode(normalized_image.data).decode(), normalized=True,
                         )
                     )
                     source.metadata.coverage_notes.append(
@@ -875,7 +882,7 @@ class ProductionSourceAcquirer:
                     result.append(
                         SourceImage(
                             f"image:{index}",
-                            "data:image/webp;base64," + base64.b64encode(normalized.data).decode(),
+                            "data:image/webp;base64," + base64.b64encode(normalized.data).decode(), normalized=True,
                         )
                     )
         return result

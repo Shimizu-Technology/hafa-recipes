@@ -723,6 +723,7 @@ async def test_streamed_slideshow_images_bound_bytes_and_normalize(monkeypatch):
     monkeypatch.setattr(module, "PublicHTTPTransport", lambda: transport)
     images = await ProductionSourceAcquirer()._download_images(["https://example.com/frame.png"])
     assert len(images) == 1 and images[0].data_url.startswith("data:image/webp;base64,")
+    assert images[0].normalized
     oversized = httpx.MockTransport(
         lambda request: httpx.Response(
             200, headers={"content-type": "image/png"}, content=b"a" * (module.MAX_IMAGE_BYTES + 1)

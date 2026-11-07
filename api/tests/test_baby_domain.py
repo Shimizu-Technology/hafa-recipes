@@ -292,8 +292,8 @@ def test_source_takeaways_are_backward_compatible_and_bounded(model):
 
     legacy = parse(summary="Original summary")
     assert legacy.key_points == legacy.steps == []
-    assert parse(key_points=["x" * 600] * 12, steps=["x" * 600] * 30)
-    for data in [{"key_points": ["x"] * 13}, {"steps": ["x"] * 31},
+    assert parse(key_points=["x" * 600] * 35, steps=["x" * 600] * 30)
+    for data in [{"key_points": ["x"] * 36}, {"steps": ["x"] * 31},
                  {"key_points": ["x" * 601]}, {"steps": [""]}]:
         with pytest.raises(ValidationError):
             parse(**data)

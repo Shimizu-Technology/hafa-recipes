@@ -91,3 +91,25 @@ async def test_queued_routines_and_events_retarget_but_private_sources_do_not(ba
             assert response.json()["space_id"] == str(personal)
         else:
             assert response.json().get("detail", response.json())["code"] == "moved"
+
+async def test_linked_personal_source_keeps_original_note_after_child_rewrite(baby_api,family):
+    from app.domains.baby.runtime import BabyWorker
+    c=baby_api.client
+    child={"id":str(uuid4()),"name":"Family child"}
+    assert (await c.post("/api/v1/baby/children",headers=records.headers(family),json=child)).status_code==200
+    async with baby_api.sessions() as db:
+        personal=(await db.get(BabyMembership,"owner")).personal_space_id
+    private=records.headers(personal,generation=1)
+    body=shared.payload("source",body="",child_id=child["id"],data={"url":"https://example.com/post","source_text":"Parent original note"})
+    saved=await c.post("/api/v1/baby/records",headers=private,json=body)
+    assert saved.status_code==200 and saved.json()["child_id"] is None
+    assert saved.json()["data"]["user_text"]=="Parent original note"
+    assert (await c.post("/api/v1/baby/records",headers=private,json=body)).status_code==200
+    queued=await c.post("/api/v1/baby/imports",headers=private,json={"id":str(uuid4()),"record_id":body["id"]})
+    assert queued.status_code==200,queued.text
+    seen=[]
+    async def processor(request,*args,**kwargs):
+        seen.append(request["text"])
+        return {"status":"incomplete","data":{"status":"incomplete"}}
+    assert await BabyWorker(baby_api.sessions,processor=processor).tick()
+    assert seen==["Parent original note"]

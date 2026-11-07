@@ -14,6 +14,7 @@ from app.domains.baby.lifecycle import (
     now,
     owned,
     personal_child_link,
+    source_note,
     validate_relations,
 )
 from app.domains.baby.models import BabyImport, BabyRecord
@@ -103,14 +104,20 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
     )
     if active_count >= 5:
         raise HTTPException(
-            429, "Five sources are already waiting; let them finish before adding more"
+            429, {"code": "source_queue_full", "message": "Five sources are already waiting; let them finish before adding more"}
         )
     if count >= 30:
-        raise HTTPException(429, "Daily import allowance reached; your library is still available")
+        raise HTTPException(429, {"code": "source_daily_limit", "message": "Daily import allowance reached; your library is still available"})
     if body.record_id:
         source = await owned(db, BabyRecord, access, generation, body.record_id)
         if source.kind != "source":
             raise HTTPException(422, "Only saved sources can be processed")
+        await db.refresh(source, with_for_update=True)
+        attempts = await db.scalar(select(func.coalesce(func.sum(BabyImport.attempts), 0)).where(
+            BabyImport.record_id == source.id,
+        ))
+        if attempts >= 5:
+            raise HTTPException(429, {"code": "source_retry_limit", "message": "This source reached the retry limit; the original remains saved"})
         active = await db.scalar(
             select(BabyImport.id)
             .where(
@@ -122,13 +129,19 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
             .limit(1)
         )
         if active:
-            raise HTTPException(409, "This source is already processing")
+            raise HTTPException(409, {"code": "source_already_processing", "message": "This source is already processing"})
         source_id = source.id
+        attachment_ids = list(dict.fromkeys([*source.data.get("attachment_ids", []), *request["attachment_ids"]]))
+        if len(attachment_ids) > 8:
+            raise HTTPException(422, {"code": "source_attachment_limit", "message": "A source can keep up to eight attachments"})
+        linked = bool(body.url or source.data.get("url") or source.data.get("attachment_ids") or request["attachment_ids"])
+        note, note_patch = await source_note(db, source) if linked else (None, {})
         request = {
             **request,
             "url": body.url or source.data.get("url"),
-            "text": body.text or source.data.get("source_text"),
-            "attachment_ids": request["attachment_ids"] or source.data.get("attachment_ids", []),
+            "text": note if linked
+                    else (body.text or source.data.get("source_text")),
+            "attachment_ids": attachment_ids,
             "topics": request["topics"] or source.data.get("topics", []),
             "child_id": str(source.child_id) if source.child_id else None,
         }
@@ -139,13 +152,14 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         caption_title = original_text.splitlines()[0][:100] if original_text else DEFAULT_SOURCE_TITLE
         if automatic and source.revision == 1 and source.title in {DEFAULT_SOURCE_TITLE, caption_title}:
             request["automatic_title"] = source.title
-        source.data = {**source.data, "status": "queued"}
+        source.data = {**source.data, **note_patch, "url": request["url"], "status": "queued", "attachment_ids": request["attachment_ids"]}
         source.revision, source.updated_at = source.revision + 1, now()
     else:
         source_id = uuid5(NAMESPACE_URL, f"hafa-baby-source:{user.id}:{generation}:{body.id}")
         data = SourceData(
             url=body.url,
             source_text=body.text,
+            user_text=body.text if body.url or body.attachment_ids else None,
             topics=body.topics,
             attachment_ids=body.attachment_ids,
             status="queued",
@@ -236,17 +250,31 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
     if row.status in {"queued", "processing", "ready"}:
         return import_response(row, access)
     if row.attempts >= 5:
-        raise HTTPException(429, "This source reached the retry limit; the original remains saved")
+        raise HTTPException(429, {"code": "source_retry_limit", "message": "This source reached the retry limit; the original remains saved"})
     source = await owned(db, BabyRecord, access, generation, row.record_id)
+    await db.refresh(source, with_for_update=True)
+    attempts = await db.scalar(select(func.coalesce(func.sum(BabyImport.attempts), 0)).where(BabyImport.record_id == source.id))
+    if attempts >= 5:
+        raise HTTPException(429, {"code": "source_retry_limit", "message": "This source reached the retry limit; the original remains saved"})
+    active = await db.scalar(select(BabyImport.id).where(BabyImport.record_id == source.id,
+        BabyImport.id != row.id, BabyImport.status.in_(["queued", "processing"])).limit(1))
+    if active:
+        raise HTTPException(409, {"code": "source_already_processing", "message": "This source is already processing"})
+    linked = bool(row.request.get("url") or source.data.get("url") or source.data.get("attachment_ids"))
+    note, note_patch = await source_note(db, source) if linked else (None, {})
+    refreshed_request = {**row.request, "attachment_ids": source.data.get("attachment_ids", []),
+                   "url": source.data.get("url"),
+                   "text": note if linked else row.request.get("text")}
     await validate_relations(
         db,
         access,
         generation,
         source.child_id,
-        {"attachment_ids": row.request.get("attachment_ids", [])},
+        {"attachment_ids": refreshed_request["attachment_ids"]},
     )
     if access.enabled:
         member = await membership_for(db, row.app_user_id)
+    row.request = refreshed_request
     # Retry is an explicit request, independent of automatic-share permission.
     if row.request.get("automatic"):
         row.request = {
@@ -256,7 +284,7 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         }
     row.status, row.error, row.consent_epoch = "queued", None, member.consent_epoch
     row.lease_token, row.lease_until, row.updated_at = None, None, now()
-    source.data = {**source.data, "status": "queued"}
+    source.data = {**source.data, **note_patch, "status": "queued"}
     source.revision, source.updated_at = source.revision + 1, now()
     await touch(source, access.grant(source) if access.enabled else None)
     await touch(row, access.grant(row) if access.enabled else None)

@@ -35,6 +35,7 @@ async def reject_ai(baby_api, monkeypatch, reason):
         "get_settings",
         lambda: SimpleNamespace(
             baby_ai_model="gpt-5.6-luna" if reason == "exhausted" else "unpriced-fixture-model",
+            openai_reasoning_effort="none",
             is_ai_capability_enabled=lambda _: True,
         ),
     )
