@@ -220,7 +220,7 @@ async def checked_old_answer_reply(provider, question, result):
     if refusal:
         return fixed_answer(cant_answer(refusal), CANT_ANSWER, replaced=True)
     message, kind, sources = answer_checks(question, result)
-    return fixed_answer(message, kind, sources=sources, citation_ids=result.citation_ids, proposal=result.proposal) if kind else None
+    return fixed_answer(message, kind, sources=sources, citation_ids=result.citation_ids, proposal=result.proposal) if kind or message != result.message or sources else None
 
 
 async def checked_answer_reply(provider, question, result, tools, *, model=None, effort=None):

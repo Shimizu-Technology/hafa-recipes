@@ -172,7 +172,7 @@ async def consented(baby_api, monkeypatch, owner="owner"):
     monkeypatch.setattr(budget, "AsyncSessionLocal", baby_api.sessions)
     headers = {**shared.GEN, "X-Test-Owner": owner}
     assert (await baby_api.client.post("/api/v1/baby/bootstrap", headers={"X-Test-Owner": owner})).status_code == 200
-    monkeypatch.setattr(ask_gate, "get_settings", lambda: type("S", (), {"baby_ask_v2_enabled": True, "baby_health_release_audience": "private_family", "baby_health_reviewed_version": ask_gate.HEALTH_REVIEW_VERSION})())
+    monkeypatch.setattr(ask_gate, "get_settings", lambda: type("S", (), {"baby_ask_v2_enabled": True, "baby_health_private_users": "owner,other", "baby_health_release_audience": "private_family", "baby_health_reviewed_version": ask_gate.HEALTH_REVIEW_VERSION})())
     body = {"ai_consent": True, "acknowledge_ai_consent_version": ask_gate.ASK_CONSENT_VERSION}
     assert (await baby_api.client.patch("/api/v1/baby/profile", headers=headers, json=body)).status_code == 200
 
