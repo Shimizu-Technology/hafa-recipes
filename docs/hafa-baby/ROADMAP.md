@@ -548,3 +548,80 @@ The report-only handback follows that code head. All owned runtime resources,
 the temporary native build/worktree and disposable database were cleaned.
 The held implementation branches remain for independent review; no final-head
 review approval, deployment or TestFlight availability is claimed.
+
+
+### November 7: mixed parent/baby urgent replies
+
+Follow-up to #642, based on main `d51539e09b2ca03a9848478878506eec87f0ef05`:
+Ask must keep both people's fixed guidance when maternal and infant concerns
+coexist. Classify patient clauses before combining routes, including “I”, “Im”
+and no maternal subject. Baby 911 leads; otherwise maternal immediate-care/911
+precedes baby ER or doctor. The same three composite internal routes exist in
+the model question check and generated-safety schema on both Ask paths. Existing
+mobile Help values and the existing sourced reply text remain compatible.
+
+Acceptance: Leon’s three reproductions plus ten more mixed phrasings; exact
+shipped text/order on both HTTP paths with AI/consent off; saved-chat roundtrip;
+model-selected composite routes and generated safety labels; and single-person,
+lookup, fetal-movement and fragmented-temperature regression checks. This is API
+routing QA; no native UI or production service/configuration was changed.
+CDC Hear Her and AAP’s newborn illness guidance were re-fetched November 7.
+
+A preliminary real check of the first mixed prompt covered the 13 mixed phrases
+and three single-patient controls, three trials each: 48/48 model routes correct,
+no provider errors, additional estimated usage $0.005141 under a $0.05 hard cap.
+This is targeted evidence, not a full safety/whole-Ask acceptance run. Including
+prior completed usage, recorded successful eval usage is $0.333867; including
+all earlier conservative incomplete/interrupted reservations, accounted spend
+was initially reserved at most $1.933867. The original 401 log proves the first
+provider call was rejected before any successful response, releasing its $0.50
+reservation. Further final-prompt safety/whole-Ask runs remain inside the
+original $2 including conservative reservations for other unfinished runs.
+
+The independent M1–M8 re-check added R1–R5. This hotfix restores the doctor's
+911 fallback (R1), preserves both patients (R2), expands AAP emergency phrases
+including passing out/choking and prolonged seizures (R3), and routes infant
+breathing trouble and green vomit to ER (R4). The model question check, old
+Ask generation and V2 share one baby-tier rule. The independent probe files
+and report form a 152-phrase regression table, exercised on both HTTP paths.
+Exact-route grading now rejects an urgent reply from the wrong tier; floor
+coverage also requires the correct fixed reply when a case names a route.
+Pregnancy movement concerns remain maternal and survive a separate newborn's
+illness. The app remains private; no clinician review is claimed.
+
+Reverified November 7, 2026: AAP [Breathing Trouble](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Breathing+Trouble),
+[Newborn Illness](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Newborn+Illness+-+How+to+Recognize),
+[Fever 0–12 Months](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Fever+%280-12+Months%29),
+and [Febrile Seizures](https://www.healthychildren.org/English/health-issues/conditions/fever/Pages/Febrile-Seizures.aspx).
+The conservative default for a baby with unspecified age and breathing trouble
+is ER. Choking over-triage is retained; no treatment instructions or dose added.
+#639 and #640 remain unmerged; integration and R5 follow the hotfix.
+No production configuration or V2 flag change is authorized here.
+
+### November 7 re-check integration and private API configuration
+
+R1–R4 from the independent medical re-check are integrated from the standalone
+hotfix into this held API branch. Main's two conflicts retained the reviewed
+branch's guards before the newer hotfix was integrated. Poisoning never drops
+an independent maternal or infant warning: the fixed replies preserve both
+people and Poison Control, with baby 911 first and maternal immediate-care/911
+before baby ER/doctor. Model-selected and generated composite labels use the
+same fixed replies. No diagnosis, dose or home treatment was added.
+
+The API normalizes mobile's `private-family` to `private_family`. Unknown or
+empty explicit audience values become `disabled`, so Baby AI fails closed
+without crashing the shared Recipes/Workouts service. Omitted audience remains
+`public`, which still needs the review marker plus both public release records.
+
+For Leon to configure private use on Render after review (not changed by this task):
+
+- `BABY_HEALTH_RELEASE_AUDIENCE=private_family` (underscore preferred; hyphen accepted).
+- `BABY_HEALTH_REVIEWED_VERSION=baby-health-2026-11-07-m1-m8` acknowledges the dated agent review at Leon's direction, never clinician approval.
+- `BABY_HEALTH_PRIVATE_USERS` is a comma-separated list of Leon's and Kami's stable application user IDs, not Clerk subjects. Empty denies everyone.
+- Keep `BABY_ASK_CLINICIAN_APPROVAL` and `BABY_WHO_CHART_PERMISSION` empty for this private use. Public or paid use requires actual clinician review and WHO chart permission; the mobile public build gate also remains closed.
+- Leave `BABY_ASK_V2_ENABLED` unset until the final safety/whole-Ask evidence and independent review are accepted, the family binary is installed, and deployed consent/access/source/budget/revocation checks pass. No production setting or flag was changed here.
+
+R5 extends Help on the mobile branch with choking on an object and passing out
+under 911, and any breathing trouble under one year under ER. Existing urgent
+phone actions remain first. The family build must stay internal to TestFlight;
+it uses agent-reviewed information and must not be submitted as a public app.

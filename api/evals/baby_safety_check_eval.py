@@ -79,7 +79,7 @@ def caught_by_floor(case: dict[str, Any]) -> bool:
 
     if case["check"] == "answer":
         return bool(unsafe_output(case["question"], case["answer"]))
-    route = classify(case["question"])
+    route = classify(case["question"], child_names=case.get("child_names", ()))
     if case.get("expect_route"):
         return bool(route and route.message == MESSAGES[case["expect_route"]])
     return bool(route or boundary(case["question"]))
@@ -88,7 +88,7 @@ def caught_by_floor(case: dict[str, Any]) -> bool:
 async def evaluate(provider, case: dict[str, Any], model: str, effort: str, trial: int) -> dict[str, Any]:
     from app.domains.baby.ask_check import CheckFailed, check_answer, check_question
     from app.domains.baby.ask_safety import MESSAGES, classify
-    floor = classify(case["question"]) if case["check"] == "question" else None
+    floor = classify(case["question"], child_names=case.get("child_names", ())) if case["check"] == "question" else None
     wrong_route = bool(case.get("expect_route") and floor and floor.message != MESSAGES[case["expect_route"]])
     row = {"floor_wrong_route": wrong_route, "case_id": case["id"], "group": case["group"], "expect": case["expect"], "trial": trial, "floor_caught": caught_by_floor(case)}
     try:

@@ -29,8 +29,32 @@ MESSAGES = {
     BABY_ER: "Go to the emergency room now for your baby.",
     # Poison.org, accessed 2026-11-07. No home treatment or dose calculation.
     POISONING: "If someone collapsed, is having a seizure, has trouble breathing or can’t be woken, call 911 now. For suspected poisoning or an accidental overdose, call US Poison Control now at 1-800-222-1222. Don’t wait for Ask.",
-    BABY_UNWELL: "Call your baby's doctor now or seek urgent care.",
+    BABY_UNWELL: "Call your baby's doctor now or seek urgent care. If you think your baby has a life-threatening emergency, call 911.",
 }
+# Keep both existing sourced replies. These are internal labels; mobile Help values stay unchanged.
+MIXED_BABY = {BABY_EMERGENCY: "maternal_baby_emergency", BABY_ER: "maternal_baby_er", BABY_UNWELL: "maternal_baby_unwell"}
+for _baby, _mixed in MIXED_BABY.items():
+    _ordered = (_baby, URGENT_MATERNAL) if _baby == BABY_EMERGENCY else (URGENT_MATERNAL, _baby)
+    MESSAGES[_mixed] = "\n\n".join(MESSAGES[kind] for kind in _ordered)
+# Poisoning may coexist with either patient's warning signs; no route replaces another.
+for _baby in (None, BABY_EMERGENCY, BABY_ER, BABY_UNWELL):
+    for _maternal in (False, True):
+        if not _baby and not _maternal:
+            continue
+        _base = MIXED_BABY[_baby] if _maternal and _baby else URGENT_MATERNAL if _maternal else _baby
+        _label = "maternal_poisoning" if _base == URGENT_MATERNAL else _base + "_poisoning"
+        MESSAGES[_label] = MESSAGES[_base] + "\n\n" + MESSAGES[POISONING]
+POISON_MIXED_RULE = (
+    "For poisoning with a maternal urgent sign, use maternal_poisoning. If an infant tier coexists with poisoning, "
+    "append _poisoning to the baby or maternal_baby tier. Preserve every person's guidance. "
+)
+MIXED_RULE = (
+    "When both a maternal urgent sign and an infant sign are present, preserve both: "
+    "use maternal_baby_emergency, maternal_baby_er or maternal_baby_unwell for the infant's highest tier. "
+    "This includes I, Im, I'm, or no stated subject for the maternal sign. "
+    "Baby 911 comes first; otherwise maternal immediate-care/911 comes before baby ER or doctor. "
+)
+
 DOSE_REFUSAL = "I can't give a dose. Please ask your doctor or pharmacist."
 DIAGNOSIS_REFUSAL = (
     "I can't say what this is or what it means. Please ask your doctor or your baby's doctor. "
@@ -54,11 +78,23 @@ MOVEMENT_DROP = re.compile(r"\bmove\w* less|\bmovements?\b[^.!?\n]{0,35}\b(less|
 MOVEMENT_REASSURANCE = re.compile(r"\b(normal|expected|common|often|typical|fine|okay|harmless|room|space|crowded|cramped)\b", re.I)
 MOVEMENT_NEGATED_CLAIM = re.compile(r"\b(do not|don't|should not|shouldn't) move less|\bnot (true|normal|expected) (that|for)|\bnot because (of )?(less )?(room|space)", re.I)
 
+BABY_ROUTING_RULE = (
+    "baby_emergency: not breathing, severe trouble breathing (struggling for each breath or barely able to cry), "
+    "blue/gray/purple lips, tongue or face, passed out, unconscious, not responding, unable to wake, very weak/not moving, "
+    "moaning/grunting with each breath, choking or choked on an object that could be stuck in the throat, "
+    "purple or blood-colored spots with fever, or a seizure lasting 5 minutes or longer. "
+    "Emergency signs always win, including with jerking or seizure. "
+    "baby_er: any trouble breathing in a baby under 1 year (use this conservative route if baby's age is unknown), "
+    "ribs pulling in, loud wheezing or stridor, green vomit including threw up green, floppy tone, decreased movement, "
+    "weak suck or weak/strange cry, or fever with a seizure, stiff neck, swollen soft spot or not alert when awake. "
+    "baby_unwell: other illness needing the doctor now, including fever, injury, suspected seizure without the emergency/ER signs, "
+    "or not feeding. These are routing signs, not diagnoses. "
+)
 SAFETY_RULES = (
-    "Add \"safety\" to your JSON: null, or 'urgent_maternal' if the parent describes an urgent maternal warning sign, 'harm' if "
-    "they mention harming themselves or the baby, 'poisoning' for suspected poisoning or accidental overdose, 'baby_emergency' for not breathing, severe breathing trouble, blue or gray "
-    "lips/face, inability to wake, very weak/not moving or grunting with each breath; 'baby_er' for a floppy baby, green vomit, "
-    "weak suck or a weak/strange cry; otherwise 'baby_unwell' for a baby who seems sick or hurt. These "
+    MIXED_RULE + POISON_MIXED_RULE + BABY_ROUTING_RULE +
+    "Add \"safety\" to your JSON: null, 'urgent_maternal' for an urgent maternal warning sign, 'harm' for "
+    "thoughts of harming themselves or the baby, poisoning for suspected poisoning or accidental overdose, or the baby/mixed tier above. These "
+    + REDUCED_MOVEMENT_RULE + " " +
     "get a fixed reply from the app. Do not diagnose. Do not say what a symptom, log entry or reading means for this "
     "person or baby. Always write in English. Never write an amount, strength, timing or duration for any medicine, supplement or "
     "herb, in any form, even one she logged, a source gave or a doctor wrote. If asked, say you can't give a dose, share what "
@@ -75,7 +111,6 @@ SAFETY_RULES = (
     "from the logs, but do not call them normal, low, high, good or concerning, even if asked: say the logs may be incomplete, "
     "share what sources say in general with links, and suggest asking the baby's doctor. If the user is worried, say that's "
     "reason enough to call. "
-    f"{REDUCED_MOVEMENT_RULE} "
 )
 # Harm is checked first and nothing excuses it: a person's own words about harm always get the numbers.
 HARM_WORDS = re.compile(
@@ -127,37 +162,70 @@ MATERNAL_SIGNS = re.compile(
     re.I,
 )
 BABY_WORDS = re.compile(
-    r"\b(my baby|the baby|baby|newborn|infant|nene|neni|she|shes|he|hes|her|him|daughter|son)\b"
+    r"\b(my baby|the baby|babys|baby|newborn|infant|toddler|little one|lo|nene|neni|she|shes|he|hes|her|him|his|daughter|son)\b"
     r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
     re.I,
 )
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
 BABY_EMERGENCY_WORDS = re.compile(
-    r"\b(not breathing|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+not anymore|"
-    r"can't breathe|cannot breathe|struggling (?:to breathe|for (?:each )?breath\w*|for air)|gasping|barely breathing|"
-    r"won't wake(?: up)?|wont wake(?: up)?|can't (?:be )?woken|cannot (?:be )?woken|can't wake|not waking|unresponsive|won't respond|wont respond|"
-    r"can't get \w+ ?\w* to wake|very weak|not moving|grunting|turning blue|(?:baby|newborn|infant|she|he) (?:is |looks? |turned |turning )?(?:blue|bluish|gray|grey|dusky)|"
-    r"(?:blue|bluish|gray|grey|dusky) (?:lips|tongue|face)|(?:lips|tongue|face) (?:are |is |look |looks )?(?:blue|bluish|gray|grey|dusky)|choking)\b", re.I,
+    r"\b(not breath(?:ing|e)|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+(?:and\W+)?not anymore|"
+    r"won't breathe|can't (?:breathe|catch (?:her|his|their) breath\w*)|cannot breathe|"
+    r"struggling (?:to breathe|for (?:each )?breath\w*|for air)|gasping|barely breathing|"
+    r"breathing(?: really hard)?(?: and| but)?(?: really)? struggling|"
+    r"won't wake(?: up)?|wont wake(?: up)?|can't (?:be )?woken|cannot (?:be )?woken|can't wake|not waking|"
+    r"unresponsive|(?:not|isn't) responding|not responsive|won't respond|wont respond|unconscious|lifeless|collapsed|fainted|passed out|"
+    r"can't get \w+ ?\w* to wake|very weak|not moving|isn't moving|grunting|moaning with (?:each|every) breath\w*|turning blue|"
+    r"(?:baby|newborn|infant|she|he|shes|hes|lo) (?:is |looks? |turned |turning |'s )?(?:blue|bluish|gray|grey|dusky|purple)|"
+    r"(?:blue|bluish|gray|grey|dusky|purple) (?:lips|tongue|face)|"
+    r"(?:lips|tongue|face|skin) (?:are |is |r |look |looks |look kinda |looks kinda |went )?(?:blue|bluish|gray|grey|dusky|purple)|"
+    r"(?:she|he)'s (?:blue|gray|grey|purple)|blue around (?:her|his|their) mouth|looks purple|pale and gr[ae]y|cho(?:king|cking)|"
+    r"choked on (?:a |an |the )?(?:small |little )?(?:toy|object|grape|coin|food|piece)|"
+    r"something stuck in (?:baby'?s|her|his|their|the) throat|swallowed a coin.*gagging)\b"
+    r"|\b(?:purple|blood[- ]colou?red) (?:spots|dots)\b[^.!?\n]{0,35}\bfever\b"
+    r"|\bfever\b[^.!?\n]{0,35}\b(?:purple|blood[- ]colou?red) (?:spots|dots)\b"
+    r"|\b(?:seizure|seizing|convuls\w*)\b[^.!?\n]{0,45}\b(?:[5-9]|[1-9]\d+|five|six|seven|eight|nine|ten)\s*(?:mins?|minutes?)\b",
+    re.I,
 )
-BABY_ER_WORDS = re.compile(r"\b(floppy|limp|green vomit|vomit(?:ing)? (?:bile|green)|throwing up (?:bright )?green|hard to wake(?: up)?|weak suck|weak cry|strange cry|ribs? (?:are )?pull(?:ing)? in|sucking in)\b", re.I)
+# AAP: any trouble breathing under one year goes to ER. For an unspecified baby
+# age, choose the conservative infant route; do not make an age guess to downgrade it.
+BABY_ER_WORDS = re.compile(
+    r"\b(floppy|limp|green vomit|vomit(?:ing)? (?:bile|green)|(?:throwing|threw) up (?:bright )?green|"
+    r"hard to wake(?: up)?|weak suck|weak cry|strange cry|weird high pitched cry|isn't sucking well|"
+    r"ribs? (?:are )?pull(?:ing)? in|chest is caving in|sucking in|"
+    r"trouble breathing|breathing problems?|breathing funny|breathing fast|wheezing|stridor|"
+    r"moving less(?: than usual)?|decreased movement|stiff neck|soft spot is (?:bulging|swollen)|not alert when awake)\b"
+    r"|\b(?:seizure|seizing)\b[^.!?\n]{0,35}\bfever\b|\bfever\b[^.!?\n]{0,35}\b(?:seizure|seizing)\b",
+    re.I,
+)
 
 
 def help_kind(kind):
     """Keep the existing mobile wire value; emergency/ER are internal routing tiers."""
-    return BABY_UNWELL if kind in {BABY_EMERGENCY, BABY_ER} else CANT_ANSWER if kind == POISONING else kind
+    if kind == POISONING:
+        return CANT_ANSWER
+    if kind and kind.endswith("_poisoning"):
+        return URGENT_MATERNAL if kind == "maternal_poisoning" else help_kind(kind.removesuffix("_poisoning"))
+    if kind in MIXED_BABY.values():
+        return BABY_UNWELL if kind == MIXED_BABY[BABY_EMERGENCY] else URGENT_MATERNAL
+    return BABY_UNWELL if kind in {BABY_EMERGENCY, BABY_ER} else kind
 
 
 BABY_UNWELL_WORDS = re.compile(
     r"\b(floppy|limp|lethargic|unresponsive|won't wake|wont wake|hard to wake|not waking|can't wake|turning blue|blue lips|lips? (?:is |are |look |looks )?(?:blue|dusky)|dusky|gasping|"
     r"lips? (?:look |looks )?(?:grey|gray)|breathing funny|grunting|sucking in|barely breathing|can't get \w+ ?\w* to wake|went stiff|jerking|"
-    r"rolled off|fell off|chocking|"
-    r"not breathing|isn't breathing|stopped breathing|breathing\W+not anymore|trouble breathing|struggling to breathe|struggling for (?:air|breath)|"
+    r"rolled off|fell off|chocking|seizing|burning up|feels (?:really )?(?:warm|hot)|is yellow|shaking all over|whole body is shaking|shaking and stiff|twitching|"
+    r"not breathing|isn't breathing|stopped breathing|breathing\W+(?:and\W+)?not anymore|trouble breathing|struggling to breathe|struggling for (?:air|breath)|"
     r"can't breathe|cannot breathe|can not breathe|breathing problems?|choking|seizure\w*|convuls\w*|"
     r"(?:fell|fall|fallen|falling)(?! asleep)|hit (her|his|their) head|burned|burnt|bleeding|is hurt|got hurt|injur\w*|"
     r"fever\w*|very sick|really sick|seems sick|won't eat|refusing to eat|not eating|not feeding|won't stop crying|inconsolable|"
     r"(?:no|not had a|hasn't had a|hasn't had any|without a|only one|only 1) (?:wet|pee) (?:diapers?|napp(?:y|ies))|hasn't peed|won't respond|dehydrat\w*|vomiting|throwing up|malangu|malångu)\b"
     rf"|\b(temp|temperature|rectal\w*|forehead|armpit|underarm)\b[^.!?\n]{{0,25}}\b{HIGH_TEMPERATURE}",
     re.I,
+)
+BABY_OTHER_SIGNS = re.compile(
+    rf"\b{HIGH_TEMPERATURE}\b[^.!?\n]{{0,20}}\b(?:forehead|rectal|temp|temperature)\b"
+    r"|\btemp(?:erature)?\b[^.!?\n]{0,20}\b(?:9[0-6](?:\.\d)?)\b[^.!?\n]{0,30}\b(?:warm|warming)\w*"
+    r"|\bonly (?:had )?(?:[0-5]|one|two|three|four|five) wet diapers?\b", re.I,
 )
 MENTAL_HEALTH_WORDS = re.compile(
     r"\b(postpartum depression|postpartum anxiety|ppd|depress\w*|hopeless\w*|panic attacks?|can't stop crying|cannot stop crying|"
@@ -270,6 +338,8 @@ def without_lookups(sentence):
 POISONING_WORDS = re.compile(
     rf"\b(overdos\w*|double dos\w*|too (?:much|many) (?:medicine|medication|pills?|tablets?))\b"
     rf"|\b(swallow\w*|drank|ate|took|given|gave)\b[^.!?\n]{{0,45}}\b(bleach|poison\w*|cleaner|button battery|battery|extra (?:dose|pills?|tablets?))\b"
+    rf"|\btoo (?:much|many)\s+{MEDICINE_WORDS.pattern}"
+    r"|\bdrank\b[^.!?\n]{0,25}\bcleaning (?:stuff|fluid|products?)\b|\bgot into (?:my|the|our) pills\b"
     rf"|\baccidentally\b(?![^.!?\n]{{0,80}}\b(?:forgot\w*|forget\w*|missed|skipped)\b)[^.!?\n]{{0,80}}{MEDICINE_WORDS.pattern}", re.I,
 )
 
@@ -284,41 +354,78 @@ def classify(message, child_names=()):
     if HARM_WORDS.search(text) or re.search(r"\bi (?:don't|do not) want to be a (?:mom|mother|parent)(?: anymore)?\b", text, re.I):
         return Safety(HARM, MESSAGES[HARM])
     names = [re.escape(name) for child in child_names for name in re.findall(r"[\w'-]{2,}", child or "")]
-    kept = [without_lookups(sentence) for sentence in sentences(text)]
+    # Keep patient clauses separate: joining a parent's symptom to a baby's symptom
+    # before assigning routes can wrongly make the parent's breathing problem the baby's.
+    kept = [part for sentence in sentences(text) for clause in CLAUSE_BREAK.split(sentence)
+            if clause and not LOOKUP_CLAUSE.search(clause)
+            for part in re.split(r"\s+and\s+|\s*&\s*", clause, flags=re.I) if part]
     pregnancy_context = re.search(r"\b(pregnan\w*|womb|trimester|unborn|kick\w*)\b|\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", " ".join(kept), re.I)
-    maternal_concern = any(
-        MATERNAL_SIGNS.search(clause)
-        and re.search(r"\bi (?:am|have|feel|can't|cannot)|\bi'm|\bmy (?:head|vision|blood pressure|chest|leg|calf|hands|face|incision)\b", clause, re.I)
-        and not BABY_WORDS.search(clause)
-        for part in kept for clause in CLAUSE_BREAK.split(part)
-    )
-    # Each sentence, then each pair, so "My newborn has a temperature. 38.5 C." reads as one thing.
-    pairs = [" ".join(part.rstrip(".!?; ") for part in pair) for pair in zip(kept, kept[1:], strict=False)]
-    found = None
-    baby_found = None
-    poison_found = None
-    for part in [*kept, *pairs]:
-        if POISONING_WORDS.search(part):
-            poison_found = Safety(CANT_ANSWER, MESSAGES[POISONING])
-        about_baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
+
+    def baby_subject(part):
+        return bool(BABY_WORDS.search(part) or part.strip().lower() == "seizure" or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I)))
+
+    # A patient transition can occur without punctuation or “and”. Split only
+    # when the preceding symptom belongs to the other patient.
+    separated = []
+    for part in kept:
+        transition = re.search(r"\b(?:my (?:baby|newborn|infant|toddler)|the baby|baby)\b", part, re.I)
+        if transition and transition.start() and MATERNAL_SIGNS.search(part[:transition.start()]) and not baby_subject(part[:transition.start()]):
+            separated.extend((part[:transition.start()], part[transition.start():]))
+            continue
+        transition = re.search(r"\b(?:i have|i am|i'm|im|my water|my bleeding)\b", part, re.I)
+        if transition and transition.start() and baby_subject(part[:transition.start()]):
+            separated.extend((part[:transition.start()], part[transition.start():]))
+            continue
+        separated.append(part)
+    kept = separated
+
+    # A numeric temperature in the next clause can still belong to the baby.
+    # An explicit maternal subject starts a different concern.
+    def parent_subject(part):
+        return bool(re.search(r"\bi\b|\bim\b|\bmy\b", part, re.I) and not baby_subject(part))
+    baby_parts = []
+    for index, part in enumerate(kept):
+        inherits_baby = (index > 0 and baby_parts[index - 1] and not parent_subject(part)
+                         and (BABY_EMERGENCY_WORDS.search(part) or BABY_ER_WORDS.search(part)
+                              or re.search(r"\b(temp|temperature|fever)\b", part, re.I)))
+        baby_parts.append(bool(baby_subject(part) or inherits_baby))
+    maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
+    # Only join fragments when neither belongs to a maternal concern. This retains
+    # “my newborn has a temperature. 38.5 C” without mixing two people's symptoms.
+    pairs = [" and ".join(part.rstrip(".!?; ") for part in kept[index:index + 2]) for index in range(len(kept) - 1)
+             if not any(maternal_parts[index:index + 2]) and not any(parent_subject(part) for part in kept[index:index + 2])]
+    maternal = any(maternal_parts)
+    poison = any(POISONING_WORDS.search(part) for part in kept)
+    maternal = maternal or any(POISONING_WORDS.search(part) and parent_subject(part) for part in kept)
+    fetal_movement = False
+    baby_kind = None
+    rank = {BABY_UNWELL: 1, BABY_ER: 2, BABY_EMERGENCY: 3}
+    for part, about_baby in [*zip(kept, baby_parts, strict=True), *((part, baby_subject(part)) for part in pairs)]:
         emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
-        pregnancy_movement = (pregnancy_context and emergencies == ["not moving"]
+        pregnancy_movement = (pregnancy_context and (emergencies in (["not moving"], ["isn't moving"]) or BABY_ER_WORDS.search(part) and re.search(r"\bmoving less|decreased movement\b", part, re.I) and not emergencies)
                               and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
         if pregnancy_movement:
-            found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
+            fetal_movement = True
             continue
-        if about_baby and BABY_EMERGENCY_WORDS.search(part):
-            return Safety(BABY_UNWELL, MESSAGES[BABY_EMERGENCY] + ("\n\n" + MESSAGES[URGENT_MATERNAL] if maternal_concern else ""))
-        if about_baby and BABY_ER_WORDS.search(part):
-            baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_ER])
-        elif about_baby and BABY_UNWELL_WORDS.search(part) and not baby_found:
-            baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_UNWELL])
-        if MATERNAL_SIGNS.search(part):
-            found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
-    if maternal_concern and baby_found:
-        lines = [MESSAGES[URGENT_MATERNAL], baby_found.message] if baby_found.message == MESSAGES[BABY_UNWELL] else [baby_found.message, MESSAGES[URGENT_MATERNAL]]
-        return Safety(URGENT_MATERNAL if baby_found.message == MESSAGES[BABY_UNWELL] else BABY_UNWELL, "\n\n".join(lines))
-    return poison_found or baby_found or found
+        candidate = (BABY_EMERGENCY if (BABY_EMERGENCY_WORDS.search(part) or (names and re.search(rf"\b(?:{'|'.join(names)}) (?:is |looks? )?(?:blue|gray|grey|purple)\b", part, re.I))) else
+                     BABY_ER if BABY_ER_WORDS.search(part) else BABY_UNWELL if (BABY_UNWELL_WORDS.search(part) or BABY_OTHER_SIGNS.search(part)) else None) if about_baby else None
+        if candidate:
+            if rank[candidate] > rank.get(baby_kind, 0):
+                baby_kind = candidate
+        elif MATERNAL_SIGNS.search(part):
+            if about_baby:
+                fetal_movement = True
+            else:
+                maternal = True
+    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or re.search(r"\b(newborn|infant|born)\b|\b\d+[- ]*(?:days?|weeks?|months?)[- ]*old\b", text, re.I)))
+    if maternal and baby_kind:
+        kind = MIXED_BABY[baby_kind]
+    else:
+        kind = baby_kind or (URGENT_MATERNAL if maternal else None)
+    if poison:
+        kind = ("maternal_poisoning" if kind == URGENT_MATERNAL else kind + "_poisoning") if kind else POISONING
+    return Safety(help_kind(kind), MESSAGES[kind]) if kind else None
+
 
 
 def boundary(question):
