@@ -2,6 +2,7 @@ import { ApiError } from "./api";
 import { friendlyDate } from "./care-format";
 import { newestFirst } from "./feed-reducer";
 import { messageFor, type BabyRecord, type Child, type ChildDetails, type ChildDraft, type ChildEdits, type ChildField, type ChildForm, type DeviceState } from "./models";
+import { contactFrom, contactProblem } from "./contacts";
 import { dayKey } from "./tracker";
 import { pregnancyProgress } from "./timing";
 
@@ -74,6 +75,7 @@ export function formFor(child: Child | undefined, requested: SetupStage | null, 
       grams: details.weight_at_birth_g ?? null, ...weightFields(details.weight_at_birth_g, unit),
       cm: details.length_at_birth_cm ?? null, length: lengthField(details.length_at_birth_cm, unit),
       weeksAtBirth: details.weeks_at_birth == null ? "" : String(details.weeks_at_birth), feeding: details.feeding ?? "",
+      doctorName: details.doctor?.name ?? "", doctorPhone: details.doctor?.phone ?? "",
     };
   return stage ? chooseStage(form, stage, today) : form;
 }
@@ -122,6 +124,7 @@ export function startingUnit(rows: BabyRecord[]): MeasureUnit {
 const fieldKeys: Record<ChildField, readonly (keyof ChildForm)[]> = {
   stage: ["stage"], name: ["name"], birth: ["birth"], due: ["due", "weeks", "days"], sex: ["sex"],
   weight: ["grams", "lb", "oz", "kg"], length: ["cm", "length"], weeksAtBirth: ["weeksAtBirth"], feeding: ["feeding"],
+  doctorName: ["doctorName"], doctorPhone: ["doctorPhone"],
 };
 export const noEdits = (form: ChildForm, touched: ChildField[] = []): ChildEdits => ({ form, touched, attempted: false, since: [] });
 /** Called by each field's own change handler. It's the only way a field becomes hers. */
@@ -154,6 +157,8 @@ function detailsOf(form: ChildForm, touched: readonly ChildField[]) {
     ["length", "length_at_birth_cm", here ? cmOf(form) : undefined],
     ["weeksAtBirth", "weeks_at_birth", here ? weeks : undefined],
     ["feeding", "feeding", here ? form.feeding || null : undefined],
+    ["doctorName", "doctor", contactFrom(form.doctorName, form.doctorPhone)],
+    ["doctorPhone", "doctor", contactFrom(form.doctorName, form.doctorPhone)],
   ] as const).filter(([field, , value]) => touched.includes(field) && value !== undefined).map(([, key, value]) => [key, value])) as ChildDetails;
 }
 
@@ -171,7 +176,13 @@ export function childWrite(form: ChildForm, touched: readonly ChildField[], chil
   if (problem) return { error: problem };
   if (fields.includes("weeksAtBirth") && form.stage === "here" && weeks !== null && !(Number.isInteger(weeks) && weeks >= 20 && weeks <= 45))
     return { error: "Enter weeks at birth as a whole number from 20 to 45." };
-  const answers = detailsOf(form, fields);
+  const doctorForm = child ? { ...form,
+    doctorName: fields.includes("doctorName") ? form.doctorName : child.details?.doctor?.name ?? "",
+    doctorPhone: fields.includes("doctorPhone") ? form.doctorPhone : child.details?.doctor?.phone ?? "",
+  } : form;
+  if ((fields.includes("doctorName") || fields.includes("doctorPhone")) && contactProblem(doctorForm.doctorName, doctorForm.doctorPhone))
+    return { error: contactProblem(doctorForm.doctorName, doctorForm.doctorPhone) };
+  const answers = detailsOf(doctorForm, fields);
   if (!child) {
     const given = Object.fromEntries(Object.entries(answers).filter(([, value]) => value !== null)) as ChildDetails;
     return { write: { id: creationId, name, birth_date: form.stage === "expecting" ? null : form.birth || null, due_date: form.due || null,

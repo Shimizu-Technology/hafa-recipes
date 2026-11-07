@@ -1,4 +1,6 @@
 import { birthWords } from "./growth-chart";
+import { contactWords } from "./contacts";
+import type { CareContact } from "./models";
 import type { BabyApi } from "./api";
 import { basedOn, type CareStats, type StatsDay } from "./care-stats";
 import { duration, weightText } from "./care-format";
@@ -268,3 +270,6 @@ ${listSection("Notes", notes, limit.notes, (row) => noteLine(row, timezone, limi
 
 /** A file name with the dates and no name of a person, since it can end up anywhere. */
 export const summaryFileName = (first: string, last: string, what = "care-summary") => `${what}-${first}-to-${last}.pdf`;
+/** The doctor she chose to name, under the page's heading. It's only on the page if she asked. */
+export const withDoctor = (html: string, doctor: CareContact | null) =>
+  doctor ? html.replace("</h1>", () => `</h1><p>For ${escape(contactWords(doctor))}</p>`) : html;

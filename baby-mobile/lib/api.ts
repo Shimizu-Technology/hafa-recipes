@@ -12,6 +12,7 @@ import type {
   ImportJob,
   Kind,
   PrefsPatch,
+  CareContacts,
   Profile,
   ReminderPrefs,
   SessionAction,
@@ -302,6 +303,7 @@ export function createBabyApi(
       return request<Bootstrap>("/enroll", "POST", {}, g);
     },
     profile: (change: ProfileChange, g: Fence) => request<Profile>("/profile", "PATCH", change, g),
+    contacts: (value: CareContacts, g: Fence) => request<CareContacts>("/profile/contacts", "PATCH", value, g),
     child: (value: Partial<Child>, g: Fence) =>
       request<Child>(
         value.revision !== undefined ? `/children/${value.id}` : "/children",
