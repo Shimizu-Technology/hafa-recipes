@@ -65,13 +65,15 @@ enum BabyShareSession {
         "scope": scope, "generation": generation, "auto_process_epoch": automaticEpoch])
     }
   }
-  static func disable(storage: BabyShareStore, preserveUnassigned: Bool = false) throws -> [String: Any]? {
+  static func disable(storage: BabyShareStore, preserveUnassigned: Bool = false, recoveringOwner: String? = nil) throws -> [String: Any]? {
     var old: [String: Any]?
-    try storage.clear(preserveUnassigned: preserveUnassigned) { old = try? read(); try write(nil) }
+    try storage.clear(preserveUnassigned: preserveUnassigned, recoveringOwner: recoveringOwner) { old = try? read(); try write(nil) }
     return old
   }
-  static func clear(storage: BabyShareStore, preserveUnassigned: Bool = false) async throws {
-    let old = try disable(storage: storage, preserveUnassigned: preserveUnassigned)
+  static func clear(storage: BabyShareStore, preserveUnassigned: Bool = false, lapse: Bool = false) async throws {
+    var old: [String: Any]?
+    if lapse { try storage.suspend { old = try? read(); try write(nil) } }
+    else { old = try disable(storage: storage, preserveUnassigned: preserveUnassigned) }
     guard let old, let token = old["token"] as? String, let base = old["base"] as? String,
       let url = baseURL(base) else { return }
     var request = URLRequest(url: url.appendingPathComponent("api/v1/baby/share/session"))

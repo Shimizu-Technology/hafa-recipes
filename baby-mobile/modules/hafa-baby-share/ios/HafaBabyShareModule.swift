@@ -26,13 +26,30 @@ public final class HafaBabyShareModule: Module {
     AsyncFunction("noteSignedIn") { () throws in try self.safely { try self.store().noteSignedIn() } }
     AsyncFunction("pending") { () throws -> [String: Any]? in try self.safely { try self.snapshot() } }
     Function("acknowledge") { (token: String) throws -> Bool in try self.safely { try self.store().acknowledge(token) } }
-    Function("clear") { try self.safely { _ = try BabyShareSession.disable(storage: self.store()) } }
+    Function("clear") { (keepWaiting: Bool?, recoveringOwner: String?) throws in
+      try self.safely { _ = try BabyShareSession.disable(storage: self.store(), preserveUnassigned: keepWaiting ?? false, recoveringOwner: recoveringOwner) }
+    }
+    AsyncFunction("suspendSession") { () async throws in
+      try await BabyShareSession.clear(storage: self.store(), lapse: true)
+    }
     AsyncFunction("clearSession") { (preserveUnassigned: Bool?) async throws in
       try await BabyShareSession.clear(storage: self.store(), preserveUnassigned: preserveUnassigned ?? false)
     }
     AsyncFunction("sessionOwner") { () throws -> String? in
       try self.store().locked { try BabyShareSession.read()?["scope"] as? String }
     }
+    AsyncFunction("removalShareCount") { () throws -> Int in try self.safely { try self.store().removalCount() } }
+    AsyncFunction("waitingShareCount") { () throws -> Int in try self.safely { try self.store().unassignedCount() } }
+    AsyncFunction("waitingShares") { (owner: String) throws -> [[String: Any]] in
+      try self.safely { try self.store().unassigned(owner: owner).map(BabySharePayload.summary) }
+    }
+    AsyncFunction("claimShare") { (token: String, owner: String, generation: Int) throws -> String in
+      try self.safely { try self.store().claim(token, owner: owner, generation: generation).rawValue }
+    }
+    AsyncFunction("returnClaim") { (token: String, owner: String) throws -> Bool in
+      try self.safely { try self.store().returnClaim(token, owner: owner) }
+    }
+    AsyncFunction("discardShare") { (token: String) throws -> Bool in try self.safely { try self.store().discard(token) } }
     AsyncFunction("installationId") { () throws -> String in
       try self.store().locked {
         guard let defaults = UserDefaults(suiteName: self.group) else { throw BabyShareStore.Failure.unavailable }

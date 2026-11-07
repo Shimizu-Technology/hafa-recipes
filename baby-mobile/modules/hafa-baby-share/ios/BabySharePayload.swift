@@ -14,9 +14,42 @@ enum BabySharePayload {
     rows.append(["text": caption]); return try JSONSerialization.data(withJSONObject: rows)
   }
   static func requestBody(_ capture: [String: Any]) throws -> Data {
-    try JSONSerialization.data(withJSONObject: capture.filter {
+    guard capture["claimed"] as? Bool != true else { throw BabyShareStore.Failure.invalid }
+    return try JSONSerialization.data(withJSONObject: capture.filter {
       ["capture_id", "occurred_at", "url", "text", "automatic_epoch"].contains($0.key)
     })
+  }
+  // Enough to recognize a share kept under no account, and nothing more: no caption, no file, no address beyond its website.
+  // Whoever is signed in hasn't yet said it's theirs.
+  // A website's own name or nothing. Foundation will percent-decode a host into any text at all, including one that reads
+  // like a private path, and whoever's signed in hasn't said this is theirs. So: an ordinary http(s) name in plain letters.
+  static func website(_ link: String) -> String? {
+    guard let parts = URLComponents(string: link), let scheme = parts.scheme?.lowercased(), scheme == "http" || scheme == "https",
+      let host = parts.encodedHost?.lowercased(), host.utf8.count <= 253 else { return nil }
+    let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+    guard labels.count >= 2, let last = labels.last, last.count >= 2, last.allSatisfy({ $0.isASCII && $0.isLetter }),
+      labels.allSatisfy({ label in
+        !label.isEmpty && label.utf8.count <= 63 && !label.hasPrefix("-") && !label.hasSuffix("-") && !label.hasPrefix("xn--")
+          && label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+      }) else { return nil }
+    return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+  }
+  static func summary(_ waiting: BabyShareStore.Waiting) throws -> [String: Any] {
+    let saved = waiting.snapshot, capture = (try? decode(saved)) ?? [:], files = capture["files"] as? [[String: Any]] ?? []
+    let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var result: [String: Any] = ["token": saved.token, "count": files.count,
+      "shared_at": format.string(from: saved.occurredAt), "kept_until": format.string(from: waiting.keptUntil)]
+    if let mime = (files.first?["mimeType"] as? String)?.lowercased() {
+      result["kind"] = mime.hasPrefix("image/") ? "photo" : mime.hasPrefix("video/") ? "video" : mime.hasPrefix("audio/") ? "audio" : mime == "application/pdf" ? "pdf" : "file"
+    } else if !files.isEmpty {
+      result["kind"] = "file"
+    } else if let link = capture["url"] as? String {
+      result["kind"] = "link"
+      result["host"] = website(link)
+    } else {
+      result["kind"] = "text"
+    }
+    return result
   }
   static func decode(_ saved: BabyShareStore.Snapshot) throws -> [String: Any] {
     var texts: [String] = [], link: String?, files: [[String: Any]] = []
@@ -24,6 +57,7 @@ enum BabySharePayload {
     else if let bytes = saved.raw as? Data,
       let rows = try JSONSerialization.jsonObject(with: bytes) as? [[String: Any]] {
       for row in rows {
+        guard row["url"] is String || row["text"] is String || row["path"] is String || row["meta"] is String else { throw BabyShareStore.Failure.invalid }
         if let url = row["url"] as? String { link = link ?? url }
         if let text = row["text"] as? String, !texts.contains(text) { texts.append(text) }
         if let meta = row["meta"] as? String, let data = meta.data(using: .utf8),
@@ -34,7 +68,7 @@ enum BabySharePayload {
         }
         if row["path"] is String { files.append(row) }
       }
-    }
+    } else { throw BabyShareStore.Failure.invalid }
     let text = texts.joined(separator: "\n")
     if link == nil {
       let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
@@ -43,8 +77,9 @@ enum BabySharePayload {
     }
     let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let id = String(saved.token.split(separator: ":")[0]).lowercased()
-    var result: [String: Any] = ["token": saved.token, "capture_id": id, "record_id": id,
+    var result: [String: Any] = ["token": saved.token, "capture_id": id, "record_id": (saved.recordID ?? id).lowercased(),
       "occurred_at": format.string(from: saved.occurredAt), "files": files, "automatic_epoch": saved.automaticEpoch]
+    if saved.claimed { result["claimed"] = true }
     result["scope"] = saved.scope; result["url"] = link; result["text"] = text.isEmpty ? nil : text
     if let receipt = saved.receipt {
       result["status"] = receipt["status"]; result["import_id"] = receipt["import_id"]
