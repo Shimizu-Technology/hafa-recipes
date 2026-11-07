@@ -1,7 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const f = vi.hoisted(() => ({ section: undefined as string | undefined, reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object, ask: null as number | null, name: "Parent", outbox: [] as object[], push: vi.fn(), openSettings: vi.fn(), signOut: vi.fn(), sync: vi.fn(), consent: false, auto: false, save: vi.fn(async (change: object) => change), alert: vi.fn() }));
+const f = vi.hoisted(() => ({ section: undefined as string | undefined, reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object, ask: null as number | null, name: "Parent", outbox: [] as object[], held: [] as object[], push: vi.fn(), openSettings: vi.fn(), signOut: vi.fn(), sync: vi.fn(), consent: false, auto: false, save: vi.fn(async (change: object) => change), alert: vi.fn() }));
 vi.mock("react-native", () => ({ Alert: { alert: f.alert }, Linking: { openSettings: f.openSettings }, ScrollView: "ScrollView", View: "View" }));
 vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: f.push }, useLocalSearchParams: () => ({ section: f.section }) }));
 vi.mock("expo-constants", () => ({ default: { expoConfig: {} } }));
@@ -9,12 +9,13 @@ vi.mock("@/lib/share-session-state", () => ({ revokeShareSession() {} }));
 vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion() {} }));
 vi.mock("@/lib/files", () => ({ exportFile() {} }));
 vi.mock("@/lib/ai-consent", () => ({ ASK_CONSENT_BODY: "NEW ASK WORDS", ASK_UPDATE_TITLE: "", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
-vi.mock("@/lib/context", () => ({ useBaby: () => ({ online: true, signOut: f.signOut, sync: f.sync, api: { profile: f.save }, commit: async () => undefined, state: { outbox: f.outbox, bootstrap: { generation: 1, ask_consent_version: f.ask, profile: { display_name: f.name, timezone: "Pacific/Guam", ai_consent: f.consent, auto_process_shares: f.auto }, children: [], reminders: f.reminders, ...f.bootstrap } } }) }));
+vi.mock("@/lib/context", () => ({ useBaby: () => ({ online: true, signOut: f.signOut, sync: f.sync, api: { profile: f.save }, commit: async () => undefined, state: { outbox: f.outbox, heldDrafts: f.held, bootstrap: { generation: 1, ask_consent_version: f.ask, profile: { display_name: f.name, timezone: "Pacific/Guam", ai_consent: f.consent, auto_process_shares: f.auto }, children: [], reminders: f.reminders, ...f.bootstrap } } }) }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Section: "Section", useColors: () => ({}), useToast: () => () => {},
 }));
 vi.mock("@/components/settings-group", () => ({ SettingsGroup: "SettingsGroup" }));
 vi.mock("@/components/tab-stack", () => ({ initials: (name: string) => name.slice(0, 1) }));
+vi.mock("@/lib/outbox", () => import("./outbox"));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/child-setup", () => ({ babyDetailLine() {} }));
 import Settings from "../app/settings";
@@ -23,7 +24,7 @@ let view: ReactTestRenderer;
 const rows = () => view.root.findAll((node) => String(node.type) === "Row");
 const titles = () => rows().map((node) => node.props.title);
 const buttons = () => view.root.findAll((node) => String(node.type) === "Button").map((node) => node.props.title);
-beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); Object.assign(f, { section: undefined, bootstrap: {}, ask: null, name: "Parent", outbox: [], reminders: undefined, consent: false, auto: false }); f.push.mockClear(); f.save.mockClear(); f.alert.mockClear(); });
+beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); Object.assign(f, { section: undefined, bootstrap: {}, ask: null, name: "Parent", outbox: [], held: [], reminders: undefined, consent: false, auto: false }); f.push.mockClear(); f.save.mockClear(); f.alert.mockClear(); });
 afterEach(() => { act(() => view.unmount()); vi.unstubAllGlobals(); });
 const open = async (screen: React.ReactElement = <Settings />) => { await act(async () => { view = create(screen); }); };
 it.each([[undefined, false], ["ai", true]])("sends AI deep links to Privacy & data (%s)", async (section, sent) => {
@@ -127,4 +128,12 @@ describe("a permission change sends only itself", () => {
     if (enabled) await allow();
     expect(f.save).toHaveBeenCalledWith({ auto_process_shares: enabled }, 1);
   });
+});
+
+it("keeps held-only recovery visible and warns before sign-out", async () => {
+  f.held = [{ id: "held", draft: {} }];
+  await act(async () => { view = create(<Settings />); });
+  expect(rows().find((n) => n.props.title === "Saved changes & recovery")!.props.detail).toContain("1 unfinished draft");
+  await act(async () => view.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Sign out")[0].props.onPress());
+  expect(f.alert).toHaveBeenCalledWith("You have changes on this device", expect.stringContaining("unfinished drafts"), expect.any(Array));
 });

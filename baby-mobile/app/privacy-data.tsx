@@ -1,10 +1,11 @@
+import { recoverySummary } from "@/lib/outbox";
 import { useEffect, useRef, useState } from "react";
 import { Alert, ScrollView } from "react-native";
 import { router } from "expo-router";
 import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
 import { ASK_CONSENT_BODY } from "@/lib/ai-consent";
-import { messageFor, pendingChanges } from "@/lib/models";
+import { messageFor } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Notice, Row, Screen, Section, useToast } from "@/components/ui";
@@ -99,7 +100,7 @@ export default function PrivacyData() {
         <Row
           title="Saved changes & recovery"
           numericDetail
-          detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
+          detail={`${recoverySummary(b.state)} · ${b.online ? "Online" : "Offline"}`}
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />

@@ -4,7 +4,7 @@ import { Alert, Linking, ScrollView, View } from "react-native";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import { useBaby } from "@/lib/context";
-import { messageFor, pendingChanges } from "@/lib/models";
+import { messageFor } from "@/lib/models";
 import { Button, Copy, Grouped, Notice, Row, Screen, useColors } from "@/components/ui";
 import { SettingsGroup } from "@/components/settings-group";
 import { initials } from "@/components/tab-stack";
@@ -98,7 +98,7 @@ export default function Settings() {
         title="Sign out"
         busy={busy}
         onPress={() => {
-          if (deviceWorkCount(b.state))
+          if (deviceWorkCount(b.state) > 0)
             Alert.alert(
               "You have changes on this device",
               "Signing out removes unsynced entries and unfinished drafts from this phone. Review them first to save or keep what you need.",
