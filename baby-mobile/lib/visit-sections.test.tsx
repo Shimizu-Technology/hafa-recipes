@@ -266,7 +266,7 @@ describe("on an event that isn't an appointment any more", () => {
     expect(all("Row").map((n) => n.props.title)).toEqual(["sleep?", "rest"]);
     expect(all("Field")).toHaveLength(0);
     await act(async () => row("sleep?").props.onPress());
-    expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "sleep?" } });
+    expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "sleep?", fromVisit: "was" } });
   });
   it("reads them, in case this phone hasn't got them yet", async () => {
     await show([]);
@@ -442,4 +442,45 @@ it("carries the visit's actual date, repeat scope and all-day zone into its summ
   await mount(<VisitSections visit={visit} />);
   await act(async () => row("Doctor summary").props.onPress());
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/doctor-summary", params: { child: undefined, visit: "series", visitTitle: "Family check", at: visit.occurred_at, visitAt: mock.params.at, series: "1", allDay: "1", eventZone: "Pacific/Guam" } });
+});
+
+it("labels repeating questions as series-wide and returns to the originating occurrence", async () => {
+  const event = { ...record("series", "event", { recurrence: { frequency: "weekly" } }), occurred_at: "2026-11-01T00:00:00Z" }, q = record("series-q", "question", { event_id: "series" });
+  setup([event, q]); mock.params = { at: "2026-11-15T00:00:00Z" };
+  await mount(<VisitSections visit={event} />);
+  expect(JSON.stringify(renderer!.toJSON())).toContain("Questions for this appointment series");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("every date in this series");
+  await act(async () => row("series-q").props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "series-q", fromVisit: "series", visitAt: mock.params.at } });
+  await act(async () => renderer!.unmount());
+  mock.params = { fromVisit: "series", visitAt: "2026-11-15T00:00:00Z" };
+  await mount(<RecordVisit record={q} />);
+  expect(row("For series · Series").props.detail).toContain("appointment series");
+  await act(async () => row("For series · Series").props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/event/[id]", params: { id: "series", at: "2026-11-15T00:00:00Z" } });
+});
+
+it("carries a moved repeating date from Today by its original anchor and labels the row as series-wide", async () => {
+  const start = new Date(Date.now() + 86400000).toISOString(), moved = new Date(Date.now() + 2 * 86400000).toISOString(), event = { ...record("repeat", "event", { recurrence: { frequency: "weekly" } }), occurred_at: start }, q = record("today-q", "question", { event_id: event.id });
+  setup([event, q]); const shown = { ...appointment(event.id, start), occurrence_start: moved, repeats: true };
+  await mount(<NextVisitQuestions items={[shown]} />);
+  expect(row("today-q").props.detail).toContain("Appointment series");
+  await act(async () => row("today-q").props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: q.id, fromVisit: event.id, visitAt: start } });
+});
+it("fetches an uncached linked event and gives its real title and series action", async () => {
+  const b = setup([]), q = record("q", "question", { event_id: "uncached" }), event = record("uncached", "event", { recurrence: { frequency: "weekly" } });
+  b.api.record.mockResolvedValue(event);
+  await mount(<RecordVisit record={q} />);
+  await act(async () => renderer!.update(<RecordVisit record={q} />));
+  expect(b.api.record).toHaveBeenCalledWith("uncached");
+  expect(row("For uncached · Series")).toBeDefined(); expect(row("Take off this series")).toBeDefined();
+  await act(async () => row("For uncached · Series").props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/event/[id]", params: { id: "uncached" } });
+});
+it("uses series wording when adding saved questions, then taking them off", async () => {
+  const event = record("repeat", "event", { recurrence: { frequency: "weekly" } }), q = record("loose", "question");
+  setup([event, q]); await mount(<VisitSections visit={event} />);
+  await act(async () => row("loose").props.onPress());
+  expect(mock.toast).toHaveBeenCalledWith("Added to this series.");
 });

@@ -7,16 +7,17 @@ import { eventWhen } from "@/lib/events";
 import { messageFor, type BabyRecord, type EventOccurrence } from "@/lib/models";
 import { useUpcomingEvents } from "@/lib/use-events";
 import { useVisitEvent, useVisitRecords } from "@/lib/use-visit";
-import { fitsVisit, heldDrafts, holdDraft, heldChoices, holdChoice, looseQuestions, nextAppointment, questionWords, visitNotes, visitQuestions, visitCapture } from "@/lib/visits";
+import { fitsVisit, heldDrafts, holdDraft, heldChoices, holdChoice, looseQuestions, nextAppointment, questionWords, visitNotes, visitQuestions, visitCapture, visitIsSeries, visitReturn } from "@/lib/visits";
 import { dayKey } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { Button, Choice, Copy, Field, Grouped, Notice, Row, tap, useToast } from "./ui";
 import { kindIcon } from "./record-row";
 
-type Visit = Pick<BabyRecord, "id" | "child_id"> & Partial<Pick<BabyRecord, "title" | "space_id" | "occurred_at" | "data">> & { repeats?: boolean };
+type Visit = Pick<BabyRecord, "id" | "child_id"> & Partial<Pick<BabyRecord, "title" | "space_id" | "occurred_at" | "data">> & { repeats?: boolean; return_at?: string };
+const openRecord = (row: BabyRecord, visit: { id: string }, at?: string) => router.push({ pathname: "/record/[id]", params: { id: row.id, fromVisit: visit.id, ...(at ? { visitAt: at } : {}) } });
 import { addMutation } from "../lib/outbox";
 import { generationOf } from "../lib/spaces";
-const openRecord = (row: BabyRecord) => router.push({ pathname: "/record/[id]", params: { id: row.id } });
+const useVisitAt = (visit: { occurred_at?: string; return_at?: string }) => useLocalSearchParams<{ at?: string }>().at ?? visit.return_at ?? visit.occurred_at;
 
 /** What's half-typed, for each visit and baby. Held above the box, so it's still there after a baby with no appointment. */
 export function useVisitDrafts() {
@@ -95,50 +96,51 @@ function useWhose(visit: Visit) {
 }
 /** Her questions for one visit, and a way to add another without leaving where she is. */
 export function VisitQuestions({ visit, limit, drafts }: { visit: Visit; limit?: number; drafts?: ReturnType<typeof useVisitDrafts> }) {
-  const b = useBaby(), rows = visitQuestions(b.records, visit.id), shown = limit ? rows.slice(0, limit) : rows, whose = useWhose(visit);
+  const b = useBaby(), rows = visitQuestions(b.records, visit.id), shown = limit ? rows.slice(0, limit) : rows, whose = useWhose(visit), at = useVisitAt(visit), series = visitIsSeries(visit, b.records);
   return <View style={{ gap: 10 }}>
-    {shown.length > 0 && <Grouped>{shown.map((row) => <Row key={row.id} title={questionWords(row)} detail={whose(row)} icon={kindIcon.question} onPress={() => openRecord(row)} />)}</Grouped>}
+    {shown.length > 0 && <Grouped>{shown.map((row) => <Row key={row.id} title={questionWords(row)} detail={[whose(row), series && "Appointment series"].filter(Boolean).join(" · ") || undefined} icon={kindIcon.question} onPress={() => openRecord(row, visit, at)} />)}</Grouped>}
     {rows.length > shown.length && <Copy kind="small" tone="muted">{`And ${rows.length - shown.length} more`}</Copy>}
     <VisitCapture visit={visit} kind="question" drafts={drafts} />
   </View>;
 }
 /** Everything about the visit itself, on the appointment's own screen. */
 export function VisitSections({ visit }: { visit: Visit }) {
-  const returnAt = useLocalSearchParams<{ at?: string }>().at ?? visit.occurred_at;
-  const b = useBaby(), toast = useToast(), notes = visitNotes(b.records, visit.id), loose = looseQuestions(b.records, visit), whose = useWhose(visit),
+  const b = useBaby(), toast = useToast(), at = useVisitAt(visit), returnAt = at, series = visitIsSeries(visit, b.records), notes = visitNotes(b.records, visit.id), loose = looseQuestions(b.records, visit), whose = useWhose(visit),
     questionDrafts = useHeldDrafts(`${b.owner}:question`), noteDrafts = useHeldDrafts(`${b.owner}:note`);
   useVisitRecords(visit.id, true);
   return <>
     <View style={{ gap: 10 }}>
-      <Copy kind="heading">Questions for the doctor</Copy>
+      <Copy kind="heading">{series ? "Questions for this appointment series" : "Questions for the doctor"}</Copy>
+      {series && <Copy kind="small" tone="muted">Questions and notes belong to every date in this series.</Copy>}
       <VisitQuestions visit={visit} drafts={questionDrafts} />
       <Grouped><Row title="Doctor summary" detail="One page with your questions, notes and daily totals" icon="document-text-outline"
         onPress={() => router.push({ pathname: "/doctor-summary", params: { child: visit.child_id ?? undefined, visit: visit.id, visitTitle: visit.title, at: visit.occurred_at, visitAt: returnAt, series: visit.data?.recurrence ? "1" : undefined, allDay: visit.data?.all_day ? "1" : undefined, eventZone: visit.data?.timezone } })} /></Grouped>
     </View>
     {loose.length > 0 && <View style={{ gap: 10 }}>
       <Copy kind="label">Saved questions</Copy>
-      <Grouped>{loose.map((row) => <Row key={row.id} title={questionWords(row)} detail={[whose(row), "Tap to add to this visit"].filter(Boolean).join(" · ")} icon="add-circle-outline"
-        onPress={() => void b.queue(linked(b, row, visit.id)).then(() => toast("Added to this visit.")).catch((e) => toast(messageFor(e)))} />)}</Grouped>
+      <Grouped>{loose.map((row) => <Row key={row.id} title={questionWords(row)} detail={[whose(row), series ? "Tap to add to this series" : "Tap to add to this visit"].filter(Boolean).join(" · ")} icon="add-circle-outline"
+        onPress={() => void b.queue(linked(b, row, visit.id)).then(() => toast(series ? "Added to this series." : "Added to this visit.")).catch((e) => toast(messageFor(e)))} />)}</Grouped>
     </View>}
     <View style={{ gap: 10 }}>
       <Copy kind="heading">What the doctor said</Copy>
-      {notes.length > 0 && <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.journal} onPress={() => openRecord(row)} />)}</Grouped>}
+      {notes.length > 0 && <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.journal} onPress={() => openRecord(row, visit, at)} />)}</Grouped>}
       <VisitCapture visit={visit} kind="journal" drafts={noteDrafts} />
     </View>
   </>;
 }
 /** What's already on an event that's no longer an appointment. Changing its category doesn't take her words away. */
-export function VisitLinks({ visit }: { visit: Pick<BabyRecord, "id"> }) {
-  const b = useBaby(), questions = visitQuestions(b.records, visit.id), notes = visitNotes(b.records, visit.id);
+export function VisitLinks({ visit }: { visit: Pick<BabyRecord, "id"> & Partial<Pick<BabyRecord, "data" | "occurred_at">> }) {
+  const b = useBaby(), at = useVisitAt(visit), series = visitIsSeries(visit, b.records), questions = visitQuestions(b.records, visit.id), notes = visitNotes(b.records, visit.id);
   useVisitRecords(visit.id, true);
   return <>
+    {series && notes.length > 0 && <Copy kind="small" tone="muted">These notes belong to the appointment series.</Copy>}
     {questions.length > 0 && <View style={{ gap: 10 }}>
-      <Copy kind="heading">Questions for the doctor</Copy>
-      <Grouped>{questions.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.question} onPress={() => openRecord(row)} />)}</Grouped>
+      <Copy kind="heading">{series ? "Questions for this appointment series" : "Questions for the doctor"}</Copy>
+      <Grouped>{questions.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.question} onPress={() => openRecord(row, visit, at)} />)}</Grouped>
     </View>}
     {notes.length > 0 && <View style={{ gap: 10 }}>
       <Copy kind="heading">What the doctor said</Copy>
-      <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.journal} onPress={() => openRecord(row)} />)}</Grouped>
+      <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.journal} onPress={() => openRecord(row, visit, at)} />)}</Grouped>
     </View>}
   </>;
 }
@@ -157,7 +159,7 @@ export function NextVisitQuestions({ items, separate, drafts }: { items: readonl
   if (!visit || !event) return null;
   return <View style={{ gap: 8 }}>
     {separate && <Copy numeric kind="small" tone="muted">{`Questions for ${visit.title}, ${eventWhen(visit, today, timeZone)}`}</Copy>}
-    <VisitQuestions visit={{ id: visit.event_id, child_id: visit.child_id, occurred_at: visit.occurrence_start, space_id: event.space_id, data: { ...event.data, all_day: visit.all_day, timezone: visit.timezone } }} limit={3} drafts={drafts ?? own} />
+    <VisitQuestions visit={{ id: visit.event_id, child_id: visit.child_id, occurred_at: visit.occurrence_start, return_at: visit.original_start, repeats: visit.repeats, space_id: event.space_id, data: { ...event.data, all_day: visit.all_day, timezone: visit.timezone } }} limit={3} drafts={drafts ?? own} />
   </View>;
 }
 /** In Journal: every saved question onto the next appointment, in one tap. They stay in Journal too. */
@@ -166,20 +168,22 @@ export function LinkQuestions({ rows }: { rows: readonly BabyRecord[] }) {
     visit = nextAppointment(items, new Date(), timeZone), event = useVisitEvent(visit?.event_id).event, target = visit && event ? { ...visit, space_id: event.space_id } : undefined, loose = looseQuestions(rows, target);
   if (!visit || !event || !loose.length) return null;
   const count = loose.length === 1 ? "this question" : `these ${loose.length} questions`;
-  return <Row numericDetail icon="link-outline" title={`Add ${count} to ${visit.title}`} detail={eventWhen(visit, today, timeZone)} onPress={() => void (async () => {
+  return <Row numericDetail icon="link-outline" title={`Add ${count} to ${visit.title}${visit.repeats ? " series" : ""}`} detail={visit.repeats ? "Every date in this appointment series" : eventWhen(visit, today, timeZone)} onPress={() => void (async () => {
     for (const row of loose) await b.queue(linked(b, row, visit.event_id));
     tap("success");
-    toast(`Added to ${visit.title}.`);
+    toast(`Added to ${visit.title}${visit.repeats ? " series" : ""}.`);
   })().catch((e) => toast(messageFor(e)))} />;
 }
 /** On a question or note: the visit it's for, or one tap onto the next appointment. */
 export function RecordVisit({ record }: { record: BabyRecord }) {
+  const params = useLocalSearchParams<{ fromVisit?: string; visitAt?: string }>();
   const b = useBaby(), toast = useToast(), today = useToday(), timeZone = b.state.bootstrap?.profile.timezone, { items } = useUpcomingEvents(record.child_id, today),
-    eventId = record.data.event_id as string | null | undefined, visit = nextAppointment(items, new Date(), timeZone), resolved = useVisitEvent(eventId ?? (record.kind === "question" ? visit?.event_id : undefined)).event, event = eventId ? resolved : undefined,
+    eventId = record.data.event_id as string | null | undefined, visit = nextAppointment(items, new Date(), timeZone), resolution = useVisitEvent(eventId ?? (record.kind === "question" ? visit?.event_id : undefined)), resolved = resolution.event, unavailable = resolution.unavailable, event = eventId ? resolved : undefined,
     change = (id: string | null, message: string) => void b.queue(linked(b, record, id)).then(() => toast(message)).catch((e) => toast(messageFor(e)));
+  const series = !!event?.data.recurrence;
   if (eventId) return <Grouped>
-    <Row title={`For ${event?.title ?? "an appointment"}`} detail="Open this visit" icon="calendar-outline" onPress={() => router.push({ pathname: "/event/[id]", params: { id: eventId } })} />
-    {record.kind === "question" && <Row title="Take off this visit" detail="It stays in Journal" icon="remove-circle-outline" onPress={() => change(null, "Taken off this visit.")} />}
+    {unavailable && !event ? <Copy kind="small" tone="muted">Appointment unavailable. Your note stays in Journal.</Copy> : <Row title={event ? `For ${event.title}${series ? " · Series" : ""}` : "Linked appointment"} detail={series ? "Belongs to the appointment series" : "Open appointment"} icon="calendar-outline" onPress={() => router.push({ pathname: "/event/[id]", params: visitReturn(eventId, params.fromVisit, params.visitAt) })} />}
+    {record.kind === "question" && <Row title={series ? "Take off this series" : "Take off this visit"} detail="It stays in Journal" icon="remove-circle-outline" onPress={() => change(null, series ? "Taken off this series." : "Taken off this visit.")} />}
   </Grouped>;
-  return record.kind === "question" && visit && resolved && fitsVisit(record, { ...visit, space_id: resolved.space_id }) ? <Row numericDetail title={`Add to ${visit.title}`} detail={eventWhen(visit, today, timeZone)} icon="link-outline" onPress={() => change(visit.event_id, `Added to ${visit.title}.`)} /> : null;
+  return record.kind === "question" && visit && resolved && fitsVisit(record, { ...visit, space_id: resolved.space_id }) ? <Row numericDetail title={`Add to ${visit.title}${visit.repeats ? " series" : ""}`} detail={visit.repeats ? "Every date in this appointment series" : eventWhen(visit, today, timeZone)} icon="link-outline" onPress={() => change(visit.event_id, `Added to ${visit.title}${visit.repeats ? " series" : ""}.`)} /> : null;
 }

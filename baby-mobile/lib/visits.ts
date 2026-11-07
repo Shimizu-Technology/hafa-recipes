@@ -95,3 +95,11 @@ export function visitCapture(state: DeviceState, id: string, kind: "question" | 
 export function privateVisitAt(at: string, data: RecordData | undefined, profileZone: string) {
   return data?.all_day && data.timezone ? zonedInstant(recordDay(at, data.timezone), 12, 0, profileZone).toISOString() : at;
 }
+
+/** The API stores event_id only: a repeat's questions belong to its series, never a guessed occurrence. */
+export const visitIsSeries = (visit: { id: string; data?: RecordData; repeats?: boolean }, rows: readonly BabyRecord[]) =>
+  !!(visit.repeats || visit.data?.recurrence || rows.find((row) => row.id === visit.id)?.data.recurrence);
+/** Route context is only an immediate return hint, not stored note-to-occurrence linkage. */
+export function visitReturn(eventId: string, fromVisit?: string, at?: string) {
+  return fromVisit === eventId && at && Number.isFinite(new Date(at).getTime()) ? { id: eventId, at } : { id: eventId };
+}
