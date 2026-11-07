@@ -732,10 +732,12 @@ struct BabyShareStoreTests {
       var rejected = false
       do { _ = try BabySharePayload.requestBody(claimed) } catch { rejected = true }
       try check(rejected, "a claimed capture cannot go through native direct submission")
+      try check(try store.block(token, reason: "unreadable"), "a raced claim may already have a terminal refusal")
       try check(try store.returnClaim(token, owner: "other") == false, "another account cannot return a claim")
       try check(try store.returnClaim(token, owner: "owner-a"), "stale personal generation returns to waiting")
       try check(try store.unassignedCount() == 1, "original still available for explicit Add")
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "can Add after reset")
+      try check(try store.pending() != nil, "returned claim clears its previous blocked marker for revalidation")
       try check(try store.block(token, reason: "file_too_large"), "a claimed original may already be set aside")
       try store.bind("owner-a:2:" + family)
       try check(try store.unassignedCount() == 1, "same-account rebind preserves in-flight claimed original")

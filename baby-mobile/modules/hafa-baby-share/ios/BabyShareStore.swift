@@ -394,7 +394,7 @@ final class BabyShareStore {
         var value = try? manifest(id), value.token == token, value.claimed == true,
         value.scope.map({ Self.tag($0).owner == owner }) == true,
         scope().map({ Self.tag($0).owner == owner }) == true else { return false }
-      value.scope = nil; value.claimed = nil; value.automaticEpoch = 0
+      value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
       consumers.removeValue(forKey: token)
       try write(value, to: directory(id).appendingPathComponent("manifest.json"))
       return true
