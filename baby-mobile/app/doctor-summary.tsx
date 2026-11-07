@@ -72,7 +72,9 @@ export default function DoctorSummary() {
     flip = (row: BabyRecord) => setPicks((prior) => ({ ...prior, [row.id]: !on(row) })),
     child = children.find((one) => one.id === childId) ?? null,
     mineOnPage = !child?.birth_date || (!!childId && mineFor === childId),
-    pageDoctor = summaryDoctor(child, b.state.bootstrap), doctorOnPage = !!pageDoctor && doctorFor === (childId ?? ""),
+    pageDoctor = summaryDoctor(child, b.state.bootstrap, profileToday(nowDate, timezone)),
+    doctorKey = JSON.stringify([childId, pageDoctor?.name, pageDoctor?.phone]),
+    doctorOnPage = !!pageDoctor && doctorFor === doctorKey,
     picked = rows ? { questions: rows.questions.filter(on), notes: [...rows.journal, ...rows.logNotes].filter(on) } : null,
     waiting = stats ? waitingEntries(b.state, childId, stats, timezone) : 0,
     // Why the totals can't go on a page right now. A wrong total is worse than no page.
@@ -89,6 +91,8 @@ export default function DoctorSummary() {
     </Grouped>,
     when = (row: BabyRecord) => friendlyTime(row.occurred_at, nowDate, timezone),
     herList = (items: BabyRecord[]) => list(items, (row) => `${when(row)}. ${[typeof row.data.value === "number" ? `${row.data.value} ${row.data.unit ?? ""}`.trim() : row.title, row.body.trim().slice(0, 160)].filter(Boolean).join(" · ")}`, (row) => row.data.label ?? kindWord(row.kind));
+  useEffect(() => { setDoctorFor(null); }, [doctorKey]);
+
   async function send(numbers: CareStats | null) {
     const page = { stats: numbers, children, visitTitle: params.visit ? `${params.visitTitle || "This appointment"}${params.series === "1" ? " · Appointment series" : ""}` : undefined, child, timezone, prepared: new Date(),
         questions: picked!.questions,
@@ -146,7 +150,7 @@ export default function DoctorSummary() {
       <DateField dateOnly label="From" value={from} onChange={setFrom} />
       <DateField dateOnly label="To" value={to} onChange={setTo} />
     </View>
-    {!!pageDoctor && <Choice label={`Put ${contactWords(pageDoctor)} at the top of the page`} selected={doctorOnPage} onPress={() => setDoctorFor(doctorOnPage ? null : childId ?? "")} />}
+    {!!pageDoctor && <Choice label={`Put ${contactWords(pageDoctor)} at the top of the page`} selected={doctorOnPage} disabled={!!busy} onPress={() => { if (!busy) setDoctorFor(doctorOnPage ? null : doctorKey); }} />}
     {!!problem && <Notice>{problem}</Notice>}
     {!!why && <>
       <Notice>{why}</Notice>

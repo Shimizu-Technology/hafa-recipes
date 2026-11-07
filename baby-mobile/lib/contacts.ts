@@ -71,6 +71,7 @@ function babyDoctors(bootstrap: Account) {
 }
 /** Her own numbers on Help, under the ones everyone gets. */
 export function callLines(bootstrap: Account, today: Date): CallLine[] {
+  if (!contactsOn(bootstrap)) return [];
   const mine = bootstrap?.contacts;
   return [
     ...(dialable(mine?.doctor) ? [{ key: "doctor", heading: "Your doctor", contact: mine.doctor }] : []),
@@ -95,8 +96,9 @@ export function nextContactPrompt(bootstrap: Account, today: Date, canChange: (c
   return expecting(bootstrap, today) || !babies.length ? doctor ?? delivery ?? babyPrompt : babyPrompt ?? doctor;
 }
 /** Who a summary's page is for: the baby's doctor once they're here, and before that hers. A caregiver has only the baby's. */
-export function summaryDoctor(child: Pick<Child, "birth_date" | "details"> | null, bootstrap: Account): CareContact | null {
-  const doctor = child?.birth_date || isCaregiver(bootstrap) ? child?.details?.doctor : bootstrap?.contacts?.doctor;
+export function summaryDoctor(child: Pick<Child, "birth_date" | "details"> | null, bootstrap: Account, today = new Date()): CareContact | null {
+  if (!contactsOn(bootstrap)) return null;
+  const doctor = todayStage({ birth_date: child?.birth_date, due_date: null }, today) === "baby" || isCaregiver(bootstrap) ? child?.details?.doctor : bootstrap?.contacts?.doctor;
   return doctor?.name || doctor?.phone ? doctor : null;
 }
 export const contactWords = ({ name, phone }: CareContact) => [name, phone].filter(Boolean).join(" · ");

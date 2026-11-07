@@ -104,3 +104,13 @@ describe("the doctor on a summary's page", () => {
     expect(html).toContain("</h1><p>For Dr. &lt;b&gt;Cruz&lt;/b&gt; $&amp; Co · 671-555-0101</p>");
   });
 });
+
+it("hides retained baby contacts against a rollback API", () => {
+ const saved = account({ contacts: undefined, children: [{ ...born, details: { doctor: { name: "Dr. Retained", phone: "671-555-0100" } } }] });
+ expect(callLines(saved, today)).toEqual([]);
+ expect(summaryDoctor({ ...born, details: { doctor: { name: "Dr. Retained" } } }, saved)).toBeNull();
+});
+it("uses her doctor until a future birth date actually arrives", () => {
+ const child = { ...born, birth_date: "2099-01-01", details: { doctor: { name: "Baby doctor" } } };
+ expect(summaryDoctor(child, account({ contacts: { doctor: { name: "Her doctor" } } }))).toEqual({ name: "Her doctor" });
+});

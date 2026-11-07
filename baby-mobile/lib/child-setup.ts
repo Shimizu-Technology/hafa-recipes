@@ -176,9 +176,13 @@ export function childWrite(form: ChildForm, touched: readonly ChildField[], chil
   if (problem) return { error: problem };
   if (fields.includes("weeksAtBirth") && form.stage === "here" && weeks !== null && !(Number.isInteger(weeks) && weeks >= 20 && weeks <= 45))
     return { error: "Enter weeks at birth as a whole number from 20 to 45." };
-  if ((fields.includes("doctorName") || fields.includes("doctorPhone")) && contactProblem(form.doctorName, form.doctorPhone))
-    return { error: contactProblem(form.doctorName, form.doctorPhone) };
-  const answers = detailsOf(form, fields);
+  const doctorForm = child ? { ...form,
+    doctorName: fields.includes("doctorName") ? form.doctorName : child.details?.doctor?.name ?? "",
+    doctorPhone: fields.includes("doctorPhone") ? form.doctorPhone : child.details?.doctor?.phone ?? "",
+  } : form;
+  if ((fields.includes("doctorName") || fields.includes("doctorPhone")) && contactProblem(doctorForm.doctorName, doctorForm.doctorPhone))
+    return { error: contactProblem(doctorForm.doctorName, doctorForm.doctorPhone) };
+  const answers = detailsOf(doctorForm, fields);
   if (!child) {
     const given = Object.fromEntries(Object.entries(answers).filter(([, value]) => value !== null)) as ChildDetails;
     return { write: { id: creationId, name, birth_date: form.stage === "expecting" ? null : form.birth || null, due_date: form.due || null,

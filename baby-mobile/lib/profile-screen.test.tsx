@@ -24,7 +24,7 @@ const open = async (extra: object) => {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   f.profile.mockReset().mockImplementation(async (value: object) => value);
-  f.contacts.mockReset().mockImplementation(async (value: object) => value);
+  f.contacts.mockReset().mockImplementation(async (value: object) => ({ ...f.boot.contacts, ...value }));
   f.toast.mockClear(); f.back.mockClear(); f.params = {};
 });
 
@@ -45,7 +45,7 @@ it("sends only the contact she touched, so another phone's edit stays", async ()
   await type(2, "671-555-0101");
   await save();
   expect(f.contacts).toHaveBeenCalledWith({ doctor: { name: "Dr. Cruz", phone: "671-555-0101" } }, 2);
-  expect(f.boot.contacts).toEqual({ doctor: { name: "Dr. Cruz", phone: "671-555-0101" } });
+  expect(f.boot.contacts).toEqual({ doctor: { name: "Dr. Cruz", phone: "671-555-0101" }, delivery: { name: "GMH", phone: "671-555-0103" } });
 });
 it("sends the latest of what she didn't touch, not what was there when the screen opened", async () => {
   await open({ contacts: { doctor: { name: "Dr. A", phone: "671-555-0101" }, delivery: { name: "GMH", phone: "671-555-0103" } } });
@@ -109,4 +109,16 @@ it("keeps empty sections shut, and opens the one she came for or one already fil
   await open({ contacts: { doctor: { phone: "671-555-0101" } } });
   expect(opened()).toEqual(["Your doctor", "Where you plan to deliver"]);
   expect(fields()[0].props.autoFocus).toBe(false);
+});
+
+it("uses a phone refresh received while the name request is in flight", async () => {
+  await open({ contacts: { doctor: { name: "Dr. A", phone: "671-555-0101" } } });
+  await type(1, "Dr. Edited");
+  let finish!: (value: object) => void;
+  f.profile.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => { void view.root.findByType("Button" as React.ElementType).props.onPress(); });
+  f.boot = { ...f.boot, contacts: { doctor: { name: "Dr. B", phone: "671-555-0199" } } };
+  await act(async () => view.update(<ProfileDetails />));
+  await act(async () => finish({ display_name: "", timezone: "Pacific/Guam" }));
+  expect(f.contacts).toHaveBeenCalledWith({ doctor: { name: "Dr. Edited", phone: "671-555-0199" } }, 2);
 });

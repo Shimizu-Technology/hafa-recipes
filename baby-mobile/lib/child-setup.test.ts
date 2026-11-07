@@ -332,4 +332,10 @@ describe("the baby's doctor", () => {
     const edits = typed(child(), "Dr. Kim", "671-555-0104"), form = shownForm(child({ revision: 9, details: { doctor } }), edits, today);
     expect([form.doctorName, form.doctorPhone]).toEqual(["Dr. Kim", "671-555-0104"]);
   });
+  it("uses the recovered child's latest untouched doctor field on create retry", () => {
+    const stale = named("expecting", { doctorName: "Dr. Edited", doctorPhone: "671-555-0101" });
+    const recovered = child({ details: { doctor: { name: "Dr. Other", phone: "671-555-0199" } } });
+    expect(write(stale, recovered, ["doctorName"]).details).toEqual({ doctor: { name: "Dr. Edited", phone: "671-555-0199" } });
+  });
+
 });

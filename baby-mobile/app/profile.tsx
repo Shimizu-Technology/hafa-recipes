@@ -28,6 +28,8 @@ export default function ProfileDetails() {
       setError("");
       setEdits((current) => ({ ...current, [key]: { ...current[key], [field]: value } }));
     };
+  const latestContacts = useRef(saved);
+  latestContacts.current = saved;
   async function save() {
     if (working.current) return;
     if (problem) return setError(problem);
@@ -41,7 +43,7 @@ export default function ProfileDetails() {
       );
       await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
       if (on && Object.keys(edits).length) {
-        const contacts = await b.api.contacts(contactChanges(saved, edits), b.state.bootstrap!.generation);
+        const contacts = await b.api.contacts(contactChanges(latestContacts.current, edits), b.state.bootstrap!.generation);
         await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, contacts } }));
       }
       toast("Your details are saved.");
