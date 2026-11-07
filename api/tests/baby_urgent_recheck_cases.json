@@ -1,0 +1,620 @@
+{
+  "source": "medical-recheck-2026-11-07.md and its three original 150-probe files; rechecked AAP 2026-11-07",
+  "cases": [
+    {
+      "question": "my baby isnt breathing",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby not breathin",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my newborn stopped breathing for a few seconds",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "he's barely breathing",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "shes breathing really hard and struggling",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby is struggling to breath",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby is gasping for air",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby cant breath",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby is turning blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "her lips are blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "his lips r blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby looks purple",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby's face went gray",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my newborn wont wake up",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "cant wake my baby up",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "i cant wake him",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby is limp and wont respond",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby passed out",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby fainted",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby is unconscious",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby went limp and unresponsive",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my 2 week old is very weak",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "she is making grunting noises with every breath",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby moaning with each breath",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby is choking",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby choked on a grape and cant breathe",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby choked on a small toy",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby swallowed a coin and is gagging",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "something stuck in babys throat",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby is having a seizure and wont respond",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby seizing and not responding",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby had a seizure that lasted 6 minutes",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby has been seizing for 5 mins",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby threw up green",
+      "route": "baby_er"
+    },
+    {
+      "question": "my baby is vomiting green stuff",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby is floppy",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby feels floppy and weak",
+      "route": "baby_er"
+    },
+    {
+      "question": "my baby is hard to wake",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby's ribs are pulling in when she breathes",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby is having trouble breathing",
+      "route": "baby_er"
+    },
+    {
+      "question": "my 3 week old is breathing funny",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby is wheezing really loud",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby has a weird high pitched cry",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby is moving less than usual",
+      "route": "baby_er"
+    },
+    {
+      "question": "newborn isnt sucking well",
+      "route": "baby_er"
+    },
+    {
+      "question": "she had a seizure with her fever",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby has a fever and a stiff neck",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby has purple spots and a fever",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby's soft spot is bulging",
+      "route": "baby_er"
+    },
+    {
+      "question": "my 3 week old has a fever of 100.6",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby temp 100.4 rectal",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "newborn feels hot 38.2",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my 6 week old has a temperature of 38.5",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby's temp is 96.5 and wont warm up",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby is jerking",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my baby is jerking her arms and legs",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "i think my baby had a seizure",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby breathing fast",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby is yellow",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my baby only had 2 wet diapers today",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby wont eat",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby choked a little on milk but coughed and is fine now",
+      "route": "none"
+    },
+    {
+      "question": "she coughed and sputtered during the feed, she's ok now",
+      "route": "none"
+    },
+    {
+      "question": "he gagged on the bottle for a sec",
+      "route": "none"
+    },
+    {
+      "question": "when should i start tummy time",
+      "route": "none"
+    },
+    {
+      "question": "how many wet diapers should a newborn have",
+      "route": "none"
+    },
+    {
+      "question": "is it normal for babies to sneeze a lot",
+      "route": "none"
+    },
+    {
+      "question": "what are signs of choking in a baby",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "how do i do infant cpr",
+      "route": "none"
+    },
+    {
+      "question": "im bleeding a lot and my baby isnt breathing",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "my baby isnt breathing and im bleeding heavily",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "im soaking a pad every hour and baby has a fever",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "i have a terrible headache and blurry vision, also baby has a fever of 100.5",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "my water broke and my toddler is choking",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "i'm bleeding heavily and baby threw up green",
+      "route": "maternal_baby_er"
+    },
+    {
+      "question": "i have chest pain. my baby is floppy",
+      "route": "maternal_baby_er"
+    },
+    {
+      "question": "soaking through pads and the baby wont wake up",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "baby swallowed a button battery",
+      "route": "poison",
+      "base_route": "none"
+    },
+    {
+      "question": "my baby swallowed a button battery and im bleeding heavily",
+      "route": "maternal_poison",
+      "base_route": "urgent_maternal"
+    },
+    {
+      "question": "i took too many tylenol and baby is choking",
+      "route": "maternal_baby_emergency",
+      "base_route": "baby_emergency"
+    },
+    {
+      "question": "she was choking on milk for a second but shes fine now",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "he started choking on spit up then coughed it out and is fine",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby keeps choking during feeds",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby is chocking",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm soaking a pad every hour and baby has a fever",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "I'm bleeding heavily and my baby isn't breathing",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I have a terrible headache and blurry vision. Also baby has a fever of 100.5",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "I'm bleeding heavily and baby threw up green",
+      "route": "maternal_baby_er"
+    },
+    {
+      "question": "My water broke. My baby is floppy",
+      "route": "maternal_baby_er"
+    },
+    {
+      "question": "I have chest pain and my baby won't wake up",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "im having chest pain and my baby has a fever",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "my baby has a fever and I have chest pain",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "baby has a fever. i'm dizzy and bleeding a lot",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "baby is not responding",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby not responsive",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby is lifeless",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby went limp",
+      "route": "baby_er"
+    },
+    {
+      "question": "baby collapsed",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "babys lips are purple",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my babys skin looks blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "blue around her mouth",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby is pale and gray",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "newborn is breathing weird and making grunting sounds",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby's chest is caving in when he breathes",
+      "route": "baby_er"
+    },
+    {
+      "question": "she's having a seizure",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "seizure",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my baby wont stop shaking all over",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby's whole body is shaking",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my 5 day old is shaking and stiff",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "babys eyes rolled back and shes twitching",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my 2mo has 101 fever",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my 10 week old is burning up",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby feels really warm",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "my 4 day old has a fever",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "newborn temp 38",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby 100.4 forehead",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "Nene has a fever",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby rolled off the bed and hit her head",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby fell off the couch",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "baby swallowed bleach",
+      "route": "poison",
+      "base_route": "none"
+    },
+    {
+      "question": "baby drank some cleaning stuff",
+      "route": "poison",
+      "base_route": "none"
+    },
+    {
+      "question": "my baby got into my pills",
+      "route": "poison",
+      "base_route": "none"
+    },
+    {
+      "question": "baby ate a battery",
+      "route": "poison",
+      "base_route": "none"
+    },
+    {
+      "question": "BABY NOT BREATHING",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "help baby blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby wont breathe",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby stopped breathin",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my little one isnt breathing",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "LO turning blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my toddler is choking",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my toddler isnt breathing",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my 18 month old is choking",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "infant cpr now hes not breathing",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my daughter is unresponsive",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my son wont wake up",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby breathing weird and lips look kinda blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "hes blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "she's grey",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby is breathing but really struggling",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby cant catch her breath",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby is wheezing and struggling for air",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "baby had a seizure and is now really sleepy",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "she stopped breathing for like 15 seconds then started again",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "im bleeding heavily, my baby isnt breathing",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm bleeding heavily, and baby has a fever",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "my baby has a fever. I'm soaking a pad an hour",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "baby's lips are blue",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "he won't wake up",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "Kai isnt breathing",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "my baby had a seizure",
+      "route": "baby_unwell"
+    },
+    {
+      "question": "kai is blue",
+      "route": "baby_emergency"
+    }
+  ]
+}

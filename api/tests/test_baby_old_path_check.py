@@ -117,7 +117,9 @@ async def test_it_counts_on_the_ledger_and_on_the_invocation_record(baby_api, fl
         tracked = list(await db.scalars(select(AIInvocation).where(AIInvocation.capability == "baby_safety")))
     safety = [row for row in rows if row.capability == "baby_safety"]
     assert len(safety) == 1 and len(tracked) == 1
-    assert 0 < safety[0].reserved_microusd < 1_000
+    sent = flag_off.checks[0]
+    expected = ask_upper_bound(AskCall(sent["model"], len(json.dumps(sent, ensure_ascii=False).encode()), sent["max_output_tokens"]))
+    assert safety[0].reserved_microusd == expected > 0
 
 
 async def test_a_retry_of_the_same_question_does_not_pay_again(baby_api, flag_off):
