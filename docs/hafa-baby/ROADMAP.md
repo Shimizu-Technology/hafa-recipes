@@ -596,7 +596,7 @@ Relative-clause reassurance is stopped before the
 model check on both Ask paths. Future or negated birth wording (for example,
 “due to be born soon” or “not yet born”) now establishes pregnancy context
 without marking the baby as born. Explicit newborn/infant/toddler and age
-context stays intact, including mixed fetal and born-child concerns. Ten
+context stays intact, including mixed fetal and born-child concerns. Twelve
 regression rows cover the distinction on the floor and both HTTP Ask paths. The regression table covers both HTTP paths
 and stored replies. AAP child weakness/immobility guidance was rechecked
 November 8 at https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Weakness%2Band%2BFatigue.
