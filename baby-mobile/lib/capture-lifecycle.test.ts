@@ -345,6 +345,13 @@ it("keeps retrying a capture on a passing failure, and doesn't set it aside", as
   scope.pending.mockResolvedValueOnce({ ...payload("flaky"), files: [{ path: "file:///a.mov", fileName: "a.mov", mimeType: "video/quicktime" }] }).mockResolvedValueOnce(payload("following-flaky")).mockResolvedValue(null);
   await act(async () => { scope.foreground?.("active"); });
   expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:flaky", "share-save:following-flaky"]);
+  expect(scope.copy).toHaveBeenLastCalledWith(account.owner, {
+    uri: "file:///a.mov", name: "a.mov", mimeType: "video/quicktime",
+  });
+  expect(scope.copy).toHaveBeenCalledTimes(2);
+  expect(account.state.outbox[0]).toMatchObject({
+    type: "save", record: { id: "flaky" }, files: [{ uri: "file:///private/a.mov", name: "a.mov", mime_type: "video/quicktime" }],
+  });
   expect(scope.acknowledge).toHaveBeenCalledWith("flaky");
 });
 it("a share added from the waiting card never starts AI, even with automatic organizing on and matching numbers", async () => {
