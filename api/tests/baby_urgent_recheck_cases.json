@@ -736,6 +736,14 @@
     {
       "question": "I'm pregnant. My newborn was born soon after her due date. She isn't moving",
       "route": "baby_emergency"
+    },
+    {
+      "question": "My baby will\tbe born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is due to be\nborn soon. She isn't moving",
+      "route": "urgent_maternal"
     }
   ]
 }

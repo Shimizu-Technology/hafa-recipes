@@ -205,8 +205,8 @@ BORN_CHILD = re.compile(
 )
 FUTURE_BIRTH = re.compile(
     # Future/negated birth wording is pregnancy context, not evidence of a born child.
-    r"\b(?:(?:due|expected|scheduled|set|yet) to be|(?:will|would|should|may|might|could) (?:soon )?be|"
-    r"(?:going|about) to be|(?:isn't|is not|not)(?: yet)?|(?:hasn't|has not)(?: yet)? been|to be) born\b", re.I,
+    r"\b(?:(?:due|expected|scheduled|set|yet)\s+to\s+be|(?:will|would|should|may|might|could)\s+(?:soon\s+)?be|"
+    r"(?:going|about)\s+to\s+be|(?:isn't|is\s+not|not)(?:\s+yet)?|(?:hasn't|has\s+not)(?:\s+yet)?\s+been|to\s+be)\s+born\b", re.I,
 )
 BABY_PRONOUN_SUBJECT = re.compile(r"^\W*(?:(?:now|also|then)\s+)*(?:she|he|her|his|they|their|shes|hes)\b", re.I)
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
