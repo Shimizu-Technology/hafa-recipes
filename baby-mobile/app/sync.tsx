@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
 import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { canSendHeldToFamily, keepInPersonal, keepHeldDraft, latestHeldSave, sendHeldToFamily, heldDraftWarning, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { canSendHeldToFamily, keepInPersonal, keepVisitInPersonal, keepHeldDraft, latestHeldSave, sendHeldToFamily, heldDraftWarning, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { savedDetails } from "../lib/saved-details";
@@ -156,7 +156,7 @@ export default function Sync() {
                 <Copy>{m.record.body || "Care details and attachments are saved with this change."}</Copy>
               )}
               {m.error && <Notice error>{m.error}</Notice>}
-              {!!m.left_space && queuedChain(b.state.outbox, m).some((row) => row.type === "save") && (
+              {!!m.left_space && !(m.type === "save" && m.record.kind === "journal") && queuedChain(b.state.outbox, m).some((row) => row.type === "save") && (
                 <Button
                   secondary
                   title="Keep in my personal space"
@@ -170,6 +170,14 @@ export default function Sync() {
                   }
                 />
               )}
+              {m.type === "save" && !!m.error && (m.record.kind === "journal" || m.record.kind === "question" && !!m.record.data.event_id) && <>
+                <Notice>This keeps one private Journal entry without unavailable baby or visit links. Stopped changes to this entry are combined.</Notice>
+                <Button secondary title="Save privately in Journal" disabled={b.syncing || busy} onPress={() => void run(async () => {
+                  await b.commit((s) => { const held = s.outbox.find((row) => row.id === m.id); return held ? keepVisitInPersonal(s, held, Crypto.randomUUID) : s; });
+                  toast("Kept privately in Journal. Not attached to the shared visit.");
+                  await b.sync();
+                })} />
+              </>}
               {m.conflict && (m.type === "save" || m.type === "delete") && (
                 <>
                   <Button

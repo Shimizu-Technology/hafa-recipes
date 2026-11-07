@@ -223,6 +223,36 @@ export function retryUnavailable(state: DeviceState): DeviceState {
   const gone = new Set([unavailableMessage, goneBabyMessage, stuckTapMessage]);
   return state.outbox.some((m) => m.error && gone.has(m.error)) ? { ...state, outbox: state.outbox.map((m) => (m.error && gone.has(m.error) && !m.localOnly ? retryMutation(m) : m)) } : state;
 }
+export const privateBabyMessage = "This baby is no longer available. Keep your note privately in Journal without the baby link.";
+export const visitLinkMessage = "This note can’t be attached across personal and family spaces. Save it privately in Journal, without the visit link, or discard it.";
+/** Old visit captures and moved links need a decision, never an automatic publication. */
+export function visitWriteProblem(state: DeviceState, change: Mutation) {
+  if (change.type !== "save" || !["journal", "question"].includes(change.record.kind) || !change.record.data.event_id) return false;
+  const personal = state.bootstrap?.personal_space_id, target = change.space_id ?? personal,
+    event = state.records.find((row) => row.id === change.record.data.event_id),
+    child = state.bootstrap?.children.find((one) => one.id === change.record.child_id);
+  return !!(event?.space_id && event.space_id !== target || change.record.kind === "question" && child?.space_id && child.space_id !== target);
+}
+/** Resume a real saved write only when a refreshed event now proves its link is in the same space. */
+export function retryVisitLinks(state: DeviceState, before: DeviceState): DeviceState {
+  let changed = false;
+  const outbox = state.outbox.map((m) => {
+    if (m.error !== visitLinkMessage || m.localOnly || m.left_space || m.type !== "save") return m;
+    const event = state.records.find((row) => row.id === m.record.data.event_id), target = m.space_id ?? state.bootstrap?.personal_space_id;
+    if (!event?.space_id || event.space_id !== target || !visitWriteProblem(before, m) || visitWriteProblem(state, m)) return m;
+    changed = true; return retryMutation(m);
+  });
+  return changed ? { ...state, outbox } : state;
+}
+/** An explicit Save from recovery makes a new personal journal; the old write and its chain are removed atomically. */
+export function keepVisitInPersonal(state: DeviceState, change: Mutation, uuid: () => string) {
+  if (change.type !== "save" || !state.outbox.some((m) => m.id === change.id)) return state;
+  const first = state.outbox.find((m) => mutationRecordIds(m).includes(change.record.id))!;
+  const ids = new Set(queuedChain(state.outbox, first).map((m) => m.id));
+  const last = [...state.outbox].reverse().find((m): m is Extract<Mutation, { type: "save" }> => ids.has(m.id) && m.type === "save"), attachments = new Set(last?.record.data.attachment_ids ?? []),
+    earlier = state.outbox.flatMap((m) => ids.has(m.id) && m.type === "save" ? m.files : []).filter((file) => attachments.has(file.uploaded_id ?? state.fileUploads[file.id]));
+  return keepInPersonal({ ...state, outbox: state.outbox.map((m) => ids.has(m.id) && m.type === "save" ? { ...m, record: { ...m.record, kind: "journal" }, ...(m === last ? { files: [...new Map([...earlier, ...m.files].map((file) => [file.id, file])).values()] } : {}) } : m) }, first, uuid);
+}
 /** Where the API says a row went: `409 {code: "moved"}`. For new care it's the baby that moved, and `record` is the baby. */
 export interface Moved {
   space_id: string;
@@ -249,6 +279,13 @@ export function retargeted(state: DeviceState, change: Mutation, moved: Moved, u
     from = seen && moved.revision && onlyMoved(seen, moved.record, moved.revision) ? seen.revision : undefined,
     follow = <T extends { revision?: number }>(row: T): T => (from !== undefined && moved.revision && row.revision === from ? { ...row, revision: moved.revision } : row),
     fileUploads = { ...state.fileUploads };
+  if (!isRow && change.type === "save" && (change.record.kind === "journal" && change.space_id === state.bootstrap?.personal_space_id || ["question", "journal"].includes(change.record.kind) && change.record.data.event_id))
+    return { ...state, outbox: state.outbox.map((m): Mutation => {
+      if (!chain.has(m.id)) return m;
+      const stopped = { ...m, error: change.record.data.event_id ? visitLinkMessage : privateBabyMessage, conflict: false };
+      return stopped.type === "save" && !change.record.data.event_id && stopped.record.child_id === moved.record.id
+        ? { ...stopped, record: { ...stopped.record, child_id: null } } : stopped;
+    }) };
   const outbox = state.outbox.map((m): Mutation => {
     if (!chain.has(m.id)) return m;
     const retargets = (m.retargets ?? 0) + 1,

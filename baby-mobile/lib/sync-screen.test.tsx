@@ -50,6 +50,21 @@ it("does the same for a kick tap or contraction stop", async () => {
   expect(b.api.record).toHaveBeenCalledWith("feed");
 });
 
+
+it("offers a private way out for a refused linked visit note", async () => {
+  const b = setup([{ ...save("visit-note"), error: "Review link", record: { ...(save("visit-note") as any).record, kind: "journal", data: { event_id: "visit" } } } as Mutation]);
+  await act(async () => { renderer = create(<Sync />); });
+  expect(renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.title)).toContain("Save privately in Journal");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("without unavailable baby or visit links");
+  b.state.bootstrap.personal_space_id = "p";
+  await act(async () => { await renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Save privately in Journal")[0].props.onPress(); });
+  const next = b.commit.mock.calls[0][0](b.state);
+  expect(next.outbox).toHaveLength(1);
+  expect(next.outbox[0]).toMatchObject({ space_id: "p", record: { kind: "journal" } });
+  expect(next.outbox[0].record.data.event_id).toBeUndefined();
+  expect(b.sync).toHaveBeenCalledOnce();
+});
+
 const save = (id: string, recordId = "feed", over: object = {}): Mutation => ({ id, generation: 1, type: "save", files: [], record: { id: recordId, kind: "feeding", title: id, body: "", child_id: null, occurred_at: "2026-11-05T02:00:00.000Z", data: {}, revision: 1 }, ...over });
 const ask = async (title: string, at = 0) => {
   await act(async () => { renderer = create(<Sync />); });
@@ -214,6 +229,13 @@ describe("reviewing a conflict before replacing the saved version", () => {
     await act(async () => { renderer = create(<Sync />); });
     expect(renderer!.root.findAll((n) => String(n.type) === "Button").some((n) => n.props.title === "Save my version after review")).toBe(false);
   });
+});
+
+it("offers only one personal recovery action on a stopped journal", async () => {
+  setup([save("journal", "entry", { left_space: "f", space_id: "f", error: "Not sent", record: { ...(save("journal") as any).record, kind: "journal" } })]);
+  await act(async () => { renderer = create(<Sync />); });
+  const titles = renderer!.root.findAll((n) => String(n.type) === "Button").map((n) => n.props.title);
+  expect(titles).toContain("Save privately in Journal"); expect(titles).not.toContain("Keep in my personal space");
 });
 
 it("keeps unfinished work separate, never offers Retry, and confirms exact-row Keep and Discard", async () => {

@@ -29,6 +29,8 @@ import {
 } from "./models";
 import {
   addMutation,
+  visitWriteProblem,
+  visitLinkMessage,
   holdEditor,
   withoutHeldDraft,
   draftsBeforeFamily,
@@ -427,6 +429,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
           continue;
         }
         if (heldUntil(next) || waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
+        if (visitWriteProblem(ref.current, next)) {
+          await commit((s) => ({ ...s, outbox: s.outbox.map((m) => m.id === next.id ? { ...m, error: visitLinkMessage, conflict: false } : m) }));
+          continue;
+        }
         try {
           let result: BabyRecord | undefined;
           if (next.type === "event_split") {
@@ -661,7 +667,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => ({
             ...s,
             outbox: s.outbox.map((m) =>
-              m.id === next.id ? { ...m, error: messageFor(e), conflict: status === 409 } : m
+              m.id === next.id ? { ...m, error: e instanceof ApiError && e.reason === "related_space" && next.type === "save" && ["journal", "question"].includes(next.record.kind) && next.record.data.event_id ? visitLinkMessage : messageFor(e), conflict: status === 409 } : m
             ),
           }));
         }
