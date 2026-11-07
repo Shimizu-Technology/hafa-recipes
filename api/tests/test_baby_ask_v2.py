@@ -151,7 +151,7 @@ async def test_usage_and_a_reservation_are_recorded_without_content(baby_api, st
         admission = await db.scalar(select(BabyAIAdmission).where(BabyAIAdmission.capability != "baby_safety"))
     assert (row.capability, row.model, row.status) == ("baby_ask", "gpt-6-luna", "success")
     assert (row.input_tokens, row.cached_input_tokens, row.output_tokens, row.reasoning_tokens) == (1000, 200, 50, 10)
-    assert row.prompt_version == "baby-ask-v2-5-recheck" and row.provider_request_id == "resp_1"
+    assert row.prompt_version == "baby-ask-v2-6-movement-context" and row.provider_request_id == "resp_1"
     assert admission.capability == "baby_ask" and admission.app_user_id == "owner"
 
 

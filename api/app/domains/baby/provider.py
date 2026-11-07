@@ -22,6 +22,7 @@ from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
 from app.domains.baby.ask_safety import (
     BABY_ROUTING_RULE,
+    GENERAL_MOVEMENT_RULE,
     MESSAGES,
     MIXED_RULE,
     POISON_MIXED_RULE,
@@ -303,7 +304,7 @@ class BabyProvider:
         async with AIInvocationTracker(
             capability=capability,
             primary_model=model,
-            prompt_version="baby-photo-evidence-v4" if capability == "baby_extraction" else ("baby-chat-reviewed-v4-recheck" if capability == "baby_chat" else "baby-private-v1"),
+            prompt_version="baby-photo-evidence-v4" if capability == "baby_extraction" else ("baby-chat-reviewed-v5-movement-context" if capability == "baby_chat" else "baby-private-v1"),
             schema_version="baby-v1",
             allow_canary=False,
             rollout_variant="primary",
@@ -500,7 +501,7 @@ class BabyProvider:
                 "from incomplete logs. For a medical decision encourage the user's clinician; urgent symptoms need urgent care. "
                 "Never offer a medicine safety verdict or tell the user to start, stop or change a medicine. "
                 "For medicine or vaccine decisions, say you cannot verify current guidance here and ask their doctor or pharmacist. "
-                f"{REDUCED_MOVEMENT_RULE} "
+                f"{REDUCED_MOVEMENT_RULE} {GENERAL_MOVEMENT_RULE} "
                 + MIXED_RULE + POISON_MIXED_RULE + BABY_ROUTING_RULE +
                 "Only suggest journal entries or questions when requested; never claim you saved them. "
                 "Never propose enabled reminders. Use clear plain language; no unsupported health predictions. "
