@@ -463,7 +463,7 @@ def classify(message, child_names=()):
     for part, about_baby in zip(kept, baby_parts, strict=True):
         if BORN_CHILD.search(FUTURE_BIRTH.sub("", part)):
             born_context = True
-        elif FUTURE_BIRTH.search(part) or (about_baby and not BABY_PRONOUN_SUBJECT.search(part)):
+        elif about_baby and not BABY_PRONOUN_SUBJECT.search(part):
             born_context = False
         born_parts.append(bool(about_baby and born_context))
     maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
