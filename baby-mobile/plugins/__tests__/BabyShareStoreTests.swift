@@ -639,7 +639,8 @@ struct BabyShareStoreTests {
       try store.publish(["must not disappear"], id: UUID().uuidString)
       let family = UUID().uuidString
       try store.bind("owner-a:1:" + family)
-      let token = try store.unassigned(owner: "owner-a")[0].snapshot.token
+      var token = try store.unassigned(owner: "owner-a")[0].snapshot.token
+      let originalRecord = String(token.split(separator: ":")[0]).lowercased()
       try check(try store.claim(token, owner: "owner-a", generation: 1) == .claimed, "explicit Add while connected to family")
       let claimed = try BabySharePayload.decode(store.pending()!)
       var rejected = false
@@ -648,12 +649,41 @@ struct BabyShareStoreTests {
       try check(try store.returnClaim(token, owner: "other") == false, "another account cannot return a claim")
       try check(try store.returnClaim(token, owner: "owner-a"), "stale personal generation returns to waiting")
       try check(try store.unassignedCount() == 1, "original still available for explicit Add")
+      try check(try store.removalCount() == 1, "destructive warning counts in-flight and waiting originals")
+      try check(try !store.acknowledge(token), "a delayed acknowledgement cannot remove a recovered original")
+      token = try store.unassigned(owner: "owner-a")[0].snapshot.token
+      try check(try BabySharePayload.decode(store.unassigned(owner: "owner-a")[0].snapshot)["record_id"] as? String != originalRecord, "fresh record identity avoids the erased generation tombstone")
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "can Add after reset")
       try store.bind("owner-a:2:" + family)
       try check(try store.unassignedCount() == 1, "same-account rebind preserves in-flight claimed original")
+      token = try store.unassigned(owner: "owner-a")[0].snapshot.token
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "recovered original needs Add again")
+      try store.clear(preserveUnassigned: true, recoveringOwner: "owner-a")
+      try check(try store.unassignedCount() == 1, "context privacy clear preserves the same account claim")
+      try store.bind("owner-a:2:" + family)
+      token = try store.unassigned(owner: "owner-a")[0].snapshot.token
+      try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "privacy clear also requires Add again")
       try store.clear(preserveUnassigned: true)
       try check(try store.unassignedCount() == 0, "signed-out startup does not turn an account claim into a no-owner share")
+    }
+    do {
+      let (_, defaults, store, suite) = try fixture("malformed-original")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let capture = try store.begin()
+      try store.publish(["original"], capture: capture)
+      let path = capture.directory.appendingPathComponent("manifest.json")
+      var fields = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [String: Any]
+      fields["payload"] = Data("malformed".utf8).base64EncodedString()
+      try JSONSerialization.data(withJSONObject: fields).write(to: path)
+      try store.bind("owner-a:1:personal")
+      let waiting = try store.unassigned(owner: "owner-a")[0]
+      let summary = try BabySharePayload.summary(waiting)
+      try check(summary["kind"] as? String == "text", "bad payload still has a metadata-only card")
+      _ = try store.claim(waiting.snapshot.token, owner: "owner-a", generation: 1)
+      try check(try store.pending() != nil, "bad text decoding cannot throw before queue validation")
+      var rejected = false
+      do { _ = try BabySharePayload.decode(waiting.snapshot) } catch { rejected = true }
+      try check(rejected, "bad payload is refused rather than acknowledged as empty")
     }
     print("\(count) native capture store cases passed")
   }

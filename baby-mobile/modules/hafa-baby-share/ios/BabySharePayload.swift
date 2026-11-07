@@ -35,7 +35,7 @@ enum BabySharePayload {
     return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
   }
   static func summary(_ waiting: BabyShareStore.Waiting) throws -> [String: Any] {
-    let saved = waiting.snapshot, capture = try decode(saved), files = capture["files"] as? [[String: Any]] ?? []
+    let saved = waiting.snapshot, capture = (try? decode(saved)) ?? [:], files = capture["files"] as? [[String: Any]] ?? []
     let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     var result: [String: Any] = ["token": saved.token, "count": files.count,
       "shared_at": format.string(from: saved.occurredAt), "kept_until": format.string(from: waiting.keptUntil)]
@@ -57,6 +57,7 @@ enum BabySharePayload {
     else if let bytes = saved.raw as? Data,
       let rows = try JSONSerialization.jsonObject(with: bytes) as? [[String: Any]] {
       for row in rows {
+        guard row["url"] is String || row["text"] is String || row["path"] is String || row["meta"] is String else { throw BabyShareStore.Failure.invalid }
         if let url = row["url"] as? String { link = link ?? url }
         if let text = row["text"] as? String, !texts.contains(text) { texts.append(text) }
         if let meta = row["meta"] as? String, let data = meta.data(using: .utf8),
@@ -67,7 +68,7 @@ enum BabySharePayload {
         }
         if row["path"] is String { files.append(row) }
       }
-    }
+    } else { throw BabyShareStore.Failure.invalid }
     let text = texts.joined(separator: "\n")
     if link == nil {
       let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
@@ -76,7 +77,7 @@ enum BabySharePayload {
     }
     let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let id = String(saved.token.split(separator: ":")[0]).lowercased()
-    var result: [String: Any] = ["token": saved.token, "capture_id": id, "record_id": id,
+    var result: [String: Any] = ["token": saved.token, "capture_id": id, "record_id": (saved.recordID ?? id).lowercased(),
       "occurred_at": format.string(from: saved.occurredAt), "files": files, "automatic_epoch": saved.automaticEpoch]
     if saved.claimed { result["claimed"] = true }
     result["scope"] = saved.scope; result["url"] = link; result["text"] = text.isEmpty ? nil : text
