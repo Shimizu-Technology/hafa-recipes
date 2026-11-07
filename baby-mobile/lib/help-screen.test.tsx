@@ -58,6 +58,7 @@ it("keeps 911, 988 and the hotline before reviewed health wording and its disclo
   expect(tree.indexOf("Call 911")).toBeLessThan(tree.indexOf("Call 988"));
   expect(tree.indexOf("Call 988")).toBeLessThan(tree.indexOf("Call 1-833"));
   expect(tree.indexOf("Call 1-833")).toBeLessThan(tree.indexOf("When your baby seems unwell"));
+  expect(tree.indexOf("Text 1-833")).toBeLessThan(tree.indexOf("We haven’t confirmed"));
   expect(tree.indexOf("When your baby seems unwell")).toBeLessThan(tree.indexOf("HealthNote"));
   expect(copy().join(" ")).toContain("100.4°F (38°C)");
 });
@@ -70,5 +71,7 @@ it("keeps CDC's sentences word for word", () => {
 it("says the maternal hotline's connection from Guam isn't confirmed, until a Guam test is recorded", () => {
   const hotline = helpLines.find((line) => line.name === "National Maternal Mental Health Hotline")!;
   expect(hotline.note).toMatch(/Guam/);
+  expect(hotline.note).toContain("988 for crisis support");
+  expect(hotline.note).toContain("In an emergency, call 911.");
   expect(copy()).toContain(hotline.note);
 });

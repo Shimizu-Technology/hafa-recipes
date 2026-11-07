@@ -64,6 +64,17 @@ describe("private-family review gates", () => {
     expect(weekContent(41)?.content.average).toBeUndefined();
     expect(weekContent(42)?.content.average).toBeUndefined();
   });
+  it("displays only the independently checked WHO Table 11 median weights at weeks 14–40", () => {
+    // WHO fetal growth study (2017), Table 11; source rechecked 2026-11-07.
+    const grams = [90, 114, 144, 179, 222, 272, 330, 398, 476, 565, 665, 778, 902, 1039, 1189, 1350, 1523, 1707, 1901, 2103, 2312, 2527, 2745, 2966, 3186, 3403, 3617];
+    for (const [index, value] of grams.entries()) {
+      const totalOz = Math.round(value / 28.349523125), lb = Math.floor(totalOz / 16), oz = totalOz % 16,
+        metric = value < 1000 ? `${value} g` : `${(value / 1000).toFixed(1)} kg`;
+      expect(weekContent(index + 14)?.content.average?.weight).toEqual({
+        lb, oz, display: `about ${lb ? `${lb} lb ` : ""}${oz} oz (${metric})`,
+      });
+    }
+  });
 });
 
 describe("after birth", () => {
