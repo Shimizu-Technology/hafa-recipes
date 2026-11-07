@@ -293,7 +293,7 @@ def classify(message, child_names=()):
         about_baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
         emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
         pregnancy_movement = (pregnancy_context and emergencies == ["not moving"]
-                              and not re.search(r"\b(newborn|infant|born|days? old|weeks? old|months? old)\b", part, re.I))
+                              and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
         if pregnancy_movement:
             found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
             continue
@@ -351,7 +351,7 @@ def unsafe_output(question, message):
     text = normalized(message)
     if FETAL_MOVEMENT_TOPIC.search(normalized(question) + " " + text):
         for sentence in sentences(text):
-            for clause in CLAUSE_BREAK.split(sentence):
+            for clause in re.split(r"\s+(?:and|but|yet|however)\s+|[,;]\s*", sentence, flags=re.I):
                 if MOVEMENT_DROP.search(clause) and MOVEMENT_REASSURANCE.search(clause) and not MOVEMENT_NEGATED_CLAIM.search(clause):
                     return MOVEMENT_WARNING
     if states_a_dose(normalized(question), text):

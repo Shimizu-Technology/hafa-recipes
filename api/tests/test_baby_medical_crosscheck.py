@@ -117,6 +117,7 @@ def test_forgotten_medicine_is_not_poisoning(message):
 @pytest.mark.parametrize("answer", [
     "Babies do not move less because of less room. Fewer kicks are normal near the end of pregnancy.",
     "Babies do not move less, but fewer movements are expected late in pregnancy.",
+    "Babies do not move less and fewer kicks are normal near the end of pregnancy.",
 ])
 def test_one_negated_movement_claim_does_not_excuse_another_unsafe_claim(answer):
     assert ask_safety.unsafe_output("How do kicks change?", answer) == ask_safety.MOVEMENT_WARNING
