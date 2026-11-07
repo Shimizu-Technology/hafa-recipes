@@ -40,6 +40,8 @@ def test_private_family_needs_the_exact_current_marker(monkeypatch):
     ("do kicks slow down at the end of pregnancy", "Nothing to worry about if baby moves less."),
     ("do kicks slow down at the end of pregnancy", "Don't worry if your baby is moving less."),
     ("do kicks slow down at the end of pregnancy", "Kicks slow down. That's normal."),
+    ("do kicks slow down at the end of pregnancy", "Kicks slow down, and that's normal."),
+    ("do kicks slow down at the end of pregnancy", "It's normal, but kicks decrease."),
     ("do kicks slow down at the end of pregnancy", "It's normal. Your baby will move less."),
     ("do kicks slow down at the end of pregnancy", "bb movin less rn is ok bc theres less room"),
     ("do kicks slow down at the end of pregnancy", "kicks r slower near ur due date n its normal"),

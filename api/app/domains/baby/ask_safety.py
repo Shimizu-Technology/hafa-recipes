@@ -535,7 +535,7 @@ def unsafe_output(question, message):
     text = normalized(message)
     if FETAL_MOVEMENT_TOPIC.search(normalized(question) + " " + text):
         clauses = [clause.strip() for sentence in sentences(text)
-                   for clause in re.split(r"\s+(?:and|but|yet|however|so)\s+|[,;]\s*", sentence, flags=re.I) if clause.strip()]
+                   for clause in re.split(r"\s+(?:and|but|yet|however|so)\s+|[,;]\s*(?:(?:and|but|yet|however|so)\s+)?", sentence, flags=re.I) if clause.strip()]
         for index, clause in enumerate(clauses):
             if MOVEMENT_NEGATED_CLAIM.search(clause):
                 continue
