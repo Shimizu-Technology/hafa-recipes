@@ -27,9 +27,9 @@ enum BabyShareSheetState: Equatable {
     case .organizing: return Words(title: "Saved to Håfa Baby", detail: "We’ll organize it for you soon.", closesItself: true)
     // "Parents" on purpose: a family's caregivers can't see its saved posts.
     case .family: return Words(title: "Saved for your family", detail: "Parents in your family can see it.", closesItself: true)
-    case .waiting: return Words(title: "Saved on this phone", detail: "It’ll finish saving when you open Håfa Baby.", closesItself: false)
-    case .notSignedIn: return Words(title: "You’re not signed in", detail: "We kept this on your phone, in no one’s account. Open Håfa Baby and sign in to add it.", closesItself: false)
-    case .notConnected: return Words(title: "Saved on this phone", detail: "Open Håfa Baby to add it.", closesItself: false)
+    case .waiting: return Words(title: "Saved on this phone", detail: "It’ll finish saving when you open Håfa Baby. Kept on this phone for 30 days.", closesItself: false)
+    case .notSignedIn: return Words(title: "You’re not signed in", detail: "We kept this on your phone for 30 days, in no one’s account. Open Håfa Baby and sign in to add it.", closesItself: false)
+    case .notConnected: return Words(title: "Saved on this phone", detail: "Open Håfa Baby to add it within 30 days.", closesItself: false)
     // Nothing here says anything's saved, because nothing is yet.
     case .stillWorking: return Words(title: "Still working on this", detail: "You can stop and share it again later.", closesItself: false)
     case .failed: return Words(title: "Couldn’t save this", detail: "Try sharing it again.", closesItself: false)
