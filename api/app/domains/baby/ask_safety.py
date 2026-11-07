@@ -72,6 +72,12 @@ VACCINE_SOURCES = (
      "title": "CDC's child immunization schedule", "domain": "www.cdc.gov"},
 )
 REDUCED_MOVEMENT_RULE = "Never reassure about reduced fetal movement or suggest waiting to finish a count; direct to medical care immediately."
+GENERAL_MOVEMENT_RULE = (
+    "A general question about whether kicks slow down near the end of pregnancy is education, not evidence of a current symptom. "
+    "Unless the message describes actual reduced movement, answer the general question with a sourced explanation and conditional warning; "
+    "do not mark it urgent_maternal merely because the answer mentions warning signs. "
+    "Never say fewer movements are normal or caused by less room."
+)
 MOVEMENT_WARNING = "Baby moving less or stopped? Seek medical care immediately. Don’t wait to finish a count."
 FETAL_MOVEMENT_TOPIC = re.compile(r"\b(kicks?|fetal|pregnan\w*|womb|trimester|unborn)\b|less (?:room|space)", re.I)
 MOVEMENT_DROP = re.compile(r"\bmove\w* less|\bmovements?\b[^.!?\n]{0,35}\b(less|slow\w*|fewer|decreas\w*)\b|\b(less|fewer|slow\w*|reduc\w*|decreas\w*)\b[^.!?\n]{0,25}\b(kicks?|movements?)\b", re.I)
@@ -94,7 +100,7 @@ SAFETY_RULES = (
     MIXED_RULE + POISON_MIXED_RULE + BABY_ROUTING_RULE +
     "Add \"safety\" to your JSON: null, 'urgent_maternal' for an urgent maternal warning sign, 'harm' for "
     "thoughts of harming themselves or the baby, poisoning for suspected poisoning or accidental overdose, or the baby/mixed tier above. These "
-    + REDUCED_MOVEMENT_RULE + " " +
+    + REDUCED_MOVEMENT_RULE + " " + GENERAL_MOVEMENT_RULE + " " +
     "get a fixed reply from the app. Do not diagnose. Do not say what a symptom, log entry or reading means for this "
     "person or baby. Always write in English. Never write an amount, strength, timing or duration for any medicine, supplement or "
     "herb, in any form, even one she logged, a source gave or a doctor wrote. If asked, say you can't give a dose, share what "
@@ -146,7 +152,7 @@ MATERNAL_SIGNS = re.compile(
     r"|\b(severe|bad|terrible|constant|nonstop|can't stop)\b[^.!?\n]{0,20}\b(nausea|throwing up|vomit\w*)\b"
     r"|\b(severe|bad|terrible|sharp|awful|unbearable)\b[^.!?\n]{0,20}\b(belly|stomach|abdominal|tummy)\b[^.!?\n]{0,12}\bpain\b|\b(belly|stomach|abdominal|tummy) pain\b[^.!?\n]{0,30}\b(severe|won't go away|not going away)\b"
     r"|\b(baby|she|he)\b[^.!?\n]{0,20}\b(hasn't moved|has not moved|isn't moving|not moving|moving less|not moving as much|stopped moving|stopped kicking|not kicking)\b"
-    r"|\b(kicks?|kicking|movements?)\b[^.!?\n]{0,25}\b(stopped|slowed|slowing|less|fewer)\b|\b(less|fewer|reduced|decreased)\b[^.!?\n]{0,15}\b(kicks?|kicking|movements?|moving)\b"
+    r"|\b(kicks?|kicking|movements?)\b[^.!?\n]{0,25}\b(stopped|slowed|slowing|slower|less|fewer)\b|\b(less|fewer|reduced|decreased)\b[^.!?\n]{0,15}\b(kicks?|kicking|movements?|moving)\b"
     r"|\b(haven't|have not|can't|cannot) (felt|feel)\b[^.!?\n]{0,20}\b(kick\w*|move\w*)\b|\bno (movements?|kicks?|kicking)\b|\bhaven't felt (her|him|the baby|baby)\b"
     r"|\b(not breathing|isn't breathing|stopped breathing|unresponsive)\b"
     r"|\b(bleeding|bleed|blood(?! pressure| type| test| sugar| work)|clots?|hemorrhag\w*)\b|\bsoak\w*\b[^.!?\n]{0,25}\bpads?\b"

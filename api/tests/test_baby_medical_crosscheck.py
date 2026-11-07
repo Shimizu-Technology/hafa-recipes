@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.domains.baby import ask_check, ask_gate, ask_safety, ask_v2, provider
+from app.domains.baby import ask_check, ask_gate, ask_safety, ask_tools, ask_v2, provider
 from app.domains.baby.provider import AnswerOutput
 
 
@@ -54,6 +54,8 @@ async def test_actual_old_prompt_contains_the_shared_movement_ban(monkeypatch):
     monkeypatch.setattr(provider.BabyProvider, "json_call", fake_json)
     await provider.BabyProvider().answer(message="Do kicks slow down?", context=[], history=[], now_local="2026-11-07T10:00:00+10:00")
     assert ask_safety.REDUCED_MOVEMENT_RULE in captured["instructions"]
+    assert ask_safety.GENERAL_MOVEMENT_RULE in captured["instructions"]
+    assert ask_safety.GENERAL_MOVEMENT_RULE in ask_tools.AskTools.instructions(None, ask_v2.BASE_INSTRUCTIONS)
 
 
 @pytest.mark.parametrize("question", [
@@ -157,3 +159,22 @@ def test_poison_composites_are_supported_by_checks_and_generated_safety_schemas(
     assert route in ask_check.QuestionVerdict.model_json_schema()["properties"]["urgent"]["enum"]
     assert route in ask_v2.ANSWER_SCHEMA["properties"]["safety"]["enum"]
     assert "1-800-222-1222" in ask_safety.MESSAGES[route]
+
+
+async def test_general_movement_education_passes_both_output_paths_with_conditional_urgent_warning(monkeypatch):
+    answer = "Your baby's usual movement pattern matters. If your baby is moving less or has stopped, seek medical care immediately."
+    async def checked(*args, **kwargs):
+        return SimpleNamespace(states_dose=False, diagnoses=False, discourages_care=False)
+    monkeypatch.setattr(ask_check, "check_answer", checked)
+    question = "do kicks slow down at the end of pregnancy"
+    assert ask_safety.classify(question) is None
+    assert ask_safety.boundary(question) is None
+    result = AnswerOutput(message=answer, safety=None)
+    tools = SimpleNamespace(citable={}, logged={}, notes={}, web_sources=[], research_failed=False)
+    assert await ask_v2.checked_old_answer_reply(None, question, result) is None  # The old caller keeps its checked draft.
+    published = await ask_v2.checked_answer_reply(None, question, result, tools)
+    assert published["message"] == answer
+    assert published["help"] is None
+    assert not published.get("replaced")
+    # An actual decrease remains urgent; a general-topic instruction cannot turn it into education.
+    assert ask_safety.classify("my baby's kicks are slower today").kind == ask_safety.URGENT_MATERNAL
