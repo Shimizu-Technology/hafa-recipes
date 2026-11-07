@@ -282,6 +282,7 @@ def test_scheduled_monitor_is_sequential_bounded_and_only_prints_allowlisted_res
 ):
     workflow = (Path(__file__).parents[2] / ".github/workflows/import-health.yml").read_text()
     script = textwrap.dedent(workflow.split("python3 - <<'PY'\n")[1].rsplit("          PY", 1)[0])
+    assert "secrets.TIKTOK_PHOTO_CANARY_URL" in workflow and "vars.TIKTOK_PHOTO_CANARY_URL" not in workflow
     assert "schedule:" in workflow and "workflow_dispatch:" in workflow
     assert "pull_request:" not in workflow and "cancel-in-progress: false" in workflow
     assert "contents: read" in workflow and "timeout-minutes: 16" in workflow
@@ -353,9 +354,10 @@ async def test_photo_canary_metadata_error_keeps_safe_stage_and_redactor_tags(mo
     assert event["tags"]["platform"] == "tiktok-photo" and event["tags"]["stage"] == stage
     assert "private" not in str(event)
 
-async def test_unconfigured_photo_fixture_fails_separately_without_reading_or_new_sentry_alert(monitor):
+async def test_unconfigured_photo_fixture_is_not_configured_without_reading_or_new_sentry_alert(monitor):
     response=await monitor.client.post("/internal/import-health/tiktok-photo")
-    assert response.status_code==503 and response.json()["error_code"]=="FIXTURE_MISSING"
+    assert response.status_code==200 and response.json()["error_code"]=="NOT_CONFIGURED"
+    assert response.json()["status"] == "not_configured"
     assert response.json()["stage"]=="fixture"
     monitor.service.get_video_metadata_ytdlp.assert_not_awaited()
     monitor.capture.assert_not_called()
@@ -368,3 +370,27 @@ async def test_disappeared_photo_fixture_is_not_parser_drift(monitor,code):
     assert response.status_code==503 and response.json()["error_code"]=="FIXTURE_MISSING"
     assert response.json()["stage"]=="fixture"
     monitor.capture.assert_not_called()
+
+
+@pytest.mark.parametrize("instagram_failure", [False, True])
+def test_scheduled_unconfigured_photo_is_skipped_without_hiding_other_failures(monkeypatch, tmp_path, capsys, instagram_failure):
+    workflow = (Path(__file__).parents[2] / ".github/workflows/import-health.yml").read_text()
+    script = textwrap.dedent(workflow.split("python3 - <<'PY'\n")[1].rsplit("          PY", 1)[0])
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary"))
+    monkeypatch.setenv("IMPORT_HEALTH_TOKEN", "synthetic")
+    monkeypatch.delenv("TIKTOK_PHOTO_CANARY_URL", raising=False)
+    calls = []
+    def curl(argv, **kwargs):
+        platform = argv[-1].rsplit("/", 1)[-1]
+        calls.append(platform)
+        failed = platform == "instagram" and instagram_failure
+        Path(argv[argv.index("--output") + 1]).write_text(json.dumps({"platform":platform,
+            "status":"failed" if failed else "ok", "stage":"metadata" if failed else "complete",
+            "error_code":"RATE_LIMITED" if failed else None, "elapsed":1}))
+        return SimpleNamespace(returncode=0, stdout="503" if failed else "200")
+    monkeypatch.setattr(subprocess, "run", curl)
+    with pytest.raises(SystemExit) as stopped:
+        exec(compile(script, "import-health.yml", "exec"), {})
+    assert bool(stopped.value.code) == instagram_failure
+    assert calls == ["instagram", "tiktok", "youtube"]
+    assert "tiktok-photo: not configured stage=fixture code=NOT_CONFIGURED" in capsys.readouterr().out

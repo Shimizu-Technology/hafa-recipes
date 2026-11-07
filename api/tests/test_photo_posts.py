@@ -494,3 +494,99 @@ async def test_workout_payload_bounds_exclude_data_url_prefix_and_padding(extra)
         ExtractionRequest(kind="url",source_url=source.metadata.url,ai_consent=True))
     assert result.error_code==("source_image_limit" if extra else "provider_test_reached")
     assert provider.extract.await_count==(0 if extra else 1)
+
+
+async def test_remote_pixel_limit_admits_six_mp_and_discloses_sixteen_mp_gap(monkeypatch):
+    raw = {}
+    for path, size in (("/ordinary", (2160, 2880)), ("/too-large", (4001, 4000))):
+        data = io.BytesIO()
+        Image.new("RGB", size, "white").save(data, "PNG")
+        raw[path] = data.getvalue()
+    monkeypatch.setattr(photos, "PublicHTTPTransport", lambda: httpx.MockTransport(
+        lambda request: httpx.Response(200, content=raw[request.url.path], headers={"content-type":"image/png"})))
+    monkeypatch.setattr(photos, "assert_public_http_url", AsyncMock())
+    images, notes = await photos.download_photo_images([["https://cdn.example/ordinary"], ["https://cdn.example/too-large"]])
+    assert [index for index, _ in images] == [0]
+    assert any("Slide 2 exceeds the 16 MP image limit" in note for note in notes)
+    assert photos.MAX_REMOTE_IMAGE_PIXELS == 16_000_000
+
+
+def test_normalization_has_one_shared_slot():
+    import runpy
+
+    from app import image_validation as validation
+
+    fresh = runpy.run_path(validation.__file__)
+    assert fresh["MODEL_IMAGE_CONCURRENCY"] == 1
+    assert fresh["_MODEL_IMAGE_SLOTS"]._value == 1
+
+
+@pytest.mark.parametrize("limit", ["download", "normalized"])
+async def test_concurrent_photo_byte_budgets_are_enforced_and_disclosed(monkeypatch, limit):
+    import asyncio
+    from types import SimpleNamespace
+    assert photos.MAX_REMOTE_IMAGES_TOTAL_BYTES == 40 * 1024 * 1024
+    assert photos.MAX_PHOTO_PAYLOAD_BYTES == 12 * 1024 * 1024
+    caps = []
+    async def read(client, url, *, max_bytes, **kwargs):
+        caps.append(max_bytes)
+        await asyncio.sleep(0)
+        return httpx.Response(200, content=bytes(max_bytes) if limit == "download" else b"small",
+                              request=httpx.Request("GET", url))
+    monkeypatch.setattr(photos, "get_limited", read)
+    monkeypatch.setattr(photos, "assert_public_http_url", AsyncMock())
+    monkeypatch.setattr(photos, "normalize_model_image", AsyncMock(return_value=SimpleNamespace(
+        data=b"image" if limit == "download" else bytes(1024 * 1024))))
+    images, notes = await photos.download_photo_images([[f"https://cdn.example/{i}"] for i in range(35)])
+    if limit == "download":
+        assert len(images) == 10 and sum(caps) == 40 * 1024 * 1024
+        assert any("40 MiB limit" in note for note in notes)
+    else:
+        assert len(images) == 12
+        assert any("12 MiB limit" in note for note in notes)
+
+
+def test_anonymous_instagram_uses_configured_proxy_without_account_cookies(monkeypatch):
+    from types import SimpleNamespace
+
+    from yt_dlp.extractor.instagram import InstagramIE
+    monkeypatch.setattr("app.config.get_settings", lambda: SimpleNamespace(youtube_proxy="http://proxy.example:8000"))
+    monkeypatch.setattr(InstagramIE, "_real_initialize", lambda self: None)
+    def read(self, url):
+        assert self._downloader.params["proxy"] == "http://proxy.example:8000"
+        assert not self._downloader.params.get("cookiefile")
+        return {"id":"Synthetic", "thumbnails":[{"url":"https://cdn.example/one"}]}
+    monkeypatch.setattr(InstagramIE, "_real_extract", read)
+    assert public_ytdlp.photo_json("https://www.instagram.com/p/Synthetic/")["slides"]
+
+
+@pytest.mark.parametrize("staged", [False, True])
+async def test_workouts_nine_photo_slides_pass_both_extraction_limits(staged):
+    from types import SimpleNamespace
+
+    from app.domains.workouts.extraction import (
+        ExtractionFailure,
+        ExtractionRequest,
+        SourceBundle,
+        SourceImage,
+        SourceMetadata,
+        SourcePart,
+        WorkoutExtractor,
+    )
+    source = SourceBundle(SourceMetadata(url="https://www.tiktok.com/@synthetic/photo/123", platform="tiktok"),
+                          parts=[SourcePart("caption", "Creator caption")])
+    source.photo_slides = [[]] * 9
+    images = [SourceImage(f"image:{i}", "data:image/webp;base64,aW1hZ2U=", normalized=True) for i in range(9)]
+    async def media(*args): source.images = images
+    if not staged:
+        source.images = images
+    # Staged metadata explicitly requests a media retry through acquire_media.
+    source.metadata.channels = ["caption"]
+    if staged:
+        source.parts = []
+    provider = SimpleNamespace(enabled=True, extract=AsyncMock(side_effect=ExtractionFailure("provider_test_reached")))
+    acquirer = SimpleNamespace(acquire=AsyncMock(return_value=source), acquire_media=media, **({"acquire_text":AsyncMock(return_value=source)} if staged else {}))
+    result = await WorkoutExtractor(provider=provider, acquirer=acquirer).extract(
+        ExtractionRequest(kind="url", source_url=source.metadata.url, ai_consent=True))
+    assert result.error_code == "provider_test_reached"
+    assert provider.extract.await_count >= 1

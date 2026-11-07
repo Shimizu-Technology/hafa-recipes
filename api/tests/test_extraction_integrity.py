@@ -699,5 +699,9 @@ async def test_partial_photo_warning_survives_successful_recipe_extraction(monke
     monkeypatch.setattr("app.services.extractor.llm_service.extract_from_tiktok_slideshow",vision)
     result=await RecipeExtractor()._extract_from_tiktok_photo("https://www.tiktok.com/@creator/photo/123")
     assert result.success and result.low_confidence and warning in result.confidence_warning
+    assert "slideshow_images" in result.source_evidence["modalities"]
+    from app.recipe_review import _source_provenance
+
+    assert "slideshow_images" in _source_provenance(result.source_evidence)["modalities"]
     assert warning in result.source_evidence["coverageNotes"]
     assert warning in vision.await_args.kwargs["source_context"]

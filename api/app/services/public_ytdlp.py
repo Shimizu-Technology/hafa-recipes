@@ -396,9 +396,12 @@ def photo_json(url):
     instagram = re.fullmatch(r"https://www\.instagram\.com/p/[A-Za-z0-9_-]+/?", url)
     if not match and not instagram:
         raise ValueError("Invalid photo URL")
+    from app.config import get_settings
+
     downloader_class = TikTokPhotoYoutubeDL if match else PhotoYoutubeDL
     with downloader_class({
         "quiet": True, "no_warnings": True, "cachedir": False,
+        "proxy": get_settings().youtube_proxy if instagram else None,
         "socket_timeout": 10 if match else 15, "retries": 0, "extractor_retries": 0,
         "public_photo_no_cookies": True, "ignore_no_formats_error": True,
         "remote_components": set(), "js_runtimes": {},

@@ -9,11 +9,12 @@ from urllib.parse import urljoin
 import httpx
 
 from app.http_limits import MAX_REMOTE_IMAGES_TOTAL_BYTES, get_limited
-from app.image_validation import normalize_model_image
+from app.image_validation import ImagePixelLimitError, normalize_model_image
 from app.security import PublicHTTPTransport, assert_public_http_url
 
 # At most 35 slides, subject to 40MiB downloaded, 12MiB normalized and the
 # deadline. Larger/heavier posts may be partial; every omission is disclosed.
+MAX_REMOTE_IMAGE_PIXELS = 16_000_000
 MAX_PHOTO_IMAGES = 35
 MAX_PHOTO_PAYLOAD_BYTES = 12 * 1024 * 1024
 PHOTO_ERROR_CODES = frozenset({
@@ -80,6 +81,7 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
     download_budget = MAX_REMOTE_IMAGES_TOTAL_BYTES
     normalized_bytes = 0
     normalized_limited = False
+    pixel_limited = set()
     parallel = asyncio.Semaphore(2)
     from app.services.video import public_video_service
 
@@ -117,6 +119,7 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
                                     image = await normalize_model_image(
                                         response.content, max_bytes=4 * 1024 * 1024,
                                         declared_content_type=response.headers.get("content-type"),
+                                        max_pixels=MAX_REMOTE_IMAGE_PIXELS,
                                     )
                                     if normalized_bytes + len(image.data) > MAX_PHOTO_PAYLOAD_BYTES:
                                         normalized_limited = True
@@ -124,6 +127,8 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
                                     normalized_bytes += len(image.data)
                                     completed[index] = base64.b64encode(image.data).decode("ascii")
                                     return index, completed[index]
+                            except ImagePixelLimitError:
+                                pixel_limited.add(index)
                             except Exception:
                                 # Provider text and signed URLs never enter logs/notes.
                                 continue
@@ -135,7 +140,9 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
     except TimeoutError:
         pass
     for index in range(min(len(slides), MAX_PHOTO_IMAGES)):
-        if index not in completed:
+        if index not in completed and index in pixel_limited:
+            notes.append(f"Slide {index + 1} exceeds the 16 MP image limit; its details may be missing.")
+        elif index not in completed:
             notes.append(f"Slide {index + 1} could not be read; its details may be missing.")
         else:
             images.append((index, completed[index]))

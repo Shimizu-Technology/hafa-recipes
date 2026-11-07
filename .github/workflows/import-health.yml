@@ -21,7 +21,7 @@ jobs:
       - name: Check fixed public canaries sequentially
         env:
           IMPORT_HEALTH_TOKEN: ${{ secrets.IMPORT_HEALTH_TOKEN }}
-          TIKTOK_PHOTO_CANARY_URL: ${{ vars.TIKTOK_PHOTO_CANARY_URL }}
+          TIKTOK_PHOTO_CANARY_URL: ${{ secrets.TIKTOK_PHOTO_CANARY_URL }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -50,6 +50,10 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write("| Platform | Status | Stage | Error |\n|---|---|---|---|\n")
               for platform in ("instagram", "tiktok", "youtube", "tiktok-photo"):
+                  if platform == "tiktok-photo" and not os.environ.get("TIKTOK_PHOTO_CANARY_URL", "").strip():
+                      summary.write("| tiktok-photo | not configured | fixture | NOT_CONFIGURED |\n")
+                      print("tiktok-photo: not configured stage=fixture code=NOT_CONFIGURED")
+                      continue
                   status, stage, code = "failed", "unknown", "INVALID_RESPONSE"
                   with tempfile.TemporaryDirectory() as directory:
                       output = os.path.join(directory, "response.json")

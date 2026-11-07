@@ -1022,7 +1022,7 @@ class RecipeExtractor:
                 low_confidence=low_confidence,
                 confidence_warning=confidence_warning,
                 cover_images=base64_images,
-                source_evidence={"modalities": ["metadata", "images"],
+                source_evidence={"modalities": ["metadata", "slideshow_images"],
                                  "coverageNotes": coverage_notes, "sourceArtifactsRetained": False},
             )
             
