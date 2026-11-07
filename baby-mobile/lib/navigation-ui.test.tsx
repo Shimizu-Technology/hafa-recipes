@@ -6,7 +6,7 @@ const mock = vi.hoisted(() => ({
   params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[], picker: null as any, toasts: [] as any[],
 }));
 vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
-vi.mock("@/lib/waiting-shares", () => ({ confirmSignOut: (signOut: () => void) => signOut() }));
+vi.mock("@/lib/waiting-shares", () => ({ confirmSignOut: (signOut: () => void) => signOut(), waitingShareCount: async () => 0, removedWarning: () => "" }));
 vi.mock("@/lib/share-session-state", () => ({ revokeShareSession: vi.fn() }));
 vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion: vi.fn() }));
 vi.mock("react-native", () => ({
