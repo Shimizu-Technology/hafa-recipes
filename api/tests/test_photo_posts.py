@@ -496,19 +496,20 @@ async def test_workout_payload_bounds_exclude_data_url_prefix_and_padding(extra)
     assert provider.extract.await_count==(0 if extra else 1)
 
 
-async def test_remote_pixel_limit_admits_six_mp_and_discloses_sixteen_mp_gap(monkeypatch):
+async def test_remote_pixel_limit_admits_six_mp_and_4k_and_discloses_gap_above_limit(monkeypatch):
     raw = {}
-    for path, size in (("/ordinary", (2160, 2880)), ("/too-large", (4001, 4000))):
+    for path, size in (("/ordinary", (2160, 2880)), ("/4k", (3840, 2160)),
+                       ("/at-limit", (3400, 2500)), ("/too-large", (3400, 2501))):
         data = io.BytesIO()
         Image.new("RGB", size, "white").save(data, "PNG")
         raw[path] = data.getvalue()
     monkeypatch.setattr(photos, "PublicHTTPTransport", lambda: httpx.MockTransport(
         lambda request: httpx.Response(200, content=raw[request.url.path], headers={"content-type":"image/png"})))
     monkeypatch.setattr(photos, "assert_public_http_url", AsyncMock())
-    images, notes = await photos.download_photo_images([["https://cdn.example/ordinary"], ["https://cdn.example/too-large"]])
-    assert [index for index, _ in images] == [0]
-    assert any("Slide 2 exceeds the 16 MP image limit" in note for note in notes)
-    assert photos.MAX_REMOTE_IMAGE_PIXELS == 16_000_000
+    images, notes = await photos.download_photo_images([[f"https://cdn.example{path}"] for path in raw])
+    assert [index for index, _ in images] == [0, 1, 2]
+    assert any("Slide 4 exceeds the 8.5 MP image limit" in note for note in notes)
+    assert photos.MAX_REMOTE_IMAGE_PIXELS == 8_500_000
 
 
 def test_normalization_has_one_shared_slot():

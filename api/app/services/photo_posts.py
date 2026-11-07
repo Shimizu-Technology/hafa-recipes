@@ -14,7 +14,7 @@ from app.security import PublicHTTPTransport, assert_public_http_url
 
 # At most 35 slides, subject to 40MiB downloaded, 12MiB normalized and the
 # deadline. Larger/heavier posts may be partial; every omission is disclosed.
-MAX_REMOTE_IMAGE_PIXELS = 16_000_000
+MAX_REMOTE_IMAGE_PIXELS = 8_500_000
 MAX_PHOTO_IMAGES = 35
 MAX_PHOTO_PAYLOAD_BYTES = 12 * 1024 * 1024
 PHOTO_ERROR_CODES = frozenset({
@@ -141,7 +141,7 @@ async def download_photo_images(slides, *, deadline=None, referer="https://www.t
         pass
     for index in range(min(len(slides), MAX_PHOTO_IMAGES)):
         if index not in completed and index in pixel_limited:
-            notes.append(f"Slide {index + 1} exceeds the 16 MP image limit; its details may be missing.")
+            notes.append(f"Slide {index + 1} exceeds the {MAX_REMOTE_IMAGE_PIXELS / 1_000_000:g} MP image limit; its details may be missing.")
         elif index not in completed:
             notes.append(f"Slide {index + 1} could not be read; its details may be missing.")
         else:
