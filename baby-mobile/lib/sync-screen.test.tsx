@@ -17,7 +17,7 @@ vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateA
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Screen: "Screen", Section: "Section", useToast: () => scope.toast }));
 import Sync from "../app/sync";
 import { ApiError } from "./api";
-import { withoutHeldDraft } from "./outbox";
+import { withoutHeldDraft, withoutRefusedRetry } from "./outbox";
 
 let renderer: ReactTestRenderer | undefined;
 const action = (over: object = {}): Mutation => ({ id: "end", generation: 1, type: "feed_action", record_id: "feed", action: { id: "end", action: "finish", at: "2026-11-05T02:00:00.000Z" }, error: "Needs review", ...over });
@@ -316,4 +316,26 @@ it.each([false, true])("only offers confirmed Send for ambiguous work, never a t
   const send = renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Send to family");
   expect(send).toHaveLength(uncertain ? 1 : 0);
   if (uncertain) { send[0].props.onPress(); expect(b.commit).not.toHaveBeenCalled(); expect(scope.alerts.at(-1)!.buttons.map((b) => b.text)).toContain("Keep reviewing"); }
+});
+
+
+it("keeps held drafts distinct from a refused source read and visible after clearing it", async () => {
+  const b = setup([{id:"refused",type:"import",record_id:"source",generation:1,files:[],
+    url:"https://example.com/post",error:"This post reached its processing limit. The original remains saved."}]);
+  b.state.heldDrafts = [{id:"held",draft:{...(save("private-note") as any).record,
+    title:"Private visit note",body:"Unfinished words",files:[]}}];
+  await act(async () => { renderer = create(<Sync />); });
+  let visible = JSON.stringify(renderer!.toJSON());
+  expect(visible).toContain("Unfinished drafts · not sent");
+  expect(visible).toContain("This draft won’t sync.");
+  expect(visible).toContain("Source import");
+  expect(visible).toContain("This post reached its processing limit");
+  expect(visible).not.toContain("Everything is caught up");
+  b.state = withoutRefusedRetry(b.state, "refused");
+  await act(async () => renderer!.update(<Sync />));
+  visible = JSON.stringify(renderer!.toJSON());
+  expect(visible).toContain("Private visit note");
+  expect(visible).toContain("Unfinished words");
+  expect(visible).not.toContain("Source import");
+  expect(visible).not.toContain("Everything is caught up");
 });
