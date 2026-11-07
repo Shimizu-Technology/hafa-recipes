@@ -163,3 +163,13 @@ it("keeps review editable without committing when the service predates import su
   expect(mock.b.state.outbox).toHaveLength(2);
   await act(async () => tree.unmount());
 });
+
+it("reuses an older import identity when the API returns an equivalent UTC offset", async () => {
+  const text = "1st Visit - May 6, 2026\n8 weeks";
+  mock.b.state.bootstrap.children = [{ id: "baby", name: "Baby", space_id: "me", due_date: "2026-12-10" }];
+  mock.b.state.records = [{ id: "earlier-capture", kind: "event", title: "1st Visit", body: text, child_id: "baby", space_id: "me", occurred_at: "2026-05-05T14:00:00+00:00", data: { paste_origin: { text, start: 0, end: text.length, original: false } } }];
+  await review(text);
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  expect(mock.b.state.outbox.find((m: any) => m.record.kind === "event").record.id).toBe("earlier-capture");
+  await act(async () => tree.unmount());
+});

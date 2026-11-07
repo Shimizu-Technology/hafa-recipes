@@ -45,7 +45,7 @@ export default function PasteVisits() {
         const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([target ?? b.owner, generationOf(boot, target) ?? generation, (row.shared ? familyBaby : baby)?.id ?? pregnancy?.id ?? null, row.kind, row.day, row.text]));
         // Preserve a known capture made before child-scoped identities were introduced.
         const child = (row.shared ? familyBaby : baby)?.id ?? null;
-        const previous = child ? pendingRecords(b.state).find((known) => known.space_id === target && known.child_id === child && known.kind === row.kind && known.body === row.text && known.occurred_at === zonedInstant(row.day, 0, 0, zone).toISOString() && known.data.paste_origin?.text === original.slice(row.start, row.end)) : undefined;
+        const previous = child ? pendingRecords(b.state).find((known) => known.space_id === target && known.child_id === child && known.kind === row.kind && known.body === row.text && Date.parse(known.occurred_at) === zonedInstant(row.day, 0, 0, zone).getTime() && known.data.paste_origin?.text === original.slice(row.start, row.end)) : undefined;
         identities.set(row.id, previous?.id ?? idFrom(hash));
       }
       const records: ScopedWrite[] = [{ id: originalId, kind: "journal", title: originalTitle.trim() || "Original pregnancy notes", body: original, child_id: baby?.id ?? null, occurred_at: previousOriginal?.occurred_at ?? new Date().toISOString(), data: { provenance: "caregiver_observation", paste_origin: { text: original, start: 0, end: original.length, original: true } } },
@@ -62,7 +62,7 @@ export default function PasteVisits() {
           if (fingerprints.has(fingerprint)) throw Error("Two selected items are identical. Uncheck one before confirming.");
           fingerprints.add(fingerprint);
         }
-        for (const record of records.slice(1)) if (known.some((row) => row.id !== record.id && row.space_id === (record.space_id ?? space) && row.child_id === record.child_id && (record.child_id !== null || !pregnancy) && row.kind === record.kind && row.occurred_at === record.occurred_at && row.body === record.body)) throw Error("A matching item is already saved. Uncheck that item before confirming.");
+        for (const record of records.slice(1)) if (known.some((row) => row.id !== record.id && row.space_id === (record.space_id ?? space) && row.child_id === record.child_id && (record.child_id !== null || !pregnancy) && row.kind === record.kind && Date.parse(row.occurred_at) === Date.parse(record.occurred_at) && row.body === record.body)) throw Error("A matching item is already saved. Uncheck that item before confirming.");
         return records.reduce((next, record) => addMutation(next, { id: record.id, generation: generationOf(boot, record.space_id ?? space) ?? generation, ...((record.space_id ?? space) ? { space_id: record.space_id ?? space } : {}), type: "save", record, files: [] }), state);
       });
       setSaved(records); void b.sync();
