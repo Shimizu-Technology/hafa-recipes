@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EventOccurrence, type RecordData } from "./models";
-import { visitCapture, fitsVisit, heldDrafts, holdDraft, looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withFittingVisit, withVisitRows } from "./visits";
+import { visitReturn, visitCapture, fitsVisit, heldDrafts, holdDraft, looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withFittingVisit, withVisitRows } from "./visits";
 
 const guam = "Pacific/Guam", isQuestion = (item: BabyRecord) => item.kind === "question";
 const row = (id: string, kind: BabyRecord["kind"], data: RecordData = {}, occurred_at = "2026-11-01T00:00:00Z", body = "") => optimisticRecord({ id, kind, title: id, body, child_id: null, occurred_at, data });
@@ -134,4 +134,10 @@ it.each([true, false])("keeps the effective occurrence all-day value over the ba
     state = { ...emptyState(), records: [event], bootstrap: { personal_space_id: "p", generation: 1, children: [], profile: { timezone: guam }, spaces: [{ id: "f", kind: "family", role: "parent" }] } } as unknown as DeviceState,
     at = "2026-11-08T09:30:00Z", visit = { ...event, occurred_at: at, data: { ...event.data, all_day: allDay } };
   expect(visitCapture(state, "q", "question", "my words", visit, false).occurred_at).toBe(allDay ? "2026-11-07T02:00:00.000Z" : at);
+});
+
+it("does not invent an occurrence for old series-only links or a different visit", () => {
+  expect(visitReturn("visit")).toEqual({ id: "visit" });
+  expect(visitReturn("visit", "other", "2026-11-15T00:00:00Z")).toEqual({ id: "visit" });
+  expect(visitReturn("visit", "visit", "bad-date")).toEqual({ id: "visit" });
 });
