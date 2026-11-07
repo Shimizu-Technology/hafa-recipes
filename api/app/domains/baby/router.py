@@ -1030,6 +1030,9 @@ def pasted_replay(prior, body):
     origin = body.data.get("paste_origin")
     if not origin or origin != prior.data.get("paste_origin"):
         return False
+    if origin.get("original"):
+        # Re-intake is not an edit: keep the first source title/date/profile even on a cache-empty phone.
+        return prior.kind == body.kind == "journal" and prior.body == body.body and prior.data == body.data
     if any(getattr(prior, key) != getattr(body, key) for key in ("kind", "title", "body", "child_id")):
         return False
     if not origin.get("original") and prior.occurred_at != body.occurred_at:

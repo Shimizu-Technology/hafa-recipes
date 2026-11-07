@@ -50,6 +50,7 @@ async def test_pasted_replay_keeps_first_capture_and_historical_due_date(baby_ap
     first, body = await save(baby_api, "journal", body=source["text"], data={"paste_origin": source})
     assert first.status_code == 200, first.text
     body["occurred_at"] = "2026-11-08T00:00:00+10:00"
+    body["title"] = "Another capture title"
     replay = await baby_api.client.post("/api/v1/baby/records", headers={**shared.GEN, "X-Baby-Client": "2"}, json=body)
     assert replay.status_code == 200, replay.text
     assert datetime.fromisoformat(replay.json()["occurred_at"]) == datetime.fromisoformat(first.json()["occurred_at"])
