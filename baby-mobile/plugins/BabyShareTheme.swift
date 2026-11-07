@@ -39,8 +39,12 @@ enum BabyShareTheme {
     case .waiting, .notConnected: icon = "iphone"
     case .notSignedIn: icon = "person.crop.circle"
     case .failed: icon = "exclamationmark"
+    case .tooBig, .unsupported: icon = "doc"
+    case .tooManyPhotos: icon = "photo.on.rectangle"
+    case .oneLink, .oneAtATime: icon = "link"
+    case .locked: icon = "lock"
     }
-    return HafaShareContent(icon: icon, isProblem: state == .failed, title: words.title, detail: words.detail)
+    return HafaShareContent(icon: icon, isProblem: state.isProblem, title: words.title, detail: words.detail)
   }
 }
 

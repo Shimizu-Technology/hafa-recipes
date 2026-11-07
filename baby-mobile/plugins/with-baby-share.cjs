@@ -119,7 +119,7 @@ const imageBatchGuard = `      // HAFA BABY HOMOGENEOUS SHARE INPUTS v1
           $0.hasItemConformingToTypeIdentifier(self.imageContentType)
         }))
       else {
-        dismissWithError(message: "Share up to four images together, or share one other item.")
+        showBabyProblem(attachments.allSatisfy({ $0.hasItemConformingToTypeIdentifier(self.imageContentType) }) ? .tooManyPhotos : .oneAtATime)
         return
       }
 `;
@@ -229,15 +229,25 @@ function patchNonImageStaging(text) {
   text = text.replace(screenshot, "guard let containerURL = self.babyProducer?.capture.directory else {");
   const copy = "let copied = Self.copyFile(at: url, to: newPath)";
   if (text.split(copy).length !== 3) throw Error("Håfa Baby nonimage copy changed; refusing unsafe generation.");
+  // Under the API's own name, since Apple's resolver answers audio/x-m4a for .m4a and audio/vnd.wave for .wav, which it refuses.
+  const resolved = "let mimeType = url.mimeType(ext: fileExtension)";
+  if (text.split(resolved).length !== 3) throw Error("Håfa Baby file type changed; refusing unsafe generation.");
+  text = text.replaceAll(
+    resolved,
+    `let resolvedMime = url.mimeType(ext: fileExtension)
+    let mimeType = BabyShareSheetState.canonicalMime(resolvedMime, name: fileName) ?? resolvedMime`
+  );
+  // Refused before copying where the size is known, and after where it wasn't.
   text = text.replaceAll(
     copy,
-    copy +
-      `
+    `guard self.babyFileFits(name: fileName, mimeType: mimeType, size: fileSize) else { return }
+    ${copy}
     guard copied else {
       self.abortBabyShare()
       self.dismissWithError(message: "Could not read this shared file. Try sharing it again.")
       return
-    }`
+    }
+    guard self.babyFileFits(name: fileName, mimeType: mimeType, size: self.getFileSize(from: newPath)) else { return }`
   );
   const metadata = `            else {
               return
@@ -386,16 +396,26 @@ function patchShareController(text) {
   text = patchNonImageStaging(text);
   const linkEntry = `      if attachments.allSatisfy({ $0.hasItemConformingToTypeIdentifier(self.urlContentType) ||
         $0.hasItemConformingToTypeIdentifier(self.textContentType) }) {
-        await self.handleBabyLinks(attachments)
+        await self.handleBabyLinks(attachments, content: content)
         return
       }
 `;
   text = text.replace(imageBatchGuard, linkEntry + imageBatchGuard);
-  const redirectFirst = text.indexOf("  private func redirectToHostApp(type: RedirectType) {"),
+  const redirectFirst = text.indexOf("  private func dismissWithError("),
     redirectLast = text.indexOf("  enum RedirectType", redirectFirst);
   if (redirectFirst < 0 || redirectLast < 0) throw Error("Baby share redirect changed; refusing host-app launch.");
+  // Pinned, because this is where a raw "Error" alert and the private text it carried used to come from.
+  const redirectAt = text.indexOf("  private func redirectToHostApp(type: RedirectType) {");
+  if (createHash("sha256").update(normalizedMethod(text.slice(redirectFirst, redirectAt))).digest("hex") !== "05810e7520c1effcdb5934cc1116cbc7c7e8fd0413d412ed43f99b54769b771a")
+    throw Error("Håfa Baby share alert changed; refusing unsafe generation.");
   const confirmation = fs.readFileSync(path.join(__dirname, "BabyCaptureConfirmation.swift"), "utf8");
   text = text.slice(0, redirectFirst) + confirmation + "\n" + text.slice(redirectLast);
+  const unhandled = 'dismissWithError(message: "content type not handle \\(String(describing: content)))")';
+  if (text.split(unhandled).length !== 2) throw Error("Håfa Baby share entry changed; refusing unsafe generation.");
+  text = text.replace(unhandled, "showBabyProblem(.unsupported)");
+  // What people share is private. Nothing here writes it, or a path to it, to the system log.
+  text = text.replace(/^[ \t]*NSLog\(.*\)[ \t]*\n/gm, "");
+  if (text.includes("NSLog(")) throw Error("Håfa Baby share logging changed; refusing unsafe generation.");
   text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n" + sheetSource + "\n";
   return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
 }
