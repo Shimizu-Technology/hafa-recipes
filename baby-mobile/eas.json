@@ -9,7 +9,8 @@
       "distribution": "internal",
       "environment": "development",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "development"
+        "EXPO_PUBLIC_APP_ENV": "development",
+        "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE": "private-family"
       },
       "ios": {
         "simulator": true
@@ -19,14 +20,23 @@
       "distribution": "internal",
       "environment": "preview",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "preview"
+        "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE": "private-family"
       }
     },
     "production": {
       "autoIncrement": true,
       "environment": "production",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "production"
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE": "public"
+      }
+    },
+    "family": {
+      "extends": "production",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE": "private-family"
       }
     }
   },

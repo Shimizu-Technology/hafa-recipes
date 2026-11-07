@@ -1,3 +1,4 @@
+import { HealthNote } from "../components/health-note";
 import { bodyLimit, overBy, tooLongWords } from "../lib/text-limits";
 import { useState } from "react";
 import { View } from "react-native";
@@ -22,7 +23,7 @@ import { useMinuteClock } from "@/components/care-glance";
 const dayName = (key: string) => keyDate(key).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 
 /**
- * AAP's visits as suggestions (held until reviewed), the shots a parent records, and both vaccine schedules as links.
+ * AAP's visit ages, agent-reviewed for private family use, the shots a parent records, and both vaccine schedules as links.
  * The app says nothing about which vaccines are due, or whether a visit was missed.
  */
 export default function WellVisits() {
@@ -65,8 +66,8 @@ export default function WellVisits() {
     visits = !notBorn && visible ? visitsFrom(child.birth_date!, todayKey) : null;
   const visitRow = ({ visit, day: visitDay }: { visit: WellVisit; day: string }) => <View key={visit.id} style={{ backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}>
     <Copy kind="label">{visit.title}</Copy>
-    <Copy numeric kind="small" tone="muted">{`Around ${dayName(visitDay)}`}</Copy>
-    {visitOnCalendar(pendingRecords(b.state), visit, childId)
+    <Copy numeric kind="small" tone="muted">{visit.id === "3-5-days" ? "3 to 5 days after birth. Ask your baby’s doctor for the date." : `Around ${dayName(visitDay)}`}</Copy>
+    {visit.id === "3-5-days" ? <Copy kind="small">Add the appointment your doctor gives you in Calendar.</Copy> : visitOnCalendar(pendingRecords(b.state), visit, childId)
       ? <Copy kind="small" tone="muted">On your calendar</Copy>
       : <Button secondary title="Add to calendar" onPress={() => void addVisit(visit, visitDay)} />}
   </View>;
@@ -85,7 +86,7 @@ export default function WellVisits() {
           {!!visits.upcoming.length && <Grouped separatorInset={16}>{visits.upcoming.map(visitRow)}</Grouped>}
           {!!visits.past.length && <Disclosure title="Earlier ages"><Grouped separatorInset={16}>{visits.past.map(visitRow)}</Grouped></Disclosure>}
           <MedicalSource source="American Academy of Pediatrics, well-child visits" url={wellVisits.source.url} />
-        </View> : <Copy kind="small" tone="muted">Visit suggestions are coming once a doctor has reviewed them.</Copy>}
+        </View> : <Copy kind="small" tone="muted">Visit suggestions are unavailable. Your baby’s doctor sets the schedule.</Copy>}
       </Section>
       <Section title="Shots">
         {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}
@@ -102,11 +103,12 @@ export default function WellVisits() {
         </Grouped> : !adding && <Copy kind="small" tone="muted">Shots you record show up here, and on that day in Tracker.</Copy>}
       </Section>
       <Section title="Vaccine schedules">
-        {wellVisits.approved && <Copy kind="small">The American Academy of Pediatrics and the CDC each publish a schedule, and they differ. Your baby’s doctor can tell you what’s due.</Copy>}
+        {wellVisits.approved && <Copy kind="small">AAP and CDC publish vaccine schedules. Recommendations can change or differ. Ask your baby’s doctor what’s due.</Copy>}
         <MedicalSource source={wellVisits.vaccine_links.aap.name} url={wellVisits.vaccine_links.aap.url} />
         <MedicalSource source={wellVisits.vaccine_links.cdc.name} url={wellVisits.vaccine_links.cdc.url} />
         <Copy kind="small">{milestones.non_endorsement}</Copy>
       </Section>
     </>}
+    <HealthNote />
   </Screen>;
 }

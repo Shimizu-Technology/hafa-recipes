@@ -1,13 +1,11 @@
+import { HealthNote } from "../components/health-note";
 import { Linking, View } from "react-native";
-import { cdcUrgentClosing, cdcUrgentOpening, cdcUrgentSigns, cdcWarningSignsSource, cdcWarningSignsUrl, helpLines } from "@/lib/medical-wording";
+import { cdcUrgentClosing, cdcUrgentOpening, cdcUrgentSigns, cdcWarningSignsSource, cdcWarningSignsUrl, helpLines, babyFeverLine, babyFeverUrl, cdcReuseNote } from "@/lib/medical-wording";
 import { Button, Copy, Screen, Section, useToast } from "@/components/ui";
 import { Disclosure } from "@/components/disclosure";
 import { MedicalSource } from "@/components/medical-source";
 
-/**
- * AWAITING CLINICIAN REVIEW (MEDICAL_REVIEW section A). CDC's urgent signs and numbers to call, and nothing of ours.
- * It reads no account data and asks the network for nothing, so it opens with no signal, however the app is doing.
- */
+/** Offline urgent help. No account data or network is needed to read it. */
 export default function Help() {
   const toast = useToast(),
     open = (url: string, label: string) => void Linking.openURL(url).catch(() => toast(`This device couldn’t do that. ${label.replace(/^(Call|Text) /, "The number is ")}.`));
@@ -27,6 +25,17 @@ export default function Help() {
       </View>
       <Copy>{cdcUrgentClosing}</Copy>
       <MedicalSource source={cdcWarningSignsSource} url={cdcWarningSignsUrl} />
+      <Copy kind="small" tone="muted">{cdcReuseNote}</Copy>
     </Section>
+    <Section title="When your baby seems unwell">
+      <Copy>Call your baby’s doctor now if your baby seems sick or hurt. In an emergency, call 911.</Copy>
+      <Copy>{babyFeverLine}</Copy>
+      <MedicalSource source="AAP, fever and your baby" url={babyFeverUrl} />
+      <Copy>Blood in poop, or white, grey or unusually pale poop, needs your baby’s doctor. Call them rather than waiting for a pattern in the logs.</Copy>
+      <MedicalSource source="AAP, stool colours" url="https://www.healthychildren.org/English/ages-stages/baby/Pages/The-Many-Colors-of-Poop.aspx" />
+      <Copy>If you are worried about feeding or your baby’s health, call their doctor right away. These logs cannot tell you that your baby is okay.</Copy>
+      <MedicalSource source="CDC, newborn breastfeeding basics" url="https://www.cdc.gov/infant-toddler-nutrition/breastfeeding/newborn-basics.html" />
+    </Section>
+    <HealthNote />
   </Screen>;
 }

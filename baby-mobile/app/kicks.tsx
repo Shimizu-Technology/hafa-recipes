@@ -1,3 +1,4 @@
+import { HealthNote } from "../components/health-note";
 import { useRef } from "react";
 import * as Crypto from "expo-crypto";
 import { Text, View, useWindowDimensions } from "react-native";
@@ -5,7 +6,7 @@ import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { kickDetail, openSessions, ownSessions, sessionSeconds } from "@/lib/kicks";
 import { secondsWords } from "@/lib/contractions";
-import { cdcMovementDetail, cdcMovementOpening, cdcMovementSign, cdcWarningSignsSource, cdcWarningSignsUrl } from "@/lib/medical-wording";
+import { cdcMovementDetail, cdcMovementOpening, cdcMovementSign, cdcWarningSignsSource, cdcWarningSignsUrl, cdcReuseNote } from "@/lib/medical-wording";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { careWrite, logCare, queueSessionAction, undoSaved } from "@/lib/quick-care";
 import { reduceSession } from "@/lib/session-actions";
@@ -52,6 +53,8 @@ export default function Kicks() {
   };
   const finish = (session: BabyRecord) => run(() => queueSessionAction(b, session.id, { action: "finish", at: new Date().toISOString() }));
   return <Screen title="Kick counter" back>
+    <Notice>Baby moving less or stopped? Seek medical care immediately. Don’t wait to finish a count.</Notice>
+    <Button title="Open Help" onPress={() => router.push("/help")} />
     <SyncStatus />
     <PressTarget accessibilityRole="button" accessibilityLabel={`Movement. ${open?.data.count ?? 0} so far`} accessibilityHint="Counts one movement and saves it" onPress={movement}
       style={{ minHeight: 168, borderRadius: radii.card, alignItems: "center", justifyContent: "center", gap: 2, padding: 16, backgroundColor: c.action }}>
@@ -73,6 +76,7 @@ export default function Kicks() {
       <Copy kind="label">{cdcMovementSign}</Copy>
       <Copy kind="small">{cdcMovementDetail}</Copy>
       <MedicalSource source={cdcWarningSignsSource} url={cdcWarningSignsUrl} />
+      <Copy kind="small" tone="muted">{cdcReuseNote}</Copy>
     </Card>
     {/* Being offline already has its one calm line, up top. */}
     {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
@@ -80,5 +84,7 @@ export default function Kicks() {
       <Grouped>{rows.slice(0, 50).map((row) => <Row key={row.id} numericTitle numericDetail title={friendlyTime(row.occurred_at, minute, timeZone)} detail={kickDetail(row, now)}
         onPress={() => router.push({ pathname: "/record/[id]", params: { id: row.id } })} />)}</Grouped>
     </Section> : <Empty icon="footsteps-outline" title="No sessions yet" body="Your first tap starts a session." />}
+    <Copy kind="small">This records movements; it cannot tell you your baby is okay. Ask your doctor whether and how to count.</Copy>
+    <HealthNote />
   </Screen>;
 }

@@ -1,5 +1,10 @@
 import type { ExpoConfig } from "expo/config";
 const babyShareActivation = require("./plugins/share-activation.cjs") as string;
+const { assertHealthRelease } = require("./lib/health-release.cjs");
+// Fail closed for direct builds/exports and OTA updates too, which may have no EAS_BUILD_PROFILE.
+// Local npm commands and the family EAS profile explicitly select private-family.
+const healthAudience = process.env.EXPO_PUBLIC_BABY_RELEASE_AUDIENCE ?? "public";
+assertHealthRelease(healthAudience);
 const projectId = "12a0a2fa-0a4e-404e-b0d5-62e737eb859d";
 // Splash grounds match Baby's Sand & Cocoa app backgrounds (light sand, warm near-black) so launch has no colour jump.
 // Icons and splash come from assets/brand/*.svg.
@@ -81,6 +86,6 @@ const config: ExpoConfig = {
     "./plugins/with-baby-share.cjs",
   ],
   experiments: { typedRoutes: true },
-  extra: { eas: { projectId } },
+  extra: { eas: { projectId }, healthAudience },
 };
 export default config;

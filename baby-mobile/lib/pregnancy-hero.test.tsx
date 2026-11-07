@@ -1,12 +1,13 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 import type { BabyRecord, Child } from "./models";
 
 const scope = vi.hoisted(() => ({ fontScale: 1, width: 390 }));
 vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
 vi.mock("react-native", () => ({
-  Text: "Text", View: "View", useWindowDimensions: () => ({ fontScale: scope.fontScale, width: scope.width }),
+  Text: "Text", View: "View", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: scope.fontScale, width: scope.width }),
 }));
 vi.mock("expo-router", () => ({ router: { navigate() {} } }));
 vi.mock("@/lib/context", () => ({ useBaby: () => ({ records: [] }) }));
@@ -68,7 +69,7 @@ it("keeps one spoken label whichever way it lays out", async () => {
 it("is compact: week, progress, the due line and one short waiting line, whatever's saved", async () => {
   await act(async () => { renderer = create(React.createElement(PregnancyHero, { child, now })); });
   const copy = renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
-  expect(copy).toEqual([weekWaiting]);
+  expect(copy).toEqual([]); // Reviewed facts live below the compact hero.
   expect(weekWaiting.length).toBeLessThanOrEqual(46);
   expect(JSON.stringify(renderer!.toJSON())).not.toContain("Saved for week");
   const fill = renderer!.root.findAll((n) => (n.type as unknown) === "View" && n.props.style?.backgroundColor === "fill")[0];
@@ -81,23 +82,23 @@ it("shows the tips saved for this week, three at most, with See all, in their ow
   const copy = renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
   expect(copy).toContain("Saved for week 34");
   const buttons = renderer!.root.findAll((n) => (n.type as unknown) === "PressTarget");
-  expect(buttons.map((n) => n.props.accessibilityLabel)).toEqual(["See all, Saved for week 34", "Tip a", "Tip b", "Tip c"]);
+  expect(buttons.map((n) => n.props.accessibilityLabel).filter((label) => !String(label).startsWith("Source:"))).toEqual(["See all, Saved for week 34", "Tip a", "Tip b", "Tip c"]);
 });
 it("has no Saved heading at all with nothing saved", async () => {
   await act(async () => { renderer = create(React.createElement(WeekDetails, { child, now, tips: [] })); });
   expect(JSON.stringify(renderer!.toJSON())).not.toContain("Saved for week");
-  expect(renderer!.root.findAll((n) => (n.type as unknown) === "PressTarget")).toHaveLength(0);
+  expect(renderer!.root.findAll((n) => (n.type as unknown) === "PressTarget" && !String(n.props.accessibilityLabel).startsWith("Source:"))).toHaveLength(0);
 });
 
 describe("BabyAgeCard", () => {
   const born = { ...child, birth_date: "2026-12-10", due_date: null } as Child;
   const shown = () => JSON.stringify(renderer!.toJSON());
   const mount = (at: Date, tips: BabyRecord[] = []) => act(async () => { renderer = create(React.createElement(BabyAgeCard, { child: born, now: at, tips })); });
-  it("names the week, holds back unreviewed lines, and keeps her saved tips beside it", async () => {
+  it("names the week, shows reviewed lines, and keeps her saved tips beside it", async () => {
     await mount(new Date(2026, 11, 20), [{ id: "t1", kind: "source", title: "Latch tips", data: {} } as BabyRecord]);
     expect(shown()).toContain("Week 2");
-    expect(shown()).toContain("What’s typical at this age is coming once a doctor has reviewed it.");
-    expect(shown()).not.toContain("Crying is how your baby");
+    expect(shown()).not.toContain("once a doctor");
+    expect(shown()).toContain("Crying is how your baby");
     expect(shown()).toContain("Latch tips");
   });
   it("switches to months after week 12, and says where tips will go when there are none", async () => {

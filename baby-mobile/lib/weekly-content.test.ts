@@ -19,12 +19,13 @@ describe("every batch that ships", () => {
       expect(batch.size_source.urls.length).toBeGreaterThan(0);
       for (const url of batch.size_source.urls) expect(url).toMatch(/^https:\/\//);
       for (const week of batch.weeks) {
-        expect(week.facts).toHaveLength(3);
+        expect(week.facts.length).toBeGreaterThan(0);
+        expect(week.facts.length).toBeLessThanOrEqual(3);
         expect(week.size_comparison.object.trim()).not.toBe("");
         if (week.average) expect(week.average.weight.display).toMatch(/^about (\d+ lb )?\d+ oz/);
         if (week.average?.length) expect(week.average.length.display).toMatch(/^about [\d.]+ in/);
         // Below WHO's first week there's no published number to show, and from it on there always is one.
-        expect(!!week.average, `week ${week.week}`).toBe(week.week >= 14);
+        expect(!!week.average, `week ${week.week}`).toBe(week.week >= 14 && week.week <= 40);
         for (const fact of week.facts) expect(fact.text.length).toBeLessThanOrEqual(170);
       }
     }
@@ -38,33 +39,29 @@ describe("every batch that ships", () => {
   });
 });
 
-describe("nothing unapproved is displayed", () => {
-  it("every batch ships unapproved, until a doctor has signed off", () => {
-    expect([...batches, ...ageBatches].map((batch) => [batch.batch, batch.approved])).toEqual([
-      ["weeks-34-42", false], ["weeks-4-33", false], ["baby-weeks-1-12", false], ["baby-months-3-24", false],
-    ]);
+describe("private-family review gates", () => {
+  it("releases the four reviewed batches", () => {
+    for (const batch of [...batches, ...ageBatches]) expect(batch.approved).toBe(true);
+    for (let week = 4; week <= 42; week++) expect(weekContent(week)?.content.week).toBe(week);
   });
-  it("has no size or fact to give for any week while it's unapproved", () => {
-    for (let week = 1; week <= 45; week++) expect(weekContent(week)).toBeNull();
-  });
-  it("in a release build, even asking for a preview shows nothing", () => {
+  it("holds unapproved content, and dev preview cannot bypass a release build", () => {
+    const from = batches.map((batch) => ({ ...batch, approved: false }));
     vi.stubGlobal("__DEV__", false);
     expect(canPreview()).toBe(false);
-    expect(weekContent(35, { preview: true })).toBeNull();
-    vi.unstubAllGlobals();
-    expect(canPreview()).toBe(false); // No __DEV__ at all counts as a release build.
-    expect(weekContent(35, { preview: true })).toBeNull();
-  });
-  it("a development build can preview it, only when asked", () => {
+    expect(weekContent(35, { from })).toBeNull();
+    expect(weekContent(35, { from, preview: true })).toBeNull();
     vi.stubGlobal("__DEV__", true);
-    expect(weekContent(35)).toBeNull();
-    expect(weekContent(35, { preview: true })!.content.size_comparison.object).toBe("a honeydew melon");
+    expect(weekContent(35, { from })).toBeNull();
+    expect(weekContent(35, { from, preview: true })?.content.week).toBe(35);
   });
-  it("flipping a batch to approved shows it, for its own weeks only", () => {
-    const from = batches.map((batch) => batch.batch === "weeks-34-42" ? approved(batch) : batch);
-    expect(weekContent(36, { from })!.content.week).toBe(36);
-    expect(weekContent(33, { from })).toBeNull();
-    expect(weekContent(43, { from })).toBeNull();
+  it("does not bundle the cut timing, reassurance or mixed newborn length claims", () => {
+    const text = JSON.stringify(batches);
+    expect(text).not.toContain("an ultrasound might pick it up");
+    expect(text).not.toContain("several cups a day");
+    expect(text).not.toContain("uncomplicated labor and healthy babies");
+    for (const batch of batches) for (const week of batch.weeks) expect(week.average?.length).toBeUndefined();
+    expect(weekContent(41)?.content.average).toBeUndefined();
+    expect(weekContent(42)?.content.average).toBeUndefined();
   });
 });
 
@@ -75,7 +72,8 @@ describe("after birth", () => {
     expect(ageBatches[0].periods.map((period) => period.age)).toEqual(Array.from({ length: 12 }, (_, index) => index + 1));
     expect(ageBatches[1].periods.map((period) => period.age)).toEqual(Array.from({ length: 22 }, (_, index) => index + 3));
     for (const batch of ageBatches) for (const period of batch.periods) {
-      expect(period.items).toHaveLength(3);
+      expect(period.items.length).toBeGreaterThan(0);
+      expect(period.items.length).toBeLessThanOrEqual(3);
       for (const item of period.items) expect(item.text.length).toBeLessThanOrEqual(170);
     }
   });
@@ -89,17 +87,17 @@ describe("after birth", () => {
     for (const line of lines) expect(line.text).not.toMatch(/\b(behind|delay(ed)?|late|abnormal|should|must|score|percent)\b|%/i);
   });
   it("shows nothing unapproved, even for a preview in a release build", () => {
-    expect(ageContent({ unit: "week", age: 1 })).toBeNull();
-    expect(ageContent({ unit: "month", age: 12 })).toBeNull();
+    expect(ageContent({ unit: "week", age: 1 }, { from: ageBatches.map((b) => ({ ...b, approved: false })) })).toBeNull();
+    expect(ageContent({ unit: "month", age: 12 }, { from: ageBatches.map((b) => ({ ...b, approved: false })) })).toBeNull();
     vi.stubGlobal("__DEV__", false);
-    expect(ageContent({ unit: "week", age: 1 }, { preview: true })).toBeNull();
+    expect(ageContent({ unit: "week", age: 1 }, { preview: true, from: ageBatches.map((b) => ({ ...b, approved: false })) })).toBeNull();
   });
   it("a development build previews only when asked, and an approved batch shows its own ages only", () => {
     vi.stubGlobal("__DEV__", true);
-    expect(ageContent({ unit: "week", age: 3 })).toBeNull();
+    expect(ageContent({ unit: "week", age: 3 })!.content.age).toBe(3);
     expect(ageContent({ unit: "week", age: 3 }, { preview: true })!.content.age).toBe(3);
     vi.unstubAllGlobals();
-    const from = ageBatches.map((batch) => batch.unit === "week" ? open(batch) : batch);
+    const from = ageBatches.map((batch) => ({ ...batch, approved: batch.unit === "week" }));
     expect(ageContent({ unit: "week", age: 12 }, { from })!.batch.batch).toBe("baby-weeks-1-12");
     expect(ageContent({ unit: "week", age: 13 }, { from })).toBeNull();
     expect(ageContent({ unit: "month", age: 3 }, { from })).toBeNull();

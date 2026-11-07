@@ -1,3 +1,6 @@
+import { router } from "expo-router";
+import { babyFeverLine, babyFeverUrl, cdcWarningSignsUrl } from "../lib/medical-wording";
+import { MedicalSource } from "./medical-source";
 import { bodyLimit, overBy } from "../lib/text-limits";
 import { useEffect, useRef, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
@@ -9,7 +12,7 @@ import { dataFrom, feelingWords, lastDose, lastLog, logTitle, noteLabel, recentC
 import type { Tracker } from "@/lib/trackers";
 import { messageFor, type Child, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { Button, Field, KeyboardSave, OnSurface, tap, typeScale, useColors } from "./ui";
+import { Button, Copy, Field, KeyboardSave, OnSurface, tap, typeScale, useColors } from "./ui";
 import { LogFields, sideWords } from "./log-fields";
 import { AmountStepper, Option, Panel, SavedRow, keepPlace, usePlaceBackOnLeaving, type useLogFlow } from "./quick-log";
 import type { PastDay } from "./quick-time";
@@ -140,6 +143,17 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
   const start = startForm(id, rows, childId), last = lastLog(rows, id, childId);
   return <>
     {behind && <OnThisPhone />}
+    {id === "temperature" && <>
+      <Copy kind="small">{babyFeverLine}</Copy>
+      <MedicalSource source="AAP, fever and your baby" url={babyFeverUrl} />
+      <Button secondary title="Open Help" onPress={() => router.push("/help")} />
+    </>}
+    {id === "blood_pressure" && <>
+      <Copy kind="small">This saves a reading without assessing it. Ask your care team what readings need a call. For urgent symptoms, seek care immediately.</Copy>
+      <MedicalSource source="CDC, urgent maternal warning signs" url={cdcWarningSignsUrl} />
+      <Button secondary title="Open Help" onPress={() => router.push("/help")} />
+    </>}
+    {(id === "medicine" || id === "vitamins") && <Copy kind="small" tone="muted">Past entries are records, not instructions. Check the current medicine and dose with your doctor or pharmacist.</Copy>}
     {id === "pumping" ? <PumpPanel start={pumpStart(rows, childId, lastAmountUnit(pendingRecords(b.state)))} detail={who} panelProps={panelProps} onSave={(side, amount) =>
       void log({ side, amount: amount.amount, unit: amount.unit }, "Pumping", `Pumping, ${sideWords[side]}, ${amount.amount} ${amount.unit === "oz" ? "oz" : "mL"}`)} />
     : id === "note" ? <NotePanel detail={who} where={noteWhere(child, b.state.bootstrap)} panelProps={panelProps} onSave={(text) => void log({ label: noteLabel }, noteLabel, noteLabel, text)} />
@@ -151,7 +165,7 @@ function PanelFor({ tracker, child, now, pastDay, flow }: TrackerPanelProps) {
       hint={(form) => { const typed = lastDose(rows, childId, form.name); return typed && [typed.dose, lastWords(typed.at)].filter(Boolean).join(" · "); }}
       // Never one tap: half asleep, a tap could be a second dose. It fills the form, with the Last under it, and Save records it.
       offers={(form, fill) => !!recentMedicines(rows, childId).length && <Choices>{recentMedicines(rows, childId).map((one) => <Option key={one.name.toLowerCase()} height={64} label={one.name} detail={[one.dose, lastWords(one.at)].filter(Boolean).join(" · ")}
-        strong={form.name.trim().toLowerCase() === one.name.trim().toLowerCase()} onPress={() => fill({ name: one.name, dose: one.dose })} />)}</Choices>} />
+        strong={form.name.trim().toLowerCase() === one.name.trim().toLowerCase()} onPress={() => fill({ name: one.name, dose: "" })} />)}</Choices>} />
     : id === "vitamins" ? <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!recentVitamins(rows, childId).length} saveAs={(form) => saveForm(form, () => form.name.trim())}
       // It can hold a medicine too, so like Medicine a tap fills the form and only Save records it.
       offers={(form, fill) => !!recentVitamins(rows, childId).length && <Choices>{recentVitamins(rows, childId).map((one) => <Option key={one.name} height={64} label={one.name} detail={lastWords(one.at)}

@@ -76,7 +76,7 @@ export default function Reminders() {
         }} />)}
     </Grouped>
     {showHours && <Section title="Feed reminder">
-      <Copy kind="small" tone="muted">How long after the last feed?</Copy>
+      <Copy kind="small" tone="muted">Newborns sometimes need waking to feed. Ask your baby’s doctor how long is too long for your baby, then choose their plan here.</Copy>
       <Chips label="Hours after the last feed" value={feed?.enabled && feed.hours ? String(feed.hours) : ""} options={hourChoices.map((value) => ({ label: hourLabel(value), value }))}
         onChange={(value) => {
           setChoosingHours(false);

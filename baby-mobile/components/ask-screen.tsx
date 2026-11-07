@@ -1,3 +1,4 @@
+import { HealthNote } from "./health-note";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -252,6 +253,7 @@ function AskChat({ back }: { back: boolean }) {
           bring health decisions to your clinician.
         </Copy>
       )}
+      <HealthNote />
     </Screen>
   );
 }

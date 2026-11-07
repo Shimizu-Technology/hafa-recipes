@@ -92,6 +92,7 @@ export default function Settings() {
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />}
+        <Row title="About the health information" detail="Private family use · Sources & limits" icon="information-circle-outline" onPress={() => router.push("/health-information")} />
         <Row title="Privacy & data" detail={`AI is ${profile.ai_consent ? "on" : "off"} · Export · Recovery · Delete`} icon="shield-checkmark-outline" onPress={() => router.push("/privacy-data")} />
       </Grouped>
       <Button

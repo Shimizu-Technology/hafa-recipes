@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 
 const scope = vi.hoisted(() => ({ push: vi.fn(), fontScale: 1 }));
 vi.mock("react-native", () => ({

@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 
 const mock = vi.hoisted(() => ({ open: vi.fn(async (_url: string) => undefined as unknown), toast: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: mock.open }, useWindowDimensions: () => ({ fontScale: 1 }) }));
@@ -52,9 +53,13 @@ it("has CDC's 15 signs in order, each opening CDC's own detail, with attribution
   await act(async () => source.props.onPress());
   expect(mock.open).toHaveBeenLastCalledWith(cdcWarningSignsUrl);
 });
-it("says nothing of ours: every line of text is CDC's or a service's own name", () => {
-  const allowed = new Set([cdcUrgentOpening, cdcUrgentClosing, ...cdcUrgentSigns.flatMap((sign) => [sign.title, sign.detail]), ...helpLines.flatMap((line) => line.note ? [line.note] : []), ...helpLines.map((line) => line.name), cdcWarningSignsSource, "988lifeline.org", "HRSA"]);
-  for (const text of copy()) expect(allowed, String(text)).toContain(text);
+it("keeps 911, 988 and the hotline before reviewed health wording and its disclosure", () => {
+  const tree = JSON.stringify(renderer!.toJSON());
+  expect(tree.indexOf("Call 911")).toBeLessThan(tree.indexOf("Call 988"));
+  expect(tree.indexOf("Call 988")).toBeLessThan(tree.indexOf("Call 1-833"));
+  expect(tree.indexOf("Call 1-833")).toBeLessThan(tree.indexOf("When your baby seems unwell"));
+  expect(tree.indexOf("When your baby seems unwell")).toBeLessThan(tree.indexOf("HealthNote"));
+  expect(copy().join(" ")).toContain("100.4°F (38°C)");
 });
 it("keeps CDC's sentences word for word", () => {
   expect(cdcUrgentOpening).toBe("Urgent maternal warning signs, during pregnancy and in the year after delivery. Seek medical care immediately if you experience any signs or symptoms that are listed below. The symptoms below can be a sign of a life-threatening condition.");

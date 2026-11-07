@@ -1,0 +1,36 @@
+import React from "react";
+import { act, create } from "react-test-renderer";
+import { beforeEach, expect, it, vi } from "vitest";
+const calls = vi.hoisted(() => ({ push: vi.fn(), open: vi.fn(async () => undefined) }));
+vi.mock("expo-router", () => ({ router: { push: calls.push } }));
+vi.mock("react-native", () => ({ Linking: { openURL: calls.open } }));
+vi.mock("../components/ui", () => ({ Copy: "Copy", PressTarget: "PressTarget" }));
+vi.mock("@/components/ui", () => ({ Button: "Button", Copy: "Copy", Screen: "Screen", Section: "Section", useToast: () => vi.fn() }));
+vi.mock("@/components/medical-source", () => ({ MedicalSource: "MedicalSource" }));
+vi.mock("@/components/disclosure", () => ({ Disclosure: "Disclosure" }));
+import { HealthNote } from "../components/health-note";
+import HealthInformation from "../app/health-information";
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); calls.push.mockClear(); });
+it("opens the source/limits page from the short uncapped line", async () => {
+  let view: ReturnType<typeof create>;
+  await act(async () => { view = create(<HealthNote />); });
+  const text = JSON.stringify(view!.toJSON());
+  expect(text).toContain("General information, not medical advice. Check with your doctor.");
+  const target = view!.root.findByType("PressTarget" as never);
+  expect(target.props.style.minHeight).toBeGreaterThanOrEqual(44);
+  await act(async () => target.props.onPress());
+  expect(calls.push).toHaveBeenCalledWith("/health-information");
+  expect(view!.root.findByType("Copy" as never).props.limit).toBeUndefined();
+  await act(async () => view!.unmount());
+});
+it("leads with 911 and states the review truth with inspectable sources", async () => {
+  let view: ReturnType<typeof create>;
+  await act(async () => { view = create(<HealthInformation />); });
+  const text = JSON.stringify(view!.toJSON());
+  expect(text.indexOf("Call 911 in an emergency")).toBeLessThan(text.indexOf("not medical advice"));
+  expect(text).toContain("has not been reviewed by a clinician");
+  expect(text).toContain("private family use");
+  expect(text).toContain("WHO charts need permission");
+  expect(view!.root.findAllByType("MedicalSource" as never).length).toBeGreaterThanOrEqual(12);
+  await act(async () => view!.unmount());
+});

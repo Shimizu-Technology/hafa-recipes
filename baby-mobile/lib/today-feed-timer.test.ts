@@ -1,6 +1,7 @@
 import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { withPendingBirths } from "./outbox";
 

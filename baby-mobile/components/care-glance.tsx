@@ -51,6 +51,7 @@ export function CareGlance({ child, rows, now, running, timeZone, sides = true }
     {!!next && <View style={{ gap: 2, alignItems: stacked ? "flex-start" : "flex-end", paddingLeft: stacked ? 0 : 14,
       borderLeftWidth: stacked ? 0 : 1, borderLeftColor: c.border }}>
       {eyebrow("Next side")}
+      <Copy kind="small" tone="muted">Last record only. Follow your care team’s feeding plan.</Copy>
       <Text key={`next:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.display, fontSize: 40, lineHeight: 46, color: c.text }}>{sideWord[next]}</Text>
       <View style={{ flexDirection: "row", gap: 6 }}>
         {(["left", "right"] as const).map((s) => <View key={s} style={{ width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center",

@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 import type { BabyRecord, Child } from "./models";
 
 const m = vi.hoisted(() => ({ rows: [] as unknown[], child: {} as unknown, logged: [] as { record: { kind: string; title: string; child_id: string; data: { milestone_id: string } } }[], undone: 0, amended: 0, toast: vi.fn(), push: vi.fn() }));

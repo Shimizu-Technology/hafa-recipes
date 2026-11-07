@@ -1,3 +1,4 @@
+import { HealthNote } from "./health-note";
 import { useState } from "react";
 import { View } from "react-native";
 import { ageContent, ageHasDraft, canPreview, factSources, sourceName, weekContent, weekHasDraft, type BabyAge } from "@/lib/weekly-content";
@@ -17,7 +18,7 @@ function PreviewToggle({ preview, onPress, noun }: { preview: boolean; onPress: 
  * This week's size and three facts, on the week card. They come only from an approved batch. Until one covers this week
  * she sees the line below and no fact or number; a development build can look ahead, and a release build can't.
  */
-export const weekWaiting = "Weekly facts coming after a doctor’s review.";
+export const weekWaiting = "No reviewed facts for this week.";
 export function WeekFacts({ week, waiting = true }: { week: number;
   /** The week card says it instead, so here is only what's beyond it. */
   waiting?: boolean }) {
@@ -39,10 +40,12 @@ export function WeekFacts({ week, waiting = true }: { week: number;
       {content.average && <Copy numeric>{content.average.weight.display}</Copy>}
       {content.average?.length && <Copy numeric>{content.average.length.display}</Copy>}
       {content.average && <Copy kind="small" tone="muted">{content.average.label}</Copy>}
+      <Copy kind="small" tone="muted">Comparisons are rough illustrations, not your baby’s measurements.</Copy>
     </View>
     <View style={{ gap: 8 }}>
       {content.facts.map((fact) => <Copy key={fact.text}>{fact.text}</Copy>)}
     </View>
+    <HealthNote />
     <Disclosure title="Sources">
       <View style={{ gap: 2 }}>
         {links.map((url) => <MedicalSource key={url} source={sourceName(url)} url={url} />)}
@@ -61,7 +64,7 @@ export function AgeFacts({ age }: { age: BabyAge }) {
     previewing = preview && !!found && !found.batch.approved;
   const toggle = canPreview() && ageHasDraft(age) && !found?.batch.approved && <PreviewToggle preview={preview} noun="lines" onPress={() => setPreview(!preview)} />;
   if (!found) return <View style={{ gap: 8 }}>
-    <Copy kind="small" tone="muted">What’s typical at this age is coming once a doctor has reviewed it.</Copy>
+    <Copy kind="small" tone="muted">No reviewed facts for this age.</Copy>
     {toggle}
   </View>;
   const { batch, content } = found, links = [...new Set([...content.items, batch.note].flatMap(factSources))];
@@ -72,6 +75,9 @@ export function AgeFacts({ age }: { age: BabyAge }) {
       {content.items.map((item) => <Copy key={item.text}>{item.text}</Copy>)}
     </View>
     <Copy kind="small" tone="muted">{batch.note.text}</Copy>
+    <Copy kind="small" tone="muted">These ages count from birth. If your baby was born early, ask your doctor about adjusted age.</Copy>
+    <MedicalSource source="AAP, adjusted age" url="https://www.healthychildren.org/English/ages-stages/baby/preemie/Pages/Preemie-Milestones.aspx" />
+    <HealthNote />
     <Disclosure title="Sources">
       <View style={{ gap: 2 }}>
         {links.map((url) => <MedicalSource key={url} source={sourceName(url)} url={url} />)}

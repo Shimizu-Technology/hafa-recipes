@@ -1,10 +1,11 @@
+import { HealthNote } from "../components/health-note";
 import { useRef } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { contractionDetail, hourLine, lastHour, ownContractions, runningContractions, secondsWords, withGaps } from "@/lib/contractions";
 import { messageFor, type BabyRecord } from "@/lib/models";
-import { cdcWarningSignsLine, cdcWarningSignsSource, cdcWarningSignsUrl, contractionGuidance } from "@/lib/medical-wording";
+import { cdcWarningSignsLine, cdcWarningSignsSource, cdcWarningSignsUrl, contractionGuidance, contractionSourceUrl, pretermSourceUrl } from "@/lib/medical-wording";
 import { careWrite, logCare, queueSessionAction } from "@/lib/quick-care";
 import { friendlyTime } from "@/lib/care-format";
 import { pregnancyProgress, profileToday, timingChild } from "@/lib/timing";
@@ -48,6 +49,8 @@ export default function Contractions() {
   const toggle = () => running ? stop(running) : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
   const elapsed = running ? secondsWords((now.getTime() - new Date(running.occurred_at).getTime()) / 1000) : "";
   return <Screen title="Contractions" back>
+    {!!guidance && <Notice>{guidance}</Notice>}
+    <Button title="Open Help" onPress={() => router.push("/help")} />
     <SyncStatus />
     <DoctorNote childId={childId} />
     <PressTarget accessibilityRole="button" accessibilityLabel={running ? `Stop. Timing, started ${friendlyTime(running.occurred_at, minute, timeZone)}` : "Start"} accessibilityHint="Saves straight away" onPress={() => void toggle()}
@@ -61,7 +64,6 @@ export default function Contractions() {
       <Button secondary title="Stop this one" onPress={() => void stop(row)} />
     </Card>)}
     <Copy numeric kind="label">{hourLine(lastHour(rows, now))}</Copy>
-    {!!guidance && <Notice>{guidance}</Notice>}
     {/* Being offline already has its one calm line, up top. */}
     {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
     {rows.length ? <Section title="Recent">
@@ -73,5 +75,9 @@ export default function Contractions() {
       <Copy kind="small" tone="muted">{cdcWarningSignsLine}</Copy>
       <MedicalSource source={cdcWarningSignsSource} url={cdcWarningSignsUrl} />
     </View>
+    <Copy kind="small">This timer records contractions. Your care team tells you when to call or go in.</Copy>
+    <MedicalSource source="ACOG, when labor begins" url={contractionSourceUrl} />
+    <MedicalSource source="MedlinePlus, preterm labor" url={pretermSourceUrl} />
+    <HealthNote />
   </Screen>;
 }

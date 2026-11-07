@@ -71,9 +71,10 @@ describe("the words", () => {
     expect(percentileWords(normalCdf(2) * 100)).toBe("98th percentile");
     expect(percentileWords(98)).toBe("Above the 98th percentile line");
   });
-  it("holds our own lines until a doctor approves them", () => {
-    expect(growthNotes.approved).toBe(false);
-    expect(visibleGrowthNotes()).toEqual([]);
+  it("ships agent-reviewed private-family notes and still holds an unapproved batch", () => {
+    expect(growthNotes.approved).toBe(true);
+    expect(visibleGrowthNotes()).toEqual(growthNotes.notes);
+    expect(visibleGrowthNotes({ approved: false, notes: ["held"] })).toEqual([]);
     expect(visibleGrowthNotes({ approved: true, notes: ["reviewed"] })).toEqual(["reviewed"]);
   });
   it("carries CDC's attribution and non-endorsement, and only CDC's words otherwise", () => {
