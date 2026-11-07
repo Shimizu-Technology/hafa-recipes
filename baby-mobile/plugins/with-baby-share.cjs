@@ -8,6 +8,7 @@ const storeSource = fs
   .trim();
 const payloadSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabySharePayload.swift"), "utf8").trim();
 const sessionSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabyShareSession.swift"), "utf8").trim();
+const sheetState = fs.readFileSync(path.join(__dirname, "BabyShareSheetState.swift"), "utf8").trim();
 const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafababy.share";
 const storeMarker = "// HAFA BABY SHARED STORE v1 SHA256 ";
 const helper = fs.readFileSync(path.join(__dirname, "BabySharePreprocessing.swift"), "utf8").trim();
@@ -238,6 +239,7 @@ function patchShareController(text) {
       throw Error("Håfa Baby shared store changed; refusing partial generation.");
     if (!parts[0].includes(presentedLifecycle))
       throw Error("Håfa Baby share lifecycle changed; run a clean prebuild before generating.");
+    if (!parts[0].includes(sheetState)) throw Error("Håfa Baby share sheet changed; run a clean prebuild before generating.");
     return text;
   }
   const lifecycleFirst = text.indexOf("  override func viewDidLoad()"),
@@ -364,7 +366,7 @@ function patchShareController(text) {
   if (redirectFirst < 0 || redirectLast < 0) throw Error("Baby share redirect changed; refusing host-app launch.");
   const confirmation = fs.readFileSync(path.join(__dirname, "BabyCaptureConfirmation.swift"), "utf8");
   text = text.slice(0, redirectFirst) + confirmation + "\n" + text.slice(redirectLast);
-  text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n";
+  text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n" + sheetState + "\n";
   return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
 }
 module.exports = (config) => {

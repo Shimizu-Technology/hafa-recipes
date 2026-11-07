@@ -22,6 +22,7 @@ export interface NativeShare {
   files: { path: string; fileName: string; mimeType: string }[];
 }
 const bridge = requireOptionalNativeModule<{
+  noteSignedIn(): Promise<void>;
   pending(): Promise<NativeShare | null>;
   acknowledge(token: string): boolean;
   clear(): void;
@@ -31,6 +32,8 @@ const bridge = requireOptionalNativeModule<{
   clearSession(preserveUnassigned: boolean): Promise<void>;
 }>("HafaBabyShare");
 export const nativeSharingAvailable = !!bridge;
+/** Lets the share sheet tell a sign-in that hasn't connected yet from being signed out. Clearing the session clears it. */
+export const noteSignedIn = () => bridge?.noteSignedIn() ?? Promise.resolve();
 export const pendingShare = () => bridge?.pending() ?? Promise.resolve(null);
 export const acknowledgeShare = (token: string) => bridge?.acknowledge(token) ?? false;
 export const clearPendingShares = () => bridge?.clear();
