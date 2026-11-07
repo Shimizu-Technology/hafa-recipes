@@ -590,7 +590,9 @@ shared catalog (`baby-chat-reviewed-v7-safety-labels`). Checker/V2 prompts and
 clinical routing text are unchanged. A later review also caught a toddler being
 treated as fetal in pregnancy context and reassurance in a relative clause
 ("Kicks decrease, which is normal"). Born-child words/ages now preserve the
-baby emergency tier locally; relative-clause reassurance is stopped before the
+baby emergency tier locally and carry a known born child into subsequent
+he/she clauses, without converting a separate explicit fetal concern.
+Relative-clause reassurance is stopped before the
 model check on both Ask paths. The regression table covers both HTTP paths
 and stored replies. AAP child weakness/immobility guidance was rechecked
 November 8 at https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Weakness%2Band%2BFatigue.

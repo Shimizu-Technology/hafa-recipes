@@ -672,6 +672,30 @@
     {
       "question": "I'm pregnant, my toddler is not moving and I'm bleeding heavily",
       "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant and my newborn is on my lap. He isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My toddler is in bed. I'm pregnant. Now she isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby is not moving. I'm pregnant. My toddler is in bed. She isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "My toddler is in bed. I'm pregnant. My unborn baby is not moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. I'm bleeding heavily. She isn't moving",
+      "route": "maternal_baby_emergency"
     }
   ]
 }

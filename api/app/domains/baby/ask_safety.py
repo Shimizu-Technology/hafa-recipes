@@ -200,6 +200,10 @@ BABY_WORDS = re.compile(
     r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
     re.I,
 )
+BORN_CHILD = re.compile(
+    r"\b(newborn|infant|toddler|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b", re.I,
+)
+BABY_PRONOUN_SUBJECT = re.compile(r"^\W*(?:(?:now|also|then)\s+)*(?:she|he|her|his|they|their|shes|hes)\b", re.I)
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
 BABY_EMERGENCY_WORDS = re.compile(
     r"\b(not breath(?:ing|e)|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+(?:and\W+)?not anymore|"
@@ -444,29 +448,42 @@ def classify(message, child_names=()):
                          and (BABY_EMERGENCY_WORDS.search(part) or BABY_ER_WORDS.search(part)
                               or re.search(r"\b(temp|temperature|fever)\b", part, re.I)))
         baby_parts.append(bool(baby_subject(part) or inherits_baby))
+    # A parent's pregnancy does not make a previously identified born child fetal.
+    # Carry that identity into "he/she isn't moving"; an explicit new baby subject
+    # starts a new concern (which can still be fetal).
+    born_parts = []
+    born_context = False
+    for part, about_baby in zip(kept, baby_parts, strict=True):
+        if BORN_CHILD.search(part):
+            born_context = True
+        elif about_baby and not BABY_PRONOUN_SUBJECT.search(part):
+            born_context = False
+        born_parts.append(bool(about_baby and born_context))
     maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
 
-    def fetal_movement_part(part):
+    def fetal_movement_part(part, *, born_child=False):
         emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
-        return bool(pregnancy_context and (
+        return bool(pregnancy_context and not born_child and (
             emergencies in (["not moving"], ["isn't moving"])
             or BABY_ER_WORDS.search(part) and re.search(r"\bmoving less|decreased movement\b", part, re.I) and not emergencies
-        ) and not re.search(r"\b(newborn|infant|toddler|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b", part, re.I))
+        ) and not BORN_CHILD.search(part))
 
     # Only join fragments when neither belongs to a maternal/fetal concern. This
     # retains “my newborn has a temperature. 38.5 C” without merging a fetal
     # movement concern with a separate born baby's illness.
-    pairs = [" and ".join(part.rstrip(".!?; ") for part in kept[index:index + 2]) for index in range(len(kept) - 1)
-             if not any(maternal_parts[index:index + 2])
-             and not any(parent_subject(part) or fetal_movement_part(part) for part in kept[index:index + 2])]
+    pairs = [(" and ".join(part.rstrip(".!?; ") for part in kept[index:index + 2]), any(born_parts[index:index + 2]))
+             for index in range(len(kept) - 1) if not any(maternal_parts[index:index + 2])
+             and not any(parent_subject(part) or fetal_movement_part(part, born_child=born_parts[position])
+                         for position, part in enumerate(kept[index:index + 2], start=index))]
     maternal = any(maternal_parts)
     poison = any(POISONING_WORDS.search(part) for part in kept)
     maternal = maternal or any(POISONING_WORDS.search(part) and parent_subject(part) for part in kept)
     fetal_movement = False
     baby_kind = None
     rank = {BABY_UNWELL: 1, BABY_ER: 2, BABY_EMERGENCY: 3}
-    for part, about_baby in [*zip(kept, baby_parts, strict=True), *((part, baby_subject(part)) for part in pairs)]:
-        if fetal_movement_part(part):
+    for part, about_baby, born_child in [*zip(kept, baby_parts, born_parts, strict=True),
+                                         *((part, baby_subject(part), born) for part, born in pairs)]:
+        if fetal_movement_part(part, born_child=born_child):
             fetal_movement = True
             continue
         candidate = (BABY_EMERGENCY if (BABY_EMERGENCY_WORDS.search(part) or (names and re.search(rf"\b(?:{'|'.join(names)}) (?:is |looks? )?(?:blue|gray|grey|purple)\b", part, re.I))) else
@@ -479,7 +496,7 @@ def classify(message, child_names=()):
                 fetal_movement = True
             else:
                 maternal = True
-    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or re.search(r"\b(newborn|infant|toddler|born)\b|\b\d+[- ]*(?:days?|weeks?|months?|years?)[- ]*old\b", text, re.I)))
+    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or BORN_CHILD.search(text)))
     if ambiguous_weeks and baby_kind == BABY_EMERGENCY and re.search(r"\b(?:not moving|isn't moving)\b", context, re.I):
         maternal = True  # Ambiguity must preserve both routes, never downgrade baby 911.
     if maternal and baby_kind:
