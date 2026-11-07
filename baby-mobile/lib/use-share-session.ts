@@ -20,7 +20,12 @@ export function ShareSessionGuard() {
   const { isLoaded, isSignedIn } = useAuth();
   useEffect(() => {
     if (!isLoaded || Platform.OS !== "ios") return;
-    if (!isSignedIn) return void revokeShareAuthority().catch(() => undefined);
+    if (!isSignedIn) {
+      const retire = () => void revokeShareAuthority().catch(() => undefined);
+      retire();
+      const app = AppState.addEventListener("change", state => { if (state === "active") retire(); });
+      return () => app.remove();
+    }
     // From the moment Clerk knows, since the rest of the setup can be held up. Clearing a space also clears this while
     // she's still signed in, so it's said again on the way to another app, which is where a share can come from.
     const note = () => void serializeShareSession(() => Share.noteSignedIn()).catch(() => undefined);
@@ -62,7 +67,7 @@ export function useShareSession() {
           await Share.configureSession(session, configuration.apiBase, b.owner, sessionScope(bootstrap, session));
           // Permission-version refreshes replace this effect without retiring
           // same-account captures. Account cleanup is serialized separately.
-          if (!current() && (isShareSessionSuspended() || !b.current())) await Share.clearSession(true);
+          if (!current() && (isShareSessionSuspended() || !b.current())) await Share.suspendSession();
         });
       } catch {
         // Keep an existing same-account capability when offline. Expired tokens

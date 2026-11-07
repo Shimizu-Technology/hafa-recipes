@@ -408,19 +408,25 @@ struct BabyShareStoreTests {
       let boundToken = try store.pending()!.token
       let late = try store.begin()
       var retired = false
-      try store.clear(preserveUnassigned: true) { retired = true }
-      let saved = try store.pending()!
-      try check(retired && store.scope() == nil, "initial signed-out revocation retires authority")
-      try check(saved.scope == nil && saved.automaticEpoch == 0, "preserved original retains nil scope and begin permission version")
-      try check(FileManager.default.fileExists(atPath: original.path), "confirmed unassigned original bytes survive authority revocation")
-      try check(!FileManager.default.fileExists(atPath: bound.directory.path), "revocation removes previous bound capture")
-      try check(!store.acknowledge(boundToken), "revoked bound exact receipt cannot touch retained original")
-      do { try store.publish(["late"], capture: late); fatalError("revoked producer published") }
+      try store.suspend { retired = true }
+      try check(retired && store.scope() == nil, "lapse retires extension authority")
+      try check(try store.pending() == nil, "signed-out intake cannot stall on an owner-tagged capture")
+      try check(try store.unassignedCount() == 1, "tagged captures never join the sign-in count")
+      try check(FileManager.default.fileExists(atPath: original.path), "unassigned original survives lapse")
+      try check(FileManager.default.fileExists(atPath: bound.directory.path), "lapse keeps previous bound capture")
+      do { try store.publish(["late"], capture: late); fatalError("lapsed producer published") }
       catch BabyShareStore.Failure.stale { count += 1 }
-      try store.clear(preserveUnassigned: true)
-      try check(try store.pending()!.token == saved.token, "repeated signed-out guard preserves exact original")
+      try store.suspend()
+      try store.bind("owner-a:1", automaticEpoch: 5)
+      let saved = try store.pending()!
+      try check(saved.token == boundToken && saved.scope == "owner-a:1", "same owner resumes the exact capture without Add")
+      try check(try store.acknowledge(saved.token) && store.pending() == nil, "same owner delivers once while unassigned remains quarantined")
+      let another = try store.begin()
+      try store.publish(["only owner-a"], capture: another)
+      try store.suspend()
       try store.bind("owner-b:1", automaticEpoch: 5)
-      try check(try store.pending() == nil, "retained unassigned originals remain quarantined from next account")
+      try check(try store.pending() == nil && store.unassigned(owner: "owner-b").isEmpty, "different account sees no old owner's card or pending capture")
+      try check(!FileManager.default.fileExists(atPath: another.directory.path), "different-account retirement remains the accepted destructive limit")
       try store.clear()
       try check(!FileManager.default.fileExists(atPath: path(root, unassigned.id).path), "explicit account cleanup still removes all captures")
     }
@@ -704,6 +710,77 @@ struct BabyShareStoreTests {
       var rejected = false
       do { _ = try BabySharePayload.decode(waiting.snapshot) } catch { rejected = true }
       try check(rejected, "bad payload is refused rather than acknowledged as empty")
+    }
+
+    do {
+      var clock = Date(timeIntervalSince1970: 1_800_000_000)
+      let (root, defaults, _, suite) = try fixture("lapsed-claimed-expiry")
+      let store = BabyShareStore(container: root, defaults: defaults, now: { clock })
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let id = UUID().uuidString
+      try store.publish(["explicitly added"], id: id)
+      try store.bind("owner-a:1:personal")
+      let token = try store.unassigned(owner: "owner-a")[0].snapshot.token
+      _ = try store.claim(token, owner: "owner-a", generation: 1)
+      try store.suspend()
+      try check(try store.pending() == nil && store.removalCount() == 1 && store.unassignedCount() == 0, "lapsed Add is counted only for removal, never a signed-out queue or card")
+      try store.bind("owner-a:1:personal")
+      try check(try store.pending()?.claimed == true && store.pending()?.token == token, "claimed permission and exact ID survive lapse")
+      try store.suspend()
+      clock.addTimeInterval(31 * 24 * 60 * 60)
+      _ = try store.unassignedCount()
+      try store.bind("owner-a:1:personal")
+      try check(try store.pending() == nil && store.removalCount() == 1, "expired lapsed tagged capture cannot drain, but privacy warning counts retained bytes")
+      clock.addTimeInterval(25 * 60 * 60)
+      _ = try store.pending()
+      try check(try store.removalCount() == 0, "lapsed tagged original obeys the 30-day retention and cleanup grace")
+      try check(!FileManager.default.fileExists(atPath: path(root, id).path), "expired lapsed bytes removed")
+    }
+    do {
+      let (_, defaults, store, suite) = try fixture("clear-recovery-identity")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let capture = try store.begin(), file = capture.directory.appendingPathComponent("kept.pdf")
+      try Data("original".utf8).write(to: file)
+      try store.publish(JSONSerialization.data(withJSONObject: [["path": file.absoluteString]]), capture: capture)
+      try store.bind("owner-a:1:personal")
+      let original = try store.unassigned(owner: "owner-a")[0].snapshot
+      _ = try store.claim(original.token, owner: "owner-a", generation: 1)
+      let before = try BabySharePayload.decode(store.pending()!)["record_id"] as! String
+      try store.clear(preserveUnassigned: true, recoveringOwner: "owner-a")
+      try store.bind("owner-a:2:personal")
+      let recovered = try store.unassigned(owner: "owner-a")[0].snapshot
+      try check(try BabySharePayload.decode(recovered)["record_id"] as? String != before, "clear recovery independently rotates the record identity")
+      try check(try recovered.token != original.token && !store.acknowledge(original.token), "clear recovery fences delayed old acknowledgements")
+      try check(FileManager.default.fileExists(atPath: file.path), "clear recovery keeps original file")
+      _ = try store.claim(recovered.token, owner: "owner-a", generation: 2)
+      try store.clear(preserveUnassigned: true, recoveringOwner: "wrong-owner")
+      try check(try store.unassignedCount() == 0 && store.removalCount() == 0, "a wrong recovering owner cannot preserve another account claim")
+      try check(!FileManager.default.fileExists(atPath: file.path), "wrong-owner recovery does not expose original files")
+    }
+    do {
+      var clock = Date(timeIntervalSince1970: 1_800_000_000)
+      let (root, defaults, _, suite) = try fixture("removal-count-all-originals")
+      let store = BabyShareStore(container: root, defaults: defaults, now: { clock })
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let hidden = try store.begin(); try store.publish(["hidden"], capture: hidden)
+      try store.bind("owner-a:1:personal")
+      let tagged = try store.begin(); try store.publish(["blocked under owner"], capture: tagged)
+      let manifest = tagged.directory.appendingPathComponent("manifest.json")
+      var fields = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as! [String: Any]
+      fields["blocked"] = "unreadable"
+      try JSONSerialization.data(withJSONObject: fields).write(to: manifest)
+      clock.addTimeInterval(31 * 24 * 60 * 60)
+      try check(try store.unassignedCount() == 0, "expired original is hidden")
+      try check(try store.removalCount() == 2, "privacy count includes hidden unassigned and owner-tagged blocked originals")
+      let unknown = try store.begin(); try store.publish(["future format"], capture: unknown)
+      let unknownManifest = unknown.directory.appendingPathComponent("manifest.json")
+      try Data("{\"id\":42}".utf8).write(to: unknownManifest)
+      clock.addTimeInterval(25 * 60 * 60)
+      _ = try store.unassignedCount()
+      try check(FileManager.default.fileExists(atPath: unknownManifest.path), "unknown atomic manifest is retained instead of swept as staging")
+      try check(try store.removalCount() == 2, "privacy count includes unreadable future manifest and tagged original after expired cleanup")
+      try store.clear()
+      try check(try store.removalCount() == 0, "explicit warned cleanup still clears every kind")
     }
     print("\(count) native capture store cases passed")
   }

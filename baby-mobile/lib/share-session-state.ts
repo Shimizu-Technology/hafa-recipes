@@ -21,16 +21,16 @@ export function isShareSessionSuspended(): boolean {
   return suspended;
 }
 
-function revoke(preserveUnassigned: boolean): Promise<void> {
+function revoke(lapse: boolean): Promise<void> {
   version++;
   suspended = true;
-  return serializeShareSession(() => Share.clearSession(preserveUnassigned));
+  return serializeShareSession(() => lapse ? Share.suspendSession() : Share.clearSession(false));
 }
 /** Explicit account sign-out/erase retires authority and all native captures. */
 export function revokeShareSession(): Promise<void> {
   return revoke(false);
 }
-/** Initial signed-out guard retires authority, retaining unassigned originals. */
+/** A signed-out guard retires authority without a privacy clear; owner-tagged originals await the same account. */
 export function revokeShareAuthority(): Promise<void> {
   return revoke(true);
 }
