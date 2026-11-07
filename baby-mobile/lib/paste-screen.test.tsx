@@ -57,3 +57,18 @@ it("fences an account change during asynchronous identity preparation", async ()
   expect(JSON.stringify(tree.toJSON())).toContain("Your account changed.");
   await act(async () => tree.unmount());
 });
+
+it("uses the shared space for item identity across two family members", async () => {
+  const ids: string[] = [];
+  for (const owner of ["parent-a", "parent-b"]) {
+    mock.b.owner = owner;
+    mock.b.state = { ...emptyState(), bootstrap: { generation: 1, personal_space_id: owner, profile: { timezone: "Pacific/Guam" }, children: [], spaces: [{ id: owner, kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] } };
+    await review("2026-11-09 Clinic class");
+    await act(async () => host("Choice", "label", "Share this item with family").props.onPress());
+    await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+    const event = mock.b.state.outbox.find((item: any) => item.record.kind === "event");
+    expect(event.space_id).toBe("family"); ids.push(event.record.id);
+    await act(async () => tree.unmount());
+  }
+  expect(ids[0]).toBe(ids[1]);
+});

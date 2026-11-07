@@ -36,7 +36,7 @@ export default function PasteVisits() {
       const identities = new Map<string, string>();
       for (const row of chosen) {
         const target = row.shared && family ? family.id : space;
-        const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([b.owner, target ?? "personal", generationOf(boot, target) ?? generation, row.kind, row.day, row.text]));
+        const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([target ?? b.owner, generationOf(boot, target) ?? generation, row.kind, row.day, row.text]));
         identities.set(row.id, idFrom(hash));
       }
       const records: ScopedWrite[] = [{ id: originalId, kind: "journal", title: "Original pregnancy notes", body: original, child_id: baby?.id ?? null, occurred_at: previousOriginal?.occurred_at ?? new Date().toISOString(), data: { provenance: "caregiver_observation" } },
