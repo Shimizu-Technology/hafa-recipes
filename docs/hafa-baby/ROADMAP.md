@@ -702,10 +702,13 @@ Relative-clause reassurance is stopped before the
 model check on both Ask paths. Future or negated birth wording (for example,
 “due to be born soon” or “not yet born”) now establishes pregnancy context
 without marking the baby as born. Explicit newborn/infant/toddler and age
-context stays intact, including mixed fetal and born-child concerns. Sixteen
+context stays intact, including mixed fetal and born-child concerns. Twenty-two
 regression rows cover the distinction on the floor and both HTTP Ask paths.
 A same-child historical delivery expectation does not undo an established
-birth; an explicit switch to a separate unborn baby still resets the context. The regression table covers both HTTP paths
+birth, including a repeated “my baby” reference. Historical plans are not
+new pregnancy evidence once a birth is established; an overdue pregnancy
+without birth evidence and an explicit switch to a separate unborn baby retain
+maternal guidance. The regression table covers both HTTP paths
 and stored replies. AAP child weakness/immobility guidance was rechecked
 November 8 at https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Weakness%2Band%2BFatigue.
 Schema/catalog parity and literal composite

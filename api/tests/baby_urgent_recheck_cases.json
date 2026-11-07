@@ -760,6 +760,30 @@
     {
       "question": "I'm pregnant. My newborn was born last week. My unborn baby is due to be born next month. She isn't moving",
       "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby was born yesterday. My baby was scheduled to be born next week. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born two days ago. My baby wasn't expected to be born until next month. He isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born yesterday. My baby was scheduled to be born next week. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My baby was born yesterday. My baby was scheduled to be born next week. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was due to be born last week. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My newborn was born last week. My unborn baby was due to be born yesterday. She isn't moving",
+      "route": "urgent_maternal"
     }
   ]
 }

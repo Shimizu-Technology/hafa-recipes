@@ -210,6 +210,9 @@ FUTURE_BIRTH = re.compile(
     r"|\b(?:(?:isn't|is\s+not|hasn't|has\s+not)\s+yet\s+(?:been\s+)?born|"
     r"(?:isn't|is\s+not|hasn't|has\s+not)\s+(?:been\s+)?born\s+yet|not\s+(?:yet\s+born|born\s+yet))\b", re.I,
 )
+PAST_BIRTH_PLAN = re.compile(
+    r"\b(?:was|were|wasn't|weren't|had|hadn't)(?:\s+(?:originally|previously|initially|not|been))*\s+$", re.I,
+)
 BABY_PRONOUN_SUBJECT = re.compile(r"^\W*(?:(?:now|also|then)\s+)*(?:she|he|her|his|they|their|shes|hes)\b", re.I)
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
 BABY_EMERGENCY_WORDS = re.compile(
@@ -405,11 +408,17 @@ def classify(message, child_names=()):
             if clause and not LOOKUP_CLAUSE.search(clause)
             for part in re.split(r"\s+and\s+|\s*&\s*", clause, flags=re.I) if part]
     context = " ".join(kept)
+    def historical_birth_plan(part):
+        planned = FUTURE_BIRTH.search(part)
+        return bool(planned and PAST_BIRTH_PLAN.search(part[:planned.start()]))
+
+    born_evidence = BORN_CHILD.search(FUTURE_BIRTH.sub("", context))
     after_birth = re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth|born|newborn|infant)\b", FUTURE_BIRTH.sub("", context), re.I)
     # A bare week count may be an infant's age or weeks after birth. "Kicked"
     # can also describe a born baby's body; neither establishes pregnancy.
     pregnancy_context = any(
-        (re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", part, re.I) or FUTURE_BIRTH.search(part))
+        (re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", part, re.I)
+         or FUTURE_BIRTH.search(part) and not (born_evidence and historical_birth_plan(part)))
         and not re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth)\b", part, re.I)
         for part in kept
     )
@@ -464,7 +473,10 @@ def classify(message, child_names=()):
         if BORN_CHILD.search(FUTURE_BIRTH.sub("", part)):
             born_context = True
         elif about_baby and not BABY_PRONOUN_SUBJECT.search(part):
-            born_context = False
+            # A past delivery expectation cannot undo this child's actual birth.
+            # An explicit separate unborn child still starts a new concern.
+            if not (born_context and historical_birth_plan(part) and not re.search(r"\b(?:unborn|fetal)\b", part, re.I)):
+                born_context = False
         born_parts.append(bool(about_baby and born_context))
     maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
 
