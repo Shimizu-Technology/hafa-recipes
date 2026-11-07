@@ -19,6 +19,7 @@ from app.domains.baby.ask_research import strings_in
 from app.domains.baby.ask_safety import (
     CANT_ANSWER,
     CANT_ANSWER_LINE,
+    MESSAGES,
     boundary,
     cant_answer,
     classify,
@@ -1102,6 +1103,8 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                         context_pack=pack,
                         requested_range=requested_range,
                     )
+                    if result.safety in MESSAGES:
+                        published = ask_v2.fixed_answer(MESSAGES[result.safety], result.safety)
         allowed = {item["id"]: item for item in context}
         if published:
             result = result.model_copy(update={"citation_ids": published["citation_ids"], "proposal": published["proposal"]})
