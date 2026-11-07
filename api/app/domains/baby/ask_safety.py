@@ -124,7 +124,7 @@ BABY_WORDS = re.compile(
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
 BABY_EMERGENCY_WORDS = re.compile(
     r"\b(not breathing|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+not anymore|"
-    r"can't breathe|cannot breathe|struggling (?:to breathe|for (?:each )?breath\w*|for air)|gasping|"
+    r"can't breathe|cannot breathe|struggling (?:to breathe|for (?:each )?breath\w*|for air)|gasping|barely breathing|"
     r"won't wake(?: up)?|wont wake(?: up)?|can't (?:be )?woken|cannot (?:be )?woken|can't wake|not waking|unresponsive|won't respond|wont respond|"
     r"can't get \w+ ?\w* to wake|very weak|not moving|grunting|turning blue|(?:baby|newborn|infant|she|he) (?:is |looks? |turned |turning )?(?:blue|bluish|gray|grey|dusky)|"
     r"(?:blue|bluish|gray|grey|dusky) (?:lips|tongue|face)|(?:lips|tongue|face) (?:are |is |look |looks )?(?:blue|bluish|gray|grey|dusky)|choking)\b", re.I,
@@ -262,12 +262,19 @@ def classify(message, child_names=()):
         return Safety(HARM, MESSAGES[HARM])
     names = [re.escape(name) for child in child_names for name in re.findall(r"[\w'-]{2,}", child or "")]
     kept = [without_lookups(sentence) for sentence in sentences(text)]
+    pregnancy_context = re.search(r"\b(pregnan\w*|womb|trimester|unborn|kick\w*)\b|\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", " ".join(kept), re.I)
     # Each sentence, then each pair, so "My newborn has a temperature. 38.5 C." reads as one thing.
     pairs = [" ".join(part.rstrip(".!?; ") for part in pair) for pair in zip(kept, kept[1:], strict=False)]
     found = None
     baby_found = None
     for part in [*kept, *pairs]:
         about_baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
+        emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
+        pregnancy_movement = (pregnancy_context and emergencies == ["not moving"]
+                              and not re.search(r"\b(newborn|infant|born|days? old|weeks? old|months? old)\b", part, re.I))
+        if pregnancy_movement:
+            found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
+            continue
         if about_baby and BABY_EMERGENCY_WORDS.search(part):
             return Safety(BABY_UNWELL, MESSAGES[BABY_EMERGENCY])
         if about_baby and BABY_ER_WORDS.search(part):
