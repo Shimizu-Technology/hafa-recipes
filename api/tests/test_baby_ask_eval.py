@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.domains.baby import ask_check, ask_tools
+from app.domains.baby.ask_safety import cant_answer
 from evals import baby_ask_eval as evaluation
 from evals import baby_haiku_adapter as haiku
 from evals import run_chat_model_eval as harness
@@ -561,7 +562,7 @@ def test_a_research_answer_that_cites_nothing_fails():
 async def test_a_record_claim_with_an_invented_id_fails_and_shows_only_the_plain_line():
     invented = Scripted(answer_reply("9 poos", citation_ids=["00000000-0000-4000-8000-000000000000"]))
     result = await evaluation.evaluate_case(invented, case_named("totals_poos_week"), DATASET, "gpt-6-luna", "low", 1)
-    assert result["failures"]["invented_citation"] and result["response_chars"] == len("I couldn't confirm that from your records.")
+    assert result["failures"]["invented_citation"] and result["response_chars"] == len(cant_answer("I couldn't confirm that from your records."))
 
 
 # A gateway's passing 503 isn't billed and says nothing about the model, so it can't throw away a paid run.

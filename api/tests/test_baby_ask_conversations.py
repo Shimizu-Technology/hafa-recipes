@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.domains.baby import ask_gate, chat, provider
+from app.domains.baby.ask_safety import CANT_ANSWER, DOSE_REFUSAL, cant_answer
 from app.domains.baby.models import BabyConversation, BabyMembership, BabyMessage
 from tests import test_baby_access as foundation
 from tests import test_baby_family_records as records
@@ -330,7 +331,8 @@ async def test_plain_suggestions_still_come_through(baby_api, stub, proposal):  
 
 async def test_a_medical_journal_suggestion_is_dropped_on_the_old_path_too(baby_api, stub):  # noqa: F811
     body = await on_the_old_path(baby_api, stub, {**JOURNAL, "body": "Take two tablets every four hours."})
-    assert body["proposal"] is None and body["message"] == "Old answer"
+    assert body["proposal"] is None and body["message"] == cant_answer(DOSE_REFUSAL)
+    assert body["help"] == CANT_ANSWER
 
 
 def test_the_mark_on_suggested_routines_is_gone():

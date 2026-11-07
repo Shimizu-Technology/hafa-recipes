@@ -33,6 +33,8 @@ API = "/api/v1/baby"
 @pytest.fixture
 async def matrix(privacy_api):
     api = privacy_api
+    # This matrix tests data isolation, separately from the private AI rollout denial.
+    api.settings.baby_health_private_users = ",".join(("owner", *ROLES))
     api.settings.baby_family_enabled = api.settings.baby_invites_enabled = api.settings.baby_new_kinds_enabled = True
     api.settings.baby_push_enabled = True
     from tests.test_baby_moves import enabled
@@ -543,3 +545,12 @@ async def test_move_own_personal_destination(matrix):
         with pytest.raises(HTTPException) as caught:
             await move_record(db, access, row, destination)
         assert caught.value.status_code == 403
+
+
+async def test_closed_health_gate_preserves_the_family_chat_fence(matrix):
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    api.settings.baby_health_private_users = ""
+    response = await api.client.post(API + "/chat", headers=records.headers(family, "caregiver", 1),
+                                     json={"message": "Summarize everything"})
+    assert response.status_code == 422
+    assert "personal Baby space" in response.text
