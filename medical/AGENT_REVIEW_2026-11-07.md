@@ -372,6 +372,8 @@ All **159 / 159** strings match the current corresponding live page after typogr
 
 All six bundled approvals mean **agent-reviewed for private family use**, never clinician approval. Cut claims were removed instead of hidden by a global preview switch. K2/K3 pregnancy cards, K4a milestones, K4b visits/shots and K5 growth are covered by this review and the ROADMAP update. `health-release.cjs` rejects public/paid builds until both clinician-review and WHO-permission records are committed. `production` EAS profile selects public and fails this gate; direct builds/exports and OTA updates with no audience fail closed too. Local npm QA commands and development/preview profiles explicitly select private-family. Use explicit `family` only for the private family release build. The API’s public/paid gate requires both records for old Ask and V2; its free urgent floor remains available. No production service or database was accessed or changed. App Store distribution still needs operator discipline: code cannot detect a person manually submitting a previously built private-family binary as public. Its About page explicitly says private family use; do not reuse it for public distribution.
 
+Current chart-file check: all six bundled WHO child-growth CSV hashes matched freshly downloaded [CDC distribution files](https://ftp.cdc.gov/pub/Health_Statistics/NCHS/growthcharts/) on 2026-11-07: boys’ and girls’ weight-for-age, length-for-age and head-circumference-for-age. This verifies that the bundled reference files have not drifted; it does not establish clinical suitability or grant WHO permission. Evidence: `/tmp/hafa-health-review-503866c3/growth-file-check.json`; full file hashes also remain in the bundled WHO source metadata.
+
 ## Ask V2 flag checklist
 
 `BABY_ASK_V2_ENABLED` remains untouched. Before Leon enables it: complete the independent Claude review and resolve material findings; pass this change’s full checks and native matrix; deploy the reviewed API only after the held PRs are authorized; install the reviewed family binary; rerun the existing real-model safety/whole-Ask evals with valid eval credentials within the remaining budget; then verify current per-user consent, source retrieval/fail-closed behavior, limits and shared/private-record access using isolated fixtures. Public/paid use additionally needs the two release records, not an agent-review string in a clinician field.
@@ -380,17 +382,50 @@ The eval must re-check: `baby-safety-check-v7`’s reduced-movement/waiting proh
 
 Paid attempt: existing repository eval runner, 351 synthetic safety cases, configured model `gpt-6-luna`, low effort. Dry estimate $0.04 typical / $0.16 heavy; actual run hard ceiling **$0.50**. It failed with HTTP **401 Unauthorized** before returning a valid verdict or usage report; **no successful billed usage was reported ($0 reported spend)**. No further paid run or new credentials were used. A valid live-model run remains blocked, not passed. Maximum authorization for this task is $2 total; preserve the conservative $0.50 reservation if billing is uncertain, leaving at most $1.50 for a later retry.
 
+Reproducible next evals, from `api/`, after the existing eval credential is repaired (do not substitute production app access):
+
+```sh
+uv run python -m evals.run_chat_model_eval --dataset evals/golden/baby_safety_check_v1.json --models gpt-6-luna --reasoning-effort low --dry-run
+uv run python -m evals.run_chat_model_eval --dataset evals/golden/baby_ask_v1.json --models gpt-6-luna --check-model gpt-6-luna --reasoning-effort low --dry-run
+```
+
+Current dry runs validate **354 safety cases** ($0.04 typical / $0.16 heavy estimate) and **45 whole-Ask cases** ($0.21 typical / $1.22 heavy estimate). These are estimates, not results. With the earlier $0.50 reservation intact, use hard ceilings no greater than **$0.25 safety + $1.25 whole Ask**, sharing the remaining $1.50 authorization, and the runner’s existing `--env-file` credential source. Add separate `--output` paths outside the repository. Stop on any authentication failure or exhausted ceiling; a missing/partial report is not a pass. Inspect case-level urgent misses, unsafe outputs, source/ref failures, false alarms and cost, rather than accepting aggregate scores alone. Do not reuse this authorization for more retries once the combined $2 reservation is consumed.
+
 ## QA execution record
 
 Agent-executed affected-flow acceptance. Synthetic records only, local disposable PostgreSQL database `hafa_baby_health_test_503866c3`; no production access or delivery. Native required dimensions: stock iPhone 16 Pro iOS 18.5 and iPhone 17 Pro iOS 26.5, normal/largest text, light/dark. The rehearsal worker has priority on `/tmp/hafa-baby-qa.lock`; never remove another owner’s lock. Excluded devices: Hafa Baby QA18/QA26/SE3 and iPhone 16 iOS 18.0.
 
 | Case | Starting condition and actions | Expected outcome | Status / evidence |
 |---|---|---|---|
-| H01 | Release build; open week cards and baby cards; expand sources | Reviewed facts visible; cut timelines/sizes absent; About link opens and returns | pending automated/native results |
-| H02 | Open milestones/growth/well visits/shots, change child and age; save a synthetic milestone/shot/date | Correct child/history persists; chronological/adjusted-age limits visible; first-week range has no default booking | pending automated/native results |
-| H03 | Open kicks/contractions with under-37, 37+ and unknown week; start/stop; open Help | Saved timers persist, no target/result; immediate care text and Help precede disclosure | pending automated/native results |
-| H04 | Latest unordered Both after older one-sided feed; medicine shortcut after dose; temperature/BP forms | No next-side fallback; new dose blank; Save required; fixed source/Help route; no all-clear | pending automated/native results |
-| H05 | Ask urgent floor, refused dose/diagnosis, bad record/source refs, old/V2 outputs and checker failure | Urgent numbers first, refusals link Help, unsafe output discarded, consent/access boundaries preserved | pending automated results; paid eval blocked 401 |
-| H06 | Settings/Privacy → About; public/paid builds with zero/one/two approvals | Truthful unreviewed-clinician disclosure; public/paid build fails unless both records exist; family build works | pending automated/native results |
+| H01 | Release build; open week cards and baby cards; expand sources | Reviewed facts visible; cut timelines/sizes absent; About link opens and returns | automated component/logic checks passed; native BLOCKED by rehearsal lock |
+| H02 | Open milestones/growth/well visits/shots, change child and age; save a synthetic milestone/shot/date | Correct child/history persists; chronological/adjusted-age limits visible; first-week range has no default booking | automated component/logic checks passed; native BLOCKED by rehearsal lock |
+| H03 | Open kicks/contractions with under-37, 37+ and unknown week; start/stop; open Help | Saved timers persist, no target/result; immediate care text and Help precede disclosure | automated component/logic checks passed; native BLOCKED by rehearsal lock |
+| H04 | Latest unordered Both after older one-sided feed; medicine shortcut after dose; temperature/BP forms | No next-side fallback; new dose blank; Save required; fixed source/Help route; no all-clear | automated component/logic checks passed; native BLOCKED by rehearsal lock |
+| H05 | Ask urgent floor, refused dose/diagnosis, bad record/source refs, old/V2 outputs and checker failure | Urgent numbers first, refusals link Help, unsafe output discarded, consent/access boundaries preserved | focused automated checks passed; paid eval BLOCKED (401); native not run |
+| H06 | Settings/Privacy → About; public/paid builds with zero/one/two approvals | Truthful unreviewed-clinician disclosure; public/paid build fails unless both records exist; family build works | automated component/logic checks passed; native BLOCKED by rehearsal lock |
 
-Results, final tested SHAs, remaining native blocks and resource cleanup will be appended before PR handoff. A pending row is not acceptance.
+Automated evidence so far: Baby suite **140 files / 2,758 tests passed**; final release/disclosure subset **11 tests passed** after adding unspecified-audience OTA/direct-build rejection; TypeScript passed. API focused Ask regressions **152 passed** and safety/eval-dataset regressions **370 passed**, with fake providers and no paid calls. Ruff passed. Impeccable 4.6.0 returned an empty finding array; it is advisory, not usability acceptance. The complete repository check is still running and is not yet a pass.
+
+Native: a `noclobber` acquisition failed with `file exists: /tmp/hafa-baby-qa.lock`, owned by `01a1b4b7-1ff7-7f71-836b-073c3c49c18e`. No device was opened, launched, installed, reconfigured or closed by this task. All eight device/text/theme combinations and their interaction/saved-outcome checks remain **BLOCKED / not run**. Unit renders do not replace them. Preserve the rehearsal worker’s priority; never remove its lock.
+
+Final tested SHAs, complete-gate outcome and resource cleanup will be appended before PR handoff. Automated passes do not imply native acceptance.
+
+
+## Reviewer handoff
+
+Implementation status: **held for independent Claude review and required native acceptance**. PR [#639](https://github.com/Shimizu-Technology/hafa-recipes/pull/639) is the API layer, branch `t3/review-baby-health-wording`, head `708290c53eba488d3b050d9a934577ee58a0c598`, based on fetched main `551687214e7fa3a803332243921ba25bceeb6975`. PR [#640](https://github.com/Shimizu-Technology/hafa-recipes/pull/640) is the dependent mobile/content/report layer, branch `t3/release-baby-health-content`. Its initial code was committed at `1602c4e2`; follow-up metadata cleanup and final handoff commits will be identified below. Both remain drafts; do not merge. Retarget #640 to main only after #639 is authorized and merged, then verify the integrated head against whatever main contains at that time.
+
+Workspace: `/Users/leonshimizu/.t3/worktrees/hafa-recipes/t3-503866c3`. Completed behavior and conservative decisions are above; production access, production flags, delivery and merging remain outside this task. The branch/worktree is retained for the named next reviewer, not cleaned as merged work.
+
+Start here: verify the PR heads and worktree, read this report and the ROADMAP’s November 7 health wording contract, then inspect API output-check/public-gate changes and the mobile content/disclosure/build-gate diff. Resolve material medical/source/implementation findings. When the rehearsal worker releases the lock, acquire it with noclobber, use `device_open` on the two stock devices specified above, and execute H01–H06 in every requested text/theme combination using isolated fixtures. Retest after fixes. A valid credential and capped real-model safety/whole-Ask runs are still required before enabling V2; do not treat 401, a partial run or this source review as clinical approval.
+
+Evidence directory on this machine: `/tmp/hafa-health-review-503866c3/`. It contains public-source snapshots, the claim ledger, current chart-file hashes, test logs, dry-run estimates and the failed eval log. Do not copy environment files or credentials into review artifacts. Lifecycle session: `01a1b4b6-e6f5-7902-bca0-5bd2213f8d91`. Runtime cleanup will be recorded below when the complete gate finishes; no simulator/browser/server handoff is authorized.
+
+
+PR review snapshot (not approval): #639 has no submitted review; CodeRabbit reported its OSS review limit and did not review the diff. #640 has no submitted review; CodeRabbit skipped its non-default target branch, and Greptile also declined that target. Their success-labeled status contexts are not completed reviews. The separate Claude review remains required. #640’s Baby Expo mobile CI passed at code head `1602c4e2b198cb6d16a866ed5830df04a3d21da3`; #639’s API checks were still running at this snapshot. No PR is ready to merge.
+
+
+Gate-launch correction: an initial complete run was stopped after configuration/auth tests failed because the invocation globally set `DATABASE_USE_SSL=false`. Those tests deliberately create non-local Settings and correctly reject that global override. With only `TEST_DATABASE_URL` (plus the empty local `PGPASSFILE`) provided, the **42 configuration/auth tests passed**. The full gate was restarted with that isolated invocation; the stopped run is not a passing result. No application or auth code was changed to accommodate the bad invocation.
+
+
+Final bundle audit also removed unused `figures_read` (INTERGROWTH/Hadlock and other draft calculation values) and obsolete `review_note` fields from all four curated batches. These did not render, but leaving cut numbers bundled could let a future selector expose them. The current WHO display values remain; the report preserves review provenance. A regression assertion rejects those stale fields/names, and all **36** affected weekly-content/card/hero tests passed (`metadata-final.log`).

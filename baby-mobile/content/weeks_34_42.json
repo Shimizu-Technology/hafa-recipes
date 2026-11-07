@@ -27,16 +27,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.22,
-        "intergrowth_50th_girls_kg": 2.13,
-        "intergrowth_midpoint_kg": 2.175,
-        "intergrowth_50th_boys_cm": 45.0,
-        "intergrowth_50th_girls_cm": 44.6,
-        "intergrowth_midpoint_cm": 44.8,
-        "who_kiserud_2017_table_11_50th_g": 2312,
-        "hadlock_1991_table_1_50th_g": 2377
-      },
       "facts": [
         {
           "text": "A waxy coating called vernix is getting thicker. It's thought to protect your baby's skin from all that time in amniotic fluid.",
@@ -48,8 +38,7 @@
         },
         {
           "text": "Many babies have settled into a birth position by now. Your provider can tell you which way yours is lying.",
-          "source_url": "https://kidshealth.org/en/parents/week34.html",
-          "review_note": "Source says 'most babies'; softened to 'many'. Please check."
+          "source_url": "https://kidshealth.org/en/parents/week34.html"
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -70,16 +59,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.47,
-        "intergrowth_50th_girls_kg": 2.38,
-        "intergrowth_midpoint_kg": 2.425,
-        "intergrowth_50th_boys_cm": 46.0,
-        "intergrowth_50th_girls_cm": 45.6,
-        "intergrowth_midpoint_cm": 45.8,
-        "who_kiserud_2017_table_11_50th_g": 2527,
-        "hadlock_1991_table_1_50th_g": 2595
-      },
       "facts": [
         {
           "text": "Your baby's brain is growing fast. At 35 weeks it weighs about two-thirds of what it will at 39 to 40 weeks.",
@@ -90,13 +69,11 @@
         },
         {
           "text": "Your baby keeps gaining weight as body fat builds.",
-          "source_url": "https://medlineplus.gov/ency/article/002398.htm",
-          "review_note": "The table used here shows roughly 8 to 9 oz a week around this point, so this fits."
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         },
         {
           "text": "If your baby moves less than usual or stops moving, seek medical care immediately.",
-          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html",
-          "review_note": "Deliberately leaves out KidsHealth's 'you might feel fewer movements'. See MEDICAL_REVIEW.md item E4."
+          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html"
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -117,16 +94,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.69,
-        "intergrowth_50th_girls_kg": 2.6,
-        "intergrowth_midpoint_kg": 2.645,
-        "intergrowth_50th_boys_cm": 47.0,
-        "intergrowth_50th_girls_cm": 46.5,
-        "intergrowth_midpoint_cm": 46.75,
-        "who_kiserud_2017_table_11_50th_g": 2745,
-        "hadlock_1991_table_1_50th_g": 2813
-      },
       "facts": [
         {
           "text": "The bones of your baby's skull can move and overlap to help during birth.",
@@ -140,8 +107,7 @@
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
           "additional_source_urls": [
             "https://medlineplus.gov/ency/article/002398.htm"
-          ],
-          "review_note": "MedlinePlus says some may remain on the upper arms and shoulders through weeks 38 to 40."
+          ]
         },
         {
           "text": "Your baby now has definite sleep patterns.",
@@ -165,16 +131,6 @@
           "display": "about 6 lb 9 oz (3.0 kg)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.89,
-        "intergrowth_50th_girls_kg": 2.8,
-        "intergrowth_midpoint_kg": 2.845,
-        "intergrowth_50th_boys_cm": 47.8,
-        "intergrowth_50th_girls_cm": 47.3,
-        "intergrowth_midpoint_cm": 47.55,
-        "who_kiserud_2017_table_11_50th_g": 2966,
-        "hadlock_1991_table_1_50th_g": 3028
       },
       "facts": [
         {
@@ -208,16 +164,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.07,
-        "intergrowth_50th_girls_kg": 2.97,
-        "intergrowth_midpoint_kg": 3.02,
-        "intergrowth_50th_boys_cm": 48.6,
-        "intergrowth_50th_girls_cm": 48.0,
-        "intergrowth_midpoint_cm": 48.3,
-        "who_kiserud_2017_table_11_50th_g": 3186,
-        "hadlock_1991_table_1_50th_g": 3236
-      },
       "facts": [
         {
           "text": "Your baby has been swallowing amniotic fluid. What builds up in the intestines becomes meconium, that first greenish-black poop.",
@@ -232,8 +178,7 @@
           "source_url": "https://kidshealth.org/en/parents/week38.html",
           "additional_source_urls": [
             "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
-          ],
-          "review_note": "Cleveland Clinic says about 0.5 lb a week at week 38. The table used here shows about 6 oz."
+          ]
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -254,16 +199,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.24,
-        "intergrowth_50th_girls_kg": 3.13,
-        "intergrowth_midpoint_kg": 3.185,
-        "intergrowth_50th_boys_cm": 49.3,
-        "intergrowth_50th_girls_cm": 48.7,
-        "intergrowth_midpoint_cm": 49.0,
-        "who_kiserud_2017_table_11_50th_g": 3403,
-        "hadlock_1991_table_1_50th_g": 3435
-      },
       "facts": [
         {
           "text": "Thirty-nine weeks is the start of full term, which runs through the end of week 40.",
@@ -271,8 +206,7 @@
         },
         {
           "text": "Antibodies from your body pass through the placenta and help protect your baby in the first months of life.",
-          "source_url": "https://kidshealth.org/en/parents/week39.html",
-          "review_note": "Source says 'first 6 to 12 months'. Shortened on purpose; I did not check the duration against a second source."
+          "source_url": "https://kidshealth.org/en/parents/week39.html"
         },
         {
           "text": "The umbilical cord is usually about 22 inches (55 cm) long and about half an inch thick.",
@@ -297,16 +231,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.38,
-        "intergrowth_50th_girls_kg": 3.26,
-        "intergrowth_midpoint_kg": 3.32,
-        "intergrowth_50th_boys_cm": 49.9,
-        "intergrowth_50th_girls_cm": 49.2,
-        "intergrowth_midpoint_cm": 49.55,
-        "who_kiserud_2017_table_11_50th_g": 3617,
-        "hadlock_1991_table_1_50th_g": 3619
-      },
       "facts": [
         {
           "text": "Your due date is an estimate. Most babies don't arrive exactly on it.",
@@ -317,8 +241,7 @@
         },
         {
           "text": "Ask your care team about monitoring and the plan for delivery.",
-          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date",
-          "review_note": "KidsHealth says a nonstress test may be recommended within a week of the due date. ACOG's wording is used here."
+          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date"
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -330,16 +253,6 @@
         "approximate": true,
         "compared_on": "weight",
         "unsourced": true
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.51,
-        "intergrowth_50th_girls_kg": 3.37,
-        "intergrowth_midpoint_kg": 3.44,
-        "intergrowth_50th_boys_cm": 50.5,
-        "intergrowth_50th_girls_cm": 49.8,
-        "intergrowth_midpoint_cm": 50.15,
-        "who_kiserud_2017_table_11_50th_g": null,
-        "hadlock_1991_table_1_50th_g": null
       },
       "facts": [
         {
@@ -364,29 +277,17 @@
         "compared_on": "weight",
         "unsourced": true
       },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.62,
-        "intergrowth_50th_girls_kg": 3.46,
-        "intergrowth_midpoint_kg": 3.54,
-        "intergrowth_50th_boys_cm": 51.0,
-        "intergrowth_50th_girls_cm": 50.2,
-        "intergrowth_midpoint_cm": 50.6,
-        "who_kiserud_2017_table_11_50th_g": null,
-        "hadlock_1991_table_1_50th_g": null
-      },
       "facts": [
         {
           "text": "From 42 weeks, a pregnancy is called postterm.",
           "source_url": "https://www.acog.org/clinical/guidance/committee-opinion/2013/11/definition-of-term-pregnancy/",
           "additional_source_urls": [
             "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date"
-          ],
-          "review_note": "The ACOG FAQ says 'longer than 42 weeks'; Committee Opinion 579 says 42 0/7 and beyond."
+          ]
         },
         {
           "text": "Ask your care team about the plan for delivery.",
-          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date",
-          "review_note": "The last sentence is ours, not ACOG's."
+          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date"
         },
         {
           "text": "Keep noticing your baby's movements. If they slow or stop, get care right away, even in the middle of the night.",

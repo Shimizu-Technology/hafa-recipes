@@ -59,6 +59,7 @@ describe("private-family review gates", () => {
     expect(text).not.toContain("an ultrasound might pick it up");
     expect(text).not.toContain("several cups a day");
     expect(text).not.toContain("uncomplicated labor and healthy babies");
+    expect(text).not.toMatch(/intergrowth|hadlock|figures_read|review_note/i);
     for (const batch of batches) for (const week of batch.weeks) expect(week.average?.length).toBeUndefined();
     expect(weekContent(41)?.content.average).toBeUndefined();
     expect(weekContent(42)?.content.average).toBeUndefined();

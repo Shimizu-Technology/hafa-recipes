@@ -176,8 +176,7 @@
       "items": [
         {
           "text": "Your baby may pull up to stand and walk while holding on to furniture.",
-          "source_url": "https://www.cdc.gov/act-early/milestones/1-year.html",
-          "review_note": "CDC's own 18-month list has 'walks without holding on.' We say nothing that sets a deadline."
+          "source_url": "https://www.cdc.gov/act-early/milestones/1-year.html"
         },
         {
           "text": "Your baby may call a parent mama, dada or another special name.",
@@ -239,8 +238,7 @@
         },
         {
           "text": "Your toddler may take a few steps on their own.",
-          "source_url": "https://kidshealth.org/en/parents/development-15mos.html",
-          "review_note": "CDC's 15-month list has this too, so it's consistent."
+          "source_url": "https://kidshealth.org/en/parents/development-15mos.html"
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -382,8 +380,7 @@
       "items": [
         {
           "text": "Your toddler may put two words together, like 'more milk.'",
-          "source_url": "https://www.cdc.gov/act-early/milestones/2-years.html",
-          "review_note": "CDC's lists: two words together at 2 years, about 50 words at 30 months. AAP's page says 50 by the end of the second year. They differ. Which should stand?"
+          "source_url": "https://www.cdc.gov/act-early/milestones/2-years.html"
         },
         {
           "text": "Your toddler may start to favor one hand. Many children don't show a preference for years.",

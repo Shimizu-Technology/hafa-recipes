@@ -103,8 +103,7 @@
       "facts": [
         {
           "text": "The umbilical cord is developing. It carries oxygen and nourishment to your baby.",
-          "source_url": "https://kidshealth.org/en/parents/week7.html",
-          "review_note": "Cleveland Clinic says fully developed at week 8."
+          "source_url": "https://kidshealth.org/en/parents/week7.html"
         },
         {
           "text": "The mouth, nostrils, ears and eyes are becoming more defined.",
@@ -168,9 +167,6 @@
         "compared_on": "size",
         "source_url": "https://kidshealth.org/en/parents/week10.html"
       },
-      "figures_read": {
-        "hadlock_1991_equation_g": 35
-      },
       "facts": [
         {
           "text": "Fingers and toes are separating.",
@@ -181,8 +177,7 @@
         },
         {
           "text": "Bones continue to develop as cartilage is replaced by bone.",
-          "source_url": "https://kidshealth.org/en/parents/week10.html",
-          "review_note": "Cleveland Clinic places this at week 7."
+          "source_url": "https://kidshealth.org/en/parents/week10.html"
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -194,9 +189,6 @@
         "approximate": true,
         "compared_on": "size",
         "source_url": "https://kidshealth.org/en/parents/week11.html"
-      },
-      "figures_read": {
-        "hadlock_1991_equation_g": 45
       },
       "facts": [
         {
@@ -228,14 +220,10 @@
         "compared_on": "size",
         "source_url": "https://kidshealth.org/en/parents/week12.html"
       },
-      "figures_read": {
-        "hadlock_1991_equation_g": 58
-      },
       "facts": [
         {
           "text": "Tiny fingernails and toenails are developing.",
-          "source_url": "https://kidshealth.org/en/parents/week12.html",
-          "review_note": "Cleveland Clinic places this at week 10."
+          "source_url": "https://kidshealth.org/en/parents/week12.html"
         },
         {
           "text": "The kidneys are starting to work. Your baby swallows amniotic fluid and passes it as urine.",
@@ -259,9 +247,6 @@
         "compared_on": "size",
         "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
       },
-      "figures_read": {
-        "hadlock_1991_equation_g": 73
-      },
       "facts": [
         {
           "text": "The placenta has fully formed. It brings oxygen and nutrients and carries away waste.",
@@ -269,8 +254,7 @@
         },
         {
           "text": "Vocal cords continue to develop.",
-          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
-          "review_note": "KidsHealth says week 12."
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         },
         {
           "text": "Your baby's head is starting to grow more in proportion to the body.",
@@ -294,10 +278,6 @@
           "display": "about 3 oz (90 g)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 90,
-        "hadlock_1991_equation_g": 93
       },
       "facts": [
         {
@@ -330,10 +310,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 114,
-        "hadlock_1991_equation_g": 117
-      },
       "facts": [
         {
           "text": "The skin is still very thin, so blood vessels show through it.",
@@ -365,10 +341,6 @@
           "display": "about 5 oz (144 g)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 144,
-        "hadlock_1991_equation_g": 146
       },
       "facts": [
         {
@@ -405,10 +377,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 179,
-        "hadlock_1991_equation_g": 181
-      },
       "facts": [
         {
           "text": "Bones are changing from soft cartilage to hard bone.",
@@ -440,10 +408,6 @@
           "display": "about 8 oz (222 g)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 222,
-        "hadlock_1991_equation_g": 223
       },
       "facts": [
         {
@@ -477,10 +441,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 272,
-        "hadlock_1991_equation_g": 273
-      },
       "facts": [
         {
           "text": "A white, waxy coating called vernix helps protect your baby's delicate skin.",
@@ -498,8 +458,7 @@
           "source_url": "https://kidshealth.org/en/parents/week20.html",
           "additional_source_urls": [
             "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
-          ],
-          "review_note": "Timing varies, especially in a first pregnancy. Is 'some people' enough to avoid worry?"
+          ]
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -519,10 +478,6 @@
           "display": "about 12 oz (330 g)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 330,
-        "hadlock_1991_equation_g": 331
       },
       "facts": [
         {
@@ -559,10 +514,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 398,
-        "hadlock_1991_equation_g": 399
-      },
       "facts": [
         {
           "text": "Arm and leg movements are coordinated and frequent.",
@@ -591,15 +542,10 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 476,
-        "hadlock_1991_equation_g": 478
-      },
       "facts": [
         {
           "text": "Taste buds are developing on the tongue.",
-          "source_url": "https://kidshealth.org/en/parents/week22.html",
-          "review_note": "Cleveland Clinic says week 9."
+          "source_url": "https://kidshealth.org/en/parents/week22.html"
         },
         {
           "text": "Your baby can feel touch, and may stroke their own face or suck a thumb.",
@@ -628,10 +574,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 565,
-        "hadlock_1991_equation_g": 568
-      },
       "facts": [
         {
           "text": "Fat is starting to build up, but the skin still hangs loosely, so your baby looks wrinkled.",
@@ -643,8 +585,7 @@
         },
         {
           "text": "Meconium, your baby's first poop, is forming in the intestines.",
-          "source_url": "https://medlineplus.gov/ency/article/002398.htm",
-          "review_note": "MedlinePlus lists this at week 22; used a week later here."
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -664,10 +605,6 @@
           "display": "about 1 lb 7 oz (665 g)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 665,
-        "hadlock_1991_equation_g": 670
       },
       "facts": [
         {
@@ -701,10 +638,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 778,
-        "hadlock_1991_equation_g": 785
-      },
       "facts": [
         {
           "text": "You may notice resting and alert times. Movement is often easier to notice when you're still.",
@@ -712,8 +645,7 @@
         },
         {
           "text": "Your baby's hearing continues to develop.",
-          "source_url": "https://kidshealth.org/en/parents/week25.html",
-          "review_note": "Cleveland Clinic says hearing at week 16, MedlinePlus at weeks 19 to 21."
+          "source_url": "https://kidshealth.org/en/parents/week25.html"
         },
         {
           "text": "More body fat is making the skin plumper and less wrinkled.",
@@ -737,10 +669,6 @@
           "display": "about 2 lb 0 oz (902 g)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 902,
-        "hadlock_1991_equation_g": 913
       },
       "facts": [
         {
@@ -773,10 +701,6 @@
           "display": "about 2 lb 5 oz (1.0 kg)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1039,
-        "hadlock_1991_equation_g": 1055
       },
       "facts": [
         {
@@ -816,10 +740,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1189,
-        "hadlock_1991_equation_g": 1210
-      },
       "facts": [
         {
           "text": "The folds and grooves of the brain are still developing.",
@@ -858,10 +778,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1350,
-        "hadlock_1991_equation_g": 1379
-      },
       "facts": [
         {
           "text": "First flutters have given way to harder jabs and pokes.",
@@ -879,8 +795,7 @@
         },
         {
           "text": "If your baby moves less than usual, don't wait: get care right away.",
-          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html",
-          "review_note": "Same wording as I3 in the first packet. KidsHealth's '10 times in 2 hours' is left out on purpose until you rule on E2 and E3."
+          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html"
         }
       ],
       "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
@@ -900,10 +815,6 @@
           "display": "about 3 lb 6 oz (1.5 kg)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1523,
-        "hadlock_1991_equation_g": 1559
       },
       "facts": [
         {
@@ -937,10 +848,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1707,
-        "hadlock_1991_equation_g": 1751
-      },
       "facts": [
         {
           "text": "Your baby swallows amniotic fluid and passes urine into it.",
@@ -973,10 +880,6 @@
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1901,
-        "hadlock_1991_equation_g": 1953
-      },
       "facts": [
         {
           "text": "Eyelashes, eyebrows and hair on the head are easy to see now.",
@@ -1008,10 +911,6 @@
           "display": "about 4 lb 10 oz (2.1 kg)"
         },
         "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 2103,
-        "hadlock_1991_equation_g": 2162
       },
       "facts": [
         {
