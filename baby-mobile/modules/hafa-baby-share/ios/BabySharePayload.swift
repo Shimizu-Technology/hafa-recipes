@@ -13,6 +13,33 @@ enum BabySharePayload {
     }
     rows.append(["text": caption]); return try JSONSerialization.data(withJSONObject: rows)
   }
+  // The next capture the app can act on, with its files where they are now. One whose files have really gone, or that can't
+  // be decoded, is set aside for Today's card and the ones behind it carry on. A locked phone never gets this far, because
+  // `pending` can't open the store, so nothing is judged unreadable just for being locked.
+  static func next(_ storage: BabyShareStore) throws -> [String: Any]? {
+    while let saved = try storage.pending() {
+      let id = String(saved.token.split(separator: ":")[0])
+      var files: [[String: Any]] = [], readable = true
+      var result = try? decode(saved)
+      for row in result?["files"] as? [[String: Any]] ?? [] {
+        guard let path = row["path"] as? String, let file = storage.ownedFile(path, capture: id),
+          FileManager.default.fileExists(atPath: file.path) else { readable = false; continue }
+        files.append(["path": file.absoluteString, "fileName": row["fileName"] as? String ?? file.lastPathComponent,
+          "mimeType": row["mimeType"] as? String ?? "application/octet-stream"])
+      }
+      if readable, result != nil, saved.receipt == nil || files.count == (result?["files"] as? [[String: Any]] ?? []).count {
+        result?["files"] = files
+        return result
+      }
+      // No account has said it's theirs, so there's nothing to tell yet. The drain stops at these anyway.
+      if saved.scope == nil { result?["files"] = files; return result ?? ["token": saved.token, "capture_id": id, "record_id": id, "files": files] }
+      guard try storage.block(saved.token, reason: "unreadable") else { throw BabyShareStore.Failure.invalid }
+      // Deliver the terminal outcome once, so a claimed card can settle and Today can refresh its refusal card.
+      return ["token": saved.token, "capture_id": id.lowercased(), "record_id": (saved.recordID ?? id).lowercased(),
+        "scope": saved.scope!, "claimed": saved.claimed, "occurred_at": ISO8601DateFormatter().string(from: saved.occurredAt), "files": [], "blocked": "unreadable"]
+    }
+    return nil
+  }
   static func requestBody(_ capture: [String: Any]) throws -> Data {
     guard capture["claimed"] as? Bool != true else { throw BabyShareStore.Failure.invalid }
     return try JSONSerialization.data(withJSONObject: capture.filter {
@@ -39,6 +66,7 @@ enum BabySharePayload {
     let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     var result: [String: Any] = ["token": saved.token, "count": files.count,
       "shared_at": format.string(from: saved.occurredAt), "kept_until": format.string(from: waiting.keptUntil)]
+    result["blocked"] = waiting.blocked
     if let mime = (files.first?["mimeType"] as? String)?.lowercased() {
       result["kind"] = mime.hasPrefix("image/") ? "photo" : mime.hasPrefix("video/") ? "video" : mime.hasPrefix("audio/") ? "audio" : mime == "application/pdf" ? "pdf" : "file"
     } else if !files.isEmpty {

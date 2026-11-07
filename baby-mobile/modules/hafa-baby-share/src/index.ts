@@ -18,6 +18,7 @@ export interface NativeShare {
   status?: "saved" | "deferred" | "queued";
   /** Someone said this one, shared under no account, was theirs. It never counts as permission for AI. */
   claimed?: boolean;
+  blocked?: "unreadable";
   import_id?: string;
   url?: string;
   text?: string;
@@ -31,6 +32,8 @@ export interface WaitingShare {
   host?: string;
   shared_at: string;
   kept_until: string;
+  /** Why the app can never take this one. */
+  blocked?: "file_too_large" | "unsupported_file" | "unreadable";
 }
 const bridge = requireOptionalNativeModule<{
   noteSignedIn(): Promise<void>;
@@ -48,6 +51,9 @@ const bridge = requireOptionalNativeModule<{
   returnClaim(token: string, owner: string): Promise<boolean>;
   claimShare(token: string, owner: string, generation: number): Promise<"claimed" | "expired" | "refused">;
   discardShare(token: string): Promise<boolean>;
+  blockShare(token: string, reason: string): Promise<boolean>;
+  blockedShares(owner: string): Promise<WaitingShare[]>;
+  removeBlockedShare(token: string, owner: string): Promise<boolean>;
 }>("HafaBabyShare");
 export const nativeSharingAvailable = !!bridge;
 /** Lets the share sheet tell a sign-in that hasn't connected yet from being signed out. Clearing the session clears it. */
@@ -65,6 +71,9 @@ export const waitingShareCount = () => bridge?.waitingShareCount() ?? Promise.re
 export const waitingShares = (owner: string) => bridge?.waitingShares(owner) ?? Promise.resolve([]);
 export const claimShare = (token: string, owner: string, generation: number) => bridge?.claimShare(token, owner, generation) ?? Promise.resolve("refused" as const);
 export const discardShare = (token: string) => bridge?.discardShare(token) ?? Promise.resolve(false);
+export const blockShare = (token: string, reason: string) => bridge?.blockShare(token, reason) ?? Promise.resolve(false);
+export const blockedShares = (owner: string) => bridge?.blockedShares(owner) ?? Promise.resolve([]);
+export const removeBlockedShare = (token: string, owner: string) => bridge?.removeBlockedShare(token, owner) ?? Promise.resolve(false);
 /** `destination` is `personal` or a family's id. None names no destination, as with the API's family flag off. */
 export const configureSession = (session: ShareSession, base: string, owner: string, destination: string | null = null) =>
   bridge?.configureSession(session.token, base, session.expires_at, owner, session.generation, session.auto_process_epoch ?? 0, destination) ?? Promise.resolve();

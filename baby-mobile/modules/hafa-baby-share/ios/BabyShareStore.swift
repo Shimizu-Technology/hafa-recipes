@@ -53,6 +53,7 @@ final class BabyShareStore {
   struct Waiting {
     let snapshot: Snapshot
     let keptUntil: Date
+    var blocked: String? = nil
   }
   private struct Manifest: Codable {
     let id: String
@@ -70,6 +71,8 @@ final class BabyShareStore {
     var expiryNoticed: Date? = nil
     // Someone signed in and said this no-owner capture was theirs. It keeps its share time, and never counts as permission for AI.
     var claimed: Bool? = nil
+    // The app can never take this one: `file_too_large`, `unsupported_file` or `unreadable`. It stays until removed, behind nothing and in front of nothing.
+    var blocked: String? = nil
     // A lapsed login retains this owner tag, but only for the original 30-day window.
     var lapsed: Bool? = nil
     var recordID: String? = nil
@@ -256,7 +259,7 @@ final class BabyShareStore {
       let generation = try epoch(), currentScope = scope()
       let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
       let published: [Manifest] = folders.compactMap { try? manifest($0.lastPathComponent) }
-      let values = published.filter { $0.payload != nil && (($0.scope != nil && $0.lapsed != true) || !expired($0)) && $0.epoch == generation &&
+      let values = published.filter { $0.payload != nil && $0.blocked == nil && (($0.scope != nil && $0.lapsed != true) || !expired($0)) && $0.epoch == generation &&
         (currentScope == nil || $0.scope == currentScope || Self.sameOwner($0.scope, currentScope)) }
         .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
       if let value = values.first { return try snapshot(value) }
@@ -270,16 +273,26 @@ final class BabyShareStore {
       return scope() == nil ? try snapshot(manifest(capture.id)) : nil
     }
   }
-  func ownedFile(_ path: String) -> URL? {
+  // A file is found by its place in this store, never by the container path it was saved under: restoring or moving a phone
+  // gives the app group a new path, and the file is still right here. Manifests keep the path as written, since their token
+  // hashes it and an older build reads it, so this is the one place that turns it into a real location.
+  func ownedFile(_ path: String, capture id: String? = nil) -> URL? {
     let parsed = URL(string: path)
-    let file = (parsed?.isFileURL == true ? parsed! : container.appendingPathComponent(URL(fileURLWithPath: path).lastPathComponent))
-      .standardizedFileURL.resolvingSymlinksInPath()
-    let parent = file.deletingLastPathComponent()
-    if parent == container || parent == container.appendingPathComponent("thumbnail") { return file }
-    if parent.deletingLastPathComponent() == captures,
-      UUID(uuidString: parent.lastPathComponent) != nil,
-      !["manifest.json", "lease.lock", "receipt.json"].contains(file.lastPathComponent) { return file }
-    return nil
+    let written = (parsed?.isFileURL == true ? parsed! : URL(fileURLWithPath: path)).standardizedFileURL
+    let name = written.lastPathComponent, parent = written.deletingLastPathComponent()
+    guard !name.isEmpty, name != "/", name != root.lastPathComponent else { return nil }
+    let home: URL
+    if parent.deletingLastPathComponent().lastPathComponent == captures.lastPathComponent, UUID(uuidString: parent.lastPathComponent) != nil,
+      parent.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent == root.lastPathComponent {
+      guard id == nil || parent.lastPathComponent == id, !["manifest.json", "lease.lock", "receipt.json"].contains(name) else { return nil }
+      home = captures.appendingPathComponent(parent.lastPathComponent, isDirectory: true)
+    } else if parent.lastPathComponent == "thumbnail" {
+      home = container.appendingPathComponent("thumbnail", isDirectory: true)
+    } else if parsed?.isFileURL != true || parent == container || parent.deletingLastPathComponent().lastPathComponent == "AppGroup" {
+      home = container
+    } else { return nil }
+    let file = home.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
+    return file.deletingLastPathComponent() == home.standardizedFileURL.resolvingSymlinksInPath() ? file : nil
   }
   private func removeLegacyFiles(_ value: Manifest) throws {
     guard !value.text, let payload = value.payload,
@@ -353,6 +366,41 @@ final class BabyShareStore {
       }
     }
   }
+  // A capture of this account's that can never be delivered, set aside so it can't hold up the ones behind it.
+  func block(_ token: String, reason: String) throws -> Bool {
+    try locked {
+      guard ["file_too_large", "unsupported_file", "unreadable"].contains(reason), let id = token.split(separator: ":").first.map(String.init),
+        UUID(uuidString: id) != nil, var value = try? manifest(id), value.token == token, value.scope != nil,
+        value.epoch == (try epoch()), Self.sameOwner(value.scope, scope()) else { return false }
+      value.blocked = reason
+      consumers.removeValue(forKey: token)
+      try write(value, to: directory(id).appendingPathComponent("manifest.json"))
+      return true
+    }
+  }
+  func blocked(owner: String) throws -> [Waiting] {
+    try locked {
+      guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return [] }
+      let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
+      return try folders.compactMap { try? manifest($0.lastPathComponent) }
+        .filter { $0.blocked != nil && ($0.lapsed != true || !expired($0)) && $0.epoch == generation && $0.scope.map { Self.tag($0).owner == owner } == true }
+        .sorted { $0.createdAt < $1.createdAt }
+        .compactMap { value in
+          guard let token = value.token, let payload = value.payload else { return nil }
+          let raw: Any = value.text ? ((try? JSONDecoder().decode([String].self, from: payload)) as Any? ?? payload) : payload
+          return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil, recordID: value.recordID), keptUntil: value.createdAt, blocked: value.blocked)
+        }
+    }
+  }
+  func removeBlocked(_ token: String, owner: String) throws -> Bool {
+    try locked {
+      guard let id = token.split(separator: ":").first.map(String.init), UUID(uuidString: id) != nil,
+        let value = try? manifest(id), value.token == token, value.blocked != nil,
+        value.scope.map({ Self.tag($0).owner == owner }) == true else { return false }
+      consumers.removeValue(forKey: token)
+      return try removeLocked(value)
+    }
+  }
   // The one door out of no-owner: this exact capture, for the account connected right now, into its own personal space.
   // The tag is written here rather than copied from the connection, because that may name a family.
   // Under the lock, the capture's own age and the connection's own generation have the last word, whatever a card still shows.
@@ -379,7 +427,7 @@ final class BabyShareStore {
         var value = try? manifest(id), value.token == token, value.claimed == true,
         value.scope.map({ Self.tag($0).owner == owner }) == true,
         scope().map({ Self.tag($0).owner == owner }) == true else { return false }
-      value.scope = nil; value.claimed = nil; value.automaticEpoch = 0
+      value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
       value.recordID = UUID().uuidString
       try? FileManager.default.removeItem(at: directory(id).appendingPathComponent("receipt.json"))
       consumers.removeValue(forKey: token)
@@ -436,7 +484,7 @@ final class BabyShareStore {
                   value.recordID = UUID().uuidString
                   try? FileManager.default.removeItem(at: folder.appendingPathComponent("receipt.json"))
                 }
-                value.scope = nil; value.claimed = nil; value.automaticEpoch = 0
+                value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
               }
               // Retire all live producers while retaining quarantined originals.
               value.epoch = generation

@@ -23,6 +23,8 @@ export function shareWhen(share: WaitingShare, now = new Date()) {
 }
 export const shareKeptUntil = (share: WaitingShare) => `kept until ${shortDate(new Date(share.kept_until))}`;
 export const expiredNotice = (count: number) => `${count === 1 ? "That share’s" : "Those shares’"} 30 days are up. ${count === 1 ? "It can’t" : "They can’t"} be added any more.`;
+export const blockedReason = (share: WaitingShare) => (share.blocked === "file_too_large" ? "It’s bigger than 25 MB."
+  : share.blocked === "unreadable" ? "It can’t be read on this phone any more." : "Håfa Baby can’t take this kind of file.");
 export const signInNotice = (count: number) => `${counted(count, "share")} ${count === 1 ? "is" : "are"} waiting on this phone. Sign in to add ${count === 1 ? "it" : "them"}.`;
 /** Sign-out and erase keep clearing everything on the phone. These say so first. */
 export const removedWarning = (count: number) => count < 0 ? "Any shares waiting on this phone will be removed." : `${counted(count, "share")} waiting here will be removed.`;
@@ -73,6 +75,11 @@ export async function addWaitingShares(tokens: string[], owner: string, generati
 }
 export async function removeWaitingShare(token: string) {
   const removed = await serializeShareSession(() => Share.discardShare(token));
+  sharesChanged();
+  return removed;
+}
+export async function removeBlockedShare(token: string, owner: string) {
+  const removed = await serializeShareSession(() => Share.removeBlockedShare(token, owner));
   sharesChanged();
   return removed;
 }

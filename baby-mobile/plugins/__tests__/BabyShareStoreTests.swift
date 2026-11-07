@@ -660,6 +660,93 @@ struct BabyShareStoreTests {
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "the current one can")
     }
     do {
+      // A restore or device transfer gives the app group a new path. The files are still there, and still found.
+      let suite = "hafa.share.test." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let before = folder.appendingPathComponent("AppGroup/11111111-AAAA-4AAA-8AAA-111111111111"), after = folder.appendingPathComponent("AppGroup/22222222-BBBB-4BBB-8BBB-222222222222")
+      try FileManager.default.createDirectory(at: before, withIntermediateDirectories: true)
+      let old = BabyShareStore(container: before, defaults: defaults)
+      try old.bind("owner-a:1:personal")
+      let photo = try old.begin(), gone = try old.begin(), foreign = try old.begin(), legacy = try old.begin()
+      let photoFile = photo.directory.appendingPathComponent("photo.jpg"), goneFile = gone.directory.appendingPathComponent("gone.jpg"), legacyFile = before.appendingPathComponent("legacy.jpg")
+      for file in [photoFile, goneFile, legacyFile] { try Data("private".utf8).write(to: file) }
+      func row(_ file: URL) throws -> Data { try JSONSerialization.data(withJSONObject: [["path": file.absoluteString, "fileName": file.lastPathComponent, "mimeType": "image/jpeg"]]) }
+      try old.publish(row(photoFile), capture: photo)
+      try old.publish(row(goneFile), capture: gone)
+      // Names another capture's folder, which no real capture does.
+      try old.publish(row(photoFile), capture: foreign)
+      try old.publish(row(legacyFile), capture: legacy)
+      let waiting = UUID().uuidString
+      try old.publish(["the one behind"], id: waiting)
+      try FileManager.default.removeItem(at: goneFile)
+      try FileManager.default.moveItem(at: before, to: after)
+      let moved = BabyShareStore(container: after, defaults: defaults)
+      var capture = try BabySharePayload.next(moved)!
+      var files = capture["files"] as! [[String: Any]]
+      let found = URL(string: files[0]["path"] as! String)!
+      try check(found.path.hasPrefix(after.standardizedFileURL.resolvingSymlinksInPath().path) && FileManager.default.fileExists(atPath: found.path), "a moved container's file is found where it is now")
+      try check(files[0]["fileName"] as? String == "photo.jpg", "under its own name")
+      try check(try moved.acknowledge(capture["token"] as! String), "and it hands off")
+      capture = try BabySharePayload.next(moved)!
+      try check(capture["blocked"] as? String == "unreadable" && capture["capture_id"] as? String == gone.id.lowercased(), "missing original reports its terminal outcome once")
+      capture = try BabySharePayload.next(moved)!
+      try check(capture["blocked"] as? String == "unreadable" && capture["capture_id"] as? String == foreign.id.lowercased(), "foreign capture path reports its own refusal")
+      capture = try BabySharePayload.next(moved)!
+      files = capture["files"] as! [[String: Any]]
+      try check(capture["capture_id"] as? String == legacy.id.lowercased(), "a file gone and one naming another capture's folder are both set aside, and the queue moves on")
+      try check(FileManager.default.fileExists(atPath: URL(string: files[0]["path"] as! String)!.path), "an old container-root file is found too")
+      try check(try moved.acknowledge(capture["token"] as! String), "and hands off")
+      capture = try BabySharePayload.next(moved)!
+      try check(capture["capture_id"] as? String == waiting.lowercased(), "the one behind arrives")
+      try check(try moved.acknowledge(capture["token"] as! String), "and hands off")
+      try check(try BabySharePayload.next(moved) == nil, "and the queue is empty, without throwing")
+      let aside = try moved.blocked(owner: "owner-a")
+      try check(aside.count == 2 && aside.allSatisfy { $0.blocked == "unreadable" }, "the two unreadable ones wait for Today's card")
+      try check(try moved.removeBlocked(aside[0].snapshot.token, owner: "owner-a"), "which can remove them")
+      try check(moved.ownedFile("file:///etc/passwd") == nil, "a path outside the store is still refused")
+      try check(moved.ownedFile(photoFile.deletingLastPathComponent().appendingPathComponent("../../../../secret").absoluteString) == nil, "and a climb out of it")
+      // A locked phone isn't a missing file.
+      let lock = after.appendingPathComponent(".hafa-baby-share-store-v1/store.lock")
+      try moved.publish(["kept through a lock"], id: UUID().uuidString)
+      try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lock.path)
+      var threw = false
+      do { _ = try BabySharePayload.next(moved) } catch { threw = true }
+      try check(threw, "with the store closed nothing is judged")
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: lock.path)
+      try check(try moved.blocked(owner: "owner-a").count == 1, "and nothing was set aside for it")
+      try check(try BabySharePayload.next(moved) != nil, "it's still there afterwards")
+    }
+    do {
+      // A capture that can never be delivered doesn't hold up the ones behind it.
+      let (_, defaults, store, suite) = try fixture("blocked")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      let big = UUID().uuidString, next = UUID().uuidString
+      try store.publish(["too big"], id: big)
+      try store.publish(["next"], id: next)
+      let first = try store.pending()!
+      try check(first.token.hasPrefix(big), "it comes up first")
+      try check(try !store.block(first.token, reason: "anything else"), "only the app's own refusals set one aside")
+      try check(try !store.block(first.token + "x", reason: "file_too_large"), "and only the exact capture")
+      try check(try store.block(first.token, reason: "file_too_large"), "it's set aside")
+      let second = try store.pending()!
+      try check(second.token.hasPrefix(next), "the next one comes through")
+      try check(try store.acknowledge(second.token), "and is delivered")
+      try check(try store.pending() == nil, "nothing keeps retrying the blocked one")
+      try check(try store.blocked(owner: "owner-b").isEmpty, "another account isn't shown it")
+      let rows = try store.blocked(owner: "owner-a")
+      try check(rows.count == 1 && rows[0].blocked == "file_too_large", "its owner is, with why")
+      try check(try BabySharePayload.summary(rows[0])["blocked"] as? String == "file_too_large", "the card is told why")
+      try check(try !store.discard(first.token), "not mine can't touch it")
+      try check(try !store.removeBlocked(first.token, owner: "owner-b"), "another account can't remove it")
+      try check(try store.removeBlocked(first.token, owner: "owner-a"), "its owner can")
+      try check(try store.blocked(owner: "owner-a").isEmpty, "and it's gone")
+      try store.publish(["big again"], id: UUID().uuidString)
+      try check(try store.block(store.pending()!.token, reason: "unsupported_file"), "set aside again")
+      try store.clear()
+      try check(try store.blocked(owner: "owner-a").isEmpty, "sign-out clears these too")
+    }
+    do {
       let (_, defaults, store, suite) = try fixture("claim-reset-recovery")
       defer { defaults.removePersistentDomain(forName: suite) }
       try store.publish(["must not disappear"], id: UUID().uuidString)
@@ -672,6 +759,7 @@ struct BabyShareStoreTests {
       var rejected = false
       do { _ = try BabySharePayload.requestBody(claimed) } catch { rejected = true }
       try check(rejected, "a claimed capture cannot go through native direct submission")
+      try check(try store.block(token, reason: "unreadable"), "a raced claim may already have a terminal refusal")
       try check(try store.returnClaim(token, owner: "other") == false, "another account cannot return a claim")
       try check(try store.returnClaim(token, owner: "owner-a"), "stale personal generation returns to waiting")
       try check(try store.unassignedCount() == 1, "original still available for explicit Add")
@@ -680,10 +768,13 @@ struct BabyShareStoreTests {
       token = try store.unassigned(owner: "owner-a")[0].snapshot.token
       try check(try BabySharePayload.decode(store.unassigned(owner: "owner-a")[0].snapshot)["record_id"] as? String != originalRecord, "fresh record identity avoids the erased generation tombstone")
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "can Add after reset")
+      try check(try store.pending() != nil, "returned claim clears its previous blocked marker for revalidation")
+      try check(try store.block(token, reason: "file_too_large"), "a claimed original may already be set aside")
       try store.bind("owner-a:2:" + family)
       try check(try store.unassignedCount() == 1, "same-account rebind preserves in-flight claimed original")
       token = try store.unassigned(owner: "owner-a")[0].snapshot.token
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "recovered original needs Add again")
+      try check(try store.pending() != nil, "recovered blocked original is revalidated instead of silently skipped")
       try store.clear(preserveUnassigned: true, recoveringOwner: "owner-a")
       try check(try store.unassignedCount() == 1, "context privacy clear preserves the same account claim")
       try store.bind("owner-a:2:" + family)
@@ -710,6 +801,13 @@ struct BabyShareStoreTests {
       var rejected = false
       do { _ = try BabySharePayload.decode(waiting.snapshot) } catch { rejected = true }
       try check(rejected, "bad payload is refused rather than acknowledged as empty")
+      let next = try BabySharePayload.next(store)!
+      try check(next["blocked"] as? String == "unreadable", "malformed text is set aside visibly")
+      try check(next["occurred_at"] is String, "terminal outcome preserves the native event contract")
+      try check(try store.blocked(owner: "owner-a").count == 1, "malformed original remains discoverable")
+      try check(try BabySharePayload.summary(store.blocked(owner: "owner-a")[0])["kind"] as? String == "text", "blocked malformed summary remains visible")
+      try store.publish(["following"], id: UUID().uuidString)
+      try check(try BabySharePayload.next(store)?["text"] as? String == "following", "malformed original cannot block later captures")
     }
 
     do {

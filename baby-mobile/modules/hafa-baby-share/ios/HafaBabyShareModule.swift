@@ -46,6 +46,13 @@ public final class HafaBabyShareModule: Module {
     AsyncFunction("claimShare") { (token: String, owner: String, generation: Int) throws -> String in
       try self.safely { try self.store().claim(token, owner: owner, generation: generation).rawValue }
     }
+    AsyncFunction("blockShare") { (token: String, reason: String) throws -> Bool in try self.safely { try self.store().block(token, reason: reason) } }
+    AsyncFunction("blockedShares") { (owner: String) throws -> [[String: Any]] in
+      try self.safely { try self.store().blocked(owner: owner).map(BabySharePayload.summary) }
+    }
+    AsyncFunction("removeBlockedShare") { (token: String, owner: String) throws -> Bool in
+      try self.safely { try self.store().removeBlocked(token, owner: owner) }
+    }
     AsyncFunction("returnClaim") { (token: String, owner: String) throws -> Bool in
       try self.safely { try self.store().returnClaim(token, owner: owner) }
     }
@@ -63,17 +70,5 @@ public final class HafaBabyShareModule: Module {
     }
   }
 
-  private func snapshot() throws -> [String: Any]? {
-    let storage = try store()
-    guard let saved = try storage.pending() else { return nil }
-    var result = try BabySharePayload.decode(saved)
-    var files: [[String: Any]] = []
-    for row in result["files"] as? [[String: Any]] ?? [] {
-      guard let path = row["path"] as? String, let file = storage.ownedFile(path) else { throw BabyShareStore.Failure.invalid }
-      files.append(["path": file.absoluteString, "fileName": row["fileName"] as? String ?? file.lastPathComponent,
-        "mimeType": row["mimeType"] as? String ?? "application/octet-stream"])
-    }
-    result["files"] = files
-    return result
-  }
+  private func snapshot() throws -> [String: Any]? { try BabySharePayload.next(store()) }
 }
