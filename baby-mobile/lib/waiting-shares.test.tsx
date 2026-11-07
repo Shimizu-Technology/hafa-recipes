@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const w = vi.hoisted(() => ({
   baby: null as any, rows: [] as any[], current: true, alerts: [] as { title: string; message: string; buttons: { text: string; onPress?: () => void }[] }[],
+  count: vi.fn(async () => w.rows.length),
   claim: vi.fn(async (..._: unknown[]) => "claimed"), discard: vi.fn(async (..._: unknown[]) => true), toast: vi.fn(), foreground: null as null | ((state: string) => void),
 }));
 vi.mock("react-native", () => ({
@@ -13,7 +14,7 @@ vi.mock("react-native", () => ({
 vi.mock("@clerk/expo", () => ({ useUser: () => ({ user: { primaryEmailAddress: { emailAddress: "kami@example.com" } } }) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => w.baby }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
-  waitingShares: async (owner: string) => (owner === "owner" ? w.rows : []), waitingShareCount: async () => w.rows.length,
+  waitingShares: async (owner: string) => (owner === "owner" ? w.rows : []), waitingShareCount: () => w.count(),
   claimShare: w.claim, discardShare: w.discard, clearSession: async () => undefined,
 }));
 vi.mock("../components/ui", () => ({
@@ -40,6 +41,15 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
 
+it("requires confirmation if the waiting count cannot be read", async () => {
+  w.count.mockRejectedValueOnce(Error("locked"));
+  const out = vi.fn();
+  await confirmSignOut(out);
+  expect(out).not.toHaveBeenCalled();
+  expect(w.alerts[0].message).toContain("Any shares waiting on this phone will be removed.");
+  w.alerts[0].buttons.find(button => button.text === "Sign out and clear device")!.onPress!();
+  expect(out).toHaveBeenCalledOnce();
+});
 describe("the words", () => {
   it("name a share by its type and website only", () => {
     expect(shareLabel(row() as any)).toBe("Link from tiktok.com");

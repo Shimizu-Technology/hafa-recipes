@@ -25,15 +25,15 @@ export const shareKeptUntil = (share: WaitingShare) => `kept until ${shortDate(n
 export const expiredNotice = (count: number) => `${count === 1 ? "That share’s" : "Those shares’"} 30 days are up. ${count === 1 ? "It can’t" : "They can’t"} be added any more.`;
 export const signInNotice = (count: number) => `${counted(count, "share")} ${count === 1 ? "is" : "are"} waiting on this phone. Sign in to add ${count === 1 ? "it" : "them"}.`;
 /** Sign-out and erase keep clearing everything on the phone. These say so first. */
-export const removedWarning = (count: number) => `${counted(count, "share")} waiting here will be removed.`;
+export const removedWarning = (count: number) => count < 0 ? "Any shares waiting on this phone will be removed." : `${counted(count, "share")} waiting here will be removed.`;
 
-export const waitingShareCount = () => Share.waitingShareCount().catch(() => 0);
+export const waitingShareCount = () => Share.waitingShareCount().catch(() => -1);
 /** Signed out, the count is all this phone says about what's waiting. */
 export function useWaitingShareCount() {
   const [count, setCount] = useState(0);
   useEffect(() => {
     let alive = true;
-    const load = () => void waitingShareCount().then((next) => { if (alive) setCount(next); });
+    const load = () => void waitingShareCount().then((next) => { if (alive) setCount(Math.max(0, next)); });
     load();
     const app = AppState.addEventListener("change", (state) => { if (state === "active") load(); });
     const stop = onSharesChanged(load);
