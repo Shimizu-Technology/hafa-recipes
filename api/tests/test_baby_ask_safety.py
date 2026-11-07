@@ -126,7 +126,7 @@ def test_urgent_maternal_signs_get_the_fixed_reply(message):
 )
 def test_a_sick_or_hurt_baby_gets_call_the_doctor(message):
     assert classify(message, ["Sunny"]).kind == BABY_UNWELL
-    assert "baby's doctor" in MESSAGES[BABY_UNWELL] and "911" in MESSAGES[BABY_UNWELL]
+    assert "baby's doctor" in MESSAGES[BABY_UNWELL] and not MESSAGES[BABY_UNWELL].startswith("Call 911")
 
 
 @pytest.mark.parametrize(
@@ -304,7 +304,20 @@ VARIANTS = [
 async def assert_fixed(response, stub):  # noqa: F811
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["help"] in MESSAGES and body["message"] == MESSAGES[body["help"]]
+    question = json.loads(response.request.content)["message"]
+    if question == "I keep thinking about hurting myself":
+        expected_kind, expected = HARM, MESSAGES[HARM]
+    elif question in {"I am bleeding heavily", "My baby is moving less", "I have a severe headache and my vision is blurry",
+                      "Less movement today than yesterday", "There is no movement from baby today"}:
+        expected_kind, expected = URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL]
+    elif question in {"My newborn has a fever", "My newborn has a temperature of 38.5", "My newborn has a fevr",
+                      "The newborn has a fever. What do sources recommend?", "My infant has not had a wet diaper all day"}:
+        expected_kind, expected = BABY_UNWELL, "Call your baby's doctor now or seek urgent care."
+    elif question == "Sunny is limp":
+        expected_kind, expected = BABY_UNWELL, "Go to the emergency room now for your baby."
+    else:
+        expected_kind, expected = BABY_UNWELL, "Call 911 now. Your baby may be having a life-threatening emergency."
+    assert body["help"] == expected_kind and body["message"] == expected
     assert body["citations"] == [] and body["proposal"] is None and stub.sent == []
     return body
 
@@ -791,7 +804,7 @@ def test_the_floor_catches_the_phrasings_the_review_found(message, kind):
 async def test_those_phrasings_work_with_the_ai_off_and_on_the_old_path(baby_api, stub, monkeypatch, message, kind):  # noqa: F811
     monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda self: False))
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()), "message": message})
-    assert response.status_code == 200 and response.json()["message"] == MESSAGES[kind] and stub.sent == []
+    assert response.status_code == 200 and response.json()["message"] == classify(message).message and stub.sent == []
 
 
 REVIEW_DOSES = [
