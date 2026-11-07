@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const w = vi.hoisted(() => ({
-  baby: null as any, rows: [] as any[], current: true, alerts: [] as { title: string; message: string; buttons: { text: string; onPress?: () => void }[] }[],
+  readError: false, blockedReadError: false, baby: null as any, rows: [] as any[], current: true, alerts: [] as { title: string; message: string; buttons: { text: string; onPress?: () => void }[] }[],
   blocked: [] as any[], removeBlocked: vi.fn(async (..._: unknown[]) => true),
   count: vi.fn(async () => w.rows.length),
   claim: vi.fn(async (..._: unknown[]) => "claimed"), discard: vi.fn(async (..._: unknown[]) => true), toast: vi.fn(), foreground: null as null | ((state: string) => void),
@@ -15,8 +15,8 @@ vi.mock("react-native", () => ({
 vi.mock("@clerk/expo", () => ({ useUser: () => ({ user: { primaryEmailAddress: { emailAddress: "kami@example.com" } } }) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => w.baby }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
-  waitingShares: async (owner: string) => (owner === "owner" ? w.rows : []), waitingShareCount: () => w.count(), removalShareCount: () => w.count(),
-  blockedShares: async () => w.blocked, removeBlockedShare: w.removeBlocked,
+  waitingShares: async (owner: string) => { if (w.readError) throw Error("locked"); return owner === "owner" ? w.rows : []; }, waitingShareCount: () => w.count(), removalShareCount: () => w.count(),
+  blockedShares: async () => { if (w.blockedReadError) throw Error("locked"); return w.blocked; }, removeBlockedShare: w.removeBlocked,
   claimShare: w.claim, discardShare: w.discard, clearSession: async () => undefined,
 }));
 vi.mock("../components/ui", () => ({
@@ -25,7 +25,7 @@ vi.mock("../components/ui", () => ({
 }));
 import { WaitingShares } from "../components/waiting-shares";
 import { confirmSignOut, removedWarning, shareLabel, shareWhen, shareKeptUntil, signInNotice, useWaitingShareCount } from "./waiting-shares";
-import { claimSettled, revokeShareSession } from "./share-session-state";
+import { claimSettled, revokeShareSession, sharesChanged } from "./share-session-state";
 
 const row = (over = {}) => ({ token: "a:1", kind: "link", count: 0, host: "tiktok.com", shared_at: "2026-11-06T14:14:00.000Z", kept_until: "2026-12-06T14:14:00.000Z", ...over });
 let renderer: ReactTestRenderer | undefined;
@@ -274,9 +274,9 @@ describe("signing out", () => {
 });
 
 it("ends the whole Adding batch if one transient failure stops its drain", async () => {
-  w.rows = [row(), row({ token: "b:2" })];
+  w.rows = [row({ token: "batch-failure:1" }), row({ token: "batch-failure:2" })];
   await mount(); await press("Add all 2");
-  await act(async () => { claimSettled("a:1", "failed"); });
+  await act(async () => { claimSettled("batch-failure:1", "failed"); });
   expect(text()).not.toContain("Adding to your saved posts…");
   expect(text()).toContain("still on this phone");
   expect(w.toast).not.toHaveBeenCalled();
@@ -286,4 +286,34 @@ it("tells her when a native removal is refused", async () => {
   await mount(); await press("Not mine, remove it");
   await act(async () => { await w.alerts.at(-1)!.buttons.find(b => b.text === "Remove")!.onPress!(); });
   expect(text()).toContain("couldn’t be removed");
+});
+
+it("warns before sign-out even when only a blocked original remains", async () => {
+  w.rows = []; w.count.mockResolvedValueOnce(1);
+  const out = vi.fn(); await confirmSignOut(out);
+  expect(out).not.toHaveBeenCalled();
+  expect(w.alerts[0].message).toContain("1 share waiting here will be removed.");
+});
+it("reports a refused blocked removal", async () => {
+  w.blocked = [row({ token: "refused:blocked", blocked: "unreadable" })];
+  w.removeBlocked.mockResolvedValueOnce(false);
+  await mount(); await press("Remove it");
+  await act(async () => { await w.alerts.at(-1)!.buttons.find(b => b.text === "Remove")!.onPress!(); });
+  expect(text()).toContain("couldn’t be removed");
+});
+
+it("keeps a waiting row visible when a refresh fails", async () => {
+  w.rows = [row({ token: "read-retry:1" })]; await mount();
+  w.readError = true;
+  await act(async () => { sharesChanged(); });
+  expect(text()).toContain("Link from tiktok.com");
+  expect(text()).toContain("couldn’t be read");
+});
+it("offers retry even when a blocked list fails before rows can be read", async () => {
+  w.blockedReadError = true; await mount();
+  expect(text()).toContain("couldn’t be read");
+  w.blockedReadError = false;
+  w.blocked = [row({ token: "read-blocked:1", blocked: "unreadable" })];
+  await press("Try again");
+  expect(text()).toContain("This share couldn’t be added");
 });

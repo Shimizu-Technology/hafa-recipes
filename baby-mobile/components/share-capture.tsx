@@ -107,7 +107,7 @@ export function ShareCapture() {
             }
             if (!url && !text?.trim() && !copied.length) {
               // Nothing in it to keep, and left here it would hold up every share behind it.
-              if (native && acknowledgeShare(native.token)) { settle("gone"); continue; }
+              if (native && acknowledge(native.token)) { settle("gone"); continue; }
               return;
             }
             const occurred_at = native?.occurred_at ?? new Date().toISOString();

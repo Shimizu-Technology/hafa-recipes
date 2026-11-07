@@ -35,8 +35,8 @@ enum BabySharePayload {
       if saved.scope == nil { result?["files"] = files; return result ?? ["token": saved.token, "capture_id": id, "record_id": id, "files": files] }
       guard try storage.block(saved.token, reason: "unreadable") else { throw BabyShareStore.Failure.invalid }
       // Deliver the terminal outcome once, so a claimed card can settle and Today can refresh its refusal card.
-      return ["token": saved.token, "capture_id": id.lowercased(), "record_id": id.lowercased(),
-        "scope": saved.scope!, "claimed": saved.claimed, "files": [], "blocked": "unreadable"]
+      return ["token": saved.token, "capture_id": id.lowercased(), "record_id": (saved.recordID ?? id).lowercased(),
+        "scope": saved.scope!, "claimed": saved.claimed, "occurred_at": ISO8601DateFormatter().string(from: saved.occurredAt), "files": [], "blocked": "unreadable"]
     }
     return nil
   }

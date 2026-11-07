@@ -340,6 +340,10 @@ it("keeps retrying a capture on a passing failure, and doesn't set it aside", as
   expect(scope.acknowledge).not.toHaveBeenCalled();
   expect(account.state.outbox).toEqual([]);
   expect(scope.alerts.map(a => a.title)).toEqual(["Your share is still on this phone"]);
+  scope.pending.mockResolvedValueOnce({ ...payload("flaky"), files: [{ path: "file:///a.mov", fileName: "a.mov", mimeType: "video/quicktime" }] }).mockResolvedValueOnce(payload("following-flaky")).mockResolvedValue(null);
+  await act(async () => { scope.foreground?.("active"); });
+  expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:flaky", "share-save:following-flaky"]);
+  expect(scope.acknowledge).toHaveBeenCalledWith("flaky");
 });
 it("a share added from the waiting card never starts AI, even with automatic organizing on and matching numbers", async () => {
   const account = setup(); Object.assign(account.state.bootstrap!.profile, { ai_consent: true, auto_process_shares: true, auto_process_epoch: 0 });
@@ -693,4 +697,14 @@ it("settles a claimed retained receipt only after saving its original", async ()
     expect(account.state.outbox[0]).toMatchObject({ type: "save" });
     expect(settled).toHaveBeenCalledWith("capture-A", "saved");
   } finally { stop(); }
+});
+
+it("retries an empty capture acknowledgement before draining the next claim", async () => {
+  const account = setup();
+  const empty = { ...payload(), text: " ", url: undefined, files: [], claimed: true };
+  scope.pending.mockResolvedValueOnce(empty).mockResolvedValueOnce(empty).mockResolvedValueOnce({ ...payload("capture-B"), claimed: true }).mockResolvedValue(null);
+  scope.acknowledge.mockReturnValueOnce(false).mockReturnValue(true);
+  await mount(ShareCapture); await account.drain();
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); await account.drain(); });
+  expect(scope.acknowledge).toHaveBeenCalledWith("capture-B");
 });

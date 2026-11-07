@@ -26,20 +26,23 @@ function BlockedShares() {
   const [rows, setRows] = useState<Share.WaitingShare[]>([]), [error, setError] = useState("");
   const load = useCallback(async () => {
     if (!owner) return setRows([]);
-    const next = await Share.blockedShares(owner).catch(() => [] as Share.WaitingShare[]);
-    if (b.current()) setRows(next.filter((row) => !notNow.has(`${owner}:${row.token}`)));
+    try {
+      const next = await Share.blockedShares(owner);
+      if (b.current()) setRows(next.filter((row) => !notNow.has(`${owner}:${row.token}`)));
+    } catch { if (b.current()) setError("Your shares couldn’t be read just now. Try again."); }
   }, [owner]);
   useEffect(() => {
     void load();
+    const app = AppState.addEventListener("change", state => { if (state === "active") void load(); });
     const stop = onSharesChanged(() => void load());
-    return stop;
+    return () => { app.remove(); stop(); };
   }, [load]);
   if (!owner) return null;
   const remove = (token: string) => Alert.alert("Remove from this phone?", "It hasn’t gone anywhere else. This can’t be undone.", [
     { text: "Keep it", style: "cancel" },
-    { text: "Remove", style: "destructive", onPress: () => void removeBlockedShare(token, owner).catch(() => setError("That couldn’t be removed just now. Try again.")) },
+    { text: "Remove", style: "destructive", onPress: () => void removeBlockedShare(token, owner).then(removed => { if (!removed) setError("That couldn’t be removed just now. Try again."); }).catch(() => setError("That couldn’t be removed just now. Try again.")) },
   ]);
-  return <>{rows.map((row) => <Card key={row.token} style={{ gap: 12 }}>
+  return <>{!!error && <Card><Notice error>{error}</Notice><Button title="Try again" onPress={() => { setError(""); void load(); }} /></Card>}{rows.map((row) => <Card key={row.token} style={{ gap: 12 }}>
     <Copy kind="heading">This share couldn’t be added</Copy>
     <View style={{ gap: 2, padding: 12, borderRadius: radii.thumb, backgroundColor: c.tile }}>
       <Copy kind="label">{shareLabel(row)}</Copy>

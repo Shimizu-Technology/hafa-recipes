@@ -775,6 +775,13 @@ struct BabyShareStoreTests {
       var rejected = false
       do { _ = try BabySharePayload.decode(waiting.snapshot) } catch { rejected = true }
       try check(rejected, "bad payload is refused rather than acknowledged as empty")
+      let next = try BabySharePayload.next(store)!
+      try check(next["blocked"] as? String == "unreadable", "malformed text is set aside visibly")
+      try check(next["occurred_at"] is String, "terminal outcome preserves the native event contract")
+      try check(try store.blocked(owner: "owner-a").count == 1, "malformed original remains discoverable")
+      try check(try BabySharePayload.summary(store.blocked(owner: "owner-a")[0])["kind"] as? String == "text", "blocked malformed summary remains visible")
+      try store.publish(["following"], id: UUID().uuidString)
+      try check(try BabySharePayload.next(store)?["text"] as? String == "following", "malformed original cannot block later captures")
     }
     print("\(count) native capture store cases passed")
   }
