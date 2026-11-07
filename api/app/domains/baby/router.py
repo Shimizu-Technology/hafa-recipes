@@ -167,7 +167,9 @@ def record_response(row, access=None, child_ids=None):
         result.update(space_id=str(row.space_id), generation=row.generation, created_by=row.app_user_id)
     if child_ids is not None and row.kind == "journal" and row.child_id not in child_ids:
         result["child_id"] = None
-    return result
+    from app.domains.baby.access import visit_response
+
+    return visit_response(row, result, access)
 
 
 async def record_reply(db, row, access):
@@ -1044,6 +1046,8 @@ def pasted_replay(prior, body):
 async def visit_defaults(user: User, db: Database, generation: Generation, access: Access):
     """Read the explicitly selected saved provider snapshot in this space, including uncached history."""
     access.check_generation(generation)
+    if access.enabled and access.target.role == "caregiver":
+        return None
     conditions = [row_scope(BabyRecord, access, generation), BabyRecord.deleted_at.is_(None), BabyRecord.kind == "event", BabyRecord.data["provider_default"].as_boolean().is_(True)]
     if access.enabled:
         conditions.append(BabyRecord.space_id == access.target.id)
@@ -1142,6 +1146,16 @@ async def patch_record(
             **values["data"],
             "actions": retimed(values["data"]["actions"], body.occurred_at.isoformat()),
         }
+    from app.domains.baby.access import VISIT_PRIVATE_FIELDS, caregiver_visit
+
+    if row.kind == "event" and isinstance(body.data, dict) and "paste_origin" in body.data and body.data["paste_origin"] != row.data.get("paste_origin") and row.app_user_id != access.actor:
+        raise HTTPException(403, "Only the person who added the original words can remove or change them")
+    if caregiver_visit(row, access):
+        if values["data"].get("category") != row.data.get("category"):
+            raise HTTPException(403, "Only a parent can change a visit category")
+        values["body"] = row.body
+        values["data"] = {key: value for key, value in values["data"].items() if key not in VISIT_PRIVATE_FIELDS}
+        values["data"].update({key: value for key, value in row.data.items() if key in VISIT_PRIVATE_FIELDS})
     if row.kind == "event":
         values["data"] = reconciled_event(values["data"], values["occurred_at"])
     try:

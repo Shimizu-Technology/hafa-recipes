@@ -1,4 +1,4 @@
-import { estimatedAge } from "../lib/prenatal";
+import { estimatedAge, pregnancyVisit } from "../lib/prenatal";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
@@ -56,6 +56,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     // A private event can't be on a baby the family shares. Only said when there's one it could have been on.
     offFamilyBaby = !!choice && !choice.shared && children.some((child) => child.space_id !== bootstrap.personal_space_id),
     baby = draft.child_id ? babies.find((child) => child.id === draft.child_id) : undefined;
+  const medical = familySpaces(bootstrap).find((item) => item.id === (space ?? draft.space_id))?.role !== "caregiver";
   const [defaults, setDefaults] = useState<{ doctor: string | null; location: string | null } | null>(null);
   const defaultSpace = space ?? draft.space_id ?? bootstrap.personal_space_id;
   const defaultsKey = `${defaultSpace ?? "personal"}:${generationOf(bootstrap, defaultSpace) ?? bootstrap.generation}`;
@@ -75,12 +76,13 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     {data.all_day
       ? <DateField label="When" dateOnly value={key} onChange={(day) => change({ occurred_at: zonedInstant(day, 0, 0, zone).toISOString() })} trailing={<AllDay on onPress={() => change(allDayChanged(draft, false))} />} />
       : <DateField label="When" timeZone={zone} value={draft.occurred_at} onChange={(start) => change(startingAt(draft, start))} trailing={<AllDay on={false} onPress={() => change(allDayChanged(draft, true))} />} />}
-    {data.category === "appointment" && !one && <>
+    {medical && !!data.paste_origin && (!draft.existing || !b.records.find((row) => row.id === draft.id)?.created_by || b.records.find((row) => row.id === draft.id)?.created_by === b.owner) && <Button secondary title="Remove original pasted words" onPress={() => set({ paste_origin: null })} />}
+    {medical && data.category === "appointment" && !one && <>
       {defaults && <Button secondary title="Use saved clinic and doctor" onPress={() => set(defaults)} />}
       <Choice label="Offer this clinic and doctor on future visits in this space" selected={!!data.provider_default} onPress={() => set({ provider_default: !data.provider_default, provider_default_at: Date.now() })} />
       <FilterChips label="Previous clinic and doctor" value="" options={pendingRecords(b.state).filter((row) => row.kind === "event" && row.data.category === "appointment" && row.space_id === (space ?? draft.space_id) && (row.data.doctor || row.data.location)).slice(0, 5).map((row) => ({ label: [row.data.doctor, row.data.location].filter(Boolean).join(" · "), value: row.id }))} onChange={(id) => { const previous = b.records.find((row) => row.id === id); if (previous) set({ doctor: previous.data.doctor ?? null, location: previous.data.location ?? null }); }} />
-      {!!estimatedAge(key, data.due_date_snapshot ?? baby?.due_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(key, data.due_date_snapshot ?? baby?.due_date)}</Copy>}
-      <Field label="Clinic’s stated week (optional)" value={data.clinician_age ?? ""} maxLength={120} onChange={(clinician_age) => set({ clinician_age })} placeholder="Their words, for example 12w6d" />
+      {!!estimatedAge(key, data.due_date_snapshot ?? baby?.due_date, baby?.birth_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(key, data.due_date_snapshot ?? baby?.due_date, baby?.birth_date)}</Copy>}
+      {pregnancyVisit(key, baby?.birth_date) && <Field label="Clinic’s stated week (optional)" value={data.clinician_age ?? ""} maxLength={120} onChange={(clinician_age) => set({ clinician_age })} placeholder="Their words, for example 12w6d" />}
       <Field label="Doctor (optional)" value={data.doctor ?? ""} maxLength={240} onChange={(doctor) => set({ doctor })} />
       <Field label="Results (optional)" multiline value={data.results ?? ""} maxLength={10000} onChange={(results) => set({ results })} placeholder="Keep the words you were given" />
       <FilterChips label="Result status" value={data.result_status ?? "unknown"} options={[{ label: "Unknown", value: "unknown" }, { label: "Pending", value: "pending" }, { label: "Received", value: "received" }]} onChange={(result_status) => set({ result_status: result_status as "unknown" | "pending" | "received" })} />
@@ -106,7 +108,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       {!one && remindersOn && <Copy kind="small">Reminder</Copy>}
       {!one && remindersOn && <FilterChips label="Reminder" value={reminderValue(reminders)} options={reminderChoices(!!data.all_day, reminders)}
         onChange={(value) => { if (value !== "several") set({ reminder_minutes: value ? [Number(value)] : [] }); }} />}
-      {!one && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
+      {!one && (medical || data.category !== "appointment") && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
       {!one && <Copy kind="small" tone="muted">{eventNoteWhere(b.state, draft, b.records.find((row) => row.id === draft.id))}</Copy>}
       {!!choice && <Copy kind="small">Who can see this</Copy>}
       {!!choice && <FilterChips label="Who can see this" value={choice.shared ? "shared" : "just_me"} options={[{ label: "Shared with family", value: "shared" }, { label: "Just me", value: "just_me" }]}

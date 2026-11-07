@@ -84,3 +84,35 @@ it("snapshots the chosen pregnancy without linking a private event to a family c
   expect(event.record.data.due_date_snapshot).toBe("2026-12-10");
   await act(async () => tree.unmount());
 });
+
+it("keeps the original personal in a family and imports visits without reminders", async () => {
+  mock.b.state.bootstrap.spaces = [{ id: "me", kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }];
+  await review("1st Visit - November 8, 2026\n35 weeks");
+  await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  const original = mock.b.state.outbox.find((m: any) => m.record.data.paste_origin.original);
+  expect(original.space_id).toBe("me");
+  const event = mock.b.state.outbox.find((m: any) => m.record.kind === "event");
+  expect(event.space_id).toBe("family"); expect(event.record.data.reminder_minutes).toEqual([]);
+  await act(async () => tree.unmount());
+});
+it("targets the expecting child even when an older born child is selected", async () => {
+  mock.b.state.bootstrap.children = [{ id: "older", name: "Older", space_id: "me", due_date: "2024-12-10", birth_date: "2024-12-05" }, { id: "expecting", name: "Baby", space_id: "me", due_date: "2026-12-10" }];
+  mock.b.state.selectedChild = "older";
+  await review("1st Visit - November 8, 2026\n35 weeks");
+  expect(JSON.stringify(tree.toJSON())).toContain("Prenatal visits for Baby.");
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  const row = mock.b.state.outbox.find((m: any) => m.record.kind === "event");
+  expect(row.record.child_id).toBe("expecting");expect(row.record.data.due_date_snapshot).toBe("2026-12-10");
+  await act(async () => tree.unmount());
+});
+it("asks which expecting child when more than one pregnancy is available", async () => {
+  mock.b.state.bootstrap.children = ["a", "b"].map((id) => ({ id, name: id, space_id: "me", due_date: "2026-12-10" }));
+  await review("1st Visit - November 8, 2026\n35 weeks");
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  expect(mock.b.state.outbox).toHaveLength(0);
+  await act(async () => host("FilterChips", "label", "Expecting baby").props.onChange("b"));
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  expect(mock.b.state.outbox.find((m: any) => m.record.kind === "event").record.child_id).toBe("b");
+  await act(async () => tree.unmount());
+});

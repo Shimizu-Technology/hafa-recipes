@@ -288,6 +288,9 @@ async def entries(tools, db, owner, rows, *, terms=(), limit=BRIEF_EXCERPT, tota
     readable = await readable_journal_children(db, rows, owner)
     found = []
     for row in rows:
+        from app.domains.baby.access import visit_for_reader
+
+        row = visit_for_reader(row, owner)
         if total <= 0:
             break
         excerpt = excerpt_for(row, list(terms), limit=min(limit, total), zone=tools.zone)

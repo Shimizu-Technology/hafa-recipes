@@ -304,7 +304,7 @@ export default function Edit() {
         const scope = choiceFor(b.state.bootstrap, given)?.space_id ?? given.space_id,
           pregnancies = b.state.bootstrap!.children.filter((child) => child.due_date && !child.birth_date && child.space_id === scope),
           due = b.state.bootstrap!.children.find((child) => child.id === given.child_id)?.due_date ?? (!given.child_id && pregnancies.length === 1 ? pregnancies[0].due_date : null),
-          fitted = snapshotVisit(fit(given), due),
+          fitted = snapshotVisit(fit(given), due, b.state.bootstrap!.children.find((child) => child.id === given.child_id)?.birth_date),
           from = stampedDraft(b.state, b.state.drafts[slot], fitted.kind === "event" ? eventWrite(fitted) : withFittingVisit(fitted, b.records));
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, shared: ____, ...record } = from,
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;

@@ -34,3 +34,26 @@ it("keeps an ordinal gap and distinguishes a dated memory from visits without re
   expect(rows[0].day).toBe("");
   expect(rows.map((row) => row.text).join("")).toBe(note);
 });
+
+it("never estimates or snapshots a visit on or after birth, including an old snapshot", () => {
+  const draft: EditorDraft = { id: "born", kind: "event", title: "Newborn checkup", body: "", child_id: "baby", occurred_at: "2026-12-09T00:00:00Z", files: [], data: { category: "appointment", timezone: "UTC" } };
+  expect(estimatedAge("2026-12-09", "2026-12-10", "2026-12-05")).toBeNull();
+  expect(snapshotVisit(draft, "2026-12-10", "2026-12-05").data.due_date_snapshot).toBeUndefined();
+  expect(snapshotVisit({ ...draft, data: { ...draft.data, due_date_snapshot: "2026-12-10" } }, "2026-12-10", "2026-12-05").data.due_date_snapshot).toBeNull();
+  expect(estimatedAge("2026-12-04", "2026-12-10", "2026-12-05")).toBe("39 weeks 1 days");
+});
+it("keeps date-leading planning lines within their visit", () => {
+  const text = "1st visit - November 6, 2026\n35 weeks\nDecember 2nd/3rd - induction talk\nAiming for after December 2nd/3rd\n\n2nd visit - November 13, 2026\n36 weeks";
+  const rows = pasteVisits(text);
+  expect(rows).toHaveLength(2); expect(rows[0].text).toContain("December 2nd/3rd - induction talk");
+  expect(rows.map((r) => r.text).join("")).toBe(text);
+});
+it("keeps CRLF and mixed-case clinic ages verbatim", () => {
+  const text = "1st visit - May 6, 2026\r\n 8 WEEKS currently \r\n\r\n2nd Visit - June 3, 2026\r\n12 Week 6 Days\r\n";
+  const rows = pasteVisits(text); expect(rows).toHaveLength(2);
+  expect(rows.map((r) => r.age)).toEqual([" 8 WEEKS currently ", "12 Week 6 Days"]);
+  expect(rows.map((r) => r.text).join("")).toBe(text);
+});
+it("does not interpret a four digit time as a year", () => {
+  expect(pasteVisits("Apr 16 1030 first official test")[0]).toMatchObject({ day: "", yearless: "04-16" });
+});

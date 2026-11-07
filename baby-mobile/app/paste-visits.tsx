@@ -15,7 +15,9 @@ type Candidate = PastedItem & { id: string; selected: boolean; kind: "event" | "
 /** Review is local. Only the explicit confirmation writes to the durable outbox. */
 export default function PasteVisits() {
   const b = useBaby(), [original, setOriginal] = useState(""), [items, setItems] = useState<Candidate[] | null>(null),
-    [year, setYear] = useState(""), [originalTitle, setOriginalTitle] = useState("Original pregnancy notes"), [error, setError] = useState(""), [busy, setBusy] = useState(false), [saved, setSaved] = useState<RecordWrite[]>([]);
+    [pregnancyId, setPregnancyId] = useState(""), [year, setYear] = useState(""), [originalTitle, setOriginalTitle] = useState("Original pregnancy notes"), [error, setError] = useState(""), [busy, setBusy] = useState(false), [saved, setSaved] = useState<RecordWrite[]>([]);
+  const expecting = b.state.bootstrap!.children.filter((child) => child.due_date && !child.birth_date),
+    pregnancy = expecting.find((child) => child.id === pregnancyId) ?? (expecting.length === 1 ? expecting[0] : undefined);
   const family = familySpaces(b.state.bootstrap).find((space) => space.role === "parent");
   const change = (id: string, patch: Partial<Candidate>) => setItems((rows) => rows!.map((row) => row.id === id ? { ...row, ...patch } : row));
   async function confirm() {
@@ -23,16 +25,16 @@ export default function PasteVisits() {
     const lease = b.api.lease();
     setBusy(true); setError("");
     try {
+      if (expecting.length > 1 && !pregnancy) throw Error("Choose the expecting baby for these prenatal visits.");
       const chosen = items!.filter((row) => row.selected);
       const lengthError = tooLong("", original, "original note") || chosen.map((row) => tooLong(row.title, row.text)).find(Boolean);
       if (lengthError) throw Error(lengthError);
       if (!chosen.length || chosen.some((row) => !validDay(row.day) || !row.title.trim())) throw Error("Choose at least one item, with a valid date and title for each.");
       const boot = b.state.bootstrap!, space = boot.personal_space_id, generation = generationOf(boot, space) ?? boot.generation,
-        zone = boot.profile.timezone, pregnancies = boot.children.filter((child) => child.due_date && !child.birth_date && (!space || child.space_id === space)),
-        baby = boot.children.find((child) => child.id === b.state.selectedChild && (!space || child.space_id === space)) ?? (pregnancies.length === 1 ? pregnancies[0] : undefined),
-        familyPregnancies = family ? boot.children.filter((child) => child.space_id === family.id && child.due_date && !child.birth_date) : [],
-        familyBaby = boot.children.find((child) => child.id === b.state.selectedChild && child.space_id === family?.id) ?? (familyPregnancies.length === 1 ? familyPregnancies[0] : undefined),
-        selectedDue = boot.children.find((child) => child.id === b.state.selectedChild)?.due_date;
+        zone = boot.profile.timezone,
+        baby = pregnancy && (!space || pregnancy.space_id === space) ? pregnancy : undefined,
+        familyBaby = pregnancy?.space_id === family?.id ? pregnancy : undefined,
+        selectedDue = pregnancy?.due_date;
       const idFrom = (hash: string) => `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
       const originalId = idFrom(await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([b.owner, space ?? "personal", generation, "original", original])));
       const previousOriginal = pendingRecords(b.state).find((row) => row.id === originalId);
@@ -69,6 +71,8 @@ export default function PasteVisits() {
       {!items ? <><Field label="Original note title" value={originalTitle} maxLength={240} onChange={setOriginalTitle} /><Field label="Paste your note" multiline value={original} onChange={setOriginal} /><Button title="Review dated items" disabled={!original.trim()} onPress={() => { const error = tooLong("", original, "original note"); setError(error); if (!error) setItems(pasteVisits(original).map((row) => ({ ...row, id: Crypto.randomUUID(), selected: false, shared: false, kind: row.kind ?? "event", title: row.title ?? (row.kind === "journal" ? "Pregnancy moment" : "Prenatal visit"), age: row.age ?? "" }))); }} /></> : <>
         <Copy kind="small" tone="muted">Dates with a named month and four-digit year, or YYYY-MM-DD, are filled in. Check numeric dates and missing years yourself; no year or medical meaning is guessed. Each block keeps its exact original words.</Copy>
         {items.some((row) => row.yearless) && <><Field label="Year for dates without a year" value={year} onChange={setYear} /><Button secondary title="Apply this year to yearless dates" disabled={!/^\d{4}$/.test(year)} onPress={() => setItems(withPasteYear(items, year))} /></>}
+        <Copy>{pregnancy ? `Prenatal visits for ${pregnancy.name}.` : expecting.length ? "Choose the expecting baby for these prenatal visits." : "No expecting baby profile. Visits will be kept without a baby profile."}</Copy>
+        {expecting.length > 1 && <FilterChips label="Expecting baby" value={pregnancyId} options={expecting.map((child) => ({ label: child.name, value: child.id }))} onChange={setPregnancyId} />}
         <Copy>{items.filter((row) => row.kind === "event").length} visits · {items.filter((row) => row.kind === "journal").length} moments · {items.filter((row) => row.selected).length} selected</Copy>
         <Button secondary title="Select dated items" onPress={() => setItems(items.map((row) => ({ ...row, selected: validDay(row.day) })))} />
         {items.map((row) => <Card key={row.id} style={{ gap: 10 }}>

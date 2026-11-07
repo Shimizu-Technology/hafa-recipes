@@ -553,25 +553,25 @@ describe("any event works", () => {
     await mount(EventDetail);
     expect(mock.title).toBe("Event");
   });
-  it("in a family, starts private and changing from Shared to Just me clears a family baby", async () => {
+  it("in a family, starts shared and changing from Shared to Just me clears a family baby", async () => {
     const b = setup([]);
     b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
       children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
     b.state.selectedChild = "baby";
     mock.params = { kind: "event", day: "2026-11-20" };
     await mount(Edit);
-    expect(more().props.accessibilityLabel).toContain("Just me");
+    expect(more().props.accessibilityLabel).toContain("Shared with family");
     await act(async () => nameField().props.onChange("Date night"));
     await act(async () => more().props.onPress());
     const who = () => found("FilterChips", (p) => p.label === "Who can see this");
-    expect(who().props.value).toBe("just_me");
+    expect(who().props.value).toBe("shared");
     await act(async () => who().props.onChange("shared"));
     await act(async () => who().props.onChange("just_me"));
     await press("Button", "Save event");
     expect(b.state.outbox[0]).toMatchObject({ space_id: "me", record: { title: "Date night", child_id: null } });
     expect(b.state.outbox[0].record.data.just_me).toBeUndefined();
   });
-  it("in a family, saves privately with no choice made", async () => {
+  it("in a family, saves shared with no choice made", async () => {
     const b = setup([]);
     b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
       children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
@@ -579,7 +579,7 @@ describe("any event works", () => {
     await mount(Edit);
     await act(async () => nameField().props.onChange("Baptism"));
     await press("Button", "Save event");
-    expect(b.state.outbox[0]).toMatchObject({ space_id: "me", record: { title: "Baptism" } });
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { title: "Baptism" } });
   });
   const inFamily = (b: any) => { b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }], children: [] }; };
   it("Book next goes where the form says: a shared visit's next one is shared, a private one's stays private", async () => {
@@ -710,4 +710,29 @@ it("passes an occurrence all-day override to visit capture", async () => {
   setup([event({ category: "appointment", all_day: false, exceptions: [{ original_start: original, overrides: { all_day: true } }] })]);
   mock.params = { id: "class", at: original }; await mount(EventDetail);
   expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")[0].props.visit.data.all_day).toBe(true);
+});
+
+it("hides newborn pregnancy labels even for an already-saved snapshot and clears it on save", async () => {
+  const row = { ...event({ category: "appointment", recurrence: null, due_date_snapshot: "2026-12-10", clinician_age: "40 weeks" }, "born-visit"), child_id: "baby", occurred_at: "2026-12-14T00:00:00Z" };
+  const b = setup([row]);b.state.bootstrap.children = [{ id: "baby", name: "Noa", due_date: "2026-12-10", birth_date: "2026-12-05", revision: 1 }];
+  mock.params = { id: row.id };await mount(EventDetail);
+  expect(renderer!.root.findAll((n) => String(n.type) === "Copy" && String(n.props.children).includes("Estimated from due date"))).toHaveLength(0);
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("Clinic’s stated week");
+  await act(async () => renderer!.unmount());mock.params = { kind: "event", id: row.id };await mount(Edit);
+  expect(renderer!.root.findAll((n) => String(n.type) === "Copy" && String(n.props.children).includes("Estimated from due date"))).toHaveLength(0);
+  await press("Button", "Save changes");
+  expect(b.state.outbox[0].record.data.due_date_snapshot).toBeNull();
+});
+it("lets the contributor remove original pasted words from a shared visit", async () => {
+  const row = { ...event({ category: "appointment", recurrence: null, paste_origin: { text: "original", start: 0, end: 8, original: false } }, "pasted"), created_by: "o" };
+  const b = setup([row]);mock.params = { kind: "event", id: row.id };await mount(Edit);
+  await press("Button", "Remove original pasted words");await press("Button", "Save changes");
+  expect(b.state.outbox[0].record.data.paste_origin).toBeNull();
+});
+it("does not show cached visit medical words to a caregiver", async () => {
+  const row = { ...event({ category: "appointment", recurrence: null, results: "Private results", paste_origin: { text: "Private original", start: 0, end: 16, original: false }, clinician_age: "35 weeks" }, "caregiver-visit"), body: "Private notes", space_id: "fam" };
+  const b = setup([row]);b.state.bootstrap.spaces = [{ id: "fam", kind: "family", role: "caregiver", generation: 1 }];
+  mock.params = { id: row.id };await mount(EventDetail);
+  const rendered = JSON.stringify(renderer!.toJSON());
+  expect(rendered).not.toContain("Private");expect(rendered).not.toContain("Clinic’s stated week");
 });
