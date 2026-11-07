@@ -229,3 +229,21 @@ describe("family work and a build 35 phone", () => {
     expect(p.family.disk.size).toBe(before.size);
   });
 });
+
+it("fences held-drafts-only storage from the shipped build 35 vault and round-trips every held file", async () => {
+  const { holdsFamilyWork } = await import("./spaces");
+  const f = fixture(), state = { records: [], outbox: [], heldDrafts: [{ id: "held", draft: { body: "unsaved", files: [{ uri: "file:///private.jpg" }] } }] },
+    make = () => createPartitionVault(f.secret, "held-owner", f.uuid, f.files, (_, value) => value, (s) => holdsFamilyWork(s as never) ? 2 : 1);
+  await make().write(state);
+  expect(await make().read()).toEqual(state);
+  await expect(build35(f.secret, "held-owner", f.uuid, f.files).read()).rejects.toThrow(/recovery|overwritten/);
+});
+
+it("omits any undefined optional section, including projected values and previously saved sections", async () => {
+  const f = fixture(), make = () => createPartitionVault(f.secret, "owner", f.uuid, f.files, (section, v) => section === "projected" ? undefined : v);
+  await make().write({ outbox: ["queued"], heldDrafts: [], feedTimer: { record_id: "running" }, projected: 1 });
+  expect(await make().read()).toEqual({ outbox: ["queued"], heldDrafts: [], feedTimer: { record_id: "running" } });
+  await make().write({ outbox: ["queued"], heldDrafts: undefined, feedTimer: undefined, bootstrap: undefined, futureOptionalField: undefined });
+  expect(await make().read()).toEqual({ outbox: ["queued"] });
+  expect([...f.disk.values()]).not.toContain("heldDrafts:undefined");
+});

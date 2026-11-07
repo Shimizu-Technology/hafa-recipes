@@ -109,7 +109,7 @@ describe("applying what the other phone did", () => {
     expect(state.removed?.at(-1)).toBe(`${personal}:new`);
   });
   it("finishes the job when a space is gone: its baby, its queue and its rows", () => {
-    const queued = { id: "q", generation: 1, space_id: family, type: "save" as const, record: row("q", 1, family), files: [] };
+    const queued = { id: "q", generation: 1, space_id: family, type: "save" as const, base: { after: [] }, record: row("q", 1, family), files: [] };
     const { state } = applyChanges(start({ records: [row("shared", 1, family)], outbox: [queued], bootstrap: boot({ children: [{ id: "c", name: "Mia", revision: 1, space_id: family }] }) }),
       { ...answer(page(personal, [], { cursor: 5 })), removed_space_ids: [family] });
     expect(state.bootstrap?.children).toEqual([]);

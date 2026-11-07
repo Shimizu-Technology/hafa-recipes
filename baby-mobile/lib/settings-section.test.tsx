@@ -1,24 +1,25 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const f = vi.hoisted(() => ({ section: undefined as string | undefined, scroll: vi.fn(), reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object, ask: null as number | null }));
-vi.mock("react-native", () => ({ Alert: {}, Linking: {}, ScrollView: "ScrollView", View: "View" }));
+const f = vi.hoisted(() => ({ section: undefined as string | undefined, scroll: vi.fn(), reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object, ask: null as number | null, held: [] as any[], alert: vi.fn() }));
+vi.mock("react-native", () => ({ Alert: { alert: f.alert }, Linking: {}, ScrollView: "ScrollView", View: "View" }));
 vi.mock("expo-router", () => ({ router: {}, useLocalSearchParams: () => ({ section: f.section }) }));
 vi.mock("expo-constants", () => ({ default: { expoConfig: {} } }));
 vi.mock("@/lib/share-session-state", () => ({ revokeShareSession() {} }));
 vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion() {} }));
 vi.mock("@/lib/files", () => ({ exportFile() {} }));
 vi.mock("@/lib/ai-consent", () => ({ ASK_CONSENT_BODY: "NEW ASK WORDS", ASK_UPDATE_TITLE: "", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
-vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { outbox: [], bootstrap: { ask_consent_version: f.ask, profile: { display_name: "Parent" }, children: [], reminders: f.reminders, ...f.bootstrap } } }) }));
+vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { outbox: [], heldDrafts: f.held, bootstrap: { ask_consent_version: f.ask, profile: { display_name: "Parent" }, children: [], reminders: f.reminders, ...f.bootstrap } } }) }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Notice: "Notice", Row: "Row", Section: "Section", useToast: () => () => {},
   Screen: (props: any) => { props.scrollRef.current = { scrollTo: f.scroll }; return React.createElement("scroll-screen", props); },
 }));
+vi.mock("@/lib/outbox", () => import("./outbox"));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/child-setup", () => ({ babyDetailLine() {} }));
 import Settings from "../app/settings";
 let view: ReactTestRenderer;
-beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); f.scroll.mockClear(); });
+beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); f.scroll.mockClear(); f.held = []; f.alert.mockClear(); });
 afterEach(() => { act(() => view.unmount()); vi.unstubAllGlobals(); });
 it.each([undefined, "ai"])("scrolls only AI deep links after both layout and content are ready (%s)", async section => {
   f.section = section;
@@ -68,4 +69,13 @@ it.each([[null, false], [1, true]])("with the new Ask at version %s, Settings sh
   expect(words.includes("NEW ASK WORDS")).toBe(shown);
   expect(words.includes("relevant authorized Baby records")).toBe(!shown);
   f.ask = null;
+});
+
+it("shows held-only recovery and warns before sign-out removes it", async () => {
+  f.section = undefined; f.held = [{ id: "held", draft: {} }];
+  await act(async () => { view = create(<Settings />); });
+  const recovery = view.root.findAll((n) => String(n.type) === "Row" && n.props.title === "Saved changes & recovery")[0];
+  expect(recovery.props.detail).toContain("1 unfinished draft");
+  await act(async () => view.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Sign out")[0].props.onPress());
+  expect(f.alert).toHaveBeenCalledWith("You have changes on this device", expect.stringContaining("unfinished drafts"), expect.any(Array));
 });

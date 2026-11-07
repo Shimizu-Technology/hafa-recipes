@@ -1,3 +1,4 @@
+import { deviceWorkCount, recoverySummary } from "@/lib/outbox";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Linking, ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -144,7 +145,7 @@ export default function Settings() {
         <Row
           title="Saved changes & recovery"
           numericDetail
-          detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
+          detail={`${recoverySummary(b.state)} · ${b.online ? "Online" : "Offline"}`}
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />
@@ -227,13 +228,13 @@ export default function Settings() {
         title="Sign out"
         busy={busy}
         onPress={() => {
-          if (b.state.outbox.length)
+          if (deviceWorkCount(b.state))
             Alert.alert(
               "You have changes on this device",
-              "Signing out removes unsynced entries and drafts from this device. Sync first to keep them in your account.",
+              "Signing out removes unsynced entries and unfinished drafts from this phone. Review them first to save or keep what you need.",
               [
                 { text: "Keep working", style: "cancel" },
-                { text: "Sync changes", onPress: () => void b.sync() },
+                { text: "Review changes", onPress: () => router.push("/sync") },
                 { text: "Sign out and clear device", style: "destructive", onPress: () => void run(b.signOut) },
               ]
             );

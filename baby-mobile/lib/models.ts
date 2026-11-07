@@ -372,6 +372,19 @@ export interface EventEdit {
   series: Pick<BabyRecord, "title" | "body" | "child_id" | "occurred_at" | "data">;
 }
 export type LogFormDraft = import("./more-logs").LogForm;
+export const deviceVersion = 4;
+/** Unfinished editor work is recovery content, never an outbox mutation. */
+export interface HeldDraft {
+  id: string;
+  slot?: string;
+  /** Only late autosaves replace this row; departure snapshots stay separate. */
+  editor?: boolean;
+  /** Old Retry erased whether Save was pressed. Requires an explicit send decision. */
+  uncertain?: boolean;
+  draft: EditorDraft;
+  /** Legacy actions whose uncertain ancestor must be reviewed first. Never automatically replayed. */
+  followups?: Mutation[];
+}
 export interface EditorDraft {
   id: string;
   /** An existing entry's space, copied with it into the draft. */
@@ -394,6 +407,8 @@ export interface EditorDraft {
   event_edit?: EventEdit;
 }
 export type Mutation = {
+  /** Recovery content from an editor, without Save intent. Never eligible for delivery. */
+  draft_only?: boolean;
   localOnly?: boolean;
   /** The space it's for, and `generation` is that space's. None with the API's family flag off, or from an older build. */
   space_id?: string;
@@ -597,6 +612,7 @@ export interface DeviceState {
   /** Recent changes that have left the outbox, for an editor opened before they did. */
   settled?: Record<string, SettledChange>;
   drafts: Record<string, EditorDraft>;
+  heldDrafts?: HeldDraft[];
   /** By child id, or `new` for a profile not saved yet. Not in `drafts`: those are all records. */
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
@@ -611,6 +627,7 @@ export interface DeviceState {
   changes?: { cursor: Record<string, number>; access: Record<string, number> };
 }
 export const emptyState = (): DeviceState => ({
+  version: deviceVersion,
   fileUploads: {},
   records: [],
   outbox: [],

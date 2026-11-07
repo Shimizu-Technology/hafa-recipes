@@ -1,0 +1,20 @@
+{
+  "sources": ["584d151a", "bb66351e"],
+  "fresh": [
+    {"id": "save-feed", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "feed", "kind": "feeding", "title": "feed", "body": "feed saved words", "child_id": "baby", "occurred_at": "2026-11-07T00:00:00.000Z", "data": {"method": "bottle", "amount": 3, "unit": "oz"}}},
+    {"id": "save-today-question", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "today-question", "kind": "question", "title": "today-question", "body": "today-question saved words", "child_id": "baby", "occurred_at": "2026-11-07T00:00:00.000Z", "data": {}}},
+    {"id": "save-new-editor", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "new-editor", "kind": "journal", "title": "new-editor", "body": "new-editor saved words", "child_id": "baby", "occurred_at": "2026-11-07T00:00:00.000Z", "data": {}}},
+    {"id": "save-shared-source", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "shared-source", "kind": "source", "title": "shared-source", "body": "shared-source saved words", "child_id": null, "occurred_at": "2026-11-07T00:00:00.000Z", "data": {"url": "https://example.com/local-qa"}}},
+    {"id": "finish", "type": "feed_action", "generation": 1, "space_id": "family-space", "record_id": "feed", "action": {"id": "finish", "action": "finish", "at": "2026-11-07T00:01:00.000Z"}},
+    {"id": "import", "type": "import", "generation": 1, "space_id": "family-space", "record_id": "shared-source", "files": []}
+  ],
+  "rejoined": [
+    {"id": "save-feed", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "feed", "kind": "feeding", "title": "feed", "body": "feed saved words", "child_id": "baby", "occurred_at": "2026-11-07T00:00:00.000Z", "data": {"method": "bottle", "amount": 3, "unit": "oz"}}, "conflict": false, "localOnly": false},
+    {"id": "save-today-question", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "today-question", "kind": "question", "title": "today-question", "body": "today-question saved words", "child_id": "baby", "occurred_at": "2026-11-07T00:00:00.000Z", "data": {}}, "conflict": false, "localOnly": false},
+    {"id": "save-new-editor", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "new-editor", "kind": "journal", "title": "new-editor", "body": "new-editor saved words", "child_id": "baby", "occurred_at": "2026-11-07T00:00:00.000Z", "data": {}}, "conflict": false, "localOnly": false},
+    {"id": "save-shared-source", "type": "save", "generation": 1, "space_id": "family-space", "files": [], "record": {"id": "shared-source", "kind": "source", "title": "shared-source", "body": "shared-source saved words", "child_id": null, "occurred_at": "2026-11-07T00:00:00.000Z", "data": {"url": "https://example.com/local-qa"}}, "conflict": false, "localOnly": false},
+    {"id": "finish", "type": "feed_action", "generation": 1, "space_id": "family-space", "record_id": "feed", "action": {"id": "finish", "action": "finish", "at": "2026-11-07T00:01:00.000Z"}, "conflict": false, "localOnly": false},
+    {"id": "import", "type": "import", "generation": 1, "space_id": "family-space", "record_id": "shared-source", "files": [], "conflict": false, "localOnly": false},
+    {"id": "editor-draft", "generation": 1, "space_id": "family-space", "type": "save", "files": [], "record": {"id": "unsaved-editor", "kind": "journal", "title": "new-editor", "body": "half typed", "child_id": "baby", "occurred_at": "2026-11-07T00:00:00.000Z", "data": {}}, "conflict": false, "localOnly": false}
+  ]
+}

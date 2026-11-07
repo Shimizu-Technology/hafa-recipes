@@ -17,6 +17,7 @@ vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateA
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Screen: "Screen", Section: "Section", useToast: () => scope.toast }));
 import Sync from "../app/sync";
 import { ApiError } from "./api";
+import { withoutHeldDraft } from "./outbox";
 
 let renderer: ReactTestRenderer | undefined;
 const action = (over: object = {}): Mutation => ({ id: "end", generation: 1, type: "feed_action", record_id: "feed", action: { id: "end", action: "finish", at: "2026-11-05T02:00:00.000Z" }, error: "Needs review", ...over });
@@ -24,6 +25,7 @@ function setup(outbox: Mutation[]) {
   scope.account = { online: true, syncing: false, error: "", state: { ...emptyState(), outbox, bootstrap: { generation: 1, children: [] } } as unknown as DeviceState,
     discardQueued: vi.fn(async () => undefined), commit: vi.fn(), sync: vi.fn(),
     api: { record: vi.fn(async () => ({ id: "feed", data: { state: "finished" } }) as unknown as BabyRecord), bootstrap: vi.fn() } };
+  scope.account.discardHeld = vi.fn(async (id: string) => { await scope.account.commit((s: DeviceState) => withoutHeldDraft(s, id)); });
   return scope.account;
 }
 const discard = async () => {
@@ -212,4 +214,84 @@ describe("reviewing a conflict before replacing the saved version", () => {
     await act(async () => { renderer = create(<Sync />); });
     expect(renderer!.root.findAll((n) => String(n.type) === "Button").some((n) => n.props.title === "Save my version after review")).toBe(false);
   });
+});
+
+it("keeps unfinished work separate, never offers Retry, and confirms exact-row Keep and Discard", async () => {
+  const b = setup([]);
+  b.state.heldDrafts = [{ id: "held", draft: { ...(save("draft") as any).record, files: [] }, followups: [action()] }];
+  await act(async () => { renderer = create(<Sync />); });
+  const buttons = () => renderer!.root.findAll((n) => String(n.type) === "Button");
+  expect(buttons().map((n) => n.props.title)).not.toContain("Retry");
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("1 pending change");
+  await act(async () => buttons().find((n) => n.props.title === "Keep this draft in my personal space")!.props.onPress());
+  expect(scope.alerts.at(-1)!.message).toContain("1 later saved change");
+  expect(b.commit).not.toHaveBeenCalled();
+  await act(async () => buttons().find((n) => n.props.title === "Discard this unfinished draft")!.props.onPress());
+  expect(scope.alerts.at(-1)!.message).toContain("1 later saved change");
+});
+
+it("confirms Keep and Discard for the selected snapshot, retains the other, and releases only removed uploads", async () => {
+  const b = setup([]), file = (id: string) => ({ id, uri: `file:///${id}`, uploaded_id: `upload-${id}`, name: `${id}.jpg`, mime_type: "image/jpeg" }),
+    held = (id: string) => ({ id, draft: { ...(save(id) as any).record, title: id, body: `${id} words`, space_id: "family", files: [file(id)] } });
+  b.state.bootstrap = { generation: 1, personal_space_id: "personal", children: [] };
+  b.state.heldDrafts = [held("one"), held("two")];
+  b.commit.mockImplementation(async (change: (s: DeviceState) => DeviceState) => { b.state = change(b.state); });
+  let sent!: () => void; b.sync.mockImplementation(() => new Promise<void>((resolve) => { sent = resolve; }));
+  await act(async () => { renderer = create(<Sync />); });
+  const buttons = () => renderer!.root.findAll((n) => String(n.type) === "Button"),
+    drafts = () => buttons().filter((n) => ["Keep this draft in my personal space", "Discard this unfinished draft"].includes(n.props.title));
+  await act(async () => buttons().filter((n) => n.props.title === "Keep this draft in my personal space")[1].props.onPress());
+  expect(b.commit).not.toHaveBeenCalled();
+  await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Keep this draft")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.sync).toHaveBeenCalledOnce(); expect(drafts().every((one) => one.props.disabled)).toBe(true);
+  await act(async () => { sent(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.state.outbox).toHaveLength(1); expect(b.state.outbox[0].record.body).toBe("two words");
+  expect(b.state.heldDrafts.map((one: any) => one.id)).toEqual(["one"]); expect(b.state.fileReleases).toEqual(["upload-two"]);
+  b.syncing = true; await act(async () => renderer!.update(<Sync />)); expect(drafts().every((one) => one.props.disabled)).toBe(true);
+  b.syncing = false; await act(async () => renderer!.update(<Sync />));
+  await act(async () => buttons().find((one) => one.props.title === "Discard this unfinished draft")!.props.onPress());
+  await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Discard draft")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.state.heldDrafts).toEqual([]); expect(b.state.fileReleases).toEqual(["upload-two", "upload-one"]);
+  expect(b.state.outbox[0].record.body).toBe("two words"); expect(b.sync).toHaveBeenCalledOnce();
+});
+
+it.each([0, 1])("discards snapshot %i while another held draft and its upload remain", async (selected) => {
+  const b = setup([]), held = ["one", "two"].map((id) => ({ id, draft: { ...(save(id) as any).record,
+    files: [{ id, uri: `file:///${id}`, uploaded_id: `upload-${id}`, name: `${id}.jpg`, mime_type: "image/jpeg" }] } }));
+  b.state.heldDrafts = held;
+  b.commit.mockImplementation(async (change: (s: DeviceState) => DeviceState) => { b.state = change(b.state); });
+  await act(async () => { renderer = create(<Sync />); });
+  await act(async () => renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Discard this unfinished draft")[selected].props.onPress());
+  expect(b.commit).not.toHaveBeenCalled();
+  await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Discard draft")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.state.heldDrafts).toEqual([held[1 - selected]]);
+  expect(b.state.fileReleases).toEqual([`upload-${held[selected].id}`]);
+  expect(b.state.outbox).toEqual([]);
+  expect(b.sync).not.toHaveBeenCalled();
+});
+
+it("does not say caught up when unfinished drafts are the only work", async () => {
+  const b = setup([]); b.state.heldDrafts = [{ id: "held", draft: { ...(save("draft") as any).record, files: [] } }];
+  await act(async () => { renderer = create(<Sync />); });
+  expect(renderer!.root.findAll((n) => String(n.type) === "Empty")).toEqual([]);
+});
+it("offers an explicit confirmed Send to family for ambiguous old work", async () => {
+  const b = setup([]); b.state.bootstrap = { generation: 1, personal_space_id: "p", children: [], spaces: [{ id: "f", kind: "family", role: "parent", generation: 2 }] };
+  b.state.heldDrafts = [{ id: "old-delivery", uncertain: true, draft: { ...(save("draft") as any).record, space_id: "f", generation: 2, files: [] } }];
+  b.commit.mockImplementation(async (change: (s: DeviceState) => DeviceState) => { b.state = change(b.state); });
+  await act(async () => { renderer = create(<Sync />); });
+  const send = renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Send to family")[0];
+  await act(async () => send.props.onPress()); expect(b.commit).not.toHaveBeenCalled();
+  await act(async () => { scope.alerts.at(-1)!.buttons.find((one) => one.text === "Send to family")!.onPress!(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(b.state.outbox).toMatchObject([{ id: "old-delivery", space_id: "f", base: { after: [] } }]); expect(b.state.heldDrafts).toEqual([]); expect(b.sync).toHaveBeenCalledOnce();
+});
+
+it.each([false, true])("only offers confirmed Send for ambiguous work, never a true unfinished draft (uncertain %s)", async (uncertain) => {
+  const b = setup([]);
+  b.state.bootstrap = { generation: 1, children: [], personal_space_id: "p", spaces: [{ id: "f", kind: "family", role: "parent", generation: 1 }] };
+  b.state.heldDrafts = [{ id: "h", uncertain, draft: { id: "row", kind: "journal", title: "My words", body: "Unfinished", child_id: null, occurred_at: "2026-11-07T00:00:00Z", data: {}, files: [], space_id: "f", generation: 1 } }];
+  await act(async () => { renderer = create(<Sync />); });
+  const send = renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Send to family");
+  expect(send).toHaveLength(uncertain ? 1 : 0);
+  if (uncertain) { send[0].props.onPress(); expect(b.commit).not.toHaveBeenCalled(); expect(scope.alerts.at(-1)!.buttons.map((b) => b.text)).toContain("Keep reviewing"); }
 });
