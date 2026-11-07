@@ -272,7 +272,8 @@ class Settings(BaseSettings):
     # Required for public/paid use; private family use has the recorded agent review.
     baby_ask_clinician_approval: str = ""
     # Agent-reviewed by Leon's decision, 2026-11-07. Public/paid releases retain both gates.
-    baby_health_release_audience: Literal["private_family", "public", "paid"] = "private_family"
+    baby_health_release_audience: Literal["private_family", "public", "paid"] = "public"
+    baby_health_reviewed_version: str = ""
     baby_who_chart_permission: str = ""
     baby_ask_model: str = "gpt-6-luna"
     baby_ask_reasoning_effort: str = "low"

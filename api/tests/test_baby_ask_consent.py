@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.ai_governance import ai_request_context
 from app.domains.baby import ask_gate, budget, router
-from app.domains.baby.ask_gate import ASK_CONSENT_VERSION, ask_v2_allowed
+from app.domains.baby.ask_gate import ASK_CONSENT_VERSION, HEALTH_REVIEW_VERSION, ask_v2_allowed
 from app.domains.baby.budget import AskCall, reserve_ask
 from app.domains.baby.models import BabyAIAdmission, BabyMembership
 from app.domains.workouts.budget import BudgetError
@@ -22,7 +22,7 @@ CALL = AskCall(model="gpt-6-luna", input_bytes=100, max_output_tokens=100)
 
 
 def flag(monkeypatch, on=True):
-    settings = SimpleNamespace(baby_ask_v2_enabled=on)
+    settings = SimpleNamespace(baby_ask_v2_enabled=on, baby_health_release_audience="private_family", baby_health_reviewed_version=HEALTH_REVIEW_VERSION)
     monkeypatch.setattr(ask_gate, "get_settings", lambda: settings)
 
 
@@ -35,7 +35,7 @@ def flag(monkeypatch, on=True):
 )
 def test_private_agent_review_does_not_open_public_release(monkeypatch, audience, clinical, permission, expected):
     settings = SimpleNamespace(baby_ask_v2_enabled=True, environment="production",
-                               baby_health_release_audience=audience,
+                               baby_health_release_audience=audience, baby_health_reviewed_version=HEALTH_REVIEW_VERSION,
                                baby_ask_clinician_approval=clinical, baby_who_chart_permission=permission)
     monkeypatch.setattr(ask_gate, "get_settings", lambda: settings)
     assert ask_gate.ask_v2_on() is expected

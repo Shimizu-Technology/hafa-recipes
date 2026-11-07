@@ -5,12 +5,16 @@ from app.config import get_settings
 # What the current consent copy discloses: OpenAI, its web search, family sharing. A new
 # provider or a new kind of sharing raises this, and nobody moves until they acknowledge it.
 ASK_CONSENT_VERSION = 1
+# Explicit operator acknowledgement of this exact agent-reviewed family wording; not clinician approval.
+HEALTH_REVIEW_VERSION = "baby-health-2026-11-07-m1-m8"
 
 
 def health_release_allowed():
     """The public/paid wording gate covers old Ask as well as V2; the urgent floor is separate."""
     settings = get_settings()
-    audience = getattr(settings, "baby_health_release_audience", "private_family")
+    audience = getattr(settings, "baby_health_release_audience", "public")
+    if getattr(settings, "baby_health_reviewed_version", "") != HEALTH_REVIEW_VERSION:
+        return False
     if audience == "private_family":
         return True
     return audience in {"public", "paid"} and all(

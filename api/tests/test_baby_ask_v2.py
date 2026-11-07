@@ -84,6 +84,7 @@ async def stub(baby_api, monkeypatch):
     fake = Stub()
     monkeypatch.setattr(provider, "RETRY_DELAYS", (0, 0))
     settings = SimpleNamespace(
+            baby_health_release_audience="private_family", baby_health_reviewed_version="baby-health-2026-11-07-m1-m8",
         baby_ask_v2_enabled=True, baby_ask_model="gpt-6-luna", baby_ask_reasoning_effort="low",
         baby_ai_model="gpt-5.6-luna", recipe_chat_model="gpt-5.6-luna", openai_reasoning_effort="none",
         baby_ask_research_model="", baby_ask_research_reasoning_effort="low",
@@ -150,7 +151,7 @@ async def test_usage_and_a_reservation_are_recorded_without_content(baby_api, st
         admission = await db.scalar(select(BabyAIAdmission).where(BabyAIAdmission.capability != "baby_safety"))
     assert (row.capability, row.model, row.status) == ("baby_ask", "gpt-6-luna", "success")
     assert (row.input_tokens, row.cached_input_tokens, row.output_tokens, row.reasoning_tokens) == (1000, 200, 50, 10)
-    assert row.prompt_version == "baby-ask-v2-3" and row.provider_request_id == "resp_1"
+    assert row.prompt_version == "baby-ask-v2-4" and row.provider_request_id == "resp_1"
     assert admission.capability == "baby_ask" and admission.app_user_id == "owner"
 
 
