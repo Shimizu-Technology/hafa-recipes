@@ -98,7 +98,7 @@ def test_bowel_context_never_excuses_an_independent_emergency():
 
 
 @pytest.mark.parametrize("baby,first", [("My baby has a fever", ask_safety.MESSAGES[ask_safety.URGENT_MATERNAL]),
-    ("My baby is not breathing", EMERGENCY), ("My baby is floppy", ER)])
+    ("My baby is not breathing", EMERGENCY), ("My baby is floppy", ask_safety.MESSAGES[ask_safety.URGENT_MATERNAL])])
 def test_mixed_parent_and_baby_signs_preserve_both_routes(baby, first):
     reply = ask_safety.classify("I am bleeding heavily. " + baby)
     assert reply.message.startswith(first)
@@ -123,7 +123,10 @@ def test_unsupported_non_null_safety_labels_fail_closed(label):
 
 @needs_database
 @pytest.mark.parametrize("ask_v2", [False, True])
-@pytest.mark.parametrize("label,expected", [("baby_emergency ", EMERGENCY), ("unsupported_safety", None)])
+@pytest.mark.parametrize("label,expected", [("baby_emergency ", EMERGENCY), ("unsupported_safety", None),
+    ("maternal_baby_emergency", ask_safety.MESSAGES["maternal_baby_emergency"]),
+    ("maternal_baby_er", ask_safety.MESSAGES["maternal_baby_er"]),
+    ("maternal_baby_unwell", ask_safety.MESSAGES["maternal_baby_unwell"])])
 async def test_generated_safety_labels_are_checked_on_both_actual_endpoints(baby_api, stub, ask_v2, label, expected):  # noqa: F811
     import json
 
@@ -145,7 +148,7 @@ async def test_generated_safety_labels_are_checked_on_both_actual_endpoints(baby
     assert generated not in response.text
     if expected:
         assert response.status_code == 200 and response.json()["message"] == expected
-        assert response.json()["help"] == "baby_unwell"
+        assert response.json()["help"] == ask_safety.help_kind(label.strip())
     else:
         assert response.status_code in {200, 503}
         if response.status_code == 200:

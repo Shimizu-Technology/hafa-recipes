@@ -29,6 +29,18 @@ MESSAGES = {
     BABY_ER: "Go to the emergency room now for your baby.",
     BABY_UNWELL: "Call your baby's doctor now or seek urgent care.",
 }
+# Keep both existing sourced replies. These are internal labels; mobile Help values stay unchanged.
+MIXED_BABY = {BABY_EMERGENCY: "maternal_baby_emergency", BABY_ER: "maternal_baby_er", BABY_UNWELL: "maternal_baby_unwell"}
+for _baby, _mixed in MIXED_BABY.items():
+    _ordered = (_baby, URGENT_MATERNAL) if _baby == BABY_EMERGENCY else (URGENT_MATERNAL, _baby)
+    MESSAGES[_mixed] = "\n\n".join(MESSAGES[kind] for kind in _ordered)
+MIXED_RULE = (
+    "When both a maternal urgent sign and an infant sign are present, preserve both: "
+    "use maternal_baby_emergency, maternal_baby_er or maternal_baby_unwell for the infant's highest tier. "
+    "This includes I, Im, I'm, or no stated subject for the maternal sign. "
+    "Baby 911 comes first; otherwise maternal immediate-care/911 comes before baby ER or doctor. "
+)
+
 DOSE_REFUSAL = "I can't give a dose. Please ask your doctor or pharmacist."
 DIAGNOSIS_REFUSAL = (
     "I can't say what this is or what it means. Please ask your doctor or your baby's doctor. "
@@ -46,6 +58,7 @@ VACCINE_SOURCES = (
      "title": "CDC's child immunization schedule", "domain": "www.cdc.gov"},
 )
 SAFETY_RULES = (
+    MIXED_RULE +
     "Add \"safety\" to your JSON: null, or 'urgent_maternal' if the parent describes an urgent maternal warning sign, 'harm' if "
     "they mention harming themselves or the baby, 'baby_emergency' for not breathing, severe breathing trouble, blue or gray "
     "lips/face, inability to wake, very weak/not moving or grunting with each breath; 'baby_er' for a floppy baby, green vomit, "
@@ -134,6 +147,8 @@ BABY_ER_WORDS = re.compile(r"\b(floppy|limp|green vomit|vomit(?:ing)? (?:bile|gr
 
 def help_kind(kind):
     """Keep the existing mobile wire value; emergency/ER are internal routing tiers."""
+    if kind in MIXED_BABY.values():
+        return BABY_UNWELL if kind == MIXED_BABY[BABY_EMERGENCY] else URGENT_MATERNAL
     return BABY_UNWELL if kind in {BABY_EMERGENCY, BABY_ER} else kind
 
 
@@ -265,38 +280,56 @@ def classify(message, child_names=()):
     if HARM_WORDS.search(text):
         return Safety(HARM, MESSAGES[HARM])
     names = [re.escape(name) for child in child_names for name in re.findall(r"[\w'-]{2,}", child or "")]
-    kept = [without_lookups(sentence) for sentence in sentences(text)]
+    # Keep patient clauses separate: joining a parent's symptom to a baby's symptom
+    # before assigning routes can wrongly make the parent's breathing problem the baby's.
+    kept = [part for sentence in sentences(text) for clause in CLAUSE_BREAK.split(sentence)
+            if clause and not LOOKUP_CLAUSE.search(clause)
+            for part in re.split(r"\s+and\s+|\s*&\s*", clause, flags=re.I) if part]
     pregnancy_context = re.search(r"\b(pregnan\w*|womb|trimester|unborn|kick\w*)\b|\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", " ".join(kept), re.I)
-    maternal_concern = any(
-        MATERNAL_SIGNS.search(clause)
-        and re.search(r"\bi (?:am|have|feel|can't|cannot)|\bi'm|\bmy (?:head|vision|blood pressure|chest|leg|calf|hands|face|incision)\b", clause, re.I)
-        and not BABY_WORDS.search(clause)
-        for part in kept for clause in CLAUSE_BREAK.split(part)
-    )
-    # Each sentence, then each pair, so "My newborn has a temperature. 38.5 C." reads as one thing.
-    pairs = [" ".join(part.rstrip(".!?; ") for part in pair) for pair in zip(kept, kept[1:], strict=False)]
-    found = None
-    baby_found = None
-    for part in [*kept, *pairs]:
-        about_baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
+
+    def baby_subject(part):
+        return bool(BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I)))
+
+    # A numeric temperature in the next clause can still belong to the baby.
+    # An explicit maternal subject starts a different concern.
+    def parent_subject(part):
+        return bool(re.search(r"\bi\b|\bim\b|\bmy\b", part, re.I) and not baby_subject(part))
+    baby_parts = [baby_subject(part) or (index > 0 and baby_subject(kept[index - 1])
+                  and re.search(r"\b(temp|temperature|fever)\b", part, re.I) and not parent_subject(part))
+                  for index, part in enumerate(kept)]
+    maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
+    # Only join fragments when neither belongs to a maternal concern. This retains
+    # “my newborn has a temperature. 38.5 C” without mixing two people's symptoms.
+    pairs = [" ".join(part.rstrip(".!?; ") for part in kept[index:index + 2]) for index in range(len(kept) - 1)
+             if not any(maternal_parts[index:index + 2]) and not any(parent_subject(part) for part in kept[index:index + 2])]
+    maternal = any(maternal_parts)
+    fetal_movement = False
+    baby_kind = None
+    rank = {BABY_UNWELL: 1, BABY_ER: 2, BABY_EMERGENCY: 3}
+    for part, about_baby in [*zip(kept, baby_parts, strict=True), *((part, baby_subject(part)) for part in pairs)]:
         emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
         pregnancy_movement = (pregnancy_context and emergencies == ["not moving"]
                               and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
         if pregnancy_movement:
-            found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
+            fetal_movement = True
             continue
-        if about_baby and BABY_EMERGENCY_WORDS.search(part):
-            return Safety(BABY_UNWELL, MESSAGES[BABY_EMERGENCY] + ("\n\n" + MESSAGES[URGENT_MATERNAL] if maternal_concern else ""))
-        if about_baby and BABY_ER_WORDS.search(part):
-            baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_ER])
-        elif about_baby and BABY_UNWELL_WORDS.search(part) and not baby_found:
-            baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_UNWELL])
-        if MATERNAL_SIGNS.search(part):
-            found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
-    if maternal_concern and baby_found:
-        lines = [MESSAGES[URGENT_MATERNAL], baby_found.message] if baby_found.message == MESSAGES[BABY_UNWELL] else [baby_found.message, MESSAGES[URGENT_MATERNAL]]
-        return Safety(URGENT_MATERNAL if baby_found.message == MESSAGES[BABY_UNWELL] else BABY_UNWELL, "\n\n".join(lines))
-    return baby_found or found
+        candidate = (BABY_EMERGENCY if BABY_EMERGENCY_WORDS.search(part) else
+                     BABY_ER if BABY_ER_WORDS.search(part) else BABY_UNWELL if BABY_UNWELL_WORDS.search(part) else None) if about_baby else None
+        if candidate:
+            if rank[candidate] > rank.get(baby_kind, 0):
+                baby_kind = candidate
+        elif MATERNAL_SIGNS.search(part):
+            if about_baby:
+                fetal_movement = True
+            else:
+                maternal = True
+    maternal = maternal or (fetal_movement and not baby_kind)
+    if maternal and baby_kind:
+        kind = MIXED_BABY[baby_kind]
+    else:
+        kind = baby_kind or (URGENT_MATERNAL if maternal else None)
+    return Safety(help_kind(kind), MESSAGES[kind]) if kind else None
+
 
 
 def boundary(question):
