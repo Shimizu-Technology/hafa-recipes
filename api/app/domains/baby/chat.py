@@ -843,15 +843,15 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         return await fixed_reply(body, user, db, generation, access, urgent.message, urgent.kind)
     from app.domains.baby.ask_gate import health_release_allowed
 
-    if not health_release_allowed(user.id):
-        from app.domains.baby.ask_safety import CHECK_FAILED
-        return {"conversation_id": None, "message": cant_answer(CHECK_FAILED), "citations": [],
-                "proposal": None, "sources": [], "help": CANT_ANSWER}
     access.check_generation(generation)
     member = access.member
     readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
     if access.enabled and access.target.id != access.personal_space_id:
         raise HTTPException(422, "Ask conversations belong in your personal Baby space")
+    if not health_release_allowed(user.id):
+        from app.domains.baby.ask_safety import CHECK_FAILED
+        return {"conversation_id": None, "message": cant_answer(CHECK_FAILED), "citations": [],
+                "proposal": None, "sources": [], "help": CANT_ANSWER}
     # Old conversations scoped to one area keep the search they began with.
     use_v2 = body.ask_v2 and body.scope == "all" and not legacy_client(client) and ask_v2_allowed(member.profile, user.id)
     tracked = {"records": {}, "children": {}} if access.enabled or use_v2 else None
