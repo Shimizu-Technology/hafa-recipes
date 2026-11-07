@@ -277,11 +277,21 @@ POISONING_WORDS = re.compile(
 def classify(message, child_names=()):
     """What a person's own words call for before anything else happens. None for everything else."""
     text = normalized(message)
+    # These explicit bowel phrases do not describe whole-body immobility or breathing.
+    text = re.sub(r"\bnot moving (?:her |his |their |my )?bowels?\b", "bowel concern", text, flags=re.I)
+    if not re.search(r"\bbreath\w*\b", text, re.I):
+        text = re.sub(r"\bgrunting (?:while|when) (?:pooping|passing stool|having a bowel movement)\b", "bowel concern", text, flags=re.I)
     if HARM_WORDS.search(text) or re.search(r"\bi (?:don't|do not) want to be a (?:mom|mother|parent)(?: anymore)?\b", text, re.I):
         return Safety(HARM, MESSAGES[HARM])
     names = [re.escape(name) for child in child_names for name in re.findall(r"[\w'-]{2,}", child or "")]
     kept = [without_lookups(sentence) for sentence in sentences(text)]
     pregnancy_context = re.search(r"\b(pregnan\w*|womb|trimester|unborn|kick\w*)\b|\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", " ".join(kept), re.I)
+    maternal_concern = any(
+        MATERNAL_SIGNS.search(clause)
+        and re.search(r"\bi (?:am|have|feel|can't|cannot)|\bi'm|\bmy (?:head|vision|blood pressure|chest|leg|calf|hands|face|incision)\b", clause, re.I)
+        and not BABY_WORDS.search(clause)
+        for part in kept for clause in CLAUSE_BREAK.split(part)
+    )
     # Each sentence, then each pair, so "My newborn has a temperature. 38.5 C." reads as one thing.
     pairs = [" ".join(part.rstrip(".!?; ") for part in pair) for pair in zip(kept, kept[1:], strict=False)]
     found = None
@@ -298,13 +308,16 @@ def classify(message, child_names=()):
             found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
             continue
         if about_baby and BABY_EMERGENCY_WORDS.search(part):
-            return Safety(BABY_UNWELL, MESSAGES[BABY_EMERGENCY])
+            return Safety(BABY_UNWELL, MESSAGES[BABY_EMERGENCY] + ("\n\n" + MESSAGES[URGENT_MATERNAL] if maternal_concern else ""))
         if about_baby and BABY_ER_WORDS.search(part):
             baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_ER])
         elif about_baby and BABY_UNWELL_WORDS.search(part) and not baby_found:
             baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_UNWELL])
         if MATERNAL_SIGNS.search(part):
             found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
+    if maternal_concern and baby_found:
+        lines = [MESSAGES[URGENT_MATERNAL], baby_found.message] if baby_found.message == MESSAGES[BABY_UNWELL] else [baby_found.message, MESSAGES[URGENT_MATERNAL]]
+        return Safety(URGENT_MATERNAL if baby_found.message == MESSAGES[BABY_UNWELL] else BABY_UNWELL, "\n\n".join(lines))
     return poison_found or baby_found or found
 
 
