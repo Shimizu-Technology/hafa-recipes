@@ -41,6 +41,7 @@ function Routes() {
       <Stack.Screen name="index" />
       <Stack.Screen name="privacy" />
       <Stack.Screen name="join" />
+      <Stack.Screen name="health-information" />
       <Stack.Protected guard={!isSignedIn}>
         <Stack.Screen name="sign-in" />
       </Stack.Protected>

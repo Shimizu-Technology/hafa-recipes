@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 
 const mock = vi.hoisted(() => ({ approved: false }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: vi.fn(async () => undefined) }, useWindowDimensions: () => ({ fontScale: 1 }) }));
@@ -19,7 +20,7 @@ let renderer: ReactTestRenderer | undefined;
 async function mount(week = 35) { await act(async () => { renderer = create(<WeekFacts week={week} />); }); }
 const words = () => JSON.stringify(renderer!.toJSON());
 const devButton = () => renderer!.root.findAll((n) => String(n.type) === "PressTarget").find((n) => String(n.props.accessibilityLabel).startsWith("Development only"));
-const waiting = "Weekly facts coming after a doctor’s review.";
+const waiting = "No facts for this week.";
 
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); mock.approved = false; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -69,8 +70,8 @@ describe("once the batch is approved", () => {
     await mount();
     const text = words();
     expect(text).toContain("Roughly a honeydew melon, by weight");
-    expect(text).toContain("about 5 lb 6 oz (2.4 kg)");
-    expect(text).toContain("about 18.0 in (45.8 cm)");
+    expect(text).toContain("about 5 lb 9 oz (2.5 kg)");
+    expect(text).not.toContain(" in (");
     for (const fact of week35.facts) expect(text).toContain(fact.text);
     expect(text).not.toContain(waiting);
     expect(text).not.toContain("Development only");
@@ -81,7 +82,7 @@ describe("once the batch is approved", () => {
     const toggle = renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => n.props.accessibilityLabel === "Sources")!;
     await act(async () => toggle.props.onPress());
     const links = renderer!.root.findAll((n) => String(n.type) === "PressTarget").map((n) => n.props.accessibilityLabel).join();
-    for (const name of ["marchofdimes.org", "kidshealth.org", "cdc.gov", "nhs.uk", "intergrowth21.com"]) expect(links).toContain(name);
+    for (const name of ["marchofdimes.org", "medlineplus.gov", "cdc.gov", "ncbi.nlm.nih.gov"]) expect(links).toContain(name);
   });
   it("a week outside every batch still gets the waiting line", async () => {
     mock.approved = true;
@@ -109,7 +110,7 @@ describe("once the batch is approved", () => {
 });
 
 describe("after birth", () => {
-  const waitingAge = "What’s typical at this age is coming once a doctor has reviewed it.";
+  const waitingAge = "No facts for this age.";
   const line = ageBatches[0].periods[0].items[0].text;
   it("shows the waiting line and no fact in a release build while unapproved", async () => {
     vi.stubGlobal("__DEV__", false);
@@ -130,10 +131,18 @@ describe("after birth", () => {
     vi.stubGlobal("__DEV__", false);
     await act(async () => { renderer = create(<AgeFacts age={{ unit: "week", age: 1 }} />); });
     expect(words()).toContain(line);
-    expect(words()).toContain("Every baby goes at their own pace");
+    expect(words()).toContain("Babies develop at different rates");
     expect(words()).not.toContain("Development only");
     const toggle = renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => n.props.accessibilityLabel === "Sources")!;
     await act(async () => toggle.props.onPress());
     expect(renderer!.root.findAll((n) => String(n.type) === "PressTarget").map((n) => n.props.accessibilityLabel).join()).toContain("healthychildren.org");
   });
+});
+
+
+it("shows AAP’s whole-body shaking warning with the week-3 jitteriness fact", async () => {
+  mock.approved = true;
+  await act(async () => { renderer = create(<AgeFacts age={{ unit: "week", age: 3 }} />); });
+  expect(words()).toContain("jerky or jittery");
+  expect(words()).toContain("If your baby’s whole body is shaking, call their doctor.");
 });

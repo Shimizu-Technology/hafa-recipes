@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
 
@@ -185,11 +186,14 @@ it("starts once on a double tap", async () => {
   expect(saves()).toHaveLength(1);
 });
 
-it("shows no rule, no go-to-hospital wording, and no text of ours under 37 weeks; only CDC's words, attributed and linked", async () => {
+it("shows immediate preterm routing with Help before timer controls, without a timing rule", async () => {
   setup();
   await mount();
   const all = words();
-  expect(all).not.toMatch(/hospital|preterm|37 weeks|call your|go in|water has broken/i);
+  expect(all).toContain("Before 37 weeks");
+  expect(all).toContain("right away or go to the hospital");
+  expect(all).not.toMatch(/5-1-1|wait an hour|you are okay/);
+  expect(JSON.stringify(renderer!.toJSON()).indexOf("right away")).toBeLessThan(JSON.stringify(renderer!.toJSON()).indexOf("What my doctor told me"));
   expect(all).toContain("Urgent maternal warning signs, during pregnancy and in the year after delivery.");
   expect(all).toContain("CDC, Hear Her: Urgent Maternal Warning Signs");
   await act(async () => { target("Source: CDC")!.props.onPress(); });
@@ -245,4 +249,13 @@ it("leaves being offline to the one calm line, and still says when something els
   await mount();
   expect(notices()).toContain("Something else went wrong.");
   scope.careError = "";
+});
+
+
+it("ships every preterm sign and do-not-wait route", async () => {
+  await mount();
+  const text = JSON.stringify(renderer!.toJSON());
+  expect(text.indexOf("Open Help")).toBeLessThan(text.indexOf("Before 37 weeks"));
+  for (const phrase of ["Before 37 weeks", "don’t wait", "cramps with or without diarrhea", "watery, bloody or mucus discharge", "more discharge", "pelvic or lower belly pressure", "constant low, dull backache", "water breaking with a gush or trickle", "right away or go to the hospital"])
+    expect(text).toContain(phrase);
 });

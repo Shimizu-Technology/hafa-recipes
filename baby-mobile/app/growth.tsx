@@ -1,3 +1,4 @@
+import { HealthNote } from "../components/health-note";
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { router } from "expo-router";
@@ -73,5 +74,6 @@ export default function Growth() {
         <Copy kind="small" tone="muted">{cdc.non_endorsement}</Copy>
       </Section>
     </>}
+    <HealthNote />
   </Screen>;
 }

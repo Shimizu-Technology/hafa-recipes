@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 
 const mock = vi.hoisted(() => ({ open: vi.fn(async (_url: string) => undefined as unknown), toast: vi.fn(), push: vi.fn(), account: null as null | { state: { bootstrap?: unknown } } }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: mock.open }, useWindowDimensions: () => ({ fontScale: 1 }) }));
@@ -31,7 +32,7 @@ afterEach(async () => { await act(async () => renderer?.unmount()); renderer = u
 it("calls and texts the numbers it lists, each one tappable", async () => {
   const expected: [string, string][] = [
     ["Call 911", "tel:911"], ["Call 988", "tel:988"], ["Text 988", "sms:988"],
-    ["Call 1-833-TLC-MAMA (1-833-852-6262)", "tel:18338526262"], ["Text 1-833-TLC-MAMA (1-833-852-6262)", "sms:18338526262"],
+    ["Call 1-833-TLC-MAMA (1-833-852-6262)", "tel:18338526262"], ["Text 1-833-TLC-MAMA (1-833-852-6262)", "sms:18338526262"], ["Call 911 now for your baby", "tel:911"],
   ];
   expect(buttons().map((n) => n.props.title)).toEqual(expected.map(([label]) => label));
   for (const [label, url] of expected) {
@@ -54,7 +55,7 @@ it("with an API that doesn't keep them, shows and asks nothing new, signed in or
 });
 it("keeps 911, 988 and the hotline first, in their order, with her own numbers after, each dialling only digits", async () => {
   await signedIn({ contacts: hasContacts, children: [{ ...expecting, details: { doctor: { name: "Dr. Lee", phone: "(671) 555-0102 ext 4" } } }] });
-  expect(buttons().map((n) => n.props.title)).toEqual(["Call 911", "Call 988", "Text 988", "Call 1-833-TLC-MAMA (1-833-852-6262)", "Text 1-833-TLC-MAMA (1-833-852-6262)", "Call Dr. Cruz\n671-555-0101", "Call Dr. Lee\n(671) 555-0102 ext 4", "Call Guam Memorial\n671-555-0103"]);
+  expect(buttons().map((n) => n.props.title)).toEqual(["Call 911", "Call 988", "Text 988", "Call 1-833-TLC-MAMA (1-833-852-6262)", "Text 1-833-TLC-MAMA (1-833-852-6262)", "Call Dr. Cruz\n671-555-0101", "Call Dr. Lee\n(671) 555-0102 ext 4", "Call Guam Memorial\n671-555-0103", "Call 911 now for your baby"]);
   await press("Call Dr. Lee\n(671) 555-0102 ext 4");
   expect(mock.open).toHaveBeenLastCalledWith("tel:6715550102");
   expect(copy()).toEqual(expect.arrayContaining(["Your doctor", "Noa’s doctor", "Where you plan to deliver"]));
@@ -101,9 +102,14 @@ it("has CDC's 15 signs in order, each opening CDC's own detail, with attribution
   await act(async () => source.props.onPress());
   expect(mock.open).toHaveBeenLastCalledWith(cdcWarningSignsUrl);
 });
-it("says nothing of ours: every line of text is CDC's or a service's own name", () => {
-  const allowed = new Set([cdcUrgentOpening, cdcUrgentClosing, ...cdcUrgentSigns.flatMap((sign) => [sign.title, sign.detail]), ...helpLines.flatMap((line) => line.note ? [line.note] : []), ...helpLines.map((line) => line.name), cdcWarningSignsSource, "988lifeline.org", "HRSA"]);
-  for (const text of copy()) expect(allowed, String(text)).toContain(text);
+it("keeps 911, 988 and the hotline before reviewed health wording and its disclosure", () => {
+  const tree = JSON.stringify(renderer!.toJSON());
+  expect(tree.indexOf("Call 911")).toBeLessThan(tree.indexOf("Call 988"));
+  expect(tree.indexOf("Call 988")).toBeLessThan(tree.indexOf("Call 1-833"));
+  expect(tree.indexOf("Call 1-833")).toBeLessThan(tree.indexOf("When your baby seems unwell"));
+  expect(tree.indexOf("Text 1-833")).toBeLessThan(tree.indexOf("We haven’t confirmed"));
+  expect(tree.indexOf("When your baby seems unwell")).toBeLessThan(tree.indexOf("HealthNote"));
+  expect(copy().join(" ")).toContain("100.4°F (38°C)");
 });
 it("keeps CDC's sentences word for word", () => {
   expect(cdcUrgentOpening).toBe("Urgent maternal warning signs, during pregnancy and in the year after delivery. Seek medical care immediately if you experience any signs or symptoms that are listed below. The symptoms below can be a sign of a life-threatening condition.");
@@ -114,5 +120,30 @@ it("keeps CDC's sentences word for word", () => {
 it("says the maternal hotline's connection from Guam isn't confirmed, until a Guam test is recorded", () => {
   const hotline = helpLines.find((line) => line.name === "National Maternal Mental Health Hotline")!;
   expect(hotline.note).toMatch(/Guam/);
+  expect(hotline.note).toContain("988 for crisis support");
+  expect(hotline.note).toContain("In an emergency, call 911.");
   expect(copy()).toContain(hotline.note);
+});
+
+
+it("ships AAP baby emergency/ER signs and CDC warnings after the existing numbers", () => {
+  const text = JSON.stringify(renderer!.toJSON());
+  expect(text.indexOf("Text 1-833")).toBeLessThan(text.indexOf("Call 911 now for these baby emergency signs"));
+  for (const sign of ["Not breathing or severe trouble breathing", "Blue or gray lips", "Can’t be woken", "not moving or very weak", "grunting with each breath", "Green vomit", "Floppy", "weak suck", "weak or strange cry", "fewer than 3 stools", "Fewer than 6 wet diapers", "5 days old", "weight loss after day 5", "Skin that looks yellow"])
+    expect(text).toContain(sign);
+  expect(text).toContain("warning signs, not a feeding schedule");
+  expect(text).toContain("mouth, ear and forehead");
+  expect(text).toContain("underarm fever may have a lower cutoff");
+  expect(text).toContain("do not give fever medicine before being seen");
+});
+
+
+it("ships R5 choking, passing-out and infant breathing routes after urgent numbers", () => {
+  const text = JSON.stringify(renderer!.toJSON());
+  for (const sign of ["Choked on something that could be stuck in the throat.", "Passed out.", "Any trouble breathing in a baby under 1 year."])
+    expect(text).toContain(sign);
+  expect(text.indexOf("Text 1-833")).toBeLessThan(text.indexOf("Choked on something"));
+  expect(text.indexOf("Choked on something")).toBeLessThan(text.indexOf("Go to the ER now for these baby signs"));
+  expect(text.indexOf("Go to the ER now for these baby signs")).toBeLessThan(text.indexOf("Any trouble breathing in a baby under 1 year."));
+  expect(text.indexOf("Any trouble breathing in a baby under 1 year.")).toBeLessThan(text.indexOf("HealthNote"));
 });

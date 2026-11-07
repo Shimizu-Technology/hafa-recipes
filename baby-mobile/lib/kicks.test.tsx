@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
 import { kickDetail, openSessions, ownSessions, sessionLimit, sessionSeconds } from "./kicks";
@@ -174,7 +175,7 @@ it("has no target and no result, at any count", async () => {
   expect(all).not.toMatch(/\b10 (kicks|movements)|target|goal|reached|well done|good|2 hours|healthy|too few/i);
 });
 
-it("shows CDC's words unchanged, with who said them and a link, and none of ours", async () => {
+it("keeps CDC wording and adds immediate routing before the counter", async () => {
   setup();
   await mount();
   const all = words();
@@ -182,8 +183,8 @@ it("shows CDC's words unchanged, with who said them and a link, and none of ours
   expect(all).toContain("Baby's movement stopping or slowing during pregnancy");
   expect(all).toContain("You feel that your baby has stopped moving or your baby is moving less than before. There is no specific number of movements that is considered normal. A change in your baby's movement is what is important.");
   expect(all).toContain("CDC, Hear Her: Urgent Maternal Warning Signs");
-  // E1 and the end of E3 are our own sentences, awaiting review.
-  expect(all).not.toMatch(/don.t wait|keeps a record you can share|isn.t a test/i);
+  expect(all).toContain("Don’t wait to finish a count");
+  expect(JSON.stringify(renderer!.toJSON()).indexOf("Seek medical care immediately")).toBeLessThan(JSON.stringify(renderer!.toJSON()).indexOf("Tap for each movement"));
   await act(async () => { renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => String(n.props.accessibilityLabel).startsWith("Source: CDC"))!.props.onPress(); });
   expect(scope.open).toHaveBeenCalledWith("https://www.cdc.gov/hearher/maternal-warning-signs/index.html");
 });

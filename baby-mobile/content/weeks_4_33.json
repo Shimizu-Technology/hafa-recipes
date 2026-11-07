@@ -1,19 +1,13 @@
 {
   "batch": "weeks-4-33",
-  "approved": false,
-  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md items L1 and M1 to M3 are signed off.",
+  "approved": true,
+  "_status": "Agent-reviewed 2026-11-07 by Leon’s decision for private family use. Not clinician-reviewed. Public/paid release requires clinician review and WHO chart permission.",
   "generated": "2026-11-05",
   "size_source": {
-    "used": "WHO fetal growth charts: Table 11, estimated fetal weight regardless of fetal sex, 50th percentile (Kiserud et al. PLoS Med 2017;14(1):e1002220). Covers weeks 14 to 40.",
+    "used": "WHO fetal growth study (2017), Table 11, sexes combined, 50th percentile; not a prediction for your baby.",
     "urls": [
-      "https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1002220"
-    ],
-    "method": "Figures are the published 50th percentile, unchanged. Converted at 1 oz = 28.3495 g, rounded to the nearest ounce.",
-    "why": "One published table, sex-neutral, multinational, no arithmetic of ours. It's also an option in item I1 of the first packet, so choosing it there would put all of pregnancy on one chart.",
-    "caveat": "No length: this table has none, and no single table I could open gives length for these weeks. Weeks 4 to 13 show no number, because WHO starts at 14 and KidsHealth's early figures contradict each other (week 10 is 1.2 oz, week 14 is 1.6 oz, while week 8 is 0.04 oz and week 7 is 0.33 oz). The batch for weeks 34 to 42 currently uses INTERGROWTH birth sizes, so if I1 stays INTERGROWTH, the card changes source between weeks 33 and 34 (2,103 g, then 2,175 g).",
-    "alternatives_read": {
-      "hadlock": "Hadlock 1991, 10 to 40 weeks, weight only. Figures here are computed from its published equation; the first packet checked that equation against Table 1 for weeks 34 to 40. Not checked against the table for these weeks: the PDF's scan is not machine-readable here."
-    }
+      "https://pmc.ncbi.nlm.nih.gov/articles/PMC5261648/#pmed.1002220.t011"
+    ]
   },
   "size_comparison_note": "Weeks 4 to 13 use a size stated by the linked source. From week 14, everyday objects are our own rough picks, compared on weight, with no source. They are not measurements. Kami may swap any of them.",
   "weeks": [
@@ -45,7 +39,7 @@
           ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 5,
@@ -72,7 +66,7 @@
           "source_url": "https://kidshealth.org/en/parents/week5.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 6,
@@ -92,19 +86,11 @@
           ]
         },
         {
-          "text": "The heart may begin to beat around now, and an ultrasound might pick it up.",
-          "source_url": "https://kidshealth.org/en/parents/week6.html",
-          "additional_source_urls": [
-            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
-          ],
-          "review_note": "Could read as a test of the pregnancy if an early scan shows nothing. Soften or cut?"
-        },
-        {
           "text": "Early structures for the eyes and inner ears are taking shape.",
           "source_url": "https://kidshealth.org/en/parents/week6.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 7,
@@ -116,21 +102,15 @@
       },
       "facts": [
         {
-          "text": "The umbilical cord has formed. It's your baby's link to you for oxygen and nourishment.",
-          "source_url": "https://kidshealth.org/en/parents/week7.html",
-          "review_note": "Cleveland Clinic says fully developed at week 8."
+          "text": "The umbilical cord is developing. It carries oxygen and nourishment to your baby.",
+          "source_url": "https://kidshealth.org/en/parents/week7.html"
         },
         {
           "text": "The mouth, nostrils, ears and eyes are becoming more defined.",
           "source_url": "https://kidshealth.org/en/parents/week7.html"
-        },
-        {
-          "text": "Each arm bud now ends in a tiny paddle that will become a hand.",
-          "source_url": "https://kidshealth.org/en/parents/week7.html",
-          "review_note": "MedlinePlus places hand and foot paddles at week 8."
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 8,
@@ -157,7 +137,7 @@
           "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 9,
@@ -175,13 +155,9 @@
         {
           "text": "First movements may start now, though it will be weeks before you can feel them.",
           "source_url": "https://kidshealth.org/en/parents/week9.html"
-        },
-        {
-          "text": "The beginnings of teeth and taste buds are forming.",
-          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 10,
@@ -190,9 +166,6 @@
         "approximate": true,
         "compared_on": "size",
         "source_url": "https://kidshealth.org/en/parents/week10.html"
-      },
-      "figures_read": {
-        "hadlock_1991_equation_g": 35
       },
       "facts": [
         {
@@ -203,17 +176,11 @@
           ]
         },
         {
-          "text": "Tooth buds are forming.",
-          "source_url": "https://kidshealth.org/en/parents/week10.html",
-          "review_note": "MedlinePlus places tooth buds in weeks 11 to 14."
-        },
-        {
-          "text": "Bone cells are starting to replace softer cartilage.",
-          "source_url": "https://kidshealth.org/en/parents/week10.html",
-          "review_note": "Cleveland Clinic places this at week 7."
+          "text": "Bones continue to develop as cartilage is replaced by bone.",
+          "source_url": "https://kidshealth.org/en/parents/week10.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 11,
@@ -222,9 +189,6 @@
         "approximate": true,
         "compared_on": "size",
         "source_url": "https://kidshealth.org/en/parents/week11.html"
-      },
-      "figures_read": {
-        "hadlock_1991_equation_g": 45
       },
       "facts": [
         {
@@ -246,7 +210,7 @@
           "source_url": "https://kidshealth.org/en/parents/week11.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 12,
@@ -256,14 +220,10 @@
         "compared_on": "size",
         "source_url": "https://kidshealth.org/en/parents/week12.html"
       },
-      "figures_read": {
-        "hadlock_1991_equation_g": 58
-      },
       "facts": [
         {
-          "text": "Tiny fingernails and toenails are starting to form.",
-          "source_url": "https://kidshealth.org/en/parents/week12.html",
-          "review_note": "Cleveland Clinic places this at week 10."
+          "text": "Tiny fingernails and toenails are developing.",
+          "source_url": "https://kidshealth.org/en/parents/week12.html"
         },
         {
           "text": "The kidneys are starting to work. Your baby swallows amniotic fluid and passes it as urine.",
@@ -277,7 +237,7 @@
           "source_url": "https://kidshealth.org/en/parents/week12.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 13,
@@ -287,25 +247,21 @@
         "compared_on": "size",
         "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
       },
-      "figures_read": {
-        "hadlock_1991_equation_g": 73
-      },
       "facts": [
         {
           "text": "The placenta has fully formed. It brings oxygen and nutrients and carries away waste.",
           "source_url": "https://kidshealth.org/en/parents/week13.html"
         },
         {
-          "text": "Vocal cords are forming.",
-          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
-          "review_note": "KidsHealth says week 12."
+          "text": "Vocal cords continue to develop.",
+          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         },
         {
           "text": "Your baby's head is starting to grow more in proportion to the body.",
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 14,
@@ -319,14 +275,9 @@
         "weight": {
           "lb": 0,
           "oz": 3,
-          "kg": 0.09,
           "display": "about 3 oz (90 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 90,
-        "hadlock_1991_equation_g": 93
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -339,13 +290,9 @@
         {
           "text": "Your baby's thyroid gland has matured and is starting to make hormones.",
           "source_url": "https://kidshealth.org/en/parents/week14.html"
-        },
-        {
-          "text": "Fingerprints are beginning to form.",
-          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 15,
@@ -359,14 +306,9 @@
         "weight": {
           "lb": 0,
           "oz": 4,
-          "kg": 0.114,
           "display": "about 4 oz (114 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 114,
-        "hadlock_1991_equation_g": 117
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -382,7 +324,7 @@
           "source_url": "https://kidshealth.org/en/parents/week15.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 16,
@@ -396,14 +338,9 @@
         "weight": {
           "lb": 0,
           "oz": 5,
-          "kg": 0.144,
           "display": "about 5 oz (144 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 144,
-        "hadlock_1991_equation_g": 146
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -422,7 +359,7 @@
           "source_url": "https://kidshealth.org/en/parents/week16.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 17,
@@ -436,14 +373,9 @@
         "weight": {
           "lb": 0,
           "oz": 6,
-          "kg": 0.179,
           "display": "about 6 oz (179 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 179,
-        "hadlock_1991_equation_g": 181
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -459,7 +391,7 @@
           "source_url": "https://kidshealth.org/en/parents/week17.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 18,
@@ -473,14 +405,9 @@
         "weight": {
           "lb": 0,
           "oz": 8,
-          "kg": 0.222,
           "display": "about 8 oz (222 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 222,
-        "hadlock_1991_equation_g": 223
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -496,7 +423,7 @@
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 19,
@@ -510,14 +437,9 @@
         "weight": {
           "lb": 0,
           "oz": 10,
-          "kg": 0.272,
           "display": "about 10 oz (272 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 272,
-        "hadlock_1991_equation_g": 273
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -536,11 +458,10 @@
           "source_url": "https://kidshealth.org/en/parents/week20.html",
           "additional_source_urls": [
             "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
-          ],
-          "review_note": "Timing varies, especially in a first pregnancy. Is 'some people' enough to avoid worry?"
+          ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 20,
@@ -554,14 +475,9 @@
         "weight": {
           "lb": 0,
           "oz": 12,
-          "kg": 0.33,
           "display": "about 12 oz (330 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 330,
-        "hadlock_1991_equation_g": 331
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -580,7 +496,7 @@
           "source_url": "https://kidshealth.org/en/parents/week20.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 21,
@@ -594,14 +510,9 @@
         "weight": {
           "lb": 0,
           "oz": 14,
-          "kg": 0.398,
           "display": "about 14 oz (398 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 398,
-        "hadlock_1991_equation_g": 399
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -609,19 +520,11 @@
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         },
         {
-          "text": "Bone marrow is starting to help make blood cells.",
-          "source_url": "https://kidshealth.org/en/parents/week21.html",
-          "additional_source_urls": [
-            "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
-          ],
-          "review_note": "MedlinePlus places this in weeks 23 to 25."
-        },
-        {
           "text": "Your baby swallows amniotic fluid, and the intestines can absorb small amounts of sugar from it.",
           "source_url": "https://kidshealth.org/en/parents/week21.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 22,
@@ -635,20 +538,14 @@
         "weight": {
           "lb": 1,
           "oz": 1,
-          "kg": 0.476,
           "display": "about 1 lb 1 oz (476 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 476,
-        "hadlock_1991_equation_g": 478
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
-          "text": "Taste buds have started to form on the tongue.",
-          "source_url": "https://kidshealth.org/en/parents/week22.html",
-          "review_note": "Cleveland Clinic says week 9."
+          "text": "Taste buds are developing on the tongue.",
+          "source_url": "https://kidshealth.org/en/parents/week22.html"
         },
         {
           "text": "Your baby can feel touch, and may stroke their own face or suck a thumb.",
@@ -659,7 +556,7 @@
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 23,
@@ -673,14 +570,9 @@
         "weight": {
           "lb": 1,
           "oz": 4,
-          "kg": 0.565,
           "display": "about 1 lb 4 oz (565 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 565,
-        "hadlock_1991_equation_g": 568
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -693,11 +585,10 @@
         },
         {
           "text": "Meconium, your baby's first poop, is forming in the intestines.",
-          "source_url": "https://medlineplus.gov/ency/article/002398.htm",
-          "review_note": "MedlinePlus lists this at week 22; used a week later here."
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 24,
@@ -711,14 +602,9 @@
         "weight": {
           "lb": 1,
           "oz": 7,
-          "kg": 0.665,
           "display": "about 1 lb 7 oz (665 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 665,
-        "hadlock_1991_equation_g": 670
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -734,7 +620,7 @@
           "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 25,
@@ -748,14 +634,9 @@
         "weight": {
           "lb": 1,
           "oz": 11,
-          "kg": 0.778,
           "display": "about 1 lb 11 oz (778 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 778,
-        "hadlock_1991_equation_g": 785
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -763,16 +644,15 @@
           "source_url": "https://kidshealth.org/en/parents/week25.html"
         },
         {
-          "text": "Your baby may now be able to hear your voice.",
-          "source_url": "https://kidshealth.org/en/parents/week25.html",
-          "review_note": "Cleveland Clinic says hearing at week 16, MedlinePlus at weeks 19 to 21."
+          "text": "Your baby's hearing continues to develop.",
+          "source_url": "https://kidshealth.org/en/parents/week25.html"
         },
         {
           "text": "More body fat is making the skin plumper and less wrinkled.",
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 26,
@@ -786,14 +666,9 @@
         "weight": {
           "lb": 2,
           "oz": 0,
-          "kg": 0.902,
           "display": "about 2 lb 0 oz (902 g)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 902,
-        "hadlock_1991_equation_g": 913
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -805,14 +680,11 @@
           "source_url": "https://kidshealth.org/en/parents/week26.html"
         },
         {
-          "text": "The lungs are starting to make surfactant, which helps with breathing after birth.",
-          "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
-          "additional_source_urls": [
-            "https://medlineplus.gov/ency/article/002398.htm"
-          ]
+          "text": "The lungs continue to develop in preparation for breathing after birth.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 27,
@@ -826,14 +698,9 @@
         "weight": {
           "lb": 2,
           "oz": 5,
-          "kg": 1.039,
           "display": "about 2 lb 5 oz (1.0 kg)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1039,
-        "hadlock_1991_equation_g": 1055
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -855,7 +722,7 @@
           ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 28,
@@ -869,14 +736,9 @@
         "weight": {
           "lb": 2,
           "oz": 10,
-          "kg": 1.189,
           "display": "about 2 lb 10 oz (1.2 kg)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1189,
-        "hadlock_1991_equation_g": 1210
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -898,7 +760,7 @@
           ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 29,
@@ -912,14 +774,9 @@
         "weight": {
           "lb": 3,
           "oz": 0,
-          "kg": 1.35,
           "display": "about 3 lb 0 oz (1.4 kg)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1350,
-        "hadlock_1991_equation_g": 1379
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -938,11 +795,10 @@
         },
         {
           "text": "If your baby moves less than usual, don't wait: get care right away.",
-          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html",
-          "review_note": "Same wording as I3 in the first packet. KidsHealth's '10 times in 2 hours' is left out on purpose until you rule on E2 and E3."
+          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 30,
@@ -956,14 +812,9 @@
         "weight": {
           "lb": 3,
           "oz": 6,
-          "kg": 1.523,
           "display": "about 3 lb 6 oz (1.5 kg)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1523,
-        "hadlock_1991_equation_g": 1559
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -979,7 +830,7 @@
           "source_url": "https://kidshealth.org/en/parents/week30.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 31,
@@ -993,18 +844,13 @@
         "weight": {
           "lb": 3,
           "oz": 12,
-          "kg": 1.707,
           "display": "about 3 lb 12 oz (1.7 kg)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1707,
-        "hadlock_1991_equation_g": 1751
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
-          "text": "Your baby pees several cups a day into the amniotic fluid, and swallows the fluid too.",
+          "text": "Your baby swallows amniotic fluid and passes urine into it.",
           "source_url": "https://kidshealth.org/en/parents/week31.html"
         },
         {
@@ -1016,7 +862,7 @@
           "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 32,
@@ -1030,14 +876,9 @@
         "weight": {
           "lb": 4,
           "oz": 3,
-          "kg": 1.901,
           "display": "about 4 lb 3 oz (1.9 kg)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 1901,
-        "hadlock_1991_equation_g": 1953
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -1053,7 +894,7 @@
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 33,
@@ -1067,14 +908,9 @@
         "weight": {
           "lb": 4,
           "oz": 10,
-          "kg": 2.103,
           "display": "about 4 lb 10 oz (2.1 kg)"
         },
-        "label": "Estimated weight at this week, the middle of WHO's fetal chart"
-      },
-      "figures_read": {
-        "who_kiserud_2017_table_11_50th_g": 2103,
-        "hadlock_1991_equation_g": 2162
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -1090,7 +926,7 @@
           "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     }
   ]
 }

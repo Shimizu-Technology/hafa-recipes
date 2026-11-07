@@ -1,3 +1,4 @@
+import { HealthNote } from "../components/health-note";
 import { useState } from "react";
 import { View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
@@ -114,5 +115,8 @@ export default function Milestones() {
         </Disclosure>
       </Card>
     </>}
+    <Copy kind="small">These lists count age from birth. For a baby born early, ask your doctor about adjusted age when following development.</Copy>
+    <MedicalSource source="AAP, adjusted age" url="https://www.healthychildren.org/English/ages-stages/baby/preemie/Pages/Preemie-Milestones.aspx" />
+    <HealthNote />
   </Screen>;
 }

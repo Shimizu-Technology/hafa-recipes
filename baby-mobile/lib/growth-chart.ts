@@ -9,8 +9,8 @@ import { keyDate, recordDay } from "./tracker";
  * (`scripts/build-who-growth.mjs` builds the JSON, and sources are in SOURCES.md). Nothing here reads a measurement: a
  * percentile is the file's arithmetic, and what it means is for CDC's words and the baby's doctor.
  *
- * `growth_notes.json` holds what's ours. AWAITING CLINICIAN REVIEW (MEDICAL_REVIEW_3): `approved` is the one switch, and
- * `growth-chart.test.ts` pins it false, so turning it on takes that test too.
+ * `growth_notes.json` holds agent-reviewed private-family wording (2026-11-07), not clinician approval. `approved` is the switch, and
+ * `growth-chart.test.ts` pins the private-family release and its disclosure; public/paid builds have a separate gate.
  */
 export const whoGrowth = who as unknown as { source: { name: string; url: string; files: string; retrieved: string; sha256: Record<string, string> }; units: Record<Measure, string>; columns: string[]; charts: Record<ChartSex, Record<Measure, number[][]>> };
 export const growthNotes = notes;

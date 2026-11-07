@@ -3,16 +3,9 @@ import babyWeeks from "../content/baby_weeks_1_12.json";
 import weeks3442 from "../content/weeks_34_42.json";
 import weeks433 from "../content/weeks_4_33.json";
 
-/**
- * Weekly facts, fixed and checkable, bundled so they work with no signal. Each batch is one JSON file in `content/`.
- *
- * AWAITING CLINICIAN REVIEW. `approved` in a batch's file is the one switch: false means no fact or number from it is
- * shown. Set it to true only once a doctor has signed off that batch (MEDICAL_REVIEW sections I1 to I10, MEDICAL_REVIEW_2
- * sections L to O, and the plan's medical gate). `weekly-content.test.ts` pins every batch to false, so turning one on
- * takes that test too.
- *
- * No fact in any batch depends on a baby's sex, so the child profile has no sex field. A later batch that needs one adds
- * the field then.
+/** Fixed offline facts, agent-reviewed 2026-11-07 for private family use at Leon’s direction.
+ * approved means this limited review, not clinician review. Cut lines are removed, including from dev previews.
+ * Public/paid builds require clinician review AND WHO permission in health-release.cjs.
  */
 export interface WeeklyFact { text: string; source_url: string; additional_source_urls?: string[] }
 export interface WeekContent {

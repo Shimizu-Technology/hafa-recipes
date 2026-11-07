@@ -7,11 +7,8 @@ import { shotLabel } from "./trackers";
 
 export { shotLabel };
 
-/**
- * AWAITING CLINICIAN REVIEW (MEDICAL_REVIEW_2 Q1). AAP's visit ages, gated like the weekly batches: `approved` in the
- * file is the one switch, and a release build shows no visit or date until it's true. No screening detail is copied:
- * AAP's table is copyrighted, so this holds only the ages and a link. The two vaccine schedules are only ever linked,
- * so the app never holds a schedule of its own.
+/** AAP visit ages, agent-reviewed 2026-11-07 for private family use; not clinician-reviewed.
+ * Public/paid build gates are in health-release.cjs. No vaccine schedule is copied.
  */
 export const wellVisits = schedule;
 export type WellVisit = (typeof schedule.visits)[number];
@@ -20,8 +17,8 @@ export const visitsVisible = (preview = false, batch: { approved: boolean } = sc
 
 /** A suggested day: the same day of the month, or the month's last day when it's shorter. */
 export function visitDay(birthDate: string, visit: Pick<WellVisit, "after_birth">) {
-  const [year, month, date] = birthDate.split("-").map(Number), { days = 0, months = 0 } = visit.after_birth as { days?: number; months?: number };
-  if (!months) return dayKey(new Date(year, month - 1, date + days));
+  const [year, month, date] = birthDate.split("-").map(Number), { days = 0, months = 0, end_days } = visit.after_birth as { days?: number; months?: number; end_days?: number };
+  if (!months) return dayKey(new Date(year, month - 1, date + (end_days ?? days)));
   const last = new Date(year, month - 1 + months + 1, 0).getDate();
   return dayKey(new Date(year, month - 1 + months, Math.min(date, last)));
 }

@@ -1,12 +1,12 @@
 {
   "batch": "baby-months-3-24",
-  "approved": false,
-  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md items O1 to O4 are signed off.",
+  "approved": true,
+  "_status": "Agent-reviewed 2026-11-07 by Leon’s decision for private family use. Not clinician-reviewed. Public/paid release requires clinician review and WHO chart permission.",
   "generated": "2026-11-05",
   "unit": "month",
   "note": {
-    "text": "Every baby goes at their own pace, so these may come sooner or later for yours.",
-    "source_url": "https://kidshealth.org/en/parents/development-1mo.html"
+    "text": "Babies develop at different rates. If you are worried or your baby loses a skill, ask your baby's doctor.",
+    "source_url": "https://www.cdc.gov/act-early/milestones/2-months.html"
   },
   "periods": [
     {
@@ -25,7 +25,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 4,
@@ -43,7 +43,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-4-to-7-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 5,
@@ -61,7 +61,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-4-to-7-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 6,
@@ -79,7 +79,7 @@
           "source_url": "https://kidshealth.org/en/parents/development-6mos.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 7,
@@ -97,13 +97,13 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-4-to-7-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 8,
       "items": [
         {
-          "text": "Your baby is curious about everything, and may spend two or three minutes with a toy before moving on.",
+          "text": "Your baby may be curious about toys and enjoy exploring them.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-8-to-12-Months.aspx"
         },
         {
@@ -115,7 +115,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-8-to-12-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 9,
@@ -133,7 +133,7 @@
           "source_url": "https://kidshealth.org/en/parents/development-9mos.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 10,
@@ -151,7 +151,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-8-to-12-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 11,
@@ -169,26 +169,25 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-8-to-12-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 12,
       "items": [
         {
-          "text": "Many babies take first steps around their first birthday, and it's normal to start earlier or later.",
-          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-8-to-12-Months.aspx",
-          "review_note": "CDC's own 18-month list has 'walks without holding on.' We say nothing that sets a deadline."
+          "text": "Your baby may pull up to stand and walk while holding on to furniture.",
+          "source_url": "https://www.cdc.gov/act-early/milestones/1-year.html"
         },
         {
-          "text": "Some babies have two or three words by now. Many others babble with the tones of real speech.",
-          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-8-to-12-Months.aspx"
+          "text": "Your baby may call a parent mama, dada or another special name.",
+          "source_url": "https://www.cdc.gov/act-early/milestones/1-year.html"
         },
         {
           "text": "Your baby may start showing what things are for, like holding a toy phone to their ear.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-8-to-12-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 13,
@@ -206,7 +205,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 14,
@@ -220,11 +219,11 @@
           "source_url": "https://medlineplus.gov/ency/article/002010.htm"
         },
         {
-          "text": "Short separations may bring a fuss, and the protest is usually brief.",
+          "text": "Your toddler may be upset when you leave and need comfort when you return.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Emotional-Development-1-Year-Olds.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 15,
@@ -239,11 +238,10 @@
         },
         {
           "text": "Your toddler may take a few steps on their own.",
-          "source_url": "https://kidshealth.org/en/parents/development-15mos.html",
-          "review_note": "CDC's 15-month list has this too, so it's consistent."
+          "source_url": "https://kidshealth.org/en/parents/development-15mos.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 16,
@@ -255,13 +253,9 @@
         {
           "text": "Your toddler may enjoy being around other children, and copy them.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Social-Development-1-Year-Olds.aspx"
-        },
-        {
-          "text": "Your toddler may start putting two words together. The range is wide, from 16 to 24 months.",
-          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 17,
@@ -279,18 +273,11 @@
           "source_url": "https://medlineplus.gov/ency/article/002010.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 18,
       "items": [
-        {
-          "text": "Many toddlers say about 10 words by now. Some say more, and some say fewer.",
-          "source_url": "https://kidshealth.org/en/parents/development-18mos.html",
-          "additional_source_urls": [
-            "https://medlineplus.gov/ency/article/002011.htm"
-          ]
-        },
         {
           "text": "Your toddler may climb on a chair or couch without help.",
           "source_url": "https://kidshealth.org/en/parents/development-18mos.html"
@@ -300,7 +287,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Social-Development-1-Year-Olds.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 19,
@@ -318,7 +305,7 @@
           "source_url": "https://medlineplus.gov/ency/article/002010.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 20,
@@ -336,7 +323,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Social-Development-1-Year-Olds.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 21,
@@ -354,15 +341,11 @@
           "source_url": "https://medlineplus.gov/ency/article/002010.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 22,
       "items": [
-        {
-          "text": "Your toddler may understand two-step requests, like 'Give me the ball and then get your shoes.'",
-          "source_url": "https://medlineplus.gov/ency/article/002012.htm"
-        },
         {
           "text": "Your toddler may stack five or six blocks.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
@@ -372,7 +355,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 23,
@@ -390,15 +373,14 @@
           "source_url": "https://medlineplus.gov/ency/article/002010.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 24,
       "items": [
         {
-          "text": "Many toddlers have at least 50 words by about now and can put two together, with differences among children.",
-          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Language-Development-1-Year-Olds.aspx",
-          "review_note": "CDC's lists: two words together at 2 years, about 50 words at 30 months. AAP's page says 50 by the end of the second year. They differ. Which should stand?"
+          "text": "Your toddler may put two words together, like 'more milk.'",
+          "source_url": "https://www.cdc.gov/act-early/milestones/2-years.html"
         },
         {
           "text": "Your toddler may start to favor one hand. Many children don't show a preference for years.",
@@ -409,7 +391,7 @@
           "source_url": "https://medlineplus.gov/ency/article/002012.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     }
   ]
 }

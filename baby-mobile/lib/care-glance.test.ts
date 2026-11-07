@@ -88,14 +88,14 @@ it("omits missing or invalid awake facts without dangling separators", () => {
 
 const breastfeed = (id: string, occurred_at: string, data: BabyRecord["data"], child_id = "baby") =>
   ({ id, kind: "feeding", child_id, occurred_at, data, title: "", body: "", revision: 1, created_at: occurred_at, updated_at: occurred_at }) as BabyRecord;
-it("takes the next side as the opposite of the newest one-sided breastfeed, past bottles, Both and other babies", () => {
+it("does not fall back past the latest bottle or unordered Both feed", () => {
   expect(nextSide([
     breastfeed("bottle", "2026-11-04T05:00:00Z", { method: "bottle", amount: 3, unit: "oz" }),
     breastfeed("both", "2026-11-04T04:00:00Z", { method: "breast", side: "both" }),
     breastfeed("other", "2026-11-04T03:30:00Z", { method: "breast", side: "right" }, "sibling"),
     breastfeed("left", "2026-11-04T03:00:00Z", { method: "breast", side: "left" }),
     breastfeed("right", "2026-11-04T01:00:00Z", { method: "breast", side: "right" }),
-  ], "baby")).toBe("right");
+  ], "baby")).toBeUndefined();
 });
 it("suggests no next side when there is no one-sided feed to go on", () => {
   expect(nextSide([], "baby")).toBeUndefined();
@@ -107,4 +107,11 @@ it("knows about every sleep still open for this baby, newest first", () => {
   const glance = careGlance([older, done, newer, forgotten, { ...row("sleep", at(20, 8)), child_id: "other" }], "a", now);
   expect(glance.openSleeps).toEqual([newer, older]);
   expect(glance.openSleep).toBe(newer);
+});
+
+it("does not guess past an unordered Both even when an older start is known", () => {
+  expect(nextSide([
+    breastfeed("both", "2026-11-04T04:00:00Z", { method: "breast", side: "both" }),
+    breastfeed("left", "2026-11-04T03:00:00Z", { method: "breast", side: "left" }),
+  ], "baby")).toBeUndefined();
 });
