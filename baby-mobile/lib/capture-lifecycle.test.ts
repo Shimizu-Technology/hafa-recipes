@@ -676,3 +676,21 @@ describe("captures from an older build, after the update and after Create family
     expect(scope.acknowledge).not.toHaveBeenCalled();
   });
 });
+
+it("uses a recovered capture’s fresh record identity instead of its erased id", async () => {
+  const account = setup();
+  scope.pending.mockResolvedValueOnce({ ...payload(), record_id: "fresh-record", claimed: true }).mockResolvedValue(null);
+  await mount(ShareCapture); await account.drain();
+  expect(account.state.outbox[0]).toMatchObject({ id: "share-save:fresh-record", record: { id: "fresh-record" } });
+});
+
+it("settles a claimed retained receipt only after saving its original", async () => {
+  const account = setup();
+  scope.pending.mockResolvedValueOnce({ ...payload(), status: "saved", claimed: true }).mockResolvedValue(null);
+  const settled = vi.fn(), stop = onClaimSettled(settled);
+  try {
+    await mount(ShareCapture); await account.drain();
+    expect(account.state.outbox[0]).toMatchObject({ type: "save" });
+    expect(settled).toHaveBeenCalledWith("capture-A", "saved");
+  } finally { stop(); }
+});

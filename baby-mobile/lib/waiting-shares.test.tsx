@@ -15,7 +15,7 @@ vi.mock("react-native", () => ({
 vi.mock("@clerk/expo", () => ({ useUser: () => ({ user: { primaryEmailAddress: { emailAddress: "kami@example.com" } } }) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => w.baby }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
-  waitingShares: async (owner: string) => (owner === "owner" ? w.rows : []), waitingShareCount: () => w.count(),
+  waitingShares: async (owner: string) => (owner === "owner" ? w.rows : []), waitingShareCount: () => w.count(), removalShareCount: () => w.count(),
   blockedShares: async () => w.blocked, removeBlockedShare: w.removeBlocked,
   claimShare: w.claim, discardShare: w.discard, clearSession: async () => undefined,
 }));
@@ -271,4 +271,19 @@ describe("signing out", () => {
     await act(async () => { renderer = create(<Probe />); });
     expect(seen).toBe(2);
   });
+});
+
+it("ends the whole Adding batch if one transient failure stops its drain", async () => {
+  w.rows = [row(), row({ token: "b:2" })];
+  await mount(); await press("Add all 2");
+  await act(async () => { claimSettled("a:1", "failed"); });
+  expect(text()).not.toContain("Adding to your saved posts…");
+  expect(text()).toContain("still on this phone");
+  expect(w.toast).not.toHaveBeenCalled();
+});
+it("tells her when a native removal is refused", async () => {
+  w.rows = [row()]; w.discard.mockResolvedValueOnce(false);
+  await mount(); await press("Not mine, remove it");
+  await act(async () => { await w.alerts.at(-1)!.buttons.find(b => b.text === "Remove")!.onPress!(); });
+  expect(text()).toContain("couldn’t be removed");
 });

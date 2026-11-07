@@ -38,11 +38,12 @@ export interface WaitingShare {
 const bridge = requireOptionalNativeModule<{
   pending(): Promise<NativeShare | null>;
   acknowledge(token: string): boolean;
-  clear(keepWaiting: boolean): void;
+  clear(keepWaiting: boolean, recoveringOwner: string | null): void;
   installationId(): Promise<string>;
   configureSession(token: string, base: string, expires: string, owner: string, generation: number, automaticEpoch: number, destination: string | null): Promise<void>;
   sessionOwner(): Promise<string | null>;
   clearSession(preserveUnassigned: boolean): Promise<void>;
+  removalShareCount(): Promise<number>;
   waitingShareCount(): Promise<number>;
   waitingShares(owner: string): Promise<WaitingShare[]>;
   returnClaim(token: string, owner: string): Promise<boolean>;
@@ -56,10 +57,11 @@ export const nativeSharingAvailable = !!bridge;
 export const pendingShare = () => bridge?.pending() ?? Promise.resolve(null);
 export const acknowledgeShare = (token: string) => bridge?.acknowledge(token) ?? false;
 /** `keepWaiting` keeps what was shared under no account, for when only this account's own data is going. */
-export const clearPendingShares = (keepWaiting = false) => bridge?.clear(keepWaiting);
+export const clearPendingShares = (keepWaiting = false, recoveringOwner: string | null = null) => bridge?.clear(keepWaiting, recoveringOwner);
 export const installationId = () => bridge?.installationId() ?? Promise.reject(Error("Native sharing unavailable"));
 export const sessionOwner = () => bridge?.sessionOwner() ?? Promise.resolve(null);
 export const clearSession = (preserveUnassigned = false) => bridge?.clearSession(preserveUnassigned) ?? Promise.resolve();
+export const removalShareCount = () => bridge?.removalShareCount() ?? Promise.resolve(0);
 export const waitingShareCount = () => bridge?.waitingShareCount() ?? Promise.resolve(0);
 export const waitingShares = (owner: string) => bridge?.waitingShares(owner) ?? Promise.resolve([]);
 export const claimShare = (token: string, owner: string, generation: number) => bridge?.claimShare(token, owner, generation) ?? Promise.resolve("refused" as const);

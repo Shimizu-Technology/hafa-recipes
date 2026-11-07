@@ -67,8 +67,10 @@ function ConfirmWaiting() {
   latest.current = b;
   const load = useCallback(async () => {
     if (!owner) return setRows([]);
-    const next = await Share.waitingShares(owner).catch(() => [] as Share.WaitingShare[]);
-    if (b.current()) setRows(next.filter((row) => !notNow.has(`${owner}:${row.token}`)));
+    try {
+      const next = await Share.waitingShares(owner);
+      if (b.current()) setRows(next.filter((row) => !notNow.has(`${owner}:${row.token}`)));
+    } catch { if (b.current()) setError("Your waiting shares couldn’t be read just now. Try again."); }
   }, [owner]);
   useEffect(() => {
     void load();
@@ -83,6 +85,10 @@ function ConfirmWaiting() {
       if (!now.waiting.delete(token)) {
         if (registering.current) early.current.set(token, outcome);
         return;
+      }
+      if (outcome === "failed") {
+        now.waiting.clear();
+        setError("Some shares couldn’t be added just now. They’re still on this phone. Open the app again to try again.");
       }
       if (outcome === "saved") now.saved++;
       if (now.waiting.size) return;
@@ -111,7 +117,7 @@ function ConfirmWaiting() {
   </Card>;
   if (!rows.length) return gone || error ? <Card style={{ gap: 12 }}>
     <Notice error={!gone}>{gone || error}</Notice>
-    <Button variant="ghost" title="OK" onPress={() => { setGone(""); setError(""); }} />
+    <Button variant="ghost" title={gone ? "OK" : "Try again"} onPress={() => { setGone(""); setError(""); if (!gone) void load(); }} />
   </Card> : null;
   const one = rows.length === 1, account = user?.primaryEmailAddress?.emailAddress || "this account";
   async function add() {
@@ -151,7 +157,7 @@ function ConfirmWaiting() {
   }
   const remove = (token: string) => Alert.alert("Remove from this phone?", "It hasn’t gone anywhere else. This can’t be undone.", [
     { text: "Keep it", style: "cancel" },
-    { text: "Remove", style: "destructive", onPress: () => void removeWaitingShare(token).catch(() => setError("That couldn’t be removed just now. Try again.")) },
+    { text: "Remove", style: "destructive", onPress: () => void removeWaitingShare(token).then((removed) => { if (!removed) setError("That couldn’t be removed just now. Try again."); }).catch(() => setError("That couldn’t be removed just now. Try again.")) },
   ]);
   return <Card style={{ gap: 12 }}>
     <View style={{ gap: 4 }}>

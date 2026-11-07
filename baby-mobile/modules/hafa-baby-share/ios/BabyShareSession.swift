@@ -59,9 +59,9 @@ enum BabyShareSession {
         "scope": scope, "generation": generation, "auto_process_epoch": automaticEpoch])
     }
   }
-  static func disable(storage: BabyShareStore, preserveUnassigned: Bool = false) throws -> [String: Any]? {
+  static func disable(storage: BabyShareStore, preserveUnassigned: Bool = false, recoveringOwner: String? = nil) throws -> [String: Any]? {
     var old: [String: Any]?
-    try storage.clear(preserveUnassigned: preserveUnassigned) { old = try? read(); try write(nil) }
+    try storage.clear(preserveUnassigned: preserveUnassigned, recoveringOwner: recoveringOwner) { old = try? read(); try write(nil) }
     return old
   }
   static func clear(storage: BabyShareStore, preserveUnassigned: Bool = false) async throws {

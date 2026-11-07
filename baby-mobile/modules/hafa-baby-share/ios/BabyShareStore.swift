@@ -45,6 +45,7 @@ final class BabyShareStore {
     let automaticEpoch: Int
     let receipt: [String: String]?
     var claimed = false
+    var recordID: String? = nil
   }
   struct Waiting {
     let snapshot: Snapshot
@@ -69,8 +70,9 @@ final class BabyShareStore {
     var claimed: Bool? = nil
     // The app can never take this one: `file_too_large`, `unsupported_file` or `unreadable`. It stays until removed, behind nothing and in front of nothing.
     var blocked: String? = nil
+    var recordID: String? = nil
     var token: String? {
-      payload.map { id + ":" + SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+      payload.map { id + ":" + SHA256.hash(data: $0 + Data((recordID ?? "").utf8)).map { String(format: "%02x", $0) }.joined() }
     }
   }
   private let container: URL, root: URL, captures: URL, defaults: UserDefaults
@@ -205,12 +207,12 @@ final class BabyShareStore {
   }
   private func snapshot(_ value: Manifest) throws -> Snapshot {
     guard let payload = value.payload, let token = value.token else { throw Failure.invalid }
-    let raw: Any = value.text ? try JSONDecoder().decode([String].self, from: payload) : payload
+    let raw: Any = value.text ? ((try? JSONDecoder().decode([String].self, from: payload)) as Any? ?? payload) : payload
     if consumers[token] == nil {
       consumers[token] = try Lease(directory(value.id).appendingPathComponent("lease.lock"), exclusive: false)
     }
     return Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: value.automaticEpoch ?? 0,
-      receipt: try? read([String: String].self, directory(value.id).appendingPathComponent("receipt.json")), claimed: value.claimed == true)
+      receipt: try? read([String: String].self, directory(value.id).appendingPathComponent("receipt.json")), claimed: value.claimed == true, recordID: value.recordID)
   }
   func published(_ id: String) throws -> Snapshot? {
     try locked {
@@ -320,15 +322,22 @@ final class BabyShareStore {
   }
   // Shares kept under no account, for a sign-in screen or a warning: how many, and nothing about them.
   func unassignedCount() throws -> Int { try locked { try unassignedLocked().count } }
+  // Privacy cleanup removes hidden, blocked and in-flight originals too. Never expose their contents in a count.
+  func removalCount() throws -> Int {
+    try locked {
+      let folders = try FileManager.default.fileExists(atPath: captures.path) ? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil) : []
+      return folders.filter { (try? manifest($0.lastPathComponent).payload) != nil }.count
+    }
+  }
   // What the connected account may see before it says a share is its own. Nothing, with no account connected.
   func unassigned(owner: String) throws -> [Waiting] {
     try locked {
       guard let bound = scope(), Self.tag(bound).owner == owner else { return [] }
       return try unassignedLocked().compactMap { value in
         guard let token = value.token, let payload = value.payload else { return nil }
-        let raw: Any = value.text ? try JSONDecoder().decode([String].self, from: payload) : payload
+        let raw: Any = value.text ? ((try? JSONDecoder().decode([String].self, from: payload)) as Any? ?? payload) : payload
         let held = value.heldSince ?? value.createdAt
-        return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: nil, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil),
+        return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: nil, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil, recordID: value.recordID),
           keptUntil: held.addingTimeInterval(Self.unassignedExpiry))
       }
     }
@@ -354,8 +363,8 @@ final class BabyShareStore {
         .sorted { $0.createdAt < $1.createdAt }
         .compactMap { value in
           guard let token = value.token, let payload = value.payload else { return nil }
-          let raw: Any = value.text ? try JSONDecoder().decode([String].self, from: payload) : payload
-          return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil), keptUntil: value.createdAt, blocked: value.blocked)
+          let raw: Any = value.text ? ((try? JSONDecoder().decode([String].self, from: payload)) as Any? ?? payload) : payload
+          return Waiting(snapshot: Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: 0, receipt: nil, recordID: value.recordID), keptUntil: value.createdAt, blocked: value.blocked)
         }
     }
   }
@@ -395,6 +404,8 @@ final class BabyShareStore {
         value.scope.map({ Self.tag($0).owner == owner }) == true,
         scope().map({ Self.tag($0).owner == owner }) == true else { return false }
       value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
+      value.recordID = UUID().uuidString
+      try? FileManager.default.removeItem(at: directory(id).appendingPathComponent("receipt.json"))
       consumers.removeValue(forKey: token)
       try write(value, to: directory(id).appendingPathComponent("manifest.json"))
       return true
@@ -411,8 +422,11 @@ final class BabyShareStore {
   }
   // Explicit privacy cleanup invalidates even an extension that is still loading.
   // The lock/epoch files contain no captured content and must retain their inode.
-  func clear(preserveUnassigned: Bool = false, retire: () throws -> Void = {}) throws {
-    try locked { try retire(); try clearLocked(preserveUnassigned: preserveUnassigned) }
+  func clear(preserveUnassigned: Bool = false, recoveringOwner: String? = nil, retire: () throws -> Void = {}) throws {
+    try locked {
+      let recover = recoveringOwner.map { owner in scope().map { Self.tag($0).owner == owner } == true } ?? false
+      try retire(); try clearLocked(preserveUnassigned: preserveUnassigned, recoverClaims: recover)
+    }
   }
   private func clearLocked(preserveUnassigned: Bool = false, recoverClaims: Bool = false) throws {
       // Preserve pre-manifest originals on the initial signed-out upgrade too.
@@ -428,6 +442,10 @@ final class BabyShareStore {
         for folder in folders {
           if var value = try? manifest(folder.lastPathComponent) {
             if preserveUnassigned, (value.scope == nil || (recoverClaims && value.claimed == true)), value.payload != nil {
+              if value.claimed == true {
+                value.recordID = UUID().uuidString
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent("receipt.json"))
+              }
               value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
               // Retire all live producers while retaining quarantined originals.
               value.epoch = generation
