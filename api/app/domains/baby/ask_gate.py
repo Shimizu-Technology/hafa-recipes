@@ -24,16 +24,17 @@ def health_release_allowed(actor=None):
     )
 
 
+def ask_v2_flag_on():
+    return bool(getattr(get_settings(), "baby_ask_v2_enabled", False))
+
+
 def ask_v2_on(actor=None):
     """Leon authorized agent review for private family use on 2026-11-07; never clinical approval.
 
     Public/paid use still needs clinician review and WHO chart permission. V2-off is
     not AI-off: the old organizer remains behind AI consent and input/output checks.
     """
-    settings = get_settings()
-    if not getattr(settings, "baby_ask_v2_enabled", False):
-        return False
-    return health_release_allowed(actor)
+    return ask_v2_flag_on() and health_release_allowed(actor)
 
 
 def ask_v2_consented(profile):

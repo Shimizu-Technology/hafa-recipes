@@ -666,3 +666,34 @@ family binary and deployed consent/access/revocation/source/budget checks remain
 before the V2 flag. No PR was merged and no production configuration was
 changed by this worker. The full item ledger, primary-source decisions,
 conservative defaults and evidence are in #640's medical review report.
+
+### November 8 continuation after #643
+
+Leon merged #643; #639 and #640 remain held. The API branch now includes the
+merged main without conflicts, and the mobile branch includes that API branch.
+Do not retarget #640 until #639 is actually merged by its owner.
+
+The generation prompts now distinguish a general late-pregnancy movement question
+from a report of a current decrease. The explicit reduced-movement ban and the
+urgent floor remain. The old prompt explicitly asks for its `safety` field.
+A bare week count or a born baby's kick cannot establish fetal context; when a
+week count makes a motionless baby's context ambiguous, preserve baby 911 and
+maternal immediate-care guidance. Postpartum infant immobility retains baby 911.
+Conversation rename/delete remains available to a current V2 client when release
+access is revoked, subject to the original feature flag, ownership and generation
+checks; this does not grant permission to generate a health answer.
+
+Native acceptance remains blocked: the old crash's simulator log confirms Clerk
+Keychain OSStatus -34018 (missing entitlement), not an invalid-key diagnosis.
+The new isolated ARM64 build used the same development publishable key as the
+working Settings bundle and explicit expanded signing entitlements, but iOS 18.5
+denied launch (SBMainWorkspace / nested NSPOSIXErrorDomain 153). No new Clerk
+crash was observed. Device automation stopped after the advised relaunch failed;
+the R5 matrix and cold-relaunch acceptance are not passed. No iOS 26.5 run was
+attempted in this continuation. Do not infer acceptance from the older matrix.
+
+Before enabling V2, require a **complete passing final whole-Ask evaluation**,
+not only an isolated rerun of the formerly failing movement case, plus the full
+required native matrix, final review, reviewed internal family binary and isolated
+deployed consent/access/revocation/source/budget checks. Leave the production
+flag unset. No production configuration was changed by this task.

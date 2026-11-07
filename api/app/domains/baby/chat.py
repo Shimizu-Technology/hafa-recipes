@@ -14,7 +14,7 @@ from sqlalchemy import String, and_, case, cast, delete, func, or_, select
 from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
-from app.domains.baby.ask_gate import ask_v2_allowed, ask_v2_on
+from app.domains.baby.ask_gate import ask_v2_allowed, ask_v2_flag_on
 from app.domains.baby.ask_research import strings_in
 from app.domains.baby.ask_safety import (
     CANT_ANSWER,
@@ -684,9 +684,10 @@ async def get_conversation(identifier: UUID, user: User, db: Database, client: C
     }
 
 
-def require_new_ask(client, actor):
-    # Until the new Ask is on, and for builds that predate conversations they can manage, these don't exist.
-    if not ask_v2_on(actor) or legacy_client(client):
+def require_new_ask(client):
+    # Managing existing data is not permission to generate health information.
+    # Revoking release access must still let this person remove their chats.
+    if not ask_v2_flag_on() or legacy_client(client):
         raise HTTPException(404, "Not found")
 
 
@@ -704,7 +705,7 @@ async def rename_conversation(
     identifier: UUID, body: ConversationPatch, user: User, db: Database, generation: Generation,
     client: Client = None, access: Access = None,
 ):
-    require_new_ask(client, user.id)
+    require_new_ask(client)
     access.check_generation(generation)
     row = await conversation_for_change(db, identifier, access)
     # Renaming isn't new activity, so the conversation keeps its place in the list.
@@ -721,7 +722,7 @@ async def delete_conversation(
     client: Client = None, access: Access = None,
 ):
     """Removes the conversation and every message in it, for good. An answer still on its way is discarded."""
-    require_new_ask(client, user.id)
+    require_new_ask(client)
     access.check_generation(generation)
     row = await conversation_for_change(db, identifier, access)
     await db.execute(delete(BabyMessage).where(
