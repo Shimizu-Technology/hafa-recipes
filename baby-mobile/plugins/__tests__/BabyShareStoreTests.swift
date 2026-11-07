@@ -690,7 +690,7 @@ struct BabyShareStoreTests {
       token = try store.unassigned(owner: "owner-a")[0].snapshot.token
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "privacy clear also requires Add again")
       try store.clear(preserveUnassigned: true)
-      try check(try store.unassignedCount() == 0, "signed-out startup does not turn an account claim into a no-owner share")
+      try check(try store.unassignedCount() == 0, "privacy clear without a recovering owner never exposes an account claim as unassigned")
     }
     do {
       let (_, defaults, store, suite) = try fixture("malformed-original")
@@ -781,6 +781,24 @@ struct BabyShareStoreTests {
       try check(try store.removalCount() == 2, "privacy count includes unreadable future manifest and tagged original after expired cleanup")
       try store.clear()
       try check(try store.removalCount() == 0, "explicit warned cleanup still clears every kind")
+    }
+    for wasClaimed in [false, true] {
+      let (_, defaults, store, suite) = try fixture("explicit-signout-after-lapse-\(wasClaimed)")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let capture = try store.begin()
+      if !wasClaimed { try store.bind("owner-a:1:personal") }
+      // Begin scope is frozen; make the ordinary tagged producer after bind.
+      let original = wasClaimed ? capture : try store.begin()
+      try store.publish(["kept original"], capture: original)
+      if wasClaimed {
+        try store.bind("owner-a:1:personal")
+        _ = try store.claim(store.unassigned(owner: "owner-a")[0].snapshot.token, owner: "owner-a", generation: 1)
+      }
+      try store.suspend()
+      try check(try store.removalCount() == 1, "lapsed ordinary and Add originals are counted before explicit sign-out")
+      try store.clear()
+      try check(try store.removalCount() == 0 && store.pending() == nil, "explicit warned sign-out clears lapsed captures too")
+      try check(!FileManager.default.fileExists(atPath: original.directory.path), "explicit sign-out removes lapsed original bytes")
     }
     print("\(count) native capture store cases passed")
   }
