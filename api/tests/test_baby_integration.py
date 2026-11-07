@@ -67,7 +67,7 @@ async def baby_api(monkeypatch, request):
                 text("INSERT INTO schema_migrations VALUES (33,'test baseline')")
             )
         settings = SimpleNamespace(
-            baby_health_release_audience="private_family", baby_health_reviewed_version="baby-health-2026-11-07-m1-m8",
+            baby_health_private_users="owner,other", baby_health_release_audience="private_family", baby_health_reviewed_version="baby-health-2026-11-07-m1-m8",
             baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20,
             baby_family_enabled=os.environ.get("BABY_FAMILY_ENABLED", "false").lower() == "true",
             baby_push_enabled=os.environ.get("BABY_PUSH_ENABLED", "false").lower() == "true",

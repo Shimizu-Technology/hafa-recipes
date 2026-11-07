@@ -275,3 +275,38 @@ async def test_public_release_gate_cannot_fall_back_to_old_ai(baby_api, flag_off
     urgent = (await old_question(baby_api, "I want to hurt myself")).json()
     assert urgent["help"] == HARM and urgent["message"] == MESSAGES[HARM]
     assert flag_off.checks == [] and flag_off.sent == []
+
+
+@pytest.mark.parametrize("ask_v2", [False, True])
+async def test_closed_private_gate_does_not_persist_nonurgent_requests_but_preserves_emergencies(baby_api, flag_off, ask_v2):
+    from sqlalchemy import func
+
+    from app.domains.baby.models import BabyMessage
+    flag_off.settings.baby_health_private_users = "some-other-application-user"
+    for _ in range(3):
+        reply = await old_question(baby_api, "Summarize my notes", ask_v2=ask_v2)
+        assert reply.json()["message"] == cant_answer(CHECK_FAILED)
+        assert reply.json()["conversation_id"] is None
+    async with baby_api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(BabyMessage)) == 0
+    urgent = await old_question(baby_api, "My baby isn't breathing", ask_v2=ask_v2)
+    assert urgent.json()["message"] == MESSAGES[BABY_EMERGENCY]
+    assert flag_off.sent == [] and flag_off.checks == []
+
+
+@pytest.mark.parametrize("ask_v2", [False, True])
+async def test_removing_a_private_account_during_an_answer_discards_the_response(baby_api, flag_off, ask_v2):
+    flag_off.settings.baby_ask_v2_enabled = ask_v2
+    if ask_v2:
+        await enable(baby_api)
+    original = flag_off.handler
+    def remove_actor(request):
+        response = original(request)
+        if ask_check.CHECK_FORMAT.encode() not in request.content:
+            flag_off.settings.baby_health_private_users = "other"
+        return response
+    flag_off.handler = remove_actor
+    response = await old_question(baby_api, "Summarize my notes", ask_v2=ask_v2)
+    assert response.status_code == (403 if ask_v2 else 503)
+    assert "open Help" in response.text
+    assert "Old path answer" not in response.text and "Stub answer" not in response.text

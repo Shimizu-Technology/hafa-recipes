@@ -84,7 +84,7 @@ async def stub(baby_api, monkeypatch):
     fake = Stub()
     monkeypatch.setattr(provider, "RETRY_DELAYS", (0, 0))
     settings = SimpleNamespace(
-            baby_health_release_audience="private_family", baby_health_reviewed_version="baby-health-2026-11-07-m1-m8",
+            baby_health_private_users="owner,other", baby_health_release_audience="private_family", baby_health_reviewed_version="baby-health-2026-11-07-m1-m8",
         baby_ask_v2_enabled=True, baby_ask_model="gpt-6-luna", baby_ask_reasoning_effort="low",
         baby_ai_model="gpt-5.6-luna", recipe_chat_model="gpt-5.6-luna", openai_reasoning_effort="none",
         baby_ask_research_model="", baby_ask_research_reasoning_effort="low",

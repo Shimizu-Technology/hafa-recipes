@@ -10,20 +10,20 @@ from app.domains.baby.provider import AnswerOutput
 @pytest.mark.parametrize("audience", [None, "public", "paid", "private_family", "unknown"])
 @pytest.mark.parametrize("marker", [None, "", "stale-review"])
 def test_flag_and_audience_never_replace_the_review_marker(monkeypatch, audience, marker):
-    configured = SimpleNamespace(baby_ask_v2_enabled=True, baby_health_release_audience=audience,
+    configured = SimpleNamespace(baby_ask_v2_enabled=True, baby_health_private_users="owner,other", baby_health_release_audience=audience,
                                  baby_health_reviewed_version=marker, baby_ask_clinician_approval="record",
                                  baby_who_chart_permission="record")
     monkeypatch.setattr(ask_gate, "get_settings", lambda: configured)
-    assert ask_gate.health_release_allowed() is False and ask_gate.ask_v2_on() is False
+    assert ask_gate.health_release_allowed("owner") is False and ask_gate.ask_v2_on("owner") is False
 
 
 def test_private_family_needs_the_exact_current_marker(monkeypatch):
-    configured = SimpleNamespace(baby_ask_v2_enabled=True, baby_health_release_audience="private_family",
+    configured = SimpleNamespace(baby_ask_v2_enabled=True, baby_health_private_users="owner,other", baby_health_release_audience="private_family",
                                  baby_health_reviewed_version=ask_gate.HEALTH_REVIEW_VERSION)
     monkeypatch.setattr(ask_gate, "get_settings", lambda: configured)
-    assert ask_gate.ask_v2_on()
+    assert ask_gate.ask_v2_on("owner")
     del configured.baby_health_release_audience
-    assert not ask_gate.ask_v2_on()  # Even with the marker, an unspecified audience defaults public.
+    assert not ask_gate.ask_v2_on("owner")  # Even with the marker, an unspecified audience defaults public.
 
 
 @pytest.mark.parametrize("question,answer", [
@@ -73,7 +73,7 @@ def test_actual_unconfigured_settings_default_to_public_and_no_review(monkeypatc
     configured = Settings(_env_file=None, database_url="postgresql://localhost/health_test", openai_api_key="test-key", baby_ask_v2_enabled=True)
     assert configured.baby_health_release_audience == "public" and configured.baby_health_reviewed_version == ""
     monkeypatch.setattr(ask_gate, "get_settings", lambda: configured)
-    assert not ask_gate.health_release_allowed() and not ask_gate.ask_v2_on()
+    assert not ask_gate.health_release_allowed("owner") and not ask_gate.ask_v2_on("owner")
 
 
 def test_parent_distress_has_support_routes_without_a_diagnosis_or_unconditional_911():
@@ -98,3 +98,34 @@ async def test_personal_condition_questions_refuse_before_the_old_model_check(mo
 @pytest.mark.parametrize("question", ["What is preeclampsia?", "Could this be organized by date?", "What did my doctor write about preeclampsia?"])
 def test_general_definitions_organization_and_record_lookup_are_not_personal_diagnoses(question):
     assert ask_safety.boundary(question) is None
+
+
+@pytest.mark.parametrize("listed,actor,expected", [("", "owner", False), ("other", "owner", False),
+    ("owner", None, False), ("owner", "owner", True), ("owner", "clerk-owner", False)])
+def test_private_audience_is_a_real_actor_allowlist(monkeypatch, listed, actor, expected):
+    configured = SimpleNamespace(baby_health_release_audience="private_family", baby_health_reviewed_version=ask_gate.HEALTH_REVIEW_VERSION,
+                                 baby_health_private_users=listed)
+    monkeypatch.setattr(ask_gate, "get_settings", lambda: configured)
+    assert ask_gate.health_release_allowed(actor) is expected
+
+
+@pytest.mark.parametrize("message", ["I accidentally forgot my prenatal vitamin", "I accidentally missed my medicine"])
+def test_forgotten_medicine_is_not_poisoning(message):
+    assert ask_safety.classify(message) is None
+
+
+@pytest.mark.parametrize("answer", [
+    "Babies do not move less because of less room. Fewer kicks are normal near the end of pregnancy.",
+    "Babies do not move less, but fewer movements are expected late in pregnancy.",
+])
+def test_one_negated_movement_claim_does_not_excuse_another_unsafe_claim(answer):
+    assert ask_safety.unsafe_output("How do kicks change?", answer) == ask_safety.MOVEMENT_WARNING
+
+
+async def test_old_answer_publishes_the_vaccine_closing_and_sources_even_without_a_help_kind(monkeypatch):
+    async def checked(*args, **kwargs):
+        return SimpleNamespace(states_dose=False, diagnoses=False, discourages_care=False)
+    monkeypatch.setattr(ask_check, "check_answer", checked)
+    reply = await ask_v2.checked_old_answer_reply(None, "What do sources say about vaccines?", AnswerOutput(message="Ask can show the published positions."))
+    assert reply["message"].endswith("Your baby's doctor can tell you what's due.")
+    assert reply["help"] is None and reply["sources"] == list(ask_safety.VACCINE_SOURCES)
