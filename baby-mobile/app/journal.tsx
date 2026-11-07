@@ -24,7 +24,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
   useEffect(() => {
     if (careHistory) return;
     if (params.filter === "care") router.replace("/care-history");
-    else if (params.filter && ["all", "journal", "question"].includes(params.filter))
+    else if (params.filter && ["all", "journal", "question", "timeline"].includes(params.filter))
       setFilter(params.filter === "all" ? "writing" : params.filter);
   }, [params.filter, params.at, careHistory]);
   const latest = useRef(b);
@@ -103,12 +103,14 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
         : <HeaderAction title="Write" onPress={() => router.push({ pathname: "/edit", params: { kind: filter === "question" ? "question" : "journal" } })} />}
     >
       {!careHistory && <HeaderSearch value={q} onChange={setQ} placeholder="Search notes and questions" />}
+      {!careHistory && <Row title="Bring in pregnancy notes" detail="Paste, review, then save" icon="document-text-outline" onPress={() => router.push("/paste-visits")} />}
       <SyncStatus />
       <ChildFilter scroll />
       {!careHistory && <FilterChips
         value={filter}
         label="Show"
         options={[
+          { label: "Timeline", value: "timeline" },
           { label: "All writing", value: "writing" },
           { label: "Journal", value: "journal" },
           { label: "Doctor questions", value: "question" },

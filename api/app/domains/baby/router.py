@@ -177,7 +177,7 @@ async def record_reply(db, row, access):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text", "legacy_saved_text")
-PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
+PATCH_ADDITIONS = {"event": ("clinician_age", "doctor", "due_date_snapshot", "results", "result_status", "follow_up"), "diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
 
 
 def reconciled_event(data, start):

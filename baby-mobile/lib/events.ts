@@ -220,7 +220,7 @@ export function repeatName(rule?: EventRecurrence | null) {
 }
 
 export function newEvent(id: string, child: string | null, key: string, timeZone: string): EditorDraft {
-  return { id, kind: "event", title: "", body: "", child_id: child, occurred_at: iso(midnight(key, timeZone)), files: [],
+  return { id, kind: "event", title: "", body: "", shared: false, child_id: child, occurred_at: iso(midnight(key, timeZone)), files: [],
     data: { all_day: true, timezone: timeZone, category: "other", attendees: [] } };
 }
 /** A new start. An end keeps its distance from it. */

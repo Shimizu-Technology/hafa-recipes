@@ -216,6 +216,12 @@ export interface EventOccurrence {
   revision: number;
 }
 export interface RecordData {
+  clinician_age?: string | null;
+  doctor?: string | null;
+  due_date_snapshot?: string | null;
+  results?: string | null;
+  result_status?: "unknown" | "pending" | "received" | null;
+  follow_up?: string | null;
   /** Ask suggested this. The server keeps it through every edit, and it can't become a reminder. */
   /** Which of CDC's milestones this records. The title keeps the words she checked, even if CDC later rewords them. */
   milestone_id?: string;

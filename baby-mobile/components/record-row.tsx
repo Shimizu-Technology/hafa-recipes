@@ -1,3 +1,4 @@
+import { eventKindName } from "../lib/events";
 import { router } from "expo-router";
 import type { BabyRecord, Kind } from "@/lib/models";
 import { kindName, kindWord } from "@/lib/models";
@@ -60,6 +61,9 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
     title = dated ? record.title : summary || record.data.label || (record.kind === "journal" ? journalName(record) : label) || kindWord(record.kind),
     child = children.length > 1 ? children.find((c) => c.id === record.child_id)?.name : undefined,
     preview = record.kind === "journal" ? journalPreview(record) : "";
+  if (record.kind === "event") return <Row title={record.title} icon="calendar-outline" numericDetail
+    detail={[eventKindName(record.data), keyDate(recordDay(record.occurred_at, record.data.timezone)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }), record.data.all_day ? "All day" : friendlyTime(record.occurred_at, now, record.data.timezone), pending ? "Saved on this device" : ""].filter(Boolean).join(" · ")}
+    onPress={() => router.push({ pathname: "/event/[id]", params: { id: record.id } })} />;
   const details = [
     dated ? record.data.label ?? kindWord(record.kind)
       : quick ? label
@@ -85,7 +89,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
       numericDetail
       icon={recordIcon(record)}
       leading={record.kind === "journal" || record.kind === "question" ? <DateBlock iso={record.occurred_at} /> : undefined}
-      onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
+      onPress={() => router.push({ pathname: record.kind === "event" ? "/event/[id]" : "/record/[id]", params: { id: record.id } })}
     />
   );
 }
