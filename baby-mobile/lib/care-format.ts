@@ -15,6 +15,12 @@ export function duration(minutes: number) {
 }
 
 /** "6:02 PM", "Yesterday 11:40 PM", "Oct 18, 9:15 AM", or with the year when it differs. On the family's clock when given one. */
+/** For a row whose date block already says the day: the time, and the day only when the block's missing year matters. */
+export function timeBesideDate(iso: string, now = new Date(), timeZone?: string | null) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return recordDay(iso, timeZone).slice(0, 4) === recordDay(now.toISOString(), timeZone).slice(0, 4) ? clockIn(date, timeZone) : friendlyTime(iso, now, timeZone);
+}
 export function friendlyTime(iso: string, now = new Date(), timeZone?: string | null) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";

@@ -30,6 +30,7 @@ import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
 import { dueLine, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
+import { journalHome } from "../../../lib/use-open-journal";
 
 /** The docked log covers too much of the screen at the largest text sizes, so it scrolls with the page there. */
 const dockBelow = 1.5;
@@ -72,7 +73,14 @@ export default function Today() {
     tiles = child ? trackersFor(trackerAge).filter((tracker) => trackerOn(tracker, trackerAge, child.details) || (tracker.id === "sleep" && !!glance.openSleep)) : [],
     showing = (...ids: string[]) => tiles.some((tracker) => ids.includes(tracker.id)),
     parentHere = child ? canChangeBaby(b.state.bootstrap, child) : canAddBaby(b.state.bootstrap),
-    whatShows = child && parentHere && <Row title="What shows" detail="Everything’s off. Choose what gets a button." icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />;
+    whatShows = child && parentHere && <Row title="What shows" detail="Everything’s off. Choose what gets a button." icon="options-outline" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />,
+    // The same quiet two rows before and after the birth, so her writing never moves.
+    keptRows = [
+      <Row key="routines" numericDetail title={routine?.title || "Lists & routines"}
+        detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
+        icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />,
+      <Row key="journal" title="Journal" detail="Your entries and doctor questions" icon="book-outline" onPress={() => router.navigate(journalHome())} />,
+    ];
   const titleText = child?.name.trim() || "Today";
   const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id, stage: "here" } });
   /** One tap, since it may be the only hand free. Settings changes the date if it was another day. */
@@ -106,11 +114,7 @@ export default function Today() {
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
-      <Grouped>
-        <Row numericDetail title={routine?.title || "Lists & routines"}
-          detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
-          icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
-      </Grouped>
+      <Grouped>{keptRows}</Grouped>
     </Screen>
   );
   const feedsShow = showing("breast", "bottle"),
@@ -152,11 +156,7 @@ export default function Today() {
           onPress={() => router.push("/care-history")} />}
         {showCare && !showing("milestone") && <Row title="Milestones" detail="CDC’s list, and your keepsakes" icon={kindIcon.milestone} onPress={() => router.push("/milestones")} />}
         {showCare && !showing("shot") && <Row title="Well visits & shots" detail="Suggested visits, and the shots you record" icon={kindIcon.custom} onPress={() => router.push("/well-visits")} />}
-        <Row numericDetail title={routine?.title || "Lists & routines"}
-          detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
-          icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
-        <Row title="Journal" detail="Notes, photos and documents" icon="book-outline"
-          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal", at: String(Date.now()) } })} />
+        {keptRows}
         <Row title="Care history" numericDetail detail={showCare && feedsShow ? `${glance.feeds} feed${glance.feeds === 1 ? "" : "s"} today · All care logs` : showCare ? "All care logs" : "Feeding, sleep and diaper logs"} icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
     </Screen>

@@ -7,8 +7,9 @@ import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
+import { journalHome } from "../../../lib/use-open-journal";
 import { askV2Active } from "@/lib/ask-sources";
-import { Button, Card, FilterChips, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
+import { Button, Card, FilterChips, Grouped, Choice, Copy, Empty, Loading, Notice, QuietRow, Row, Screen, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
@@ -185,6 +186,8 @@ export default function Library() {
       {drafts.map(([key, draft]) => <Row key={key} title={draft.title || "Continue your draft"} detail="Saved privately on this device"
         icon="pencil-outline" onPress={() => router.push({ pathname: "/edit", params: { draft: key, kind: "source" } })} />)}
     </Disclosure>}
+    {/* Posts live here and her own writing doesn't, so someone looking for it in Saved can still get there. */}
+    {!selecting && <QuietRow title="Your journal" detail="Your own entries and doctor questions are kept there" onPress={() => router.push(journalHome())} />}
     {organizing && <CategoryPicker sourceIds={selected} onClose={() => setOrganizing(false)} onSaved={(r, ids) => void categorized(r, ids)} />}
   </Screen>;
 }
