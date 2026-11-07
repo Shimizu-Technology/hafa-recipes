@@ -21,11 +21,13 @@ CAREGIVER_KINDS = frozenset({
 
 VISIT_PRIVATE_FIELDS = frozenset({"results", "result_status", "follow_up", "paste_origin", "clinician_age", "due_date_snapshot", "doctor", "provider_default", "provider_default_at"})
 
+VISIT_SIGNAL_FIELDS = ("results", "result_status", "follow_up", "clinician_age", "due_date_snapshot", "provider_default_at")
+
 
 def medical_visit(data):
     """Category edits cannot declassify prior medical visit content."""
     return data.get("category") == "appointment" or data.get("medical_visit") is True or any(
-        data.get(key) is not None for key in ("results", "result_status", "follow_up", "clinician_age", "due_date_snapshot", "provider_default_at")
+        data.get(key) is not None for key in VISIT_SIGNAL_FIELDS
     )
 
 

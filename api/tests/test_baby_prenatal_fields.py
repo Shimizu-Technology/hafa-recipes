@@ -91,6 +91,14 @@ async def test_caregiver_cannot_read_or_overwrite_visit_words_and_only_contribut
         response = await c.get("/api/v1/baby" + path, headers=headers(family, "other"))
         assert response.status_code == 200, response.text
         assert "Private visit notes" not in response.text and "Private results" not in response.text and "Original" not in response.text
+        if path.startswith("/search"):
+            assert response.json()["items"] == [] and response.json()["total"] == 0
+    parent_search = await c.get("/api/v1/baby/search", params={"q": "Private"}, headers=headers(family))
+    assert parent_search.json()["total"] == 1
+    visible_search = await c.get("/api/v1/baby/search", params={"q": body["title"]}, headers=headers(family, "other"))
+    assert visible_search.json()["total"] == 1
+    original_search = await c.get("/api/v1/baby/search", params={"q": "Original"}, headers=headers(family, "other"))
+    assert original_search.json()["total"] == 0
     bypass = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=headers(family, "other"), json={"revision": 1, "data": {"category": "other", "timezone": "Pacific/Guam"}})
     assert bypass.status_code == 403
     changed = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=headers(family, "other"), json={"revision": 1, "body": "", "data": {"category": "appointment", "timezone": "Pacific/Guam", "location": "New place"}})
