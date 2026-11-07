@@ -286,7 +286,7 @@ class BabyProvider:
         async with AIInvocationTracker(
             capability=capability,
             primary_model=model,
-            prompt_version="baby-photo-evidence-v4" if capability == "baby_extraction" else "baby-private-v1",
+            prompt_version="baby-photo-evidence-v4" if capability == "baby_extraction" else ("baby-chat-emergency-v2" if capability == "baby_chat" else "baby-private-v1"),
             schema_version="baby-v1",
             allow_canary=False,
             rollout_variant="primary",
@@ -483,6 +483,9 @@ class BabyProvider:
                 "from incomplete logs. For a medical decision encourage the user's clinician; urgent symptoms need urgent care. "
                 "Never offer a medicine safety verdict or tell the user to start, stop or change a medicine. "
                 "For medicine or vaccine decisions, say you cannot verify current guidance here and ask their doctor or pharmacist. "
+                "Set safety to baby_emergency for a baby not breathing, severe trouble breathing, blue/gray lips or face, "
+                "inability to wake, very weak/not moving or grunting with each breath; baby_er for floppy muscle tone, green vomit, "
+                "weak suck or weak/strange cry; baby_unwell for other illness needing the doctor now. "
                 "Only suggest journal entries or questions when requested; never claim you saved them. "
                 "Never propose enabled reminders. Use clear plain language; no unsupported health predictions. "
                 "Record times carry the parent's own UTC offset and now_local is their current local time; "

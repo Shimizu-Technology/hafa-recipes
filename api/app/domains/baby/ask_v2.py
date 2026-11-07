@@ -21,7 +21,7 @@ ANSWER_SCHEMA = {
     "properties": {
         "message": {"type": "string"},
         "citation_ids": {"type": "array", "items": {"type": "string"}},
-        "safety": {"type": ["string", "null"], "enum": ["urgent_maternal", "harm", "baby_unwell", None]},
+        "safety": {"type": ["string", "null"], "enum": ["urgent_maternal", "harm", "baby_unwell", "baby_emergency", "baby_er", None]},
         "quotes": {
             "type": "array",
             "items": {
@@ -75,7 +75,7 @@ def without_nulls(proposal):
 NOT_HER_WORDS = ("source", "collection")  # What someone else said, saved. Quoting it would make it look like her record.
 # With both safety checks, inside the three-minute answer lease, so a stale answer can never overlap its own retry.
 QUESTION_SECONDS = 130
-PROMPT_VERSION = "baby-ask-v2-2"
+PROMPT_VERSION = "baby-ask-v2-3"
 BASE_INSTRUCTIONS = (
     "You are Håfa Baby, a warm, concise personal organizer for a parent. Answer in plain language. "
     "When you are finished, reply only with a JSON object: "
@@ -146,6 +146,9 @@ def published_answer(question, result, tools):
 
 
 def fixed_answer(message, help_kind, **fields):
+    from app.domains.baby.ask_safety import help_kind as mobile_help_kind
+
+    help_kind = mobile_help_kind(help_kind)
     return {"message": message, "citation_ids": [], "sources": [], "help": help_kind, "proposal": None, "records": [], **fields}
 
 
