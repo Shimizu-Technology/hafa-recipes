@@ -83,6 +83,6 @@ def test_explicit_fetal_movement_still_uses_the_maternal_immediate_care_route(me
 
 
 @pytest.mark.parametrize("message", ["I am pregnant and my 3 weeks old baby is not moving", "I'm pregnant. My newborn is not moving.",
-                                       "I am pregnant and my baby is not moving and barely breathing"])
+                                       "I am pregnant and my baby is not moving and barely breathing", "I am pregnant. My 2-month-old baby is not moving."])
 def test_newborn_or_other_emergency_signs_still_lead_with_911(message):
     assert ask_safety.classify(message).message == EMERGENCY
