@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { eventWhen } from "@/lib/events";
@@ -104,6 +104,7 @@ export function VisitQuestions({ visit, limit, drafts }: { visit: Visit; limit?:
 }
 /** Everything about the visit itself, on the appointment's own screen. */
 export function VisitSections({ visit }: { visit: Visit }) {
+  const returnAt = useLocalSearchParams<{ at?: string }>().at ?? visit.occurred_at;
   const b = useBaby(), toast = useToast(), notes = visitNotes(b.records, visit.id), loose = looseQuestions(b.records, visit), whose = useWhose(visit),
     questionDrafts = useHeldDrafts(`${b.owner}:question`), noteDrafts = useHeldDrafts(`${b.owner}:note`);
   useVisitRecords(visit.id, true);
@@ -112,7 +113,7 @@ export function VisitSections({ visit }: { visit: Visit }) {
       <Copy kind="heading">Questions for the doctor</Copy>
       <VisitQuestions visit={visit} drafts={questionDrafts} />
       <Grouped><Row title="Doctor summary" detail="One page with your questions, notes and daily totals" icon="document-text-outline"
-        onPress={() => router.push({ pathname: "/doctor-summary", params: { child: visit.child_id ?? undefined } })} /></Grouped>
+        onPress={() => router.push({ pathname: "/doctor-summary", params: { child: visit.child_id ?? undefined, visit: visit.id, visitTitle: visit.title, at: visit.occurred_at, visitAt: returnAt, series: visit.data?.recurrence ? "1" : undefined, allDay: visit.data?.all_day ? "1" : undefined, eventZone: visit.data?.timezone } })} /></Grouped>
     </View>
     {loose.length > 0 && <View style={{ gap: 10 }}>
       <Copy kind="label">Saved questions</Copy>
