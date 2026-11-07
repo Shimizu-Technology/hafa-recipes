@@ -48,6 +48,9 @@ public final class HafaBabyShareModule: Module {
     AsyncFunction("removeBlockedShare") { (token: String, owner: String) throws -> Bool in
       try self.safely { try self.store().removeBlocked(token, owner: owner) }
     }
+    AsyncFunction("returnClaim") { (token: String, owner: String) throws -> Bool in
+      try self.safely { try self.store().returnClaim(token, owner: owner) }
+    }
     AsyncFunction("discardShare") { (token: String) throws -> Bool in try self.safely { try self.store().discard(token) } }
     AsyncFunction("installationId") { () throws -> String in
       try self.store().locked {

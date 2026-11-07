@@ -8,7 +8,7 @@ const scope = vi.hoisted(() => ({
   account: null as unknown, foreground: null as null | ((state: string) => void),
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
   params: { kind: "journal" }, native: true,
-  pending: vi.fn(), acknowledge: vi.fn(), block: vi.fn(async (..._: unknown[]) => true), copy: vi.fn(), remove: vi.fn(),
+  pending: vi.fn(), returnClaim: vi.fn(), acknowledge: vi.fn(), block: vi.fn(async (..._: unknown[]) => true), copy: vi.fn(), remove: vi.fn(),
   push: vi.fn(), dismiss: vi.fn(), reset: vi.fn(), toast: vi.fn(),
   stock: { hasShareIntent: false, shareIntent: { webUrl: "", text: "", files: [] as unknown[] } },
 }));
@@ -43,7 +43,7 @@ vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
-  get nativeSharingAvailable() { return scope.native; }, pendingShare: scope.pending, acknowledgeShare: scope.acknowledge, blockShare: scope.block,
+  get nativeSharingAvailable() { return scope.native; }, pendingShare: scope.pending, acknowledgeShare: scope.acknowledge, blockShare: scope.block, returnClaim: scope.returnClaim,
 }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field",
@@ -550,6 +550,29 @@ describe("a draft from before the family", () => {
   });
 });
 
+it("retries a failed acknowledgement and lets later claimed captures settle", async () => {
+  const account = setup(), first = { ...payload(), claimed: true }, second = { ...payload("capture-B"), claimed: true };
+  scope.pending.mockResolvedValueOnce(first).mockResolvedValueOnce(first).mockResolvedValueOnce(second).mockResolvedValue(null);
+  scope.acknowledge.mockReturnValueOnce(false).mockReturnValue(true);
+  await mount(ShareCapture);
+  await act(async () => { await account.drain(); });
+  expect(account.state.outbox).toHaveLength(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); await account.drain(); });
+  expect(account.state.outbox).toHaveLength(2);
+  expect(scope.acknowledge).toHaveBeenCalledWith("capture-B");
+});
+it("returns an Add overtaken by a personal reset without deleting it", async () => {
+  const account = setup();
+  account.state.bootstrap!.generation = 2;
+  scope.returnClaim.mockResolvedValue(true);
+  scope.pending.mockResolvedValueOnce({ ...payload(), claimed: true }).mockResolvedValue(null);
+  await mount(ShareCapture);
+  await act(async () => { await account.drain(); });
+  expect(scope.returnClaim).toHaveBeenCalledWith("capture-A", "disposable-local-parent");
+  expect(scope.acknowledge).not.toHaveBeenCalled();
+  expect(account.state.outbox).toHaveLength(0);
+  expect(scope.alerts.some(alert => alert.title === "Your share is still on this phone")).toBe(true);
+});
 describe("captures from an older build, after the update and after Create family", () => {
   const family = "11111111-1111-4111-8111-111111111111", personal = "22222222-2222-4222-8222-222222222222";
   const shared = (spaces: object[]) => ({ personal_space_id: personal, spaces: [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, ...spaces] });

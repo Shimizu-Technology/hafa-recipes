@@ -38,7 +38,8 @@ enum BabySharePayload {
     return nil
   }
   static func requestBody(_ capture: [String: Any]) throws -> Data {
-    try JSONSerialization.data(withJSONObject: capture.filter {
+    guard capture["claimed"] as? Bool != true else { throw BabyShareStore.Failure.invalid }
+    return try JSONSerialization.data(withJSONObject: capture.filter {
       ["capture_id", "occurred_at", "url", "text", "automatic_epoch"].contains($0.key)
     })
   }

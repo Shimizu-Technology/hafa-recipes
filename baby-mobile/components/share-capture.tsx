@@ -12,7 +12,7 @@ import { notSentMessage } from "../lib/outbox";
 import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
 import { claimSettled, onSharesChanged, sharesChanged, type ClaimOutcome } from "../lib/share-session-state";
-import { acknowledgeShare, blockShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
+import { acknowledgeShare, blockShare, returnClaim, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
 
 import { sharedSourceTitle } from "../lib/source-title";
 export { sharedSourceTitle } from "../lib/source-title";
@@ -31,6 +31,11 @@ export function ShareCapture() {
       running = true;
       again = false;
       let retry = false, claimed: string | undefined;
+      const acknowledge = (token: string) => {
+        const accepted = acknowledgeShare(token);
+        if (!accepted) retry = true;
+        return accepted;
+      };
       const settle = (outcome: ClaimOutcome) => { if (claimed) claimSettled(claimed, outcome); claimed = undefined; };
       try {
         while (alive) {
@@ -44,7 +49,14 @@ export function ShareCapture() {
           if (Platform.OS === "ios" && nativeSharingAvailable && !native) return;
           claimed = native?.claimed ? native.token : undefined;
           if (native && captureStale(native.scope, owner, bootstrap)) {
-            if (!acknowledgeShare(native.token)) return;
+            if (native.claimed) {
+              if (!(await returnClaim(native.token, owner))) { retry = true; return; }
+              settle("failed");
+              sharesChanged();
+              Alert.alert("Your share is still on this phone", "Your personal space changed while adding it. Tap Add again to keep it in your saved posts.");
+              continue;
+            }
+            if (!acknowledge(native.token)) return;
             settle("gone");
             continue;
           }
@@ -63,7 +75,7 @@ export function ShareCapture() {
                   : { ...state, imports: [job, ...state.imports] };
               });
             }
-            if (!acknowledgeShare(native.token)) return;
+            if (!acknowledge(native.token)) return;
             void baby.refresh();
             void baby.sync();
             continue;
@@ -75,7 +87,7 @@ export function ShareCapture() {
           const id = native?.capture_id ?? Crypto.randomUUID();
           const saveId = `share-save:${id}`;
           if (baby.state.outbox.some(m => m.id === saveId) || baby.state.records.some(r => r.id === id)) {
-            if (native) { if (!acknowledgeShare(native.token)) return; settle("saved"); continue; }
+            if (native) { if (!acknowledge(native.token)) return; settle("saved"); continue; }
             stock.resetShareIntent(); return;
           }
           const copied: LocalFile[] = [];
@@ -121,7 +133,7 @@ export function ShareCapture() {
             settle("saved");
             if (!current()) return;
             void baby.sync();
-            if (native) { if (!acknowledgeShare(native.token)) return; }
+            if (native) { if (!acknowledge(native.token)) return; }
             else { stock.resetShareIntent(); return; }
           } catch (failure) {
             // Trying again can never work for these, and every share behind this one would wait. Today's card says what happened.

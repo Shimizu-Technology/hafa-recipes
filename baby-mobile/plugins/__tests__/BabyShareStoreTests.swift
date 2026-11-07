@@ -525,6 +525,9 @@ struct BabyShareStoreTests {
       clock.addTimeInterval(1)
       try check(try store.claim(waiting.snapshot.token, owner: "owner-a", generation: 1) == .expired, "tapping Add on an open card finds it's run out")
       try check(try store.pending() == nil, "and it isn't delivered")
+      try store.clear(preserveUnassigned: true)
+      try check(try store.pending() == nil, "expired bytes stay out of pending even with no connected account")
+      try store.bind("owner-a:1:personal")
       try check(try store.unassignedCount() == 0, "it can't be seen at 30 days")
       try check(try store.unassigned(owner: "owner-a").isEmpty, "or listed")
       try check(FileManager.default.fileExists(atPath: capture.directory.path), "and goes from disk only once the clock has held")
@@ -712,6 +715,28 @@ struct BabyShareStoreTests {
       try check(try store.block(store.pending()!.token, reason: "unsupported_file"), "set aside again")
       try store.clear()
       try check(try store.blocked(owner: "owner-a").isEmpty, "sign-out clears these too")
+    }
+    do {
+      let (_, defaults, store, suite) = try fixture("claim-reset-recovery")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.publish(["must not disappear"], id: UUID().uuidString)
+      let family = UUID().uuidString
+      try store.bind("owner-a:1:" + family)
+      let token = try store.unassigned(owner: "owner-a")[0].snapshot.token
+      try check(try store.claim(token, owner: "owner-a", generation: 1) == .claimed, "explicit Add while connected to family")
+      let claimed = try BabySharePayload.decode(store.pending()!)
+      var rejected = false
+      do { _ = try BabySharePayload.requestBody(claimed) } catch { rejected = true }
+      try check(rejected, "a claimed capture cannot go through native direct submission")
+      try check(try store.returnClaim(token, owner: "other") == false, "another account cannot return a claim")
+      try check(try store.returnClaim(token, owner: "owner-a"), "stale personal generation returns to waiting")
+      try check(try store.unassignedCount() == 1, "original still available for explicit Add")
+      try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "can Add after reset")
+      try store.bind("owner-a:2:" + family)
+      try check(try store.unassignedCount() == 1, "same-account rebind preserves in-flight claimed original")
+      try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "recovered original needs Add again")
+      try store.clear(preserveUnassigned: true)
+      try check(try store.unassignedCount() == 0, "signed-out startup does not turn an account claim into a no-owner share")
     }
     print("\(count) native capture store cases passed")
   }
