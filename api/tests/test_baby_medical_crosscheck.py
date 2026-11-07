@@ -82,3 +82,19 @@ def test_parent_distress_has_support_routes_without_a_diagnosis_or_unconditional
     assert reply.message.startswith(ask_safety.CALL_911)
     assert "988" in reply.message and "1-833" in reply.message
     assert "if" in reply.message.lower() and "depression" not in reply.message
+
+
+@pytest.mark.parametrize("question", ["could this be preeclampsia", "Might it mean an infection?", "Can that indicate sepsis?"])
+async def test_personal_condition_questions_refuse_before_the_old_model_check(monkeypatch, question):
+    assert ask_safety.boundary(question) == ask_safety.DIAGNOSIS_REFUSAL
+    async def no_model(*args, **kwargs):
+        pytest.fail("The known personal condition pattern must not need a model")
+    monkeypatch.setattr(ask_v2, "question_reply", no_model)
+    reply = await ask_v2.old_path_reply(None, question)
+    assert reply["help"] == "cant_answer" and reply["proposal"] is None
+    assert reply["message"] == ask_safety.cant_answer(ask_safety.DIAGNOSIS_REFUSAL)
+
+
+@pytest.mark.parametrize("question", ["What is preeclampsia?", "Could this be organized by date?", "What did my doctor write about preeclampsia?"])
+def test_general_definitions_organization_and_record_lookup_are_not_personal_diagnoses(question):
+    assert ask_safety.boundary(question) is None

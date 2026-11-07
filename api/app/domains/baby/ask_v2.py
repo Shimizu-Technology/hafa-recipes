@@ -184,6 +184,10 @@ async def question_reply(provider, question, *, model=None, effort=None):
 
 async def old_path_reply(provider, question):
     """V2-off still permits old Ask, with the same dose/diagnosis question refusals."""
+    from app.domains.baby.ask_safety import CANT_ANSWER, boundary, cant_answer
+
+    if limit := boundary(question):
+        return fixed_answer(cant_answer(limit), CANT_ANSWER)
     return await question_reply(provider, question)
 
 

@@ -378,11 +378,14 @@ async def test_the_old_chat_route_gets_the_same_urgent_reply(baby_api, stub, mon
 
 
 @needs_database
-async def test_the_old_route_otherwise_still_asks_its_old_questions(baby_api, stub):  # noqa: F811
+async def test_the_old_route_refuses_a_known_dose_question_even_if_the_model_would_miss_it(baby_api, stub):  # noqa: F811
     stub.settings.baby_ask_v2_enabled = False
     await enable(baby_api, acknowledge=False)
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()), "message": "How much Tylenol can I give?"})
-    assert response.json()["message"] == "Old path answer"
+    assert response.json()["message"] == cant_answer(DOSE_REFUSAL)
+    assert response.json()["help"] == CANT_ANSWER
+    ordinary = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()), "message": "Summarize my notes"})
+    assert ordinary.json()["message"] == "Old path answer"
 
 
 @needs_database

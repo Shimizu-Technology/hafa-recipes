@@ -181,6 +181,8 @@ CONDITIONS = (
 )
 SOMEONES = r"(?:her|hers|his|him|she|he|my baby|my baby's|the baby|the baby's|this|that|these|those)"
 DIAGNOSIS_ASKED = re.compile(
+    rf"\b(?:could|might|may|can) (?:this|that|it) (?:be|mean|indicate)\b[^.!?\n]{{0,25}}\b{CONDITIONS}\b"
+    r"|"
     rf"\bis (?:this|it|that)\b[^.!?\n]{{0,15}}\b{CONDITIONS}\b"
     rf"|\b(?:does|do|could|can|might)\b[^.!?\n]{{0,20}}\bhave\b[^.!?\n]{{0,20}}\b{CONDITIONS}\b"
     r"|\bwhat(?:'s| is) wrong\b|\bdiagnos\w*"
