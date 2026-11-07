@@ -136,3 +136,14 @@ it("ships AAP baby emergency/ER signs and CDC warnings after the existing number
   expect(text).toContain("underarm fever may have a lower cutoff");
   expect(text).toContain("do not give fever medicine before being seen");
 });
+
+
+it("ships R5 choking, passing-out and infant breathing routes after urgent numbers", () => {
+  const text = JSON.stringify(renderer!.toJSON());
+  for (const sign of ["Choked on something that could be stuck in the throat.", "Passed out.", "Any trouble breathing in a baby under 1 year."])
+    expect(text).toContain(sign);
+  expect(text.indexOf("Text 1-833")).toBeLessThan(text.indexOf("Choked on something"));
+  expect(text.indexOf("Choked on something")).toBeLessThan(text.indexOf("Go to the ER now for these baby signs"));
+  expect(text.indexOf("Go to the ER now for these baby signs")).toBeLessThan(text.indexOf("Any trouble breathing in a baby under 1 year."));
+  expect(text.indexOf("Any trouble breathing in a baby under 1 year.")).toBeLessThan(text.indexOf("HealthNote"));
+});

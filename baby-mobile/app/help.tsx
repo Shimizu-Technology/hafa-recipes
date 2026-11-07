@@ -35,7 +35,7 @@ export default function Help() {
       {babyEmergencySigns.map((sign) => <Copy key={sign}>{`• ${sign}`}</Copy>)}
       <MedicalSource source="AAP, newborn emergency signs" url={babyIllnessUrl} />
       <MedicalSource source="AAP, breathing trouble" url={babyBreathingUrl} />
-      <Copy kind="label">Go to the ER now for these newborn signs</Copy>
+      <Copy kind="label">Go to the ER now for these baby signs</Copy>
       {newbornErSigns.map((sign) => <Copy key={sign}>{`• ${sign}`}</Copy>)}
       <MedicalSource source="AAP, when a newborn needs the ER" url={babyIllnessUrl} />
       <Copy>Call your baby’s doctor now if your baby seems sick or hurt. This is not every warning sign.</Copy>

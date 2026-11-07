@@ -33,8 +33,11 @@ export const babyEmergencySigns = [
   "Blue or gray lips, tongue or face.",
   "Can’t be woken, not moving or very weak.",
   "New moaning or grunting with each breath.",
+  "Choked on something that could be stuck in the throat.",
+  "Passed out.",
 ] as const;
 export const newbornErSigns = [
+  "Any trouble breathing in a baby under 1 year.",
   "Green vomit (bile).",
   "Floppy or decreased muscle tone.",
   "A weak suck or difficulty keeping up sucking.",
