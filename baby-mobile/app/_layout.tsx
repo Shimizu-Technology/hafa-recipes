@@ -60,6 +60,7 @@ function Routes() {
         <Stack.Screen name="routines" />
         <Stack.Screen name="care-history" />
         <Stack.Screen name="journal" />
+        <Stack.Screen name="day" />
         <Stack.Screen name="help" />
         <Stack.Screen name="contractions" />
         <Stack.Screen name="doctor-summary" />

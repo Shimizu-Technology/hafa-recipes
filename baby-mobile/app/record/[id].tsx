@@ -21,15 +21,18 @@ import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
 import { RecordVisit } from "@/components/visit-sections";
+import { RelatedRows } from "../../components/related-rows";
 import { ShareToggle } from "@/components/share-toggle";
 import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
 import { SourceRecovery } from "@/components/source-recovery";
 import { babyLabel, isCaregiver } from "../../lib/spaces";
 import { ApiError } from "../../lib/api";
+import { useOpenJournal } from "../../lib/use-open-journal";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
     toast = useToast(),
+    openJournal = useOpenJournal(),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [missing, setMissing] = useState(false),
@@ -230,10 +233,12 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
-      {(record.kind === "question" || !!data.event_id) && <RecordVisit record={record} />}
+      {record.kind === "journal" || record.kind === "question" ? <RelatedRows record={record} /> : !!data.event_id && <RecordVisit record={record} />}
       {!!loggedByName(record, b.state.bootstrap, b.owner) && <Copy kind="small" tone="muted">{`Logged by ${loggedByName(record, b.state.bootstrap, b.owner)}`}</Copy>}
       {(() => { const other = duplicateOf(record, b.records, b.owner), name = other && loggedByName(other, b.state.bootstrap, b.owner);
         return !!other && !!name && name !== loggedByName(record, b.state.bootstrap, b.owner) && <Notice>{duplicateHint(other, b.state.bootstrap, b.owner)}</Notice>; })()}
+      {/* Above who can see it, so it's on screen after saving something short. */}
+      {(record.kind === "journal" || record.kind === "question") && <Grouped><Row title="Your journal" detail="Your entries and doctor questions" icon="book-outline" onPress={() => openJournal(record.kind)} /></Grouped>}
       <ShareToggle record={record} />
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
         onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}

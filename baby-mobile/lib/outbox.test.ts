@@ -425,8 +425,8 @@ describe("what a save was built on", () => {
   it("records the queued changes it already shows", () => {
     expect(queuedNote(addMutation(state, swap)).outbox[1]).toMatchObject({ base: { after: ["swap"] } });
   });
-  it("doesn't give a brand new entry a base", () => {
-    expect(addMutation(emptyState(), { id: "new", generation: 1, type: "save", files: [], record: feed }).outbox[0]).not.toHaveProperty("base");
+  it("records Save intent for a new entry without inventing earlier changes", () => {
+    expect(addMutation(emptyState(), { id: "new", generation: 1, type: "save", files: [], record: feed }).outbox[0]).toHaveProperty("base", { after: [] });
   });
   it("follows only a request it saw", () => {
     const seen = queuedNote(addMutation(state, swap)).outbox[1];

@@ -68,10 +68,10 @@ export async function removeLocal(owner: string, uri: string) {
     await FileSystem.deleteAsync(uri, { idempotent: true });
 }
 /** Everything under this account, or everything but what pending work needs, read when its turn comes. */
-export function clearFiles(owner: string, staying?: () => ReadonlySet<string>) {
+export function clearFiles(owner: string, staying?: () => ReadonlySet<string>, retiring?: () => ReadonlySet<string>) {
   if (Platform.OS === "web") return Promise.resolve();
   return inTurn(async () => {
-    const keep = new Set([...(staying?.() ?? []), ...(staying ? justMade : [])]);
+    const retired = retiring?.(), keep = new Set([...(staying?.() ?? []), ...(staying ? [...justMade].filter((uri) => !retired?.has(uri)) : [])]);
     justMade.clear();
     if (!keep.size) return FileSystem.deleteAsync(directory(owner), { idempotent: true });
     const names = await FileSystem.readDirectoryAsync(directory(owner)).catch(() => [] as string[]);

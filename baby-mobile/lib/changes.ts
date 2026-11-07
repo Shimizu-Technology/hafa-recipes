@@ -1,5 +1,5 @@
 import type { BabyRecord, Child, DeviceState } from "./models";
-import { withoutFamily } from "./outbox";
+import { withoutFamily, retryVisitLinks } from "./outbox";
 import { spaceOf } from "./spaces";
 
 /** A row as `/changes` sends it, or just its id once it's gone. */
@@ -79,15 +79,13 @@ export function applyChanges(state: DeviceState, answer: ChangesAnswer, uuid: ()
       }
     }
   }
-  return {
-    changed,
-    more,
-    state: {
+  const refreshed: DeviceState = {
       ...next,
       changes: { cursor, access },
       ...(removed.length ? { removed: [...(next.removed ?? []), ...removed].slice(-removedKept) } : {}),
       records: changed ? [...rows.values()].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)) : next.records,
       ...(next.bootstrap && children !== next.bootstrap.children ? { bootstrap: { ...next.bootstrap, children } } : {}),
-    },
   };
+  const resumed = retryVisitLinks(refreshed, state);
+  return { changed: changed || resumed !== refreshed, more, state: resumed };
 }

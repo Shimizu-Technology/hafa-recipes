@@ -22,12 +22,14 @@ import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
+import { sharedDetail, writingWhere } from "../lib/writing-places";
 import { ensureAiConsent } from "../lib/ai-consent";
 import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
 import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
 import { babiesFor, babyLabel, caregiverKeeps, choiceFor, fittingChild, stampedDraft } from "../lib/spaces";
+import { useOpenJournal } from "../lib/use-open-journal";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -61,9 +63,10 @@ function firstLine(d: EditorDraft) {
   return line.length > 60 ? line.slice(0, 59).join("").trimEnd() + "…" : line.join("");
 }
 export default function Edit() {
-  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string }>(),
+  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string; child?: string }>(),
     b = useBaby(),
     toast = useToast(),
+    openJournal = useOpenJournal(),
     slot = params.draft ?? (params.from ? "book:" + params.from : params.scope ? `event:${params.id}:${params.scope}:${params.at}` : params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
   const [draft, setDraft] = useState<EditorDraft | null>(null),
     [error, setError] = useState(""),
@@ -92,8 +95,11 @@ export default function Edit() {
         }
         // Add from a day means that day, even over a draft left from another.
         if (d && params.kind === "event" && params.day && !d.existing) d = onNewDay(d, params.day);
+        // Add from a day that shows one baby means that baby, whichever is selected everywhere else.
+        const linkedBaby = params.child && b.state.bootstrap!.children.some((known) => known.id === params.child) ? params.child : undefined;
+        if (d && linkedBaby && !d.existing) d = { ...d, child_id: linkedBaby };
         const kind = params.kind ?? "journal",
-          child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
+          child = linkedBaby ?? defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
           lastFeed = b.records
             .filter((r) => r.kind === "feeding" && r.child_id === child)
             .sort((x, y) => y.occurred_at.localeCompare(x.occurred_at))[0];
@@ -361,7 +367,9 @@ export default function Edit() {
           ? "Source saved. Processing can continue in the background."
           : b.online
             ? "Saved. Your changes are syncing."
-            : "Saved privately on this device."
+            : "Saved privately on this device.",
+        // Something new, written from Add, has no list behind it to go back to.
+        !d.existing && (d.kind === "journal" || d.kind === "question") ? { label: "See journal", onPress: () => openJournal(d.kind) } : undefined
       );
       void b.sync();
       router.dismissTo(shouldProcess ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });
@@ -475,13 +483,14 @@ export default function Edit() {
           onChange={(id) => change({ child_id: id || null })}
         />
       )}
+      {!!writingWhere(b.state, draft) && <Copy kind="small" tone="muted">{writingWhere(b.state, draft)}</Copy>}
       {caregiverKeeps(b.state, draft) && <Copy kind="small" tone="muted">Only you can see this. It isn’t shared with the family.</Copy>}
       {draft.kind === "source" && <Field label="Original link" purpose="url" value={draft.data.url ?? ""}
         onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}
       {(() => { const choice = choiceFor(b.state.bootstrap, draft);
         return choice && <>
-          <Choice label="Shared with family" selected={choice.shared} onPress={() => change({ shared: true })} />
+          <Choice label="Shared with family" detail={sharedDetail(draft.kind)} selected={choice.shared} onPress={() => change({ shared: true })} />
           <Choice label="Just me" selected={!choice.shared} onPress={() => change({ shared: false })} />
         </>; })()}
       {writing && <Button variant="ghost" title={showDetails ? "Hide optional details" : "Add photo, title or details"} onPress={() => setShowDetails(!showDetails)} />}
