@@ -37,6 +37,7 @@ export const rowFence = (row: { generation?: number; space_id?: string }, genera
   row.space_id && row.generation !== undefined ? { generation: row.generation, space_id: row.space_id } : generation;
 /** Mirrors the API's list: what a caregiver may read and write in a family. */
 const caregiverKinds = new Set<Kind>(["feeding", "sleep", "diaper", "routine", "event", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth", "milestone", "custom"]);
+export const caregiverCanWrite = (kind: Kind) => caregiverKinds.has(kind);
 /** A log about her, not the baby. It goes with her, not with the family. */
 export const herLog = (record: Pick<RecordWrite, "kind" | "data" | "child_id">) => !record.child_id && trackerFor(record)?.about === "her";
 /**
@@ -65,9 +66,9 @@ export const spaceFence = (bootstrap: Bootstrap, space?: string): Fence =>
  * Family work on this phone, which an older build mustn't read: it would discard a queued family tap and offer no way
  * back. It refuses a vault of the next version outright, and overwrites nothing.
  */
-export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox">) {
+export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox" | "heldDrafts">) {
   const personal = state.bootstrap?.personal_space_id, elsewhere = (space?: string) => !!space && space !== personal;
-  return familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
+  return !!state.heldDrafts?.length || familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
 }
 /** What can be saved to a family if she says so. Care goes with its baby. */
 const choosable = new Set<Kind>(["source", "journal", "question", "routine", "event", "collection"]);
@@ -135,6 +136,15 @@ export function babyLabel(child: { name: string; space_id?: string }, bootstrap?
   const personal = bootstrap?.personal_space_id, spaces = (bootstrap?.children ?? []).map((one) => one.space_id);
   if (!personal || !spaces.includes(personal) || !spaces.some((space) => space && space !== personal)) return child.name;
   return `${child.name} · ${child.space_id === personal ? "Personal" : "Family"}`;
+}
+/**
+ * Private or Shared, on a journal entry or doctor question. Only a family's parents have both to tell apart, so nobody else
+ * gets a word about it. A row with no space is from before any family, and stayed personal.
+ */
+export function visibilityWord(row: { kind: Kind; space_id?: string }, bootstrap?: Pick<Bootstrap, "spaces"> | null) {
+  const families = familySpaces(bootstrap);
+  if ((row.kind !== "journal" && row.kind !== "question") || families[0]?.role !== "parent") return "";
+  return families.some((space) => space.id === row.space_id) ? "Shared" : "Private";
 }
 /** Helping in a family, not running it. The API refuses them the rest: this is so she's never offered what it'd refuse. */
 export const isCaregiver = (bootstrap?: Pick<Bootstrap, "spaces"> | null) => familySpaces(bootstrap)[0]?.role === "caregiver";

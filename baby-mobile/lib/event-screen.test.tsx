@@ -5,7 +5,7 @@ import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type E
 
 const mock = vi.hoisted(() => ({ phone: { available: true, added: [] as unknown[], result: "saved" }, title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
 vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
-vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
+vi.mock("expo-router", () => ({ useNavigationContainerRef: () => ({ getRootState: () => undefined }), useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
 vi.mock("expo-document-picker", () => ({}));
 vi.mock("expo-image-picker", () => ({}));
@@ -159,6 +159,22 @@ it("All future sends both parts with the baby it shows, when a held draft has on
   expect(split.type).toBe("event_split");
   expect(split.series.child_id).toBe("ours");
   expect(split.event.child_id).toBe("ours");
+});
+const savedFor = async (child: string) => {
+  const b = setup([]);
+  Object.assign(b.state.bootstrap, { children: [{ id: "baby", name: "Noa", revision: 1 }, { id: "sister", name: "Mia", revision: 1 }] });
+  b.state.selectedChild = "baby";
+  mock.params = { kind: "event", day: "2026-12-20", child };
+  await mount(Edit);
+  await act(async () => { found("FilterChips", (p) => p.label === "Suggestions").props.onChange("Baptism"); });
+  await press("Button", "Save event");
+  return b.state.outbox[0].record.child_id;
+};
+it("adding from a day that shows one baby is for that baby, whichever is selected", async () => {
+  expect(await savedFor("sister")).toBe("sister");
+});
+it("ignores a baby in the link who isn't on this account", async () => {
+  expect(await savedFor("gone")).toBe("baby");
 });
 it("All future can't start before the date it changes from, which the old series keeps", async () => {
   const b = setup([event()]);
@@ -676,4 +692,18 @@ describe("adding to the phone's calendar", () => {
     await open();
     expect(mock.phone.added).toEqual([]);
   });
+});
+
+it("passes the shown occurrence date to visit capture, including a moved date", async () => {
+  const event = { ...optimisticRecord({ id: "visit", kind: "event", title: "Visit", body: "", child_id: "baby", occurred_at: "2026-11-01T00:00:00Z", data: { category: "appointment", timezone: "UTC", recurrence: { frequency: "weekly" }, exceptions: [{ original_start: "2026-11-08T00:00:00Z", overrides: { start: "2026-11-09T00:00:00Z" } }] } }), revision: 1 };
+  setup([event]); mock.params = { id: event.id, at: "2026-11-08T00:00:00Z" };
+  await mount(EventDetail);
+  expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")[0].props.visit.occurred_at).toBe("2026-11-09T00:00:00.000Z");
+});
+
+it("passes an occurrence all-day override to visit capture", async () => {
+  const original = "2026-11-09T00:00:00.000Z";
+  setup([event({ category: "appointment", all_day: false, exceptions: [{ original_start: original, overrides: { all_day: true } }] })]);
+  mock.params = { id: "class", at: original }; await mount(EventDetail);
+  expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")[0].props.visit.data.all_day).toBe(true);
 });

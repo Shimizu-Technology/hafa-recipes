@@ -30,7 +30,7 @@ vi.mock("@/lib/more-logs", () => import("./more-logs"));
 vi.mock("@/lib/trackers", () => import("./trackers"));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: true }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: scope.care, rows: scope.care, loading: false, error: "", refresh: vi.fn() }) }));
-const ui = await vi.hoisted(async () => ({ KeyboardSave: (await import("react")).createContext(null), KeyboardDone: "KeyboardDone", PressTarget: "Pressable", Icon: "Icon", Button: "Button", Card: "Card", Copy: "Copy", Grouped: "Grouped", Row: "Row", Screen: "Screen", OnSurface: "OnSurface", Field: "Field", Chips: "Chips",
+const ui = await vi.hoisted(async () => ({ KeyboardSave: (await import("react")).createContext(null), KeyboardDone: "KeyboardDone", PressTarget: "Pressable", Icon: "Icon", Button: "Button", Card: "Card", Copy: "Copy", Grouped: "Grouped", Row: "Row", QuietRow: "QuietRow", Screen: "Screen", OnSurface: "OnSurface", Field: "Field", Chips: "Chips",
   easeOut: () => 0, fonts: {}, radii: {}, typeScale: { footnote: { fontSize: 14 }, caption: {} }, useColors: () => ({}), useToast: () => scope.toast, tap: () => undefined }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
@@ -106,6 +106,16 @@ describe("Add", () => {
     for (const item of keepItems) expect(tile(item.label)!.props.accessibilityHint).toBe(item.detail);
     await press(keepItems[0].label);
     expect(scope.replace).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: keepItems[0].kind } });
+  });
+  it("keeps Journal one tap from writing, with past entries right under it", async () => {
+    setup([newborn]);
+    await mount();
+    await press("Journal");
+    expect(scope.replace).toHaveBeenLastCalledWith({ pathname: "/edit", params: { kind: "journal" } });
+    const past = renderer!.root.findByType("QuietRow" as React.ElementType);
+    expect(past.props.title).toBe("Your journal");
+    await act(async () => past.props.onPress());
+    expect(scope.replace).toHaveBeenLastCalledWith({ pathname: "/journal", params: { filter: "all", at: expect.any(String) } });
   });
   it("after the birth, leaves the pregnancy timers out", async () => {
     setup([newborn]);

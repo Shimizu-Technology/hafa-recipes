@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import legacy from "./fixtures/legacy-family-39-40.json";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type RecordPage } from "./models";
 const mock = vi.hoisted(() => ({
   api: {} as any,
@@ -66,7 +67,7 @@ vi.mock("./device-vault", () => ({
   }),
 }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearPendingShares: () => mock.clearShares() }));
-vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: async () => {}, uploadFile: vi.fn() }));
+vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: vi.fn(async () => {}), uploadFile: vi.fn() }));
 vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
@@ -81,7 +82,7 @@ import { BabyProvider, useBaby } from "./context";
 import { ApiError, MovedError } from "./api";
 import { notSentMessage } from "./outbox";
 import { unavailableMessage } from "./spaces";
-import { uploadFile } from "./files";
+import { clearFiles, uploadFile, removeLocal } from "./files";
 import { runningFeed } from "./feed-reducer";
 import { switchFeed } from "./running-feed";
 import { reminderNotificationData } from "./notification-route";
@@ -1588,7 +1589,7 @@ describe("a family's protocol, through the sync loop", () => {
     expect(baby.state.records.map((row) => row.id)).toEqual(["feed"]);
   });
   it("still sends a stamped change if the flag goes off, and doesn't refuse every save over a family's generation", async () => {
-    const save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), row = { id: "m", generation: 1, space_id: personal, type: "save" as const, files: [], record: { id: "m", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
+    const save = vi.fn(async (value: any) => ({ ...optimisticRecord(value), revision: 1 })), row = { id: "m", generation: 1, space_id: personal, type: "save" as const, base: { after: [] }, files: [], record: { id: "m", kind: "diaper" as const, title: "", body: "", child_id: null, occurred_at: "2026-11-05T00:00:00.000Z", data: {} } };
     const shared = { ...row, id: "s", generation: 9, space_id: family, record: { ...row.record, id: "s" } };
     setup({ ...bootstrap }, { bootstrap: { ...bootstrap }, outbox: [row, shared] } as never, { save });
     await mount(); await flush();
@@ -2006,4 +2007,93 @@ describe("telling the API what this phone holds", () => {
     await syncs();
     expect(mock.api.reportRoutines).toHaveBeenCalledOnce();
   });
+});
+
+describe("visit privacy at actual sync admission", () => {
+  const live = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }, { id: "f", kind: "family", role: "parent", generation: 1, access_version: 1 }] },
+    event = { ...optimisticRecord({ id: "v", kind: "event", title: "Visit", body: "", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: { timezone: "UTC", category: "appointment" } }), space_id: "f" },
+    note = { id: "m", generation: 1, space_id: "p", type: "save", files: [], record: { id: "n", kind: "journal", title: "Private", body: "my words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: { event_id: "v" } } };
+  function setupVisit(cached: boolean, failure?: ApiError) {
+    mock.saved = { ...emptyState(), bootstrap: live, records: cached ? [event] : [], outbox: [note] } as DeviceState;
+    mock.api.bootstrap = vi.fn(async () => live);
+    mock.api.records = vi.fn(async (filters: any) => page(cached && !filters.kind ? [event] : []));
+    mock.api.changes = vi.fn(async () => ({ spaces: [], cursor: {}, has_more: false, removed_space_ids: [] }));
+    mock.api.save = vi.fn(async () => { throw failure ?? Error("A cross-space note must not reach save"); });
+  }
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  it("holds a known cross-space note before any save request", async () => {
+    setupVisit(true); await mount(); await flush();
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(baby.error).toBe("");
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(baby.state.outbox[0].error).toMatch(/can’t be attached across/);
+    expect((baby.state.outbox[0] as any).record.body).toBe("my words");
+  });
+  it("resumes a stopped visit write after changes move the event into its target space", async () => {
+    setupVisit(true);
+    const returned = { ...event, space_id: "p", revision: 2 };
+    mock.api.changes.mockResolvedValueOnce({ spaces: [{ id: "p", generation: 1, access_version: 1, cursor: 1, has_more: false, reset: false, items: [{ ...returned, entity: "record", seq: 1 }] }], cursor: { p: 1 }, has_more: false, removed_space_ids: [] });
+    mock.api.save = vi.fn(async (record: any) => ({ ...record, space_id: "p", revision: 1 }));
+    await mount(); await flush(); await act(async () => { await baby.sync(); await settle(); }); await flush();
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("does not retry an unrelated relation refusal when no link mismatch was repaired", async () => {
+    setupVisit(true, new ApiError("Related rows must stay together", 422, false, "related_space"));
+    mock.saved!.records = [{ ...event, space_id: "p" }];
+    mock.api.records = vi.fn(async () => page([{ ...event, space_id: "p" }]));
+    await mount(); await flush(); await act(async () => { await baby.sync(); await settle(); }); await flush();
+    expect(mock.api.save).toHaveBeenCalledOnce(); expect(baby.state.outbox[0].error).toMatch(/can’t be attached across/);
+  });
+  it.each([true, false])("maps only the exact API relation reason to cross-space recovery (%s)", async (relation) => {
+    setupVisit(false, new ApiError("Other invalid details", 422, false, relation ? "related_space" : undefined));
+    await mount(); await flush();
+    expect(mock.api.save).toHaveBeenCalledTimes(1);
+    expect(baby.state.outbox[0].error).toBe(relation ? "This note can’t be attached across personal and family spaces. Save it privately in Journal, without the visit link, or discard it." : "Other invalid details");
+  });
+});
+
+it("keeps a late editor cleanup outside the queue and ordinary draft slots after family removal", async () => {
+  const live = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] };
+  mock.api.bootstrap = vi.fn(async () => live); mock.saved = { ...emptyState(), bootstrap: live } as DeviceState;
+  await mount();
+  const draft = { id: "shared", kind: "journal", title: "Shared", body: "unsaved words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", space_id: "former-family", existing: true, files: [{ id: "photo", name: "private.jpg", mime_type: "image/jpeg", uri: "file:///private.jpg" }], data: {} } as const;
+  await act(async () => { await baby.saveDraft("record:shared", { ...draft, files: [...draft.files] }); });
+  expect(baby.state.outbox).toEqual([]); expect(baby.state.drafts).toEqual({});
+  expect(baby.state.heldDrafts![0].draft.body).toBe("unsaved words");
+  await act(async () => { await baby.saveDraft("record:shared", { ...draft, files: [...draft.files] }); });
+  expect(baby.state.heldDrafts).toHaveLength(1);
+});
+
+it("removes former-family recovery files through the provider's personal-generation cleanup", async () => {
+  const own = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] },
+    file = { id: "held-photo", uri: "file:///held-photo", name: "held.jpg", mime_type: "image/jpeg" },
+    held = { id: "held", draft: { id: "entry", kind: "journal", title: "Held", body: "unsaved words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: {}, space_id: "former-family", files: [file] } };
+  mock.saved = { ...emptyState(), bootstrap: own, heldDrafts: [held], fileUploads: { [file.id]: "upload" } } as DeviceState;
+  mock.api.bootstrap = vi.fn(async () => ({ ...own, generation: 2, spaces: [{ ...own.spaces[0], generation: 2 }] }));
+  await mount();
+  expect(baby.state.heldDrafts).toEqual([]); expect(baby.state.fileUploads).toEqual({});
+  const cleanup = vi.mocked(clearFiles).mock.calls.at(-1)!;
+  expect(cleanup).toBeDefined(); expect((cleanup[1] as () => Set<string>)().has(file.uri)).toBe(false);
+});
+
+it.each([false, true])("Discard removes only the unreferenced held photo (also referenced: %s)", async (shared) => {
+  const own = { ...bootstrap, personal_space_id: "p", spaces: [{ id: "p", kind: "personal", role: "parent", generation: 1, access_version: 1 }] },
+    file = { id: "photo", uri: "file:///private-photo", name: "photo.jpg", mime_type: "image/jpeg" },
+    draft = { id: "entry", kind: "journal", title: "Draft", body: "words", child_id: null, occurred_at: "2026-11-06T00:00:00Z", data: {}, space_id: "p", files: [file] } as const;
+  mock.saved = { ...emptyState(), bootstrap: own, heldDrafts: [{ id: "held", draft: { ...draft, files: [file] } }], drafts: shared ? { other: { ...draft, files: [file] } } : {} } as DeviceState;
+  mock.api.bootstrap = vi.fn(async () => own); await mount(); vi.mocked(removeLocal).mockClear();
+  await act(async () => { await baby.discardHeld("held"); });
+  expect(baby.state.heldDrafts).toEqual([]);
+  if (shared) expect(removeLocal).not.toHaveBeenCalled();
+  else expect(removeLocal).toHaveBeenCalledWith(expect.any(String), file.uri);
+});
+
+it("rechecks old Retry evidence before sending when a flag-off bootstrap regains spaces", async () => {
+  const next = { ...bootstrap, generation: 2, personal_space_id: "personal-space", spaces: [{ id: "personal-space", kind: "personal", role: "parent", generation: 2, access_version: 1 }, { id: "family-space", kind: "family", role: "parent", generation: 1, access_version: 1 }] };
+  mock.saved = { ...emptyState(), bootstrap: { ...next, personal_space_id: undefined, spaces: undefined }, outbox: legacy.rejoined } as unknown as DeviceState;
+  mock.api.bootstrap = vi.fn(async () => next); await mount();
+  await act(async () => { await baby.sync(); });
+  expect(mock.api.save).not.toHaveBeenCalled(); expect(baby.state.outbox).toEqual([]);
+  expect(baby.state.heldDrafts!.some((held) => held.draft.body === "half typed")).toBe(true);
 });

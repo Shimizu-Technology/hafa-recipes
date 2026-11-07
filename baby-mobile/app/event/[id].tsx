@@ -81,7 +81,7 @@ export default function EventDetail() {
     {appointment && <Button size="lg" icon="calendar-outline" title="Book next"
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
     {booked && <Row numericDetail title="Next visit" detail={eventWhen(booked, today, timezone)} icon="calendar-outline" onPress={() => openEvent(booked)} />}
-    {appointment ? <VisitSections visit={row} /> : <VisitLinks visit={row} />}
+    {appointment ? <VisitSections visit={{ ...row, occurred_at: shown.occurrence_start, data: { ...row.data, all_day: shown.all_day } }} /> : <VisitLinks visit={row} />}
     {phoneCalendarAvailable() && <View style={{ gap: 6 }}>
       <Button secondary icon="calendar-outline" title="Add to my phone’s calendar" onPress={() => void addToPhone()} />
       <Copy numeric kind="small" tone="muted">{phoneEventLine(row, shown, today)}</Copy>

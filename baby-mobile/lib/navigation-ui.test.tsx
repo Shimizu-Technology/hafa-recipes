@@ -27,12 +27,14 @@ vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("expo-router", () => ({
   Stack: { Screen: ({ options }: any) => options?.headerRight?.() ?? options?.unstable_headerRightItems?.()[0]?.element ?? null },
   useLocalSearchParams: () => mock.params,
+  useNavigationContainerRef: () => ({ getRootState: () => ({ routes: mock.stack.map((route) => ({ name: String(route.pathname).replace(/^\//, "") })) }) }),
   useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
   router: {
     push: (route: any) => { mock.stack.push(route); mock.params = route.params ?? {}; },
     canGoBack: () => mock.stack.length > 1,
     back: () => { mock.stack.pop(); mock.params = mock.stack.at(-1)?.params ?? {}; },
     replace: (route: any) => { mock.stack[mock.stack.length - 1] = route; },
+    dismissTo: (path: string) => { mock.stack.length = mock.stack.findIndex((route) => route.pathname === path) + 1; },
   },
 }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
@@ -68,6 +70,7 @@ vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
 vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
 vi.mock("@/components/visit-sections", () => ({ LinkQuestions: "LinkQuestions", RecordVisit: "RecordVisit" }));
+vi.mock("../components/visit-sections", () => ({ RecordVisit: "RecordVisit" }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
 vi.mock("@/lib/use-library-history", () => ({ useLibraryHistory: (view: { kind: string }) => (mock.views.push(view), {
   rows: mock.baby.records.filter((record: any) => record.kind === view.kind), loading: false, error: "", more: false,
@@ -183,12 +186,14 @@ describe("signing out from the recovery screen", () => {
     await act(async () => buttons.find((one) => one.text === "Sign out and clear")!.onPress!());
     expect(mock.baby.signOut).toHaveBeenCalledOnce();
   });
-  it("is one tap on an ordinary failure, with nothing to lose", async () => {
+  it("warns when a failed load cannot establish that there is nothing to lose", async () => {
     const { AccountGate } = await import("../components/account-gate");
     mock.baby.ready = false; mock.baby.error = "Could not connect."; mock.baby.signOut = vi.fn(async () => undefined);
     await mount(<AccountGate>inside</AccountGate>);
     await press("Sign out");
-    expect(mock.baby.signOut).toHaveBeenCalledOnce();
+    expect(mock.baby.signOut).not.toHaveBeenCalled();
+    const { Alert } = await import("react-native");
+    expect(vi.mocked(Alert.alert).mock.calls.at(-1)![0]).toBe("Sign out and clear this phone?");
   });
 });
 describe("a caregiver and Ask", () => {
@@ -588,6 +593,30 @@ it("uses the ongoing pregnancy for Saved timing beside an older sibling", async 
   await mount(<Library />);
   expect(sourceView()).toMatchObject({ timing: { mode: "now", childId: "isla", context: { stage: "pregnancy", value: 0 } } });
 });
+describe("Related, on saved writing", () => {
+  const headings = () => renderer!.root.findAll((n) => n.props.kind === "heading").map((n) => [n.props.children].flat().join(""));
+  const open = async (id: string) => { mock.params = { id }; await mount(<RecordDetail />); };
+  it("shows on a journal entry and a doctor question", async () => {
+    await open("Journal observation");
+    expect(headings()).toContain("Related");
+    await act(async () => renderer!.unmount());
+    await open("Doctor question");
+    expect(headings()).toContain("Related");
+    await press("On October 30");
+    expect(mock.stack.at(-1)).toMatchObject({ pathname: "/day", params: { day: "2026-10-30" } });
+  });
+  it("stays off care logs, saved posts and checklists, which need their own actions first", async () => {
+    for (const id of ["Bottle observation", "Saved source"]) {
+      await open(id);
+      expect(headings()).not.toContain("Related");
+      await act(async () => renderer!.unmount());
+    }
+    const list = { ...row("list", "journal"), kind: "routine" as const, data: { routine_type: "checklist" as const, items: [] } };
+    mock.baby.records = [list]; mock.baby.state.records = [list];
+    await open("list");
+    expect(headings()).not.toContain("Related");
+  });
+});
 it("switches Journal's filter each time Today opens it, even to the same filter", async () => {
   mock.params = { filter: "question", at: "1" };
   await mount(<Journal />);
@@ -597,6 +626,42 @@ it("switches Journal's filter each time Today opens it, even to the same filter"
   mock.params = { filter: "question", at: "2" };
   await act(async () => renderer!.update(<Journal />));
   expect(checked()).toEqual(["Doctor questions"]);
+});
+describe("finding Journal again", () => {
+  const entry = (kind: "journal" | "question") => { mock.params = { id: kind === "journal" ? "Journal observation" : "Doctor question" }; return mount(<RecordDetail />); };
+  it("opens one on top from an entry with none under it, on the kind she was reading, and Back returns", async () => {
+    mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/record/[id]" }];
+    await entry("journal");
+    await press("Your journal");
+    expect(mock.stack).toHaveLength(3);
+    expect(mock.stack.at(-1)).toEqual({ pathname: "/journal", params: { filter: "journal", at: expect.any(String) } });
+    await act(async () => renderer!.unmount());
+    mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/record/[id]" }];
+    await entry("question");
+    await press("Your journal");
+    expect(mock.stack.at(-1)!.params.filter).toBe("question");
+  });
+  it("goes back to the Journal she came through, so its search and filter stay as she left them", async () => {
+    mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/journal", params: { filter: "question", at: "1" } }, { pathname: "/record/[id]" }];
+    await entry("journal");
+    await press("Your journal");
+    expect(mock.stack.map((route) => route.pathname)).toEqual(["/(tabs)/(today)", "/journal"]);
+    expect(mock.stack.at(-1)!.params.filter).toBe("question");
+  });
+  it("only offers it on what lives in Journal", async () => {
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    expect(renderer!.root.findAll((n) => n.props.accessibilityLabel?.startsWith?.("Your journal"))).toHaveLength(0);
+  });
+  it("gives Saved a quiet way there, and keeps diary entries out of its list", async () => {
+    await mount(<Library />);
+    expect(mock.views.every((view) => view.kind !== "journal")).toBe(true);
+    await press("Your journal");
+    expect(mock.stack.at(-1)).toEqual({ pathname: "/journal", params: { filter: "all", at: expect.any(String) } });
+    // Choosing posts leaves room for nothing else.
+    await press("Select");
+    expect(renderer!.root.findAll((n) => n.props.accessibilityLabel?.startsWith?.("Your journal"))).toHaveLength(0);
+  });
 });
 it("hides suggestions on posts with a queued save, drops (new) for a same-name category, and ignores a double tap", async () => {
   const records = [tip("Pregnancy tea", { suggested_category: labor }), tip("Bag list", { suggested_category: { ...labor, name: "hospital bag", collection_id: null } }),
