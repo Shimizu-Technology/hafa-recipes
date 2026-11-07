@@ -66,7 +66,7 @@ vi.mock("./device-vault", () => ({
     retire() {},
   }),
 }));
-vi.mock("../modules/hafa-baby-share/src", () => ({ clearPendingShares: () => mock.clearShares() }));
+vi.mock("../modules/hafa-baby-share/src", () => ({ clearPendingShares: (...args: unknown[]) => mock.clearShares(...args) }));
 vi.mock("./files", () => ({ clearFiles: vi.fn(async () => {}), removeLocal: vi.fn(async () => {}), uploadFile: vi.fn() }));
 vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
@@ -1622,7 +1622,7 @@ describe("a family's protocol, through the sync loop", () => {
       mock.clearShares.mockClear();
       setup({ ...bootstrap, generation: 2 }, { bootstrap, outbox: [] } as never);
       await mount(); await flush();
-      expect(mock.clearShares).toHaveBeenCalled();
+      expect(mock.clearShares).toHaveBeenCalledWith(true, baby.owner);
     });
   });
   it("treats a release of an upload that's already gone as done, so it can't hold up the pass", async () => {

@@ -1,4 +1,5 @@
 import React from "react";
+vi.mock("@/components/waiting-shares", () => ({ WaitingShares: "WaitingShares" }));
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type BabyRecord, type DeviceState, type Mutation } from "./models";

@@ -1,3 +1,4 @@
+import { WaitingShares } from "@/components/waiting-shares";
 import { useState } from "react";
 import { Alert } from "react-native";
 import * as Crypto from "expo-crypto";
@@ -65,6 +66,7 @@ export default function Sync() {
       subtitle="Review what’s waiting, recover a conflict, or keep a text backup."
       back
     >
+      <WaitingShares />
       {!!error && <Notice error>{error}</Notice>}
       {!!b.error && b.error !== error && <Notice error>{b.error}</Notice>}
       <Notice>

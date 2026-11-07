@@ -4,6 +4,7 @@ import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { messageFor } from "@/lib/models";
+import { confirmSignOut, removedWarning, waitingShareCount } from "@/lib/waiting-shares";
 import { deviceWorkCount } from "@/lib/outbox";
 import { Button, Empty, Loading, Notice, Screen } from "./ui";
 export function AccountGate({ children }: { children: React.ReactNode }) {
@@ -30,11 +31,12 @@ export function AccountGate({ children }: { children: React.ReactNode }) {
         <Loading />
         {!!b.error && <Notice error>{b.error}</Notice>}
         <Button title="Try again" secondary onPress={() => void b.refresh()} />
-        <Button title="Sign out" variant="ghost" onPress={() => {
+        <Button title="Sign out" variant="ghost" onPress={async () => {
           // What needs recovery is still on this phone, and a sign-out clears it.
-          // A failed vault read cannot tell us whether this phone has queued work. Never clear it without warning.
-          if (!b.error && !deviceWorkCount(b.state)) return void b.signOut();
-          Alert.alert("Sign out and clear this phone?", "Changes that haven’t sent are saved here, and signing out removes them. Update Håfa Baby first if you can: that usually opens them again.", [
+          // A failed vault read cannot tell us whether this phone has work. Warn on every error.
+          const waiting = await waitingShareCount();
+          if (!b.error && !deviceWorkCount(b.state) && !waiting) return void b.signOut();
+          Alert.alert("Sign out and clear this phone?", `${waiting ? removedWarning(waiting) + " " : ""}Changes that haven’t sent are saved here, and signing out removes them. Update Håfa Baby first if you can: that usually opens them again.`, [
             { text: "Keep them", style: "cancel" },
             { text: "Sign out and clear", style: "destructive", onPress: () => void b.signOut() },
           ]);
@@ -49,13 +51,13 @@ export function AccountGate({ children }: { children: React.ReactNode }) {
           body="Your previous Baby data was removed. Older offline changes will not be uploaded."
           action={<Button title="Start a new Baby space" onPress={() => void b.enroll()} />}
         />
-        <Button secondary title="Sign out" onPress={() => void b.signOut()} />
+        <Button secondary title="Sign out" onPress={() => void confirmSignOut(() => void b.signOut())} />
         {!!error && <Notice error>{error}</Notice>}
         <Button
           title="Delete my entire Håfa account"
           variant="ghost"
           busy={busy}
-          onPress={() => confirmAccountDeletion(() => void deleteAccount())}
+          onPress={() => void waitingShareCount().then((waiting) => confirmAccountDeletion(() => void deleteAccount(), waiting ? removedWarning(waiting) : undefined))}
         />
       </Screen>
     );

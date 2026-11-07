@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
     createdUserId: null as string | null, create: vi.fn() },
   social: vi.fn(), activate: vi.fn(), begin: vi.fn(), sso: vi.fn(),
 }));
+vi.mock("@/lib/waiting-shares", () => ({ removedWarning: () => "", waitingShareCount: async () => 0, signInNotice: () => "", useWaitingShareCount: () => 0 }));
 vi.mock("react-native", () => ({ View: "View", Platform: { OS: "ios" }, useColorScheme: () => "dark",
   AppState: { addEventListener: () => ({ remove() {} }) } }));
 vi.mock("expo-apple-authentication", () => ({ AppleAuthenticationButton: "AppleButton",

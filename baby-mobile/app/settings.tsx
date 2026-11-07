@@ -8,6 +8,7 @@ import { messageFor } from "@/lib/models";
 import { Button, Copy, Grouped, Notice, Row, Screen, useColors } from "@/components/ui";
 import { SettingsGroup } from "@/components/settings-group";
 import { initials } from "@/components/tab-stack";
+import { removedWarning, waitingShareCount, useWaitingShareCount } from "@/lib/waiting-shares";
 import { babyDetailLine } from "@/lib/child-setup";
 import { babyLabel, canAddBaby, canChangeBaby, familyOpen, familySpaces, remindersOn } from "../lib/spaces";
 
@@ -21,7 +22,7 @@ function InitialsTile({ text }: { text: string }) {
   </View>;
 }
 export default function Settings() {
-  const b = useBaby(),
+  const b = useBaby(), waiting = useWaitingShareCount(),
     profile = b.state.bootstrap!.profile,
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -84,10 +85,10 @@ export default function Settings() {
           }
         />
         {/* Waiting changes shouldn't need finding. Otherwise this lives on Privacy & data. */}
-        {deviceWorkCount(b.state) > 0 && <Row
+        {(deviceWorkCount(b.state) > 0 || waiting > 0) && <Row
           title="Saved changes & recovery"
           numericDetail
-          detail={`${recoverySummary(b.state)} · ${b.online ? "Online" : "Offline"}`}
+          detail={`${recoverySummary(b.state)}${waiting ? ` · ${waiting} ${waiting === 1 ? "share" : "shares"} waiting` : ""} · ${b.online ? "Online" : "Offline"}`}
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />}
@@ -97,11 +98,12 @@ export default function Settings() {
         secondary
         title="Sign out"
         busy={busy}
-        onPress={() => {
-          if (deviceWorkCount(b.state) > 0)
+        onPress={async () => {
+          const waiting = await waitingShareCount(), work = deviceWorkCount(b.state);
+          if (work > 0 || waiting)
             Alert.alert(
-              "You have changes on this device",
-              "Signing out removes unsynced entries and unfinished drafts from this phone. Review them first to save or keep what you need.",
+              waiting ? "Sign out and clear this phone?" : "You have changes on this device",
+              `${waiting ? removedWarning(waiting) + " " : ""}Signing out removes unsynced entries and unfinished drafts from this phone. Review them first to save or keep what you need.`,
               [
                 { text: "Keep working", style: "cancel" },
                 { text: "Review changes", onPress: () => router.push("/sync") },

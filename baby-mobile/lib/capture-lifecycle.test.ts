@@ -8,7 +8,7 @@ const scope = vi.hoisted(() => ({
   account: null as unknown, foreground: null as null | ((state: string) => void),
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
   params: { kind: "journal" }, native: true,
-  pending: vi.fn(), acknowledge: vi.fn(), copy: vi.fn(), remove: vi.fn(),
+  pending: vi.fn(), returnClaim: vi.fn(), acknowledge: vi.fn(), copy: vi.fn(), remove: vi.fn(),
   push: vi.fn(), dismiss: vi.fn(), reset: vi.fn(), toast: vi.fn(),
   stock: { hasShareIntent: false, shareIntent: { webUrl: "", text: "", files: [] as unknown[] } },
 }));
@@ -44,7 +44,7 @@ vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
 vi.mock("../components/journal-composer", () => ({ JournalComposer: "JournalComposer", ComposerOpening: "ComposerOpening" }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({
-  get nativeSharingAvailable() { return scope.native; }, pendingShare: scope.pending, acknowledgeShare: scope.acknowledge,
+  get nativeSharingAvailable() { return scope.native; }, pendingShare: scope.pending, acknowledgeShare: scope.acknowledge, returnClaim: scope.returnClaim,
 }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field",
@@ -52,6 +52,7 @@ vi.mock("@/components/ui", () => ({
 }));
 import Edit from "../app/edit";
 import { ShareCapture, sharedSourceTitle } from "../components/share-capture";
+import { onClaimSettled } from "./share-session-state";
 let renderer: ReactTestRenderer | undefined;
 function held<T>() { let release!: (value: T) => void; const promise = new Promise<T>((resolve) => { release = resolve; }); return { promise, release }; }
 function setup() {
@@ -293,6 +294,35 @@ it.each([[true, false, 1], [false, true, 1], [true, true, 2]])(
     if (count === 2) expect(account.state.outbox[1]).toEqual({ id: "capture-A", generation: 1,
       type: "import", record_id: "capture-A", files: [], automatic: true, automatic_epoch: 0 });
   });
+it("says a claimed share is saved only once it's durably in the outbox", async () => {
+  const account = setup(), { promise, release } = held<void>(), settled: string[] = [];
+  const stop = onClaimSettled((token, outcome) => settled.push(`${token}:${outcome}`));
+  account.holdCommit(promise);
+  scope.pending.mockResolvedValueOnce({ ...payload("claimed-a"), scope: "disposable-local-parent:1:personal", claimed: true });
+  await mount(ShareCapture);
+  expect(settled).toEqual([]);
+  expect(account.state.outbox).toEqual([]);
+  await act(async () => { release(); await account.drain(); });
+  expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:claimed-a"]);
+  expect(settled).toEqual(["claimed-a:saved"]);
+  stop();
+});
+it("says when a claimed share couldn't be written, and keeps it", async () => {
+  const account = setup(), settled: string[] = [];
+  const stop = onClaimSettled((token, outcome) => settled.push(`${token}:${outcome}`));
+  account.commit.mockImplementationOnce(() => Promise.reject(Error("disk full")));
+  scope.pending.mockResolvedValueOnce({ ...payload("claimed-b"), scope: "disposable-local-parent:1:personal", claimed: true });
+  await mount(ShareCapture);
+  expect(settled).toEqual(["claimed-b:failed"]);
+  expect(scope.acknowledge).not.toHaveBeenCalledWith("claimed-b");
+  stop();
+});
+it("a share added from the waiting card never starts AI, even with automatic organizing on and matching numbers", async () => {
+  const account = setup(); Object.assign(account.state.bootstrap!.profile, { ai_consent: true, auto_process_shares: true, auto_process_epoch: 0 });
+  scope.pending.mockResolvedValueOnce({ ...payload(), scope: "disposable-local-parent:1:personal", claimed: true, automatic_epoch: 0 }); await mount(ShareCapture);
+  expect(account.state.outbox.map(m => m.type)).toEqual(["save"]);
+  expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A");
+});
 it("does not copy or queue a source with an exact durable server receipt", async () => {
   const account = setup(); scope.pending.mockResolvedValueOnce({ ...payload(), status: "deferred" });
   await mount(ShareCapture);
@@ -494,6 +524,29 @@ describe("a draft from before the family", () => {
   });
 });
 
+it("retries a failed acknowledgement and lets later claimed captures settle", async () => {
+  const account = setup(), first = { ...payload(), claimed: true }, second = { ...payload("capture-B"), claimed: true };
+  scope.pending.mockResolvedValueOnce(first).mockResolvedValueOnce(first).mockResolvedValueOnce(second).mockResolvedValue(null);
+  scope.acknowledge.mockReturnValueOnce(false).mockReturnValue(true);
+  await mount(ShareCapture);
+  await act(async () => { await account.drain(); });
+  expect(account.state.outbox).toHaveLength(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(500); await account.drain(); });
+  expect(account.state.outbox).toHaveLength(2);
+  expect(scope.acknowledge).toHaveBeenCalledWith("capture-B");
+});
+it("returns an Add overtaken by a personal reset without deleting it", async () => {
+  const account = setup();
+  account.state.bootstrap!.generation = 2;
+  scope.returnClaim.mockResolvedValue(true);
+  scope.pending.mockResolvedValueOnce({ ...payload(), claimed: true }).mockResolvedValue(null);
+  await mount(ShareCapture);
+  await act(async () => { await account.drain(); });
+  expect(scope.returnClaim).toHaveBeenCalledWith("capture-A", "disposable-local-parent");
+  expect(scope.acknowledge).not.toHaveBeenCalled();
+  expect(account.state.outbox).toHaveLength(0);
+  expect(scope.alerts.some(alert => alert.title === "Your share is still on this phone")).toBe(true);
+});
 describe("captures from an older build, after the update and after Create family", () => {
   const family = "11111111-1111-4111-8111-111111111111", personal = "22222222-2222-4222-8222-222222222222";
   const shared = (spaces: object[]) => ({ personal_space_id: personal, spaces: [{ id: personal, kind: "personal", role: "parent", generation: 1, access_version: 1 }, ...spaces] });
@@ -582,4 +635,22 @@ describe("captures from an older build, after the update and after Create family
     expect(account.state.outbox).toEqual([]);
     expect(scope.acknowledge).not.toHaveBeenCalled();
   });
+});
+
+it("uses a recovered capture’s fresh record identity instead of its erased id", async () => {
+  const account = setup();
+  scope.pending.mockResolvedValueOnce({ ...payload(), record_id: "fresh-record", claimed: true }).mockResolvedValue(null);
+  await mount(ShareCapture); await account.drain();
+  expect(account.state.outbox[0]).toMatchObject({ id: "share-save:fresh-record", record: { id: "fresh-record" } });
+});
+
+it("settles a claimed retained receipt only after saving its original", async () => {
+  const account = setup();
+  scope.pending.mockResolvedValueOnce({ ...payload(), status: "saved", claimed: true }).mockResolvedValue(null);
+  const settled = vi.fn(), stop = onClaimSettled(settled);
+  try {
+    await mount(ShareCapture); await account.drain();
+    expect(account.state.outbox[0]).toMatchObject({ type: "save" });
+    expect(settled).toHaveBeenCalledWith("capture-A", "saved");
+  } finally { stop(); }
 });

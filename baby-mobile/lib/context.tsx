@@ -250,7 +250,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
     if (bootstrap.active === false || staying !== ref.current) {
       setReady(false);
       // Only what's retiring goes. With a family this account is still in, captures and its files can still go there.
-      if (!familySpaces(bootstrap).length) clearPendingShares();
+      // What was shared under no account isn't this account's, so its space being cleared doesn't take it. Sign-out and erase here still do.
+      if (!familySpaces(bootstrap).length) clearPendingShares(true, ownerRef.current);
       await clearReminders(ownerRef.current);
       await clearFiles(ownerRef.current, () => localFileUris(fencedState(ref.current, bootstrap)), () => {
         const keep = localFileUris(fencedState(ref.current, bootstrap));

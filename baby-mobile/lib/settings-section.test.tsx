@@ -1,12 +1,13 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const f = vi.hoisted(() => ({ section: undefined as string | undefined, reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object, ask: null as number | null, name: "Parent", outbox: [] as object[], held: [] as object[], push: vi.fn(), openSettings: vi.fn(), signOut: vi.fn(), sync: vi.fn(), consent: false, auto: false, save: vi.fn(async (change: object) => change), alert: vi.fn() }));
+const f = vi.hoisted(() => ({ waiting: 0, section: undefined as string | undefined, reminders: undefined as { push: boolean } | undefined, bootstrap: {} as object, ask: null as number | null, name: "Parent", outbox: [] as object[], held: [] as object[], push: vi.fn(), openSettings: vi.fn(), signOut: vi.fn(), sync: vi.fn(), consent: false, auto: false, save: vi.fn(async (change: object) => change), alert: vi.fn(), confirmDelete: vi.fn() }));
+vi.mock("@/lib/waiting-shares", () => ({ removedWarning: (n: number) => n < 0 ? "Any shares waiting on this phone will be removed." : `${n} shares waiting here will be removed.`, waitingShareCount: async () => f.waiting, useWaitingShareCount: () => Math.max(0, f.waiting) }));
 vi.mock("react-native", () => ({ Alert: { alert: f.alert }, Linking: { openSettings: f.openSettings }, ScrollView: "ScrollView", View: "View" }));
 vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: f.push }, useLocalSearchParams: () => ({ section: f.section }) }));
 vi.mock("expo-constants", () => ({ default: { expoConfig: {} } }));
 vi.mock("@/lib/share-session-state", () => ({ revokeShareSession() {} }));
-vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion() {} }));
+vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion: f.confirmDelete }));
 vi.mock("@/lib/files", () => ({ exportFile() {} }));
 vi.mock("@/lib/ai-consent", () => ({ ASK_CONSENT_BODY: "NEW ASK WORDS", ASK_UPDATE_TITLE: "", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
 vi.mock("@/lib/context", () => ({ useBaby: () => ({ online: true, signOut: f.signOut, sync: f.sync, api: { profile: f.save }, commit: async () => undefined, state: { outbox: f.outbox, heldDrafts: f.held, bootstrap: { generation: 1, ask_consent_version: f.ask, profile: { display_name: f.name, timezone: "Pacific/Guam", ai_consent: f.consent, auto_process_shares: f.auto }, children: [], reminders: f.reminders, ...f.bootstrap } } }) }));
@@ -24,7 +25,7 @@ let view: ReactTestRenderer;
 const rows = () => view.root.findAll((node) => String(node.type) === "Row");
 const titles = () => rows().map((node) => node.props.title);
 const buttons = () => view.root.findAll((node) => String(node.type) === "Button").map((node) => node.props.title);
-beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); Object.assign(f, { section: undefined, bootstrap: {}, ask: null, name: "Parent", outbox: [], held: [], reminders: undefined, consent: false, auto: false }); f.push.mockClear(); f.save.mockClear(); f.alert.mockClear(); });
+beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); Object.assign(f, { waiting: 0, section: undefined, bootstrap: {}, ask: null, name: "Parent", outbox: [], held: [], reminders: undefined, consent: false, auto: false }); f.push.mockClear(); f.save.mockClear(); f.alert.mockClear(); f.confirmDelete.mockClear(); });
 afterEach(() => { act(() => view.unmount()); vi.unstubAllGlobals(); });
 const open = async (screen: React.ReactElement = <Settings />) => { await act(async () => { view = create(screen); }); };
 it.each([[undefined, false], ["ai", true]])("sends AI deep links to Privacy & data (%s)", async (section, sent) => {
@@ -136,4 +137,33 @@ it("keeps held-only recovery visible and warns before sign-out", async () => {
   expect(rows().find((n) => n.props.title === "Saved changes & recovery")!.props.detail).toContain("1 unfinished draft");
   await act(async () => view.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Sign out")[0].props.onPress());
   expect(f.alert).toHaveBeenCalledWith("You have changes on this device", expect.stringContaining("unfinished drafts"), expect.any(Array));
+});
+
+it.each([1, -1])("warns about waiting shares before Settings sign-out (%s)", async count => {
+  f.waiting = count; await open();
+  if (count > 0) expect(rows().find(n => n.props.title === "Saved changes & recovery")!.props.detail).toContain("1 share waiting");
+  const before = f.signOut.mock.calls.length;
+  await act(async () => { await view.root.findAll(n => String(n.type) === "Button" && n.props.title === "Sign out")[0].props.onPress(); });
+  expect(f.signOut.mock.calls).toHaveLength(before);
+  expect(f.alert.mock.calls.at(-1)![1]).toContain(count > 0 ? "shares waiting here will be removed" : "Any shares waiting");
+  expect(f.alert.mock.calls.at(-1)![2].some((b: any) => b.text === "Review changes")).toBe(true);
+});
+it("warns about both held work and waiting shares", async () => {
+  f.waiting = 1; f.held = [{ id: "held" }]; await open();
+  const row = rows().find(n => n.props.title === "Saved changes & recovery")!;
+  expect(row.props.detail).toContain("1 unfinished draft"); expect(row.props.detail).toContain("1 share waiting");
+  await act(async () => { await view.root.findAll(n => String(n.type) === "Button" && n.props.title === "Sign out")[0].props.onPress(); });
+  expect(f.alert.mock.calls.at(-1)![1]).toContain("unfinished drafts");
+  expect(f.alert.mock.calls.at(-1)![1]).toContain("shares waiting here will be removed");
+});
+it("keeps waiting-share warnings on the moved delete controls", async () => {
+  f.waiting = 2; await open(<PrivacyData />);
+  await act(async () => { await view.root.findAll(n => String(n.type) === "Button" && n.props.title === "Delete my Baby data")[0].props.onPress(); });
+  expect(f.alert.mock.calls.at(-1)![1]).toContain("2 shares waiting here will be removed");
+});
+
+it.each([2, -1])("passes the share-removal warning to Delete account (%s)", async count => {
+  f.waiting = count; await open(<PrivacyData />);
+  await act(async () => { await view.root.findAll(n => String(n.type) === "Button" && n.props.title === "Delete my entire Håfa account")[0].props.onPress(); });
+  expect(f.confirmDelete).toHaveBeenCalledExactlyOnceWith(expect.any(Function), count < 0 ? "Any shares waiting on this phone will be removed." : "2 shares waiting here will be removed.");
 });
