@@ -37,6 +37,7 @@ from app.domains.baby.lifecycle import (
     personal_child_link,
     readable_journal_children,
     settle_running_feeds,
+    source_creation_hashes,
     validate_relations,
 )
 from app.domains.baby.models import (
@@ -170,7 +171,7 @@ async def record_reply(db, row, access):
 
 
 # Clients that predate these fields omit them; only an explicit null clears one.
-SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me")
+SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text", "legacy_saved_text")
 PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
 
 
@@ -501,7 +502,8 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
                     source.data = {**source.data, "status": "cancelled"}
                     source.revision, source.updated_at = source.revision + 1, now()
                     await touch(source, job_access.grant(source) if access.enabled else None)
-    member.profile, member.updated_at = profile.model_dump(), now()
+    # Anything a later release stored stays, so rolling back to this one and saving loses none of it.
+    member.profile, member.updated_at = {**member.profile, **profile.model_dump()}, now()
     if not profile.auto_process_shares:
         from app.domains.baby.share_models import BabyShareCapture
         from app.domains.baby.share_router import share_schema_available
@@ -1021,7 +1023,7 @@ async def create_record(
             access.grant(prior)
         if (
             not access.enabled and (prior.app_user_id != user.id or prior.generation != generation)
-        ) or prior.creation_hash != fingerprint:
+        ) or prior.creation_hash not in source_creation_hashes(body):
             raise HTTPException(409, "This save identity was already used with different content")
         if prior.deleted_at:
             raise HTTPException(410, "This entry was removed; create a new entry")
@@ -1031,8 +1033,12 @@ async def create_record(
     await validate_relations(db, access, generation, child_id, body.data, record_id=body.id, kind=body.kind)
     if body.kind == "event":
         await check_series_cap(db, access, generation, body.data, record_id=body.id)
+    # This request is the original save, before space rewrites or later reading.
+    saved = body.model_dump()
+    if body.kind == "source" and (body.data.get("url") or body.data.get("attachment_ids")) and body.data.get("user_text") is None:
+        saved["data"] = {**body.data, "user_text": body.data.get("source_text")}
     row = BabyRecord(
-        **{**body.model_dump(), "child_id": child_id},
+        **{**saved, "child_id": child_id},
         app_user_id=user.id,
         space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,

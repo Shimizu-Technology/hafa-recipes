@@ -260,3 +260,49 @@ def test_tight_delivery_budget_can_resize_repeatedly_without_truncating_output()
     with Image.open(io.BytesIO(result.data)) as image:
         image.load()
         assert image.size == (result.width, result.height)
+
+async def test_model_normalization_accepts_more_than_four_megapixels_and_heif():
+    from app.image_validation import normalize_model_image
+    raw = image_bytes("RGB", (2160, 2880), "white")  # 6.22 MP, matching the failed source size.
+    result = await normalize_model_image(raw, max_bytes=25 * 1024 * 1024)
+    assert result.width == 1200 and result.height == 1600
+    from pillow_heif import from_pillow
+    out = io.BytesIO()
+    from_pillow(Image.new("RGB", (80, 120), "white")).save(out)
+    result = await normalize_model_image(out.getvalue(), max_bytes=25 * 1024 * 1024, allow_heif=True)
+    assert result.content_type == "image/webp"
+
+
+async def test_model_decodes_do_not_block_loop_or_exceed_two_after_cancel(monkeypatch):
+    import asyncio
+    import threading
+    import time
+
+    from app import image_validation as validation
+    monkeypatch.setattr(validation, "_MODEL_IMAGE_SLOTS", asyncio.Semaphore(2))
+    lock, release = threading.Lock(), threading.Event()
+    active = maximum = 0
+    def render(*args, **kwargs):
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+        release.wait(2)
+        with lock:
+            active -= 1
+        return "normalized"
+    monkeypatch.setattr(validation, "validate_image_bytes", lambda *a, **k: object())
+    monkeypatch.setattr(validation, "normalize_thumbnail_image", render)
+    jobs = [asyncio.create_task(validation.normalize_model_image(b"fixture", max_bytes=25)) for _ in range(6)]
+    ticks = 0
+    started = time.monotonic()
+    while time.monotonic() - started < .08:
+        await asyncio.sleep(.005)
+        ticks += 1
+    assert ticks >= 5 and maximum == 2
+    jobs[0].cancel()
+    await asyncio.sleep(.03)
+    assert maximum == 2 and active == 2  # cancelled waiter cannot admit a third decode
+    release.set()
+    results = await asyncio.gather(*jobs, return_exceptions=True)
+    assert sum(result == "normalized" for result in results) == 5 and maximum == 2

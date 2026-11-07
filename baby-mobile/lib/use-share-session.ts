@@ -11,6 +11,7 @@ import {
   onShareSessionAsked,
   revokeShareAuthority,
   serializeShareSession,
+  sharesChanged,
 } from "./share-session-state";
 import { sessionScope, shareDestination, shareOwner } from "./share-scope";
 import { accessKey, generationOf, spaceFence, spacesLive } from "./spaces";
@@ -19,7 +20,19 @@ export { revokeShareSession } from "./share-session-state";
 export function ShareSessionGuard() {
   const { isLoaded, isSignedIn } = useAuth();
   useEffect(() => {
-    if (isLoaded && !isSignedIn && Platform.OS === "ios") void revokeShareAuthority().catch(() => undefined);
+    if (!isLoaded || Platform.OS !== "ios") return;
+    if (!isSignedIn) {
+      const retire = () => void revokeShareAuthority().catch(() => undefined);
+      retire();
+      const app = AppState.addEventListener("change", state => { if (state === "active") retire(); });
+      return () => app.remove();
+    }
+    // From the moment Clerk knows, since the rest of the setup can be held up. Clearing a space also clears this while
+    // she's still signed in, so it's said again on the way to another app, which is where a share can come from.
+    const note = () => void serializeShareSession(() => Share.noteSignedIn()).catch(() => undefined);
+    note();
+    const app = AppState.addEventListener("change", (state) => { if (state !== "active") note(); });
+    return () => app.remove();
   }, [isLoaded, isSignedIn]);
   return null;
 }
@@ -43,6 +56,8 @@ export function useShareSession() {
           // Only another account's retires what's here. A new credential for this one rebinds, and captures keep their ids and receipts.
           const previous = await Share.sessionOwner();
           if (previous && shareOwner(previous) !== b.owner) await Share.clearSession();
+          // Before asking for the credential, which is the part that can fail.
+          await Share.noteSignedIn().catch(() => undefined);
         });
         if (!current()) return;
         const bootstrap = b.state.bootstrap!, destination = shareDestination(bootstrap);
@@ -53,8 +68,10 @@ export function useShareSession() {
           await Share.configureSession(session, configuration.apiBase, b.owner, sessionScope(bootstrap, session));
           // Permission-version refreshes replace this effect without retiring
           // same-account captures. Account cleanup is serialized separately.
-          if (!current() && (isShareSessionSuspended() || !b.current())) await Share.clearSession(true);
+          if (!current() && (isShareSessionSuspended() || !b.current())) await Share.suspendSession();
         });
+        // Connected, so whatever's waiting can be offered to this account now.
+        if (current()) sharesChanged();
       } catch {
         // Keep an existing same-account capability when offline. Expired tokens
         // only produce the truthful local-save confirmation in the extension.

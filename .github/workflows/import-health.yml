@@ -16,11 +16,12 @@ concurrency:
 jobs:
   canaries:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 16
     steps:
       - name: Check fixed public canaries sequentially
         env:
           IMPORT_HEALTH_TOKEN: ${{ secrets.IMPORT_HEALTH_TOKEN }}
+          TIKTOK_PHOTO_CANARY_URL: ${{ secrets.TIKTOK_PHOTO_CANARY_URL }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -43,22 +44,31 @@ jobs:
               SOURCE_RESPONSE_INVALID SOURCE_UNAVAILABLE INSTAGRAM_ERROR TIKTOK_ERROR
               YOUTUBE_ERROR UNKNOWN_ERROR MEDIA_BUSY TIMEOUT SYSTEM_ERROR NO_AUDIO
               AUDIO_TOO_LARGE VIDEO_TOO_LONG NO_VIDEO_FRAMES
-              VIDEO_FRAME_EXTRACTION_FAILED NO_METADATA""".split())
-          stages = {"auth", "input", "lock", "metadata", "audio", "frames", "complete"}
+              VIDEO_FRAME_EXTRACTION_FAILED NO_METADATA FIXTURE_MISSING""".split())
+          stages = {"auth", "input", "fixture", "lock", "metadata", "page_read", "page_shape", "page_status", "page_maintenance", "audio", "frames", "images", "complete"}
           failed = False
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write("| Platform | Status | Stage | Error |\n|---|---|---|---|\n")
-              for platform in ("instagram", "tiktok", "youtube"):
+              for platform in ("instagram", "tiktok", "youtube", "tiktok-photo"):
+                  if platform == "tiktok-photo" and not os.environ.get("TIKTOK_PHOTO_CANARY_URL", "").strip():
+                      summary.write("| tiktok-photo | not configured | fixture | NOT_CONFIGURED |\n")
+                      print("tiktok-photo: not configured stage=fixture code=NOT_CONFIGURED")
+                      continue
                   status, stage, code = "failed", "unknown", "INVALID_RESPONSE"
                   with tempfile.TemporaryDirectory() as directory:
                       output = os.path.join(directory, "response.json")
                       try:
+                          fixture = os.environ.get("TIKTOK_PHOTO_CANARY_URL", "") if platform == "tiktok-photo" else ""
+                          fixture_header = ""
+                          if fixture and not any(c in fixture for c in '\r\n'):
+                              escaped = fixture.replace('\\', '\\\\').replace('"', '\\"')
+                              fixture_header = f'header = "X-Import-Health-Fixture: {escaped}"\n'
                           response = subprocess.run([
                               "curl", "--config", "-", "--silent", "--request", "POST",
                               "--connect-timeout", "10", "--max-time", "210",
                               "--max-filesize", "4096", "--output", output,
                               "--write-out", "%{http_code}", destination + platform,
-                          ], input=f'header = "{header}"\n', text=True,
+                          ], input=f'header = "{header}"\n' + fixture_header, text=True,
                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=220)
                           with open(output) as body:
                               data = json.load(body)

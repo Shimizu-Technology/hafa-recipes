@@ -7,7 +7,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, text
+from sqlalchemy import func, or_, select, text
 
 from app.ai_governance import ai_request_context
 from app.config import get_settings
@@ -20,7 +20,7 @@ from app.domains.baby.access import (
     family_enabled,
     touch,
 )
-from app.domains.baby.lifecycle import now, owned, validate_relations
+from app.domains.baby.lifecycle import now, owned, source_note, validate_relations
 from app.domains.baby.models import (
     BABY_TABLES,
     BabyAttachment,
@@ -221,7 +221,9 @@ class BabyWorker:
                 row.status == "processing" and row.lease_until and row.lease_until > now()
             ):
                 return True
-            if row.attempts >= 5:
+            source_attempts = await db.scalar(select(func.coalesce(func.sum(BabyImport.attempts), 0)).where(
+                BabyImport.record_id == row.record_id))
+            if row.attempts >= 5 or source_attempts >= 5:
                 row.status, row.error = (
                     "failed",
                     "Processing stopped after repeated interruptions. Your original is saved.",
@@ -258,10 +260,16 @@ class BabyWorker:
                 return True
             except HTTPException:
                 return await retire_unreachable(db, BabyImport, identifier, owner, generation, stored_space)
+            linked = bool(request.get("url") or source.data.get("url") or source.data.get("attachment_ids"))
+            note, note_patch = await source_note(db, source) if linked else (None, {})
+            request["url"] = source.data.get("url")
+            request["attachment_ids"] = source.data.get("attachment_ids", [])
+            if linked:
+                request["text"] = note
             source.revision += 1
             source.updated_at = now()
             baseline_revision = source.revision
-            source.data = {**source.data, "status": "processing"}
+            source.data = {**source.data, **note_patch, "status": "processing"}
             await touch(source, access.target)
             await touch(row, access.target)
             await db.commit()
@@ -424,8 +432,30 @@ class BabyWorker:
 
 
 def keep_user_decisions(current, organized):
-    """Reprocessing never overrides timing the user set or a suggestion they decided."""
+    """Keep user decisions and earlier reading after a retry cannot reread a source."""
     organized = dict(organized)
+    organized.pop("attachment_ids", None)
+    organized.pop("user_text", None)
+    organized.pop("legacy_saved_text", None)
+    def evidence(data):
+        return {item.get("location"): item["text"].strip()
+                for item in (data.get("evidence") or [])
+                if item.get("text", "").strip() and item.get("location") != "user_note"}
+    earlier, latest = evidence(current), evidence(organized)
+    weaker = (bool(current.get("summary") and not organized.get("summary"))
+              or any(text not in latest.get(location, "") for location, text in earlier.items())
+              or bool(current.get("source_text") and (not latest or (not earlier
+                  and current["source_text"] not in (organized.get("source_text") or "")))))
+    if organized.get("status") != "ready" and weaker and (current.get("url") or current.get("attachment_ids")):
+        # A partial reread must not turn a saved image reading into caption-only
+        # evidence. Retain the earlier reading together, never reuse it as input.
+        for key in ("source_text", "summary", "evidence", "key_points", "steps", "creator",
+                    "platform", "thumbnail_url", "suggested_category", "relevance", "topics"):
+            organized.pop(key, None)
+        organized["coverage_notes"] = [
+            "Previously saved text is shown. This attempt could not reread as much of the source.",
+            *organized.get("coverage_notes", []),
+        ][:30]
     if (current.get("relevance") or {}).get("origin") == "user":
         organized.pop("relevance", None)
     if (current.get("suggested_category") or {}).get("status") in {"accepted", "dismissed"}:

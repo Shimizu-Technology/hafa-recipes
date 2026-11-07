@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.recipe_review import is_missing_quantity
 from app.services.llm_client import llm_service
 from app.services.openai_client import openai_service  # Used for transcription
+from app.services.photo_posts import PhotoSourceError
 from app.services.source_acquisition import (
     TRANSIENT_SOURCE_ERRORS,
     AcquisitionFailure,
@@ -403,7 +404,7 @@ class RecipeExtractor:
         # Short URLs like /t/xxx don't contain /photo/ until resolved
         resolved_url = url
         if platform == "tiktok":
-            if "/t/" in url or "vm.tiktok.com" in url:
+            if "/t/" in url or ("vm.tiktok.com" in url or "vt.tiktok.com" in url):
                 print("🔗 Resolving TikTok short URL before photo detection...")
                 resolved_url = await VideoService.normalize_url(url)
             
@@ -428,6 +429,13 @@ class RecipeExtractor:
         acquired = await acquire_video_metadata(video_service, url, platform)
         metadata = acquired.metadata
         thumbnail_url = metadata.thumbnail
+        if metadata.photo_slides:
+            return await self._extract_from_tiktok_photo(
+                url, location, notes, progress_callback, post={
+                    "title": metadata.title, "description": metadata.description,
+                    "uploader": metadata.uploader, "slides": metadata.photo_slides,
+                },
+            )
         
         # Keep the existing fallback flow on the merged source evidence.
         ytdlp_metadata = metadata
@@ -844,7 +852,8 @@ class RecipeExtractor:
         url: str,
         location: str = "Guam",
         notes: str = "",
-        progress_callback=None
+        progress_callback=None,
+        post=None,
     ) -> FullExtractionResult:
         """
         Extract recipe from a TikTok photo/slideshow post using vision AI.
@@ -852,7 +861,7 @@ class RecipeExtractor:
         TikTok photo posts are image carousels without audio, so we use
         the configured multimodal extraction model to analyze the images directly.
         """
-        print(f"📸 Starting TikTok photo extraction for: {url}")
+        print("Starting social photo extraction")
         
         thumbnail_url = None
         
@@ -865,7 +874,8 @@ class RecipeExtractor:
                     message="Fetching slideshow images..."
                 ))
             
-            image_urls = await video_service.fetch_tiktok_photo_images(url)
+            post = post or await video_service.fetch_photo_post(url)
+            image_urls = [mirrors[0] for mirrors in post["slides"] if mirrors]
             
             if not image_urls:
                 print("❌ No images found in TikTok photo post")
@@ -878,7 +888,7 @@ class RecipeExtractor:
             
             # Use first image as thumbnail
             thumbnail_url = image_urls[0] if image_urls else None
-            print(f"✅ Found {len(image_urls)} images, thumbnail: {thumbnail_url[:80] if thumbnail_url else 'None'}...")
+            print(f"Found {len(image_urls)} source images")
             
             # Step 2: Download images as base64
             if progress_callback:
@@ -888,30 +898,56 @@ class RecipeExtractor:
                     message=f"Downloading {len(image_urls)} images..."
                 ))
             
-            base64_images = await video_service.download_images_as_base64(image_urls)
+            from app.services.photo_posts import download_photo_images
+
+            media_busy = False
+            try:
+                downloaded, coverage_notes = await download_photo_images(
+                    post["slides"], referer=f"https://www.{video_service.detect_platform(url)}.com/",
+                )
+            except PhotoSourceError as exc:
+                if exc.code != "MEDIA_BUSY":
+                    raise
+                media_busy = True
+                downloaded, coverage_notes = [], ["Image reading is busy; available caption text was kept. Try again later for the images."]
+            base64_images = [data for _, data in downloaded]
             
+            if not base64_images and _has_actionable_recipe_evidence(post["description"]):
+                caption_result = await llm_service.extract_recipe(
+                    source_url=url, content=post["description"], location=location,
+                )
+                if caption_result.success and caption_result.recipe:
+                    warning = "Source images could not be read; this draft uses only the caption."
+                    caption_result.recipe["lowConfidence"] = True
+                    caption_result.recipe["confidenceWarning"] = warning
+                    return FullExtractionResult(
+                        success=True, recipe=caption_result.recipe, raw_text=post["description"],
+                        thumbnail_url=thumbnail_url, extraction_method="photo_caption",
+                        extraction_quality="medium", low_confidence=True, confidence_warning=warning,
+                        source_evidence={"modalities": ["metadata"], "coverageNotes": [warning, *coverage_notes],
+                                         "sourceArtifactsRetained": False},
+                    )
             if not base64_images:
                 print("❌ Failed to download any images")
                 return FullExtractionResult(
                     success=False,
                     error="Could not download images from this TikTok post.",
-                    error_code="IMAGE_DOWNLOAD_FAILED",
+                    error_code="MEDIA_BUSY" if media_busy else "IMAGE_DOWNLOAD_FAILED",
+                    raw_text=post["description"],
+                    source_evidence={"modalities": ["metadata"], "coverageNotes": coverage_notes,
+                                     "sourceArtifactsRetained": False},
                     friendly_error="We couldn't download the images from this post. Please try again later."
                 )
             
             print(f"✅ Downloaded {len(base64_images)} images as base64")
 
-            source_context_parts = []
-            try:
-                metadata = await video_service.get_video_metadata_ytdlp(url)
-            except Exception as metadata_error:
-                print(f"⚠️ Slideshow metadata fetch failed: {metadata_error}")
-                metadata = None
-            if metadata:
-                if metadata.title:
-                    source_context_parts.append(f"VIDEO TITLE: {metadata.title}")
-                if metadata.description:
-                    source_context_parts.append(f"VIDEO DESCRIPTION: {metadata.description}")
+            source_context_parts = [
+                f"VIDEO TITLE: {post['title']}", f"VIDEO DESCRIPTION: {post['description']}",
+                f"CREATOR: {post['uploader']}",
+                "Supplied image order corresponds to original slides: "
+                + ", ".join(str(index + 1) for index, _ in downloaded),
+                *coverage_notes,
+            ]
             if notes:
                 source_context_parts.append(f"ADDITIONAL NOTES FROM USER: {notes}")
             source_context = "\n\n".join(source_context_parts)
@@ -957,10 +993,10 @@ class RecipeExtractor:
             if recipe:
                 recipe["sourceUrl"] = url
             
-            print(f"✅ TikTok photo extraction successful: {recipe.get('title', 'Untitled')}")
+            print("Social photo extraction complete")
             
             # Check confidence
-            raw_text = f"[TikTok Photo Post - {len(base64_images)} images analyzed]"
+            raw_text = source_context + f"\n[TikTok Photo Post - {len(base64_images)} images analyzed]"
             low_confidence, confidence_warning = _check_extraction_confidence(
                 recipe=recipe,
                 raw_text=raw_text,
@@ -969,6 +1005,12 @@ class RecipeExtractor:
                 is_visual_source=True,
             )
             
+            if coverage_notes:
+                low_confidence = True
+                confidence_warning = " ".join(filter(None, [confidence_warning, *coverage_notes]))
+                recipe["lowConfidence"] = True
+                recipe["confidenceWarning"] = confidence_warning
+
             return FullExtractionResult(
                 success=True,
                 recipe=recipe,
@@ -980,8 +1022,16 @@ class RecipeExtractor:
                 low_confidence=low_confidence,
                 confidence_warning=confidence_warning,
                 cover_images=base64_images,
+                source_evidence={"modalities": ["metadata", "slideshow_images"],
+                                 "coverageNotes": coverage_notes, "sourceArtifactsRetained": False},
             )
             
+        except PhotoSourceError as exc:
+            return FullExtractionResult(
+                success=False, error_code=exc.code,
+                error="Photo source could not be read.",
+                friendly_error="We could not read this post. Keep the link, try again, or add screenshots.",
+            )
         except Exception as e:
             print(f"❌ TikTok photo extraction error: {e}")
             import traceback

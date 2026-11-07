@@ -39,7 +39,7 @@ export function AskHistory({ items, manageable, onOpen, onRename, onDelete }: {
   return <Section title="Your conversations">
     {items.length ? <Grouped>{items.map((item) => editing?.id === item.id
       ? <View key={item.id} style={{ padding: 16, gap: 10, backgroundColor: c.tile }}>
-          <Field label="Conversation name" value={editing.title} onChange={(title) => setEditing({ id: item.id, title })} />
+          <Field label="Conversation name" maxLength={100} value={editing.title} onChange={(title) => setEditing({ id: item.id, title })} />
           <Button title="Save name" busy={busy} disabled={!editing.title.trim()} onPress={() => void save()} />
           <Button secondary title="Cancel" onPress={() => setEditing(null)} />
         </View>

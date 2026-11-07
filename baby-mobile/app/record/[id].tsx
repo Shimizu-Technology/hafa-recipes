@@ -1,4 +1,5 @@
 import { sourceTitle } from "@/lib/source-title";
+import { writtenTitle } from "../../lib/journal-title";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { Image } from "expo-image";
@@ -24,7 +25,7 @@ import { RecordVisit } from "@/components/visit-sections";
 import { RelatedRows } from "../../components/related-rows";
 import { ShareToggle } from "@/components/share-toggle";
 import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
-import { ensureAiConsent } from "../../lib/ai-consent";
+import { SourceRecovery } from "@/components/source-recovery";
 import { babyLabel, isCaregiver } from "../../lib/spaces";
 import { ApiError } from "../../lib/api";
 import { useOpenJournal } from "../../lib/use-open-journal";
@@ -94,7 +95,7 @@ export default function RecordDetail() {
     );
   if (record.kind === "event") return <Redirect href={{ pathname: "/event/[id]", params: { id: record.id } }} />;
   const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
-    title = record.kind === "source" ? sourceTitle(record) : record.title,
+    title = record.kind === "source" ? sourceTitle(record) : record.kind === "journal" ? writtenTitle(record) : record.title,
     data = record.data,
     // Care and the timers read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
     clock = isCare(record.kind) || record.kind === "contraction" || record.kind === "kick_session" || moreKinds.includes(record.kind) ? b.state.bootstrap?.profile.timezone : undefined,
@@ -112,7 +113,7 @@ export default function RecordDetail() {
         : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + babyLabel(child, b.state.bootstrap) : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
-        : !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
+        : !!title && !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>
@@ -121,6 +122,7 @@ export default function RecordDetail() {
         <Notice>This device has a partial offline copy. Reconnect to load the complete source before editing.</Notice>
       )}
       {pending && <Notice>Saved on this device. Your latest changes will sync when a connection is available.</Notice>}
+      <SourceRecovery record={record} onError={setError} />
       {record.kind === "source" && <SourceContent data={data} onError={setError} />}
       {record.kind === "feeding" && (
         <Card tone="hero">
@@ -254,30 +256,6 @@ export default function RecordDetail() {
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
       />}
       </Grouped>
-      {record.kind === "source" && <Disclosure title="Process this post again">
-        <Button
-          secondary
-          title="Process original with AI"
-          icon="sparkles-outline"
-          onPress={() => {
-            void ensureAiConsent(b).then((allowed) => !allowed ? undefined : b
-              .queue({
-                id: Crypto.randomUUID(),
-                type: "import",
-                record_id: record.id,
-                attachment_ids: data.attachment_ids,
-                generation: b.state.bootstrap!.generation,
-                url: data.url,
-                text: [record.body, data.source_text].filter(Boolean).join("\n\n") || undefined,
-                files: [],
-                child_id: record.child_id,
-                topics: data.topics,
-              })
-              .then(() => toast("Original preserved. Processing is queued.")))
-              .catch((e) => setError(messageFor(e)));
-          }}
-        />
-      </Disclosure>}
       <Button
         variant="destructive"
         title="Delete this entry"

@@ -28,7 +28,7 @@ import { disclosureVersion, type FamilyInvite, type FamilyMember, type FamilyRea
 import type { TappedReminder } from "./notification-route";
 import type { Moved } from "./outbox";
 import { rowFence, spacesLive, unavailableMessage } from "./spaces";
-import { dailyAiLimitMessage } from "./import-status";
+import { dailyAiLimitMessage, sourceRefusalMessages } from "./import-status";
 /**
  * What this build tells the API it understands, as `X-Baby-Client`. 2 reads and writes every current kind and field, in
  * the personal space only, with no space header. Client 3 is every space, and writes name theirs.
@@ -91,7 +91,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly local = false
+    readonly local = false,
+    readonly reason?: "related_space"
   ) {
     super(message);
   }
@@ -180,14 +181,16 @@ export function createBabyApi(
       if (!response.ok) {
         // Only this exact server-owned code selects a fixed local message.
         // Never reflect arbitrary backend/provider detail into private screens.
-        let dailyLimit = false,
-          known = "";
+        let dailyLimit = false, relatedSpace = false,
+          known = "", refusal = "";
         if (response.status === 422) {
           try {
             const error = await response.json();
             check();
             assertLease(captured);
+            relatedSpace = error?.detail === "Related items must be in the same Baby space";
             known = knownDetails.has(error?.detail) ? error.detail : "";
+            refusal = sourceRefusalMessages[error?.detail?.code] ?? "";
           } catch (failure) {
             if (failure instanceof ApiError) throw failure;
           }
@@ -198,6 +201,7 @@ export function createBabyApi(
             check();
             assertLease(captured);
             dailyLimit = error?.detail?.code === "baby_ai_daily_limit";
+            refusal = sourceRefusalMessages[error?.detail?.code] ?? "";
           } catch (failure) {
             if (failure instanceof ApiError) throw failure;
           }
@@ -213,12 +217,13 @@ export function createBabyApi(
           } catch (failure) {
             if (failure instanceof ApiError) throw failure;
           }
+          refusal = sourceRefusalMessages[detail.code ?? ""] ?? "";
           if (detail.code === "moved" && detail.space_id && detail.generation !== undefined && detail.record)
             throw new MovedError({ space_id: detail.space_id, generation: detail.generation, revision: detail.revision ?? null, record: detail.record });
           if (detail.code === "phones_not_ready") throw new PhonesNotReady({ ready: false, phones: detail.phones ?? [], older_client_at: detail.older_client_at });
           if (detail.code === "family_exit_required") throw new ApiError("Leave your family first. Your family’s data isn’t erased from here.", 409);
         }
-        const safe =
+        const safe = refusal || (
           response.status === 409
             ? "This record or account changed elsewhere. Your local version is safe. Review it before saving again."
             : response.status === 410
@@ -241,8 +246,8 @@ export function createBabyApi(
                             ? path === "/attachments"
                               ? "Håfa Baby could not upload this attachment. It is safe on this phone. Retry the upload later."
                               : "Håfa Baby could not save this change. It is safe on this phone. Retry later."
-                            : "Håfa Baby could not accept this change. Review its details before retrying.";
-        throw new ApiError(safe, response.status);
+                            : "Håfa Baby could not accept this change. Review its details before retrying.");
+        throw new ApiError(safe, response.status, false, relatedSpace ? "related_space" : undefined);
       }
       if (response.status === 204) return undefined as T;
       const value = (await response.json()) as T;

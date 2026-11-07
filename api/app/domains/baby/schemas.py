@@ -205,9 +205,11 @@ class SourceData(DomainModel):
         default_factory=list, max_length=30
     )
     source_text: str | None = Field(default=None, max_length=100000)
+    user_text: str | None = Field(default=None, max_length=100000, exclude_if=lambda value: value is None)
+    legacy_saved_text: str | None = Field(default=None, max_length=100000, exclude_if=lambda value: value is None)
     summary: str | None = Field(default=None, max_length=12000)
     key_points: list[Annotated[str, Field(min_length=1, max_length=600)]] = Field(
-        default_factory=list, max_length=12, exclude_if=lambda value: not value
+        default_factory=list, max_length=35, exclude_if=lambda value: not value
     )
     steps: list[Annotated[str, Field(min_length=1, max_length=600)]] = Field(
         default_factory=list, max_length=30, exclude_if=lambda value: not value

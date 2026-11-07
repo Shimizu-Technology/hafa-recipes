@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord, type Mutation } from "./models";
-import { atBirthWords, lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryWords, type SummaryPage } from "./doctor-summary";
+import { visitSummaryRange, atBirthWords, lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryWords, type SummaryPage } from "./doctor-summary";
 
 const row = (id: string, kind: BabyRecord["kind"], occurred_at: string, body = "", changes: Partial<BabyRecord> = {}) =>
   ({ ...optimisticRecord({ id, kind, title: kind === "journal" ? `Entry ${id}` : "", body, child_id: "baby", occurred_at, data: {} }), revision: 1, ...changes });
@@ -281,4 +281,57 @@ describe("the measurement at birth on the page", () => {
     expect(atBirthWords(baby, [])).toBe("measurements at birth");
     expect(atBirthWords({ birth_date: "2026-11-01" }, [])).toBe("");
   });
+});
+
+describe("appointment summaries", () => {
+  it("chooses a past visit's own week and clamps an upcoming visit to today", () => {
+    expect(visitSummaryRange("2026-10-15T12:00:00Z", "2026-11-06", "Pacific/Guam")).toEqual({ from: "2026-10-08", to: "2026-10-15" });
+    expect(visitSummaryRange("2026-12-15T12:00:00Z", "2026-11-06", "Pacific/Guam")).toEqual({ from: "2026-10-30", to: "2026-11-06" });
+  });
+  it("reads only this appointment's questions, including ones older than the dates", async () => {
+    const mine = row("mine", "question", "2025-01-01T00:00:00Z", "For this visit", { data: { event_id: "visit" } }), other = row("other", "question", "2026-11-03T00:00:00Z", "Other", { data: { event_id: "elsewhere" } });
+    const api = { records: vi.fn(async (filters: any) => ({ items: filters.kinds.includes("question") ? [mine, other] : [], has_more: false, total: 2 })) };
+    const state = { ...emptyState(), records: [mine, other] };
+    expect(localEntries(state, "baby", "2026-11-01", "2026-11-05", "UTC", "visit").questions.map((r) => r.id)).toEqual(["mine"]);
+    const entries = await summaryEntries(api, state, "baby", "2026-11-01", "2026-11-05", "UTC", "visit");
+    expect(entries.questions.map((r) => r.id)).toEqual(["mine"]);
+    expect(api.records).toHaveBeenCalledWith(expect.objectContaining({ event_id: "visit" }));
+  });
+  it("names the visit on the exported page and escapes the parent's words", () => {
+    expect(summaryHtml(page({ visitTitle: "Check <one>" }))).toContain("For Check &lt;one&gt;");
+  });
+});
+
+it("offers an attached journal outside the totals dates once, still leaving selection to the screen", async () => {
+  const note = row("late-note", "journal", "2026-11-06T00:00:00Z", "Written after the visit", { data: { event_id: "visit" } });
+  const api = { records: vi.fn(async (filters: any) => ({ items: filters.kinds.includes("journal") ? [note] : [], has_more: false, total: 1 })) };
+  const result = await summaryEntries(api, emptyState(), "baby", "2026-11-01", "2026-11-02", "UTC", "visit");
+  expect(result.journal.map((r) => r.id)).toEqual(["late-note"]);
+});
+
+it("actually reads a visit-linked journal missing from the date window and phone cache", async () => {
+  const late = row("late", "journal", "2026-11-10T00:00:00Z", "After the visit", { data: { event_id: "visit" } });
+  const api = { records: vi.fn(async (f: any) => ({ items: f.event_id === "visit" && f.kinds.includes("journal") ? [late] : [], has_more: false, total: 1 })) };
+  expect((await summaryEntries(api, emptyState(), "baby", "2026-11-01", "2026-11-02", "UTC", "visit")).journal.map((r) => r.id)).toEqual(["late"]);
+});
+it("offers a kept private journal on an upcoming visit day without requesting future log totals", async () => {
+  const privateQuestion = row("private", "journal", "2026-12-15T01:00:00Z", "My private question", { data: { just_me: true } });
+  const api = { records: vi.fn(async (f: any) => ({ items: f.kinds.includes("journal") && f.occurred_from === "2026-12-15T00:00:00.000Z" ? [privateQuestion] : [], has_more: false, total: 1 })) };
+  const rows = await summaryEntries(api, emptyState(), "baby", "2026-11-01", "2026-11-07", "UTC", "visit", "visit", "2026-12-15");
+  expect(rows.journal.map((r) => r.id)).toEqual(["private"]);
+  const logs = api.records.mock.calls.find(([f]) => f.kinds.includes("feeding"))![0];
+  expect(logs.occurred_to).toBe("2026-11-08T00:00:00.000Z");
+});
+it("uses an all-day appointment's event zone for the summary end date", () => {
+  expect(visitSummaryRange("2026-11-14T14:00:00Z", "2026-12-01", "America/Los_Angeles", "Pacific/Guam", true)).toEqual({ from: "2026-11-08", to: "2026-11-15" });
+});
+
+it("labels PDF questions only when more than one baby's entries are in play", () => {
+  const a = row("a", "question", "2026-11-01T00:00:00Z", "Mia question"), b = { ...a, id: "b", child_id: "noa", body: "Noa question" }, children = [{ id: "baby", name: "Mia" }, { id: "noa", name: "Noa" }];
+  expect(summaryHtml(page({ children, questions: [a] }))).not.toMatch(/General:|For Mia:/);
+  expect(summaryHtml(page({ children, questions: [a, b] }))).toContain("For Noa:");
+});
+it("does not present a future private journal's visit time as the time it was written", () => {
+  const future = row("private", "journal", "2026-12-15T09:00:00Z", "Kept question", { data: { just_me: true } });
+  expect(summaryHtml(page({ notes: [future] }))).not.toContain("7:00");
 });

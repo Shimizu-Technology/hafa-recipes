@@ -55,6 +55,7 @@ vi.mock("../components/ui", () => ui);
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: { feeding: "f", sleep: "s", diaper: "d" } }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
+vi.mock("@/components/waiting-shares", () => ({ WaitingShares: "WaitingShares" }));
 vi.mock("@/components/due-reminders", () => ({ DueReminders: "DueReminders" }));
 vi.mock("@/components/stage-options", () => ({ BabySetupCard: "BabySetupCard" }));
 vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", useMinuteClock: () => new Date() }));

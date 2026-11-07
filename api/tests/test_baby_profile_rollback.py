@@ -38,6 +38,26 @@ async def test_consent_can_still_be_withdrawn_after_a_rollback(baby_api):
     assert response.json()["ai_consent"] is False
 
 
+@pytest.mark.parametrize("body", [{"display_name": "Kami"}, {"timezone": "Pacific/Guam"}, {"ai_consent": False}, {"ai_consent": True}])
+async def test_a_save_keeps_what_a_later_release_stored(baby_api, body):
+    await store_later_fields(baby_api, contacts={"doctor": {"name": "Dr. Cruz", "phone": "671-555-0101"}})
+    response = await baby_api.client.patch(PROFILE, headers=shared.GEN, json=body)
+    assert response.status_code == 200, response.text
+    assert "contacts" not in response.json() and "a_field_from_a_later_release" not in response.json()
+    async with baby_api.sessions() as db:
+        stored = (await db.get(BabyMembership, "owner")).profile
+    assert stored["contacts"]["doctor"]["name"] == "Dr. Cruz"
+    assert stored["a_field_from_a_later_release"] == {"anything": True}
+    assert all(stored[key] == value for key, value in body.items())
+
+
+async def test_erasing_still_takes_what_a_later_release_stored(baby_api):
+    await store_later_fields(baby_api, contacts={"doctor": {"name": "Dr. Cruz"}})
+    assert (await baby_api.client.delete("/api/v1/baby/data?generation=1", headers=shared.GEN)).status_code == 200
+    async with baby_api.sessions() as db:
+        assert (await db.get(BabyMembership, "owner")).profile == {}
+
+
 async def test_every_other_unknown_key_is_still_refused(baby_api):
     response = await baby_api.client.patch(PROFILE, headers=shared.GEN, json={"not_a_field": 1})
     assert response.status_code == 422

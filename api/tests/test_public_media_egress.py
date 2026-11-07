@@ -474,7 +474,7 @@ async def test_all_social_subprocesses_use_the_locked_wrapper_and_shared_capacit
         returncode = 0
 
         async def communicate(self):
-            return json.dumps({"title": "Synthetic source", "duration": 30, "images": ["https://cdn.example/one.jpg"]}).encode(), b""
+            return json.dumps({"title": "Synthetic source", "duration": 30, "slides": [["https://cdn.example/one.jpg"]]}).encode(), b""
 
     async def create(*command, **kwargs):
         commands.append(command)

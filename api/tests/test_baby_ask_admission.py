@@ -51,8 +51,8 @@ def test_a_small_call_reserves_its_own_size_at_cache_write_rates():
 
 def test_each_search_adds_its_call_fee_and_a_context_of_results():
     searched = AskCall(model="gpt-6-luna", input_bytes=1_000, max_output_tokens=2_000, searches=2)
-    # Three model turns of 128,000 tokens, 2,000 output, and two $0.01 calls.
-    assert ask_upper_bound(searched) == 48_000 + 1000 + 20_000
+    # Three 128,000-token turns cross long-context pricing; retain both search fees.
+    assert ask_upper_bound(searched) == 96_000 + 1500 + 20_000
 
 
 @pytest.mark.parametrize(
@@ -331,6 +331,112 @@ def test_the_ceilings_are_six_dollars_a_person_and_ten_overall():
     assert (budget.OWNER_DAILY_CAP, budget.GLOBAL_DAILY_CAP) == (6_000_000, 10_000_000)
 
 
+def test_import_reserves_its_actual_text_image_and_output_envelope():
+    # 7000 text/framing + 5*3001 bounded high-detail image tokens, with the
+    # existing 2.5x/1.5x headroom, including all 6000 requested output tokens.
+    amount = upper_bound("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                         image_count=5, max_output_tokens=6000)
+    assert amount == 21803 and amount < 535800
+    assert upper_bound("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                       image_count=5, max_output_tokens=2400) < amount
+    with pytest.raises(BudgetError):
+        upper_bound("baby_extraction", "unknown", input_bytes=1)
+
+
+@needs_database
+async def test_metered_import_settles_actual_cost_and_keeps_attempt(baby_api, monkeypatch):
+    await consented(baby_api, monkeypatch)
+    with question():
+        ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                               image_count=5, max_output_tokens=6000)
+    usage = {"usage":{"prompt_tokens":3000, "completion_tokens":1000,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}}
+    await budget.settle(ticket, usage)
+    await budget.settle(ticket, usage)  # delivery/re-entry does not double-charge
+    rows = await admissions(baby_api)
+    assert len(rows) == 1 and rows[0].reserved_microusd == 1800
+    assert rows[0].capability == "baby_extraction"
+    # Ask uses the very same aggregate after the released reservation.
+    with question():
+        await reserve_ask("baby_ask", CALL)
+    assert len(await admissions(baby_api)) == 2
+
+
+@needs_database
+@pytest.mark.parametrize("usage", [{"usage":{"prompt_tokens":0,"completion_tokens":0}}, {"usage":{"prompt_tokens":0,"completion_tokens":2}}, None, {}, {"usage":{"prompt_tokens":1000}},
+    {"usage":{"prompt_tokens":True,"completion_tokens":1}},
+    {"usage":{"prompt_tokens":1,"completion_tokens":-1}},
+    {"usage":{"prompt_tokens":1,"completion_tokens":1,"prompt_tokens_details":{"cached_tokens":2}}}])
+async def test_unmetered_or_invalid_usage_keeps_entire_reservation(baby_api, monkeypatch, usage):
+    await consented(baby_api, monkeypatch)
+    with question():
+        ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=5000,
+                               image_count=5, max_output_tokens=6000)
+    await budget.settle(ticket, usage)
+    assert (await admissions(baby_api))[0].reserved_microusd == ticket.amount
+
+
+@needs_database
+async def test_unexpected_overrun_is_charged_and_stops_the_call(baby_api, monkeypatch, caplog):
+    await consented(baby_api, monkeypatch)
+    with question():
+        ticket = await reserve("baby_extraction", "gpt-5.6-luna", input_bytes=1, max_output_tokens=1)
+    with pytest.raises(BudgetError, match="workouts_ai_usage_invalid"):
+        await budget.settle(ticket, {"usage":{"prompt_tokens":1000000,"completion_tokens":1}})
+    assert (await admissions(baby_api))[0].reserved_microusd > ticket.amount
+    assert "baby_ai_reservation_overrun" in caplog.text
+
+
 def test_the_safety_check_counts_as_ask_in_budget_and_attempts():
     # Two checks on top of up to five tool rounds and a final answer, for fifty questions a day.
     assert "baby_safety" in budget.ASK_CAPABILITIES and budget.ASK_MAX_ATTEMPTS == 400
+
+@needs_database
+@pytest.mark.parametrize("details,input_tokens,output_tokens,expected",[
+    ({"cached_tokens":1000,"cache_write_tokens":1500},3000,100,615),
+    ({"cached_tokens":1000},3000,100,640),
+    ({"cached_tokens":50000,"cache_write_tokens":100000},300000,1000,113800),
+])
+async def test_settlement_prices_cached_writes_and_long_context(baby_api,monkeypatch,details,input_tokens,output_tokens,expected):
+    await consented(baby_api,monkeypatch)
+    with question():
+        ticket=await reserve("baby_extraction","gpt-5.6-luna",input_bytes=input_tokens,max_output_tokens=6000)
+    await budget.settle(ticket,{"usage":{"prompt_tokens":input_tokens,"completion_tokens":output_tokens,"prompt_tokens_details":details}})
+    assert (await admissions(baby_api))[0].reserved_microusd==expected
+
+
+@needs_database
+async def test_stale_low_price_configuration_cannot_release_below_published_floor(baby_api,monkeypatch):
+    await consented(baby_api,monkeypatch)
+    with question():
+        ticket=await reserve("baby_extraction","gpt-5.6-luna",input_bytes=5000,max_output_tokens=6000)
+    configured=get_settings().model_copy(update={"ai_model_pricing":{"gpt-5.6-luna":{
+        "input_per_million":.001,"output_per_million":.001,"cached_input_per_million":0}}})
+    monkeypatch.setattr(budget,"get_settings",lambda:configured)
+    await budget.settle(ticket,{"usage":{"prompt_tokens":3000,"completion_tokens":1000,"prompt_tokens_details":{"cache_write_tokens":0}}})
+    assert (await admissions(baby_api))[0].reserved_microusd==1800
+
+
+def test_ask_reservation_includes_higher_configured_rates(monkeypatch):
+    configured=get_settings().model_copy(update={"ai_model_pricing":{"gpt-6-luna":{
+        "input_per_million":2,"cached_input_per_million":3,"output_per_million":7}}})
+    monkeypatch.setattr(budget,"get_settings",lambda:configured)
+    assert ask_upper_bound(AskCall("gpt-6-luna",100,100))==8575
+
+
+@needs_database
+@pytest.mark.parametrize("overrun",[False,True])
+async def test_settlement_connection_failure_keeps_reservation_and_overrun_rejection(baby_api,monkeypatch,overrun):
+    from sqlalchemy.exc import OperationalError
+    await consented(baby_api,monkeypatch)
+    with question():
+        ticket=await reserve("baby_extraction","gpt-5.6-luna",input_bytes=5000,max_output_tokens=6000)
+    class Offline:
+        async def __aenter__(self): raise OperationalError("connect",{},OSError())
+        async def __aexit__(self,*args): pass
+    usage={"usage":{"prompt_tokens":1000000 if overrun else 3000,"completion_tokens":1}}
+    if overrun:
+        with pytest.raises(BudgetError,match="usage_invalid"):
+            await budget.settle(ticket,usage,sessions=Offline)
+    else:
+        await budget.settle(ticket,usage,sessions=Offline)
+    assert (await admissions(baby_api))[0].reserved_microusd==ticket.amount

@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, params: {} as Record<string, string>, stats: undefined as any, error: undefined as string | undefined, refresh: vi.fn(), shared: [] as string[], result: { level: 0, fits: true } }));
+const mock = vi.hoisted(() => ({ baby: null as any, push: vi.fn(), params: {} as Record<string, string>, stats: undefined as any, error: undefined as string | undefined, refresh: vi.fn(), shared: [] as string[], result: { level: 0, fits: true } }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Switch: "Switch", useWindowDimensions: () => ({ fontScale: 1 }) }));
-vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params }));
+vi.mock("expo-router", () => ({ router: { push: mock.push }, useLocalSearchParams: () => mock.params }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/care-stats", () => import("./care-stats"));
 vi.mock("@/lib/models", () => import("./models"));
@@ -18,7 +18,7 @@ vi.mock("@/lib/use-care-stats", () => ({ useCareStats: (choice: unknown, child: 
 vi.mock("@/lib/files", () => ({ exportOnePagePdf: async (html: (level: number) => string) => { mock.shared.push(html(0)); return mock.result; } }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
-vi.mock("@/components/ui", () => ({ Button: "Button", Chips: "Chips", Choice: "Choice", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Section: "Section",
+vi.mock("@/components/ui", () => ({ Button: "Button", Chips: "Chips", Choice: "Choice", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Section: "Section",
   useColors: () => ({ action: "action" }),
   Screen: ({ children, footer }: { children: unknown; footer: unknown }) => [children, footer] }));
 import DoctorSummary from "../app/doctor-summary";
@@ -369,4 +369,96 @@ describe("the extra logs on the screen", () => {
     expect(mock.shared.at(-1)).toContain("Rash");
     expect(mock.shared.at(-1)).not.toContain("Tylenol");
   });
+});
+
+
+it("scopes appointment questions, names the visit and lets her read before ticking", async () => {
+  mock.params = { visit: "visit-a", visitTitle: "Mia’s check", at: new Date().toISOString(), child: "baby" };
+  const linked = { ...question, data: { event_id: "visit-a" } }, other = { ...question, id: "other", title: "Another visit", data: { event_id: "visit-b" } };
+  mock.baby.api.records = vi.fn(async (filters: any) => ({ items: filters.kinds.includes("question") ? [linked, other] : [secret], has_more: false }));
+  await mount();
+  expect(mock.baby.api.records).toHaveBeenCalledWith(expect.objectContaining({ event_id: "visit-a", kinds: ["question"] }));
+  expect(choices().some((n) => n.props.label === "Another visit")).toBe(false);
+  expect(JSON.stringify(renderer!.toJSON())).toContain("For Mia’s check");
+  const reader = renderer!.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.detail === "Tuesday night")!;
+  await act(async () => reader.props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "private", fromVisit: "visit-a", visitAt: mock.params.at } });
+  expect(choices().find((n) => n.props.label === "Tuesday night")!.props.selected).toBe(false);
+  await act(async () => choices().find((n) => n.props.label === "Show other saved questions")!.props.onPress());
+  await settle();
+  expect(choices().find((n) => n.props.label === "Another visit")!.props.selected).toBe(false);
+});
+it("does not request future totals for a future appointment", async () => {
+  mock.params = { visit: "visit", visitTitle: "Next check", at: "2099-11-01T00:00:00Z" };
+  await mount();
+  const to = renderer!.root.findAll((n) => String(n.type) === "DateField").find((n) => n.props.label === "To")!;
+  expect(to.props.value).toBe(new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Guam" }));
+});
+
+it("forgets a journal tick when the visit changes on the same mounted summary", async () => {
+  mock.params = { visit: "v1", at: new Date().toISOString() };
+  await mount();
+  await act(async () => choices().find((n) => n.props.label === "Tuesday night")!.props.onPress());
+  expect(choices().find((n) => n.props.label === "Tuesday night")!.props.selected).toBe(true);
+  mock.params = { visit: "v2", at: new Date().toISOString() }; await update();
+  expect(choices().find((n) => n.props.label === "Tuesday night")!.props.selected).toBe(false);
+});
+it("labels every question's baby and leaves another baby's question off this baby's PDF", async () => {
+  mock.params = { visit: "visit", child: "baby", at: new Date().toISOString() };
+  mock.baby.state.bootstrap.children.push({ id: "noa", name: "Noa", revision: 1 });
+  const mia = { ...question, title: "Mia question", body: "Mia only words", data: { event_id: "visit" } }, noa = { ...question, id: "q-noa", child_id: "noa", title: "Noa question", body: "Noa only words", data: { event_id: "visit" } };
+  mock.baby.api.records = vi.fn(async (f: any) => ({ items: f.kinds.includes("question") ? [mia, noa] : [], total: 2, has_more: false }));
+  await mount();
+  const other = choices().find((n) => n.props.label === "Noa question")!;
+  expect(other.props.selected).toBe(false); expect(other.props.detail).toContain("For Noa");
+  await act(async () => button("Share questions and notes")!.props.onPress());
+  expect(mock.shared[0]).not.toContain("For Mia:"); expect(mock.shared[0]).not.toContain("Noa only words");
+  await act(async () => other.props.onPress());
+  await act(async () => button("Share questions and notes")!.props.onPress());
+  expect(mock.shared[1]).toContain("For Noa");
+});
+
+it.each([
+  { visit: "visit", at: "2026-11-14T14:00:00Z", visitAt: "2026-11-07T14:00:00Z" },
+  { visit: "visit", at: "2026-11-14T14:00:00Z" },
+  {},
+] as Record<string, string>[])("keeps the occurrence return hint while opening a full entry, and leaves Stats unscoped (%j)", async (params) => {
+  mock.params = params;
+  const linked = { ...question, title: "Visit question", body: "Question marker", data: { event_id: "visit" } };
+  mock.baby.api.records = vi.fn(async (filters: any) => ({ items: filters.kinds.includes("question") ? [linked] : [], has_more: false }));
+  await mount();
+  const reader = renderer!.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.title === "Read full entry" && n.props.detail === "Visit question")!;
+  await act(async () => reader.props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: linked.id, ...(params.visit ? { fromVisit: params.visit, visitAt: params.visitAt ?? params.at } : {}) } });
+});
+
+
+it("keeps another baby's visit question and its tick when showing other saved questions", async () => {
+  const other = { ...question, id: "other-baby", child_id: "noa", title: "Noa question", data: { event_id: "visit" } };
+  mock.params = { visit: "visit", child: "baby" };
+  mock.baby.state.bootstrap.children.push(child("noa", "Noa"));
+  mock.baby.api.records = vi.fn(async (f: any) => ({ items: f.kinds.includes("question") && (f.event_id === "visit" || !f.child_id) ? [other] : [], has_more: false }));
+  await mount();
+  await act(async () => choices().find((n) => n.props.label === "Noa question")!.props.onPress());
+  await act(async () => choices().find((n) => n.props.label === "Show other saved questions")!.props.onPress());
+  expect(choices().find((n) => n.props.label === "Noa question")?.props.selected).toBe(true);
+  await act(async () => { await button("Share questions and notes")!.props.onPress(); });
+  expect(mock.shared.at(-1)).toContain("For Noa:");
+});
+it("offers an unlinked private question on the upcoming visit day unticked and prints it as a question without a future time", async () => {
+  const at = new Date(Date.now() + 3 * 86400000).toISOString(), kept = { ...question, id: "kept", child_id: null, title: "Question for Mia", body: "Private future question", occurred_at: at, data: { just_me: true } };
+  mock.params = { visit: "future", child: "baby", at };
+  mock.baby.api.records = vi.fn(async (f: any) => ({ items: f.kinds.includes("question") && !f.event_id ? [kept] : [], has_more: false }));
+  await mount();
+  const entry = () => choices().find((n) => n.props.label === "Question for Mia");
+  expect(entry()).toBeDefined();expect(entry()!.props.selected).toBe(false);
+  await act(async () => entry()!.props.onPress());
+  await act(async () => { await button("Share questions and notes")!.props.onPress(); });
+  const html = mock.shared.at(-1)!;
+  expect(html).toContain("<h2>Questions for the doctor</h2>"); expect(html).toContain("Private future question");
+  expect(html).not.toContain("<h2>Notes</h2>");
+});
+it("leaves private questions unticked on the general summary too", async () => {
+  mock.baby.api.records = vi.fn(async (f: any) => ({ items: f.kinds.includes("question") ? [{ ...question, data: { just_me: true } }] : [], has_more: false }));
+  await mount(); expect(choices().find((n) => n.props.label === "Rash")!.props.selected).toBe(false);
 });

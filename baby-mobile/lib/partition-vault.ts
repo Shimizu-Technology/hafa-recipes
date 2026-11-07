@@ -98,19 +98,24 @@ export function createPartitionVault(
           store = stamp === 2 ? family : files,
           old = stamp === 2 ? saved : marker?.version === 1 ? marker : null,
           fenced = marker?.version === 2 && !Object.keys(marker.parts).length,
-          parts = { ...old?.parts };
+          parts = { ...old?.parts }, present = new Set<string>();
         let changed = false;
         for (const [section, content] of Object.entries(state)) {
+          // JSON.stringify(undefined) has no JSON value. Optional own keys must behave like absent keys.
+          if (content === undefined) continue;
           if (!/^\w+$/.test(section)) throw Error("Invalid private device section.");
-          if (old && references[section] === content && section in parts) continue;
+          if (old && references[section] === content && section in parts) { present.add(section); continue; }
+          const serialized = JSON.stringify(project(section, content));
+          if (serialized === undefined) continue;
+          present.add(section);
           const id = uuid();
-          await store.write(id, await store.seal(JSON.stringify(project(section, content)), section));
+          await store.write(id, await store.seal(serialized, section));
           guard();
           parts[section] = id;
           changed = true;
         }
         for (const section of Object.keys(parts))
-          if (!(section in state)) {
+          if (!present.has(section)) {
             delete parts[section];
             changed = true;
           }

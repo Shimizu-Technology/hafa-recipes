@@ -1,10 +1,12 @@
+import { removedWarning, waitingShareCount, useWaitingShareCount } from "@/lib/waiting-shares";
+import { recoverySummary } from "@/lib/outbox";
 import { useEffect, useRef, useState } from "react";
 import { Alert, ScrollView } from "react-native";
 import { router } from "expo-router";
 import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
 import { ASK_CONSENT_BODY } from "@/lib/ai-consent";
-import { messageFor, pendingChanges } from "@/lib/models";
+import { messageFor } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Notice, Row, Screen, Section, useToast } from "@/components/ui";
@@ -12,7 +14,7 @@ import { SettingsGroup } from "@/components/settings-group";
 
 /** The settings that are seldom changed and hard to undo, a tap away from Settings. `/settings?section=ai` lands here, with AI first. */
 export default function PrivacyData() {
-  const b = useBaby(),
+  const b = useBaby(), waiting = useWaitingShareCount(),
     toast = useToast(),
     profile = b.state.bootstrap!.profile,
     [busy, setBusy] = useState(false),
@@ -99,7 +101,7 @@ export default function PrivacyData() {
         <Row
           title="Saved changes & recovery"
           numericDetail
-          detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
+          detail={`${recoverySummary(b.state)}${waiting ? ` · ${waiting} ${waiting === 1 ? "share" : "shares"} waiting` : ""} · ${b.online ? "Online" : "Offline"}`}
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />
@@ -130,10 +132,11 @@ export default function PrivacyData() {
           variant="destructive"
           title="Delete my Baby data"
           busy={busy}
-          onPress={() =>
+          onPress={async () => {
+            const waiting = await waitingShareCount();
             Alert.alert(
               "Delete all Baby information?",
-              "This permanently removes your Baby records, files, conversations, and profiles. Recipes, Workouts, and your Håfa login remain. Older offline changes will not restore deleted data. Export anything you need first.",
+              `This permanently removes your Baby records, files, conversations, and profiles. Recipes, Workouts, and your Håfa login remain. Older offline changes will not restore deleted data. Export anything you need first.${waiting ? ` ${removedWarning(waiting)}` : ""}`,
               [
                 { text: "Keep my data", style: "cancel" },
                 {
@@ -146,22 +149,23 @@ export default function PrivacyData() {
                     }),
                 },
               ]
-            )
-          }
+            );
+          }}
         />
         <Button
           variant="destructive"
           title="Delete my entire Håfa account"
           busy={busy}
-          onPress={() =>
+          onPress={async () => {
+            const waiting = await waitingShareCount();
             confirmAccountDeletion(() =>
               void run(async () => {
                 await revokeShareSession();
                 await b.api.deleteAccount();
                 await b.signOut();
-              })
-            )
-          }
+              }), waiting ? removedWarning(waiting) : undefined
+            );
+          }}
         />
       </Section>
     </Screen>

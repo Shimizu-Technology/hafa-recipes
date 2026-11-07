@@ -40,7 +40,7 @@ it.each([
   ["failed", "Couldn’t organize · Review", "error"],
   ["queued", "Waiting to organize…", "muted"],
   ["processing", "Organizing…", "muted"],
-  ["incomplete", "Some details unavailable", "muted"],
+  ["incomplete", "Couldn’t read everything · Open to retry", "muted"],
   ["cancelled", "Organizing stopped", "muted"],
 ])("keeps %s visible as the row's single status line and opens its saved original", async (status, label, tone) => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

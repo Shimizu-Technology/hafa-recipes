@@ -23,15 +23,40 @@ public final class HafaBabyShareModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("HafaBabyShare")
+    AsyncFunction("noteSignedIn") { () throws in try self.safely { try self.store().noteSignedIn() } }
     AsyncFunction("pending") { () throws -> [String: Any]? in try self.safely { try self.snapshot() } }
     Function("acknowledge") { (token: String) throws -> Bool in try self.safely { try self.store().acknowledge(token) } }
-    Function("clear") { try self.safely { _ = try BabyShareSession.disable(storage: self.store()) } }
+    Function("clear") { (keepWaiting: Bool?, recoveringOwner: String?) throws in
+      try self.safely { _ = try BabyShareSession.disable(storage: self.store(), preserveUnassigned: keepWaiting ?? false, recoveringOwner: recoveringOwner) }
+    }
+    AsyncFunction("suspendSession") { () async throws in
+      try await BabyShareSession.clear(storage: self.store(), lapse: true)
+    }
     AsyncFunction("clearSession") { (preserveUnassigned: Bool?) async throws in
       try await BabyShareSession.clear(storage: self.store(), preserveUnassigned: preserveUnassigned ?? false)
     }
     AsyncFunction("sessionOwner") { () throws -> String? in
       try self.store().locked { try BabyShareSession.read()?["scope"] as? String }
     }
+    AsyncFunction("removalShareCount") { () throws -> Int in try self.safely { try self.store().removalCount() } }
+    AsyncFunction("waitingShareCount") { () throws -> Int in try self.safely { try self.store().unassignedCount() } }
+    AsyncFunction("waitingShares") { (owner: String) throws -> [[String: Any]] in
+      try self.safely { try self.store().unassigned(owner: owner).map(BabySharePayload.summary) }
+    }
+    AsyncFunction("claimShare") { (token: String, owner: String, generation: Int) throws -> String in
+      try self.safely { try self.store().claim(token, owner: owner, generation: generation).rawValue }
+    }
+    AsyncFunction("blockShare") { (token: String, reason: String) throws -> Bool in try self.safely { try self.store().block(token, reason: reason) } }
+    AsyncFunction("blockedShares") { (owner: String) throws -> [[String: Any]] in
+      try self.safely { try self.store().blocked(owner: owner).map(BabySharePayload.summary) }
+    }
+    AsyncFunction("removeBlockedShare") { (token: String, owner: String) throws -> Bool in
+      try self.safely { try self.store().removeBlocked(token, owner: owner) }
+    }
+    AsyncFunction("returnClaim") { (token: String, owner: String) throws -> Bool in
+      try self.safely { try self.store().returnClaim(token, owner: owner) }
+    }
+    AsyncFunction("discardShare") { (token: String) throws -> Bool in try self.safely { try self.store().discard(token) } }
     AsyncFunction("installationId") { () throws -> String in
       try self.store().locked {
         guard let defaults = UserDefaults(suiteName: self.group) else { throw BabyShareStore.Failure.unavailable }
@@ -45,17 +70,5 @@ public final class HafaBabyShareModule: Module {
     }
   }
 
-  private func snapshot() throws -> [String: Any]? {
-    let storage = try store()
-    guard let saved = try storage.pending() else { return nil }
-    var result = try BabySharePayload.decode(saved)
-    var files: [[String: Any]] = []
-    for row in result["files"] as? [[String: Any]] ?? [] {
-      guard let path = row["path"] as? String, let file = storage.ownedFile(path) else { throw BabyShareStore.Failure.invalid }
-      files.append(["path": file.absoluteString, "fileName": row["fileName"] as? String ?? file.lastPathComponent,
-        "mimeType": row["mimeType"] as? String ?? "application/octet-stream"])
-    }
-    result["files"] = files
-    return result
-  }
+  private func snapshot() throws -> [String: Any]? { try BabySharePayload.next(store()) }
 }

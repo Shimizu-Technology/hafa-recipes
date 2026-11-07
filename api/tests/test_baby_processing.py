@@ -2,6 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,7 +15,7 @@ async def test_import_keeps_text_and_only_accepts_actual_visual_locations(monkey
     source = SourceBundle(
         SourceMetadata(title="Original video", platform="tiktok"),
         parts=[SourcePart("caption", "Original creator claim")],
-        images=[SourceImage("image:0", "data:image/png;base64,fixture")],
+        images=[SourceImage("image:0", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg==")],
     )
 
     class Acquirer:
@@ -312,3 +313,322 @@ async def test_extraction_contract_requires_and_returns_a_source_title(monkeypat
     monkeypatch.setattr(provider, "json_call", json_call)
     result = await provider.extract(SourceBundle(SourceMetadata(), parts=[SourcePart("text", "Feeding cues")]))
     assert result.title == "Recognizing feeding cues"
+
+
+async def test_labelled_slide_lists_survive_source_schema_and_image_cap(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.domains.baby.provider import BabyProvider
+
+    image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg=="
+    source = SourceBundle(SourceMetadata(), images=[SourceImage(f"image:{i}", image) for i in range(36)])
+    class Acquirer:
+        def __init__(self, **kwargs): pass
+        async def acquire(self, *args, **kwargs): return source
+    result = ExtractionOutput(title="Hospital bag", summary="The creator lists packing items.",
+        key_points=["For labor: heating pad; excited to try a comb. (slide 2)"],
+        visual_text=[{"location":"image:34", "text":"for postpartum"}, {"location":"image:35", "text":"omitted image"}],
+        relevance={"stage":"postpartum", "quote":"for postpartum"},
+        suggested_category={"name":"Hospital Bag", "confidence":.9})
+    calls = AsyncMock(return_value=result)
+    monkeypatch.setattr(BabyProvider, "json_call", calls)
+    # Inspect the real provider's image list and prompt without spending.
+    await BabyProvider().extract(source)
+    assert calls.await_count == 8
+    assert sum(sum(c.get("type")=="image_url" for c in call.kwargs["content"]) for call in calls.await_args_list if isinstance(call.kwargs["content"], list)) == 35
+    assert all(sum(c.get("type")=="image_url" for c in call.kwargs["content"]) <= 5 for call in calls.await_args_list if isinstance(call.kwargs["content"], list))
+    assert calls.await_args_list[0].kwargs["max_tokens"] == 6000
+    assert calls.call_args.kwargs["max_tokens"] == 800
+    monkeypatch.setattr(processing, "ProductionSourceAcquirer", Acquirer)
+    provider = SimpleNamespace(enabled=True, extract=AsyncMock(return_value=result))
+    saved = await processing.process_capture({"url":"https://example.com/post"}, [], provider, may_use_ai=True, gate=AsyncMock())
+    assert saved["data"]["key_points"] == result.key_points
+    assert saved["data"]["suggested_category"]["name"] == "Hospital Bag"
+    assert saved["data"]["relevance"]["stage"] == "postpartum"
+    assert "omitted image" not in saved["data"]["source_text"]
+    assert saved["status"] == "incomplete" and any("35 of 36" in n for n in saved["data"]["coverage_notes"])
+
+
+@pytest.mark.parametrize("hashtag", ["#thirdtrimester", "#37weekspregnant"])
+def test_trimester_hashtag_alone_does_not_file_timing(hashtag):
+    relevance = processing.stated_relevance(
+        {"stage":"pregnancy", "pregnancy_week_min":28, "quote":hashtag},
+        ["Hospital bag " + hashtag],
+    )
+    assert relevance is None
+    stated = processing.stated_relevance(
+        {"stage":"pregnancy", "pregnancy_week_min":28, "quote":"For the third trimester"},
+        ["For the third trimester, the creator packed these items. #thirdtrimester"],
+    )
+    assert stated and stated.pregnancy_week_min == 28
+
+
+def test_legacy_full_context_reservation_retains_output_headroom():
+    from app.domains.baby.budget import upper_bound
+    assert upper_bound("baby_extraction", "gpt-5.6-luna", images=True, max_output_tokens=6000) == 535800
+
+
+def test_many_literal_labels_are_kept_in_slide_groups_before_schema_limit():
+    entries = [{"location": f"image:{i // 10}", "text": f"Literal label {i}"} for i in range(100)]
+    result = ExtractionOutput(title="Packing lists", visual_text=entries)
+    assert len(result.visual_text) == 10
+    for i, entry in enumerate(result.visual_text):
+        assert entry.location == f"image:{i}"
+        assert entry.text.splitlines() == [f"Literal label {n}" for n in range(i * 10, (i + 1) * 10)]
+
+async def test_remote_normalized_pixels_are_not_encoded_again(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app import image_validation
+    image = SourceImage("image:0", "data:image/webp;base64,c3ludGhldGlj", normalized=True)
+    source = SourceBundle(SourceMetadata(), images=[image])
+    class Acquirer:
+        def __init__(self, **kwargs): pass
+        async def acquire(self, *args, **kwargs): return source
+    monkeypatch.setattr(processing, "ProductionSourceAcquirer", Acquirer)
+    normalize = AsyncMock(side_effect=AssertionError("Do not re-encode normalized remote text"))
+    monkeypatch.setattr(image_validation, "normalize_model_image", normalize)
+    class Provider:
+        enabled = True
+        async def extract(self, read, categories=None):
+            assert read.images[0].data_url == image.data_url and read.images[0] is image
+            return ExtractionOutput(title="Synthetic", visual_text=[{"location":"image:0", "text":"Literal label"}])
+    result = await processing.process_capture({"url":"https://example.com/photo"}, [], Provider(), may_use_ai=True, gate=AsyncMock())
+    normalize.assert_not_awaited()
+    assert "Literal label" in result["data"]["source_text"]
+    assert "attachment_ids" not in result["data"]
+
+
+@pytest.mark.parametrize("upload_kind", ["large_png", "heic"])
+async def test_large_upload_is_normalized_at_attachment_limit(monkeypatch, upload_kind):
+    import base64
+    import io
+    from unittest.mock import AsyncMock
+
+    from PIL import Image
+    # A valid >4 MiB PNG, without a committed binary fixture.
+    output = io.BytesIO()
+    if upload_kind == "large_png":
+        Image.effect_noise((2400, 2400), 100).convert("RGB").save(output, format="PNG")
+    else:
+        from pillow_heif import from_pillow
+        from_pillow(Image.new("RGB", (2400, 2400), "white")).save(output)
+    raw = output.getvalue()
+    assert len(raw) < attachments.MAX_BYTES
+    if upload_kind == "large_png":
+        assert len(raw) > 4 * 1024 * 1024
+    monkeypatch.setattr(processing, "read_bytes", AsyncMock(return_value=raw))
+    attachment = SimpleNamespace(mime_type="image/heic" if upload_kind == "heic" else "image/png")
+    class Provider:
+        enabled = True
+        async def extract(self, source, categories=None):
+            assert len(source.images) == 1
+            with Image.open(io.BytesIO(base64.b64decode(source.images[0].data_url.split(",",1)[1]))) as image:
+                assert max(image.size) == 1600
+            return ExtractionOutput(title="Large screenshot", visual_text=[{"location":"attachment:0", "text":"Literal uploaded label"}])
+    result = await processing.process_capture({}, [attachment], Provider(), may_use_ai=True, gate=AsyncMock())
+    assert "Literal uploaded label" in result["data"]["source_text"]
+
+async def test_35_slide_provider_batches_fit_output_and_preserve_every_slide(monkeypatch):
+    from app.domains.baby.provider import IMAGE_READING_DISCLOSURE, BabyProvider, ExtractionSummary
+    from app.domains.baby.schemas import SourceData
+    source = SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),
+                         images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(35)])
+    seen=[]
+    async def call(self, **kwargs):
+        if kwargs["output_model"] is ExtractionSummary:
+            assert kwargs["max_tokens"] == 800
+            return ExtractionSummary(title="Garden labels", summary="The creator lists garden supplies.")
+        locations=[entry["text"].split("Source location: ")[1].split(" ")[0] for entry in kwargs["content"]
+                   if entry.get("type")=="text" and entry.get("text","").startswith("Source location:")]
+        assert 1<=len(locations)<=5 and kwargs["max_tokens"]==6000
+        assert "'(slide N)'" in kwargs["instructions"]
+        seen.extend(locations)
+        return ExtractionOutput(title="Garden labels",summary="The creator lists garden supplies.",
+            key_points=[f"Label on {location}" for location in locations],
+            visual_text=[{"location":location,"text":f"Literal list {location}"} for location in locations])
+    monkeypatch.setattr(BabyProvider,"json_call",call)
+    result=await BabyProvider().extract(source)
+    assert seen==[f"image:{i}" for i in range(35)]
+    saved=SourceData(key_points=result.key_points,evidence=[e.model_dump() for e in result.visual_text])
+    assert len(saved.key_points)==35 and len(saved.evidence)==35
+    assert saved.evidence[-1].text=="Literal list image:34"
+    assert source.metadata.coverage_notes == [IMAGE_READING_DISCLOSURE]
+
+
+async def test_missing_batch_and_model_trimming_are_disclosed(monkeypatch):
+    from app.domains.baby.provider import BabyProvider, ProviderUnavailable
+    source=SourceBundle(SourceMetadata(),images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(15)])
+    calls=0
+    async def call(self, **kwargs):
+        nonlocal calls
+        calls+=1
+        assert "'(slide N)'" not in kwargs["instructions"]
+        if calls==2:
+            raise ProviderUnavailable("Synthetic provider failure")
+        return ExtractionOutput(title="Source",key_points=[f"Batch {calls}"],omitted_details=True)
+    monkeypatch.setattr(BabyProvider,"json_call",call)
+    result=await BabyProvider().extract(source)
+    assert result.key_points==["Batch 1","Batch 3"]
+    assert any("batch 2 could not be organized" in note for note in source.metadata.coverage_notes)
+    assert sum("AI condensed" in note for note in source.metadata.coverage_notes)==2
+
+@pytest.mark.parametrize("code,phrase",[("VIDEO_PRIVATE","private or needs permission"),("VIDEO_REMOVED","no longer available"),("ACCESS_DENIED","site blocked"),("RATE_LIMITED","limiting requests"),("MEDIA_BUSY","reading is busy")])
+async def test_partial_read_explains_safe_cause_without_losing_caption(monkeypatch,code,phrase):
+    from unittest.mock import AsyncMock
+
+    from app.services.source_acquisition import AcquisitionFailure
+    class Acquirer:
+        def __init__(self, **kwargs): pass
+        async def acquire(self, *args, **kwargs):
+            return SourceBundle(SourceMetadata(),parts=[SourcePart("caption","Readable creator caption")],
+                                acquisition_failures=[AcquisitionFailure("metadata",code)])
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    result=await processing.process_capture({"url":"https://example.com/post"},[],SimpleNamespace(enabled=False),may_use_ai=False,gate=AsyncMock())
+    assert result["status"]=="incomplete" and phrase in result["error"]
+    assert result["data"]["source_text"]=="Readable creator caption" and result["data"]["url"]=="https://example.com/post"
+
+@pytest.mark.parametrize("quote",["#thirdtrimester","Hospital bag #thirdtrimester","#37weekspregnant"])
+async def test_hashtag_cannot_supply_even_a_stage_without_a_statement(quote):
+    assert processing.stated_relevance({"stage":"pregnancy","quote":quote},[quote]) is None
+
+@pytest.mark.parametrize("entries",[
+    [{"location":"image:0","text":"a"*7000},{"location":"image:0","text":"b"*7000}],
+    [{"location":"image:0","text":"a"*14000}],
+])
+async def test_long_grouped_image_text_is_bounded_and_disclosed(monkeypatch,entries):
+    from app.domains.baby.provider import BabyProvider
+    result=ExtractionOutput(title="Labels",key_points=["Retained tip"],visual_text=[*entries,{"location":"image:1","text":"Other slide label"}])
+    assert len(result.visual_text[0].text)==12000 and result.omitted_details
+    assert result.visual_text[1].text=="Other slide label" and result.key_points==["Retained tip"]
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),
+        images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(2)])
+    monkeypatch.setattr(BabyProvider,"json_call",AsyncMock(return_value=result))
+    await BabyProvider().extract(source)
+    assert any("condensed" in note for note in source.metadata.coverage_notes)
+
+@pytest.mark.parametrize("invalid",[{"stage":"pregnancy","quote":"#thirdtrimester"},{"malformed":True},"malformed"])
+async def test_later_batch_timing_survives_an_earlier_invalid_candidate(monkeypatch,invalid):
+    from app.domains.baby.provider import BabyProvider, ExtractionSummary
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),
+        images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(6)])
+    monkeypatch.setattr(BabyProvider,"json_call",AsyncMock(side_effect=[
+        ExtractionOutput(title="First",relevance=invalid,visual_text=[{"location":"image:0","text":"#thirdtrimester"}]),
+        ExtractionOutput(title="Later",relevance={"stage":"pregnancy","pregnancy_week_min":37,"quote":"At 37 weeks"},
+            visual_text=[{"location":"image:5","text":"At 37 weeks the creator packed this."}]),
+        ExtractionSummary(title="Combined",summary="Creator lists")]))
+    result=await BabyProvider().extract(source)
+    assert result.relevance["pregnancy_week_min"]==37
+
+async def test_remote_frame_producer_marks_webp_so_baby_does_not_encode_it_twice(monkeypatch):
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.domains.workouts.extraction import ProductionSourceAcquirer
+    image=BytesIO()
+    Image.new("RGB",(24,24),"white").save(image,"PNG")
+    service=SimpleNamespace(is_tiktok_photo_post=lambda _:False,
+        extract_video_frames=AsyncMock(return_value=SimpleNamespace(success=True,frames=[
+            SimpleNamespace(image_base64=base64.b64encode(image.getvalue()).decode(),timestamp_seconds=0)])))
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/video/123"))
+    acquirer=ProductionSourceAcquirer(video_service=service)
+    monkeypatch.setattr(acquirer,"_audio",AsyncMock())
+    await acquirer.acquire_media(source,None)
+    assert source.images[0].normalized
+    class Acquirer:
+        def __init__(self,**kwargs): pass
+        async def acquire(self,*args,**kwargs): return source
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    normalizer=AsyncMock(side_effect=AssertionError("Already normalized"))
+    monkeypatch.setattr("app.image_validation.normalize_model_image",normalizer)
+    result=await processing.process_capture({"url":source.metadata.url},[],
+        SimpleNamespace(enabled=True,extract=AsyncMock(return_value=ExtractionOutput(title="Frame",visual_text=[
+            {"location":"image:0","text":"Literal frame label"}]))),may_use_ai=True,gate=AsyncMock())
+    normalizer.assert_not_awaited()
+    assert "Literal frame label" in result["data"]["source_text"]
+
+@pytest.mark.parametrize("field",["baby_age_unit","stage"])
+@pytest.mark.parametrize("malformed",[[],{}])
+async def test_malformed_timing_type_does_not_discard_later_batches(monkeypatch,field,malformed):
+    from app.domains.baby.provider import BabyProvider, ExtractionSummary
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),
+        images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(6)])
+    bad={"stage":"baby","baby_age_unit":"months","baby_age_min":3,"quote":"At 3 months",field:malformed}
+    monkeypatch.setattr(BabyProvider,"json_call",AsyncMock(side_effect=[
+        ExtractionOutput(title="First",key_points=["First tip"],relevance=bad,visual_text=[{"location":"image:0","text":"At 3 months"}]),
+        ExtractionOutput(title="Later",key_points=["Later tip"],relevance={"stage":"pregnancy","pregnancy_week_min":37,"quote":"At 37 weeks"},
+            visual_text=[{"location":"image:5","text":"At 37 weeks the creator packed this."}]),
+        ExtractionSummary(title="Combined",summary="Creator lists")]))
+    result=await BabyProvider().extract(source)
+    assert result.relevance["pregnancy_week_min"]==37 and result.key_points==["First tip","Later tip"]
+
+@pytest.mark.parametrize("ordered_reader",[False,True])
+@pytest.mark.parametrize("short",[False,True])
+async def test_intermediate_legacy_reader_never_silently_claims_all_slides(monkeypatch,ordered_reader,short):
+    service=SimpleNamespace(is_tiktok_photo_post=lambda url:"/photo/" in url)
+    if ordered_reader:
+        service.fetch_photo_post=AsyncMock()
+    monkeypatch.setattr(processing,"public_video_service",service)
+    source=SourceBundle(SourceMetadata(platform="tiktok",url="https://www.tiktok.com/@synthetic/photo/123"),parts=[SourcePart("caption","Creator list")])
+    class Acquirer:
+        def __init__(self,**kwargs): pass
+        async def acquire(self,*args,**kwargs): return source
+    monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
+    url="https://www.tiktok.com/t/synthetic/" if short else source.metadata.url
+    result=await processing.process_capture({"url":url},[],
+        SimpleNamespace(enabled=False),may_use_ai=False,gate=AsyncMock())
+    assert any("at most eight slides" in note for note in result["data"]["coverage_notes"]) is not ordered_reader
+
+
+@pytest.mark.parametrize("unreadable", [False, True])
+async def test_condensed_and_textless_slides_are_ready_unless_reading_has_gaps(monkeypatch, unreadable):
+    from app.domains.baby import processing
+    from app.domains.baby.provider import BabyProvider
+    source = SourceBundle(SourceMetadata(platform="tiktok", url="https://www.tiktok.com/@synthetic/photo/123"),
+        parts=[SourcePart("caption", "Creator caption")],
+        images=[SourceImage("image:0", "data:image/webp;base64,aW1hZ2U=", normalized=True),
+                SourceImage("image:1", "data:image/webp;base64,aW1hZ2U=", normalized=True)])
+    monkeypatch.setattr(processing, "ProductionSourceAcquirer", lambda **kwargs: type("Acquirer", (), {"acquire": AsyncMock(return_value=source)})())
+    async def call(self, **kwargs):
+        return ExtractionOutput.model_validate({"title":"Labels", "summary":"Creator's list.", "omitted_details":True,
+            "unreadable_details": unreadable, "visual_text":[{"location":"image:0", "text":"Literal label"}, {"location":"image:1", "text":""}]})
+    monkeypatch.setattr(BabyProvider, "json_call", call)
+    monkeypatch.setattr(BabyProvider, "enabled", property(lambda self: True))
+    monkeypatch.setattr(processing.public_video_service, "fetch_photo_post", AsyncMock(), raising=False)
+    result = await processing.process_capture({"url":source.metadata.url}, [], BabyProvider(), may_use_ai=True, gate=AsyncMock())
+    assert result["status"] == ("incomplete" if unreadable else "ready")
+    assert "Literal label" in result["data"]["source_text"]
+    assert any("condensed" in note for note in result["data"]["coverage_notes"])
+
+
+async def test_batch_cannot_claim_another_batch_image_location(monkeypatch):
+    from app.domains.baby.provider import BabyProvider, ExtractionSummary
+    source = SourceBundle(SourceMetadata(), images=[SourceImage(f"image:{i}","data:image/webp;base64,fixture",normalized=True) for i in range(6)])
+    async def call(self, **kwargs):
+        if kwargs["output_model"] is ExtractionSummary:
+            return ExtractionSummary(title="Labels", summary="Summary")
+        locations = [part["text"].split("Source location: ")[1].split(" ")[0] for part in kwargs["content"] if part.get("text", "").startswith("Source location:")]
+        foreign = "image:5" if "image:0" in locations else "image:0"
+        return ExtractionOutput(title="Labels", visual_text=[{"location":locations[0],"text":"Local label"}, {"location":foreign,"text":"Foreign invented label"}])
+    monkeypatch.setattr(BabyProvider, "json_call", call)
+    result = await BabyProvider().extract(source)
+    assert all(entry.text != "Foreign invented label" for entry in result.visual_text)
+    assert any("outside the supplied image locations" in note for note in source.metadata.coverage_notes)
+
+
+def test_normalization_is_limited_to_one_slot_on_shared_web_service():
+    import runpy
+
+    from app import image_validation as validation
+
+    fresh = runpy.run_path(validation.__file__)
+    assert fresh["MODEL_IMAGE_CONCURRENCY"] == 1
+    assert fresh["_MODEL_IMAGE_SLOTS"]._value == 1
+
+
+def test_blank_visual_entries_are_skipped_without_losing_other_labels():
+    result = ExtractionOutput(title="Labels", visual_text=[
+        {"location":"image:0", "text":"Literal label"}, {"location":"image:1", "text":""}, {"location":"image:2", "text":"  "}])
+    assert [entry.text for entry in result.visual_text] == ["Literal label"]

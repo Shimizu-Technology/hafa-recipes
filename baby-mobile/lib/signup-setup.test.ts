@@ -6,6 +6,7 @@ const gate = vi.hoisted(() => ({
   auth: { isLoaded: true, sessionId: "session_A", userId: "user_A", getToken: async () => "token" },
   clerk: { session: { id: "session_A", user: { id: "user_A" } }, signOut: vi.fn() },
 }));
+vi.mock("../lib/waiting-shares", () => ({ confirmSignOut: (signOut: () => void) => signOut() }));
 vi.mock("@clerk/expo", () => ({ useAuth: () => gate.auth, useClerk: () => gate.clerk,
   useSession: () => ({ isLoaded: gate.auth.isLoaded, session: gate.clerk.session }) }));
 vi.mock("./config", () => ({ configuration: { clerkEnvironment: "production", apiBase: "https://service.example" } }));

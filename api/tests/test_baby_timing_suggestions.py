@@ -83,12 +83,12 @@ async def test_stated_week_is_captured_with_its_quote():
 
 async def test_a_single_stated_week_applies_from_then_on():
     result, _ = await organize(
-        "How I make my tea #37weekspregnant",
+        "At 37 weeks, I make my tea #37weekspregnant",
         relevance={
             "stage": "pregnancy",
             "pregnancy_week_min": 37,
             "pregnancy_week_max": 37,
-            "quote": "#37weekspregnant",
+            "quote": "At 37 weeks",
         },
     )
     assert result["data"]["relevance"]["pregnancy_week_min"] == 37

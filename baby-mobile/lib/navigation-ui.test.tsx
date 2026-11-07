@@ -6,6 +6,7 @@ const mock = vi.hoisted(() => ({
   params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[], picker: null as any, toasts: [] as any[],
 }));
 vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
+vi.mock("@/lib/waiting-shares", () => ({ confirmSignOut: (signOut: () => void) => signOut(), waitingShareCount: async () => 0, removedWarning: () => "" }));
 vi.mock("@/lib/share-session-state", () => ({ revokeShareSession: vi.fn() }));
 vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion: vi.fn() }));
 vi.mock("react-native", () => ({
@@ -42,7 +43,7 @@ vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true, NavigationContext: React.createContext(undefined) }));
 vi.mock("@/lib/ask-sources", async () => await import("./ask-sources"));
 vi.mock("@/lib/models", async () => await import("./models"));
-vi.mock("@/lib/ai-consent", () => ({ ASK_CONSENT_BODY: "", ASK_UPDATE_TITLE: "", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
+vi.mock("@/lib/ai-consent", () => ({ ASK_CONSENT_BODY: "", ASK_UPDATE_TITLE: "", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false, ensureAiConsent: async () => true }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));
@@ -85,6 +86,8 @@ vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/suggestions", () => import("./suggestions"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/components/saved-post-row", () => import("../components/saved-post-row"));
+vi.mock("@/components/source-recovery", () => import("../components/source-recovery"));
+vi.mock("@/lib/spaces", () => import("./spaces"));
 import Library from "../app/(tabs)/library";
 import Journal, { JournalContent } from "../app/journal";
 import RecordDetail from "../app/record/[id]";
@@ -186,12 +189,14 @@ describe("signing out from the recovery screen", () => {
     await act(async () => buttons.find((one) => one.text === "Sign out and clear")!.onPress!());
     expect(mock.baby.signOut).toHaveBeenCalledOnce();
   });
-  it("is one tap on an ordinary failure, with nothing to lose", async () => {
+  it("warns when a failed load cannot establish that there is nothing to lose", async () => {
     const { AccountGate } = await import("../components/account-gate");
     mock.baby.ready = false; mock.baby.error = "Could not connect."; mock.baby.signOut = vi.fn(async () => undefined);
     await mount(<AccountGate>inside</AccountGate>);
     await press("Sign out");
-    expect(mock.baby.signOut).toHaveBeenCalledOnce();
+    expect(mock.baby.signOut).not.toHaveBeenCalled();
+    const { Alert } = await import("react-native");
+    expect(vi.mocked(Alert.alert).mock.calls.at(-1)![0]).toBe("Sign out and clear this phone?");
   });
 });
 describe("a caregiver and Ask", () => {

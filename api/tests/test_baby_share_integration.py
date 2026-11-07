@@ -551,3 +551,23 @@ async def test_progress_waits_for_owner_admission_and_never_reports_false_saved(
             if not progress.done():
                 progress.cancel()
                 await asyncio.gather(progress, return_exceptions=True)
+
+@pytest.mark.parametrize("old_record_first",[False,True])
+async def test_original_text_copy_preserves_cross_surface_legacy_replays(baby_api,old_record_first):
+    c=baby_api.client
+    capability=await session(c)
+    body=capture()
+    legacy=CaptureRequest(**body).original_record().model_dump(mode="json")
+    legacy["data"].pop("user_text",None)
+    if old_record_first:
+        assert (await c.post("/api/v1/baby/records",headers=shared.GEN,json=legacy)).status_code==200
+        # Matching ID must not admit a different URL or original text.
+        bad=await c.post("/api/v1/baby/share/captures",headers=capability,json={**body,"text":"Different original"})
+        assert bad.status_code==409
+    captured=await c.post("/api/v1/baby/share/captures",headers=capability,json=body)
+    assert captured.status_code==202,captured.text
+    replay=await c.post("/api/v1/baby/records",headers=shared.GEN,json=legacy)
+    assert replay.status_code==200,replay.text
+    wrong=await c.post("/api/v1/baby/records",headers=shared.GEN,
+        json={**legacy,"data":{**legacy["data"],"source_text":"Changed text"}})
+    assert wrong.status_code==409

@@ -33,6 +33,45 @@ def digest(value):
     ).hexdigest()
 
 
+def source_creation_hashes(body):
+    """Only the added copy of original URL-share text may vary on a replay."""
+    payload = body.model_dump(mode="json")
+    hashes = {digest(payload)}
+    data = payload.get("data", {})
+    original = data.get("source_text")
+    if (payload.get("kind") == "source" and data.get("url") and original is not None
+            and data.get("user_text") in {None, original}):
+        legacy = {key: value for key, value in data.items() if key != "user_text"}
+        hashes.add(digest({**payload, "data": legacy}))
+        hashes.add(digest({**payload, "data": {**legacy, "user_text": original}}))
+    return hashes
+
+
+async def source_note(db, source):
+    """Recover proven original input; keep ambiguous older text out of new evidence."""
+    data = source.data
+    if source.body or data.get("user_text") is not None:
+        return source.body or data.get("user_text"), {}
+    initial = await db.scalar(select(BabyImport).where(BabyImport.record_id == source.id)
+        .order_by(BabyImport.created_at, BabyImport.id).limit(1))
+    if initial and (not initial.request.get("record_id") or initial.request.get("automatic")):
+        original = initial.request.get("text")
+        return original, {"user_text": original} if original is not None else {}
+    # An unchanged records-endpoint save proves this was original supplied text.
+    from app.domains.baby.schemas import RecordCreate
+    try:
+        original = RecordCreate(id=source.id, kind=source.kind, title=source.title, body=source.body,
+            child_id=source.child_id, occurred_at=source.occurred_at, data=data)
+        if source.creation_hash in source_creation_hashes(original):
+            text = data.get("source_text")
+            return text, {"user_text": text} if text is not None else {}
+    except ValueError:
+        pass
+    # No reliable provenance: preserve it for the parent without calling it a note.
+    earlier = data.get("legacy_saved_text") or data.get("source_text")
+    return None, {"legacy_saved_text": earlier} if earlier else {}
+
+
 async def lock_owner(db, owner):
     if await db.scalar(select(AppUser.id).where(AppUser.id == owner).with_for_update()) is None:
         raise HTTPException(404, "Account unavailable")

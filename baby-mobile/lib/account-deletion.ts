@@ -1,9 +1,9 @@
 import { Alert } from "react-native";
 
-export function confirmAccountDeletion(remove: () => void) {
+export function confirmAccountDeletion(remove: () => void, alsoRemoved?: string) {
   Alert.alert(
     "Delete your entire Håfa account?",
-    "This also deletes your Recipes and Workouts information. This is permanent. Export anything you need first.",
+    `This also deletes your Recipes and Workouts information. This is permanent. Export anything you need first.${alsoRemoved ? ` ${alsoRemoved}` : ""}`,
     [
       { text: "Keep account", style: "cancel" },
       {

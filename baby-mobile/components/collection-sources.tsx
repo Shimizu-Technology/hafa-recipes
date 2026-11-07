@@ -75,6 +75,7 @@ export function CollectionSources({
       <Section title="Choose saved sources">
         <Field
           label="Find a saved source"
+          clearable
           value={query}
           onChange={setQuery}
           placeholder="Search titles, notes, and transcripts"

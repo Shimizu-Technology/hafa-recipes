@@ -75,7 +75,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
         onChange={(value) => { setNaming(value === "new"); if (value !== "new") set(chooseCategory(data, value)); else set({ category: "other", category_label: null }); }} />
       {naming && <Field label="Your category" autoFocus value={data.category_label ?? ""} maxLength={60} onChange={(label) => set({ category: "other", category_label: label })} placeholder="Car, work, church…" />}
       <Field label="Location (optional)" value={data.location ?? ""} maxLength={240} onChange={(location) => set({ location })} placeholder="Clinic, church, grandma’s house…" />
-      <Field label="Who’s coming (optional)" value={people} onChange={(typed) => { setPeople(typed); set({ attendees: attendeesFrom(typed) }); }} placeholder="Grandma, Auntie Rose" />
+      <Field label="Who’s coming (optional)" capitalize="words" value={people} onChange={(typed) => { setPeople(typed); set({ attendees: attendeesFrom(typed) }); }} placeholder="Grandma, Auntie Rose" />
       {!one && babies.length > 0 && <Copy kind="small">Who is it for?</Copy>}
       {!one && babies.length > 0 && <FilterChips label="Who is it for?" value={fittingChild(bootstrap, draft, b.records.find((row) => row.id === draft.id)) ?? ""}
         options={[{ label: choice && !choice.shared ? "Just me" : "Whole family", value: "" }, ...babies.map((child) => ({ label: babyLabel(child, b.state.bootstrap), value: child.id }))]} onChange={(id) => change({ child_id: id || null })} />}

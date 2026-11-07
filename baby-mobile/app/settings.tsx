@@ -1,14 +1,16 @@
+import { deviceWorkCount, recoverySummary } from "@/lib/outbox";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Linking, ScrollView, View } from "react-native";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import { useBaby } from "@/lib/context";
-import { messageFor, pendingChanges } from "@/lib/models";
+import { messageFor } from "@/lib/models";
 import { Button, Copy, Grouped, Notice, Row, Screen, useColors } from "@/components/ui";
 import { SettingsGroup } from "@/components/settings-group";
 import { initials } from "@/components/tab-stack";
-import { babyDetailLine } from "@/lib/child-setup";
+import { removedWarning, waitingShareCount, useWaitingShareCount } from "@/lib/waiting-shares";
 import { contactsOn, herDoctorMatters } from "../lib/contacts";
+import { babyDetailLine } from "@/lib/child-setup";
 import { babyLabel, canAddBaby, canChangeBaby, familyOpen, familySpaces, remindersOn } from "../lib/spaces";
 
 /** Her initials, in the same blush tile as the icons on the rows under it. */
@@ -21,7 +23,7 @@ function InitialsTile({ text }: { text: string }) {
   </View>;
 }
 export default function Settings() {
-  const b = useBaby(),
+  const b = useBaby(), waiting = useWaitingShareCount(),
     profile = b.state.bootstrap!.profile,
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -84,10 +86,10 @@ export default function Settings() {
           }
         />
         {/* Waiting changes shouldn't need finding. Otherwise this lives on Privacy & data. */}
-        {b.state.outbox.length > 0 && <Row
+        {(deviceWorkCount(b.state) > 0 || waiting > 0) && <Row
           title="Saved changes & recovery"
           numericDetail
-          detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
+          detail={`${recoverySummary(b.state)}${waiting ? ` · ${waiting} ${waiting === 1 ? "share" : "shares"} waiting` : ""} · ${b.online ? "Online" : "Offline"}`}
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />}
@@ -97,14 +99,15 @@ export default function Settings() {
         secondary
         title="Sign out"
         busy={busy}
-        onPress={() => {
-          if (b.state.outbox.length)
+        onPress={async () => {
+          const waiting = await waitingShareCount(), work = deviceWorkCount(b.state);
+          if (work > 0 || waiting)
             Alert.alert(
-              "You have changes on this device",
-              "Signing out removes unsynced entries and drafts from this device. Sync first to keep them in your account.",
+              waiting ? "Sign out and clear this phone?" : "You have changes on this device",
+              `${waiting ? removedWarning(waiting) + " " : ""}Signing out removes unsynced entries and unfinished drafts from this phone. Review them first to save or keep what you need.`,
               [
                 { text: "Keep working", style: "cancel" },
-                { text: "Sync changes", onPress: () => void b.sync() },
+                { text: "Review changes", onPress: () => router.push("/sync") },
                 { text: "Sign out and clear device", style: "destructive", onPress: () => void run(b.signOut) },
               ]
             );

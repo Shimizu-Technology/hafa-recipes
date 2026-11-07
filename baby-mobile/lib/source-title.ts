@@ -23,5 +23,13 @@ export function sourceTitle(record: BabyRecord) {
   const text = record.data.source_text || record.body;
   const originalCapture = record.revision <= 1 && record.title === sharedSourceTitle(text);
   return !record.title.trim() || record.title === "Saved source" || originalCapture
-    ? shortSourceTitle(text) : record.title;
+    ? (text.trim() ? shortSourceTitle(text) : originalPostTitle(record.data.url)) : record.title;
+}
+function originalPostTitle(address?: string) {
+  try {
+    const host = new URL(address ?? "").hostname.toLowerCase();
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "Saved TikTok post";
+    if (host === "instagram.com" || host.endsWith(".instagram.com")) return "Saved Instagram post";
+  } catch { /* Keep an address that cannot be parsed in the original entry. */ }
+  return "Saved post";
 }

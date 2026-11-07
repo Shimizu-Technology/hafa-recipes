@@ -7,6 +7,7 @@ import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
 import { Button, Copy, HeaderAction, FilterChips, Grouped, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
 import { HeaderSearch } from "@/components/header-search";
+import { firstWords, writtenTitle } from "../lib/journal-title";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -130,7 +131,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
         .map(([key, d]) => (
           <Row
             key={key}
-            title={d.title || "Continue writing"}
+            title={writtenTitle(d) || firstWords(d.body) || "Continue writing"}
             detail="Unfinished private draft"
             icon="pencil-outline"
             onPress={() => router.push({ pathname: "/edit", params: { draft: key, kind: d.kind } })}

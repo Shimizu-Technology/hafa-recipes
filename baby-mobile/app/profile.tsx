@@ -59,7 +59,7 @@ export default function ProfileDetails() {
   </View>;
   // Docked, in reach of a thumb whichever parts are open. At large text it would take half the screen, so it goes at the end.
   return <Screen title="Your details" back footer={fontScale < 1.5 ? action : undefined}>
-    <Field label="Your name" value={edited ?? profile.display_name} onChange={setEdited} maxLength={120} autoFocus={!profile.display_name && !open}
+    <Field label="Your name" capitalize="words" value={edited ?? profile.display_name} onChange={setEdited} maxLength={120} autoFocus={!profile.display_name && !open}
       returnKeyType="done" onSubmit={() => void save()} />
     {familyOpen(b.state.bootstrap) && <Copy kind="small" tone="muted">Your family sees this on what you log.</Copy>}
     {on && (herDoctorMatters(b.state.bootstrap) || !!saved?.doctor) && <Disclosure title="Your doctor" detail="Adds a call button on Help" startOpen={open === "doctor" || !!saved?.doctor}>

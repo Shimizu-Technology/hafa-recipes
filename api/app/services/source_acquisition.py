@@ -112,7 +112,7 @@ async def acquire_video_metadata(service, url, platform, *, public_reader=None, 
             code = getattr(candidate, "error_code", None)
             if code:
                 result.failures.append(AcquisitionFailure(stage, code))
-            for key in ("title", "description", "uploader", "thumbnail", "duration"):
+            for key in ("title", "description", "uploader", "thumbnail", "duration", "photo_slides"):
                 if not getattr(result.metadata, key, None) and getattr(candidate, key, None):
                     setattr(result.metadata, key, getattr(candidate, key))
         except (asyncio.TimeoutError, httpx.TimeoutException):
