@@ -471,10 +471,31 @@ describe("in a family", () => {
       expect(button("Delete this family")).toBeDefined();
     } finally { vi.useRealTimers(); }
   });
-  it("accepts member reads after StrictMode replays the effect", async () => {
-    inFamily({ familyMembers: vi.fn(async () => ({ items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }] })) });
-    await act(async () => { view = create(<React.StrictMode><Family /></React.StrictMode>); });
+  it("hides the previous family's members and actions while the new list loads", async () => {
+    const me = { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, c = { ...me, app_user_id: "c", display_name: "C" };
+    let newReply!: (value: { items: typeof me[] }) => void;
+    const b = inFamily({ familyMembers: vi.fn((id: string) => id === family ? Promise.resolve({ items: [me, c] })
+      : new Promise<{ items: typeof me[] }>((resolve) => { newReply = resolve; })) });
+    await open();
+    expect(button("Remove C")).toBeDefined();
+    b.state.bootstrap.spaces = [own, { ...shared, id: "second" }];
+    await act(async () => { view!.update(<Family />); });
+    expect(text()).not.toContain("Remove C");
+    for (const title of ["Remove C", "Leave this family", "Delete this family", "Invite someone"]) expect(button(title), title).toBeUndefined();
+    expect(text()).toContain("Opening your family");
+    await act(async () => { newReply({ items: [me] }); });
     expect(button("Delete this family")).toBeDefined();
+  });
+  it("ignores the first StrictMode read when it finishes after the replayed read", async () => {
+    const me = { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, c = { ...me, app_user_id: "c", display_name: "C" };
+    let firstReply!: (value: { items: typeof me[] }) => void;
+    const familyMembers = vi.fn().mockImplementationOnce(() => new Promise<{ items: typeof me[] }>((resolve) => { firstReply = resolve; })).mockResolvedValue({ items: [me, c] });
+    inFamily({ familyMembers });
+    await act(async () => { view = create(<React.StrictMode><Family /></React.StrictMode>); });
+    expect(button("Remove C")).toBeDefined();
+    await act(async () => { firstReply({ items: [me] }); });
+    expect(button("Remove C")).toBeDefined();
+    expect(button("Delete this family")).toBeUndefined();
   });
 
   it("lists who's in it and offers another invite", async () => {
