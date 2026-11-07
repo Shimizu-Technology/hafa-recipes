@@ -29,7 +29,10 @@ export default function PasteVisits() {
       if (!chosen.length || chosen.some((row) => !validDay(row.day) || !row.title.trim())) throw Error("Choose at least one item, with a valid date and title for each.");
       const boot = b.state.bootstrap!, space = boot.personal_space_id, generation = generationOf(boot, space) ?? boot.generation,
         zone = boot.profile.timezone, pregnancies = boot.children.filter((child) => child.due_date && !child.birth_date && (!space || child.space_id === space)),
-        baby = boot.children.find((child) => child.id === b.state.selectedChild && (!space || child.space_id === space)) ?? (pregnancies.length === 1 ? pregnancies[0] : undefined);
+        baby = boot.children.find((child) => child.id === b.state.selectedChild && (!space || child.space_id === space)) ?? (pregnancies.length === 1 ? pregnancies[0] : undefined),
+        familyPregnancies = family ? boot.children.filter((child) => child.space_id === family.id && child.due_date && !child.birth_date) : [],
+        familyBaby = boot.children.find((child) => child.id === b.state.selectedChild && child.space_id === family?.id) ?? (familyPregnancies.length === 1 ? familyPregnancies[0] : undefined),
+        selectedDue = boot.children.find((child) => child.id === b.state.selectedChild)?.due_date;
       const idFrom = (hash: string) => `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
       const originalId = idFrom(await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([b.owner, space ?? "personal", generation, "original", original])));
       const previousOriginal = pendingRecords(b.state).find((row) => row.id === originalId);
@@ -40,9 +43,9 @@ export default function PasteVisits() {
         identities.set(row.id, idFrom(hash));
       }
       const records: ScopedWrite[] = [{ id: originalId, kind: "journal", title: originalTitle || "Original pregnancy notes", body: original, child_id: baby?.id ?? null, occurred_at: previousOriginal?.occurred_at ?? new Date().toISOString(), data: { provenance: "caregiver_observation", paste_origin: { text: original, start: 0, end: original.length, original: true } } },
-        ...chosen.map((row): ScopedWrite => ({ ...(row.shared && family ? { space_id: family.id } : space ? { space_id: space } : {}), id: identities.get(row.id)!, kind: row.kind, title: row.title, body: row.text, child_id: row.shared ? null : baby?.id ?? null,
+        ...chosen.map((row): ScopedWrite => ({ ...(row.shared && family ? { space_id: family.id } : space ? { space_id: space } : {}), id: identities.get(row.id)!, kind: row.kind, title: row.title, body: row.text, child_id: (row.shared ? familyBaby : baby)?.id ?? null,
           occurred_at: zonedInstant(row.day, 0, 0, zone).toISOString(), data: { paste_origin: { text: original.slice(row.start, row.end), start: row.start, end: row.end, original: false }, ...(row.kind === "event" ? { category: "appointment", timezone: zone, all_day: true, reminder_minutes: [], clinician_age: row.age,
-            ...(!row.shared && baby?.due_date ? { due_date_snapshot: baby.due_date } : {}) } : { provenance: "caregiver_observation" as const }) } }))];
+            ...((row.shared ? familyBaby?.due_date : baby?.due_date ?? selectedDue) ? { due_date_snapshot: (row.shared ? familyBaby?.due_date : baby?.due_date ?? selectedDue)! } : {}) } : { provenance: "caregiver_observation" as const }) } }))];
       b.api.assertLease(lease);
       await b.commit((state) => {
         b.api.assertLease(lease);
