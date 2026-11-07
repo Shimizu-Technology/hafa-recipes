@@ -16,10 +16,11 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import HTTPException
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
+from app.domains.baby.ask_safety import MESSAGES
 from app.domains.baby.budget import SEARCH_CALL_MICROUSD, AskCall, reserve, reserve_ask, settle
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
@@ -96,6 +97,16 @@ class AnswerOutput(DomainModel):
     safety: str | None = None
     proposal: dict | None = None
     quotes: list[dict] = Field(default_factory=list)
+
+    @field_validator("safety", mode="before")
+    @classmethod
+    def supported_safety(cls, value):
+        """A model safety label must resolve to a fixed reply, never generated advice."""
+        if value is None:
+            return None
+        if isinstance(value, str) and value.strip() in MESSAGES:
+            return value.strip()
+        raise ValueError("Unsupported safety label")
 
 
 class ExtractionSummary(DomainModel):
