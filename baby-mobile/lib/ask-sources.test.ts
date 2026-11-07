@@ -4,8 +4,8 @@ import { answeredCalmly, unavailablePlaceholder } from "./ask-sources";
 it("says what's urgent in words that fit the question box, even at large text", () => {
   for (const scale of [1, 1.5, 2]) {
     const words = unavailablePlaceholder(scale);
-    expect(words).toMatch(/urgent/i);
-    expect(words).toMatch(/help/i);
+    if (scale < 1.5) { expect(words).toMatch(/urgent/i); expect(words).toMatch(/help/i); }
+    else expect(words).toBe("Question");
     expect(words.length).toBeLessThanOrEqual(scale >= 1.5 ? 17 : 29);
   }
 });

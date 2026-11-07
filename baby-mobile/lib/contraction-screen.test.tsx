@@ -255,6 +255,7 @@ it("leaves being offline to the one calm line, and still says when something els
 it("ships every preterm sign and do-not-wait route", async () => {
   await mount();
   const text = JSON.stringify(renderer!.toJSON());
+  expect(text.indexOf("Open Help")).toBeLessThan(text.indexOf("Before 37 weeks"));
   for (const phrase of ["Before 37 weeks", "don’t wait", "cramps with or without diarrhea", "watery, bloody or mucus discharge", "more discharge", "pelvic or lower belly pressure", "constant low, dull backache", "water breaking with a gush or trickle", "right away or go to the hospital"])
     expect(text).toContain(phrase);
 });

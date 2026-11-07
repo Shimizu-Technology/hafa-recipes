@@ -52,8 +52,8 @@ export default function Contractions() {
   const toggle = () => running ? stop(running) : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
   const elapsed = running ? secondsWords((now.getTime() - new Date(running.occurred_at).getTime()) / 1000) : "";
   return <Screen title="Contractions" back>
-    {!!guidance && <Notice>{guidance}</Notice>}
     <Button title="Open Help" onPress={() => router.push("/help")} />
+    {!!guidance && <Notice>{guidance}</Notice>}
     <SyncStatus />
     <DoctorNote childId={childId} />
     <PressTarget accessibilityRole="button" accessibilityLabel={running ? `Stop. Timing, started ${friendlyTime(running.occurred_at, minute, timeZone)}` : "Start"} accessibilityHint="Saves straight away" onPress={() => void toggle()}

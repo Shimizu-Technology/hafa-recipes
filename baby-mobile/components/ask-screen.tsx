@@ -34,8 +34,9 @@ export function AiNotice({ service, consent }: { service: boolean; consent: bool
     gap: 10, paddingVertical: 10, paddingLeft: 14, paddingRight: consent ? 14 : 6, borderRadius: radii.notice, backgroundColor: c.tile }}>
     <Icon name={service ? "lock-closed-outline" : "cloud-offline-outline"} size={18} color={c.accentText} />
     <View style={{ flex: fontScale >= 1.5 ? undefined : 1 }}>
-      <Copy kind="small" tone="muted">{service
-        ? "AI is off. Ask uses your Baby entries only, never Recipes or Workouts."
+      <Copy kind="small" tone="muted">{fontScale >= 1.5
+        ? service ? "AI is off. Urgent? Open Help." : "AI unavailable. Urgent? Open Help."
+        : service ? "AI is off. Ask uses your Baby entries only, never Recipes or Workouts."
         : "AI isn’t available on this service yet. Saved, Journal and care logs still work."}</Copy>
     </View>
     {!consent && <PressTarget accessibilityRole="button" accessibilityLabel="Review AI permission" onPress={() => router.push({ pathname: "/settings", params: { section: "ai" } })}
@@ -90,6 +91,8 @@ function AskChat({ back }: { back: boolean }) {
     const result = await chat.review(proposal);
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
   }
+  const latestAnswer = [...messages].reverse().find((message) => message.role === "assistant"),
+    urgentReply = !showHistory && ["urgent_maternal", "harm", "baby_unwell"].includes(latestAnswer?.help ?? "");
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
     canSend = !busy && !chat.resolving && !!question.trim(),
     c = useColors(),
@@ -123,8 +126,8 @@ function AskChat({ back }: { back: boolean }) {
       subtitle={focusedDay ? friendlyDate(focusedDay) : focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={<View style={{ gap: 10 }}>
-        {!available && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
-        {available && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
+        {!available && !urgentReply && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
+        {available && !urgentReply && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}
@@ -247,13 +250,13 @@ function AskChat({ back }: { back: boolean }) {
       )}
       {!!error && <CantAnswer error={error} />}
       {busy && <Loading label="Looking through your saved entries…" />}
-      {!showHistory && showNotice && (
+      {!showHistory && showNotice && !urgentReply && (
         <Copy kind="small" tone="muted">
           Saved advice, your own observations and clinician instructions are different sources. Check the original and
           bring health decisions to your clinician.
         </Copy>
       )}
-      <HealthNote />
+      {!urgentReply && <HealthNote />}
     </Screen>
   );
 }
