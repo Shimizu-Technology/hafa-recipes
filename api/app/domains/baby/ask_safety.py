@@ -365,7 +365,14 @@ def classify(message, child_names=()):
     kept = [part for sentence in sentences(text) for clause in CLAUSE_BREAK.split(sentence)
             if clause and not LOOKUP_CLAUSE.search(clause)
             for part in re.split(r"\s+and\s+|\s*&\s*", clause, flags=re.I) if part]
-    pregnancy_context = re.search(r"\b(pregnan\w*|womb|trimester|unborn|kick\w*)\b|\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", " ".join(kept), re.I)
+    context = " ".join(kept)
+    after_birth = re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth|born|newborn|infant)\b", context, re.I)
+    # A bare week count may be an infant's age or weeks after birth. "Kicked"
+    # can also describe a born baby's body; neither establishes pregnancy.
+    pregnancy_context = not after_birth and re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", context, re.I)
+    ambiguous_weeks = not after_birth and not pregnancy_context and re.search(
+        r"\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", context, re.I,
+    )
 
     def baby_subject(part):
         baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
@@ -434,6 +441,8 @@ def classify(message, child_names=()):
             else:
                 maternal = True
     maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or re.search(r"\b(newborn|infant|born)\b|\b\d+[- ]*(?:days?|weeks?|months?)[- ]*old\b", text, re.I)))
+    if ambiguous_weeks and baby_kind == BABY_EMERGENCY and re.search(r"\b(?:not moving|isn't moving)\b", context, re.I):
+        maternal = True  # Ambiguity must preserve both routes, never downgrade baby 911.
     if maternal and baby_kind:
         kind = MIXED_BABY[baby_kind]
     else:

@@ -315,18 +315,15 @@
     },
     {
       "question": "baby swallowed a button battery",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "my baby swallowed a button battery and im bleeding heavily",
-      "route": "maternal_poison",
-      "base_route": "urgent_maternal"
+      "route": "maternal_poisoning"
     },
     {
       "question": "i took too many tylenol and baby is choking",
-      "route": "maternal_baby_emergency",
-      "base_route": "baby_emergency"
+      "route": "maternal_baby_emergency_poisoning"
     },
     {
       "question": "she was choking on milk for a second but shes fine now",
@@ -486,23 +483,19 @@
     },
     {
       "question": "baby swallowed bleach",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "baby drank some cleaning stuff",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "my baby got into my pills",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "baby ate a battery",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "BABY NOT BREATHING",
@@ -615,6 +608,38 @@
     {
       "question": "kai is blue",
       "route": "baby_emergency"
+    },
+    {
+      "question": "I'm 12 weeks postpartum and my baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm 12 weeks after giving birth and my baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "she kicked a bit then stopped and now she isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby is 12 weeks old and isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I am 35 weeks and my baby isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm 35 weeks pregnant and my baby isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I am pregnant and my newborn isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I am bleeding heavily 12 weeks postpartum and my baby isn't moving",
+      "route": "maternal_baby_emergency"
     }
   ]
 }

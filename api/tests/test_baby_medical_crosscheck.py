@@ -53,6 +53,7 @@ async def test_actual_old_prompt_contains_the_shared_movement_ban(monkeypatch):
         return AnswerOutput(message="Your saved appointment is on Tuesday.")
     monkeypatch.setattr(provider.BabyProvider, "json_call", fake_json)
     await provider.BabyProvider().answer(message="Do kicks slow down?", context=[], history=[], now_local="2026-11-07T10:00:00+10:00")
+    assert "safety:null|a routing label" in captured["instructions"]
     assert ask_safety.REDUCED_MOVEMENT_RULE in captured["instructions"]
     assert ask_safety.GENERAL_MOVEMENT_RULE in captured["instructions"]
     assert ask_safety.GENERAL_MOVEMENT_RULE in ask_tools.AskTools.instructions(None, ask_v2.BASE_INSTRUCTIONS)
@@ -178,3 +179,21 @@ async def test_general_movement_education_passes_both_output_paths_with_conditio
     assert not published.get("replaced")
     # An actual decrease remains urgent; a general-topic instruction cannot turn it into education.
     assert ask_safety.classify("my baby's kicks are slower today").kind == ask_safety.URGENT_MATERNAL
+
+
+@pytest.mark.parametrize("question,route", [
+    ("I'm 12 weeks postpartum and my baby isn't moving", "baby_emergency"),
+    ("I'm 12 weeks after giving birth and my baby isn't moving", "baby_emergency"),
+    ("she kicked a bit then stopped and now she isn't moving", "baby_emergency"),
+    ("My baby is 12 weeks old and isn't moving", "baby_emergency"),
+    ("I am 35 weeks and my baby isn't moving", "maternal_baby_emergency"),
+    ("I'm 35 weeks pregnant and my baby isn't moving", "urgent_maternal"),
+    ("I am pregnant and my newborn isn't moving", "baby_emergency"),
+    ("I am bleeding heavily 12 weeks postpartum and my baby isn't moving", "maternal_baby_emergency"),
+])
+def test_movement_context_never_downgrades_born_or_ambiguous_baby_emergencies(question, route):
+    reply = ask_safety.classify(question)
+    assert reply.kind == ask_safety.help_kind(route)
+    assert reply.message == ask_safety.MESSAGES[route]
+    if "baby_emergency" in route:
+        assert reply.message.startswith("Call 911 now.")
