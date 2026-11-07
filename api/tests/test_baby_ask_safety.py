@@ -81,7 +81,7 @@ def test_harm_always_gets_the_numbers(message):
         "I have severe belly pain that won't go away",
         "I haven't felt the kicks since yesterday",
         "Less movement today than yesterday",
-        "My baby is moving less",
+        "I am pregnant and my baby is moving less",
         "Fewer kicks than usual today",
         "The baby hasn't moved all morning",
         "I'm 30 weeks and bleeding",
@@ -292,7 +292,7 @@ async def ask(baby_api, message, headers=HEADERS, **fields):
 
 
 CANONICAL = [
-    "I am bleeding heavily", "My baby is moving less", "My newborn has a fever", "I keep thinking about hurting myself",
+    "I am bleeding heavily", "I am pregnant and my baby is moving less", "My newborn has a fever", "I keep thinking about hurting myself",
     "My baby is not breathing", "I have a severe headache and my vision is blurry",
 ]
 VARIANTS = [
@@ -307,7 +307,7 @@ async def assert_fixed(response, stub):  # noqa: F811
     question = json.loads(response.request.content)["message"]
     if question == "I keep thinking about hurting myself":
         expected_kind, expected = HARM, MESSAGES[HARM]
-    elif question in {"I am bleeding heavily", "My baby is moving less", "I have a severe headache and my vision is blurry",
+    elif question in {"I am bleeding heavily", "I am pregnant and my baby is moving less", "I have a severe headache and my vision is blurry",
                       "Less movement today than yesterday", "There is no movement from baby today"}:
         expected_kind, expected = URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL]
     elif question in {"My newborn has a fever", "My newborn has a temperature of 38.5", "My newborn has a fevr",

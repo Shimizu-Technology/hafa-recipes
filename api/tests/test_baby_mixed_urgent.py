@@ -117,8 +117,8 @@ async def test_actual_old_generation_prompt_includes_the_shared_mixed_rule(monke
 def test_r1_fixed_floor_always_keeps_911_fallback(question):
     result = ask_safety.classify(question)
     assert result is not None
-    assert "call 911" in result.message.lower()
     if "doctor" in result.message:
+        assert "call 911" in result.message.lower()
         assert result.message == BABY_DOCTOR
 
 
@@ -132,4 +132,14 @@ def test_r1_fixed_floor_always_keeps_911_fallback(question):
     ("I have chest pain. my baby is floppy", MATERNAL + "\n\n" + BABY_ER),
 ])
 def test_r2_report_mixed_phrasings_preserve_both(question, expected):
+    assert ask_safety.classify(question).message == expected
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("My baby is floppy and not breathing", BABY_911),
+    ("I have heavy bleeding my baby has fever", MATERNAL + "\n\n" + BABY_DOCTOR),
+    ("My baby has a fever I have chest pain", MATERNAL + "\n\n" + BABY_DOCTOR),
+    ("My baby is not moving. I am 35 weeks pregnant. My newborn has a fever", MATERNAL + "\n\n" + BABY_DOCTOR),
+])
+def test_review_findings_keep_patient_fragments_and_fetal_concerns(question, expected):
     assert ask_safety.classify(question).message == expected

@@ -468,13 +468,33 @@ lookup, fetal-movement and fragmented-temperature regression checks. This is API
 routing QA; no native UI or production service/configuration was changed.
 CDC Hear Her and AAP’s newborn illness guidance were re-fetched November 7.
 
-A targeted real check of the final mixed prompt covered the 13 mixed phrases
+A preliminary real check of the first mixed prompt covered the 13 mixed phrases
 and three single-patient controls, three trials each: 48/48 model routes correct,
 no provider errors, additional estimated usage $0.005141 under a $0.05 hard cap.
 This is targeted evidence, not a full safety/whole-Ask acceptance run. Including
 prior completed usage, recorded successful eval usage is $0.333867; including
 all earlier conservative incomplete/interrupted reservations, accounted spend
-is at most $1.933867, below the original $2. No further paid calls.
+was initially reserved at most $1.933867. The original 401 log proves the first
+provider call was rejected before any successful response, releasing its $0.50
+reservation. Further final-prompt safety/whole-Ask runs remain inside the
+original $2 including conservative reservations for other unfinished runs.
 
-#639 and #640 remain held and unchanged pending the independent M1–M8 re-check.
-This follow-up does not authorize their release, a V2 flag change or a merge.
+The independent M1–M8 re-check added R1–R5. This hotfix restores the doctor's
+911 fallback (R1), preserves both patients (R2), expands AAP emergency phrases
+including passing out/choking and prolonged seizures (R3), and routes infant
+breathing trouble and green vomit to ER (R4). The model question check, old
+Ask generation and V2 share one baby-tier rule. The independent probe files
+and report form a 152-phrase regression table, exercised on both HTTP paths.
+Exact-route grading now rejects an urgent reply from the wrong tier; floor
+coverage also requires the correct fixed reply when a case names a route.
+Pregnancy movement concerns remain maternal and survive a separate newborn's
+illness. The app remains private; no clinician review is claimed.
+
+Reverified November 7, 2026: AAP [Breathing Trouble](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Breathing+Trouble),
+[Newborn Illness](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Newborn+Illness+-+How+to+Recognize),
+[Fever 0–12 Months](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Fever+%280-12+Months%29),
+and [Febrile Seizures](https://www.healthychildren.org/English/health-issues/conditions/fever/Pages/Febrile-Seizures.aspx).
+The conservative default for a baby with unspecified age and breathing trouble
+is ER. Choking over-triage is retained; no treatment instructions or dose added.
+#639 and #640 remain unmerged; integration and R5 follow the hotfix.
+No production configuration or V2 flag change is authorized here.

@@ -73,8 +73,8 @@ async def test_model_check_route_agrees_without_a_generated_answer(baby_api, stu
 
 def test_shipped_model_prompt_prioritizes_unresponsiveness_over_other_baby_signs():
     from app.domains.baby.ask_check import QUESTION_PROMPT
-    assert "Emergency signs take priority over every other baby sign" in QUESTION_PROMPT
-    assert "won’t respond or unable to wake means baby_emergency even with jerking or seizure" in QUESTION_PROMPT
+    assert "Emergency signs always win" in QUESTION_PROMPT
+    assert "not responding, unable to wake" in QUESTION_PROMPT
 
 
 @pytest.mark.parametrize("message", ["I am pregnant and my baby is not moving", "I am 35 weeks pregnant. My baby is not moving."])

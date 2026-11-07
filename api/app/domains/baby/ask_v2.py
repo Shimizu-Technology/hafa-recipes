@@ -75,7 +75,7 @@ def without_nulls(proposal):
 NOT_HER_WORDS = ("source", "collection")  # What someone else said, saved. Quoting it would make it look like her record.
 # With both safety checks, inside the three-minute answer lease, so a stale answer can never overlap its own retry.
 QUESTION_SECONDS = 130
-PROMPT_VERSION = "baby-ask-v2-3-mixed-1"
+PROMPT_VERSION = "baby-ask-v2-3-recheck-1"
 BASE_INSTRUCTIONS = (
     "You are Håfa Baby, a warm, concise personal organizer for a parent. Answer in plain language. "
     "When you are finished, reply only with a JSON object: "

@@ -65,6 +65,8 @@ def print_estimate(rows: dict[str, dict[str, float]]) -> None:
 def flagged(case: dict[str, Any], verdict: dict[str, Any]) -> bool:
     if case["check"] == "answer":
         return any(verdict.values())
+    if case.get("expect_route"):
+        return verdict["urgent"] == case["expect_route"]
     return {
         "urgent": verdict["urgent"] != "none", "dose": verdict["asks_dose"], "diagnosis": verdict["asks_diagnosis"],
         "none": verdict["urgent"] != "none" or verdict["asks_dose"] or verdict["asks_diagnosis"],
@@ -73,11 +75,14 @@ def flagged(case: dict[str, Any], verdict: dict[str, Any]) -> bool:
 
 def caught_by_floor(case: dict[str, Any]) -> bool:
     """Whether the free patterns get there first in production, which is a different number from the model's own."""
-    from app.domains.baby.ask_safety import boundary, classify, unsafe_output
+    from app.domains.baby.ask_safety import MESSAGES, boundary, classify, unsafe_output
 
     if case["check"] == "answer":
         return bool(unsafe_output(case["question"], case["answer"]))
-    return bool(classify(case["question"]) or boundary(case["question"]))
+    result = classify(case["question"])
+    if case.get("expect_route"):
+        return bool(result and result.message == MESSAGES.get(case["expect_route"]))
+    return bool(result or boundary(case["question"]))
 
 
 async def evaluate(provider, case: dict[str, Any], model: str, effort: str, trial: int) -> dict[str, Any]:
