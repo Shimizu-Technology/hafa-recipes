@@ -182,3 +182,10 @@ describe("nothing here can relaunch the app", () => {
     expect(readFileSync(root + "lib/files.ts", "utf8").match(/sessionType: FileSystem\.FileSystemSessionType\.FOREGROUND/g)).toHaveLength(1);
   });
 });
+
+it("deletes a freshly picked photo when its held draft retires on a generation change", async () => {
+  native.copy.mockResolvedValue(undefined);native.remove.mockClear();
+  const file = await preserveFile("owner", { uri: "file:///picker/photo.jpg", name: "photo.jpg", mimeType: "image/jpeg" });
+  await clearFiles("owner", () => new Set(), () => new Set([file.uri]));
+  expect(native.remove).toHaveBeenCalledWith(directory("owner"), { idempotent: true });
+});

@@ -29,6 +29,10 @@ import {
 } from "./models";
 import {
   addMutation,
+  visitWriteProblem,
+  visitLinkMessage,
+  holdEditor,
+  withoutHeldDraft,
   draftsBeforeFamily,
   fencedState,
   localFileUris,
@@ -121,6 +125,7 @@ interface BabyContext {
   queue: (m: Mutation) => Promise<void>;
   /** Takes later queued changes to the same record with it. `server` is the record as read just now: null if it's gone. `child` is the same for a birth change. */
   discardQueued: (id: string, server?: BabyRecord | null, child?: Child) => Promise<void>;
+  discardHeld: (id: string) => Promise<void>;
   saveDraft: (key: string, draft: EditorDraft | null, valid?: () => boolean) => Promise<void>;
   getToken: () => Promise<string | null>;
   current: () => boolean;
@@ -247,7 +252,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
       // Only what's retiring goes. With a family this account is still in, captures and its files can still go there.
       if (!familySpaces(bootstrap).length) clearPendingShares();
       await clearReminders(ownerRef.current);
-      await clearFiles(ownerRef.current, () => localFileUris(fencedState(ref.current, bootstrap)));
+      await clearFiles(ownerRef.current, () => localFileUris(fencedState(ref.current, bootstrap)), () => {
+        const keep = localFileUris(fencedState(ref.current, bootstrap));
+        return new Set([...localFileUris(ref.current)].filter((uri) => !keep.has(uri)));
+      });
     }
     await commit((s) => {
       const fenced = fencedState(s, bootstrap),
@@ -256,14 +264,14 @@ export function BabyProvider({ children }: PropsWithChildren) {
         left = retiredSpaces(fenced, bootstrap).reduce((rows, space) => withoutFamily(rows, space, Crypto.randomUUID), fenced),
         next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap),
         familyBaby = bootstrap.children.find((child) => familySpaces(bootstrap).some((space) => space.id === child.space_id));
-      return {
+      return upgradedState({
         ...next,
         bootstrap,
         selectedChild: grew && familyBaby && !familySpaces(bootstrap).some((space) => space.id === bootstrap.children.find((child) => child.id === next.selectedChild)?.space_id)
           // Joining: what she logs next is for the family's baby. Her own stays, and queued work and drafts keep their destinations.
           ? familyBaby.id
           : bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
-      };
+      });
     }, lease);
     if (!current() || closing.current || deleting.current) return false;
     setReady(true);
@@ -421,6 +429,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
           continue;
         }
         if (heldUntil(next) || waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
+        if (visitWriteProblem(ref.current, next)) {
+          await commit((s) => ({ ...s, outbox: s.outbox.map((m) => m.id === next.id ? { ...m, error: visitLinkMessage, conflict: false } : m) }));
+          continue;
+        }
         try {
           let result: BabyRecord | undefined;
           if (next.type === "event_split") {
@@ -655,7 +667,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => ({
             ...s,
             outbox: s.outbox.map((m) =>
-              m.id === next.id ? { ...m, error: messageFor(e), conflict: status === 409 } : m
+              m.id === next.id ? { ...m, error: e instanceof ApiError && e.reason === "related_space" && next.type === "save" && ["journal", "question"].includes(next.record.kind) && next.record.data.event_id ? visitLinkMessage : messageFor(e), conflict: status === 409 } : m
             ),
           }));
         }
@@ -904,6 +916,16 @@ export function BabyProvider({ children }: PropsWithChildren) {
           });
           void funcs.current.sync();
         },
+        discardHeld: async (id) => {
+          let removed: string[] = [];
+          await commit((s) => {
+            if (busy.current) throw Error("Wait for the current sync to finish before discarding a draft.");
+            const next = withoutHeldDraft(s, id), staying = localFileUris(next);
+            removed = [...localFileUris(s)].filter((uri) => !staying.has(uri));
+            return next;
+          });
+          for (const uri of removed) if (!localFileUris(ref.current).has(uri)) await removeLocal(ownerRef.current, uri);
+        },
         queue: async (m) => {
           await commit((s) => addMutation(s, m));
           void funcs.current.sync();
@@ -916,7 +938,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => {
             if (valid && !valid()) return s;
             const drafts = { ...s.drafts };
-            if (draft) drafts[key] = stampedDraft(s, s.drafts[key], draft);
+            if (draft) {
+              const placed = stampedDraft(s, s.drafts[key], draft);
+              if (placed.space_id && spacesLive(s.bootstrap) && !s.bootstrap!.spaces!.some((space) => space.id === placed.space_id))
+                return queueRemovedUploads(s, holdEditor(s, key, placed, Crypto.randomUUID));
+              drafts[key] = placed;
+            }
             else delete drafts[key];
             return queueRemovedUploads(s, { ...s, drafts });
           });
