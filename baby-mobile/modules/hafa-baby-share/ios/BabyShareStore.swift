@@ -135,7 +135,7 @@ final class BabyShareStore {
     guard automaticEpoch >= 0 else { throw Failure.invalid }
     try locked {
       // A share kept under no account isn't this account's data, so its own space being cleared doesn't take it.
-      if let previous = scope(), previous != value, Self.retires(previous, value) { try clearLocked(preserveUnassigned: Self.sameOwner(previous, value)) }
+      if let previous = scope(), previous != value, Self.retires(previous, value) { try clearLocked(preserveUnassigned: Self.sameOwner(previous, value), recoverClaims: Self.sameOwner(previous, value)) }
       try install()
       try write(value, to: root.appendingPathComponent("scope.json"))
       // The Keychain install and this non-sensitive sidecar share the store lock.
@@ -234,7 +234,7 @@ final class BabyShareStore {
       let generation = try epoch(), currentScope = scope()
       let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
       let published: [Manifest] = folders.compactMap { try? manifest($0.lastPathComponent) }
-      let values = published.filter { $0.payload != nil && $0.epoch == generation &&
+      let values = published.filter { $0.payload != nil && ($0.scope != nil || !expired($0)) && $0.epoch == generation &&
         (currentScope == nil || $0.scope == currentScope || Self.sameOwner($0.scope, currentScope)) }
         .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
       if let value = values.first { return try snapshot(value) }
@@ -302,7 +302,7 @@ final class BabyShareStore {
     guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return [] }
     let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
     return folders.compactMap { try? manifest($0.lastPathComponent) }
-      .filter { $0.scope == nil && $0.payload != nil && $0.epoch == generation && !expired($0) }
+      .filter { $0.scope == nil && $0.payload != nil && ($0.scope != nil || !expired($0)) && $0.epoch == generation && !expired($0) }
       .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
   }
   // Shares kept under no account, for a sign-in screen or a warning: how many, and nothing about them.
@@ -334,10 +334,22 @@ final class BabyShareStore {
       value.scope = "\(owner):\(generation):personal"
       value.claimed = true
       value.automaticEpoch = 0
-      value.heldSince = nil
       value.expiryNoticed = nil
       try write(value, to: directory(id).appendingPathComponent("manifest.json"))
       return .claimed
+    }
+  }
+  // A personal reset may overtake Add while a family credential is connected. Return that original to the card, never acknowledge it away.
+  func returnClaim(_ token: String, owner: String) throws -> Bool {
+    try locked {
+      guard let id = token.split(separator: ":").first.map(String.init), UUID(uuidString: id) != nil,
+        var value = try? manifest(id), value.token == token, value.claimed == true,
+        value.scope.map({ Self.tag($0).owner == owner }) == true,
+        scope().map({ Self.tag($0).owner == owner }) == true else { return false }
+      value.scope = nil; value.claimed = nil; value.automaticEpoch = 0
+      consumers.removeValue(forKey: token)
+      try write(value, to: directory(id).appendingPathComponent("manifest.json"))
+      return true
     }
   }
   // "Not mine": only ever a no-owner capture. Anything under an account goes the way it always has.
@@ -354,7 +366,7 @@ final class BabyShareStore {
   func clear(preserveUnassigned: Bool = false, retire: () throws -> Void = {}) throws {
     try locked { try retire(); try clearLocked(preserveUnassigned: preserveUnassigned) }
   }
-  private func clearLocked(preserveUnassigned: Bool = false) throws {
+  private func clearLocked(preserveUnassigned: Bool = false, recoverClaims: Bool = false) throws {
       // Preserve pre-manifest originals on the initial signed-out upgrade too.
       if preserveUnassigned, !FileManager.default.fileExists(atPath: root.appendingPathComponent("epoch.json").path),
         let raw = defaults.object(forKey: sharedKey) {
@@ -367,7 +379,8 @@ final class BabyShareStore {
       if let folders = try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil) {
         for folder in folders {
           if var value = try? manifest(folder.lastPathComponent) {
-            if preserveUnassigned, value.scope == nil, value.payload != nil {
+            if preserveUnassigned, (value.scope == nil || (recoverClaims && value.claimed == true)), value.payload != nil {
+              value.scope = nil; value.claimed = nil; value.automaticEpoch = 0
               // Retire all live producers while retaining quarantined originals.
               value.epoch = generation
               try write(value, to: folder.appendingPathComponent("manifest.json"))
