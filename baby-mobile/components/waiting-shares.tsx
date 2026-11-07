@@ -3,7 +3,7 @@ import { Alert, AppState, View } from "react-native";
 import { useUser } from "@clerk/expo";
 import { useBaby } from "@/lib/context";
 import * as Share from "@/modules/hafa-baby-share/src";
-import { onClaimSettled, onSharesChanged } from "../lib/share-session-state";
+import { onClaimSettled, onSharesChanged, type ClaimOutcome } from "../lib/share-session-state";
 import { addWaitingShares, blockedReason, expiredNotice, removeBlockedShare, removeWaitingShare, shareKeptUntil, shareLabel, shareWhen } from "../lib/waiting-shares";
 import { Button, Card, Copy, Icon, Notice, PressTarget, radii, tap, useColors, useToast } from "./ui";
 
@@ -62,6 +62,8 @@ function ConfirmWaiting() {
   // What's been claimed and is on its way into the outbox. Nothing's announced until it's there.
   const settling = useRef({ waiting: new Set<string>(), saved: 0 });
   const latest = useRef(b), alive = useRef(true);
+  const registering = useRef(false), early = useRef(new Map<string, ClaimOutcome>());
+  const finishClaim = useRef<(token: string, outcome: ClaimOutcome) => void>(() => {});
   latest.current = b;
   const load = useCallback(async () => {
     if (!owner) return setRows([]);
@@ -76,9 +78,12 @@ function ConfirmWaiting() {
   }, [load]);
   useEffect(() => {
     alive.current = true;
-    const stop = onClaimSettled((token, outcome) => {
+    finishClaim.current = (token, outcome) => {
       const now = settling.current;
-      if (!now.waiting.delete(token)) return;
+      if (!now.waiting.delete(token)) {
+        if (registering.current) early.current.set(token, outcome);
+        return;
+      }
       if (outcome === "saved") now.saved++;
       if (now.waiting.size) return;
       setAdding(false);
@@ -88,7 +93,8 @@ function ConfirmWaiting() {
       }
       // A failure has its own alert, and a share the app can't take gets its own card.
       if (outcome === "gone") setError("That share is no longer on this phone.");
-    });
+    };
+    const stop = onClaimSettled((token, outcome) => finishClaim.current(token, outcome));
     return () => { alive.current = false; stop(); };
   }, []);
   if (!owner || !generation) return null;
@@ -103,6 +109,8 @@ function ConfirmWaiting() {
   const one = rows.length === 1, account = user?.primaryEmailAddress?.emailAddress || "this account";
   async function add() {
     setBusy(true);
+    registering.current = true;
+    early.current.clear();
     setError("");
     setGone("");
     try {
@@ -112,12 +120,18 @@ function ConfirmWaiting() {
       if (result.claimed.length) {
         settling.current = { waiting: new Set(result.claimed), saved: 0 };
         setAdding(true);
+        for (const token of result.claimed) {
+          const outcome = early.current.get(token);
+          if (outcome) finishClaim.current(token, outcome);
+        }
       }
       if (result.expired) setGone(expiredNotice(result.expired));
       if (result.refused) setError("Some of this couldn’t be added just now. It’s still on this phone.");
     } catch {
       setError("This couldn’t be added just now. It’s still on this phone.");
     } finally {
+      registering.current = false;
+      early.current.clear();
       setBusy(false);
       await load();
     }

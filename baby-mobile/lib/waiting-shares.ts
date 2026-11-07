@@ -62,7 +62,8 @@ export async function addWaitingShares(tokens: string[], owner: string, generati
     const done = { claimed: [] as string[], expired: 0, refused: 0 };
     for (const token of tokens) {
       if (!current() || isShareSessionSuspended()) { done.refused++; continue; }
-      const answer = await Share.claimShare(token, owner, generation);
+      // Keep earlier successes registered even if a later native claim fails.
+      const answer = await Share.claimShare(token, owner, generation).catch(() => "refused");
       if (answer === "claimed") done.claimed.push(token);
       else if (answer === "expired") done.expired++;
       else done.refused++;
