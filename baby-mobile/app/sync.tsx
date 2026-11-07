@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
 import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { keepInPersonal, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { canSendHeldToFamily, keepInPersonal, keepVisitInPersonal, keepHeldDraft, latestHeldSave, sendHeldToFamily, heldDraftWarning, laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { savedDetails } from "../lib/saved-details";
@@ -78,6 +78,32 @@ export default function Sync() {
         busy={b.syncing || busy}
         onPress={() => void run(b.sync)}
       />
+      {!!b.state.heldDrafts?.length && <Section title="Unfinished drafts · not sent">
+        {b.state.heldDrafts.map((held) => { const latest = latestHeldSave(held); return <Card key={held.id}>
+          <Copy kind="heading">{held.draft.title || "Untitled draft"}</Copy>
+          <Copy>{held.draft.body || "Your unfinished details and files are kept here."}</Copy>
+          <Copy kind="small" tone="muted">{held.draft.files.length ? `${held.draft.files.length} local file(s). ` : ""}{held.uncertain ? "This may be unfinished. Nothing here will be sent without your choice." : "This draft won’t sync."} Keeping it saves a personal copy, without the family baby or visit link.</Copy>
+          <Button secondary title="Keep this draft in my personal space" disabled={busy || b.syncing} onPress={() => Alert.alert("Keep this draft?", heldDraftWarning(held.followups?.length), [
+            { text: "Cancel", style: "cancel" }, { text: "Keep this draft", onPress: () => void run(async () => {
+              await b.commit((s) => keepHeldDraft(s, held.id, Crypto.randomUUID)); await b.sync();
+            }) },
+          ])} />
+          {latest && <>
+            <Copy kind="label">Later saved version</Copy><Copy>{latest.record.body || latest.record.title}</Copy>
+            <Button secondary title="Keep the later saved version privately" disabled={busy || b.syncing} onPress={() => Alert.alert("Keep the later version?", heldDraftWarning(held.followups?.length), [
+              { text: "Cancel", style: "cancel" }, { text: "Keep later version", onPress: () => void run(async () => { await b.commit((s) => keepHeldDraft(s, held.id, Crypto.randomUUID, true)); await b.sync(); }) },
+            ])} />
+          </>}
+          {canSendHeldToFamily(b.state, held) && <Button title="Send to family" disabled={busy || b.syncing} onPress={() => Alert.alert("Send to family?", `This shares the draft shown above${held.followups?.length ? " and its later saved changes" : ""} with your family.`, [
+            { text: "Keep reviewing", style: "cancel" }, { text: "Send to family", onPress: () => void run(async () => { await b.commit((s) => sendHeldToFamily(s, held.id)); await b.sync(); }) },
+          ])} />}
+          <Button variant="destructive" title="Discard this unfinished draft" disabled={busy || b.syncing} onPress={() => Alert.alert("Discard this draft?", heldDraftWarning(held.followups?.length), [
+            { text: "Keep draft", style: "cancel" }, { text: "Discard draft", style: "destructive", onPress: () => void run(async () => {
+              await b.discardHeld(held.id);
+            }) },
+          ])} />
+        </Card>; })}
+      </Section>}
       {b.state.outbox.length ? (
         <Section title={pendingChanges(b.state.outbox.length)}>
           {b.state.outbox.map((m) => (
@@ -130,7 +156,7 @@ export default function Sync() {
                 <Copy>{m.record.body || "Care details and attachments are saved with this change."}</Copy>
               )}
               {m.error && <Notice error>{m.error}</Notice>}
-              {!!m.left_space && queuedChain(b.state.outbox, m).some((row) => row.type === "save") && (
+              {!!m.left_space && !(m.type === "save" && m.record.kind === "journal") && queuedChain(b.state.outbox, m).some((row) => row.type === "save") && (
                 <Button
                   secondary
                   title="Keep in my personal space"
@@ -144,6 +170,14 @@ export default function Sync() {
                   }
                 />
               )}
+              {m.type === "save" && !!m.error && (m.record.kind === "journal" || m.record.kind === "question" && !!m.record.data.event_id) && <>
+                <Notice>This keeps one private Journal entry without unavailable baby or visit links. Stopped changes to this entry are combined.</Notice>
+                <Button secondary title="Save privately in Journal" disabled={b.syncing || busy} onPress={() => void run(async () => {
+                  await b.commit((s) => { const held = s.outbox.find((row) => row.id === m.id); return held ? keepVisitInPersonal(s, held, Crypto.randomUUID) : s; });
+                  toast("Kept privately in Journal. Not attached to the shared visit.");
+                  await b.sync();
+                })} />
+              </>}
               {m.conflict && (m.type === "save" || m.type === "delete") && (
                 <>
                   <Button
@@ -280,13 +314,13 @@ export default function Sync() {
             </Card>
           ))}
         </Section>
-      ) : (
+      ) : !b.state.heldDrafts?.length ? (
         <Empty
           icon="cloud-done-outline"
           title="Everything is caught up."
           body="There are no pending changes on this device. Your unfinished drafts stay here until you save or discard them."
         />
-      )}
+      ) : null}
       <Button
         secondary
         title="Export a private device text backup"

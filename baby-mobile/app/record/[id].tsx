@@ -1,4 +1,5 @@
 import { sourceTitle } from "@/lib/source-title";
+import { writtenTitle } from "../../lib/journal-title";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { Image } from "expo-image";
@@ -94,7 +95,7 @@ export default function RecordDetail() {
     );
   if (record.kind === "event") return <Redirect href={{ pathname: "/event/[id]", params: { id: record.id } }} />;
   const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
-    title = record.kind === "source" ? sourceTitle(record) : record.title,
+    title = record.kind === "source" ? sourceTitle(record) : record.kind === "journal" ? writtenTitle(record) : record.title,
     data = record.data,
     // Care and the timers read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
     clock = isCare(record.kind) || record.kind === "contraction" || record.kind === "kick_session" || moreKinds.includes(record.kind) ? b.state.bootstrap?.profile.timezone : undefined,
@@ -112,7 +113,7 @@ export default function RecordDetail() {
         : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + babyLabel(child, b.state.bootstrap) : "")}
     >
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
-        : !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
+        : !!title && !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>

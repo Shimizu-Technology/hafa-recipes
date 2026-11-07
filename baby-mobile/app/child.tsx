@@ -189,7 +189,7 @@ export default function ChildEditor() {
           onChoose={(stage) => { stageFromToday.current = false; edit("stage", (current) => ({ ...current, stage })); }} />
       </View>
       {(form.stage || child) && <>
-        <Field label="Name or nickname" value={form.name} onChange={(name) => edit("name", (current) => ({ ...current, name }))} placeholder="Their name or a nickname" maxLength={120} />
+        <Field label="Name or nickname" capitalize="words" value={form.name} onChange={(name) => edit("name", (current) => ({ ...current, name }))} placeholder="Their name or a nickname" maxLength={120} />
         {expecting && <>
           <DateField label="Due date" value={form.due} onChange={(due) => edit("due", (current) => chooseDue(current, due, today))} dateOnly optional />
           <View style={{ gap: 8 }}>

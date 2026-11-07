@@ -37,6 +37,7 @@ export const rowFence = (row: { generation?: number; space_id?: string }, genera
   row.space_id && row.generation !== undefined ? { generation: row.generation, space_id: row.space_id } : generation;
 /** Mirrors the API's list: what a caregiver may read and write in a family. */
 const caregiverKinds = new Set<Kind>(["feeding", "sleep", "diaper", "routine", "event", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth", "milestone", "custom"]);
+export const caregiverCanWrite = (kind: Kind) => caregiverKinds.has(kind);
 /** A log about her, not the baby. It goes with her, not with the family. */
 export const herLog = (record: Pick<RecordWrite, "kind" | "data" | "child_id">) => !record.child_id && trackerFor(record)?.about === "her";
 /**
@@ -65,9 +66,9 @@ export const spaceFence = (bootstrap: Bootstrap, space?: string): Fence =>
  * Family work on this phone, which an older build mustn't read: it would discard a queued family tap and offer no way
  * back. It refuses a vault of the next version outright, and overwrites nothing.
  */
-export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox">) {
+export function holdsFamilyWork(state: Pick<DeviceState, "bootstrap" | "records" | "outbox" | "heldDrafts">) {
   const personal = state.bootstrap?.personal_space_id, elsewhere = (space?: string) => !!space && space !== personal;
-  return familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
+  return !!state.heldDrafts?.length || familySpaces(state.bootstrap).length > 0 || state.records.some((row) => elsewhere(row.space_id)) || state.outbox.some((m) => elsewhere(m.space_id));
 }
 /** What can be saved to a family if she says so. Care goes with its baby. */
 const choosable = new Set<Kind>(["source", "journal", "question", "routine", "event", "collection"]);

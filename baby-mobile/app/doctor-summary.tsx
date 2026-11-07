@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Switch, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { customProblem, waitingEntries, type CareStats } from "@/lib/care-stats";
 import { kindWord, messageFor, type BabyRecord } from "@/lib/models";
 import { friendlyTime } from "@/lib/care-format";
-import { atBirthWords, lastSummaryLevel, localEntries, logCounts, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryMaxDays, summaryWords } from "@/lib/doctor-summary";
+import { atBirthWords, lastSummaryLevel, localEntries, logCounts, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryMaxDays, summaryWords, visitSummaryRange } from "@/lib/doctor-summary";
 import { exportOnePagePdf } from "@/lib/files";
 import { profileToday, timingChild } from "@/lib/timing";
-import { addDays, dayKey } from "@/lib/tracker";
+import { dayKey, recordDay } from "@/lib/tracker";
 import { useCareStats } from "@/lib/use-care-stats";
-import { Button, Chips, Choice, Copy, Grouped, Notice, Screen, Section, useColors } from "@/components/ui";
+import { Button, Chips, Choice, Copy, Grouped, Notice, Row, Screen, Section, useColors } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { SyncStatus } from "@/components/sync-status";
 import { babyLabel } from "../lib/spaces";
@@ -21,12 +21,14 @@ type Entries = ReturnType<typeof localEntries>;
 
 /** Choose dates and a baby, and get one page for the doctor. Open it from Tracker, Journal or `?child=&from=&to=` on an appointment. */
 export default function DoctorSummary() {
-  const b = useBaby(), c = useColors(), params = useLocalSearchParams<{ child?: string; from?: string; to?: string }>(),
+  const b = useBaby(), c = useColors(), params = useLocalSearchParams<{ child?: string; from?: string; to?: string; visit?: string; visitTitle?: string; at?: string; visitAt?: string; series?: string; allDay?: string; eventZone?: string }>(),
     { generation, children, profile: { timezone } } = b.state.bootstrap!, nowDate = new Date(),
-    today = dayKey(profileToday(nowDate, timezone)),
+    today = dayKey(profileToday(nowDate, timezone)), range = visitSummaryRange(params.at, today, timezone, params.eventZone, params.allDay === "1"),
+    visitDay = params.at && Number.isFinite(new Date(params.at).getTime()) ? recordDay(params.at, params.allDay === "1" ? params.eventZone ?? timezone : timezone) : undefined,
+    [otherQuestions, setOtherQuestions] = useState(false), eventId = otherQuestions ? undefined : params.visit,
     [childId, setChild] = useState<string | null>(params.child || (timingChild(b.state, profileToday(nowDate, timezone))?.id ?? null)),
-    [from, setFrom] = useState(isDay(params.from) ? params.from! : addDays(today, -7)),
-    [to, setTo] = useState(isDay(params.to) ? params.to! : today),
+    [from, setFrom] = useState(isDay(params.from) ? params.from! : range.from),
+    [to, setTo] = useState(isDay(params.to) ? params.to! : range.to),
     problem = customProblem(from, to, today, summaryMaxDays),
     choice = useMemo(() => (problem ? null : { range: "custom" as const, from, to }), [problem, from, to]),
     answer = useCareStats(choice, childId),
@@ -39,7 +41,7 @@ export default function DoctorSummary() {
     [busy, setBusy] = useState<"full" | "picked" | null>(null),
     [retrying, setRetrying] = useState(false), [attempt, setAttempt] = useState(0),
     [error, setError] = useState(""), [outcome, setOutcome] = useState(""),
-    key = JSON.stringify([b.owner, generation, timezone, childId, from, to]),
+    key = JSON.stringify([b.owner, generation, timezone, childId, from, to, params.visit, otherQuestions, visitDay]),
     queue = b.state.outbox.map((change) => change.id).join(),
     // What the screen is on now, for a read that comes back after she's moved on.
     current = useRef({ key, state: b.state });
@@ -48,17 +50,21 @@ export default function DoctorSummary() {
     let active = true;
     if (problem) return;
     setOutcome(""); setError("");
-    const phone = localEntries(b.state, childId, from, to, timezone);
+    const phone = localEntries(b.state, childId, from, to, timezone, eventId, params.visit, visitDay);
     setEntries((prior) => (prior?.key === key ? prior : { key, rows: phone, server: false, failed: false }));
-    void summaryEntries(b.api, b.state, childId, from, to, timezone).then(
+    void summaryEntries(b.api, b.state, childId, from, to, timezone, eventId, params.visit, visitDay).then(
       (rows) => { if (active) setEntries({ key, rows, server: true, failed: false }); },
       (e) => { if (active) setEntries({ key, rows: phone, server: false, failed: true, tooLong: e instanceof SummaryTooLong ? e.message : undefined }); });
     return () => { active = false; };
   }, [key, queue, attempt]);
+  useEffect(() => {
+    setOtherQuestions(false);
+    if (params.visit) { setFrom(isDay(params.from) ? params.from! : range.from); setTo(isDay(params.to) ? params.to! : range.to); }
+  }, [params.visit, params.at]);
   // A tick is for this baby's page. An entry with no baby shows on each, and shouldn't arrive already ticked.
-  useEffect(() => { setPicks({}); }, [b.owner, generation, childId]);
+  useEffect(() => { setPicks({}); }, [b.owner, generation, childId, params.visit]);
   const held = entries?.key === key ? entries : undefined, rows = held?.rows, stats = answer.stats,
-    on = (row: BabyRecord) => picks[row.id] ?? row.kind !== "journal",
+    on = (row: BabyRecord) => picks[row.id] ?? (row.kind !== "journal" && !row.data.just_me && (!params.visit || row.kind !== "question" || row.data.event_id === params.visit) && (row.kind !== "question" || !row.child_id || row.child_id === childId)),
     flip = (row: BabyRecord) => setPicks((prior) => ({ ...prior, [row.id]: !on(row) })),
     child = children.find((one) => one.id === childId) ?? null,
     mineOnPage = !child?.birth_date || (!!childId && mineFor === childId),
@@ -73,12 +79,13 @@ export default function DoctorSummary() {
     list = (items: BabyRecord[], detail: (row: BabyRecord) => string, title: (row: BabyRecord) => string) => <Grouped separatorInset={16}>
       {items.map((row) => <View key={row.id} style={{ paddingHorizontal: 16 }}>
         <Choice label={title(row) || "Untitled"} detail={detail(row)} selected={on(row)} onPress={() => flip(row)} />
+        <Row title="Read full entry" detail={title(row) || "Untitled"} icon="reader-outline" onPress={() => router.push({ pathname: "/record/[id]", params: { id: row.id, ...(params.visit ? { fromVisit: params.visit, visitAt: params.visitAt ?? params.at } : {}) } })} />
       </View>)}
     </Grouped>,
     when = (row: BabyRecord) => friendlyTime(row.occurred_at, nowDate, timezone),
     herList = (items: BabyRecord[]) => list(items, (row) => `${when(row)}. ${[typeof row.data.value === "number" ? `${row.data.value} ${row.data.unit ?? ""}`.trim() : row.title, row.body.trim().slice(0, 160)].filter(Boolean).join(" · ")}`, (row) => row.data.label ?? kindWord(row.kind));
   async function send(numbers: CareStats | null) {
-    const page = { stats: numbers, child, timezone, prepared: new Date(),
+    const page = { stats: numbers, children, visitTitle: params.visit ? `${params.visitTitle || "This appointment"}${params.series === "1" ? " · Appointment series" : ""}` : undefined, child, timezone, prepared: new Date(),
         questions: picked!.questions,
         // What she ticked herself goes first, so a full page never drops it for a log note.
         notes: picked!.notes,
@@ -128,6 +135,7 @@ export default function DoctorSummary() {
   // At large text a docked pair of buttons takes half the screen, so they go at the end of the page.
   return <Screen title="Doctor summary" back footer={fontScale < 1.5 ? buttons : undefined}>
     <Copy kind="small" tone="muted">One page with daily totals, your questions and the notes you choose.</Copy>
+    {!!params.visit && <Copy kind="label">{`For ${params.visitTitle || "this appointment"}`}</Copy>}
     {children.length > 1 && <Chips scroll label="Baby" value={childId ?? ""} onChange={(id) => setChild(id || null)} options={children.map((one) => ({ label: babyLabel(one, b.state.bootstrap), value: one.id }))} />}
     <View style={{ gap: 8 }}>
       <DateField dateOnly label="From" value={from} onChange={setFrom} />
@@ -140,8 +148,9 @@ export default function DoctorSummary() {
       <Button secondary title="Try again" busy={retrying} onPress={() => void retry()} />
     </>}
     {!!rows && <>
-      <Section title="Questions for the doctor">
-        {rows.questions.length ? list(rows.questions, (row) => summaryWords(row).detail, (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">No questions saved yet.</Copy>}
+      <Section title={params.visit ? otherQuestions ? "Saved questions" : params.series === "1" ? "Questions for this series" : "Questions for this visit" : "Questions for the doctor"}>
+        {!!params.visit && <Choice label="Show other saved questions" detail="Other questions start unticked." selected={otherQuestions} onPress={() => setOtherQuestions((shown) => !shown)} />}
+        {rows.questions.length ? list(rows.questions, (row) => [row.child_id ? `For ${children.find((one) => one.id === row.child_id)?.name ?? "baby"}` : "General", params.visit && row.data.event_id !== params.visit && (row.data.event_id ? "Another visit" : "No visit"), summaryWords(row).detail].filter(Boolean).join(" · "), (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">No questions saved yet.</Copy>}
       </Section>
       {rows.logNotes.length > 0 && <Section title="Notes on your logs">
         {list(rows.logNotes, (row) => `${when(row)}. ${row.body.trim().slice(0, 160)}`, (row) => row.data.label ?? kindWord(row.kind))}
@@ -164,8 +173,8 @@ export default function DoctorSummary() {
         </> : <Copy kind="small" tone="muted">Nothing in these dates.</Copy>}
       </Section>}
       <Section title="Your journal">
-        <Copy kind="small" tone="muted">Private. Only what you tick goes on the page.</Copy>
-        {rows.journal.length ? list(rows.journal, (row) => [when(row), summaryWords(row).detail].filter(Boolean).join(". "), (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">Nothing in these dates.</Copy>}
+        <Copy kind="small" tone="muted">Only what you tick goes on the page. Private entries start unticked.</Copy>
+        {rows.journal.length ? list(rows.journal, (row) => [when(row), row.space_id && row.space_id !== b.state.bootstrap!.personal_space_id ? "Shared with family" : "Private", summaryWords(row).detail].filter(Boolean).join(". "), (row) => summaryWords(row).title) : <Copy kind="small" tone="muted">Nothing in these dates.</Copy>}
       </Section>
     </>}
     {fontScale >= 1.5 && buttons}
