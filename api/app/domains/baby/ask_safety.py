@@ -125,11 +125,11 @@ BABY_WORDS = re.compile(
 BABY_EMERGENCY_WORDS = re.compile(
     r"\b(not breathing|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+not anymore|"
     r"can't breathe|cannot breathe|struggling (?:to breathe|for (?:each )?breath\w*|for air)|gasping|"
-    r"won't wake(?: up)?|wont wake(?: up)?|can't (?:be )?woken|cannot (?:be )?woken|can't wake|not waking|unresponsive|"
+    r"won't wake(?: up)?|wont wake(?: up)?|can't (?:be )?woken|cannot (?:be )?woken|can't wake|not waking|unresponsive|won't respond|wont respond|"
     r"can't get \w+ ?\w* to wake|very weak|not moving|grunting|turning blue|(?:baby|newborn|infant|she|he) (?:is |looks? |turned |turning )?(?:blue|bluish|gray|grey|dusky)|"
     r"(?:blue|bluish|gray|grey|dusky) (?:lips|tongue|face)|(?:lips|tongue|face) (?:are |is |look |looks )?(?:blue|bluish|gray|grey|dusky)|choking)\b", re.I,
 )
-BABY_ER_WORDS = re.compile(r"\b(floppy|limp|green vomit|vomit(?:ing)? (?:bile|green)|weak suck|weak cry|strange cry|ribs? (?:are )?pull(?:ing)? in|sucking in)\b", re.I)
+BABY_ER_WORDS = re.compile(r"\b(floppy|limp|green vomit|vomit(?:ing)? (?:bile|green)|throwing up (?:bright )?green|hard to wake(?: up)?|weak suck|weak cry|strange cry|ribs? (?:are )?pull(?:ing)? in|sucking in)\b", re.I)
 
 
 def help_kind(kind):

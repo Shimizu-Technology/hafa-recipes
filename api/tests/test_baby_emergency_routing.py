@@ -14,7 +14,7 @@ EMERGENCY = "Call 911 now. Your baby may be having a life-threatening emergency.
 ER = "Go to the emergency room now for your baby."
 DOCTOR = "Call your baby's doctor now or seek urgent care."
 CASES = [
-    "my baby isn't breathing", "baby's lips are blue", "he won't wake up", "my newborn looks gray",
+    "my newborn is limp and wont respond", "my 1mo jerking and eyes fixed to one side wont respond", "my baby isn't breathing", "baby's lips are blue", "he won't wake up", "my newborn looks gray",
     "her lips look bluish", "my baby is struggling for each breath", "my newborn is very weak",
     "my baby is grunting with each breath", "my baby is not moving", "baby has a fever. She stopped breathing.",
 ]
@@ -28,7 +28,7 @@ def test_emergency_shipped_string_is_911_first(message):
     assert "doctor" not in reply.message
 
 
-@pytest.mark.parametrize("message", ["my newborn is floppy", "baby is vomiting green", "my baby has a weak suck", "she has a strange cry"])
+@pytest.mark.parametrize("message", ["my newborn is floppy", "she's been throwing up green stuff", "3 week old throwing up bright green stuff twice", "baby is vomiting green", "my baby has a weak suck", "she has a strange cry"])
 def test_er_signs_do_not_get_a_doctor_first_reply(message):
     assert ask_safety.classify(message).message == ER
 
