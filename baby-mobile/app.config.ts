@@ -1,7 +1,8 @@
 import type { ExpoConfig } from "expo/config";
 const babyShareActivation = require("./plugins/share-activation.cjs") as string;
 const { assertHealthRelease } = require("./lib/health-release.cjs");
-// Fail closed for direct builds/exports and OTA updates too, which may have no EAS_BUILD_PROFILE.
+// Fail closed for direct builds/exports, which may have no EAS_BUILD_PROFILE.
+// This app has no expo-updates/OTA path; a future one must preserve this gate.
 // Local npm commands and the family EAS profile explicitly select private-family.
 const healthAudience = process.env.EXPO_PUBLIC_BABY_RELEASE_AUDIENCE ?? "public";
 assertHealthRelease(healthAudience);

@@ -470,22 +470,43 @@ the maternal hotline remain before disclosures on urgent paths.
 shipped wording and WHO chart permission, resolve prematurity/chart handling and
 record both dated approvals in `baby-mobile/lib/health-release.cjs`. The `production`
 EAS profile selects `public` and fails configuration until both records exist.
-Unspecified audiences fail closed too, including direct builds and OTA updates;
+Unspecified audiences fail closed too, including direct builds and exports;
+`expo-updates` is not installed, so this app has no current OTA release path;
 local npm QA commands explicitly select `private-family`.
 The explicit `family` build is for the private family only; never submit that binary
 for public distribution. The app cannot prevent an operator from manually distributing
 an old binary, so public release review must verify the build's recorded audience.
 No agent-review record belongs in a field named clinician approval.
 
-Ask V2's production flag remains untouched. The private-family API audience can use
-the November 7 agent review, but public/paid audiences require both
-`BABY_ASK_CLINICIAN_APPROVAL` and `BABY_WHO_CHART_PERMISSION`. AI consent and current
-Ask consent still apply. V2-off is **not** AI-off: old Ask remains available with
-consent and now has dose/diagnosis question refusals plus an answer safety check.
-Before enabling V2, complete independent review, automated/native acceptance and
-valid paid safety/whole-Ask evals. Re-check the reduced-movement rule, old Ask output
-checks/budget, inability/invalid-reference Help and saved-record heading. The capped
-November 7 paid attempt failed authentication (401), with no valid result or usage
-report; do not count it as passing evidence. No production setting/deployment or
-public release is authorized by these PRs. Guam maternal-hotline call/text connectivity
-remains untested and explicitly disclosed.
+Ask V2's production flag remains untouched. The API now defaults to `public` and
+fails closed without the current reviewed marker. For Leon’s private use only,
+set `BABY_HEALTH_RELEASE_AUDIENCE=private_family` **and**
+`BABY_HEALTH_REVIEWED_VERSION=baby-health-2026-11-07-m1-m8` after the reviewed API
+is authorized, merged and deployed. This agent has not changed production.
+Public/paid additionally requires `BABY_ASK_CLINICIAN_APPROVAL` and
+`BABY_WHO_CHART_PERMISSION`. The V2 flag alone cannot open either gate. AI consent
+and current Ask consent still apply. V2-off is not AI-off: old Ask has its own
+question/output checks and shares the health release gate; free urgent replies
+remain available before consent, budget and availability.
+
+The independent Claude source/code cross-check found eight material gaps. They
+are corrected against primary pages fetched November 7: baby emergencies lead
+with 911 on both Ask paths and their model checker (#642, separate urgent API PR);
+Help adds AAP emergency signs and CDC newborn feeding/diaper warning signs; the
+under-37-week notice restores every ACOG preterm sign; BP quotes ACOG’s
+140-and/or-90 call-right-away advice **after delivery**, without diagnosis; fever
+wording covers AAP’s other methods and lower possible underarm cutoff; week 3
+adds whole-body shaking/call-doctor wording; and old Ask receives the movement
+ban plus a code guard against “less room” reassurance. The ledger corrects its
+previous F4/T1 keep verdicts and the overbroad removal of static feeding warnings.
+The six conservative product defaults remain unchanged.
+
+Before enabling V2, complete review of the fixes, final automated/native
+acceptance, valid capped safety/whole-Ask evals, installation of the reviewed
+family binary and isolated deployed consent/source/private-family access checks.
+Final prompts are `baby-safety-check-v9`, `baby-ask-v2-4`, old
+`baby-chat-reviewed-v3`, and unchanged `baby-research-v2`. The report records
+case-level eval results/cost and native matrix evidence. No production setting,
+deployment, merge or public release is authorized here. Guam hotline call/text
+connectivity remains untested and disclosed.
+
