@@ -1,4 +1,4 @@
-import { estimatedAge, pregnancyVisit } from "../../lib/prenatal";
+import { estimatedAge, pregnancyVisit, medicalVisit } from "../../lib/prenatal";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -11,7 +11,7 @@ import { dayKey, recordDay, zonedInstant } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { Button, Card, Copy, Grouped, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { CategoryTile, openEvent } from "@/components/event-row";
-import { VisitLinks, VisitSections } from "@/components/visit-sections";
+import { EventNotes, VisitLinks, VisitSections } from "@/components/visit-sections";
 import { useUpcomingEvents } from "@/lib/use-events";
 import { visitAfter, visitNotes, visitQuestions } from "@/lib/visits";
 import { familySpaces } from "../../lib/spaces";
@@ -35,7 +35,7 @@ export default function EventDetail() {
     date = dayName(recordDay(shown.occurrence_start, shown.all_day ? shown.timezone : timezone), today),
     child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordIds(m).includes(row.id) && m.type !== "import");
   const family = familySpaces(b.state.bootstrap)[0], inFamily = !!family && !!row.space_id, justMe = inFamily && row.space_id !== family.id;
-  const medical = familySpaces(b.state.bootstrap).find((space) => space.id === row.space_id)?.role !== "caregiver";
+  const medical = !medicalVisit(row.data) || familySpaces(b.state.bootstrap).find((space) => space.id === row.space_id)?.role !== "caregiver";
   const appointment = shown.category === "appointment", booked = appointment ? visitAfter(upcoming.items, shown) : undefined;
   const edit = (scope?: "one" | "future") => router.push({ pathname: "/edit", params: { kind: "event", id: row.id, ...(scope ? { scope, at: original } : {}) } });
   async function save(record: BabyRecord) {
@@ -80,10 +80,10 @@ export default function EventDetail() {
       {medical && appointment && !!estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? child?.due_date, child?.birth_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? child?.due_date, child?.birth_date)}</Copy>}
       {medical && pregnancyVisit(recordDay(shown.occurrence_start, shown.timezone), child?.birth_date) && !!row.data.clinician_age && <Copy>Clinic’s stated week: {row.data.clinician_age}</Copy>}
       {medical && !!row.data.doctor && <Copy>Doctor: {row.data.doctor}</Copy>}
-      {medical && !!row.data.results && <Copy>Results ({row.data.result_status ?? "unknown"}): {row.data.results}</Copy>}
+      {medical && (!!row.data.results || !!row.data.result_status) && <Copy>Results ({row.data.result_status ?? "unknown"}){row.data.results ? `: ${row.data.results}` : ""}</Copy>}
       {medical && !!row.data.follow_up && <Copy>Follow up: {row.data.follow_up}</Copy>}
       {medical && !!row.data.paste_origin && <><Copy kind="small" tone="muted">Original pasted words · characters {row.data.paste_origin.start + 1}–{row.data.paste_origin.end}</Copy><Copy>{row.data.paste_origin.text}</Copy></>}
-      {(!appointment || medical) && !!row.body && <Copy>{row.body}</Copy>}
+      {(!medicalVisit(row.data) || medical) && !!row.body && <Copy>{row.body}</Copy>}
       {!!b.state.bootstrap!.reminders?.push && !!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
     </Card>
     {medical && !!row.data.follow_up && <Button secondary title="Make a follow-up calendar item" onPress={() => void (async () => {
@@ -95,7 +95,7 @@ export default function EventDetail() {
     {appointment && medical && <Button size="lg" icon="calendar-outline" title="Book next"
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
     {booked && <Row numericDetail title="Next visit" detail={eventWhen(booked, today, timezone)} icon="calendar-outline" onPress={() => openEvent(booked)} />}
-    {medical && (appointment ? <VisitSections visit={{ ...row, occurred_at: shown.occurrence_start, data: { ...row.data, all_day: shown.all_day } }} /> : <VisitLinks visit={row} />)}
+    {medical && (appointment ? <VisitSections visit={{ ...row, occurred_at: shown.occurrence_start, data: { ...row.data, all_day: shown.all_day } }} /> : familySpaces(b.state.bootstrap).find((space) => space.id === row.space_id)?.role === "caregiver" ? <EventNotes event={row} /> : <VisitLinks visit={row} />)}
     {phoneCalendarAvailable() && <View style={{ gap: 6 }}>
       <Button secondary icon="calendar-outline" title="Add to my phone’s calendar" onPress={() => void addToPhone()} />
       <Copy numeric kind="small" tone="muted">{phoneEventLine(row, shown, today)}</Copy>

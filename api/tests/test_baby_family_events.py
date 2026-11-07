@@ -125,3 +125,27 @@ async def test_build32_calendar_stays_unavailable_before_baby_enrollment(baby_ap
                            params={"original_start": START, "revision": 1})).status_code == 404
     assert (await c.post(f"{API}/events/{identifier}/end-series", headers=h,
                          json={"from_date": "2026-10-22", "revision": 1})).status_code == 404
+
+
+async def test_visit_series_writers_keep_medical_and_contributor_protection(baby_api, family):
+    baby_api.settings.baby_new_kinds_enabled = True
+    c = baby_api.client
+    source = {"text": "Visit words", "start": 0, "end": 11, "original": False}
+    body = shared.payload("event", body="Medical notes", data={"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "paste_origin": source, "results": "Medical result"})
+    saved = await c.post(API + "/records", headers=records.headers(family), json=body)
+    assert saved.status_code == 200, saved.text
+    path = f"{API}/events/{body['id']}"
+    replacement = {**body, "id": str(uuid4()), "occurred_at": "2026-10-21T12:00:00+10:00", "data": {"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}}}
+    split = {"revision": 1, "from_start": "2026-10-21T12:00:00+10:00", "event": replacement}
+    denied = await c.post(path + "/split", headers=records.headers(family, "other"), json=split)
+    assert denied.status_code == 403, denied.text
+    replacement["data"]["paste_origin"] = source
+    allowed = await c.post(path + "/split", headers=records.headers(family, "other"), json=split)
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["event"]["created_by"] == "owner"
+    async with baby_api.sessions() as db:
+        member = await db.get(BabySpaceMember, (family, "other"))
+        member.role = "caregiver"
+        await db.commit()
+    occurrence = await c.put(path + "/occurrences", headers=records.headers(family, "other"), json={"revision": 2, "original_start": START, "overrides": {"category": "other"}})
+    assert occurrence.status_code == 403, occurrence.text

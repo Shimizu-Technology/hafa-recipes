@@ -179,7 +179,7 @@ async def record_reply(db, row, access):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text", "legacy_saved_text")
-PATCH_ADDITIONS = {"event": ("provider_default_at", "provider_default", "paste_origin", "clinician_age", "doctor", "due_date_snapshot", "results", "result_status", "follow_up"), "diaper": ("color",), "journal": ("event_id", "just_me", "paste_origin"), "collection": ("just_me",), "question": ("event_id",)}
+PATCH_ADDITIONS = {"event": ("medical_visit", "just_me", "provider_default_at", "provider_default", "paste_origin", "clinician_age", "doctor", "due_date_snapshot", "results", "result_status", "follow_up"), "diaper": ("color",), "journal": ("event_id", "just_me", "paste_origin"), "collection": ("just_me",), "question": ("event_id",)}
 
 
 def reconciled_event(data, start):
@@ -399,6 +399,7 @@ async def bootstrap_state(user, db, *, create, request):
         "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
         # Always here, so a phone can tell this API keeps them: an older one would drop them, and the app hides the fields until it sees this.
         "contacts": member.profile.get("contacts", {}),
+        "visit_import_available": True,
         "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
@@ -1039,7 +1040,7 @@ def pasted_replay(prior, body):
         return False
     if not origin.get("original") and prior.occurred_at != body.occurred_at:
         return False
-    return {k: v for k, v in prior.data.items() if k != "due_date_snapshot"} == {k: v for k, v in body.data.items() if k != "due_date_snapshot"}
+    return {k: v for k, v in prior.data.items() if k not in ("due_date_snapshot", "just_me")} == {k: v for k, v in body.data.items() if k not in ("due_date_snapshot", "just_me")}
 
 
 @router.post("/visit-defaults/read")
@@ -1051,7 +1052,7 @@ async def visit_defaults(user: User, db: Database, generation: Generation, acces
     conditions = [row_scope(BabyRecord, access, generation), BabyRecord.deleted_at.is_(None), BabyRecord.kind == "event", BabyRecord.data["provider_default"].as_boolean().is_(True)]
     if access.enabled:
         conditions.append(BabyRecord.space_id == access.target.id)
-    row = await db.scalar(select(BabyRecord).where(*conditions).order_by(BabyRecord.data["provider_default_at"].as_float().desc().nulls_last(), BabyRecord.updated_at.desc(), BabyRecord.id).limit(1))
+    row = await db.scalar(select(BabyRecord).where(*conditions).order_by(func.least(BabyRecord.data["provider_default_at"].as_float(), func.extract("epoch", BabyRecord.updated_at) * 1000).desc().nulls_last(), BabyRecord.updated_at.desc(), BabyRecord.id).limit(1))
     return {"doctor": row.data.get("doctor"), "location": row.data.get("location")} if row else None
 
 
@@ -1094,6 +1095,8 @@ async def create_record(
     saved = body.model_dump()
     if body.kind == "source" and (body.data.get("url") or body.data.get("attachment_ids")) and body.data.get("user_text") is None:
         saved["data"] = {**body.data, "user_text": body.data.get("source_text")}
+    if body.kind == "event" and body.data.get("provider_default"):
+        saved["data"] = {**saved["data"], "provider_default_at": int(now().timestamp() * 1000)}
     row = BabyRecord(
         **{**saved, "child_id": child_id},
         app_user_id=user.id,
@@ -1148,7 +1151,7 @@ async def patch_record(
         }
     from app.domains.baby.access import VISIT_PRIVATE_FIELDS, caregiver_visit
 
-    if row.kind == "event" and isinstance(body.data, dict) and "paste_origin" in body.data and body.data["paste_origin"] != row.data.get("paste_origin") and row.app_user_id != access.actor:
+    if row.kind in ("event", "journal") and isinstance(body.data, dict) and "paste_origin" in body.data and body.data["paste_origin"] != row.data.get("paste_origin") and row.app_user_id != access.actor:
         raise HTTPException(403, "Only the person who added the original words can remove or change them")
     if caregiver_visit(row, access):
         if values["data"].get("category") != row.data.get("category"):
@@ -1157,6 +1160,13 @@ async def patch_record(
         values["data"] = {key: value for key, value in values["data"].items() if key not in VISIT_PRIVATE_FIELDS}
         values["data"].update({key: value for key, value in row.data.items() if key in VISIT_PRIVATE_FIELDS})
     if row.kind == "event":
+        if isinstance(body.data, dict) and body.data.get("provider_default") and (("provider_default_at" in body.data and body.data["provider_default_at"] != row.data.get("provider_default_at")) or not row.data.get("provider_default")):
+            values["data"]["provider_default_at"] = int(now().timestamp() * 1000)
+        from app.domains.baby.access import medical_visit
+        if medical_visit(row.data):
+            values["data"]["medical_visit"] = True
+        if row.data.get("paste_origin") and (not access.enabled or access.target.space.kind == "personal"):
+            values["data"]["just_me"] = True
         values["data"] = reconciled_event(values["data"], values["occurred_at"])
     try:
         valid = RecordCreate.model_validate(values)

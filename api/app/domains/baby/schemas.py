@@ -602,6 +602,8 @@ class EventData(DomainModel):
     one) is the midnight after its last day. Other ends are the moment it finishes.
     """
 
+    just_me: StrictBool = Field(default=False, exclude_if=lambda value: not value)
+    medical_visit: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     provider_default_at: int | None = Field(default=None, ge=0, le=9999999999999, exclude_if=lambda value: value is None)
     provider_default: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     paste_origin: PasteOrigin | None = Field(default=None, exclude_if=lambda value: value is None)

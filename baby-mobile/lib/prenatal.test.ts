@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { estimatedAge, snapshotVisit } from "./prenatal";
-import { pasteVisits, validDay } from "./paste-visits";
+import { pasteVisits, validDay, withPasteYear } from "./paste-visits";
 import type { EditorDraft } from "./models";
 describe("pregnancy history without interpretation", () => {
   it("uses calendar days and retains the original due date and clinic words", () => {
@@ -56,4 +56,16 @@ it("keeps CRLF and mixed-case clinic ages verbatim", () => {
 });
 it("does not interpret a four digit time as a year", () => {
   expect(pasteVisits("Apr 16 1030 first official test")[0]).toMatchObject({ day: "", yearless: "04-16" });
+});
+
+it("separates consecutive ordinal visits and reads an immediately following standalone date", () => {
+  const text = "1st Visit\nMay 6, 2026\n8 weeks\nDecember 2nd/3rd - planning\n2nd Visit - June 3, 2026\n12 weeks";
+  const rows = pasteVisits(text);
+  expect(rows.map((r) => r.day)).toEqual(["2026-05-06", "2026-06-03"]);
+  expect(rows[0].text).toContain("December 2nd/3rd - planning");
+  expect(rows.map((r) => r.text).join("")).toBe(text);
+});
+it("replaces a previously valid leap date instead of keeping the old year", () => {
+  const rows = withPasteYear(withPasteYear(pasteVisits("February 29 first test"), "2024"), "2025");
+  expect(rows[0].day).toBe("2025-02-29"); expect(validDay(rows[0].day)).toBe(false);
 });

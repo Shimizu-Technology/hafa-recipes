@@ -12,13 +12,17 @@ export function pasteVisits(original: string): PastedItem[] {
     const at = match.index! + match[0].length - match[1].length;
     if (named.test(match[1]) || /\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}/.test(match[1])) starts.add(at);
   }
+  for (const match of original.matchAll(/^\d+(?:st|nd|rd|th) visit\b/gmi)) starts.add(match.index!);
   for (const match of original.matchAll(/^[ \t]*(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d)/gmi)) {
     const prior = original.slice([...starts].filter((at) => at <= match.index!).sort((a, b) => b - a)[0], match.index);
     if (!/^\d+(?:st|nd|rd|th) visit\b/i.test(prior)) starts.add(match.index!);
   }
   const boundaries = [...starts].sort((a, b) => a - b);
   return boundaries.map((start, index) => {
-    const end = boundaries[index + 1] ?? original.length, text = original.slice(start, end), line = text.split(/\r?\n/)[0], date = named.exec(line), iso = /\b\d{4}-\d{2}-\d{2}\b/.exec(line)?.[0];
+    const end = boundaries[index + 1] ?? original.length, text = original.slice(start, end), line = text.split(/\r?\n/)[0],
+      adjacent = /^\d+(?:st|nd|rd|th) visit\b/i.test(line) && !named.test(line) && !/\d{4}-\d{2}-\d{2}/.test(line) ? text.split(/\r?\n/)[1] ?? "" : "",
+      dateLine = adjacent && /^(?:[A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?(?:,? \d{4})?|\d{4}-\d{2}-\d{2})\s*$/.test(adjacent) ? adjacent : line,
+      date = named.exec(dateLine), iso = /\b\d{4}-\d{2}-\d{2}\b/.exec(dateLine)?.[0];
     const yearless = date ? `${String(months.indexOf(date[1].slice(0, 3).toLowerCase()) + 1).padStart(2, "0")}-${date[2].padStart(2, "0")}` : "";
     const day = iso ?? (date?.[3] ? `${date[3]}-${yearless}` : "");
     const visit = /^\d+(?:st|nd|rd|th) visit\b/i.test(line);
@@ -29,5 +33,5 @@ export function pasteVisits(original: string): PastedItem[] {
 }
 /** Only the user's explicit year choice resolves a yearless source date. */
 export function withPasteYear<T extends PastedItem>(items: T[], year: string): T[] {
-  return /^\d{4}$/.test(year) ? items.map((row) => row.yearless && validDay(`${year}-${row.yearless}`) ? { ...row, day: `${year}-${row.yearless}` } : row) : items;
+  return /^\d{4}$/.test(year) ? items.map((row) => row.yearless ? { ...row, day: `${year}-${row.yearless}` } : row) : items;
 }

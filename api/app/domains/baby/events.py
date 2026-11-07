@@ -420,6 +420,9 @@ async def change_occurrence(
 
     row = await series_for_edit(db, access, generation, identifier, client)
     event, zone = repeating(row)
+    from app.domains.baby.access import caregiver_visit
+    if caregiver_visit(row, access) and body.overrides and "category" in body.overrides.model_fields_set and body.overrides.category != event.category:
+        raise HTTPException(403, "Only a parent can change a visit category")
     if not is_start(row.occurred_at, zone, event.rule, body.original_start):
         raise HTTPException(422, "That is not one of this event's dates")
     change = EventException(
@@ -511,6 +514,17 @@ async def split_series(
     can_create("event", client)
     row = await series_for_edit(db, access, generation, identifier, client)
     event, zone = repeating(row)
+    from app.domains.baby.access import VISIT_PRIVATE_FIELDS, caregiver_visit, medical_visit
+    if row.data.get("paste_origin") and new.data.get("paste_origin") != row.data["paste_origin"] and row.app_user_id != access.actor:
+        raise HTTPException(403, "Only the person who added the original words can remove or change them")
+    if caregiver_visit(row, access):
+        if new.data.get("category") != row.data.get("category"):
+            raise HTTPException(403, "Only a parent can change a visit category")
+        new.body = row.body
+        new.data = {key: value for key, value in new.data.items() if key not in VISIT_PRIVATE_FIELDS}
+        new.data.update({key: value for key, value in row.data.items() if key in VISIT_PRIVATE_FIELDS})
+    if medical_visit(row.data):
+        new.data["medical_visit"] = True
     revision_matches(row, body.revision)
     if not is_start(row.occurred_at, zone, event.rule, body.from_start):
         raise HTTPException(422, "That is not one of this event's dates")
@@ -526,7 +540,7 @@ async def split_series(
     await touch(row, access.target)
     added = BabyRecord(
         **new.model_dump(),
-        app_user_id=user.id,
+        app_user_id=row.app_user_id if new.data.get("paste_origin") else user.id,
         space_id=access.target.id if access.enabled else access.member.personal_space_id,
         generation=generation,
         revision=1,

@@ -25,6 +25,7 @@ export default function PasteVisits() {
     const lease = b.api.lease();
     setBusy(true); setError("");
     try {
+      if (b.state.bootstrap!.visit_import_available !== true) throw Error("Connect to an updated Håfa Baby service before confirming. Your review is still here.");
       if (expecting.length > 1 && !pregnancy) throw Error("Choose the expecting baby for these prenatal visits.");
       const chosen = items!.filter((row) => row.selected);
       const lengthError = tooLong("", original, "original note") || chosen.map((row) => tooLong(row.title, row.text)).find(Boolean);
@@ -41,12 +42,15 @@ export default function PasteVisits() {
       const identities = new Map<string, string>();
       for (const row of chosen) {
         const target = row.shared && family ? family.id : space;
-        const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([target ?? b.owner, generationOf(boot, target) ?? generation, row.kind, row.day, row.text]));
-        identities.set(row.id, idFrom(hash));
+        const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([target ?? b.owner, generationOf(boot, target) ?? generation, (row.shared ? familyBaby : baby)?.id ?? pregnancy?.id ?? null, row.kind, row.day, row.text]));
+        // Preserve a known capture made before child-scoped identities were introduced.
+        const child = (row.shared ? familyBaby : baby)?.id ?? null;
+        const previous = child ? pendingRecords(b.state).find((known) => known.space_id === target && known.child_id === child && known.kind === row.kind && known.body === row.text && known.occurred_at === zonedInstant(row.day, 0, 0, zone).toISOString() && known.data.paste_origin?.text === original.slice(row.start, row.end)) : undefined;
+        identities.set(row.id, previous?.id ?? idFrom(hash));
       }
-      const records: ScopedWrite[] = [{ id: originalId, kind: "journal", title: originalTitle || "Original pregnancy notes", body: original, child_id: baby?.id ?? null, occurred_at: previousOriginal?.occurred_at ?? new Date().toISOString(), data: { provenance: "caregiver_observation", paste_origin: { text: original, start: 0, end: original.length, original: true } } },
+      const records: ScopedWrite[] = [{ id: originalId, kind: "journal", title: originalTitle.trim() || "Original pregnancy notes", body: original, child_id: baby?.id ?? null, occurred_at: previousOriginal?.occurred_at ?? new Date().toISOString(), data: { provenance: "caregiver_observation", paste_origin: { text: original, start: 0, end: original.length, original: true } } },
         ...chosen.map((row): ScopedWrite => ({ ...(row.shared && family ? { space_id: family.id } : space ? { space_id: space } : {}), id: identities.get(row.id)!, kind: row.kind, title: row.title, body: row.text, child_id: (row.shared ? familyBaby : baby)?.id ?? null,
-          occurred_at: zonedInstant(row.day, 0, 0, zone).toISOString(), data: { paste_origin: { text: original.slice(row.start, row.end), start: row.start, end: row.end, original: false }, ...(row.kind === "event" ? { category: "appointment", timezone: zone, all_day: true, reminder_minutes: [], clinician_age: row.age,
+          occurred_at: zonedInstant(row.day, 0, 0, zone).toISOString(), data: { paste_origin: { text: original.slice(row.start, row.end), start: row.start, end: row.end, original: false }, ...(row.kind === "event" ? { category: "appointment", ...(!row.shared ? { just_me: true } : {}), timezone: zone, all_day: true, reminder_minutes: [], clinician_age: row.age,
             ...((row.shared ? familyBaby?.due_date : baby?.due_date ?? selectedDue) ? { due_date_snapshot: (row.shared ? familyBaby?.due_date : baby?.due_date ?? selectedDue)! } : {}) } : { provenance: "caregiver_observation" as const }) } }))];
       b.api.assertLease(lease);
       await b.commit((state) => {
@@ -54,11 +58,11 @@ export default function PasteVisits() {
         const known = pendingRecords(state);
         const fingerprints = new Set<string>();
         for (const record of records.slice(1)) {
-          const fingerprint = JSON.stringify([record.space_id ?? space, record.kind, record.occurred_at, record.body]);
+          const fingerprint = JSON.stringify([record.space_id ?? space, record.child_id, record.kind, record.occurred_at, record.body]);
           if (fingerprints.has(fingerprint)) throw Error("Two selected items are identical. Uncheck one before confirming.");
           fingerprints.add(fingerprint);
         }
-        for (const record of records.slice(1)) if (known.some((row) => row.id !== record.id && row.space_id === (record.space_id ?? space) && row.kind === record.kind && row.occurred_at === record.occurred_at && row.body === record.body)) throw Error("A matching item is already saved. Uncheck that item before confirming.");
+        for (const record of records.slice(1)) if (known.some((row) => row.id !== record.id && row.space_id === (record.space_id ?? space) && row.child_id === record.child_id && (record.child_id !== null || !pregnancy) && row.kind === record.kind && row.occurred_at === record.occurred_at && row.body === record.body)) throw Error("A matching item is already saved. Uncheck that item before confirming.");
         return records.reduce((next, record) => addMutation(next, { id: record.id, generation: generationOf(boot, record.space_id ?? space) ?? generation, ...((record.space_id ?? space) ? { space_id: record.space_id ?? space } : {}), type: "save", record, files: [] }), state);
       });
       setSaved(records); void b.sync();

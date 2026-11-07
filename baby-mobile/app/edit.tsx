@@ -341,7 +341,8 @@ export default function Edit() {
             },
             files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
           };
-          const split = d.kind === "event" ? splitEvent(fit(d), splitId) : undefined;
+          const splitChild = b.state.bootstrap!.children.find((child) => child.id === d.child_id);
+          const split = d.kind === "event" ? splitEvent(snapshotVisit(fit(d), prepared.record.data.due_date_snapshot ?? splitChild?.due_date, splitChild?.birth_date), splitId) : undefined;
           // One change holding both parts: this series can't end unless the next one starts.
           const saved = addMutation(s, split ? { id: splitId, generation, type: "event_split", series: prepared.record, event: split, from_start: d.event_edit!.original_start, files: [], ...(prepared.base ? { base: prepared.base } : {}) } : prepared);
           return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });

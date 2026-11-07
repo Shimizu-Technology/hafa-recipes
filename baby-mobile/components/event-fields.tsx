@@ -1,4 +1,4 @@
-import { estimatedAge, pregnancyVisit } from "../lib/prenatal";
+import { estimatedAge, pregnancyVisit, medicalVisit } from "../lib/prenatal";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
@@ -56,7 +56,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     // A private event can't be on a baby the family shares. Only said when there's one it could have been on.
     offFamilyBaby = !!choice && !choice.shared && children.some((child) => child.space_id !== bootstrap.personal_space_id),
     baby = draft.child_id ? babies.find((child) => child.id === draft.child_id) : undefined;
-  const medical = familySpaces(bootstrap).find((item) => item.id === (space ?? draft.space_id))?.role !== "caregiver";
+  const medical = !medicalVisit(data) || familySpaces(bootstrap).find((item) => item.id === (space ?? draft.space_id))?.role !== "caregiver";
   const [defaults, setDefaults] = useState<{ doctor: string | null; location: string | null } | null>(null);
   const defaultSpace = space ?? draft.space_id ?? bootstrap.personal_space_id;
   const defaultsKey = `${defaultSpace ?? "personal"}:${generationOf(bootstrap, defaultSpace) ?? bootstrap.generation}`;
@@ -108,7 +108,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
       {!one && remindersOn && <Copy kind="small">Reminder</Copy>}
       {!one && remindersOn && <FilterChips label="Reminder" value={reminderValue(reminders)} options={reminderChoices(!!data.all_day, reminders)}
         onChange={(value) => { if (value !== "several") set({ reminder_minutes: value ? [Number(value)] : [] }); }} />}
-      {!one && (medical || data.category !== "appointment") && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
+      {!one && medical && <Field label="Note (optional)" multiline value={draft.body} onChange={(body) => change({ body })} placeholder="Anything to remember about it" />}
       {!one && <Copy kind="small" tone="muted">{eventNoteWhere(b.state, draft, b.records.find((row) => row.id === draft.id))}</Copy>}
       {!!choice && <Copy kind="small">Who can see this</Copy>}
       {!!choice && <FilterChips label="Who can see this" value={choice.shared ? "shared" : "just_me"} options={[{ label: "Shared with family", value: "shared" }, { label: "Just me", value: "just_me" }]}

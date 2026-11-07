@@ -13,3 +13,8 @@ export function snapshotVisit(draft: EditorDraft, due: string | null | undefined
   return draft.kind === "event" && draft.data.category === "appointment" && due && !draft.data.due_date_snapshot
     ? { ...draft, data: { ...draft.data, due_date_snapshot: due } } : draft;
 }
+
+/** Kept after a category edit, with a fallback for visits saved before the marker. */
+export function medicalVisit(data: EditorDraft["data"]) {
+  return data.category === "appointment" || data.medical_visit === true || [data.results, data.result_status, data.follow_up, data.clinician_age, data.due_date_snapshot, data.provider_default_at].some((value) => value != null);
+}

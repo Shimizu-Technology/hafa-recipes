@@ -64,7 +64,8 @@ async def prepare_move_files(db, actor, access, record_id=None):
         query = query.where(BabyRecord.id == record_id)
     else:
         query = query.where(BabyRecord.space_id == access.personal_space_id, BabyRecord.kind != "journal",
-                            BabyRecord.data["just_me"].as_boolean().is_distinct_from(True))
+                            BabyRecord.data["just_me"].as_boolean().is_distinct_from(True),
+                            ~BabyRecord.data.has_key("paste_origin"))
     rows = list(await db.scalars(query))
     moving_ids = {row.id for row in rows}
     identifiers = {UUID(key) for row in rows for key in row.data.get("attachment_ids", [])}
@@ -258,7 +259,7 @@ async def create_family(db, access):
     rows = list(await db.scalars(select(BabyRecord).where(
         BabyRecord.space_id == personal.id, BabyRecord.generation == personal.generation,
         BabyRecord.deleted_at.is_(None)).order_by(BabyRecord.id)))
-    moving = [row for row in rows if row.kind != "journal" and not row.data.get("just_me") and not her_log(row)]
+    moving = [row for row in rows if row.kind != "journal" and not row.data.get("just_me") and not row.data.get("paste_origin") and not her_log(row)]
     children = list(await db.scalars(select(BabyChild).where(
         BabyChild.space_id == personal.id, BabyChild.generation == personal.generation,
         BabyChild.deleted_at.is_(None)).order_by(BabyChild.id)))

@@ -92,6 +92,8 @@ export interface Bootstrap {
   /** The personal space's. */
   generation: number;
   ai_available: boolean;
+  /** This API preserves reviewed visit imports and their original source spans. */
+  visit_import_available?: boolean;
   active?: boolean;
   /** Only with the API's family stack on. */
   personal_space_id?: string;
@@ -216,6 +218,7 @@ export interface EventOccurrence {
   revision: number;
 }
 export interface RecordData {
+  medical_visit?: boolean;
   provider_default_at?: number | null;
   provider_default?: boolean;
   paste_origin?: { text: string; start: number; end: number; original: boolean } | null;

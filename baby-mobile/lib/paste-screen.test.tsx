@@ -2,12 +2,12 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, expect, it, vi } from "vitest";
 import { emptyState } from "./models";
-const mock = vi.hoisted(() => ({ b: null as any, lease: 1, changeOwner: false }));
+const mock = vi.hoisted(() => ({ b: null as any, lease: 1, changeOwner: false, sequence: 0 }));
 vi.mock("../lib/context", () => ({ useBaby: () => mock.b }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("expo-crypto", async () => {
   const { createHash } = await import("node:crypto");
-  return { randomUUID: () => "candidate", CryptoDigestAlgorithm: { SHA256: "sha256" }, digestStringAsync: async (_: string, text: string) => {
+  return { randomUUID: () => `candidate-${++mock.sequence}`, CryptoDigestAlgorithm: { SHA256: "sha256" }, digestStringAsync: async (_: string, text: string) => {
     if (mock.changeOwner) mock.lease++;
     return createHash("sha256").update(text).digest("hex");
   } };
@@ -20,8 +20,8 @@ import PasteVisits from "../app/paste-visits";
 let tree: ReactTestRenderer;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  mock.lease = 1; mock.changeOwner = false;
-  mock.b = { owner: "stable-app-owner", state: { ...emptyState(), bootstrap: { generation: 1, personal_space_id: "me", profile: { timezone: "Pacific/Guam" }, children: [] } },
+  mock.lease = 1; mock.changeOwner = false; mock.sequence = 0;
+  mock.b = { owner: "stable-app-owner", state: { ...emptyState(), bootstrap: { generation: 1, visit_import_available: true, personal_space_id: "me", profile: { timezone: "Pacific/Guam" }, children: [] } },
     api: { lease: () => mock.lease, assertLease: (lease: number) => { if (lease !== mock.lease) throw Error("Your account changed."); } },
     commit: vi.fn(async (change: any) => { mock.b.state = change(mock.b.state); }), sync: vi.fn(async () => {}) };
 });
@@ -62,7 +62,7 @@ it("uses the shared space for item identity across two family members", async ()
   const ids: string[] = [];
   for (const owner of ["parent-a", "parent-b"]) {
     mock.b.owner = owner;
-    mock.b.state = { ...emptyState(), bootstrap: { generation: 1, personal_space_id: owner, profile: { timezone: "Pacific/Guam" }, children: [], spaces: [{ id: owner, kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] } };
+    mock.b.state = { ...emptyState(), bootstrap: { generation: 1, visit_import_available: true, personal_space_id: owner, profile: { timezone: "Pacific/Guam" }, children: [], spaces: [{ id: owner, kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] } };
     await review("2026-11-09 Clinic class");
     await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());
     await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
@@ -114,5 +114,52 @@ it("asks which expecting child when more than one pregnancy is available", async
   await act(async () => host("FilterChips", "label", "Expecting baby").props.onChange("b"));
   await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
   expect(mock.b.state.outbox.find((m: any) => m.record.kind === "event").record.child_id).toBe("b");
+  await act(async () => tree.unmount());
+});
+
+it("keeps candidate selection and edits independent", async () => {
+  await review("1st Visit - May 6, 2026\n8 weeks\n2nd Visit - June 3, 2026\n12 weeks");
+  const choices = tree.root.findAll((n) => String(n.type) === "Choice" && n.props.label === "Save this item");
+  expect(choices.map((n) => n.props.selected)).toEqual([true, false]);
+  await act(async () => choices[1].props.onPress());
+  const titles = tree.root.findAll((n) => String(n.type) === "Field" && n.props.label === "Title");
+  await act(async () => titles[1].props.onChange("Second, edited"));
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  expect(mock.b.state.outbox.map((m: any) => m.record.title)).toEqual(["Original pregnancy notes", "1st Visit", "Second, edited"]);
+  expect(new Set(mock.b.state.outbox.map((m: any) => m.record.id)).size).toBe(3);
+  await act(async () => tree.unmount());
+});
+it("does not deduplicate the same words for different expecting children", async () => {
+  mock.b.state.bootstrap.children = ["a", "b"].map((id) => ({ id, name: id, space_id: "me", due_date: "2026-12-10" }));
+  for (const child of ["a", "b"]) {
+    await review("1st Visit - November 8, 2026\n35 weeks");
+    await act(async () => host("FilterChips", "label", "Expecting baby").props.onChange(child));
+    await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+    await act(async () => tree.unmount());
+  }
+  const events = mock.b.state.outbox.filter((m: any) => m.record.kind === "event");
+  expect(events.map((m: any) => m.record.child_id)).toEqual(["a", "b"]);
+  expect(events[0].record.id).not.toBe(events[1].record.id);
+});
+it("uses the fallback for a whitespace-only source title", async () => {
+  await act(async () => { tree = create(<PasteVisits />); });
+  await act(async () => host("Field", "label", "Original note title").props.onChange("   "));
+  await act(async () => host("Field", "label", "Paste your note").props.onChange("April 1, 2026 first test"));
+  await act(async () => host("Button", "title", "Review dated items").props.onPress());
+  await act(async () => host("Choice", "label", "Save this item").props.onPress());
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  expect(mock.b.state.outbox[0].record.title).toBe("Original pregnancy notes");
+  await act(async () => tree.unmount());
+});
+
+it("keeps review editable without committing when the service predates import support", async () => {
+  mock.b.state.bootstrap.visit_import_available = false;
+  await review("1st Visit - May 6, 2026\n8 weeks");
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  expect(mock.b.commit).not.toHaveBeenCalled(); expect(mock.b.state.outbox).toHaveLength(0);
+  expect(JSON.stringify(tree.toJSON())).toContain("updated Håfa Baby service");
+  mock.b.state.bootstrap.visit_import_available = true;
+  await act(async () => host("Button", "title", "Confirm selected items").props.onPress());
+  expect(mock.b.state.outbox).toHaveLength(2);
   await act(async () => tree.unmount());
 });

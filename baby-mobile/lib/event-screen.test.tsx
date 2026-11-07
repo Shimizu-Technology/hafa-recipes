@@ -24,7 +24,7 @@ vi.mock("@/components/collection-sources", () => ({ CollectionSources: "Collecti
 vi.mock("../components/journal-composer", () => ({ JournalComposer: "JournalComposer", ComposerOpening: "ComposerOpening" }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile", openEvent: vi.fn() }));
-vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections", VisitLinks: "VisitLinks" }));
+vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections", VisitLinks: "VisitLinks", EventNotes: "EventNotes" }));
 vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
 vi.mock("@/lib/visits", () => import("./visits"));
 vi.mock("@/lib/phone-calendar", () => ({ phoneCalendarAvailable: () => mock.phone.available, phoneEvent: () => ({ title: "from-helper" }), phoneEventLine: () => "Only the title, time and place are copied.", addToPhoneCalendar: async (event: unknown) => { mock.phone.added.push(event); return mock.phone.result; } }));
@@ -735,4 +735,30 @@ it("does not show cached visit medical words to a caregiver", async () => {
   mock.params = { id: row.id };await mount(EventDetail);
   const rendered = JSON.stringify(renderer!.toJSON());
   expect(rendered).not.toContain("Private");expect(rendered).not.toContain("Clinic’s stated week");
+});
+
+it("keeps a recategorized visit private for a caregiver, including cached body text", async () => {
+  const row = { ...event({ category: "other", category_label: "Class", recurrence: null, medical_visit: true }, "old-visit"), body: "Medical visit body", space_id: "fam" };
+  const b = setup([row]);b.state.bootstrap.spaces = [{ id: "fam", kind: "family", role: "caregiver", generation: 1 }];
+  mock.params = { id: row.id };await mount(EventDetail);
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("Medical visit body");
+});
+it("shows an explicitly pending result without result text", async () => {
+  const row = event({ category: "appointment", recurrence: null, result_status: "pending" }, "pending-visit");setup([row]);mock.params = { id: row.id };await mount(EventDetail);
+  expect(JSON.stringify(renderer!.toJSON())).toContain("pending");
+});
+it("offers personal note capture on an ordinary caregiver class", async () => {
+  const row = { ...event({ category: "other", category_label: "Class", recurrence: null }, "care-class"), space_id: "fam" };
+  const b = setup([row]);b.state.bootstrap.spaces = [{ id: "fam", kind: "family", role: "caregiver", generation: 1 }];
+  mock.params = { id: row.id };await mount(EventDetail);
+  expect(renderer!.root.findAllByType("EventNotes" as any)).toHaveLength(1);
+});
+
+it("normalizes the future replacement snapshot for a born child", async () => {
+  const row = { ...event({ category: "appointment", due_date_snapshot: "2026-12-10" }, "born-series"), child_id: "baby" };
+  const b = setup([row]);b.state.bootstrap.children = [{ id: "baby", name: "Noa", due_date: "2026-12-10", birth_date: "2026-11-05", revision: 1 }];
+  mock.params = { kind: "event", id: row.id, scope: "future", at: "2026-11-16T00:00:00.000Z" };
+  await mount(Edit);await press("Button", "Save changes");
+  expect(b.state.outbox[0].type).toBe("event_split");
+  expect(b.state.outbox[0].event.data.due_date_snapshot).toBeNull();
 });

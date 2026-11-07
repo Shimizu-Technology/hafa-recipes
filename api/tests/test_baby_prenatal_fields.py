@@ -121,3 +121,77 @@ async def test_caregiver_cannot_read_or_overwrite_visit_words_and_only_contribut
         assert len(results) == 1 and "Private" not in str(results) and not tools.notes
         context, displays, _ = await retrieve(db, access, 7, ChatRequest(message="What happened?", record_id=body["id"]))
         assert "Private" not in str(context) + str(displays)
+
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable database required")
+async def test_event_replay_keeps_its_first_due_snapshot(baby_api):
+    await allow_events(baby_api)
+    source = {"text": "Visit words", "start": 0, "end": 11, "original": False}
+    first, body = await save(baby_api, "event", body=source["text"], data={"timezone": "Pacific/Guam", "paste_origin": source, "due_date_snapshot": "2026-12-10"})
+    assert first.status_code == 200, first.text
+    body["data"]["due_date_snapshot"] = "2026-12-15"
+    replay = await baby_api.client.post("/api/v1/baby/records", headers={**shared.GEN, "X-Baby-Client": "2"}, json=body)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["data"]["due_date_snapshot"] == "2026-12-10"
+
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable database required")
+async def test_recategorized_visit_remains_private_and_marker_cannot_be_cleared(baby_api, family):
+    from app.domains.baby.models import BabySpaceMember
+    from tests.test_baby_family_records import headers
+
+    await allow_events(baby_api)
+    body = shared.payload("event", body="Medical body", data={"category": "appointment", "timezone": "Pacific/Guam"})
+    c = baby_api.client
+    saved = await c.post("/api/v1/baby/records", headers=headers(family), json=body)
+    assert saved.status_code == 200, saved.text
+    changed = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=headers(family), json={"revision": 1, "data": {"category": "other", "category_label": "Class", "timezone": "Pacific/Guam", "medical_visit": False}})
+    assert changed.status_code == 200 and changed.json()["data"]["medical_visit"] is True, changed.text
+    async with baby_api.sessions() as db:
+        member = await db.get(BabySpaceMember, (family, "other"))
+        member.role = "caregiver"
+        await db.commit()
+    read = await c.get(f"/api/v1/baby/records/{body['id']}", headers=headers(family, "other"))
+    assert read.status_code == 200 and read.json()["body"] == "", read.text
+
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable database required")
+async def test_only_moment_contributor_can_remove_provenance(baby_api, family):
+    from tests.test_baby_family_records import headers
+
+    source = {"text": "Moment", "start": 0, "end": 6, "original": False}
+    body = shared.payload("journal", body="Moment", data={"paste_origin": source})
+    c = baby_api.client
+    assert (await c.post("/api/v1/baby/records", headers=headers(family), json=body)).status_code == 200
+    denied = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=headers(family, "other"), json={"revision": 1, "data": {"paste_origin": None}})
+    assert denied.status_code == 403
+    allowed = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=headers(family), json={"revision": 1, "data": {"paste_origin": None}})
+    assert allowed.status_code == 200, allowed.text
+
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable database required")
+async def test_future_phone_clock_does_not_pin_old_provider_default(baby_api):
+    from uuid import UUID
+
+    from app.domains.baby.models import BabyRecord
+
+    await allow_events(baby_api)
+    first, body = await save(baby_api, "event", data={"timezone": "Pacific/Guam", "provider_default": True, "provider_default_at": 9999999999999, "doctor": "Old"})
+    assert first.status_code == 200, first.text
+    assert first.json()["data"]["provider_default_at"] < 9999999999999
+    # A row already saved before server stamping was introduced.
+    async with baby_api.sessions() as db:
+        row = await db.get(BabyRecord, UUID(body["id"]))
+        row.data = {**row.data, "provider_default_at": 9999999999999}
+        await db.commit()
+    newer, _ = await save(baby_api, "event", data={"timezone": "Pacific/Guam", "provider_default": True, "provider_default_at": 1, "doctor": "New"})
+    assert newer.status_code == 200, newer.text
+    defaults = await baby_api.client.post("/api/v1/baby/visit-defaults/read", headers={**shared.GEN, "X-Baby-Client": "2"})
+    assert defaults.json()["doctor"] == "New"
+
+
+@pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable database required")
+async def test_bootstrap_advertises_reviewed_import_support(baby_api):
+    reply = await baby_api.client.post("/api/v1/baby/bootstrap", headers={"X-Baby-Client": "2"})
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["visit_import_available"] is True

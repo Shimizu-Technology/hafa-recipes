@@ -566,3 +566,16 @@ it.each(["Related items must be in the same Baby space", "Unrelated validation",
   expect(error.reason).toBe(detail === "Related items must be in the same Baby space" ? "related_space" : undefined);
   expect(error.message).not.toContain("provider text");
 });
+
+it("defers attributed import writes across an API rollback and retries identical words when support returns", async () => {
+  let available = true;
+  const imported = { ...row, revision: undefined, data: { paste_origin: { text: "Private", start: 0, end: 7, original: true } } };
+  const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(imported));
+  const api = createBabyApi("https://service.example", async () => "token", () => true, transport, () => ({ visit_import_available: available }));
+  available = false;
+  await expect(api.save(imported, 1)).rejects.toMatchObject({ status: 503 });
+  expect(transport).not.toHaveBeenCalled();
+  available = true;
+  await api.save(imported, 1);
+  expect(JSON.parse(String(transport.mock.calls[0][1]?.body)).data).toEqual(imported.data);
+});

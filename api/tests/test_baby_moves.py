@@ -275,3 +275,22 @@ async def test_move_preparation_preserves_invalid_identifier_validation(baby_api
     result = await baby_api.client.post("/api/v1/baby/records/not-a-uuid/move",
         headers=records.headers(enabled, generation=1), json={"space_id": str(enabled), "revision": 1})
     assert result.status_code == 422, result.text
+
+
+@pytest.mark.parametrize("remove_original", [False, True])
+async def test_family_creation_does_not_publish_pasted_visits(baby_api, enabled, remove_original):
+    baby_api.settings.baby_new_kinds_enabled = True
+    c, h = baby_api.client, records.headers(enabled, generation=1)
+    source = {"text": "Visit words", "start": 0, "end": 11, "original": False}
+    body = shared.payload("event", body="Visit words", data={"category": "appointment", "timezone": "Pacific/Guam", "paste_origin": source})
+    saved = await c.post("/api/v1/baby/records", headers=h, json=body)
+    assert saved.status_code == 200, saved.text
+    if remove_original:
+        removed = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=h, json={"revision": 1, "data": {**body["data"], "paste_origin": None}})
+        assert removed.status_code == 200 and removed.json()["data"]["just_me"] is True, removed.text
+    family = await family_for(baby_api, enabled)
+    personal = await c.get(f"/api/v1/baby/records/{body['id']}", headers=h)
+    assert personal.status_code == 200 and personal.json()["space_id"] == str(enabled), personal.text
+    explicitly_shared = {**body, "id": str(uuid4())}
+    shared_visit = await c.post("/api/v1/baby/records", headers=records.headers(family, generation=1), json=explicitly_shared)
+    assert shared_visit.status_code == 200 and shared_visit.json()["space_id"] == str(family), shared_visit.text

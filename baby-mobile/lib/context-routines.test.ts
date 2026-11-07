@@ -2097,3 +2097,24 @@ it("rechecks old Retry evidence before sending when a flag-off bootstrap regains
   expect(mock.api.save).not.toHaveBeenCalled(); expect(baby.state.outbox).toEqual([]);
   expect(baby.state.heldDrafts!.some((held) => held.draft.body === "half typed")).toBe(true);
 });
+
+it("rejects a late paste commit after an account switch even when its API lease is unchanged", async () => {
+  await mount();
+  const previous = baby, lease = mock.lease, hashing = held();
+  const apply = vi.fn((state: DeviceState) => ({ ...state, outbox: [...state.outbox, { id: "late-paste", generation: 1, type: "save" as const, record: row("late-paste"), files: [] }] }));
+  let rejection: unknown;
+  const pending = (async () => {
+    await hashing.promise;
+    try { await previous.commit(apply); } catch (error) { rejection = error; }
+  })();
+  await act(async () => {
+    mock.user = "another-account";
+    renderer!.update(React.createElement(BabyProvider, null, React.createElement(Probe)));
+    await settle();
+  });
+  expect(mock.lease).toBe(lease);
+  await act(async () => { hashing.resolve(page([])); await pending; });
+  expect(rejection).toEqual(Error("Your account changed."));
+  expect(apply).not.toHaveBeenCalled();
+  expect(baby.state.outbox).toEqual([]);
+});
