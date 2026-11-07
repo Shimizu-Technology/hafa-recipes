@@ -55,7 +55,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     },
     // A private event can't be on a baby the family shares. Only said when there's one it could have been on.
     offFamilyBaby = !!choice && !choice.shared && children.some((child) => child.space_id !== bootstrap.personal_space_id),
-    baby = draft.child_id ? children.find((child) => child.id === draft.child_id) : undefined;
+    baby = draft.child_id ? babies.find((child) => child.id === draft.child_id) : undefined;
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="What’s happening?" />

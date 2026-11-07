@@ -19,5 +19,7 @@ describe("pregnancy history without interpretation", () => {
     for (const row of rows) expect(original.slice(row.start, row.end)).toBe(row.text);
     expect(pasteVisits("Nov 9 class")[0].day).toBe("");
     expect(validDay("2026-02-30")).toBe(false);
+    const mixed = pasteVisits("April 1, 2026 First test\n4/3/26 Told family\nNov 9 Class\n2026-11-10 Visit");
+    expect(mixed.map((row) => row.day)).toEqual(["2026-04-01", "", "", "2026-11-10"]);
   });
 });

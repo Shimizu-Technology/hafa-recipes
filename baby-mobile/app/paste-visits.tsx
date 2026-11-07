@@ -58,7 +58,7 @@ export default function PasteVisits() {
     {saved.length ? <><Notice>Saved on this phone. Sync status is available in Journal.</Notice>{saved.map((row) => <Row key={row.id} title={row.title} onPress={() => router.push({ pathname: row.kind === "event" ? "/event/[id]" : "/record/[id]", params: { id: row.id } })} />)}</> : <>
       <Copy>Personal by default. Your original stays private and intact. Nothing is saved until you confirm. You can choose sharing later in each entry.</Copy>
       {!items ? <><Field label="Paste your note" multiline value={original} maxLength={10000} onChange={setOriginal} /><Button title="Review dated items" disabled={!original.trim()} onPress={() => setItems(pasteVisits(original).map((row) => ({ ...row, id: Crypto.randomUUID(), selected: false, shared: false, kind: "event", title: "Prenatal visit", age: "" })))} /></> : <>
-        <Copy kind="small" tone="muted">Only YYYY-MM-DD dates are recognized automatically. Enter other dates yourself; no year or medical meaning is guessed. Each block keeps its exact original words.</Copy>
+        <Copy kind="small" tone="muted">Dates with a named month and four-digit year, or YYYY-MM-DD, are filled in. Check numeric dates and missing years yourself; no year or medical meaning is guessed. Each block keeps its exact original words.</Copy>
         {items.map((row) => <Card key={row.id} style={{ gap: 10 }}>
           <Copy kind="small" tone="muted">Original characters {row.start + 1}–{row.end}</Copy>
           <Choice label="Save this item" selected={row.selected} onPress={() => change(row.id, { selected: !row.selected })} />
