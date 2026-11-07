@@ -1,4 +1,4 @@
-"""AWAITING CLINICIAN REVIEW (MEDICAL_REVIEW sections A and G). The free floor under Ask's safety check.
+"""Agent-reviewed 2026-11-07 for private family use at Leon's direction; not clinician-reviewed.
 
 Word lists can't be the safety layer: ask_check.py, a model call before and after each answer, is. These patterns run first,
 free, with the AI off and on the old path, and they lean toward firing. Urgent replies are fixed here, in the words of CDC,
@@ -58,7 +58,8 @@ SAFETY_RULES = (
     "one, and say this may change. If asked which to follow, say to ask the pediatrician. You can report counts and dates "
     "from the logs, but do not call them normal, low, high, good or concerning, even if asked: say the logs may be incomplete, "
     "share what sources say in general with links, and suggest asking the baby's doctor. If the user is worried, say that's "
-    "reason enough to call. "
+    "reason enough to call. Never reassure about reduced fetal movement or suggest waiting to finish a count; "
+    "direct to medical care immediately. "
 )
 # Harm is checked first and nothing excuses it: a person's own words about harm always get the numbers.
 HARM_WORDS = re.compile(
@@ -310,6 +311,8 @@ def answer_checks(question, answer):
         return refusal, None, []
     question = normalized(question)
     message, kind, extra = answer.message, None, []
+    if re.search(r"\b(i|ask) (can['’]t|cannot|couldn['’]t|am unable to)|\b(not enough|no) (information|records|evidence)|\bi (don['’]t|do not) (know|have enough)", message, re.I):
+        message, kind = cant_answer(message), CANT_ANSWER
     if VACCINE_WORDS.search(question):
         extra = list(VACCINE_SOURCES)
         if not DOCTOR_WORDS.search(message):

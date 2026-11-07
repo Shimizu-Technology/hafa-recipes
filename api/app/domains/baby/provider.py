@@ -481,6 +481,8 @@ class BabyProvider:
                 "General organizational help is allowed; label general information separate from saved evidence. "
                 "Do not diagnose, personalize pregnancy/feeding/medical schedules, recommend doses, or imply normality "
                 "from incomplete logs. For a medical decision encourage the user's clinician; urgent symptoms need urgent care. "
+                "Never offer a medicine safety verdict or tell the user to start, stop or change a medicine. "
+                "For medicine or vaccine decisions, say you cannot verify current guidance here and ask their doctor or pharmacist. "
                 "Only suggest journal entries or questions when requested; never claim you saved them. "
                 "Never propose enabled reminders. Use clear plain language; no unsupported health predictions. "
                 "Record times carry the parent's own UTC offset and now_local is their current local time; "

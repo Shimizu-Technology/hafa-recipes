@@ -37,9 +37,14 @@ pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABA
 migration = importlib.import_module("migrations.050_add_baby_domain")
 GEN = {"X-Baby-Generation": "1"}
 OLD_PATH_REPLY = ask_v2.old_path_reply
+OLD_ANSWER_REPLY = ask_v2.checked_old_answer_reply
 
 
 async def no_verdict_needed(provider, question):
+    return None
+
+
+async def no_answer_verdict_needed(provider, question, result):
     return None
 
 
@@ -48,6 +53,7 @@ async def baby_api(monkeypatch, request):
     require_disposable_test_database(DATABASE_URL)
     # These tests fake the old path's answer. The check on it has its own tests, in test_baby_old_path_check.py.
     monkeypatch.setattr(ask_v2, "old_path_reply", no_verdict_needed)
+    monkeypatch.setattr(ask_v2, "checked_old_answer_reply", no_answer_verdict_needed)
     engine = create_async_engine(DATABASE_URL)
     try:
         async with engine.begin() as connection:

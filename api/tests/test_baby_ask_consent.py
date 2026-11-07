@@ -27,16 +27,16 @@ def flag(monkeypatch, on=True):
 
 
 @pytest.mark.parametrize(
-    ("environment", "approved", "expected"),
-    [
-        ("production", "", False),
-        ("production", "   ", False),
-        ("production", "2026-11-20 Dr. Example", True),
-        ("development", "", True),
-    ],
+    ("audience", "clinical", "permission", "expected"),
+    [("private_family", "", "", True), ("public", "", "", False),
+     ("paid", "", "WHO record", False), ("public", "Clinician record", "", False),
+     ("public", "Clinician record", "WHO record", True),
+     ("paid", "Clinician record", "WHO record", True), ("unknown", "yes", "yes", False)],
 )
-def test_production_needs_the_clinician_approval_recorded_as_well_as_the_flag(monkeypatch, environment, approved, expected):
-    settings = SimpleNamespace(baby_ask_v2_enabled=True, environment=environment, baby_ask_clinician_approval=approved)
+def test_private_agent_review_does_not_open_public_release(monkeypatch, audience, clinical, permission, expected):
+    settings = SimpleNamespace(baby_ask_v2_enabled=True, environment="production",
+                               baby_health_release_audience=audience,
+                               baby_ask_clinician_approval=clinical, baby_who_chart_permission=permission)
     monkeypatch.setattr(ask_gate, "get_settings", lambda: settings)
     assert ask_gate.ask_v2_on() is expected
 

@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.domains.baby.ask_safety import CANT_ANSWER, cant_answer
 from app.domains.baby.ask_tools import TOOLS
 from app.domains.baby.ask_v2 import ANSWER_SCHEMA
 from tests import test_baby_integration as shared
@@ -145,7 +146,8 @@ async def test_a_citation_the_tools_never_gave_takes_the_claim_with_it_and_is_no
     stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("You saved a post.", citation_ids=[post, invented])]
     response = await ask(baby_api, "What did I save?")
     assert response.status_code == 200, response.text
-    assert response.json()["message"] == "I couldn't confirm that from your records."
+    assert response.json()["message"] == cant_answer("I couldn't confirm that from your records.")
+    assert response.json()["help"] == CANT_ANSWER
     assert response.json()["citations"] == []
 
 

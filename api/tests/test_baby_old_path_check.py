@@ -1,4 +1,4 @@
-"""Builds 34-36 use the old path. They get the question check, and read exactly these fields. No paid call."""
+"""Builds 34-36 use the old path. They get question and answer checks, and read exactly these fields. No paid call."""
 
 import json
 from uuid import uuid4
@@ -90,18 +90,19 @@ async def test_an_unreadable_verdict_means_no_answer_too(baby_api, flag_off, ver
 async def test_an_ordinary_question_reads_as_it_always_has(baby_api, flag_off, client):
     body = (await old_question(baby_api, headers=await old_headers(baby_api, client))).json()
     assert body["message"] == "Old path answer" and set(body) == OLD_FIELDS
-    assert len(flag_off.sent) == 1 and "chat/completions" in flag_off.urls[0] and len(flag_off.checks) == 1
+    assert len(flag_off.sent) == 1 and "chat/completions" in flag_off.urls[0] and len(flag_off.checks) == 2
 
 
 @pytest.mark.parametrize("verdict", [{"asks_dose": True}, {"asks_diagnosis": True}])
-async def test_only_urgency_changes_the_old_path(baby_api, flag_off, verdict):
+async def test_dose_and_diagnosis_are_refused_on_the_old_path(baby_api, flag_off, verdict):
     flag_off.question_verdict = verdict
-    assert (await old_question(baby_api)).json()["message"] == "Old path answer"
+    assert (await old_question(baby_api)).json()["help"] == CANT_ANSWER
 
 
-async def test_the_old_path_checks_the_question_and_not_the_answer(baby_api, flag_off):
+async def test_the_old_path_checks_the_question_and_the_answer(baby_api, flag_off):
     await old_question(baby_api, "What should I pack?")
-    assert len(flag_off.checks) == 1
+    assert len(flag_off.checks) == 2
+    assert flag_off.checks[1]["instructions"] == ask_check.ANSWER_PROMPT
     assert flag_off.checks[0]["instructions"] == ask_check.QUESTION_PROMPT
     assert json.loads(flag_off.checks[0]["input"][0]["content"]) == {"question": "What should I pack?"}
     assert flag_off.checks[0]["model"] == "gpt-6-luna" and flag_off.checks[0]["store"] is False
@@ -113,7 +114,7 @@ async def test_it_counts_on_the_ledger_and_on_the_invocation_record(baby_api, fl
         rows = list(await db.scalars(select(BabyAIAdmission).order_by(BabyAIAdmission.created_at)))
         tracked = list(await db.scalars(select(AIInvocation).where(AIInvocation.capability == "baby_safety")))
     safety = [row for row in rows if row.capability == "baby_safety"]
-    assert len(safety) == 1 and len(tracked) == 1
+    assert len(safety) == 2 and len(tracked) == 2
     assert 0 < safety[0].reserved_microusd < 1_000
 
 
@@ -212,7 +213,7 @@ def passing_check_failures(fake, *statuses):
 async def test_a_passing_503_on_the_check_doesnt_reach_old_builds(baby_api, flag_off, client):
     passing_check_failures(flag_off, 503, 429)
     body = (await old_question(baby_api, headers=await old_headers(baby_api, client))).json()
-    assert body["message"] == "Old path answer" and set(body) == OLD_FIELDS and len(flag_off.checks) == 3
+    assert body["message"] == "Old path answer" and set(body) == OLD_FIELDS and len(flag_off.checks) == 4
 
 
 async def test_an_urgent_verdict_still_arrives_after_a_passing_503(baby_api, flag_off):
@@ -241,3 +242,32 @@ async def test_a_passing_503_on_the_old_answer_is_tried_again(baby_api, flag_off
     async with baby_api.sessions() as db:
         kept = list(await db.scalars(select(BabyAIAdmission).where(BabyAIAdmission.capability == "baby_chat")))
     assert len(failed) == 1 and len(kept) == 2  # Each try is on the ledger.
+
+
+@pytest.mark.parametrize("verdict", [{"states_dose": True}, {"diagnoses": True}, {"discourages_care": True}])
+async def test_old_generated_unsafe_words_are_discarded_with_help(baby_api, flag_off, verdict):
+    flag_off.answer_verdict = verdict
+    body = (await old_question(baby_api, "Summarize my notes")).json()
+    assert body["help"] == CANT_ANSWER
+    assert "Old path answer" not in body["message"]
+    assert body["citations"] == [] and body["proposal"] is None
+
+
+async def test_old_answer_checker_failure_is_closed_with_help(baby_api, flag_off):
+    flag_off.answer_verdict = httpx.Response(500)
+    body = (await old_question(baby_api, "Summarize my notes")).json()
+    assert body["message"] == cant_answer(CHECK_FAILED)
+    assert body["help"] == CANT_ANSWER and body["proposal"] is None
+
+
+@pytest.mark.parametrize("audience", ["public", "paid"])
+async def test_public_release_gate_cannot_fall_back_to_old_ai(baby_api, flag_off, audience):
+    flag_off.settings.baby_health_release_audience = audience
+    flag_off.settings.baby_ask_clinician_approval = ""
+    flag_off.settings.baby_who_chart_permission = ""
+    body = (await old_question(baby_api, "Summarize my notes")).json()
+    assert body["message"] == cant_answer(CHECK_FAILED) and body["help"] == CANT_ANSWER
+    assert flag_off.checks == [] and flag_off.sent == []
+    urgent = (await old_question(baby_api, "I want to hurt myself")).json()
+    assert urgent["help"] == HARM and urgent["message"] == MESSAGES[HARM]
+    assert flag_off.checks == [] and flag_off.sent == []

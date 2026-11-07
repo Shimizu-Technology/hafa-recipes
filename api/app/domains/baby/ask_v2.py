@@ -11,7 +11,7 @@ MAX_OUTPUT_TOKENS = 2_400
 MAX_QUOTES, QUOTE_CHARS = 3, 2000
 COULD_NOT_CONFIRM_RECORD = "I couldn't confirm that from your records."
 COULD_NOT_CONFIRM_SOURCE = "I couldn't confirm that from trusted sources."
-RECORD_HEADING = "From your records, exactly as saved:"
+RECORD_HEADING = "From your saved records (formatting may differ; not medical advice):"
 NULLABLE_TEXT = {"type": ["string", "null"]}
 # Strict mode needs every field listed, so what a kind of suggestion doesn't use comes back null, and is dropped on arrival.
 ANSWER_SCHEMA = {
@@ -75,7 +75,7 @@ def without_nulls(proposal):
 NOT_HER_WORDS = ("source", "collection")  # What someone else said, saved. Quoting it would make it look like her record.
 # With both safety checks, inside the three-minute answer lease, so a stale answer can never overlap its own retry.
 QUESTION_SECONDS = 130
-PROMPT_VERSION = "baby-ask-v2-1"
+PROMPT_VERSION = "baby-ask-v2-2"
 BASE_INSTRUCTIONS = (
     "You are Håfa Baby, a warm, concise personal organizer for a parent. Answer in plain language. "
     "When you are finished, reply only with a JSON object: "
@@ -119,9 +119,11 @@ def published_answer(question, result, tools):
         return fixed_answer(MESSAGES[result.safety], result.safety)
     # A claim is only as good as what's behind it. An ID or ref the tools never gave means the words go, not just the citation.
     if any(identifier not in tools.citable for identifier in result.citation_ids):
-        return fixed_answer(COULD_NOT_CONFIRM_RECORD, None, invented_citation=True, unconfirmed=True)
+        from app.domains.baby.ask_safety import CANT_ANSWER, cant_answer
+        return fixed_answer(cant_answer(COULD_NOT_CONFIRM_RECORD), CANT_ANSWER, invented_citation=True, unconfirmed=True)
     if invented_refs(result.message, tools.web_sources):
-        return fixed_answer(COULD_NOT_CONFIRM_SOURCE, None, unconfirmed=True)
+        from app.domains.baby.ask_safety import CANT_ANSWER, cant_answer
+        return fixed_answer(cant_answer(COULD_NOT_CONFIRM_SOURCE), CANT_ANSWER, unconfirmed=True)
     message, sources = checked_answer(result.message, tools.web_sources)
     records, quoted = record_lines(result, tools)
     citations = list(dict.fromkeys([*result.citation_ids, *quoted]))
@@ -178,11 +180,40 @@ async def question_reply(provider, question, *, model=None, effort=None):
 
 
 async def old_path_reply(provider, question):
-    """What the old path takes from the check: urgent gets the fixed reply, and no verdict gets no answer. The rest is Ask's."""
-    from app.domains.baby.ask_safety import MESSAGES
+    """V2-off still permits old Ask, with the same dose/diagnosis question refusals."""
+    return await question_reply(provider, question)
 
-    reply = await question_reply(provider, question)
-    return reply if reply and (reply["help"] in MESSAGES or reply.get("check_failed")) else None
+
+async def checked_old_answer_reply(provider, question, result):
+    """Old Ask has no research or separate saved-record block. Check all its generated words."""
+    from app.domains.baby.ask_check import CheckFailed, check_answer
+    from app.domains.baby.ask_research import strings_in
+    from app.domains.baby.ask_safety import (
+        CANT_ANSWER,
+        CHECK_FAILED,
+        DIAGNOSIS_REFUSAL,
+        DOSE_REFUSAL,
+        MESSAGES,
+        answer_checks,
+        cant_answer,
+        unsafe_output,
+    )
+
+    if result.safety in MESSAGES:
+        return fixed_answer(MESSAGES[result.safety], result.safety)
+    written = "\n".join([result.message, *strings_in(result.proposal or {})])
+    refusal = unsafe_output(question, written)
+    if not refusal:
+        try:
+            verdict = await check_answer(provider, question, written)
+        except CheckFailed:
+            return fixed_answer(cant_answer(CHECK_FAILED), CANT_ANSWER, check_failed=True)
+        if verdict.states_dose or verdict.diagnoses or verdict.discourages_care:
+            refusal = DOSE_REFUSAL if verdict.states_dose else DIAGNOSIS_REFUSAL
+    if refusal:
+        return fixed_answer(cant_answer(refusal), CANT_ANSWER, replaced=True)
+    message, kind, sources = answer_checks(question, result)
+    return fixed_answer(message, kind, sources=sources, citation_ids=result.citation_ids, proposal=result.proposal) if kind else None
 
 
 async def checked_answer_reply(provider, question, result, tools, *, model=None, effort=None):

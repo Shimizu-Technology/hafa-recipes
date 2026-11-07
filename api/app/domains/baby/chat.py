@@ -841,6 +841,11 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     urgent = classify(body.message, await child_names(db, access, user.id))
     if urgent:
         return await fixed_reply(body, user, db, generation, access, urgent.message, urgent.kind)
+    from app.domains.baby.ask_gate import health_release_allowed
+
+    if not health_release_allowed():
+        from app.domains.baby.ask_safety import CHECK_FAILED
+        return await fixed_reply(body, user, db, generation, access, cant_answer(CHECK_FAILED), CANT_ANSWER)
     access.check_generation(generation)
     member = access.member
     readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
@@ -1102,6 +1107,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                         context_pack=pack,
                         requested_range=requested_range,
                     )
+                    published = await ask_v2.checked_old_answer_reply(provider, body.message, result)
         allowed = {item["id"]: item for item in context}
         if published:
             result = result.model_copy(update={"citation_ids": published["citation_ids"], "proposal": published["proposal"]})

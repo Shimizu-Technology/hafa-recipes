@@ -7,14 +7,28 @@ from app.config import get_settings
 ASK_CONSENT_VERSION = 1
 
 
+def health_release_allowed():
+    """The public/paid wording gate covers old Ask as well as V2; the urgent floor is separate."""
+    settings = get_settings()
+    audience = getattr(settings, "baby_health_release_audience", "private_family")
+    if audience == "private_family":
+        return True
+    return audience in {"public", "paid"} and all(
+        (getattr(settings, field, "") or "").strip()
+        for field in ("baby_ask_clinician_approval", "baby_who_chart_permission")
+    )
+
+
 def ask_v2_on():
-    """Off until a doctor has approved its medical wording. In production, the flag alone isn't enough."""
+    """Leon authorized agent review for private family use on 2026-11-07; never clinical approval.
+
+    Public/paid use still needs clinician review and WHO chart permission. V2-off is
+    not AI-off: the old organizer remains behind AI consent and input/output checks.
+    """
     settings = get_settings()
     if not getattr(settings, "baby_ask_v2_enabled", False):
         return False
-    return getattr(settings, "environment", "test") != "production" or bool(
-        (getattr(settings, "baby_ask_clinician_approval", "") or "").strip()
-    )
+    return health_release_allowed()
 
 
 def ask_v2_consented(profile):
