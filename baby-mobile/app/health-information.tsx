@@ -5,6 +5,8 @@ import { Disclosure } from "@/components/disclosure";
 
 const sources = [
   ["CDC: maternal warning signs", "https://www.cdc.gov/hearher/maternal-warning-signs/index.html"],
+  ["CDC: newborn breastfeeding warning signs", "https://www.cdc.gov/infant-toddler-nutrition/breastfeeding/newborn-basics.html"],
+  ["US Poison Control", "https://www.poison.org/"],
   ["CDC: developmental milestones", "https://www.cdc.gov/act-early/milestones/index.html"],
   ["CDC: growth charts", "https://www.cdc.gov/growth-chart-training/hcp/using-growth-charts/who-using.html"],
   ["AAP: HealthyChildren", "https://www.healthychildren.org/"],

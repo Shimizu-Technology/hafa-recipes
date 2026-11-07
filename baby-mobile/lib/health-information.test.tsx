@@ -31,6 +31,9 @@ it("leads with 911 and states the review truth with inspectable sources", async 
   expect(text).toContain("has not been reviewed by a clinician");
   expect(text).toContain("private family use");
   expect(text).toContain("WHO charts need permission");
-  expect(view!.root.findAllByType("MedicalSource" as never).length).toBeGreaterThanOrEqual(12);
+  const urls = view!.root.findAllByType("MedicalSource" as never).map((node) => node.props.url);
+  expect(urls).toContain("https://www.poison.org/");
+  expect(urls).toContain("https://www.cdc.gov/infant-toddler-nutrition/breastfeeding/newborn-basics.html");
+  expect(urls.length).toBeGreaterThanOrEqual(14);
   await act(async () => view!.unmount());
 });
