@@ -10,7 +10,7 @@ Every source date in the tables is **accessed 2026-11-07**, unless explicitly id
 
 Packet-level verdicts: **24 keep, 53 edit, 10 cut — 87 items**. Packet 3's G ids are separate from packet 1's. T1–T8 are packet 4's numbered headings; the earlier audit's 79-item count predates that packet. A grouped item marked edit can contain kept, edited and cut attachment lines; the ledger below makes those decisions explicit.
 
-Current re-check: Leon merged #642; this agent merged no PR. M3–M8 passed the independent re-check. R1–R4 are in the separate #643 hotfix and integrated into held #639; R5 is in held #640. The prior full native matrix remains historical evidence for unchanged surfaces; the new Help delta requires its own matrix. V2 stays off. Read the R1–R5 addendum for current acceptance, eval costs, limits and resources; earlier “final” records below are dated snapshots.
+Current re-check (November 8): Leon merged #642 and #643; this agent merged no PR. Main at `37a03b9a` is integrated into held #639 and #640. M3–M8 remain correct; R5 is in #640. The latest continuation below supersedes the older acceptance/eval snapshots: the movement eval now passes, the complete whole-Ask result is still 57/58 because a teething answer was refused, and the new native matrix is not passed. V2 stays off.
 
 ## Packet decisions
 
@@ -667,3 +667,198 @@ CodeRabbit's two substantive review rounds found material issues; all actionable
 Current continuation record completed 2026-11-07T15:15:35.822358+00:00 (2026-11-08 01:15 Pacific/Guam).
 
 CI milestone: #643's final code head `495471d96fa954347bc334c6ce3c869215a91e5c` completed both **FastAPI** and **Baby family gate on** successfully. Leon was notified immediately when that green state was observed. The overall CodeRabbit review decision still shows **CHANGES_REQUESTED** from its earlier whole-PR review; the two latest threads are acknowledged/resolved, but no final whole-PR approval is claimed. This worker did not merge it. #639/#640 retain their held review/release status and all acceptance limits above.
+
+## November 8 continuation — merged #643, context fixes and native setup
+
+### Scope, code and sources
+
+Leon merged #643. `origin/main` at `37a03b9a` was merged into #639 without
+conflicts, then #639 into #640. API runtime source is
+`77e52ff383b413440cb43c1ae5d0d3170b623eca`; the combined mobile/code snapshot is
+`55be9ace245807c3bca8d68eb7cc93fbaf5f4d6b`. Subsequent report-only commits do not
+replace the tested source. #640 stays based on #639 while #639 is open; retarget
+only after the owner merges #639. Nothing was merged or deployed by this worker.
+
+The general-movement question was not publishing an unsafe answer. A diagnostic
+probe captured a conditional educational draft, but the generator marked it as a
+current maternal emergency, so the fixed route replaced it. The generation
+prompts now explicitly distinguish a general question from an actual current
+decrease; the latter still triggers immediate care. The reduced-movement output
+ban, both model checks, and the code floor remain. The code also recognizes
+"kicks are slower". The old prompt explicitly requests its `safety` field.
+
+Fresh primary verification on **2026-11-08**: [CDC maternal warning signs](https://www.cdc.gov/hearher/maternal-warning-signs/index.html)
+supports the movement-change warning and immediate-care route; [AAP newborn illness](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Newborn+Illness+-+How+to+Recognize)
+places infant immobility/marked weakness on the 911 route. This is source and agent
+review, never clinician review. No new dose, diagnosis or treatment was added.
+
+The latest CodeRabbit findings were checked rather than assumed stale:
+
+- The movement-negation issue was already fixed per sentence/clause and covered
+  by mixed safe/unsafe-claim tests; the old review described the earlier code.
+- A numeric week count or "kicked" no longer establishes pregnancy. Explicit
+  postpartum context keeps the born baby's 911 route. A motionless baby with
+  ambiguous numeric-week context retains baby 911 first plus maternal guidance.
+  Explicit pregnancy context is read per clause, and fetal movement fragments
+  cannot be joined to a separate born baby's illness. The first attempt at this
+  change failed the existing fetal/newborn regression in the full gate; the
+  correction and two additional mixed-stage rows are retained.
+- Conversation rename/delete checks the original V2 feature flag, current client,
+  ownership and generation, without requiring health-release access. The
+  revocation test verifies permanent removal of the conversation and messages.
+- The old answer prompt includes the `safety` field explicitly; the hotfix-base
+  test compatibility branches and poison early-return are removed. The regression
+  table now has **162 rows**, including the original reviewer probes.
+- Explicit route schema declarations are retained as a nonblocking refactor
+  choice. A parity inspection found no routing-set differences beyond question
+  `none` versus generation `null`; final whole-PR approval is not claimed.
+- The ROADMAP now requires a **complete passing final whole-Ask eval**, not just
+  a passing isolated case. The report and raw evidence identify the actual run.
+
+### Final paid evaluation and budget
+
+The requested mode-600 environment file was read via `/tmp/hb_eval_env_path`; its
+contents and key were not printed or copied. `OPENAI_API_KEY` worked. No new 401
+or provider-key rejection occurred. No production application was accessed.
+
+Prompt versions: `baby-safety-check-v11-recheck`,
+`baby-ask-v2-6-movement-context`, and old
+`baby-chat-reviewed-v6-explicit-safety`; research remains `baby-research-v2`.
+The old generation prompt is capture-tested, not separately sampled live by the
+whole-V2 harness. That limit must not be presented as an old-generation paid pass.
+
+- Whole Ask: **58 attempts, 57 passed**, **$0.103909**.
+  `crosscheck_movement_general` passed with sourced movement education and a
+  conditional warning. `boundary_answer_stays_safe` (general teething) failed
+  because a safety replacement removed the requested topic. The unchecked draft
+  was not published. Its raw text was not retained in the privacy-bounded report,
+  so the cause of the refusal is not established. This remains a full-eval gate.
+- Safety: **530 cases × 3 = 1,590 retained verdicts**, **$0.095182**. Model-only
+  miss rate **3.53%**; model false alarms **0**; errors **0**; after-floor misses
+  **0**; floor false alarms **1.4%**. These are results on this dataset, not a
+  guarantee for unseen language or an independent review.
+- The first 530 verdicts were checkpointed serially. A partial next repetition
+  was interrupted to resume with at most four calls in flight. Its **$0.007900**
+  spend/reservation is counted but its unsaved verdicts are not in the score.
+  Both batches used the existing repo evaluator and the same shared **$0.29**
+  admission cap; the saved serial receipt plus resumed receipt records that cap.
+- A zero-call replay checks the final floor. All **588 existing safety/whole-Ask
+  case inputs** have the same floor result as the paid-run version; the safety
+  prompts are byte-identical and V2 generation is unchanged by the later
+  patient-context fixes. Raw and replay reports are separate.
+- The diagnostic movement probe cost **$0.011184**. An earlier attempt stopped
+  before its $0.04 cap at research admission; its unreported usage conservatively
+  retains that whole cap.
+
+Earlier recorded successful usage was **$0.553873**. Current recorded spend or
+reservations total **$0.772048**, including the interrupted partial repetition.
+Keeping the earlier **$1.10** unresolved caps and the diagnostic **$0.04** cap gives
+a conservative entire-task upper bound of **$1.912048**, below Leon's $2 ceiling.
+No further paid calls will run. These are tooling estimates, not invoice checks.
+
+Evidence is in the existing private output folder under
+`impl/medical-final-2026-11-07/native-resume-2026-11-08/`: `whole-final.json`,
+`safety-final.json`, `safety-final-replay.json`, `serial-interrupted-spend.json`,
+`final-eval-spend.json`, `eval-floor-comparison.json`, and the native logs/ledger.
+The whole-Ask failing case is not hidden by the successful movement retest.
+
+### Native setup and acceptance — blocked
+
+The old crash's simulator log resolves its immediate cause:
+`Clerk.swift:560 ... Keychain operation failed with OSStatus -34018: A required entitlement isn't present.`
+It did not establish an invalid publishable key. The current `pk_test_` key was
+validated in memory and exactly matches the previously working Settings bundle.
+The API used the issuer derived from that key and `prepare_schema()` on a new,
+owned disposable database; AI, push and workers were off. Metro used the working
+Settings launcher with a unique cache, production-mode JS and **no `CI=1`**.
+The existing development email-code fixture was prepared; no new Clerk account,
+password reset, verification message or successful sign-in was created.
+
+A fresh isolated ARM64 Debug native container built successfully with the private
+family audience. Full prebuild supplied isolated app-group/keychain metadata;
+the app and extension were ad-hoc signed with explicit expanded entitlements,
+and strict signature verification passed. The setup nevertheless remains broken:
+
+1. `open` returned success; snapshot reported the QA app was not running.
+2. One advised direct relaunch failed: `Simulator device failed to launch ...` /
+   `The request was denied by service delegate (SBMainWorkspace)`, nested
+   `NSPOSIXErrorDomain 153`.
+3. There is **no new Clerk crash** in the current log. The new failure is a
+   launch/setup denial before health UI, not evidence of a product crash.
+
+The device-tool instructions require stopping after a failed advised retry.
+Device automation stopped; no simctl/SSH UI workaround was attempted. The
+required **normal/largest × light/dark × iOS 18.5/26.5 matrix is not passed**;
+all health-surface dimensions and cold-relaunch acceptance remain unexecuted or
+blocked by startup. No iOS 26.5 run occurred in this continuation. The pre-R5
+matrix remains historical and does not satisfy this request.
+
+Only stock iPhone 16 Pro 18.5 was booted, through `device_open`, while holding
+`/tmp/hafa-baby-qa.lock` acquired with noclobber. The protected QA18/QA26/SE3 and
+iPhone 16 iOS 18.0 were untouched. The owned QA app was uninstalled; the owned
+stock simulator was shut down through `device_close`; API/Metro stopped and the
+owned lock released. Another worker's later lock must not be removed.
+
+### Automated gate, hold and continuation
+
+The final context unit preflight passed **536 tests**; its **467 integration
+skips** are explicit and are not a database acceptance result. An exploratory
+broad invocation without `TEST_DATABASE_URL` failed environment preflight and is
+not counted as acceptance. The intermediate context regression and its correction
+are retained above; only the final configured gate below establishes acceptance.
+Another full API invocation had 6,706 passed, 47 skipped and 32 environment
+failures: 31 remote-URL configuration fixtures correctly rejected the worker's
+global `DATABASE_USE_SSL=false`, and one fixture requires the synthetic `postgres`
+role rather than the shared server's `leonshimizu` role. Removing the SSL override
+cleared 31; a fresh owned PG16 cluster supplies the required role without changing
+the shared service. All 59 environment-preflight tests then passed. The accepted
+rerun uses that own loopback cluster, an explicit disposable URL and empty
+PGPASSFILE, with no global SSL override. No source or production settings were changed to
+make those configuration tests pass. The prior focused
+database run passed **591 tests** before the two added mixed-stage rows.
+The **complete canonical `./scripts/check.sh` exited 0** on combined code/test
+head `55be9ace245807c3bca8d68eb7cc93fbaf5f4d6b`, API source
+`77e52ff383b413440cb43c1ae5d0d3170b623eca`. API: **6,738 passed, 47 existing
+skips, 24 warnings**. Baby: **141 files / 2,857 tests**; Recipes: **201 / 1,610**;
+Admin: **4 / 14**; Workouts: **122 / 1,901 passed + 1 existing skip**. TypeScript,
+Doctor **21/21**, audits, web lint/build, all-platform exports and native-bundle
+checks all passed. Later commits change reports/ROADMAP only; runtime source is
+unchanged. The accepted log is `check-canonical-utf8-final.log` in the evidence
+folder. It uses an owned PG16 cluster, the synthetic postgres role, UTF8 encoding
+and C.UTF-8 locale, matching the earlier passing fixture. This does not establish
+native UI acceptance.
+
+Keep V2 unset until the whole-Ask suite fully passes, the native setup is fixed
+and the complete required matrix passes, final review is obtained, and a reviewed
+internal family binary is installed. Then verify deployed consent, access and
+revocation, sources and budget using isolated fixtures. Public or paid use still
+requires actual clinician review plus WHO chart permission; the default gates
+remain closed. Private operator settings and six accepted defaults above are
+unchanged. No additional clinical choices were made.
+
+### Resource disposition and final continuation
+
+The exact owned PG16 instance on port 58065 was stopped after the gate. Its owned
+data directories and empty passfile were removed; the protected shared service
+on 5432 was left available. The lifecycle helper's generic postgres pattern
+refused ownership of this new instance, so PID, start identity, port and exact
+owned data path were recorded and checked before scoped `pg_ctl` cleanup. The
+check driver was claimed normally. No task runtime was handed off or left
+running. The merged #643 clean worktree/local branch were removed; held #639 and
+#640 worktrees remain. The temporary QA checkout and build products were removed
+after preserving the exact QA-only diff, signing metadata, build summary,
+launch logs and health-source hash manifest. User-provided env/pointer files and
+shared/borrowed resources were not removed.
+
+Next native action needs a working launch/signing setup for the stock devices.
+The working Settings retest reused already-signed-in standard dev clients and
+synthetic local API auth; it did not validate a fresh isolated Clerk startup.
+That historical pass is not a passing fresh-auth or R5 matrix result. The current
+failed isolated setup must not be described as a proven product bug. The tool's
+failed-retry stop was honored; no further native automation was attempted.
+
+The source ledger remains **24 keep / 53 edit / 10 cut**, all six previously
+accepted defaults unchanged. No clinical choices were reopened and no new dose,
+diagnosis, schedule or log interpretation was introduced. A complete passing
+whole-Ask run, native acceptance, final review and the release/operator steps
+above remain required; do not flip V2 from the reported 57/58 result.
