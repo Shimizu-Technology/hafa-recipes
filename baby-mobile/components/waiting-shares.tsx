@@ -57,6 +57,13 @@ export function WaitingShares() {
     const stop = onClaimSettled((token, outcome) => finishClaim.current(token, outcome));
     return () => { alive.current = false; stop(); };
   }, []);
+  useEffect(() => {
+    if (!settling.current.waiting.size) return;
+    settling.current = { waiting: new Set<string>(), saved: 0 };
+    setAdding(false);
+    setError("Your personal space changed while adding it. Tap Add again when your share appears.");
+    void load();
+  }, [generation]);
   if (!owner || !generation) return null;
   if (adding) return <Card style={{ gap: 4 }}>
     <Copy kind="label">Adding to your saved posts…</Copy>
@@ -77,6 +84,12 @@ export function WaitingShares() {
       // Fenced by this card still being mounted, for this account, on this space: claiming under an old one would only lose it.
       const result = await addWaitingShares(rows.map((row) => row.token), owner!, generation!, () =>
         alive.current && latest.current.current() && latest.current.owner === owner && latest.current.state.bootstrap?.generation === generation);
+      if (!alive.current || latest.current.owner !== owner) return;
+      if (latest.current.state.bootstrap?.generation !== generation) {
+        setError(result.claimed.length ? "Your personal space changed. Check your waiting shares and saved posts."
+          : "This couldn’t be added just now. It’s still on this phone.");
+        return;
+      }
       if (result.claimed.length) {
         settling.current = { waiting: new Set(result.claimed), saved: 0 };
         setAdding(true);

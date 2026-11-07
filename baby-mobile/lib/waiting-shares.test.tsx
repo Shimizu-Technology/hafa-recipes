@@ -94,6 +94,18 @@ describe("the card", () => {
     expect(w.toast).toHaveBeenCalledExactlyOnceWith("Added to your saved posts");
     expect(text()).not.toContain("Adding to your saved posts…");
   });
+  it("ends an old Adding card and ignores its success after a personal reset", async () => {
+    w.rows = [row()];
+    await mount();
+    await press("Add to my saved posts");
+    w.baby.state.bootstrap.generation = 4;
+    await act(async () => { latestRender(); });
+    expect(text()).not.toContain("Adding to your saved posts…");
+    expect(text()).toContain("Your personal space changed");
+    expect(text()).toContain("Add to my saved posts");
+    await act(async () => { claimSettled("a:1", "saved"); });
+    expect(w.toast).not.toHaveBeenCalled();
+  });
   it("reconciles a save arriving before the native claim returns", async () => {
     w.rows = [row()];
     w.claim.mockImplementationOnce(async () => { claimSettled("a:1", "saved"); return "claimed"; });
