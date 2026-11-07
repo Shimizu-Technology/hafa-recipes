@@ -38,7 +38,7 @@ const press = async (title: string) => {
   await act(async () => { await button.props.onPress(); });
 };
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); w.alerts = []; w.rows = []; w.blocked = []; w.current = true;
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.clearAllMocks(); w.alerts = []; w.rows = []; w.blocked = []; w.current = true; w.readError = false; w.blockedReadError = false;
   w.baby = { owner: "owner", current: () => w.current, state: { bootstrap: { generation: 3 } } };
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
@@ -321,4 +321,12 @@ it("does not infer whether Clerk was signed in when an unassigned capture was ke
   w.rows = [row({ token: "connection-not-ready-copy:1" })]; await mount();
   expect(text()).toContain("It was kept on this phone without an account.");
   expect(text()).not.toContain("while no one was signed in");
+});
+
+it("offers Retry while retaining already visible waiting rows", async () => {
+  w.rows = [row({ token: "visible-retry:1" })]; await mount();
+  w.readError = true; await act(async () => { sharesChanged(); });
+  expect(text()).toContain("Link from tiktok.com"); expect(text()).toContain("couldn’t be read");
+  w.readError = false; await press("Try again");
+  expect(text()).toContain("Add to my saved posts"); expect(text()).not.toContain("couldn’t be read");
 });
