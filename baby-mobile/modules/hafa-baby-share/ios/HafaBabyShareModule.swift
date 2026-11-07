@@ -25,8 +25,8 @@ public final class HafaBabyShareModule: Module {
     Name("HafaBabyShare")
     AsyncFunction("pending") { () throws -> [String: Any]? in try self.safely { try self.snapshot() } }
     Function("acknowledge") { (token: String) throws -> Bool in try self.safely { try self.store().acknowledge(token) } }
-    Function("clear") { (keepWaiting: Bool?) throws in
-      try self.safely { _ = try BabyShareSession.disable(storage: self.store(), preserveUnassigned: keepWaiting ?? false) }
+    Function("clear") { (keepWaiting: Bool?, recoveringOwner: String?) throws in
+      try self.safely { _ = try BabyShareSession.disable(storage: self.store(), preserveUnassigned: keepWaiting ?? false, recoveringOwner: recoveringOwner) }
     }
     AsyncFunction("clearSession") { (preserveUnassigned: Bool?) async throws in
       try await BabyShareSession.clear(storage: self.store(), preserveUnassigned: preserveUnassigned ?? false)
@@ -34,6 +34,7 @@ public final class HafaBabyShareModule: Module {
     AsyncFunction("sessionOwner") { () throws -> String? in
       try self.store().locked { try BabyShareSession.read()?["scope"] as? String }
     }
+    AsyncFunction("removalShareCount") { () throws -> Int in try self.safely { try self.store().removalCount() } }
     AsyncFunction("waitingShareCount") { () throws -> Int in try self.safely { try self.store().unassignedCount() } }
     AsyncFunction("waitingShares") { (owner: String) throws -> [[String: Any]] in
       try self.safely { try self.store().unassigned(owner: owner).map(BabySharePayload.summary) }
