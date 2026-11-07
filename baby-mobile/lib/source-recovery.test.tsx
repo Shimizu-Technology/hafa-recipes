@@ -44,7 +44,7 @@ const onError = vi.fn();
 async function recovery(record = source()) {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mock.caregiver = false; mock.consent.mockResolvedValue(true); mock.baby = { owner: "owner",
-    state: { bootstrap: { generation: 1 }, outbox: [], imports: [] }, commit: vi.fn(async (update: any) => { mock.baby.state = update(mock.baby.state); }), queue: vi.fn(async () => {}) };
+    state: { bootstrap: { generation: 1 }, outbox: [], imports: [] }, sync: vi.fn(async () => {}), commit: vi.fn(async (update: any) => { mock.baby.state = update(mock.baby.state); }), queue: vi.fn(async () => {}) };
   await act(async () => { recoveryView = create(<SourceRecovery record={record} onError={onError} />); });
   return recoveryView!;
 }
@@ -131,6 +131,7 @@ it.each(Object.entries(sourceRefusalMessages))("shows and clears %s without bloc
   expect(mock.push).toHaveBeenCalledTimes(1);
   await act(async () => buttons.find((item) => item.props.title === "Clear processing request")!.props.onPress());
   expect(mock.baby.state.outbox).toEqual([]);
+  expect(mock.baby.sync).toHaveBeenCalledTimes(1);
 });
 
 it.each(Object.values(sourceRefusalMessages))("Library retry shows the refusal: %s", async (error) => {

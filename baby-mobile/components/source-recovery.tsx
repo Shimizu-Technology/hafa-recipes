@@ -44,6 +44,7 @@ export function SourceRecovery({ record, onError }: { record: BabyRecord; onErro
     try {
       for (const item of refused) await b.commit((state) => withoutRefusedRetry(state, item.id));
       onError("");
+      void b.sync();
     } catch (error) { onError(messageFor(error)); }
   }
   return <Section title={data.status === "ready" ? "Read again" : "Read this post"}>
