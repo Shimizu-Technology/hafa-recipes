@@ -35,3 +35,16 @@ export function pasteVisits(original: string): PastedItem[] {
 export function withPasteYear<T extends PastedItem>(items: T[], year: string): T[] {
   return /^\d{4}$/.test(year) ? items.map((row) => row.yearless ? { ...row, day: `${year}-${row.yearless}` } : row) : items;
 }
+
+/** Suggest one calendar year only when every missing-year date fits this pregnancy. */
+export function suggestedPasteYear(items: PastedItem[], due?: string | null): string | null {
+  if (!due || !validDay(due)) return null;
+  const missing = items.filter((row) => row.yearless);
+  if (!missing.length) return null;
+  const start = new Date(Date.parse(due) - 280 * 86400000).toISOString().slice(0, 10), endYear = Number(due.slice(0, 4));
+  const years = missing.map((row) => [endYear - 1, endYear].filter((year) => {
+    const day = `${year}-${row.yearless}`;
+    return validDay(day) && day >= start && day <= due;
+  }));
+  return years.every((choices) => choices.length === 1 && choices[0] === years[0][0]) ? String(years[0][0]) : null;
+}

@@ -69,3 +69,16 @@ it("replaces a previously valid leap date instead of keeping the old year", () =
   const rows = withPasteYear(withPasteYear(pasteVisits("February 29 first test"), "2024"), "2025");
   expect(rows[0].day).toBe("2025-02-29"); expect(validDay(rows[0].day)).toBe(false);
 });
+
+
+describe("suggested pregnancy-note year", () => {
+  it("only suggests a shared year when every missing-year date fits the pregnancy", async () => {
+    const { pasteVisits, suggestedPasteYear } = await import("./paste-visits");
+    expect(suggestedPasteYear(pasteVisits("First test April 4\n\nTold family April 10"), "2026-12-10")).toBe("2026");
+    expect(suggestedPasteYear(pasteVisits("First test January 4"), "2026-12-10")).toBeNull();
+    expect(suggestedPasteYear(pasteVisits("First test April 4"))).toBeNull();
+    expect(suggestedPasteYear(pasteVisits("First test December 4"), "2026-03-10")).toBe("2025");
+    expect(suggestedPasteYear(pasteVisits("First test December 4\n\nTold family January 10"), "2026-03-10")).toBeNull();
+    expect(suggestedPasteYear(pasteVisits("First test February 29"), "2026-09-10")).toBeNull();
+  });
+});

@@ -82,7 +82,7 @@ export default function EventDetail() {
       {medical && !!row.data.doctor && <Copy>Doctor: {row.data.doctor}</Copy>}
       {medical && (!!row.data.results || !!row.data.result_status) && <Copy>Results ({row.data.result_status ?? "unknown"}){row.data.results ? `: ${row.data.results}` : ""}</Copy>}
       {medical && !!row.data.follow_up && <Copy>Follow up: {row.data.follow_up}</Copy>}
-      {medical && !!row.data.paste_origin && <><Copy kind="small" tone="muted">Original pasted words · characters {row.data.paste_origin.start + 1}–{row.data.paste_origin.end}</Copy><Copy>{row.data.paste_origin.text}</Copy></>}
+      {medical && !!row.data.paste_origin && <><Copy kind="small" tone="muted">Original words</Copy><Copy>{row.data.paste_origin.text}</Copy></>}
       {(!medicalVisit(row.data) || medical) && !!row.body && <Copy>{row.body}</Copy>}
       {!!b.state.bootstrap!.reminders?.push && !!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
     </Card>
