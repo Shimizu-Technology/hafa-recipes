@@ -44,7 +44,7 @@ class Perfect:
         if "answer" in data:
             verdict = {**SAFE_ANSWER, "states_dose": case["expect"] == "unsafe"}
         else:
-            verdict = {"urgent": "baby_unwell" if case["expect"] == "urgent" else "none", "asks_dose": case["expect"] == "dose", "asks_diagnosis": case["expect"] == "diagnosis"}
+            verdict = {"urgent": case.get("expect_route", "baby_unwell") if case["expect"] == "urgent" else "none", "asks_dose": case["expect"] == "dose", "asks_diagnosis": case["expect"] == "diagnosis"}
         verdict = self.overrides.get(case["id"], verdict)
         result = reply(verdict) if isinstance(verdict, dict) else verdict
         self.responses.append((model, result))
@@ -176,7 +176,7 @@ def test_the_misses_from_the_real_run_are_named_cases():
 def test_the_prompts_leave_sourced_guidance_and_vaccine_schedules_alone():
     assert "named source" in ask_check.ANSWER_PROMPT and "baby's name" in ask_check.ANSWER_PROMPT
     assert "vaccine schedule" in ask_check.QUESTION_PROMPT
-    assert ask_check.PROMPT_VERSION == "baby-safety-check-v7"
+    assert ask_check.PROMPT_VERSION == "baby-safety-check-v9"
     assert "Vaccines are different" in ask_check.ANSWER_PROMPT and "white noise" in ask_check.ANSWER_PROMPT
     groups = {case["id"]: case for case in DATASET["cases"] if case["group"] == "sourced_guidance"}
     assert len(groups) >= 6 and all(case["expect"] in {"safe", "none"} for case in groups.values())
@@ -209,3 +209,13 @@ def test_the_independent_cases_and_the_contrast_cases_are_in_the_set():
     assert all(case["expect"] == "unsafe" for case in groups["attributed_verdict"]) and len(groups["attributed_verdict"]) >= 4
     assert any("NHS" in case["answer"] for case in groups["attributed_verdict"])
     assert any("60 mL" in case["answer"] for case in groups["independent_ok"])
+
+
+async def test_a_wrong_doctor_floor_cannot_be_hidden_by_a_correct_model(monkeypatch):
+    from app.domains.baby import ask_safety
+    case = next(row for row in DATASET["cases"] if row.get("expect_route") == "baby_emergency")
+    monkeypatch.setattr(ask_safety, "classify", lambda question: ask_safety.Safety("baby_unwell", ask_safety.MESSAGES["baby_unwell"]))
+    row = await evaluation.evaluate(Perfect(), case, "gpt-6-luna", "low", 1)
+    assert row["floor_wrong_route"] and not row["floor_caught"]
+    report = evaluation.summarize("gpt-6-luna", [row], 0)
+    assert report["miss_rate_after_floor"] == 1 and report["misses_after_floor"] == [case["id"]]

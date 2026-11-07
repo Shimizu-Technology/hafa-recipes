@@ -67,6 +67,7 @@ async def baby_api(monkeypatch, request):
                 text("INSERT INTO schema_migrations VALUES (33,'test baseline')")
             )
         settings = SimpleNamespace(
+            baby_health_release_audience="private_family", baby_health_reviewed_version="baby-health-2026-11-07-m1-m8",
             baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20,
             baby_family_enabled=os.environ.get("BABY_FAMILY_ENABLED", "false").lower() == "true",
             baby_push_enabled=os.environ.get("BABY_PUSH_ENABLED", "false").lower() == "true",
@@ -112,6 +113,7 @@ async def baby_api(monkeypatch, request):
         # A busy test machine isn't what the check budget is about; its own test sets it.
         monkeypatch.setattr("app.domains.baby.push_worker.CHECK_BUDGET", timedelta(minutes=1))
         monkeypatch.setattr("app.domains.baby.access.get_settings", lambda: settings)
+        monkeypatch.setattr("app.domains.baby.ask_gate.get_settings", lambda: settings)
         # Provider gates use fresh independent sessions, just like production.
         monkeypatch.setattr("app.db.database.AsyncSessionLocal", sessions)
         async with httpx.AsyncClient(

@@ -10,6 +10,7 @@ import re
 from difflib import get_close_matches
 from typing import NamedTuple
 
+BABY_EMERGENCY, BABY_ER, POISONING = "baby_emergency", "baby_er", "poisoning"
 URGENT_MATERNAL, HARM, BABY_UNWELL, MENTAL_HEALTH = "urgent_maternal", "harm", "baby_unwell", "mental_health"
 
 CALL_911 = "Please call 911 or go to the nearest emergency room if you are experiencing a medical emergency."
@@ -21,8 +22,14 @@ CALL_MAMA = (
 MESSAGES = {
     URGENT_MATERNAL: f"Seek medical care immediately. {CALL_911}",
     HARM: f"{CALL_911}\n\n{CALL_988}\n\n{CALL_MAMA}",
-    # The packet's G2 wording, the one fixed line here with no published source behind it.
-    BABY_UNWELL: "Call your baby's doctor now, or call 911 if it may be an emergency.",
+    # AAP-hosted Newborn Illness / Breathing Trouble, rechecked 2026-11-07.
+    # https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Newborn+Illness+-+How+to+Recognize
+    # https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Breathing+Trouble
+    BABY_EMERGENCY: "Call 911 now. Your baby may be having a life-threatening emergency.",
+    BABY_ER: "Go to the emergency room now for your baby.",
+    # Poison.org, accessed 2026-11-07. No home treatment or dose calculation.
+    POISONING: "If someone collapsed, is having a seizure, has trouble breathing or can’t be woken, call 911 now. For suspected poisoning or an accidental overdose, call US Poison Control now at 1-800-222-1222. Don’t wait for Ask.",
+    BABY_UNWELL: "Call your baby's doctor now or seek urgent care.",
 }
 DOSE_REFUSAL = "I can't give a dose. Please ask your doctor or pharmacist."
 DIAGNOSIS_REFUSAL = (
@@ -40,9 +47,18 @@ VACCINE_SOURCES = (
     {"url": "https://www.cdc.gov/vaccines/hcp/imz-schedules/child-adolescent-age.html",
      "title": "CDC's child immunization schedule", "domain": "www.cdc.gov"},
 )
+REDUCED_MOVEMENT_RULE = "Never reassure about reduced fetal movement or suggest waiting to finish a count; direct to medical care immediately."
+MOVEMENT_WARNING = "Baby moving less or stopped? Seek medical care immediately. Don’t wait to finish a count."
+FETAL_MOVEMENT_TOPIC = re.compile(r"\b(kicks?|fetal|pregnan\w*|womb|trimester|unborn)\b|less (?:room|space)", re.I)
+MOVEMENT_DROP = re.compile(r"\bmove\w* less|\bmovements?\b[^.!?\n]{0,35}\b(less|slow\w*|fewer|decreas\w*)\b|\b(less|fewer|slow\w*|reduc\w*|decreas\w*)\b[^.!?\n]{0,25}\b(kicks?|movements?)\b", re.I)
+MOVEMENT_REASSURANCE = re.compile(r"\b(normal|expected|common|often|typical|fine|okay|harmless|room|space|crowded|cramped)\b", re.I)
+MOVEMENT_NEGATED_CLAIM = re.compile(r"\b(do not|don't|should not|shouldn't) move less|\bnot (true|normal|expected) (that|for)|\bnot because (of )?(less )?(room|space)", re.I)
+
 SAFETY_RULES = (
     "Add \"safety\" to your JSON: null, or 'urgent_maternal' if the parent describes an urgent maternal warning sign, 'harm' if "
-    "they mention harming themselves or the baby, or 'baby_unwell' if they describe a baby who seems sick or hurt. Those three "
+    "they mention harming themselves or the baby, 'poisoning' for suspected poisoning or accidental overdose, 'baby_emergency' for not breathing, severe breathing trouble, blue or gray "
+    "lips/face, inability to wake, very weak/not moving or grunting with each breath; 'baby_er' for a floppy baby, green vomit, "
+    "weak suck or a weak/strange cry; otherwise 'baby_unwell' for a baby who seems sick or hurt. These "
     "get a fixed reply from the app. Do not diagnose. Do not say what a symptom, log entry or reading means for this "
     "person or baby. Always write in English. Never write an amount, strength, timing or duration for any medicine, supplement or "
     "herb, in any form, even one she logged, a source gave or a doctor wrote. If asked, say you can't give a dose, share what "
@@ -58,8 +74,8 @@ SAFETY_RULES = (
     "one, and say this may change. If asked which to follow, say to ask the pediatrician. You can report counts and dates "
     "from the logs, but do not call them normal, low, high, good or concerning, even if asked: say the logs may be incomplete, "
     "share what sources say in general with links, and suggest asking the baby's doctor. If the user is worried, say that's "
-    "reason enough to call. Never reassure about reduced fetal movement or suggest waiting to finish a count; "
-    "direct to medical care immediately. "
+    "reason enough to call. "
+    f"{REDUCED_MOVEMENT_RULE} "
 )
 # Harm is checked first and nothing excuses it: a person's own words about harm always get the numbers.
 HARM_WORDS = re.compile(
@@ -115,6 +131,22 @@ BABY_WORDS = re.compile(
     r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
     re.I,
 )
+# These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
+BABY_EMERGENCY_WORDS = re.compile(
+    r"\b(not breathing|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+not anymore|"
+    r"can't breathe|cannot breathe|struggling (?:to breathe|for (?:each )?breath\w*|for air)|gasping|"
+    r"won't wake(?: up)?|wont wake(?: up)?|can't (?:be )?woken|cannot (?:be )?woken|can't wake|not waking|unresponsive|won't respond|wont respond|"
+    r"can't get \w+ ?\w* to wake|very weak|not moving|grunting|turning blue|(?:baby|newborn|infant|she|he) (?:is |looks? |turned |turning )?(?:blue|bluish|gray|grey|dusky)|"
+    r"(?:blue|bluish|gray|grey|dusky) (?:lips|tongue|face)|(?:lips|tongue|face) (?:are |is |look |looks )?(?:blue|bluish|gray|grey|dusky)|choking)\b", re.I,
+)
+BABY_ER_WORDS = re.compile(r"\b(floppy|limp|green vomit|vomit(?:ing)? (?:bile|green)|throwing up (?:bright )?green|hard to wake(?: up)?|weak suck|weak cry|strange cry|ribs? (?:are )?pull(?:ing)? in|sucking in)\b", re.I)
+
+
+def help_kind(kind):
+    """Keep the existing mobile wire value; emergency/ER are internal routing tiers."""
+    return BABY_UNWELL if kind in {BABY_EMERGENCY, BABY_ER} else CANT_ANSWER if kind == POISONING else kind
+
+
 BABY_UNWELL_WORDS = re.compile(
     r"\b(floppy|limp|lethargic|unresponsive|won't wake|wont wake|hard to wake|not waking|can't wake|turning blue|blue lips|lips? (?:is |are |look |looks )?(?:blue|dusky)|dusky|gasping|"
     r"lips? (?:look |looks )?(?:grey|gray)|breathing funny|grunting|sucking in|barely breathing|can't get \w+ ?\w* to wake|went stiff|jerking|"
@@ -233,6 +265,13 @@ def without_lookups(sentence):
     return " ".join(clause for clause in CLAUSE_BREAK.split(sentence) if clause and not LOOKUP_CLAUSE.search(clause))
 
 
+POISONING_WORDS = re.compile(
+    rf"\b(overdos\w*|double dos\w*|too (?:much|many) (?:medicine|medication|pills?|tablets?))\b"
+    rf"|\b(swallow\w*|drank|ate|took|given|gave)\b[^.!?\n]{{0,45}}\b(bleach|poison\w*|cleaner|button battery|battery|extra (?:dose|pills?|tablets?))\b"
+    rf"|\baccidentally\b[^.!?\n]{{0,80}}{MEDICINE_WORDS.pattern}", re.I,
+)
+
+
 def classify(message, child_names=()):
     """What a person's own words call for before anything else happens. None for everything else."""
     text = normalized(message)
@@ -243,13 +282,21 @@ def classify(message, child_names=()):
     # Each sentence, then each pair, so "My newborn has a temperature. 38.5 C." reads as one thing.
     pairs = [" ".join(part.rstrip(".!?; ") for part in pair) for pair in zip(kept, kept[1:], strict=False)]
     found = None
+    baby_found = None
+    poison_found = None
     for part in [*kept, *pairs]:
+        if POISONING_WORDS.search(part):
+            poison_found = Safety(CANT_ANSWER, MESSAGES[POISONING])
         about_baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
-        if about_baby and BABY_UNWELL_WORDS.search(part):
-            return Safety(BABY_UNWELL, MESSAGES[BABY_UNWELL])
+        if about_baby and BABY_EMERGENCY_WORDS.search(part):
+            return Safety(BABY_UNWELL, MESSAGES[BABY_EMERGENCY])
+        if about_baby and BABY_ER_WORDS.search(part):
+            baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_ER])
+        elif about_baby and BABY_UNWELL_WORDS.search(part) and not baby_found:
+            baby_found = Safety(BABY_UNWELL, MESSAGES[BABY_UNWELL])
         if MATERNAL_SIGNS.search(part):
             found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
-    return found
+    return poison_found or baby_found or found
 
 
 def boundary(question):
@@ -293,6 +340,9 @@ def gives_a_diagnosis(message):
 def unsafe_output(question, message):
     """The fixed line to use instead of this text, or None if the checks pass it."""
     text = normalized(message)
+    if (FETAL_MOVEMENT_TOPIC.search(normalized(question) + " " + text) and MOVEMENT_DROP.search(text)
+            and MOVEMENT_REASSURANCE.search(text) and not MOVEMENT_NEGATED_CLAIM.search(text)):
+        return MOVEMENT_WARNING
     if states_a_dose(normalized(question), text):
         return DOSE_REFUSAL
     return DIAGNOSIS_REFUSAL if gives_a_diagnosis(text) else None
@@ -305,7 +355,7 @@ def cant_answer(message):
 def answer_checks(question, answer):
     """A finished answer, with the rules code can enforce. Returns (message, safety_kind, extra_sources)."""
     if answer.safety in MESSAGES:
-        return MESSAGES[answer.safety], answer.safety, []
+        return MESSAGES[answer.safety], help_kind(answer.safety), []
     refusal = unsafe_output(question, answer.message)
     if refusal:
         return refusal, None, []
