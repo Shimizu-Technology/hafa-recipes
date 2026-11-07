@@ -203,6 +203,11 @@ BABY_WORDS = re.compile(
 BORN_CHILD = re.compile(
     r"\b(newborn|infant|toddler|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b", re.I,
 )
+FUTURE_BIRTH = re.compile(
+    # Future/negated birth wording is pregnancy context, not evidence of a born child.
+    r"\b(?:(?:due|expected|scheduled|set|yet) to be|(?:will|would|should|may|might|could) (?:soon )?be|"
+    r"(?:going|about) to be|(?:isn't|is not|not)(?: yet)?|(?:hasn't|has not)(?: yet)? been|to be) born\b", re.I,
+)
 BABY_PRONOUN_SUBJECT = re.compile(r"^\W*(?:(?:now|also|then)\s+)*(?:she|he|her|his|they|their|shes|hes)\b", re.I)
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
 BABY_EMERGENCY_WORDS = re.compile(
@@ -398,11 +403,11 @@ def classify(message, child_names=()):
             if clause and not LOOKUP_CLAUSE.search(clause)
             for part in re.split(r"\s+and\s+|\s*&\s*", clause, flags=re.I) if part]
     context = " ".join(kept)
-    after_birth = re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth|born|newborn|infant)\b", context, re.I)
+    after_birth = re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth|born|newborn|infant)\b", FUTURE_BIRTH.sub("", context), re.I)
     # A bare week count may be an infant's age or weeks after birth. "Kicked"
     # can also describe a born baby's body; neither establishes pregnancy.
     pregnancy_context = any(
-        re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", part, re.I)
+        (re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", part, re.I) or FUTURE_BIRTH.search(part))
         and not re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth)\b", part, re.I)
         for part in kept
     )
@@ -454,9 +459,9 @@ def classify(message, child_names=()):
     born_parts = []
     born_context = False
     for part, about_baby in zip(kept, baby_parts, strict=True):
-        if BORN_CHILD.search(part):
+        if BORN_CHILD.search(FUTURE_BIRTH.sub("", part)):
             born_context = True
-        elif about_baby and not BABY_PRONOUN_SUBJECT.search(part):
+        elif FUTURE_BIRTH.search(part) or (about_baby and not BABY_PRONOUN_SUBJECT.search(part)):
             born_context = False
         born_parts.append(bool(about_baby and born_context))
     maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
@@ -466,7 +471,7 @@ def classify(message, child_names=()):
         return bool(pregnancy_context and not born_child and (
             emergencies in (["not moving"], ["isn't moving"])
             or BABY_ER_WORDS.search(part) and re.search(r"\bmoving less|decreased movement\b", part, re.I) and not emergencies
-        ) and not BORN_CHILD.search(part))
+        ) and not BORN_CHILD.search(FUTURE_BIRTH.sub("", part)))
 
     # Only join fragments when neither belongs to a maternal/fetal concern. This
     # retains “my newborn has a temperature. 38.5 C” without merging a fetal
@@ -496,7 +501,7 @@ def classify(message, child_names=()):
                 fetal_movement = True
             else:
                 maternal = True
-    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or BORN_CHILD.search(text)))
+    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or any(born_parts)))
     if ambiguous_weeks and baby_kind == BABY_EMERGENCY and re.search(r"\b(?:not moving|isn't moving)\b", context, re.I):
         maternal = True  # Ambiguity must preserve both routes, never downgrade baby 911.
     if maternal and baby_kind:
