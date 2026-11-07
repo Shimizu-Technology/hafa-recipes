@@ -12,6 +12,7 @@ import {
   changesAnything, changeUnit, childWrite, chooseDue, dueSaid, formFor, measureProblem, noEdits, progressProblem, sameSpace, saveProblem, shownForm,
   startingUnit, touch, typeProgress, withChildDraft, type ChildForm,
 } from "@/lib/child-setup";
+import { contactsOn } from "../lib/contacts";
 import { Button, Chips, Copy, Field, Notice, Row, Screen, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { Disclosure } from "@/components/disclosure";
@@ -26,7 +27,7 @@ const typedWeight = (form: ChildForm) => ({ lb: form.lb, oz: form.oz, kg: form.k
 const Half = ({ children }: { children: React.ReactNode }) => <View style={{ flex: 1, flexBasis: "auto" }}>{children}</View>;
 
 export default function ChildEditor() {
-  const { id, stage: param } = useLocalSearchParams<{ id?: string; stage?: string }>(),
+  const { id, stage: param, doctor: toDoctor } = useLocalSearchParams<{ id?: string; stage?: string; doctor?: string }>(),
     b = useBaby(),
     toast = useToast(),
     today = profileToday(new Date(), b.state.bootstrap!.profile.timezone),
@@ -79,6 +80,12 @@ export default function ChildEditor() {
     return () => clearTimeout(timer);
   }, [edits]);
   useEffect(() => () => void keepDraft(), []);
+  // Help's "Add a baby's doctor" lands on the fields it means, which are at the end.
+  useEffect(() => {
+    if (!toDoctor) return;
+    const timer = setTimeout(() => scroller.current?.scrollToEnd(), 300);
+    return () => clearTimeout(timer);
+  }, []);
   // The problem shows next to Save, which is often at the fold. Keep it, and Save, on screen.
   useEffect(() => {
     if (!error) return;
@@ -228,6 +235,10 @@ export default function ChildEditor() {
               options={[{ label: "Nursing", value: "nursing" }, { label: "Bottle", value: "bottle" }, { label: "Both", value: "both" }, { label: "Not sure", value: "unsure" }]} />
           </View>
           {!!form.due && <DateField label="Due date" value={form.due} onChange={(due) => edit("due", (current) => chooseDue(current, due, today))} dateOnly optional />}
+        </Disclosure>}
+        {contactsOn(b.state.bootstrap) && <Disclosure title="Baby’s doctor" detail="Adds a call button on Help" startOpen={!!toDoctor || !!details.doctor || edits.touched.includes("doctorName") || edits.touched.includes("doctorPhone")}>
+          <Field label="Name" value={form.doctorName} maxLength={120} onChange={(doctorName) => edit("doctorName", (current) => ({ ...current, doctorName }))} />
+          <Field label="Phone" purpose="phone" value={form.doctorPhone} maxLength={40} onChange={(doctorPhone) => edit("doctorPhone", (current) => ({ ...current, doctorPhone }))} />
         </Disclosure>}
         {!!error && <Notice error>{error}</Notice>}
         <Button title="Save profile" size="lg" busy={busy} onPress={() => void save()} />

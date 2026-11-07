@@ -56,6 +56,15 @@ it.each([
   await act(async () => rows()[0].props.onPress());
   expect(f.push).toHaveBeenLastCalledWith("/profile");
 });
+it.each([
+  ["an API without contacts", {}, "Your details"],
+  ["a parent", { contacts: {} }, "Your details and numbers"],
+  ["a caregiver", { contacts: {}, spaces: [{ id: "p", kind: "personal" }, { id: "f", kind: "family", role: "caregiver" }] }, "Your details"],
+])("says what's behind the name for %s", async (_, bootstrap, detail) => {
+  f.bootstrap = bootstrap;
+  await open();
+  expect(rows()[0].props.detail).toBe(detail);
+});
 it("keeps everything that used to be here within reach", async () => {
   f.reminders = { push: true };
   await open();
