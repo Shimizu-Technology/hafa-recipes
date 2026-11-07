@@ -20,7 +20,7 @@ from pydantic import Field, field_validator, model_validator
 
 from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
-from app.domains.baby.ask_safety import MESSAGES
+from app.domains.baby.ask_safety import BABY_ROUTING_RULE, MESSAGES, MIXED_RULE
 from app.domains.baby.budget import SEARCH_CALL_MICROUSD, AskCall, reserve, reserve_ask, settle
 from app.domains.baby.schemas import DomainModel, Evidence
 from app.domains.workouts.budget import BudgetError
@@ -297,7 +297,7 @@ class BabyProvider:
         async with AIInvocationTracker(
             capability=capability,
             primary_model=model,
-            prompt_version="baby-photo-evidence-v4" if capability == "baby_extraction" else ("baby-chat-emergency-v2" if capability == "baby_chat" else "baby-private-v1"),
+            prompt_version="baby-photo-evidence-v4" if capability == "baby_extraction" else ("baby-chat-emergency-v2-recheck-1" if capability == "baby_chat" else "baby-private-v1"),
             schema_version="baby-v1",
             allow_canary=False,
             rollout_variant="primary",
@@ -492,9 +492,7 @@ class BabyProvider:
                 "General organizational help is allowed; label general information separate from saved evidence. "
                 "Do not diagnose, personalize pregnancy/feeding/medical schedules, recommend doses, or imply normality "
                 "from incomplete logs. For a medical decision encourage the user's clinician; urgent symptoms need urgent care. "
-                "Set safety to baby_emergency for a baby not breathing, severe trouble breathing, blue/gray lips or face, "
-                "inability to wake, very weak/not moving or grunting with each breath; baby_er for floppy muscle tone, green vomit, "
-                "weak suck or weak/strange cry; baby_unwell for other illness needing the doctor now. "
+                + MIXED_RULE + BABY_ROUTING_RULE +
                 "Only suggest journal entries or questions when requested; never claim you saved them. "
                 "Never propose enabled reminders. Use clear plain language; no unsupported health predictions. "
                 "Record times carry the parent's own UTC offset and now_local is their current local time; "

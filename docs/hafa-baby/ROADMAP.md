@@ -449,3 +449,52 @@ The API can't see sessions, but it can see clients. Every `POST /bootstrap` or c
 |---|---|
 | F7a | Retry outbox items previously marked as errors after a 404 so the server can return `moved` and the client can retarget them. A feed/session tap that receives 404 must remain durable; refresh or resolve the record and retry the same action ID instead of deleting the local record and losing the tap. On a capture 401, refresh the share credential and rebind pending captures non-destructively; preserve the original capture ID and receipt. After leave/removal, Keep in my personal space preserves the draft text but drops retired/unreadable attachment IDs and asks the user to reattach the files. |
 | F10 | Clear `BABY_FAMILY_TEST_USERS`. Before a real Create family, verify that every signed-in phone has updated to the family-capable build and rebound its share credential. Enforce this as an admission gate, not disclosure copy alone; block family activation while any phone is outdated or its readiness is unknown. Rehearse queued edits/imports, 404-error recovery, a pending feed/session tap and 401 capture recovery across two signed-in phones before admitting real accounts. |
+
+
+### November 7: mixed parent/baby urgent replies
+
+Follow-up to #642, based on main `d51539e09b2ca03a9848478878506eec87f0ef05`:
+Ask must keep both people's fixed guidance when maternal and infant concerns
+coexist. Classify patient clauses before combining routes, including “I”, “Im”
+and no maternal subject. Baby 911 leads; otherwise maternal immediate-care/911
+precedes baby ER or doctor. The same three composite internal routes exist in
+the model question check and generated-safety schema on both Ask paths. Existing
+mobile Help values and the existing sourced reply text remain compatible.
+
+Acceptance: Leon’s three reproductions plus ten more mixed phrasings; exact
+shipped text/order on both HTTP paths with AI/consent off; saved-chat roundtrip;
+model-selected composite routes and generated safety labels; and single-person,
+lookup, fetal-movement and fragmented-temperature regression checks. This is API
+routing QA; no native UI or production service/configuration was changed.
+CDC Hear Her and AAP’s newborn illness guidance were re-fetched November 7.
+
+A preliminary real check of the first mixed prompt covered the 13 mixed phrases
+and three single-patient controls, three trials each: 48/48 model routes correct,
+no provider errors, additional estimated usage $0.005141 under a $0.05 hard cap.
+This is targeted evidence, not a full safety/whole-Ask acceptance run. Including
+prior completed usage, recorded successful eval usage is $0.333867; including
+all earlier conservative incomplete/interrupted reservations, accounted spend
+was initially reserved at most $1.933867. The original 401 log proves the first
+provider call was rejected before any successful response, releasing its $0.50
+reservation. Further final-prompt safety/whole-Ask runs remain inside the
+original $2 including conservative reservations for other unfinished runs.
+
+The independent M1–M8 re-check added R1–R5. This hotfix restores the doctor's
+911 fallback (R1), preserves both patients (R2), expands AAP emergency phrases
+including passing out/choking and prolonged seizures (R3), and routes infant
+breathing trouble and green vomit to ER (R4). The model question check, old
+Ask generation and V2 share one baby-tier rule. The independent probe files
+and report form a 152-phrase regression table, exercised on both HTTP paths.
+Exact-route grading now rejects an urgent reply from the wrong tier; floor
+coverage also requires the correct fixed reply when a case names a route.
+Pregnancy movement concerns remain maternal and survive a separate newborn's
+illness. The app remains private; no clinician review is claimed.
+
+Reverified November 7, 2026: AAP [Breathing Trouble](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Breathing+Trouble),
+[Newborn Illness](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Newborn+Illness+-+How+to+Recognize),
+[Fever 0–12 Months](https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Fever+%280-12+Months%29),
+and [Febrile Seizures](https://www.healthychildren.org/English/health-issues/conditions/fever/Pages/Febrile-Seizures.aspx).
+The conservative default for a baby with unspecified age and breathing trouble
+is ER. Choking over-triage is retained; no treatment instructions or dose added.
+#639 and #640 remain unmerged; integration and R5 follow the hotfix.
+No production configuration or V2 flag change is authorized here.
