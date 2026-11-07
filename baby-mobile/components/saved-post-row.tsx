@@ -9,13 +9,13 @@ import { Copy, Icon, PressTarget, fonts, radii, useColors } from "./ui";
 
 const labels: Record<string, string> = {
   saved: "Original saved", queued: "Waiting to process", processing: "Processing…",
-  ready: "", incomplete: "Some details unavailable", failed: "Original saved · processing needs another try",
+  ready: "", incomplete: "Couldn’t read everything · Open to retry", failed: "Original saved · processing needs another try",
   cancelled: "Original saved · processing stopped",
 };
 // Originals remain saved when optional organization fails; describe that state precisely.
 const updates: Record<string, string> = {
   queued: "Waiting to organize…", processing: "Organizing…",
-  failed: "Couldn’t organize · Review", incomplete: "Some details unavailable", cancelled: "Organizing stopped",
+  failed: "Couldn’t organize · Review", incomplete: "Couldn’t read everything · Open to retry", cancelled: "Organizing stopped",
 };
 /** An https thumbnail without credentials, or nothing: a thumbnail is optional and the post stays readable. */
 export function safeThumbnail(record: BabyRecord) {

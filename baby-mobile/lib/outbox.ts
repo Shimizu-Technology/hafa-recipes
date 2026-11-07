@@ -95,6 +95,12 @@ export function withoutChain(state: DeviceState, removed: Mutation, server?: Bab
   return queueRemovedUploads(state, { ...noted, outbox: state.outbox.filter((m) => !gone.has(m.id)),
     ...(server ? { records: replaceRecord(state.records, server) } : server === null ? { records: state.records.filter((r) => r.id !== id) } : {}) });
 }
+/** A refused reread never changed the source revision. Keep edits made after it. */
+export function withoutRefusedRetry(state: DeviceState, id: string): DeviceState {
+  const refused = state.outbox.find((item) => item.id === id);
+  if (!refused || refused.type !== "import" || !refused.error || !refused.record_id || refused.files.length) return state;
+  return withSettled({ ...state, outbox: state.outbox.filter((item) => item.id !== id) }, id, { discarded: true });
+}
 /**
  * An open or kept draft, once changes it was built on have left the outbox. What she wrote stays as it is, and only its
  * revision moves. It goes up one step for a change it saw land, which is what proves the new revision holds nothing it

@@ -56,3 +56,15 @@ it("shows a rejected-tap notice alongside held work, even after an upgrade notic
   rows.find((n) => n.props.title === "A tap wasn’t added")!.props.onPress();
   expect(scope.account.commit.mock.calls[0][0](scope.account.state).feedNotices).toEqual([heldUpgradeNotice]);
 });
+
+
+it("counts a refused source separately from an unfinished draft without saying it is sending", async () => {
+  await render();
+  scope.account.state.outbox = [{id:"refused",type:"import",record_id:"source",files:[],error:"Processing limit"}];
+  scope.account.state.heldDrafts = [{id:"held",draft:{}}];
+  await act(async () => view.update(<SyncStatus />));
+  const row = view.root.findAll((n) => String(n.type) === "Row")[0];
+  expect(row.props.title).toBe("1 change needs attention");
+  expect(row.props.detail).toContain("1 unfinished draft is also kept here");
+  expect(row.props.detail).not.toContain("syncing");
+});

@@ -34,8 +34,8 @@ it("shows only recognized static budget messages on import cards", () => {
 it("treats successfully organized sampled media as complete with visible coverage in the source, not a retry failure", () => {
   expect(importFinished("incomplete")).toBe(true);
   expect(importLabel("incomplete", null)).toBe("Source organized · see processing notes");
-  expect(importRetryable("incomplete", null)).toBe(false);
-  expect(importCardVisible("incomplete", null)).toBe(false);
+  expect(importRetryable("incomplete", null)).toBe(true);
+  expect(importCardVisible("incomplete", null)).toBe(true);
   expect(importCardVisible("ready", null)).toBe(false);
   expect(importCardVisible("queued", null)).toBe(true);
   expect(importCardVisible("processing", null)).toBe(true);
@@ -56,4 +56,12 @@ it("keeps actual incomplete/budget/provider failures in attention cards with ret
 
 it.each(["cancelled","canceled"])("keeps %s sources visible with Retry",status=>{
   expect(importRetryable(status,null)).toBe(true); expect(importCardVisible(status,null)).toBe(true);
+});
+
+it.each([
+  "This post is private or needs permission. Available text and your original link are saved.",
+  "This post is no longer available. Available text and your original link are saved.",
+])("shows the recognized source state: %s", (message) => {
+  expect(importProblem(message)).toBe(message);
+  expect(importProblem("private provider text from an unknown error")).not.toContain("provider text");
 });

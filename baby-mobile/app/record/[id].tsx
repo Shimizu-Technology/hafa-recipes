@@ -25,7 +25,7 @@ import { RecordVisit } from "@/components/visit-sections";
 import { RelatedRows } from "../../components/related-rows";
 import { ShareToggle } from "@/components/share-toggle";
 import { duplicateHint, duplicateOf, loggedByName } from "../../lib/logged-by";
-import { ensureAiConsent } from "../../lib/ai-consent";
+import { SourceRecovery } from "@/components/source-recovery";
 import { babyLabel, isCaregiver } from "../../lib/spaces";
 import { ApiError } from "../../lib/api";
 import { useOpenJournal } from "../../lib/use-open-journal";
@@ -122,6 +122,7 @@ export default function RecordDetail() {
         <Notice>This device has a partial offline copy. Reconnect to load the complete source before editing.</Notice>
       )}
       {pending && <Notice>Saved on this device. Your latest changes will sync when a connection is available.</Notice>}
+      <SourceRecovery record={record} onError={setError} />
       {record.kind === "source" && <SourceContent data={data} onError={setError} />}
       {record.kind === "feeding" && (
         <Card tone="hero">
@@ -255,30 +256,6 @@ export default function RecordDetail() {
         onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
       />}
       </Grouped>
-      {record.kind === "source" && <Disclosure title="Process this post again">
-        <Button
-          secondary
-          title="Process original with AI"
-          icon="sparkles-outline"
-          onPress={() => {
-            void ensureAiConsent(b).then((allowed) => !allowed ? undefined : b
-              .queue({
-                id: Crypto.randomUUID(),
-                type: "import",
-                record_id: record.id,
-                attachment_ids: data.attachment_ids,
-                generation: b.state.bootstrap!.generation,
-                url: data.url,
-                text: [record.body, data.source_text].filter(Boolean).join("\n\n") || undefined,
-                files: [],
-                child_id: record.child_id,
-                topics: data.topics,
-              })
-              .then(() => toast("Original preserved. Processing is queued.")))
-              .catch((e) => setError(messageFor(e)));
-          }}
-        />
-      </Disclosure>}
       <Button
         variant="destructive"
         title="Delete this entry"
