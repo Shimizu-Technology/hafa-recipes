@@ -1,5 +1,5 @@
 {
-  "dataset_version": "hafa-baby-safety-check-v4-recheck",
+  "dataset_version": "hafa-baby-safety-check-v4-recheck-2",
   "product": "baby_safety_check",
   "privacy": "Synthetic text only. No user, child, journal, or provider response is stored.",
   "cases": [
@@ -3387,10 +3387,9 @@
     },
     {
       "id": "independent_recheck_069",
-      "group": "independent_recheck_urgent",
+      "group": "independent_recheck_normal",
       "check": "question",
-      "expect": "urgent",
-      "expect_route": "baby_emergency",
+      "expect": "none",
       "question": "what are signs of choking in a baby"
     },
     {

@@ -227,3 +227,10 @@ async def test_a_wrong_mixed_tier_is_a_miss_even_when_it_is_urgent():
     assert case["id"] in report["misses"]
     assert evaluation.flagged(case, {**SAFE_QUESTION, "urgent": "maternal_baby_emergency"})
     assert evaluation.flagged({"check": "question", "expect": "urgent"}, {**SAFE_QUESTION, "urgent": "baby_unwell"})
+
+
+def test_general_choking_education_is_nonurgent_for_the_model_but_floor_overtriage_is_visible():
+    case = next(c for c in DATASET["cases"] if c["id"] == "independent_recheck_069")
+    assert case["expect"] == "none" and "expect_route" not in case
+    assert not evaluation.flagged(case, SAFE_QUESTION)
+    assert evaluation.caught_by_floor(case)
