@@ -9,6 +9,7 @@ export interface HistoryView {
   query: string;
 }
 export function historyKinds(filter: string): Kind[] {
+  if (filter === "timeline") return ["event", "journal"];
   if (filter === "writing") return ["journal", "question"];
   if (filter === "care") return trackedKinds.filter((kind) => kind !== "milestone");
   if (filter === "journal" || filter === "question") return [filter];

@@ -126,6 +126,7 @@ export function VisitSections({ visit }: { visit: Visit }) {
       {notes.length > 0 && <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon={kindIcon.journal} onPress={() => openRecord(row, visit, at)} />)}</Grouped>}
       <VisitCapture visit={visit} kind="journal" drafts={noteDrafts} />
     </View>
+    {b.records.find((row) => row.id === visit.id && row.kind === "event") && <EventNotes event={b.records.find((row) => row.id === visit.id)!} />}
   </>;
 }
 /** What's already on an event that's no longer an appointment. Changing its category doesn't take her words away. */
@@ -133,6 +134,7 @@ export function VisitLinks({ visit }: { visit: Pick<BabyRecord, "id"> & Partial<
   const b = useBaby(), at = useVisitAt(visit), series = visitIsSeries(visit, b.records), questions = visitQuestions(b.records, visit.id), notes = visitNotes(b.records, visit.id);
   useVisitRecords(visit.id, true);
   return <>
+    {b.records.find((row) => row.id === visit.id && row.kind === "event") && <EventNotes event={b.records.find((row) => row.id === visit.id)!} />}
     {series && notes.length > 0 && <Copy kind="small" tone="muted">These notes belong to the appointment series.</Copy>}
     {questions.length > 0 && <View style={{ gap: 10 }}>
       <Copy kind="heading">{series ? "Questions for this appointment series" : "Questions for the doctor"}</Copy>
@@ -182,8 +184,32 @@ export function RecordVisit({ record }: { record: BabyRecord }) {
     change = (id: string | null, message: string) => void b.queue(linked(b, record, id)).then(() => toast(message)).catch((e) => toast(messageFor(e)));
   const series = !!event?.data.recurrence;
   if (eventId) return <Grouped>
-    {unavailable && !event ? <Copy kind="small" tone="muted">Appointment unavailable. Your note stays in Journal.</Copy> : <Row title={event ? `For ${event.title}${series ? " · Series" : ""}` : "Linked appointment"} detail={series ? "Belongs to the appointment series" : "Open appointment"} icon="calendar-outline" onPress={() => router.push({ pathname: "/event/[id]", params: visitReturn(eventId, params.fromVisit, params.visitAt) })} />}
+    {unavailable && !event ? <Copy kind="small" tone="muted">Appointment unavailable. Your note stays in Journal.</Copy> : <Row title={event ? `For ${event.title}${series ? " · Series" : ""}` : "Linked appointment"} detail={series ? "Belongs to the appointment series" : event?.data.category === "appointment" ? "Open appointment" : "Open event"} icon="calendar-outline" onPress={() => router.push({ pathname: "/event/[id]", params: visitReturn(eventId, params.fromVisit, params.visitAt) })} />}
     {record.kind === "question" && <Row title={series ? "Take off this series" : "Take off this visit"} detail="It stays in Journal" icon="remove-circle-outline" onPress={() => change(null, series ? "Taken off this series." : "Taken off this visit.")} />}
   </Grouped>;
   return record.kind === "question" && visit && resolved && fitsVisit(record, { ...visit, space_id: resolved.space_id }) ? <Row numericDetail title={`Add to ${visit.title}${visit.repeats ? " series" : ""}`} detail={visit.repeats ? "Every date in this appointment series" : eventWhen(visit, today, timeZone)} icon="link-outline" onPress={() => change(visit.event_id, `Added to ${visit.title}${visit.repeats ? " series" : ""}.`)} /> : null;
+}
+
+/** Ordinary event notes use Journal's existing photo editor and never imply clinician instructions. */
+export function EventNotes({ event }: { event: BabyRecord }) {
+  const b = useBaby(), toast = useToast(), [shared, setShared] = useState(false);
+  useVisitRecords(event.id, true);
+  const notes = b.records.filter((row) => row.kind === "journal" && row.data.event_id === event.id && row.data.provenance !== "clinician_instruction");
+  async function write() {
+    const id = Crypto.randomUUID(), slot = `event-note:${id}`;
+    try {
+      await b.commit((state) => {
+        const record = visitCapture(state, id, "journal", "", event, shared), space = record.data.just_me ? state.bootstrap!.personal_space_id : event.space_id;
+        return { ...state, drafts: { ...state.drafts, [slot]: { ...record, files: [], shared, ...(space ? { space_id: space, generation: generationOf(state.bootstrap, space) ?? state.bootstrap!.generation } : {}), data: { ...record.data, provenance: "caregiver_observation" as const } } } };
+      });
+      router.push({ pathname: "/edit", params: { draft: slot, kind: "journal" } });
+    } catch (e) { toast(messageFor(e)); }
+  }
+  return <View style={{ gap: 10 }}>
+    <Copy kind="heading">Notes & handouts</Copy>
+    <Copy kind="small" tone="muted">Your words and photos in Journal. Class material is saved by you, without creating instructions or reminders. Private notes on shared events stay in Journal without a family link.</Copy>
+    {b.state.bootstrap?.spaces?.some((space) => space.id === event.space_id && space.kind === "family" && space.role === "parent") && <Choice label="Share this new note with the family on this event" selected={shared} onPress={() => setShared(!shared)} />}
+    <Grouped>{notes.map((row) => <Row key={row.id} title={questionWords(row)} icon="document-text-outline" onPress={() => openRecord(row, event, event.occurred_at)} />)}
+      <Row title="Write a note or add photos" icon="add-outline" onPress={() => void write()} /></Grouped>
+  </View>;
 }

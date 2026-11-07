@@ -588,6 +588,12 @@ class EventData(DomainModel):
     one) is the midnight after its last day. Other ends are the moment it finishes.
     """
 
+    clinician_age: str | None = Field(default=None, max_length=120, exclude_if=lambda value: value is None)
+    doctor: str | None = Field(default=None, max_length=240, exclude_if=lambda value: value is None)
+    due_date_snapshot: date | None = Field(default=None, exclude_if=lambda value: value is None)
+    results: str | None = Field(default=None, max_length=10000, exclude_if=lambda value: value is None)
+    result_status: Literal["unknown", "pending", "received"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    follow_up: str | None = Field(default=None, max_length=2000, exclude_if=lambda value: value is None)
     end: AwareDatetime | None = None
     all_day: StrictBool = False
     timezone: str = Field(max_length=80)

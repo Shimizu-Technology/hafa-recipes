@@ -1,3 +1,4 @@
+import { estimatedAge } from "../../lib/prenatal";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -6,7 +7,7 @@ import { useBaby } from "@/lib/context";
 import { dayName, eventKindName, eventWhen, occurrenceAt, reminderName, repeatName, withoutDate, withoutFuture } from "@/lib/events";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { mutationRecordIds, replaceRecord } from "@/lib/outbox";
-import { dayKey, recordDay } from "@/lib/tracker";
+import { dayKey, recordDay, zonedInstant } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { Button, Card, Copy, Grouped, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { CategoryTile, openEvent } from "@/components/event-row";
@@ -74,10 +75,21 @@ export default function EventDetail() {
       <Copy numeric>{when}</Copy>
       {!!shown.location && <Copy>{shown.location}</Copy>}
       {shown.attendees.length > 0 && <Copy>With {shown.attendees.join(", ")}</Copy>}
-      <Copy kind="small" tone="muted">{[child?.name ?? (justMe ? "" : "Whole family"), repeating && repeatName(row.data.recurrence), inFamily && (justMe ? "Just me" : "Shared with family")].filter(Boolean).join(" · ")}</Copy>
+      <Copy kind="small" tone="muted">{[child?.name ?? (inFamily && !justMe ? "Whole family" : "Personal"), repeating && repeatName(row.data.recurrence), inFamily && (justMe ? "Just me" : "Shared with family")].filter(Boolean).join(" · ")}</Copy>
+      {appointment && !!estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? child?.due_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? child?.due_date)}</Copy>}
+      {!!row.data.clinician_age && <Copy>Clinic’s stated week: {row.data.clinician_age}</Copy>}
+      {!!row.data.doctor && <Copy>Doctor: {row.data.doctor}</Copy>}
+      {!!row.data.results && <Copy>Results ({row.data.result_status ?? "unknown"}): {row.data.results}</Copy>}
+      {!!row.data.follow_up && <Copy>Follow up: {row.data.follow_up}</Copy>}
       {!!row.body && <Copy>{row.body}</Copy>}
       {!!b.state.bootstrap!.reminders?.push && !!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
     </Card>
+    {!!row.data.follow_up && <Button secondary title="Make a follow-up calendar item" onPress={() => void (async () => {
+      const id = Crypto.randomUUID(), slot = `follow-up:${id}`;
+      await b.commit((state) => ({ ...state, drafts: { ...state.drafts, [slot]: { id, kind: "event", title: "Follow up", body: row.data.follow_up!, child_id: row.child_id, occurred_at: zonedInstant(today, 0, 0, timezone).toISOString(), files: [], shared: false,
+        data: { timezone, category: "reminder", all_day: true, reminder_minutes: [] } } } }));
+      router.push({ pathname: "/edit", params: { draft: slot, kind: "event" } });
+    })().catch((e) => setError(messageFor(e)))} />}
     {appointment && <Button size="lg" icon="calendar-outline" title="Book next"
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
     {booked && <Row numericDetail title="Next visit" detail={eventWhen(booked, today, timezone)} icon="calendar-outline" onPress={() => openEvent(booked)} />}

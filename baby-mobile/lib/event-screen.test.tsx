@@ -553,24 +553,25 @@ describe("any event works", () => {
     await mount(EventDetail);
     expect(mock.title).toBe("Event");
   });
-  it("in a family, says it's shared while shut, and Just me clears a baby the API wouldn't let it keep", async () => {
+  it("in a family, starts private and changing from Shared to Just me clears a family baby", async () => {
     const b = setup([]);
     b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
       children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
     b.state.selectedChild = "baby";
     mock.params = { kind: "event", day: "2026-11-20" };
     await mount(Edit);
-    expect(more().props.accessibilityLabel).toContain("Shared with family");
+    expect(more().props.accessibilityLabel).toContain("Just me");
     await act(async () => nameField().props.onChange("Date night"));
     await act(async () => more().props.onPress());
     const who = () => found("FilterChips", (p) => p.label === "Who can see this");
-    expect(who().props.value).toBe("shared");
+    expect(who().props.value).toBe("just_me");
+    await act(async () => who().props.onChange("shared"));
     await act(async () => who().props.onChange("just_me"));
     await press("Button", "Save event");
     expect(b.state.outbox[0]).toMatchObject({ space_id: "me", record: { title: "Date night", child_id: null } });
     expect(b.state.outbox[0].record.data.just_me).toBeUndefined();
   });
-  it("in a family, saves to the family with no choice made", async () => {
+  it("in a family, saves privately with no choice made", async () => {
     const b = setup([]);
     b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }],
       children: [{ id: "baby", name: "Noa", revision: 1, space_id: "fam", generation: 1 }] };
@@ -578,7 +579,7 @@ describe("any event works", () => {
     await mount(Edit);
     await act(async () => nameField().props.onChange("Baptism"));
     await press("Button", "Save event");
-    expect(b.state.outbox[0]).toMatchObject({ space_id: "fam", record: { title: "Baptism" } });
+    expect(b.state.outbox[0]).toMatchObject({ space_id: "me", record: { title: "Baptism" } });
   });
   const inFamily = (b: any) => { b.state.bootstrap = { ...b.state.bootstrap, personal_space_id: "me", spaces: [{ id: "me", kind: "personal", role: "owner", generation: 1, access_version: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }], children: [] }; };
   it("Book next goes where the form says: a shared visit's next one is shared, a private one's stays private", async () => {
@@ -603,6 +604,7 @@ describe("any event works", () => {
     await mount(Edit);
     await act(async () => nameField().props.onChange("Check-up"));
     await act(async () => more().props.onPress());
+    await act(async () => who().props.onChange("shared"));
     expect(found("FilterChips", (p) => p.label === "Who is it for?").props.value).toBe("baby");
     expect(words()).not.toContain("can’t be on");
     await act(async () => who().props.onChange("just_me"));
@@ -619,6 +621,7 @@ describe("any event works", () => {
     mock.params = { kind: "event", day: "2026-11-20" };
     await mount(Edit);
     await act(async () => more().props.onPress());
+    await act(async () => who().props.onChange("shared"));
     await act(async () => found("FilterChips", (p) => p.label === "Who is it for?").props.onChange(""));
     await act(async () => who().props.onChange("just_me"));
     await act(async () => who().props.onChange("shared"));

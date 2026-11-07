@@ -1,3 +1,4 @@
+import { snapshotVisit } from "../lib/prenatal";
 import { useEffect, useRef, useState } from "react";
 import { Alert, AppState, Image, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -300,7 +301,10 @@ export default function Edit() {
       // Everything saved from this draft, including the second half of a split, goes with the baby it shows.
       const fit = (given: EditorDraft) => ({ ...given, child_id: fittingChild(b.state.bootstrap!, given, b.records.find((row) => row.id === given.id)) });
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
-        const fitted = fit(given),
+        const scope = choiceFor(b.state.bootstrap, given)?.space_id ?? given.space_id,
+          pregnancies = b.state.bootstrap!.children.filter((child) => child.due_date && !child.birth_date && child.space_id === scope),
+          due = b.state.bootstrap!.children.find((child) => child.id === given.child_id)?.due_date ?? (!given.child_id && pregnancies.length === 1 ? pregnancies[0].due_date : null),
+          fitted = snapshotVisit(fit(given), due),
           from = stampedDraft(b.state, b.state.drafts[slot], fitted.kind === "event" ? eventWrite(fitted) : withFittingVisit(fitted, b.records));
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, shared: ____, ...record } = from,
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;

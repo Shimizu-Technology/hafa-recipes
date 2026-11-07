@@ -1,3 +1,4 @@
+import { estimatedAge } from "../lib/prenatal";
 import { useMemo, useRef, useState } from "react";
 import { Text, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
@@ -37,7 +38,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     // Typing can't take a comma away: the names she means are worked out from what she sees.
     [people, setPeople] = useState((data.attendees ?? []).join(", ")),
     reminders = data.reminder_minutes ?? [], remindersOn = !!b.state.bootstrap!.reminders?.push,
-    labels = useMemo(() => [...new Set([...herCategories(pendingRecords(b.state)), ...(data.category_label ? [data.category_label] : [])])], [draft.existing]),
+    labels = useMemo(() => [...new Set(["Class", ...herCategories(pendingRecords(b.state)), ...(data.category_label ? [data.category_label] : [])])], [draft.existing]),
     [naming, setNaming] = useState(false), setAside = useRef<string | null | undefined>(null),
     bootstrap = b.state.bootstrap!, choice = choiceFor(bootstrap, draft),
     space = choice?.space_id,
@@ -54,7 +55,7 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     },
     // A private event can't be on a baby the family shares. Only said when there's one it could have been on.
     offFamilyBaby = !!choice && !choice.shared && children.some((child) => child.space_id !== bootstrap.personal_space_id),
-    baby = draft.child_id ? children.find((child) => child.id === draft.child_id) : undefined;
+    baby = draft.child_id ? babies.find((child) => child.id === draft.child_id) : undefined;
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="What’s happening?" />
@@ -64,6 +65,16 @@ export function EventFields({ draft, change, today, quick = true }: { draft: Edi
     {data.all_day
       ? <DateField label="When" dateOnly value={key} onChange={(day) => change({ occurred_at: zonedInstant(day, 0, 0, zone).toISOString() })} trailing={<AllDay on onPress={() => change(allDayChanged(draft, false))} />} />
       : <DateField label="When" timeZone={zone} value={draft.occurred_at} onChange={(start) => change(startingAt(draft, start))} trailing={<AllDay on={false} onPress={() => change(allDayChanged(draft, true))} />} />}
+    {data.category === "appointment" && !one && <>
+      <FilterChips label="Previous clinic and doctor" value="" options={pendingRecords(b.state).filter((row) => row.kind === "event" && row.data.category === "appointment" && row.space_id === (space ?? draft.space_id) && (row.data.doctor || row.data.location)).slice(0, 5).map((row) => ({ label: [row.data.doctor, row.data.location].filter(Boolean).join(" · "), value: row.id }))} onChange={(id) => { const previous = b.records.find((row) => row.id === id); if (previous) set({ doctor: previous.data.doctor ?? null, location: previous.data.location ?? null }); }} />
+      {!!estimatedAge(key, data.due_date_snapshot ?? baby?.due_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(key, data.due_date_snapshot ?? baby?.due_date)}</Copy>}
+      <Field label="Clinic’s stated week (optional)" value={data.clinician_age ?? ""} maxLength={120} onChange={(clinician_age) => set({ clinician_age })} placeholder="Their words, for example 12w6d" />
+      <Field label="Doctor (optional)" value={data.doctor ?? ""} maxLength={240} onChange={(doctor) => set({ doctor })} />
+      <Field label="Results (optional)" multiline value={data.results ?? ""} maxLength={10000} onChange={(results) => set({ results })} placeholder="Keep the words you were given" />
+      <FilterChips label="Result status" value={data.result_status ?? "unknown"} options={[{ label: "Unknown", value: "unknown" }, { label: "Pending", value: "pending" }, { label: "Received", value: "received" }]} onChange={(result_status) => set({ result_status: result_status as "unknown" | "pending" | "received" })} />
+      <Field label="Follow up (optional)" multiline value={data.follow_up ?? ""} maxLength={2000} onChange={(follow_up) => set({ follow_up })} />
+      <Copy kind="small" tone="muted">Saving these words does not create a reminder.</Copy>
+    </>}
     {/* Book next carries over what the last visit had, and is still one tap from saving. */}
     <Disclosure title="More details" detail={[detailsLine(draft, remindersOn), baby && babyLabel(baby, bootstrap), place].filter(Boolean).join(" · ")} startOpen={(draft.existing || quick) && detailsSet(draft, remindersOn)}>
       {!one && <Copy kind="small">Repeat</Copy>}
