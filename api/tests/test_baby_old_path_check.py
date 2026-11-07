@@ -9,6 +9,8 @@ from sqlalchemy import select
 
 from app.domains.baby import ask_check
 from app.domains.baby.ask_safety import (
+    BABY_EMERGENCY,
+    BABY_ER,
     BABY_UNWELL,
     CANT_ANSWER,
     CHECK_FAILED,
@@ -17,6 +19,7 @@ from app.domains.baby.ask_safety import (
     URGENT_MATERNAL,
     cant_answer,
     classify,
+    help_kind,
 )
 from app.domains.baby.budget import AskCall, ask_upper_bound
 from app.domains.baby.models import BabyAIAdmission
@@ -173,9 +176,9 @@ FRESH_URGENT = [
     ("pregnent 30 weeks face suddenly puffy pain under right ribs", URGENT_MATERNAL),
     ("31 weeks tightening every 4 minutes and back pain all afternoon", URGENT_MATERNAL),
     ("newborn 12 days old rectal 100.8 but looks okay is it fine to sleep", BABY_UNWELL),
-    ("3 week old throwing up bright green stuff twice", BABY_UNWELL),
+    ("3 week old throwing up bright green stuff twice", BABY_ER),
     ("6 wk baby only one wet nappy today mouth dry not drinking", BABY_UNWELL),
-    ("my 1mo jerking and eyes fixed to one side wont respond", BABY_UNWELL),
+    ("my 1mo jerking and eyes fixed to one side wont respond", BABY_EMERGENCY),
     ("i shook him im scared he seems sleepy now what do i do", HARM),
     ("havent slept 4 days since birth hearing a voice saying my baby is evil", HARM),
     ("everyone would be better without me i have pills next to me", HARM),
@@ -185,9 +188,9 @@ FRESH_URGENT = [
 
 @pytest.mark.parametrize(("message", "kind"), FRESH_URGENT)
 async def test_the_reproduced_forms_are_on_the_floor_and_cost_nothing(baby_api, flag_off, message, kind):
-    assert classify(message).kind == kind
+    assert classify(message).kind == help_kind(kind)
     body = (await old_question(baby_api, message)).json()
-    assert body["message"] == MESSAGES[kind] and body["help"] == kind
+    assert body["message"] == MESSAGES[kind] and body["help"] == help_kind(kind)
     assert flag_off.checks == [] and flag_off.sent == []
 
 
