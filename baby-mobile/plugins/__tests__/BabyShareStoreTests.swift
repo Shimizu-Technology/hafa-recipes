@@ -732,9 +732,11 @@ struct BabyShareStoreTests {
       try check(try store.returnClaim(token, owner: "owner-a"), "stale personal generation returns to waiting")
       try check(try store.unassignedCount() == 1, "original still available for explicit Add")
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "can Add after reset")
+      try check(try store.block(token, reason: "file_too_large"), "a claimed original may already be set aside")
       try store.bind("owner-a:2:" + family)
       try check(try store.unassignedCount() == 1, "same-account rebind preserves in-flight claimed original")
       try check(try store.claim(token, owner: "owner-a", generation: 2) == .claimed, "recovered original needs Add again")
+      try check(try store.pending() != nil, "recovered blocked original is revalidated instead of silently skipped")
       try store.clear(preserveUnassigned: true)
       try check(try store.unassignedCount() == 0, "signed-out startup does not turn an account claim into a no-owner share")
     }

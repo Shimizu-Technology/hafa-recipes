@@ -428,7 +428,7 @@ final class BabyShareStore {
         for folder in folders {
           if var value = try? manifest(folder.lastPathComponent) {
             if preserveUnassigned, (value.scope == nil || (recoverClaims && value.claimed == true)), value.payload != nil {
-              value.scope = nil; value.claimed = nil; value.automaticEpoch = 0
+              value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
               // Retire all live producers while retaining quarantined originals.
               value.epoch = generation
               try write(value, to: folder.appendingPathComponent("manifest.json"))
