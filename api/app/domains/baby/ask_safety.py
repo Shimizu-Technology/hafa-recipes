@@ -271,7 +271,7 @@ def classify(message, child_names=()):
         about_baby = BABY_WORDS.search(part) or (names and re.search(rf"\b({'|'.join(names)})\b", part, re.I))
         emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
         pregnancy_movement = (pregnancy_context and emergencies == ["not moving"]
-                              and not re.search(r"\b(newborn|infant|born|days? old|weeks? old|months? old)\b", part, re.I))
+                              and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
         if pregnancy_movement:
             found = found or Safety(URGENT_MATERNAL, MESSAGES[URGENT_MATERNAL])
             continue
