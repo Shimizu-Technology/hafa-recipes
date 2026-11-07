@@ -101,8 +101,8 @@ MOVEMENT_LATE = re.compile(
 )
 MOVEMENT_CONDITIONAL = re.compile(r"^\s*(?:if|when|should)\b", re.I)
 MOVEMENT_ANAPHORIC_REASSURANCE = re.compile(
-    r"^\s*(?:(?:that|this|it)(?:'s| is)|thats|its) (?:quite |completely |totally )?"
-    r"(?:normal|expected|common|fine|ok(?:ay)?|typical|harmless)[.!?]*$"
+    r"^\s*(?:(?:that|this|it)(?:'s| is)|thats|its|which is) (?:quite |completely |totally )?"
+    r"(?:normal|expected|common|fine|ok(?:ay)?|typical|harmless)\b"
     r"|^\s*(?:don'?t worry|do not worry|nothing to worry about|no big deal)(?: about (?:it|that|this))?[.!?]*$", re.I,
 )
 MOVEMENT_NEGATED_CLAIM = re.compile(
@@ -197,7 +197,7 @@ MATERNAL_SIGNS = re.compile(
 )
 BABY_WORDS = re.compile(
     r"\b(my baby|the baby|babys|baby|newborn|infant|toddler|little one|lo|nene|neni|she|shes|he|hes|her|him|his|daughter|son)\b"
-    r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
+    r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
     re.I,
 )
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
@@ -451,7 +451,7 @@ def classify(message, child_names=()):
         return bool(pregnancy_context and (
             emergencies in (["not moving"], ["isn't moving"])
             or BABY_ER_WORDS.search(part) and re.search(r"\bmoving less|decreased movement\b", part, re.I) and not emergencies
-        ) and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
+        ) and not re.search(r"\b(newborn|infant|toddler|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b", part, re.I))
 
     # Only join fragments when neither belongs to a maternal/fetal concern. This
     # retains “my newborn has a temperature. 38.5 C” without merging a fetal
@@ -479,7 +479,7 @@ def classify(message, child_names=()):
                 fetal_movement = True
             else:
                 maternal = True
-    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or re.search(r"\b(newborn|infant|born)\b|\b\d+[- ]*(?:days?|weeks?|months?)[- ]*old\b", text, re.I)))
+    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or re.search(r"\b(newborn|infant|toddler|born)\b|\b\d+[- ]*(?:days?|weeks?|months?|years?)[- ]*old\b", text, re.I)))
     if ambiguous_weeks and baby_kind == BABY_EMERGENCY and re.search(r"\b(?:not moving|isn't moving)\b", context, re.I):
         maternal = True  # Ambiguity must preserve both routes, never downgrade baby 911.
     if maternal and baby_kind:

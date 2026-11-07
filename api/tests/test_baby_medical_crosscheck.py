@@ -41,6 +41,9 @@ def test_private_family_needs_the_exact_current_marker(monkeypatch):
     ("do kicks slow down at the end of pregnancy", "Don't worry if your baby is moving less."),
     ("do kicks slow down at the end of pregnancy", "Kicks slow down. That's normal."),
     ("do kicks slow down at the end of pregnancy", "Kicks slow down, and that's normal."),
+    ("do kicks slow down at the end of pregnancy", "Kicks decrease, which is normal."),
+    ("do kicks slow down at the end of pregnancy", "Movements decrease, which is expected late in pregnancy."),
+    ("do kicks slow down at the end of pregnancy", "Baby moves less; which is completely normal near the end."),
     ("do kicks slow down at the end of pregnancy", "It's normal, but kicks decrease."),
     ("do kicks slow down at the end of pregnancy", "It's normal. Your baby will move less."),
     ("do kicks slow down at the end of pregnancy", "bb movin less rn is ok bc theres less room"),
@@ -214,6 +217,11 @@ async def test_general_movement_education_passes_both_output_paths_with_conditio
     ("I am 35 weeks and my baby isn't moving", "maternal_baby_emergency"),
     ("I'm 35 weeks pregnant and my baby isn't moving", "urgent_maternal"),
     ("I am pregnant and my newborn isn't moving", "baby_emergency"),
+    ("I'm pregnant. My toddler is not moving", "baby_emergency"),
+    ("Im pregnant and my toddler isn't moving", "baby_emergency"),
+    ("I'm pregnant. My 2 year old is not moving", "baby_emergency"),
+    ("I'm pregnant and my toddler is moving less", "baby_er"),
+    ("My baby is not moving. I'm 35 weeks pregnant. My toddler isn't moving", "maternal_baby_emergency"),
     ("I am bleeding heavily 12 weeks postpartum and my baby isn't moving", "maternal_baby_emergency"),
 ])
 def test_movement_context_never_downgrades_born_or_ambiguous_baby_emergencies(question, route):

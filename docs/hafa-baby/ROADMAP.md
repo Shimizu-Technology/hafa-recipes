@@ -587,7 +587,14 @@ conditional warnings and negated claims retain their existing protections. Both
 Ask paths replace unsafe drafts before the model safety check, with Help and
 no proposal. The old generation prompt now lists all fixed-reply labels from the
 shared catalog (`baby-chat-reviewed-v7-safety-labels`). Checker/V2 prompts and
-clinical routing text are unchanged. Schema/catalog parity and literal composite
+clinical routing text are unchanged. A later review also caught a toddler being
+treated as fetal in pregnancy context and reassurance in a relative clause
+("Kicks decrease, which is normal"). Born-child words/ages now preserve the
+baby emergency tier locally; relative-clause reassurance is stopped before the
+model check on both Ask paths. The regression table covers both HTTP paths
+and stored replies. AAP child weakness/immobility guidance was rechecked
+November 8 at https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Weakness%2Band%2BFatigue.
+Schema/catalog parity and literal composite
 Help-route expectations cover the smaller review findings. The immediate-care
 warning remains based on CDC HEAR HER, rechecked November 8:
 https://www.cdc.gov/hearher/maternal-warning-signs/index.html. No new paid calls.
