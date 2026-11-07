@@ -744,6 +744,10 @@
     {
       "question": "I'm pregnant. My baby is due to be\nborn soon. She isn't moving",
       "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby was not born prematurely. He isn't moving",
+      "route": "baby_emergency"
     }
   ]
 }
