@@ -470,8 +470,14 @@ async def test_weaker_retry_keeps_saved_reading_as_one_unit(baby_api, monkeypatc
         "source_text": "Caption\n\nheating pad\nlabor comb", "summary": "The creator's saved packing list.",
         "key_points": ["Creator lists heating pad and labor comb (slide 2)"],
         "evidence": [{"location": "caption", "text": "Caption"}, {"location": "image:1", "text": "heating pad\nlabor comb"}]}
-    request = shared.payload("source", title="Earlier reading", data=reading)
-    assert (await c.post("/api/v1/baby/records", headers=shared.GEN, json=request)).status_code == 200
+    original = await c.post("/api/v1/baby/imports", headers=shared.GEN,
+                            json={"id": str(uuid4()), "url": reading["url"]})
+    assert original.status_code == 200
+    record_id = original.json()["record_id"]
+    # Persist the first reading through the worker, retaining its original URL-only
+    # import as provenance. These labels must never be mistaken for a parent's note.
+    first = AsyncMock(return_value={"status":"incomplete", "title":"Earlier reading", "data":reading})
+    assert await BabyWorker(baby_api.sessions, processor=first).tick()
     class Acquirer:
         def __init__(self, **kwargs): pass
         async def acquire(self, *args, **kwargs):
@@ -481,6 +487,8 @@ async def test_weaker_retry_keeps_saved_reading_as_one_unit(baby_api, monkeypatc
         enabled = True
         def __init__(self, **kwargs): pass
         async def extract(self, source, categories=None):
+            assert not source.images
+            assert [(part.location, part.text) for part in source.parts] == [("caption", "Caption")]
             if failure == "outage":
                 raise ProviderUnavailable()
             if failure == "daily":
@@ -488,10 +496,10 @@ async def test_weaker_retry_keeps_saved_reading_as_one_unit(baby_api, monkeypatc
             return ExtractionOutput(title="Caption reading", summary="Caption only.", key_points=["Only caption"])
     monkeypatch.setattr(processing, "ProductionSourceAcquirer", Acquirer)
     response = await c.post("/api/v1/baby/imports", headers=shared.GEN,
-                            json={"id": str(uuid4()), "record_id": request["id"]})
+                            json={"id": str(uuid4()), "record_id": record_id})
     assert response.status_code == 200
     assert await BabyWorker(baby_api.sessions, provider_factory=Provider).tick()
-    saved = (await c.get(f"/api/v1/baby/records/{request['id']}")).json()["data"]
+    saved = (await c.get(f"/api/v1/baby/records/{record_id}")).json()["data"]
     for field in ("source_text", "summary", "evidence", "key_points"):
         assert saved[field] == reading[field]
     assert saved["status"] == "incomplete"
