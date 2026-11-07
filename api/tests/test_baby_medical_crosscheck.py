@@ -229,6 +229,16 @@ async def test_general_movement_education_passes_both_output_paths_with_conditio
     ("I'm pregnant and my toddler is moving less", "baby_er"),
     ("My baby is not moving. I'm 35 weeks pregnant. My toddler isn't moving", "maternal_baby_emergency"),
     ("I am bleeding heavily 12 weeks postpartum and my baby isn't moving", "maternal_baby_emergency"),
+    ("I'm pregnant. My baby is due to be born soon. She isn't moving", 'urgent_maternal'),
+    ("I'm pregnant. My baby will be born next month. He isn't moving", 'urgent_maternal'),
+    ("My baby is expected to be born next week. She isn't moving", 'urgent_maternal'),
+    ("I'm pregnant. My baby isn't born yet. She isn't moving", 'urgent_maternal'),
+    ("I'm pregnant. My baby has not been born yet. He isn't moving", 'urgent_maternal'),
+    ("I'm pregnant. My baby is not yet born. She isn't moving", 'urgent_maternal'),
+    ("I'm pregnant. My baby is going to be born soon. She isn't moving", 'urgent_maternal'),
+    ("I'm pregnant. My toddler is in bed. My baby is due to be born soon. She isn't moving", 'urgent_maternal'),
+    ("I'm pregnant. My baby is due to be born soon. She isn't moving. My toddler is not moving", 'maternal_baby_emergency'),
+    ("I'm pregnant. My newborn was born soon after her due date. She isn't moving", 'baby_emergency'),
 ])
 def test_movement_context_never_downgrades_born_or_ambiguous_baby_emergencies(question, route):
     reply = ask_safety.classify(question)

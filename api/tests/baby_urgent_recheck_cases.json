@@ -696,6 +696,46 @@
     {
       "question": "I'm pregnant. My toddler is in bed. I'm bleeding heavily. She isn't moving",
       "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My baby is due to be born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby will be born next month. He isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby is expected to be born next week. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby isn't born yet. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby has not been born yet. He isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is not yet born. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is going to be born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. My baby is due to be born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is due to be born soon. She isn't moving. My toddler is not moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My newborn was born soon after her due date. She isn't moving",
+      "route": "baby_emergency"
     }
   ]
 }
