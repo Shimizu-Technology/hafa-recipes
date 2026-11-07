@@ -1,6 +1,6 @@
 import { HealthNote } from "./health-note";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Linking, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { friendlyDate } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
@@ -13,7 +13,7 @@ import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import { kindName, type Proposal } from "@/lib/models";
 import { babyLabel, isCaregiver } from "../lib/spaces";
-import { Button, Card, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
+import { Button, Card, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors, useToast } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
 /** Where an older conversation from History searches; new chats always search everything. */
 const scopeLine = { all: "All your entries", library: "Saved posts only", journal: "Journal only", care: "Care logs only" } as const;
@@ -84,6 +84,7 @@ function AskChat({ back }: { back: boolean }) {
     composerMinimum = Math.max(46, Math.ceil(17 * fontScale * 1.45 + 24)),
     chat = useAskSession(params.record_id, screenFocused, params.date),
     { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
+  const [composerContentHeight, setComposerContentHeight] = useState(composerMinimum);
   const focusedDay = chat.context.focus_date, focused = !!chat.context.record_id || !!focusedDay,
     askedAbout = b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id),
     focusedCategory = b.records.some((row) => row.id === chat.context.record_id && row.kind === "collection");
@@ -92,10 +93,11 @@ function AskChat({ back }: { back: boolean }) {
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
   }
   const latestAnswer = [...messages].reverse().find((message) => message.role === "assistant"),
-    urgentReply = !showHistory && ["urgent_maternal", "harm", "baby_unwell"].includes(latestAnswer?.help ?? "");
+    urgentReply = !showHistory && ["urgent_maternal", "harm", "baby_unwell"].includes(latestAnswer?.help ?? ""),
+    needsHelp = !showHistory && (!!latestAnswer?.help || !!error);
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
     canSend = !busy && !chat.resolving && !!question.trim(),
-    c = useColors(),
+    c = useColors(), toast = useToast(),
     answered = answeredCalmly(messages),
     seen = !!b.state.askNoticeSeen,
     // New chat and History stay in the header from every state. Neither can interrupt an answer on its way.
@@ -126,8 +128,12 @@ function AskChat({ back }: { back: boolean }) {
       subtitle={focusedDay ? friendlyDate(focusedDay) : focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={<View style={{ gap: 10 }}>
-        {!available && !urgentReply && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
-        {available && !urgentReply && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
+        {needsHelp && large && <>
+          {latestAnswer?.help === "baby_unwell" && latestAnswer.content.startsWith("Call 911 now.") && <Button title="Call 911 now" onPress={() => void Linking.openURL("tel:911").catch(() => toast("Call 911 from your phone."))} />}
+          <Button title="Open Help" onPress={() => router.push("/help")} />
+        </>}
+        {!available && !urgentReply && !(needsHelp && large) && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
+        {available && !urgentReply && !(needsHelp && large) && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}
@@ -140,10 +146,11 @@ function AskChat({ back }: { back: boolean }) {
             selectionColor={c.accentText}
             editable={!busy && !chat.resolving}
             multiline
+            onContentSizeChange={(event) => setComposerContentHeight(Math.ceil(event.nativeEvent.contentSize.height))}
             maxLength={4000}
             maxFontSizeMultiplier={0}
             scrollEnabled
-            style={{ flex: 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
+            style={{ flex: 1, ...(large ? { height: Math.max(composerMinimum, Math.min(composerContentHeight, height * 0.2)) } : {}), maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
               minHeight: composerMinimum, borderRadius: 24,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
               fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
