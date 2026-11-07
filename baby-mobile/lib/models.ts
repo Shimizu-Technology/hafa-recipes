@@ -9,8 +9,19 @@ export interface Profile {
   /** Which AI disclosure this person acknowledged; the server only raises it on acknowledgment. */
   ai_consent_version?: number;
 }
+/** A name and a number as she typed them. Either may be missing. */
+export interface CareContact {
+  name?: string | null;
+  phone?: string | null;
+}
+/** Her own, and never anyone else's to read. The baby's doctor is in `ChildDetails`, so it goes with the baby. */
+export interface CareContacts {
+  doctor?: CareContact | null;
+  delivery?: CareContact | null;
+}
 /** Optional setup answers. Any of them may be missing, and an older API sends none. */
 export interface ChildDetails {
+  doctor?: CareContact | null;
   sex?: "girl" | "boy" | null;
   weight_at_birth_g?: number | null;
   length_at_birth_cm?: number | null;
@@ -39,8 +50,10 @@ export interface ChildForm {
   length: string;
   weeksAtBirth: string;
   feeding: "" | "nursing" | "bottle" | "both";
+  doctorName: string;
+  doctorPhone: string;
 }
-export type ChildField = "stage" | "name" | "birth" | "due" | "sex" | "weight" | "length" | "weeksAtBirth" | "feeding";
+export type ChildField = "stage" | "name" | "birth" | "due" | "sex" | "weight" | "length" | "weeksAtBirth" | "feeding" | "doctorName" | "doctorPhone";
 /** What she's done on the setup screen: only `touched` fields of `form` count, and they stay hers until a save succeeds. */
 export interface ChildEdits {
   form: ChildForm;
@@ -91,6 +104,8 @@ export interface Bootstrap {
   reminders?: { push?: boolean; routines?: boolean };
   /** Set only while the new Ask is on: the disclosure version to show and acknowledge. */
   ask_consent_version?: number | null;
+  /** Always there from an API that keeps these. An older one doesn't send it, and the app hides them. */
+  contacts?: CareContacts;
 }
 export interface Attachment {
   id: string;

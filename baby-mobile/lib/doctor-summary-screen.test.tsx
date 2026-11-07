@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, push: vi.fn(), params: {} as Record<string, string>, stats: undefined as any, error: undefined as string | undefined, refresh: vi.fn(), shared: [] as string[], result: { level: 0, fits: true } }));
+const mock = vi.hoisted(() => ({ baby: null as any, push: vi.fn(), params: {} as Record<string, string>, stats: undefined as any, error: undefined as string | undefined, refresh: vi.fn(), shared: [] as string[], exportWait: null as Promise<void> | null, result: { level: 0, fits: true } }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Switch: "Switch", useWindowDimensions: () => ({ fontScale: 1 }) }));
 vi.mock("expo-router", () => ({ router: { push: mock.push }, useLocalSearchParams: () => mock.params }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
@@ -15,7 +15,7 @@ vi.mock("@/lib/doctor-summary", () => import("./doctor-summary"));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/use-care-stats", () => ({ useCareStats: (choice: unknown, child: string | null) => ({ stats: !choice ? undefined : typeof mock.stats === "function" ? mock.stats(child) : mock.stats, error: mock.error, loading: false, refresh: mock.refresh }) }));
-vi.mock("@/lib/files", () => ({ exportOnePagePdf: async (html: (level: number) => string) => { mock.shared.push(html(0)); return mock.result; } }));
+vi.mock("@/lib/files", () => ({ exportOnePagePdf: async (html: (level: number) => string) => { mock.shared.push(html(0)); if (mock.exportWait) await mock.exportWait; return mock.result; } }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Chips: "Chips", Choice: "Choice", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Section: "Section",
@@ -41,7 +41,7 @@ const update = () => act(async () => { renderer!.update(<DoctorSummary />); awai
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined);
-  mock.params = {}; mock.shared = []; mock.result = { level: 0, fits: true }; mock.stats = answer([day("2026-11-04")]); mock.error = undefined; mock.refresh = vi.fn(async () => undefined);
+  mock.params = {}; mock.shared = []; mock.exportWait = null; mock.result = { level: 0, fits: true }; mock.stats = answer([day("2026-11-04")]); mock.error = undefined; mock.refresh = vi.fn(async () => undefined);
   mock.baby = { owner: "owner", sync: vi.fn(async () => undefined), state: { ...emptyState(), bootstrap: { generation: 1, active: true, ai_available: false, children: [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-10" }], profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: false } } },
     api: { records: vi.fn(async (filters: any) => { const items = [secret, question, note].filter((item) => filters.kinds.includes(item.kind)); return { items, total: items.length, has_more: false }; }),
       careStats: vi.fn(async () => (typeof mock.stats === "function" ? mock.stats() : mock.stats)) } };
@@ -57,6 +57,51 @@ it("leaves a private journal entry off the page unless she ticks it", async () =
   await act(async () => journal().props.onPress());
   await share();
   expect(mock.shared[1]).toContain("So tired and scared tonight");
+});
+describe("naming the doctor", () => {
+  const offer = () => choices().find((n) => /at the top of the page/.test(n.props.label));
+  it("isn't offered against an API without contacts", async () => {
+    await mount();
+    expect(offer()).toBeUndefined();
+  });
+  it("goes on the page only if she ticks it", async () => {
+    mock.baby.state.bootstrap.contacts = {};
+    mock.baby.state.bootstrap.children = [{ ...mock.baby.state.bootstrap.children[0], birth_date: "2026-10-10", details: { doctor: { name: "Dr. Lee", phone: "671-555-0102" } } }];
+    await mount();
+    expect(offer()!.props.label).toBe("Put Dr. Lee · 671-555-0102 at the top of the page");
+    expect(offer()!.props.selected).toBe(false);
+    await share();
+    expect(mock.shared[0]).not.toContain("Dr. Lee");
+    await act(async () => offer()!.props.onPress());
+    await share();
+    expect(mock.shared[1]).toContain("<p>For Dr. Lee · 671-555-0102</p>");
+  });
+  const setupDoctors = () => {
+    mock.baby.state.bootstrap.contacts = {};
+    mock.baby.state.bootstrap.children = [{ ...child("baby", "A"), details: { doctor: { name: "Dr. A" } } }, { ...child("sister", "B"), details: { doctor: { name: "Dr. B" } } }];
+  };
+  it("doesn't offer a retained baby's doctor after API rollback", async () => {
+    setupDoctors(); delete mock.baby.state.bootstrap.contacts;
+    await mount(); expect(offer()).toBeUndefined();
+  });
+  it("doesn't carry a doctor's opt-in to a replacement contact or another baby", async () => {
+    setupDoctors(); await mount();
+    await act(async () => offer()!.props.onPress());
+    mock.baby.state.bootstrap.children[0].details.doctor = { name: "Dr. Replacement" };
+    await update(); expect(offer()!.props.selected).toBe(false);
+    await share(); expect(mock.shared.at(-1)).not.toContain("For Dr. Replacement");
+    await act(async () => offer()!.props.onPress());
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "Chips").find((n) => n.props.label === "Baby")!.props.onChange("sister"));
+    await settle(); expect(offer()!.props.selected).toBe(false);
+    await share(); expect(mock.shared.at(-1)).not.toContain("For Dr. B");
+  });
+  it("locks the doctor choice while a PDF share is in progress", async () => {
+    setupDoctors(); await mount(); const done = later<void>(); mock.exportWait = done.promise;
+    await act(async () => { void footerButton().props.onPress(); });
+    expect(offer()!.props.disabled).toBe(true);
+    await act(async () => done.resolve()); expect(offer()!.props.disabled).toBe(false);
+  });
+
 });
 describe("her own logs", () => {
   const pressure = { ...optimisticRecord({ id: "bp", kind: "custom", title: "118/76", body: "", child_id: null, occurred_at: new Date(Date.now() - 3_600_000).toISOString(), data: { label: "Blood pressure" } }), revision: 1 };

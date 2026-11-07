@@ -178,6 +178,8 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
 
 Details may be tightened together, never changed independently in API/client.
 
+**Care contacts.** `PATCH /profile/contacts` keeps her doctor and where she plans to deliver in `baby_memberships.profile`; `details.doctor` on a child keeps the baby's doctor, so it goes with the baby and everyone in the family reads it. Each is a name and a phone number, with what a copied number brings along cleaned up the same way by the app and the API. Bootstrap always carries `contacts`, which is how a phone knows the API keeps them, and the fields stay hidden until then. Her own are stored in `baby_memberships.profile` under `contacts`, and they're in `SERVER_PROFILE_FIELDS`, so they're never in the `profile` a phone reads and echoes back, and nobody else reads them. They're in her export and removed with her data. No request to a model carries any of them: the Ask context and tools name the child fields they send, and `test_baby_contacts.py` checks that at the HTTP layer.
+
 ## Family, tracker and calendar contracts
 
 Decided November 4, 2026 with Leon and Kami. These extend the API contract above
@@ -424,6 +426,10 @@ Keep `BABY_FAMILY_ENABLED=false` in production while deploying this stack. The l
 ### Rollback floor: `category_label`
 
 Once any event has a `category_label`, the API rolls forward only. A release from before it refuses the field: labelled events drop off the calendar, and edits to them are refused, until it's rolled forward again. The rows stay stored. Before any event has one, rolling back is safe.
+
+### Rollback floor: care contacts
+
+Her doctor and delivery place are stored in `baby_memberships.profile`, and before #638 a profile save replaced that JSON with only the fields it knew. So #638 has to be live before the care contacts API ships, and rollbacks stop there once anyone has saved a contact. Rolled back that far, the fields are hidden and come back on rolling forward. Rolled back further, her next name or AI permission save deletes both. The baby's doctor is in `details`, which keeps keys it doesn't know, and survives either way.
 
 ### Rehearsal gate: `BABY_FAMILY_TEST_USERS`
 

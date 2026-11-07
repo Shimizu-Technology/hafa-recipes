@@ -1,14 +1,23 @@
 import { HealthNote } from "../components/health-note";
 import { Linking, View } from "react-native";
+import { router } from "expo-router";
 import { cdcUrgentClosing, cdcUrgentOpening, cdcUrgentSigns, cdcWarningSignsSource, cdcWarningSignsUrl, helpLines, babyFeverLine, babyFeverUrl, cdcReuseNote } from "@/lib/medical-wording";
-import { Button, Copy, Screen, Section, useToast } from "@/components/ui";
+import { useBabyIfSignedIn } from "@/lib/context";
+import { callLines, nextContactPrompt } from "../lib/contacts";
+import { profileToday } from "@/lib/timing";
+import { Button, Copy, QuietRow, Screen, Section, useToast } from "@/components/ui";
+import { CallContact } from "@/components/call-contact";
+import { canChangeBaby } from "../lib/spaces";
 import { Disclosure } from "@/components/disclosure";
 import { MedicalSource } from "@/components/medical-source";
 
-/** Offline urgent help. No account data or network is needed to read it. */
+/** Fixed help works offline. Saved care contacts, when available, stay below the urgent numbers. */
 export default function Help() {
   const toast = useToast(),
-    open = (url: string, label: string) => void Linking.openURL(url).catch(() => toast(`This device couldn’t do that. ${label.replace(/^(Call|Text) /, "The number is ")}.`));
+    open = (url: string, label: string) => void Linking.openURL(url).catch(() => toast(`This device couldn’t do that. ${label.replace(/^(Call|Text) /, "The number is ")}.`)),
+    bootstrap = useBabyIfSignedIn()?.state.bootstrap,
+    today = profileToday(new Date(), bootstrap?.profile.timezone),
+    prompt = nextContactPrompt(bootstrap, today, (child) => canChangeBaby(bootstrap, child));
   return <Screen title="Help" back>
     <View style={{ gap: 18 }}>
       {helpLines.map((line) => <View key={line.name} style={{ gap: 8 }}>
@@ -17,6 +26,8 @@ export default function Help() {
         {!!line.note && <Copy kind="small" tone="muted">{line.note}</Copy>}
         {!!line.source && <MedicalSource source={line.source.name} url={line.source.url} />}
       </View>)}
+      {callLines(bootstrap, today).map((call) => <CallContact key={call.key} line={call} />)}
+      {!!prompt && <QuietRow title={prompt.title} onPress={() => router.push(prompt.child ? { pathname: "/child", params: { id: prompt.child, doctor: "1" } } : { pathname: "/profile", params: { open: prompt.open } })} />}
     </View>
     <Section title="Urgent maternal warning signs">
       <Copy>{cdcUrgentOpening}</Copy>
