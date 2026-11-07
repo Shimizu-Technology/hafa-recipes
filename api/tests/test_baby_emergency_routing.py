@@ -86,3 +86,67 @@ def test_explicit_fetal_movement_still_uses_the_maternal_immediate_care_route(me
                                        "I am pregnant and my baby is not moving and barely breathing", "I am pregnant. My 2-month-old baby is not moving."])
 def test_newborn_or_other_emergency_signs_still_lead_with_911(message):
     assert ask_safety.classify(message).message == EMERGENCY
+
+
+@pytest.mark.parametrize("message", ["My baby is not moving her bowels", "My baby is grunting while pooping"])
+def test_explicit_bowel_phrases_are_not_breathing_or_whole_body_emergencies(message):
+    assert ask_safety.classify(message) is None
+
+
+def test_bowel_context_never_excuses_an_independent_emergency():
+    assert ask_safety.classify("My baby is grunting while pooping and won't wake up").message == EMERGENCY
+
+
+@pytest.mark.parametrize("baby,first", [("My baby has a fever", ask_safety.MESSAGES[ask_safety.URGENT_MATERNAL]),
+    ("My baby is not breathing", EMERGENCY), ("My baby is floppy", ER)])
+def test_mixed_parent_and_baby_signs_preserve_both_routes(baby, first):
+    reply = ask_safety.classify("I am bleeding heavily. " + baby)
+    assert reply.message.startswith(first)
+    assert ask_safety.MESSAGES[ask_safety.URGENT_MATERNAL] in reply.message
+    assert (EMERGENCY if "breathing" in baby else ER if "floppy" in baby else DOCTOR) in reply.message
+
+
+@pytest.mark.parametrize("label", ["baby_emergency ", " baby_er", "baby_unwell"])
+def test_provider_labels_normalize_to_a_supported_fixed_route(label):
+    from app.domains.baby.provider import AnswerOutput
+    assert AnswerOutput(message="Generated words must not publish", safety=label).safety == label.strip()
+
+
+@pytest.mark.parametrize("label", ["not_a_route", "baby-emergency", "", 42])
+def test_unsupported_non_null_safety_labels_fail_closed(label):
+    from pydantic import ValidationError
+
+    from app.domains.baby.provider import AnswerOutput
+    with pytest.raises(ValidationError):
+        AnswerOutput(message="Generated words must not publish", safety=label)
+
+
+@needs_database
+@pytest.mark.parametrize("ask_v2", [False, True])
+@pytest.mark.parametrize("label,expected", [("baby_emergency ", EMERGENCY), ("unsupported_safety", None)])
+async def test_generated_safety_labels_are_checked_on_both_actual_endpoints(baby_api, stub, ask_v2, label, expected):  # noqa: F811
+    import json
+
+    import httpx
+
+    from tests.test_baby_ask_v2 import answered
+    await enable(baby_api)
+    generated = "Generated advice must never publish"
+    stub.replies = [answered(generated, safety=label)]
+    original = stub.handler
+    def reply(request):
+        if "chat/completions" in str(request.url):
+            return httpx.Response(200, json={"id": "label-test", "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                "choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"message": generated, "safety": label})}}]})
+        return original(request)
+    stub.handler = reply
+    response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()),
+        "message": "Please summarize my notes", "ask_v2": ask_v2})
+    assert generated not in response.text
+    if expected:
+        assert response.status_code == 200 and response.json()["message"] == expected
+        assert response.json()["help"] == "baby_unwell"
+    else:
+        assert response.status_code in {200, 503}
+        if response.status_code == 200:
+            assert response.json()["help"] == "cant_answer"
