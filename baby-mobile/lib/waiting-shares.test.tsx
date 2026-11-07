@@ -126,6 +126,24 @@ describe("the card", () => {
     expect(w.toast).toHaveBeenCalledExactlyOnceWith("Added to your saved posts");
     expect(text()).not.toContain("Adding to your saved posts…");
   });
+  it("buffers an early save while a later claim is pending, then reports the partial failure", async () => {
+    w.rows = [row(), row({ token: "b:1" })];
+    let reject!: (error: Error) => void;
+    const later = new Promise<string>((_resolve, fail) => { reject = fail; });
+    w.claim.mockResolvedValueOnce("claimed").mockReturnValueOnce(later);
+    await mount();
+    await press("Add all 2");
+    expect(w.claim).toHaveBeenCalledTimes(2);
+    await act(async () => { claimSettled("a:1", "saved"); });
+    expect(w.toast).not.toHaveBeenCalled();
+    expect(renderer!.root.findAll(node => (node.type as unknown) === "Button" && node.props.title === "Add all 2")[0].props.busy).toBe(true);
+    expect(text()).not.toContain("couldn’t be added");
+    await act(async () => { reject(Error("store unavailable")); });
+    expect(w.toast).toHaveBeenCalledExactlyOnceWith("Added to your saved posts");
+    expect(text()).toContain("Some of this couldn’t be added just now. It’s still on this phone.");
+    expect(text()).not.toContain("Adding to your saved posts…");
+    expect(renderer!.root.findAll(node => (node.type as unknown) === "Button" && node.props.title === "Add all 2")[0].props.busy).toBe(false);
+  });
   it("doesn't say Added for a share that turns out not to fit, or that couldn't be written", async () => {
     for (const outcome of ["blocked", "failed"] as const) {
       w.rows = [row({ token: `${outcome}:1` })];
