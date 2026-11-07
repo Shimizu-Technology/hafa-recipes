@@ -26,6 +26,9 @@ struct BabyShareSheetStateTests {
     for status in ["saved", "queued", "deferred"] {
       try check(after("owner:1:\(family)", true, status) == .family, "family outranks organizing on \(status)")
     }
+    for state in [BabyShareSheetState.waiting, .notSignedIn, .notConnected] {
+      try check(state.words.detail?.contains("30 days") == true, "phone-only retention is disclosed before sign-in")
+    }
     let closing: [BabyShareSheetState] = [.saved, .organizing, .family], staying: [BabyShareSheetState] = [.saving, .waiting, .notSignedIn, .notConnected]
     for state in closing { try check(state.words.closesItself, "\(state) closes itself") }
     for state in staying { try check(!state.words.closesItself, "\(state) waits for Done") }
