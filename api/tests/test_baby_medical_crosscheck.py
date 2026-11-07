@@ -64,3 +64,13 @@ def test_accidental_overdose_cannot_fall_through_to_a_pharmacist_dose_refusal(qu
     reply = ask_safety.classify(question)
     assert reply and "1-800-222-1222" in reply.message and "call 911 now" in reply.message
     assert "pharmacist" not in reply.message
+
+
+def test_actual_unconfigured_settings_default_to_public_and_no_review(monkeypatch):
+    from app.config import Settings
+    monkeypatch.delenv("BABY_HEALTH_RELEASE_AUDIENCE", raising=False)
+    monkeypatch.delenv("BABY_HEALTH_REVIEWED_VERSION", raising=False)
+    configured = Settings(_env_file=None, database_url="postgresql://localhost/health_test", openai_api_key="test-key", baby_ask_v2_enabled=True)
+    assert configured.baby_health_release_audience == "public" and configured.baby_health_reviewed_version == ""
+    monkeypatch.setattr(ask_gate, "get_settings", lambda: configured)
+    assert not ask_gate.health_release_allowed() and not ask_gate.ask_v2_on()
