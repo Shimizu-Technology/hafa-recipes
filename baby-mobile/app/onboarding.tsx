@@ -17,18 +17,19 @@ export default function Onboarding() {
     [automatic, setAutomatic] = useState(b.state.bootstrap!.profile.auto_process_shares === true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [started] = useState({ name, consent, automatic }),
     [id] = useState(Crypto.randomUUID);
   async function finish() {
     setBusy(true);
     setError("");
     try {
+      // What she changed here, and not what this phone last read: permission may have been withdrawn elsewhere.
       await b.api.profile(
         {
-          ...b.state.bootstrap!.profile,
-          display_name: name.trim(),
+          ...(name !== started.name ? { display_name: name.trim() } : {}),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          ai_consent: consent,
-          auto_process_shares: consent && automatic,
+          ...(consent !== started.consent ? { ai_consent: consent } : {}),
+          ...(automatic !== started.automatic ? { auto_process_shares: consent && automatic } : {}),
         },
         b.state.bootstrap!.generation
       );

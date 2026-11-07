@@ -132,7 +132,8 @@ export function JournalComposer({ draft, change, titleHidden, saved, error, busy
   }
   function closeSheet() {
     setSheet(false);
-    lastFocused.current?.focus();
+    // The Modal's native window keeps focus until its fade ends, so a focus() here would be lost.
+    setTimeout(() => lastFocused.current?.focus(), 350);
   }
   function attach() {
     const kinds: { kind: AttachKind; text: string }[] = [{ kind: "photo", text: "Photo library" }, { kind: "camera", text: "Take a photo" }, { kind: "document", text: "Choose a file" }];
@@ -203,7 +204,7 @@ export function JournalComposer({ draft, change, titleHidden, saved, error, busy
         <PressTarget accessibilityRole="button" accessibilityLabel={draft.existing ? "Save changes" : "Save journal entry"} accessibilityState={{ disabled: busy, busy }} disabled={busy} onPress={onSave}
           style={{ minHeight: 44, paddingHorizontal: 18, paddingVertical: 6, borderRadius: 999, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.action }}>
           {busy ? <ActivityIndicator color={c.onAction} /> : fontScale < 2 && <Icon name="checkmark" size={18} color={c.onAction} />}
-          <Text key={`v:${fontScale}`} numberOfLines={1} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 17, lineHeight: 22, color: c.onAction }}>Save</Text>
+          <Text key={`v:${fontScale}`} numberOfLines={1} maxFontSizeMultiplier={1.6} style={{ fontFamily: fonts.semibold, fontSize: 17, lineHeight: 22, color: c.onAction }}>Save</Text>
         </PressTarget>
       </View>
     </KeyboardAvoidingView>

@@ -353,7 +353,7 @@ it("keeps every control reachable at the largest text, with the date moved into 
   expect(when[0].props.style.width).toBe(44);
   expect(input("Title, optional").props.maxFontSizeMultiplier).toBe(1.6);
   expect(input("Your entry").props.maxFontSizeMultiplier).toBe(0);
-  expect(control("Save journal entry")).toBeDefined();
+  expect(control("Save journal entry").findAll((node) => String(node.type) === "Text")[0].props.maxFontSizeMultiplier).toBe(1.6);
   expect(control("Details")).toBeDefined();
 });
 it("says who can see it without opening anything, for a parent in a family, and a new entry starts private", async () => {
