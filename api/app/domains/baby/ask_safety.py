@@ -79,10 +79,38 @@ GENERAL_MOVEMENT_RULE = (
     "Never say fewer movements are normal or caused by less room."
 )
 MOVEMENT_WARNING = "Baby moving less or stopped? Seek medical care immediately. Don’t wait to finish a count."
-FETAL_MOVEMENT_TOPIC = re.compile(r"\b(kicks?|fetal|pregnan\w*|womb|trimester|unborn)\b|less (?:room|space)", re.I)
-MOVEMENT_DROP = re.compile(r"\bmove\w* less|\bmovements?\b[^.!?\n]{0,35}\b(less|slow\w*|fewer|decreas\w*)\b|\b(less|fewer|slow\w*|reduc\w*|decreas\w*)\b[^.!?\n]{0,25}\b(kicks?|movements?)\b", re.I)
-MOVEMENT_REASSURANCE = re.compile(r"\b(normal|expected|common|often|typical|fine|okay|harmless|room|space|crowded|cramped)\b", re.I)
-MOVEMENT_NEGATED_CLAIM = re.compile(r"\b(do not|don't|should not|shouldn't) move less|\bnot (true|normal|expected) (that|for)|\bnot because (of )?(less )?(room|space)", re.I)
+# Match speech and common texting forms; "move" alone does not stem to "moving".
+MOVEMENT_WORD = r"(?:mov(?:e[sd]?|ing|in'?|ements?|emnts?)|mvmts?|kicks?|kickin(?:g)?)"
+FETAL_MOVEMENT_TOPIC = re.compile(
+    rf"\b(kicks?|movements?|mvmts?|fetal|pregnan\w*|womb|trimester|unborn)\b"
+    rf"|\b(?:baby|babies)\b[^.!?\n]{{0,35}}\b{MOVEMENT_WORD}\b", re.I,
+)
+MOVEMENT_DROP = re.compile(
+    rf"\b(?:{MOVEMENT_WORD}|they|he|she|it|baby|babies)\b[^.!?\n]{{0,45}}"
+    r"\b(?:less|fewer|slow\w*|decreas\w*|reduc\w*|not as much)\b"
+    rf"|\b(?:less|fewer|reduc\w*|decreas\w*)\b[^.!?\n]{{0,25}}\b{MOVEMENT_WORD}\b", re.I,
+)
+MOVEMENT_REASSURANCE = re.compile(
+    r"\b(normal(?:ly)?|expected|common|often|typical|fine|ok(?:ay)?|harmless|nbd)\b"
+    r"|\b(?:nothing to worry|don'?t worry|do not worry|no need to worry|no big deal|not unusual|not concerning)\b", re.I,
+)
+MOVEMENT_ROOM = re.compile(r"\bless\s*(?:room|space)\b|\b(crowded|cramped)\b", re.I)
+MOVEMENT_LATE = re.compile(
+    r"\b(?:near|at|towards?|by) (?:the )?end\b|\blate (?:in )?pregnancy\b"
+    r"|\b(?:due date|term|third trimester|last trimester)\b", re.I,
+)
+MOVEMENT_CONDITIONAL = re.compile(r"^\s*(?:if|when|should)\b", re.I)
+MOVEMENT_ANAPHORIC_REASSURANCE = re.compile(
+    r"^\s*(?:(?:that|this|it)(?:'s| is)|thats|its) (?:quite |completely |totally )?"
+    r"(?:normal|expected|common|fine|ok(?:ay)?|typical|harmless)[.!?]*$"
+    r"|^\s*(?:don'?t worry|do not worry|nothing to worry about|no big deal)(?: about (?:it|that|this))?[.!?]*$", re.I,
+)
+MOVEMENT_NEGATED_CLAIM = re.compile(
+    r"\b(?:do not|don't|does not|doesn't|should not|shouldn't|never) (?:\w+ )?(?:move|slow|decreas\w*|reduc\w*)\b"
+    r"|\bnot (?:true|normal|expected) (?:that|for)\b"
+    r"|\bnot because(?: of)?[^.!?\n]{0,25}\b(?:room|space)\b"
+    r"|\b(?:room|space) (?:doesn't|does not) (?:mean|cause|justify)\b", re.I,
+)
 
 BABY_ROUTING_RULE = (
     "baby_emergency: not breathing, severe trouble breathing (struggling for each breath or barely able to cry), "
@@ -506,10 +534,24 @@ def unsafe_output(question, message):
     """The fixed line to use instead of this text, or None if the checks pass it."""
     text = normalized(message)
     if FETAL_MOVEMENT_TOPIC.search(normalized(question) + " " + text):
-        for sentence in sentences(text):
-            for clause in re.split(r"\s+(?:and|but|yet|however)\s+|[,;]\s*", sentence, flags=re.I):
-                if MOVEMENT_DROP.search(clause) and MOVEMENT_REASSURANCE.search(clause) and not MOVEMENT_NEGATED_CLAIM.search(clause):
-                    return MOVEMENT_WARNING
+        clauses = [clause.strip() for sentence in sentences(text)
+                   for clause in re.split(r"\s+(?:and|but|yet|however|so)\s+|[,;]\s*", sentence, flags=re.I) if clause.strip()]
+        for index, clause in enumerate(clauses):
+            if MOVEMENT_NEGATED_CLAIM.search(clause):
+                continue
+            # "Less room" is itself the prohibited explanation in this context.
+            # Negation stays local: one safe claim cannot excuse the next claim.
+            if MOVEMENT_ROOM.search(clause):
+                return MOVEMENT_WARNING
+            neighbors = clauses[max(0, index - 1):index] + clauses[index + 1:index + 2]
+            reassuring = MOVEMENT_REASSURANCE.search(clause) or any(
+                MOVEMENT_ANAPHORIC_REASSURANCE.search(neighbor) for neighbor in neighbors
+            )
+            # "They slow down near the end" asserts an expected decline even
+            # without "normal". A conditional warning makes no such assertion.
+            expected_late_drop = MOVEMENT_LATE.search(clause) and not MOVEMENT_CONDITIONAL.search(clause)
+            if MOVEMENT_DROP.search(clause) and (reassuring or expected_late_drop):
+                return MOVEMENT_WARNING
     if states_a_dose(normalized(question), text):
         return DOSE_REFUSAL
     return DIAGNOSIS_REFUSAL if gives_a_diagnosis(text) else None

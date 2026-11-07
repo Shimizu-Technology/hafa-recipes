@@ -564,11 +564,33 @@ devices and a fresh noclobber lock. The protected devices remain untouched.
 
 Final-head review, the native matrix, the remaining whole-Ask case, an internal
 family binary and deployed consent/access/revocation/source/budget checks remain
-before the V2 flag. No PR was merged and no production configuration was
+before the V2 flag. The historical `whole-ask-v11-final.json` run used
+`baby-ask-v2-5-recheck`; its exact clean source revision was not captured. Do not
+attribute that paid run to the canonical `83302dc8` gate or later floor changes;
+it is historical regression evidence, superseded by the dated V2 v6 run below.
+No PR was merged and no production configuration was
 changed by this worker. The full item ledger, primary-source decisions,
 conservative defaults and evidence are in #640's medical review report.
 
 ### November 8 continuation after #643
+
+Latest acceptance (November 8): Leon reports the R5 native matrix passed on
+#640 after Settings layout fix `c26d9e24` and accepts static-content visibility.
+That accepted UI is preserved during the API rebase; the blocked attempts below
+are historical. Leon set private-family release settings on Render without a
+deploy; this worker has not accessed or changed production. V2 stays off until
+its complete whole-Ask eval passes (the latest 57/58 run still fails teething).
+
+The final review strengthens the code-only movement floor for reduced-movement
+reassurance, split clauses, late-pregnancy decline and texting forms; safe
+conditional warnings and negated claims retain their existing protections. Both
+Ask paths replace unsafe drafts before the model safety check, with Help and
+no proposal. The old generation prompt now lists all fixed-reply labels from the
+shared catalog (`baby-chat-reviewed-v7-safety-labels`). Checker/V2 prompts and
+clinical routing text are unchanged. Schema/catalog parity and literal composite
+Help-route expectations cover the smaller review findings. The immediate-care
+warning remains based on CDC HEAR HER, rechecked November 8:
+https://www.cdc.gov/hearher/maternal-warning-signs/index.html. No new paid calls.
 
 Leon merged #643; #639 and #640 remain held. The API branch now includes the
 merged main without conflicts, and the mobile branch includes that API branch.
@@ -584,14 +606,15 @@ Conversation rename/delete remains available to a current V2 client when release
 access is revoked, subject to the original feature flag, ownership and generation
 checks; this does not grant permission to generate a health answer.
 
-Native acceptance remains blocked: the old crash's simulator log confirms Clerk
+The earlier native attempt was blocked: the old crash's simulator log confirms Clerk
 Keychain OSStatus -34018 (missing entitlement), not an invalid-key diagnosis.
 The new isolated ARM64 build used the same development publishable key as the
 working Settings bundle and explicit expanded signing entitlements, but iOS 18.5
 denied launch (SBMainWorkspace / nested NSPOSIXErrorDomain 153). No new Clerk
 crash was observed. Device automation stopped after the advised relaunch failed;
-the R5 matrix and cold-relaunch acceptance are not passed. No iOS 26.5 run was
-attempted in this continuation. Do not infer acceptance from the older matrix.
+the R5 matrix and cold-relaunch acceptance were not passed in that attempt.
+No iOS 26.5 run was attempted then. Leon's later acceptance above supersedes
+that block; do not infer acceptance from the older matrix.
 
 Before enabling V2, require a **complete passing final whole-Ask evaluation**,
 not only an isolated rerun of the formerly failing movement case, plus the full
@@ -609,8 +632,8 @@ A zero-call replay verifies the final floor; all 588 existing eval inputs have
 unchanged floor outcomes. Old generation's explicit safety field is capture-tested
 and has not been separately sampled live. No further paid calls will run: recorded
 spend/reservations are $0.772048; the conservative entire-task upper bound, keeping
-earlier unresolved caps, is $1.912048 of the $2 ceiling. Native acceptance and
-final review remain gates regardless of test/CI counts. The detailed dated ledger
+earlier unresolved caps, is $1.912048 of the $2 ceiling. At that snapshot native acceptance and
+final review remained gates regardless of test/CI counts. The detailed dated ledger
 and raw/replayed evidence are in the held content PR's medical report.
 
 Combined canonical `./scripts/check.sh` passed on code/test head
@@ -621,6 +644,6 @@ plus one existing skip. TypeScript, Doctor 21/21, runtime audits, web checks,
 all-platform exports and native-bundle checks passed. The gate used an owned
 PG16 UTF-8/C.UTF-8 disposable database with the synthetic postgres role and no
 global SSL override. This is automated acceptance, not native UI acceptance.
-The isolated native build never reached a health screen; all requested R5 matrix
-dimensions and cold relaunch remain blocked/not run. No merge, production setting
-change or flag change was performed.
+That isolated native build never reached a health screen; its requested R5 matrix
+dimensions and cold relaunch were blocked/not run, before Leon's later acceptance.
+No merge, production setting change or flag change was performed by this worker.

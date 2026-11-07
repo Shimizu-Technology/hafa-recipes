@@ -178,22 +178,23 @@ POISON = "If someone collapsed, is having a seizure, has trouble breathing or ca
 
 @needs_database
 @pytest.mark.parametrize("v2", [False, True])
-@pytest.mark.parametrize("route,expected", [
-    ("maternal_poisoning", MATERNAL + "\n\n" + POISON),
-    ("baby_emergency_poisoning", BABY_911 + "\n\n" + POISON),
-    ("baby_er_poisoning", BABY_ER + "\n\n" + POISON),
-    ("baby_unwell_poisoning", BABY_DOCTOR + "\n\n" + POISON),
-    ("maternal_baby_emergency_poisoning", BABY_911 + "\n\n" + MATERNAL + "\n\n" + POISON),
-    ("maternal_baby_er_poisoning", MATERNAL + "\n\n" + BABY_ER + "\n\n" + POISON),
-    ("maternal_baby_unwell_poisoning", MATERNAL + "\n\n" + BABY_DOCTOR + "\n\n" + POISON),
+@pytest.mark.parametrize("route,expected,help_kind", [
+    ("poisoning", POISON, "cant_answer"),
+    ("maternal_poisoning", MATERNAL + "\n\n" + POISON, "urgent_maternal"),
+    ("baby_emergency_poisoning", BABY_911 + "\n\n" + POISON, "baby_unwell"),
+    ("baby_er_poisoning", BABY_ER + "\n\n" + POISON, "baby_unwell"),
+    ("baby_unwell_poisoning", BABY_DOCTOR + "\n\n" + POISON, "baby_unwell"),
+    ("maternal_baby_emergency_poisoning", BABY_911 + "\n\n" + MATERNAL + "\n\n" + POISON, "baby_unwell"),
+    ("maternal_baby_er_poisoning", MATERNAL + "\n\n" + BABY_ER + "\n\n" + POISON, "urgent_maternal"),
+    ("maternal_baby_unwell_poisoning", MATERNAL + "\n\n" + BABY_DOCTOR + "\n\n" + POISON, "urgent_maternal"),
 ])
-async def test_every_poison_composite_preserves_exact_guidance_on_both_model_check_paths(baby_api, stub, v2, route, expected):  # noqa: F811
+async def test_every_poison_composite_preserves_exact_guidance_on_both_model_check_paths(baby_api, stub, v2, route, expected, help_kind):  # noqa: F811
     await enable(baby_api)
     stub.question_verdict = {"urgent": route}
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS,
         json={"request_id": str(uuid4()), "message": "Things feel different for both of us", "ask_v2": v2})
     assert response.status_code == 200, response.text
     assert response.json()["message"] == expected
-    assert response.json()["help"] == ask_safety.help_kind(route)
+    assert response.json()["help"] == help_kind
     assert not stub.sent
 

@@ -1,4 +1,6 @@
 """Medical cross-check regressions: fixed routing, prompt capture and explicit release approval."""
+import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -30,6 +32,22 @@ def test_private_family_needs_the_exact_current_marker(monkeypatch):
     ("do kicks slow down at the end of pregnancy", "Babies often move less near the end of pregnancy because there is less room."),
     ("How about fetal movement?", "Fewer movements are expected as space gets tight."),
     ("What changes in pregnancy?", "Less movement is normal in the last trimester."),
+    ("do kicks slow down at the end of pregnancy", "Babies are moving less near the end because there is less room."),
+    ("do kicks slow down at the end of pregnancy", "Kicks often slow down late in pregnancy, and that is normal."),
+    ("do kicks slow down at the end of pregnancy", "They slow down near the end."),
+    ("do kicks slow down at the end of pregnancy", "There is less room."),
+    ("do kicks slow down at the end of pregnancy", "It's normal for movements to decrease."),
+    ("do kicks slow down at the end of pregnancy", "Nothing to worry about if baby moves less."),
+    ("do kicks slow down at the end of pregnancy", "Don't worry if your baby is moving less."),
+    ("do kicks slow down at the end of pregnancy", "Kicks slow down. That's normal."),
+    ("do kicks slow down at the end of pregnancy", "It's normal. Your baby will move less."),
+    ("do kicks slow down at the end of pregnancy", "bb movin less rn is ok bc theres less room"),
+    ("do kicks slow down at the end of pregnancy", "kicks r slower near ur due date n its normal"),
+    ("do kicks slow down at the end of pregnancy", "mvmts decrease late in pregnancy, nbd"),
+    ("do kicks slow down at the end of pregnancy", "they slow down near the end so dont worry abt it"),
+    ("do kicks slow down at the end of pregnancy", "Babies move less because they're crowded."),
+    ("do kicks slow down at the end of pregnancy", "There is less space, so baby is less active."),
+    ("How about fetal movement?", "It is not unusual for movements to decrease."),
 ])
 async def test_both_output_paths_stop_movement_reassurance_without_relying_on_the_model(monkeypatch, question, answer):
     assert ask_safety.unsafe_output(question, answer) == ask_safety.MOVEMENT_WARNING
@@ -54,6 +72,11 @@ async def test_actual_old_prompt_contains_the_shared_movement_ban(monkeypatch):
     monkeypatch.setattr(provider.BabyProvider, "json_call", fake_json)
     await provider.BabyProvider().answer(message="Do kicks slow down?", context=[], history=[], now_local="2026-11-07T10:00:00+10:00")
     assert "safety:null|a routing label" in captured["instructions"]
+    labels = json.loads(re.search(r"Allowed safety labels: (\[[^]]+\])", captured["instructions"])[1])
+    assert set(labels) == set(ask_safety.MESSAGES)
+    assert "urgent_maternal for a maternal urgent warning sign" in captured["instructions"]
+    assert "harm for thoughts of hurting yourself or the baby" in captured["instructions"]
+    assert "poisoning for suspected poisoning or accidental overdose" in captured["instructions"]
     assert ask_safety.REDUCED_MOVEMENT_RULE in captured["instructions"]
     assert ask_safety.GENERAL_MOVEMENT_RULE in captured["instructions"]
     assert ask_safety.GENERAL_MOVEMENT_RULE in ask_tools.AskTools.instructions(None, ask_v2.BASE_INSTRUCTIONS)
@@ -197,3 +220,35 @@ def test_movement_context_never_downgrades_born_or_ambiguous_baby_emergencies(qu
     assert reply.message == ask_safety.MESSAGES[route]
     if "baby_emergency" in route:
         assert reply.message.startswith("Call 911 now.")
+
+
+@pytest.mark.parametrize("question,answer", [
+    ("do kicks slow down at the end of pregnancy", "If your baby is moving less or has stopped, seek medical care immediately."),
+    ("do kicks slow down at the end of pregnancy", "If kicks slow down near the end, seek medical care immediately."),
+    ("do kicks slow down at the end of pregnancy", "Movements should not decrease near the end of pregnancy."),
+    ("do kicks slow down at the end of pregnancy", "They do not slow down near the end. Seek care immediately for fewer kicks."),
+    ("do kicks slow down at the end of pregnancy", "Babies don't move less because of less room."),
+    ("do kicks slow down at the end of pregnancy", "It is not expected for movements to decrease. Seek care immediately if this happens."),
+    ("do kicks slow down at the end of pregnancy", "Less room doesn't mean fewer kicks."),
+    ("How can I organize a small nursery?", "There is less room in a small closet, so use labels."),
+    ("What is fetal movement?", "Hiccups are common. If your baby moves less, seek medical care immediately."),
+])
+def test_movement_floor_keeps_conditional_warnings_negations_and_unrelated_room_text(question, answer):
+    assert ask_safety.unsafe_output(question, answer) is None
+
+
+def test_question_and_generation_schema_routes_match_the_fixed_reply_catalog():
+    labels = set(ask_safety.MESSAGES)
+    assert set(ask_check.QuestionVerdict.model_json_schema()["properties"]["urgent"]["enum"]) == labels | {"none"}
+    assert set(ask_v2.ANSWER_SCHEMA["properties"]["safety"]["enum"]) == labels | {None}
+    for label in labels:
+        assert AnswerOutput(message="fixed", safety=label).safety == label
+
+
+def test_safe_movement_negation_keeps_the_existing_diagnosis_floor():
+    # The movement floor must not reinterpret a negated claim as reassurance.
+    # "Not normal" still hits the separate, pre-existing diagnosis protection.
+    assert ask_safety.unsafe_output(
+        "do kicks slow down at the end of pregnancy",
+        "It is not normal for movements to decrease. Seek care immediately if this happens.",
+    ) == ask_safety.DIAGNOSIS_REFUSAL
