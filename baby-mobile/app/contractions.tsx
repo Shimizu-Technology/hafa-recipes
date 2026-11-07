@@ -9,9 +9,11 @@ import { careWrite, logCare, queueSessionAction } from "@/lib/quick-care";
 import { friendlyTime } from "@/lib/care-format";
 import { pregnancyProgress, profileToday, timingChild } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
-import { Button, Card, Copy, Empty, Grouped, Notice, PressTarget, Row, Screen, Section, fonts, radii, tap, typeScale, useColors, useToast } from "@/components/ui";
+import { contactsOn, deliveryLine, deliveryMatters } from "../lib/contacts";
+import { Button, Card, Copy, Empty, Grouped, Notice, PressTarget, QuietRow, Row, Screen, Section, fonts, radii, tap, typeScale, useColors, useToast } from "@/components/ui";
 import { useSecondClock } from "@/components/feed-timer";
 import { useMinuteClock } from "@/components/care-glance";
+import { CallContact } from "@/components/call-contact";
 import { DoctorNote } from "@/components/doctor-note";
 import { MedicalSource } from "@/components/medical-source";
 import { SyncStatus } from "@/components/sync-status";
@@ -29,7 +31,8 @@ export default function Contractions() {
     now = useSecondClock(true),
     [running, ...others] = runningContractions(rows, childId, now),
     writing = useRef(false),
-    guidance = contractionGuidance(child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined);
+    guidance = contractionGuidance(child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined),
+    place = deliveryLine(b.state.bootstrap);
   async function save(action: () => Promise<() => Promise<unknown>>, message: string) {
     if (writing.current) return;
     writing.current = true;
@@ -62,6 +65,9 @@ export default function Contractions() {
     </Card>)}
     <Copy numeric kind="label">{hourLine(lastHour(rows, now))}</Copy>
     {!!guidance && <Notice>{guidance}</Notice>}
+    {!!place && <CallContact line={place} />}
+    {/* Not mid-contraction. */}
+    {!place && !running && contactsOn(b.state.bootstrap) && deliveryMatters(b.state.bootstrap, today) && <QuietRow title="Add where you plan to deliver" onPress={() => router.push({ pathname: "/profile", params: { open: "delivery" } })} />}
     {/* Being offline already has its one calm line, up top. */}
     {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
     {rows.length ? <Section title="Recent">
