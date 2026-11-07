@@ -466,6 +466,13 @@ Sources/limits are reachable from each health surface and Settings/Privacy. The
 About page explicitly states that no clinician reviewed this wording. 911, 988 and
 the maternal hotline remain before disclosures on urgent paths.
 
+For this internal TestFlight release, Leon accepted static reviewed public-source
+content and its disclaimers following the private-family **build**, including for
+an account outside the private list. Ask and the API health-generation paths still
+follow the stable-AppUser private allow-list; an unlisted account cannot use AI.
+This is not an exception for public or paid release: both the static-content build
+gate and the API/Ask gate must remain closed until their release requirements pass.
+
 **Public or paid release is still blocked.** Obtain clinician review of the exact
 shipped wording and WHO chart permission, resolve prematurity/chart handling and
 record both dated approvals in `baby-mobile/lib/health-release.cjs`. The `production`

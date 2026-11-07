@@ -23,7 +23,7 @@ const sources = [
 ];
 export default function HealthInformation() {
   const toast = useToast();
-  return <Screen title="About the health information" back>
+  return <Screen title="About the health information" wrapTitle back>
     <Button title="Call 911 in an emergency" onPress={() => void Linking.openURL("tel:911").catch(() => toast("Call 911 from your phone."))} />
     <Copy>Håfa Baby gives general information, not medical advice. Always check health information and care decisions with your doctor or your baby’s doctor.</Copy>
     <Copy>The health wording has not been reviewed by a clinician. An AI agent checked the public sources on November 7, 2026, at Leon’s request for private family use. That is not a medical review.</Copy>

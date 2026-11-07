@@ -308,6 +308,7 @@ export function Screen({
   subtitle,
   numericSubtitle = false,
   titleKind = "title",
+  wrapTitle = false,
   nativeHeader: nativeHeaderOverride,
   back = false,
   close = false,
@@ -325,6 +326,8 @@ export function Screen({
   children: React.ReactNode;
   title: string;
   titleKind?: "title" | "heading";
+  /** Long screen titles wrap in the scrolling content instead of the native large-title label. */
+  wrapTitle?: boolean;
   /** Independent RN modals must keep their own title and top safe area. */
   nativeHeader?: boolean;
   /** Show the Håfa Baby mark above the title (welcome and first-run screens). */
@@ -391,9 +394,9 @@ export function Screen({
       }}
     >
       {brand && <BrandMark size={64} />}
-      {(!nativeHeader || !!subtitle || (action && !grouped) || titleKind === "heading") && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
+      {(!nativeHeader || !!subtitle || (action && !grouped) || titleKind === "heading" || wrapTitle) && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
         <View style={{ flex: fontScale >= 1.5 ? undefined : 1, gap: 4 }}>
-          {(!nativeHeader || titleKind === "heading") && <Copy kind={titleKind}>{title}</Copy>}
+          {(!nativeHeader || titleKind === "heading" || wrapTitle) && <Copy kind={titleKind}>{title}</Copy>}
           {!!subtitle && <Copy numeric={numericSubtitle} tone="muted">{subtitle}</Copy>}
         </View>
         {(!nativeHeader || !grouped) && action}
@@ -404,7 +407,7 @@ export function Screen({
   return (
     <SafeAreaView collapsable={false} edges={nativeHeader ? ["left", "right"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: grouped ? c.groupedBackground : c.background }}>
       {nativeHeader && <Stack.Screen options={{ title: titleKind === "heading" ? "Entry" : title, headerShown: true,
-        headerLargeTitle: titleKind !== "heading",
+        headerLargeTitle: titleKind !== "heading" && !wrapTitle,
         ...(grouped && action ? { headerRight: () => action } : {}),
         headerLeft: close || (back && !router.canGoBack())
           ? () => <HeaderAction title={close ? "Close" : "Back"}
@@ -528,7 +531,8 @@ export function Button({
         minHeight: size === "lg" ? 56 : 50,
         paddingHorizontal: 20,
         paddingVertical: 13,
-        borderRadius: 999,
+        // Keep the normal pill, but contain every line when the button grows with text.
+        borderRadius: size === "lg" ? 28 : 25,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
