@@ -26,6 +26,9 @@ struct BabyShareSheetStateTests {
     for status in ["saved", "queued", "deferred"] {
       try check(after("owner:1:\(family)", true, status) == .family, "family outranks organizing on \(status)")
     }
+    for state in [BabyShareSheetState.waiting, .notSignedIn, .notConnected] {
+      try check(state.words.detail?.contains("30 days") == true, "phone-only retention is disclosed before sign-in")
+    }
     let refusal = BabyShareSheetState.refusal, limit = 25 * 1024 * 1024, canonical = BabyShareSheetState.canonicalMime
     try check(refusal("video/quicktime", "a.mov", limit) == nil, "exactly 25 MB fits, as the app and API allow")
     try check(refusal("video/quicktime", "a.mov", limit + 1) == .tooBig, "one byte over is refused")
