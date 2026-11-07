@@ -203,3 +203,16 @@ it("leaves an uncertain year blank and lets a date be set directly", async () =>
   expect(saveButton().props.disabled).toBe(false);expect(mock.b.state.outbox).toHaveLength(0);
   await act(async () => tree.unmount());
 });
+
+it("starts the review at the top without jumping during item edits", async () => {
+  await act(async () => { tree = create(<PasteVisits />); });
+  const scrollTo = vi.fn();
+  host("Screen", "title", "Bring in pregnancy notes").props.scrollRef.current = { scrollTo };
+  await act(async () => host("Field", "label", "Paste your note").props.onChange("April 1, 2026 first test"));
+  await act(async () => host("Button", "title", "Review your note").props.onPress());
+  expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
+  scrollTo.mockClear();
+  await act(async () => host("Choice", "label", "Include this item").props.onPress());
+  expect(scrollTo).not.toHaveBeenCalled();
+  await act(async () => tree.unmount());
+});
