@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.domains.baby.schemas import DomainModel
 
 CHECK_FORMAT = "baby_safety_check"
-PROMPT_VERSION = "baby-safety-check-v9"
+PROMPT_VERSION = "baby-safety-check-v10"
 CAPABILITY = "baby_safety"
 CHECK_SECONDS = 20
 CHECK_OUTPUT_TOKENS = 600  # Reasoning counts here too, and running out means no verdict.
@@ -26,7 +26,7 @@ QUESTION_PROMPT = (
     "'baby_emergency' for a baby not breathing, severe trouble breathing (struggling for each breath or barely able to cry), "
     "blue or gray lips/tongue/face, inability to wake, very weak/not moving, grunting with each breath, or choking on an object. "
     "Emergency signs take priority over every other baby sign: unresponsive, won’t respond or unable to wake means baby_emergency even with jerking or seizure. "
-    "'baby_er' for green vomit, floppy muscle tone, weak suck or weak/strange cry, or a baby with ribs pulling in when breathing. "
+    "'baby_er' for a baby hard to wake but responsive, green vomit, floppy muscle tone, weak suck or weak/strange cry, or a baby with ribs pulling in when breathing. "
     "'baby_unwell' for other baby signs needing care: less severe breathing trouble, a fall/injury, seizure or jerking, fever, no wet diapers or not feeding. "
     "'urgent_maternal' for a pregnant or postpartum parent who may need urgent care: heavy bleeding, severe headache or vision "
     "changes, trouble breathing, chest pain, a baby moving less or not felt, fluid leaking, a wound that opened or has pus, severe "
@@ -34,8 +34,9 @@ QUESTION_PROMPT = (
     "maternal fever, or a high blood pressure reading such as 160/110 or a postpartum reading at least 140 systolic and/or 90 diastolic. "
     "Also urgent: a baby with low temperature, yellow skin/eyes, fewer wet diapers, or not taking enough milk. "
     "Suspected poisoning or accidental overdose is urgent, not an ordinary dosing question: choose 'poisoning'. "
-    "'harm' for any thought of hurting herself or the baby, not wanting to be here, or fear of losing control. Also 'harm' for "
-    "signs of losing touch with reality, which is an emergency after birth: hearing voices, seeing things, strange beliefs about the "
+    "'harm' for any thought of hurting herself or the baby, not wanting to be here, or fear of losing control. "
+    "A parent saying they do not want to be a mother or parent anymore needs immediate support; use harm, whose fixed reply makes emergency danger conditional. "
+    "Also harm for signs of losing touch with reality, which is an emergency after birth: hearing voices, seeing things, strange beliefs about the "
     "baby, or not being able to tell what's real. "
     "'none' otherwise. When unsure whether something is urgent, choose urgent. Asking what she saved, logged or wrote, what a "
     "doctor said, or what sources say is 'none', unless the message also describes something happening now.\n"
@@ -44,7 +45,9 @@ QUESTION_PROMPT = (
     "which organization's to follow: the app looks those up.\n"
     "asks_diagnosis: true if it asks what a symptom is or means, or whether a specific symptom or reading of hers or the baby's is "
     "normal, serious or worrying. Asking what she logged or what a doctor said is false. So is asking whether something common is "
-    "generally normal, like being tired at 35 weeks or newborns sneezing a lot: that gets a sourced answer."
+    "generally normal, like being tired at 35 weeks or newborns sneezing a lot: that gets a sourced answer. "
+    "General definitions, common emotions in early parenthood and education about fetal movement are not personal diagnoses; "
+    "only a message describing actual reduced movement is urgent. Do not infer a personal symptom from a general topic."
 )
 ANSWER_PROMPT = (
     "You check one answer before a pregnancy and baby app shows it to a parent. The user message is a JSON object: \"question\" is "
@@ -56,6 +59,7 @@ ANSWER_PROMPT = (
     "her to start, stop or skip a medicine. Saying to ask her provider before changing one is false. Vaccines are different: a schedule a "
     "named organization publishes, or saying to ask the doctor what's due or about missed doses, is false. Milk, formula, feeds, "
     "pumping, sleep, white noise and diaper amounts and times are not medicine, and neither is an amount a doctor gave for feeds. Saying when she logged a medicine, with no amount and no instruction, is false.\n"
+    "Do not flag a milk/feed amount solely because a pediatrician recommended it: quoting a recorded feed amount is not a medicine dose.\n"
     "diagnoses: true if the answer gives a verdict on her own or this baby's own symptom, reading or situation: what it is or "
     "means, or that it is normal, expected, fine, harmless or not serious. Naming a source or a doctor changes nothing: 'according to "
     "the NHS, the rash on your baby is harmless' is true. If she describes her own or the baby's symptom and asks whether it's okay, "

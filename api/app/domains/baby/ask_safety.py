@@ -275,7 +275,7 @@ POISONING_WORDS = re.compile(
 def classify(message, child_names=()):
     """What a person's own words call for before anything else happens. None for everything else."""
     text = normalized(message)
-    if HARM_WORDS.search(text):
+    if HARM_WORDS.search(text) or re.search(r"\bi (?:don't|do not) want to be a (?:mom|mother|parent)(?: anymore)?\b", text, re.I):
         return Safety(HARM, MESSAGES[HARM])
     names = [re.escape(name) for child in child_names for name in re.findall(r"[\w'-]{2,}", child or "")]
     kept = [without_lookups(sentence) for sentence in sentences(text)]

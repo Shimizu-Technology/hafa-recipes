@@ -74,3 +74,11 @@ def test_actual_unconfigured_settings_default_to_public_and_no_review(monkeypatc
     assert configured.baby_health_release_audience == "public" and configured.baby_health_reviewed_version == ""
     monkeypatch.setattr(ask_gate, "get_settings", lambda: configured)
     assert not ask_gate.health_release_allowed() and not ask_gate.ask_v2_on()
+
+
+def test_parent_distress_has_support_routes_without_a_diagnosis_or_unconditional_911():
+    reply = ask_safety.classify("I don't want to be a mom anymore")
+    assert reply and reply.kind == ask_safety.HARM
+    assert reply.message.startswith(ask_safety.CALL_911)
+    assert "988" in reply.message and "1-833" in reply.message
+    assert "if" in reply.message.lower() and "depression" not in reply.message
