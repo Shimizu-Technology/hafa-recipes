@@ -91,3 +91,24 @@ it("says a visit link comes off before it does, each way, and moves nothing unti
   await act(async () => { await f.alerts[0].buttons.find((x) => x.style !== "cancel")!.onPress!(); });
   expect(b.api.moveRecord).toHaveBeenCalledWith(mine, "f", { generation: 1, space_id: "p" });
 });
+
+it("explains that making a linked journal private removes its visit link", async () => {
+  const b = setup(); b.owner = "writer";
+  await open(row({ kind: "journal", created_by: "writer", data: { event_id: "visit" } }));
+  await act(async () => choice("Just me")!.props.onPress());
+  expect(f.alerts[0].message).toMatch(/comes off its visit|visit link will be removed/);
+});
+it("does not offer another parent controls over the writer's shared journal", async () => {
+  const b = setup(); b.owner = "other";
+  await open(row({ kind: "journal", created_by: "writer" }));
+  expect(choice("Just me")).toBeUndefined();
+});
+
+it("warns before sharing removes the link to a personal visit", async () => {
+  const b = setup(), mine = row({ kind: "journal", space_id: "p", data: { event_id: "personal-visit" } });
+  await open(mine);
+  await act(async () => choice("Shared with family")!.props.onPress());
+  expect(b.api.moveRecord).not.toHaveBeenCalled(); expect(f.alerts[0].message).toContain("comes off its visit");
+  await act(async () => { await f.alerts[0].buttons.find((b) => b.text === "Share")!.onPress!(); });
+  expect(b.api.moveRecord).toHaveBeenCalled();
+});

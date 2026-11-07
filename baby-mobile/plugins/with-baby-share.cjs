@@ -8,6 +8,15 @@ const storeSource = fs
   .trim();
 const payloadSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabySharePayload.swift"), "utf8").trim();
 const sessionSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabyShareSession.swift"), "utf8").trim();
+const sheetSource = ["BabyShareSheetState.swift", "HafaShareSheetView.swift", "BabyShareTheme.swift"]
+  .map((file) => fs.readFileSync(path.join(__dirname, file), "utf8").trim())
+  .join("\n");
+// The extension can't read the app's bundle. These are the sheet's only assets, about 230 KB.
+const shareFonts = [
+  "@expo-google-fonts/newsreader/500Medium/Newsreader_500Medium.ttf",
+  "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
+  "@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf",
+];
 const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafababy.share";
 const storeMarker = "// HAFA BABY SHARED STORE v1 SHA256 ";
 const helper = fs.readFileSync(path.join(__dirname, "BabySharePreprocessing.swift"), "utf8").trim();
@@ -34,12 +43,12 @@ const upstreamLifecycle = `  override func viewDidLoad() {
 `;
 const presentedLifecycle = `${lifecycleStart}
   private var babyShareStarted = false
+  private var babyPublished = false
+  private var babySheetClosed = false
   override func viewDidLoad() {
     super.viewDidLoad()
-    if hideView {
-      view.backgroundColor = .clear
-      view.isOpaque = false
-    }
+    // Painted before anything else can take time, so no share ever sits on a blank sheet.
+    showBabySheet(.saving)
     // Acquire the privacy epoch before presentation or any provider work.
     _ = prepareBabyShare()
   }
@@ -50,7 +59,29 @@ const presentedLifecycle = `${lifecycleStart}
     // A failed early preparation must never retry with a newer privacy epoch.
     guard !babyShareStarted, babyProducer != nil else { return }
     babyShareStarted = true
+    babyWatchProvider()
     handleViewLoad()
+  }
+  // A provider that never answers gets nowhere else, since everything after it waits for publication.
+  private func babyWatchProvider() {
+    DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.stillWorkingAfter) { [weak self] in
+      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      self.showBabySheet(.stillWorking)
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.giveUpAfter) { [weak self] in
+      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      self.captureConfirmationFinished = true
+      self.abortBabyShare()
+      self.showBabySheet(.failed)
+    }
+  }
+  // Every way of closing the sheet. Before publication nothing is kept, and a provider answering late finds its capture retired.
+  private func finishConfirmation() {
+    guard !babySheetClosed else { return }
+    babySheetClosed = true
+    captureConfirmationFinished = true
+    abortBabyShare()
+    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
   }
 ${lifecycleEnd}
 
@@ -88,7 +119,7 @@ const imageBatchGuard = `      // HAFA BABY HOMOGENEOUS SHARE INPUTS v1
           $0.hasItemConformingToTypeIdentifier(self.imageContentType)
         }))
       else {
-        dismissWithError(message: "Share up to four images together, or share one other item.")
+        showBabyProblem(attachments.allSatisfy({ $0.hasItemConformingToTypeIdentifier(self.imageContentType) }) ? .tooManyPhotos : .oneAtATime)
         return
       }
 `;
@@ -198,15 +229,25 @@ function patchNonImageStaging(text) {
   text = text.replace(screenshot, "guard let containerURL = self.babyProducer?.capture.directory else {");
   const copy = "let copied = Self.copyFile(at: url, to: newPath)";
   if (text.split(copy).length !== 3) throw Error("Håfa Baby nonimage copy changed; refusing unsafe generation.");
+  // Under the API's own name, since Apple's resolver answers audio/x-m4a for .m4a and audio/vnd.wave for .wav, which it refuses.
+  const resolved = "let mimeType = url.mimeType(ext: fileExtension)";
+  if (text.split(resolved).length !== 3) throw Error("Håfa Baby file type changed; refusing unsafe generation.");
+  text = text.replaceAll(
+    resolved,
+    `let resolvedMime = url.mimeType(ext: fileExtension)
+    let mimeType = BabyShareSheetState.canonicalMime(resolvedMime, name: fileName) ?? resolvedMime`
+  );
+  // Refused before copying where the size is known, and after where it wasn't.
   text = text.replaceAll(
     copy,
-    copy +
-      `
+    `guard self.babyFileFits(name: fileName, mimeType: mimeType, size: fileSize) else { return }
+    ${copy}
     guard copied else {
       self.abortBabyShare()
       self.dismissWithError(message: "Could not read this shared file. Try sharing it again.")
       return
-    }`
+    }
+    guard self.babyFileFits(name: fileName, mimeType: mimeType, size: self.getFileSize(from: newPath)) else { return }`
   );
   const metadata = `            else {
               return
@@ -238,6 +279,7 @@ function patchShareController(text) {
       throw Error("Håfa Baby shared store changed; refusing partial generation.");
     if (!parts[0].includes(presentedLifecycle))
       throw Error("Håfa Baby share lifecycle changed; run a clean prebuild before generating.");
+    if (!parts[0].includes(sheetSource)) throw Error("Håfa Baby share sheet changed; run a clean prebuild before generating.");
     return text;
   }
   const lifecycleFirst = text.indexOf("  override func viewDidLoad()"),
@@ -354,18 +396,44 @@ function patchShareController(text) {
   text = patchNonImageStaging(text);
   const linkEntry = `      if attachments.allSatisfy({ $0.hasItemConformingToTypeIdentifier(self.urlContentType) ||
         $0.hasItemConformingToTypeIdentifier(self.textContentType) }) {
-        await self.handleBabyLinks(attachments)
+        await self.handleBabyLinks(attachments, content: content)
         return
       }
 `;
   text = text.replace(imageBatchGuard, linkEntry + imageBatchGuard);
-  const redirectFirst = text.indexOf("  private func redirectToHostApp(type: RedirectType) {"),
+  const redirectFirst = text.indexOf("  private func dismissWithError("),
     redirectLast = text.indexOf("  enum RedirectType", redirectFirst);
   if (redirectFirst < 0 || redirectLast < 0) throw Error("Baby share redirect changed; refusing host-app launch.");
+  // Pinned, because this is where a raw "Error" alert and the private text it carried used to come from.
+  const redirectAt = text.indexOf("  private func redirectToHostApp(type: RedirectType) {");
+  if (createHash("sha256").update(normalizedMethod(text.slice(redirectFirst, redirectAt))).digest("hex") !== "05810e7520c1effcdb5934cc1116cbc7c7e8fd0413d412ed43f99b54769b771a")
+    throw Error("Håfa Baby share alert changed; refusing unsafe generation.");
   const confirmation = fs.readFileSync(path.join(__dirname, "BabyCaptureConfirmation.swift"), "utf8");
   text = text.slice(0, redirectFirst) + confirmation + "\n" + text.slice(redirectLast);
-  text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n";
+  const unhandled = 'dismissWithError(message: "content type not handle \\(String(describing: content)))")';
+  if (text.split(unhandled).length !== 2) throw Error("Håfa Baby share entry changed; refusing unsafe generation.");
+  text = text.replace(unhandled, "showBabyProblem(.unsupported)");
+  // What people share is private. Nothing here writes it, or a path to it, to the system log.
+  text = text.replace(/^[ \t]*NSLog\(.*\)[ \t]*\n/gm, "");
+  if (text.includes("NSLog(")) throw Error("Håfa Baby share logging changed; refusing unsafe generation.");
+  text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n" + sheetSource + "\n";
   return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
+}
+/** The share row reads the extension's own name, and the sheet needs its fonts listed. */
+function shareInfo(values) {
+  return { ...values, CFBundleDisplayName: "Håfa Baby", UIAppFonts: shareFonts.map((font) => path.basename(font)) };
+}
+function addShareFonts(project, root) {
+  // The project keeps some of these names in quotes and some not, depending on who wrote them.
+  const named = (rows, name) => Object.keys(rows).find((key) => !key.endsWith("_comment") && String(rows[key]?.name).replace(/"/g, "") === name);
+  const objects = project.hash.project.objects,
+    target = named(objects.PBXNativeTarget, "ShareExtension"), group = named(objects.PBXGroup, "ShareExtension");
+  if (!target || !group) throw Error("Håfa Baby share extension target changed; refusing unsafe generation.");
+  for (const font of shareFonts) {
+    const name = path.basename(font);
+    fs.copyFileSync(require.resolve(font), path.join(root, "ShareExtension", name));
+    project.addResourceFile(name, { target, lastKnownFileType: "file" }, group);
+  }
 }
 module.exports = (config) => {
   for (const extension of config.extra?.eas?.build?.experimental?.ios?.appExtensions ?? [])
@@ -399,9 +467,10 @@ module.exports = (config) => {
       values["com.apple.developer.default-data-protection"] = "NSFileProtectionComplete";
       values["keychain-access-groups"] = [keychain];
       const info = path.join(root, "ShareExtension", "ShareExtension-Info.plist");
-      const infoValues = plist.parse(fs.readFileSync(info, "utf8"));
+      const infoValues = shareInfo(plist.parse(fs.readFileSync(info, "utf8")));
       infoValues.BabyShareKeychainGroup = keychain;
       fs.writeFileSync(info, plist.build(infoValues));
+      addShareFonts(mod.modResults, root);
       fs.writeFileSync(entitlements, plist.build(values));
       return mod;
     },
@@ -409,3 +478,5 @@ module.exports = (config) => {
 };
 
 module.exports.patchShareController = patchShareController;
+module.exports.shareInfo = shareInfo;
+module.exports.shareFonts = shareFonts;

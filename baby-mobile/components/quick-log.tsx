@@ -131,7 +131,7 @@ function Follow({ colors, color, undone, onColor, onNote, onFocusChange }: { col
         </PressTarget>;
       })}
     </View>}
-    <TextInput key={fontScale} ref={input} accessibilityLabel="Add a note" value={note} onChangeText={setNote} placeholder={other ? "What colour? (optional)" : "Add a note (optional)"} placeholderTextColor={c.muted}
+    <TextInput key={fontScale} ref={input} accessibilityLabel="Add a note" value={note} onChangeText={setNote} placeholder={other ? "What colour? (optional)" : "Add a note (optional)"} placeholderTextColor={c.muted} selectionColor={c.accentText}
       returnKeyType="done" maxLength={1000} maxFontSizeMultiplier={0} onFocus={() => onFocusChange(true)}
       onBlur={() => { send(); onFocusChange(false); }}
       style={{ minHeight: 52, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16, backgroundColor: c.tile, color: c.text, fontFamily: fonts.regular, fontSize: 16, lineHeight: 21 }} />
@@ -231,7 +231,7 @@ export function AmountStepper({ amount, onChange, note, steps, typing }: { amoun
     {step(-1, "Less")}
     <View style={{ flex: 1, minHeight: quickTarget, alignItems: "center", justifyContent: "center", paddingVertical: 4, gap: 2 }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 8 }}>
-        {typing ? <TextInput key={fontScale} accessibilityLabel={`Amount in ${unitWord}`} value={text ?? String(amount.amount)} keyboardType="decimal-pad" selectTextOnFocus maxLength={8} inputAccessoryViewID={amountDone} maxFontSizeMultiplier={0}
+        {typing ? <TextInput key={fontScale} accessibilityLabel={`Amount in ${unitWord}`} value={text ?? String(amount.amount)} keyboardType="decimal-pad" selectTextOnFocus selectionColor={c.accentText} maxLength={8} inputAccessoryViewID={amountDone} maxFontSizeMultiplier={0}
           onChangeText={(typed) => { const number = Number(typed); setText(typed); onChange({ unit: amount.unit, amount: typed && number > 0 ? number : 0 }); }}
           style={{ minWidth: 48, minHeight: 44, textAlign: "right", fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }} />
           : <Text key={fontScale} accessibilityLabel={`${amount.amount} ${unitWord}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 20, lineHeight: 25, color: c.text, fontVariant: ["tabular-nums"] }}>{String(amount.amount)}</Text>}

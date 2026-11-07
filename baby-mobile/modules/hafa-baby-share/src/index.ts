@@ -36,6 +36,7 @@ export interface WaitingShare {
   blocked?: "file_too_large" | "unsupported_file" | "unreadable";
 }
 const bridge = requireOptionalNativeModule<{
+  noteSignedIn(): Promise<void>;
   pending(): Promise<NativeShare | null>;
   acknowledge(token: string): boolean;
   clear(keepWaiting: boolean, recoveringOwner: string | null): void;
@@ -54,6 +55,8 @@ const bridge = requireOptionalNativeModule<{
   removeBlockedShare(token: string, owner: string): Promise<boolean>;
 }>("HafaBabyShare");
 export const nativeSharingAvailable = !!bridge;
+/** Lets the share sheet tell a sign-in that hasn't connected yet from being signed out. Clearing the session clears it. */
+export const noteSignedIn = () => bridge?.noteSignedIn() ?? Promise.resolve();
 export const pendingShare = () => bridge?.pending() ?? Promise.resolve(null);
 export const acknowledgeShare = (token: string) => bridge?.acknowledge(token) ?? false;
 /** `keepWaiting` keeps what was shared under no account, for when only this account's own data is going. */

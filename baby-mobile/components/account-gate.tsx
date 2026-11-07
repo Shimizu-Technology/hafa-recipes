@@ -5,6 +5,7 @@ import { useBaby } from "@/lib/context";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { messageFor } from "@/lib/models";
 import { confirmSignOut, removedWarning, waitingShareCount } from "@/lib/waiting-shares";
+import { deviceWorkCount } from "@/lib/outbox";
 import { Button, Empty, Loading, Notice, Screen } from "./ui";
 export function AccountGate({ children }: { children: React.ReactNode }) {
   const b = useBaby(),
@@ -30,10 +31,12 @@ export function AccountGate({ children }: { children: React.ReactNode }) {
         <Loading />
         {!!b.error && <Notice error>{b.error}</Notice>}
         <Button title="Try again" secondary onPress={() => void b.refresh()} />
-        <Button title="Sign out" variant="ghost" onPress={() => {
+        <Button title="Sign out" variant="ghost" onPress={async () => {
           // What needs recovery is still on this phone, and a sign-out clears it.
-          if (!b.error.includes("needs recovery")) return void confirmSignOut(() => void b.signOut());
-          Alert.alert("Sign out and clear this phone?", "Changes that haven’t sent are saved here, and signing out removes them. Update Håfa Baby first if you can: that usually opens them again.", [
+          // A failed vault read cannot tell us whether this phone has work. Warn on every error.
+          const waiting = await waitingShareCount();
+          if (!b.error && !deviceWorkCount(b.state) && !waiting) return void b.signOut();
+          Alert.alert("Sign out and clear this phone?", `${waiting ? removedWarning(waiting) + " " : ""}Changes that haven’t sent are saved here, and signing out removes them. Update Håfa Baby first if you can: that usually opens them again.`, [
             { text: "Keep them", style: "cancel" },
             { text: "Sign out and clear", style: "destructive", onPress: () => void b.signOut() },
           ]);

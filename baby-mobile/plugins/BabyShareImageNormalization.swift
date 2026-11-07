@@ -12,7 +12,7 @@ enum BabyShareImageNormalization {
   static let maxOutputDimension = 2_048
   static let maxInputDimension = 12_000
   static let maxInputPixels = 60_000_000
-  enum InvalidImage: Error { case invalid }
+  enum InvalidImage: Error { case invalid, tooBig }
 
   struct Image {
     let bytes: Data
@@ -32,8 +32,9 @@ enum BabyShareImageNormalization {
   static func normalize(fileURL: URL) throws -> Image {
     guard fileURL.isFileURL,
       let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-      size > 0, size <= maxInputBytes
+      size > 0
     else { throw InvalidImage.invalid }
+    guard size <= maxInputBytes else { throw InvalidImage.tooBig }
     let handle = try FileHandle(forReadingFrom: fileURL)
     defer { try? handle.close() }
     // Bound the read too, so a changing provider file cannot bypass stat.
@@ -43,7 +44,8 @@ enum BabyShareImageNormalization {
   }
 
   static func normalize(bytes: Data) throws -> Image {
-    guard !bytes.isEmpty, bytes.count <= maxInputBytes,
+    guard bytes.count <= maxInputBytes else { throw InvalidImage.tooBig }
+    guard !bytes.isEmpty,
       let source = CGImageSourceCreateWithData(bytes as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
       CGImageSourceGetStatus(source) == .statusComplete, CGImageSourceGetCount(source) > 0,
       let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],

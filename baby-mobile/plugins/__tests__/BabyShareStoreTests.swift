@@ -55,6 +55,26 @@ struct BabyShareStoreTests {
     }
 
     do {
+      // What the sheet reads to choose its words: frozen when the share began, and gone with every sign-out.
+      let (root, defaults, store, suite) = try fixture("sheet-hint")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let first = try store.begin()
+      try check(first.scope == nil && !first.signedIn, "never opened: no owner and no sign-in seen")
+      try store.noteSignedIn()
+      let second = try store.begin()
+      try check(second.scope == nil && second.signedIn, "signed in, not connected: no owner, sign-in seen")
+      try store.bind("owner-a:1:personal")
+      let third = try store.begin()
+      try check(third.scope == "owner-a:1:personal" && second.scope == nil, "a capture keeps the tag it began with")
+      let hint = root.appendingPathComponent(".hafa-baby-share-store-v1/signed-in.json")
+      try check(FileManager.default.fileExists(atPath: hint.path), "the hint is on disk")
+      try store.clear(preserveUnassigned: true)
+      try check(!FileManager.default.fileExists(atPath: hint.path), "the signed-out guard removes the hint")
+      try store.noteSignedIn()
+      try store.clear()
+      try check(try !store.begin().signedIn, "explicit sign-out removes the hint")
+    }
+    do {
       // A build-34 phone updates, then a family is created: nothing of its older captures goes.
       let (_, defaults, store, suite) = try fixture("rebind")
       defer { defaults.removePersistentDomain(forName: suite) }

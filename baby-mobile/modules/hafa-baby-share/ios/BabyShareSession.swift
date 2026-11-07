@@ -23,6 +23,12 @@ enum BabyShareSession {
     }
     return value
   }
+  // The credential is only readable while unlocked. No credential on the phone reads as not found, not as locked.
+  static func protectedDataClosed() -> Bool {
+    guard var query = try? query() else { return false }
+    query[kSecReturnData as String] = false
+    return SecItemCopyMatching(query as CFDictionary, nil) == errSecInteractionNotAllowed
+  }
   static func write(_ value: [String: Any]?) throws {
     var query = try query()
     let status = SecItemDelete(query as CFDictionary)

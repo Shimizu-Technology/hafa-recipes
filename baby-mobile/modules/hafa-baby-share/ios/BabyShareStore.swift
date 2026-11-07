@@ -29,12 +29,15 @@ final class BabyShareStore {
   final class Capture {
     let id: String
     let directory: URL
+    // Frozen when the share began, so the sheet can say what happened whatever changes later.
+    let scope: String?
+    let signedIn: Bool
     fileprivate let epoch: UUID
     fileprivate let createdAt: Date
     fileprivate let automaticEpoch: Int
     fileprivate var lease: AnyObject?
-    fileprivate init(id: String, directory: URL, epoch: UUID, createdAt: Date, automaticEpoch: Int, lease: AnyObject) {
-      self.id = id; self.directory = directory; self.epoch = epoch; self.createdAt = createdAt; self.automaticEpoch = automaticEpoch; self.lease = lease
+    fileprivate init(id: String, directory: URL, scope: String?, signedIn: Bool, epoch: UUID, createdAt: Date, automaticEpoch: Int, lease: AnyObject) {
+      self.id = id; self.directory = directory; self.scope = scope; self.signedIn = signedIn; self.epoch = epoch; self.createdAt = createdAt; self.automaticEpoch = automaticEpoch; self.lease = lease
     }
   }
   struct Snapshot {
@@ -96,6 +99,12 @@ final class BabyShareStore {
     let lock = try Lease(root.appendingPathComponent("store.lock"), exclusive: true)
     return try withExtendedLifetime(lock) { try work() }
   }
+  // Complete protection refuses even a read once the phone is locked. Only asked after something has already failed.
+  func protectedDataClosed() -> Bool {
+    let descriptor = Darwin.open(root.appendingPathComponent("store.lock").path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+    if descriptor >= 0 { Darwin.close(descriptor); return false }
+    return errno == EPERM || errno == EACCES
+  }
   private func directory(_ id: String) throws -> URL {
     guard UUID(uuidString: id) != nil, !id.contains("/") else { throw Failure.invalid }
     return captures.appendingPathComponent(id, isDirectory: true)
@@ -116,6 +125,9 @@ final class BabyShareStore {
     let value = UUID(); try write(value, to: url); return value
   }
   func scope() -> String? { try? read(String.self, root.appendingPathComponent("scope.json")) }
+  // Not a secret and not an identity: only that the app has seen a sign-in here, so a share made before its
+  // connection arrives isn't told it's signed out. Every sign-out path goes through `clearLocked`, which removes it.
+  func noteSignedIn() throws { try locked { try write(true, to: root.appendingPathComponent("signed-in.json")) } }
   // A capture's tag is identity, generation and destination: `owner:generation:personal` or
   // `owner:generation:<family uuid>`. A build before spaces wrote `owner:generation`, and all it
   // had was personal, so reading it that way is the whole migration: nothing on disk has to change.
@@ -166,8 +178,9 @@ final class BabyShareStore {
     let lease = try Lease(folder.appendingPathComponent("lease.lock"), exclusive: false)
     let generation = try epoch(), date = now()
     let automaticEpoch = automaticEpoch ?? (try? read(Int.self, root.appendingPathComponent("automatic-epoch.json"))) ?? 0
-    try write(Manifest(id: id, epoch: generation, createdAt: date, text: false, payload: nil, scope: unassigned ? nil : scope(), sequence: try nextSequence(), automaticEpoch: automaticEpoch), to: folder.appendingPathComponent("manifest.json"))
-    return Capture(id: id, directory: folder, epoch: generation, createdAt: date, automaticEpoch: automaticEpoch, lease: lease)
+    let owner = unassigned ? nil : scope(), signedIn = (try? read(Bool.self, root.appendingPathComponent("signed-in.json"))) ?? false
+    try write(Manifest(id: id, epoch: generation, createdAt: date, text: false, payload: nil, scope: owner, sequence: try nextSequence(), automaticEpoch: automaticEpoch), to: folder.appendingPathComponent("manifest.json"))
+    return Capture(id: id, directory: folder, scope: owner, signedIn: signedIn, epoch: generation, createdAt: date, automaticEpoch: automaticEpoch, lease: lease)
   }
   func begin(id: String = UUID().uuidString) throws -> Capture {
     try locked { try sweepLocked(); return try beginLocked(id: id) }
@@ -466,6 +479,7 @@ final class BabyShareStore {
       defaults.removeObject(forKey: sharedKey); defaults.removeObject(forKey: receiptKey); defaults.synchronize()
       try? FileManager.default.removeItem(at: root.appendingPathComponent("scope.json"))
       try? FileManager.default.removeItem(at: root.appendingPathComponent("automatic-epoch.json"))
+      try? FileManager.default.removeItem(at: root.appendingPathComponent("signed-in.json"))
   }
   private func sweepLocked() throws {
     guard FileManager.default.fileExists(atPath: captures.path) else { return }
