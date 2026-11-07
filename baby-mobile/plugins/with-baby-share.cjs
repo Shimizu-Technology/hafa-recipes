@@ -8,7 +8,15 @@ const storeSource = fs
   .trim();
 const payloadSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabySharePayload.swift"), "utf8").trim();
 const sessionSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabyShareSession.swift"), "utf8").trim();
-const sheetState = fs.readFileSync(path.join(__dirname, "BabyShareSheetState.swift"), "utf8").trim();
+const sheetSource = ["BabyShareSheetState.swift", "HafaShareSheetView.swift", "BabyShareTheme.swift"]
+  .map((file) => fs.readFileSync(path.join(__dirname, file), "utf8").trim())
+  .join("\n");
+// The extension can't read the app's bundle. These are the sheet's only assets, about 230 KB.
+const shareFonts = [
+  "@expo-google-fonts/newsreader/500Medium/Newsreader_500Medium.ttf",
+  "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
+  "@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf",
+];
 const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafababy.share";
 const storeMarker = "// HAFA BABY SHARED STORE v1 SHA256 ";
 const helper = fs.readFileSync(path.join(__dirname, "BabySharePreprocessing.swift"), "utf8").trim();
@@ -35,12 +43,12 @@ const upstreamLifecycle = `  override func viewDidLoad() {
 `;
 const presentedLifecycle = `${lifecycleStart}
   private var babyShareStarted = false
+  private var babyPublished = false
+  private var babySheetClosed = false
   override func viewDidLoad() {
     super.viewDidLoad()
-    if hideView {
-      view.backgroundColor = .clear
-      view.isOpaque = false
-    }
+    // Painted before anything else can take time, so no share ever sits on a blank sheet.
+    showBabySheet(.saving)
     // Acquire the privacy epoch before presentation or any provider work.
     _ = prepareBabyShare()
   }
@@ -51,7 +59,29 @@ const presentedLifecycle = `${lifecycleStart}
     // A failed early preparation must never retry with a newer privacy epoch.
     guard !babyShareStarted, babyProducer != nil else { return }
     babyShareStarted = true
+    babyWatchProvider()
     handleViewLoad()
+  }
+  // A provider that never answers gets nowhere else, since everything after it waits for publication.
+  private func babyWatchProvider() {
+    DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.stillWorkingAfter) { [weak self] in
+      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      self.showBabySheet(.stillWorking)
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.giveUpAfter) { [weak self] in
+      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      self.captureConfirmationFinished = true
+      self.abortBabyShare()
+      self.showBabySheet(.failed)
+    }
+  }
+  // Every way of closing the sheet. Before publication nothing is kept, and a provider answering late finds its capture retired.
+  private func finishConfirmation() {
+    guard !babySheetClosed else { return }
+    babySheetClosed = true
+    captureConfirmationFinished = true
+    abortBabyShare()
+    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
   }
 ${lifecycleEnd}
 
@@ -239,7 +269,7 @@ function patchShareController(text) {
       throw Error("Håfa Baby shared store changed; refusing partial generation.");
     if (!parts[0].includes(presentedLifecycle))
       throw Error("Håfa Baby share lifecycle changed; run a clean prebuild before generating.");
-    if (!parts[0].includes(sheetState)) throw Error("Håfa Baby share sheet changed; run a clean prebuild before generating.");
+    if (!parts[0].includes(sheetSource)) throw Error("Håfa Baby share sheet changed; run a clean prebuild before generating.");
     return text;
   }
   const lifecycleFirst = text.indexOf("  override func viewDidLoad()"),
@@ -366,8 +396,24 @@ function patchShareController(text) {
   if (redirectFirst < 0 || redirectLast < 0) throw Error("Baby share redirect changed; refusing host-app launch.");
   const confirmation = fs.readFileSync(path.join(__dirname, "BabyCaptureConfirmation.swift"), "utf8");
   text = text.slice(0, redirectFirst) + confirmation + "\n" + text.slice(redirectLast);
-  text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n" + sheetState + "\n";
+  text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n" + sheetSource + "\n";
   return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
+}
+/** The share row reads the extension's own name, and the sheet needs its fonts listed. */
+function shareInfo(values) {
+  return { ...values, CFBundleDisplayName: "Håfa Baby", UIAppFonts: shareFonts.map((font) => path.basename(font)) };
+}
+function addShareFonts(project, root) {
+  // The project keeps some of these names in quotes and some not, depending on who wrote them.
+  const named = (rows, name) => Object.keys(rows).find((key) => !key.endsWith("_comment") && String(rows[key]?.name).replace(/"/g, "") === name);
+  const objects = project.hash.project.objects,
+    target = named(objects.PBXNativeTarget, "ShareExtension"), group = named(objects.PBXGroup, "ShareExtension");
+  if (!target || !group) throw Error("Håfa Baby share extension target changed; refusing unsafe generation.");
+  for (const font of shareFonts) {
+    const name = path.basename(font);
+    fs.copyFileSync(require.resolve(font), path.join(root, "ShareExtension", name));
+    project.addResourceFile(name, { target, lastKnownFileType: "file" }, group);
+  }
 }
 module.exports = (config) => {
   for (const extension of config.extra?.eas?.build?.experimental?.ios?.appExtensions ?? [])
@@ -401,9 +447,10 @@ module.exports = (config) => {
       values["com.apple.developer.default-data-protection"] = "NSFileProtectionComplete";
       values["keychain-access-groups"] = [keychain];
       const info = path.join(root, "ShareExtension", "ShareExtension-Info.plist");
-      const infoValues = plist.parse(fs.readFileSync(info, "utf8"));
+      const infoValues = shareInfo(plist.parse(fs.readFileSync(info, "utf8")));
       infoValues.BabyShareKeychainGroup = keychain;
       fs.writeFileSync(info, plist.build(infoValues));
+      addShareFonts(mod.modResults, root);
       fs.writeFileSync(entitlements, plist.build(values));
       return mod;
     },
@@ -411,3 +458,5 @@ module.exports = (config) => {
 };
 
 module.exports.patchShareController = patchShareController;
+module.exports.shareInfo = shareInfo;
+module.exports.shareFonts = shareFonts;
