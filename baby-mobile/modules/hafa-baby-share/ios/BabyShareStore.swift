@@ -493,7 +493,8 @@ final class BabyShareStore {
   }
   private func sweepUnassigned(_ value: inout Manifest, _ folder: URL) {
     let moment = now(), before = (value.heldSince, value.expiryNoticed)
-    // Older than this build, or from a clock that was ahead: the 30 days start now, so it can't go unseen or early.
+    // Older metadata or a future wall timestamp restarts retention at the current wall clock.
+    // Clock corrections can still shorten real retention and deletion grace across boots.
     if value.heldSince == nil || value.heldSince! > moment { value.heldSince = moment; value.expiryNoticed = nil }
     if expired(value) {
       if let noticed = value.expiryNoticed, noticed <= moment {
