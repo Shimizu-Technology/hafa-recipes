@@ -2,7 +2,7 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, expect, it, vi } from "vitest";
 import { emptyState } from "./models";
-const mock = vi.hoisted(() => ({ b: null as any, lease: 1, changeOwner: false, sequence: 0 }));
+const mock = vi.hoisted(() => ({ b: null as any, lease: 1, changeOwner: false, sequence: 0, mounts: 0 }));
 vi.mock("../lib/context", () => ({ useBaby: () => mock.b }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("expo-crypto", async () => {
@@ -14,7 +14,7 @@ vi.mock("expo-crypto", async () => {
 });
 vi.mock("../components/ui", async () => {
   const React = await import("react");
-  return Object.fromEntries(["Button", "Card", "Choice", "Copy", "Field", "FilterChips", "Notice", "Row", "Screen"].map((name) => [name, (props: any) => { const { footer, ...rest } = props; return React.createElement(name, rest, props.children, footer); }]));
+  return Object.fromEntries(["Button", "Card", "Choice", "Copy", "Field", "FilterChips", "Notice", "Row", "Screen"].map((name) => [name, (props: any) => { const { footer, ...rest } = props; const [mount] = React.useState(() => ++mock.mounts); return React.createElement(name, { ...rest, ...(name === "Screen" ? { mount } : {}) }, props.children, footer); }]));
 });
 vi.mock("../components/disclosure", () => ({ Disclosure: ({ children }: any) => children }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
@@ -206,13 +206,12 @@ it("leaves an uncertain year blank and lets a date be set directly", async () =>
 
 it("starts the review at the top without jumping during item edits", async () => {
   await act(async () => { tree = create(<PasteVisits />); });
-  const scrollTo = vi.fn();
-  host("Screen", "title", "Bring in pregnancy notes").props.scrollRef.current = { scrollTo };
+  const before = host("Screen", "title", "Bring in pregnancy notes").props.mount;
   await act(async () => host("Field", "label", "Paste your note").props.onChange("April 1, 2026 first test"));
   await act(async () => host("Button", "title", "Review your note").props.onPress());
-  expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
-  scrollTo.mockClear();
+  const after = host("Screen", "title", "Bring in pregnancy notes").props.mount;
+  expect(after).not.toBe(before);
   await act(async () => host("Choice", "label", "Include this item").props.onPress());
-  expect(scrollTo).not.toHaveBeenCalled();
+  expect(host("Screen", "title", "Bring in pregnancy notes").props.mount).toBe(after);
   await act(async () => tree.unmount());
 });

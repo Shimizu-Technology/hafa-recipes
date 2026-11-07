@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import type { ScrollView } from "react-native";
+import { useState } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "../lib/context";
@@ -20,11 +19,9 @@ type ScopedWrite = RecordWrite & { space_id?: string };
 type Candidate = PastedItem & { id: string; selected: boolean; kind: "event" | "journal"; title: string; age: string; shared: boolean };
 /** Review is local. Only the explicit confirmation writes to the durable outbox. */
 export default function PasteVisits() {
-  const scroller = useRef<ScrollView>(null);
   const b = useBaby(), [original, setOriginal] = useState(""), [items, setItems] = useState<Candidate[] | null>(null),
     [pregnancyId, setPregnancyId] = useState(""), [year, setYear] = useState(""), [acceptedYear, setAcceptedYear] = useState(""), [originalTitle, setOriginalTitle] = useState("Original pregnancy notes"), [error, setError] = useState(""), [busy, setBusy] = useState(false), [saved, setSaved] = useState<RecordWrite[]>([]);
   const reviewing = items !== null;
-  useEffect(() => { scroller.current?.scrollTo({ y: 0, animated: false }); }, [reviewing]);
   const expecting = b.state.bootstrap!.children.filter((child) => child.due_date && !child.birth_date),
     pregnancy = expecting.find((child) => child.id === pregnancyId) ?? (expecting.length === 1 ? expecting[0] : undefined);
   const family = familySpaces(b.state.bootstrap).find((space) => space.role === "parent");
@@ -92,7 +89,7 @@ export default function PasteVisits() {
       setSaved(records); void b.sync();
     } catch (e) { setError(messageFor(e)); } finally { setBusy(false); }
   }
-  return <Screen title="Bring in pregnancy notes" back scrollRef={scroller} footer={!saved.length ? items ? <Button title={saveLabel} disabled={!chosen.length || yearPending || chosen.some((row) => !validDay(row.day) || !row.title.trim())} busy={busy} onPress={() => void confirm()} /> : <Button title="Review your note" disabled={!original.trim()} onPress={review} /> : undefined}>
+  return <Screen title="Bring in pregnancy notes" back key={saved.length ? "saved" : reviewing ? "review" : "note"} footer={!saved.length ? items ? <Button title={saveLabel} disabled={!chosen.length || yearPending || chosen.some((row) => !validDay(row.day) || !row.title.trim())} busy={busy} onPress={() => void confirm()} /> : <Button title="Review your note" disabled={!original.trim()} onPress={review} /> : undefined}>
     {!!error && <Notice error>{error}</Notice>}
     {saved.length ? <><Notice>Saved on this phone. You can find these in Journal.</Notice>{saved.map((row) => <Row key={row.id} title={b.records?.find((known) => known.id === row.id)?.title ?? row.title} onPress={() => router.push({ pathname: row.kind === "event" ? "/event/[id]" : "/record/[id]", params: { id: row.id } })} />)}</> : <>
       {!items ? <>

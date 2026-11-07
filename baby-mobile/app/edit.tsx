@@ -1,4 +1,4 @@
-import { snapshotVisit } from "../lib/prenatal";
+import { snapshotVisit, pregnancyForVisit } from "../lib/prenatal";
 import { useEffect, useRef, useState } from "react";
 import { Alert, AppState, Image, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -302,9 +302,8 @@ export default function Edit() {
       const fit = (given: EditorDraft) => ({ ...given, child_id: fittingChild(b.state.bootstrap!, given, b.records.find((row) => row.id === given.id)) });
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
         const scope = choiceFor(b.state.bootstrap, given)?.space_id ?? given.space_id,
-          pregnancies = b.state.bootstrap!.children.filter((child) => child.due_date && !child.birth_date && child.space_id === scope),
-          due = b.state.bootstrap!.children.find((child) => child.id === given.child_id)?.due_date ?? (!given.child_id && pregnancies.length === 1 ? pregnancies[0].due_date : null),
-          fitted = snapshotVisit(fit(given), due, b.state.bootstrap!.children.find((child) => child.id === given.child_id)?.birth_date),
+          pregnancy = pregnancyForVisit(given, b.state.bootstrap!.children, scope),
+          fitted = snapshotVisit(fit(given), pregnancy?.due_date, pregnancy?.birth_date),
           from = stampedDraft(b.state, b.state.drafts[slot], fitted.kind === "event" ? eventWrite(fitted) : withFittingVisit(fitted, b.records));
         const { files, existing: _, revision, base, event_edit: __, log_form: ___, shared: ____, ...record } = from,
           choice = choiceFor(b.state.bootstrap, from), data = choice?.just_me ? { ...from.data, just_me: true } : from.data;
@@ -341,7 +340,7 @@ export default function Edit() {
             },
             files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
           };
-          const splitChild = b.state.bootstrap!.children.find((child) => child.id === d.child_id);
+          const splitChild = pregnancyForVisit(d, b.state.bootstrap!.children, prepared.space_id);
           const split = d.kind === "event" ? splitEvent(snapshotVisit(fit(d), prepared.record.data.due_date_snapshot ?? splitChild?.due_date, splitChild?.birth_date), splitId) : undefined;
           // One change holding both parts: this series can't end unless the next one starts.
           const saved = addMutation(s, split ? { id: splitId, generation, type: "event_split", series: prepared.record, event: split, from_start: d.event_edit!.original_start, files: [], ...(prepared.base ? { base: prepared.base } : {}) } : prepared);
@@ -511,6 +510,7 @@ export default function Edit() {
         {caregiverKeeps(b.state, draft) && <Copy kind="small" tone="muted">Only you can see this. It isn’t shared with the family.</Copy>}
         {!!writingWhere(b.state, draft) && <Copy kind="small" tone="muted">{writingWhere(b.state, draft)}</Copy>}
         {clinician}
+        {!!draft.data.paste_origin && (!row?.created_by || row.created_by === b.owner) && <Button secondary title="Remove original words" disabled={busy} onPress={() => data({ paste_origin: null })} />}
       </>} />;
   }
   return (

@@ -389,3 +389,20 @@ it("says who can see a saved entry too, even one only just fetched, and where a 
   await act(async () => control("Details").props.onPress());
   expect(renderer!.root.findAll((node) => String(node.type) === "Copy").map((node) => node.props.children)).toContain("Goes in your Journal. Only you can see it.");
 });
+
+it.each(["parent", "other"])("offers original-word removal on a shared moment only to its contributor (%s)", async (creator) => {
+  const row = entry({ space_id: "fam", generation: 7, created_by: creator, data: { paste_origin: { text: "Original words", start: 0, end: 14, original: false } } });
+  const b = setup([row]);b.state.bootstrap.personal_space_id = "me";
+  b.state.bootstrap.spaces = [{ id: "me", kind: "personal", generation: 1 }, { id: "fam", kind: "family", role: "parent", generation: 7 }];
+  scope.params = { kind: "journal", id: row.id };await open();
+  await act(async () => control("Details").props.onPress());
+  const buttons = renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Remove original words");
+  expect(buttons).toHaveLength(creator === "parent" ? 1 : 0);
+  if (creator === "parent") {
+    await act(async () => buttons[0].props.onPress());
+    expect(b.state.outbox).toHaveLength(0);
+    const saved = await save(b);
+    expect(saved.data.paste_origin).toBeNull();expect(saved.body).toBe(row.body);
+    expect(saved.space_id).toBe("fam");expect(b.state.outbox.at(-1).generation).toBe(7);
+  }
+});

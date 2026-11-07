@@ -166,7 +166,7 @@ export default function RecordDetail() {
           <Copy>{record.body}</Copy>
         </Section>
       )}
-      {!!data.paste_origin && <Section title="Original pasted words"><Copy kind="small" tone="muted">Characters {data.paste_origin.start + 1}–{data.paste_origin.end}</Copy><Copy>{data.paste_origin.text}</Copy></Section>}
+      {!!data.paste_origin && <Section title="Original words"><Copy>{data.paste_origin.text}</Copy></Section>}
       {record.kind === "routine" && (
         <>
           <Section title={data.routine_type === "checklist" ? "Your checklist" : "Your chosen routine"}>

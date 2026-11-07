@@ -82,3 +82,16 @@ describe("suggested pregnancy-note year", () => {
     expect(suggestedPasteYear(pasteVisits("First test February 29"), "2026-09-10")).toBeNull();
   });
 });
+
+it("finds the birth behind a babyless snapshot in its own space, preserving prenatal history", async () => {
+  const { pregnancyForVisit } = await import("./prenatal");
+  const born = { id: "born", name: "Baby", revision: 1, space_id: "family", due_date: "2026-12-10", birth_date: "2026-12-10" };
+  const other = { id: "other", name: "Other", revision: 1, space_id: "personal", due_date: "2026-12-10" };
+  const visit = { child_id: null, data: { due_date_snapshot: "2026-12-10" } };
+  const source = pregnancyForVisit(visit, [other, born], "family");
+  expect(source?.id).toBe("born");
+  expect(estimatedAge("2026-12-17", visit.data.due_date_snapshot, source?.birth_date)).toBeNull();
+  expect(estimatedAge("2026-12-09", visit.data.due_date_snapshot, source?.birth_date)).not.toBeNull();
+  expect(pregnancyForVisit(visit, [born], "personal")?.birth_date).toBe("2026-12-10");
+  expect(pregnancyForVisit(visit, [{ ...born, due_date: "2026-12-11" }], "family")?.birth_date).toBe("2026-12-10");
+});

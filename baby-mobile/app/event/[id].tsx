@@ -1,4 +1,4 @@
-import { estimatedAge, pregnancyVisit, medicalVisit } from "../../lib/prenatal";
+import { estimatedAge, pregnancyVisit, medicalVisit, pregnancyForVisit } from "../../lib/prenatal";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -35,6 +35,7 @@ export default function EventDetail() {
     date = dayName(recordDay(shown.occurrence_start, shown.all_day ? shown.timezone : timezone), today),
     child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordIds(m).includes(row.id) && m.type !== "import");
   const family = familySpaces(b.state.bootstrap)[0], inFamily = !!family && !!row.space_id, justMe = inFamily && row.space_id !== family.id;
+  const pregnancy = pregnancyForVisit(row, children, row.space_id ?? b.state.bootstrap!.personal_space_id);
   const medical = !medicalVisit(row.data) || familySpaces(b.state.bootstrap).find((space) => space.id === row.space_id)?.role !== "caregiver";
   const appointment = shown.category === "appointment", booked = appointment ? visitAfter(upcoming.items, shown) : undefined;
   const edit = (scope?: "one" | "future") => router.push({ pathname: "/edit", params: { kind: "event", id: row.id, ...(scope ? { scope, at: original } : {}) } });
@@ -77,8 +78,8 @@ export default function EventDetail() {
       {!!shown.location && <Copy>{shown.location}</Copy>}
       {shown.attendees.length > 0 && <Copy>With {shown.attendees.join(", ")}</Copy>}
       <Copy kind="small" tone="muted">{[child?.name ?? (inFamily && !justMe ? "Whole family" : "Personal"), repeating && repeatName(row.data.recurrence), inFamily && (justMe ? "Just me" : "Shared with family")].filter(Boolean).join(" · ")}</Copy>
-      {medical && appointment && !!estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? child?.due_date, child?.birth_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? child?.due_date, child?.birth_date)}</Copy>}
-      {medical && pregnancyVisit(recordDay(shown.occurrence_start, shown.timezone), child?.birth_date) && !!row.data.clinician_age && <Copy>Clinic’s stated week: {row.data.clinician_age}</Copy>}
+      {medical && appointment && !!estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? pregnancy?.due_date, pregnancy?.birth_date) && <Copy kind="small" tone="muted">Estimated from due date: {estimatedAge(recordDay(shown.occurrence_start, shown.timezone), row.data.due_date_snapshot ?? pregnancy?.due_date, pregnancy?.birth_date)}</Copy>}
+      {medical && pregnancyVisit(recordDay(shown.occurrence_start, shown.timezone), pregnancy?.birth_date) && !!row.data.clinician_age && <Copy>Clinic’s stated week: {row.data.clinician_age}</Copy>}
       {medical && !!row.data.doctor && <Copy>Doctor: {row.data.doctor}</Copy>}
       {medical && (!!row.data.results || !!row.data.result_status) && <Copy>Results ({row.data.result_status ?? "unknown"}){row.data.results ? `: ${row.data.results}` : ""}</Copy>}
       {medical && !!row.data.follow_up && <Copy>Follow up: {row.data.follow_up}</Copy>}

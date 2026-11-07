@@ -784,3 +784,21 @@ it.each([true, false])("saves a private follow-up with a valid child link (famil
   const target = mock.push.mock.calls.at(-1)![0];await act(async () => renderer!.unmount());mock.params = target.params;await mount(Edit);await press("Button", "Save event");
   expect(b.state.outbox[0]).toMatchObject({ space_id: "personal", record: { body: "Bring the report", child_id: familyChild ? null : "baby", data: { reminder_minutes: [] } } });
 });
+
+it.each([false, true])("hides postpartum weeks on an unattached shared visit and clears its old snapshot (%s)", async (stored) => {
+  const row = { ...event({ category: "appointment", recurrence: null, clinician_age: "Clinic words", ...(stored ? { due_date_snapshot: "2026-12-10" } : {}) }, "postpartum"), child_id: null, space_id: "fam", occurred_at: "2026-12-17T00:00:00Z" };
+  const b = setup([row]);b.state.bootstrap.personal_space_id = "me";
+  b.state.bootstrap.spaces = [{ id: "fam", kind: "family", role: "parent", generation: 1 }];
+  b.state.bootstrap.children = [{ id: "baby", name: "Noa", space_id: "fam", due_date: "2026-12-10", birth_date: "2026-12-10", revision: 1 }];
+  mock.params = { id: row.id };await mount(EventDetail);
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("Estimated from due date");
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("Clinic’s stated week");
+  await act(async () => renderer!.unmount());mock.params = { kind: "event", id: row.id };await mount(Edit);
+  expect(renderer!.root.findAll((n) => String(n.type) === "Field" && n.props.label === "Clinic’s stated week (optional)")).toHaveLength(0);
+  expect(renderer!.root.findAll((n) => String(n.type) === "Copy" && String(n.props.children).includes("Estimated from due date"))).toHaveLength(0);
+  await press("Button", "Save changes");
+  const saved = b.state.outbox[0].record;
+  expect(saved.child_id).toBeNull();expect(saved.space_id).toBe("fam");
+  expect(saved.data.due_date_snapshot).toBe(stored ? null : undefined);
+  expect(saved.data.clinician_age).toBe("Clinic words");
+});
