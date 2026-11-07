@@ -258,3 +258,9 @@ it("tells her when a native removal is refused", async () => {
   await act(async () => { await w.alerts.at(-1)!.buttons.find(b => b.text === "Remove")!.onPress!(); });
   expect(text()).toContain("couldn’t be removed");
 });
+
+it("does not infer whether Clerk was signed in when an unassigned capture was kept", async () => {
+  w.rows = [row({ token: "connection-not-ready-copy:1" })]; await mount();
+  expect(text()).toContain("It was kept on this phone without an account.");
+  expect(text()).not.toContain("while no one was signed in");
+});

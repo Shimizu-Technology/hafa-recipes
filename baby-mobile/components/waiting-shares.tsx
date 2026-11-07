@@ -3,7 +3,7 @@ import { Alert, AppState, View } from "react-native";
 import { useUser } from "@clerk/expo";
 import { useBaby } from "@/lib/context";
 import * as Share from "@/modules/hafa-baby-share/src";
-import { onClaimSettled, onSharesChanged, type ClaimOutcome } from "../lib/share-session-state";
+import { onClaimSettled, onSharesChanged, sharesChanged, type ClaimOutcome } from "../lib/share-session-state";
 import { addWaitingShares, expiredNotice, removeWaitingShare, shareKeptUntil, shareLabel, shareWhen } from "../lib/waiting-shares";
 import { Button, Card, Copy, Icon, Notice, PressTarget, radii, tap, useColors, useToast } from "./ui";
 
@@ -11,7 +11,7 @@ import { Button, Card, Copy, Icon, Notice, PressTarget, radii, tap, useColors, u
 const notNow = new Set<string>();
 
 /**
- * What was shared on this phone while no one was signed in. Nothing leaves the phone until the person signed in says
+ * What was kept on this phone without an account. Nothing leaves the phone until the person signed in says
  * it's theirs, so a share can't reach whoever happens to sign in next. Adding always goes to their own personal space.
  */
 export function WaitingShares() {
@@ -67,7 +67,7 @@ export function WaitingShares() {
     if (!settling.current.waiting.size) return;
     settling.current = { waiting: new Set<string>(), saved: 0 };
     setAdding(false);
-    setError("Your personal space changed while adding it. Tap Add again when your share appears.");
+    setError("Your personal space changed while adding it. Check your waiting shares and saved posts. Shares can be added within 30 days.");
     void load();
   }, [generation]);
   if (!owner || !generation) return null;
@@ -77,7 +77,7 @@ export function WaitingShares() {
   </Card>;
   if (!rows.length) return gone || error ? <Card style={{ gap: 12 }}>
     <Notice error={!gone}>{gone || error}</Notice>
-    <Button variant="ghost" title={gone ? "OK" : "Try again"} onPress={() => { setGone(""); setError(""); if (!gone) void load(); }} />
+    <Button variant="ghost" title={gone ? "OK" : "Try again"} onPress={() => { setGone(""); setError(""); if (!gone) { void load(); sharesChanged(); } }} />
   </Card> : null;
   const one = rows.length === 1, account = user?.primaryEmailAddress?.emailAddress || "this account";
   async function add() {
@@ -122,7 +122,7 @@ export function WaitingShares() {
   return <Card style={{ gap: 12 }}>
     <View style={{ gap: 4 }}>
       <Copy kind="heading">{one ? "Add this to your saved posts?" : `Add these ${rows.length} to your saved posts?`}</Copy>
-      <Copy kind="small" tone="muted">{one ? "It was shared on this phone while no one was signed in." : "They were shared on this phone while no one was signed in."}</Copy>
+      <Copy kind="small" tone="muted">{one ? "It was kept on this phone without an account." : "They were kept on this phone without an account."}</Copy>
     </View>
     <View style={{ gap: 6 }}>
       {rows.map((row) => <View key={row.token} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingLeft: 12, paddingRight: one ? 12 : 4, borderRadius: radii.thumb, backgroundColor: c.tile }}>
@@ -138,7 +138,7 @@ export function WaitingShares() {
     </View>
     <Copy kind="small" tone="muted">{`Adding to ${account}. Only you will see ${one ? "it" : "them"}.`}</Copy>
     {!!gone && <Notice>{gone}</Notice>}
-    {!!error && <Notice error>{error}</Notice>}
+    {!!error && <><Notice error>{error}</Notice><Button variant="ghost" title="Try again" onPress={() => { setError(""); void load(); sharesChanged(); }} /></>}
     <Button title={one ? "Add to my saved posts" : `Add all ${rows.length}`} busy={busy} onPress={() => void add()} />
     {one && <Button secondary title="Not mine, remove it" disabled={busy} onPress={() => remove(rows[0].token)} />}
     <Button variant="ghost" title="Not now" disabled={busy} onPress={() => {
