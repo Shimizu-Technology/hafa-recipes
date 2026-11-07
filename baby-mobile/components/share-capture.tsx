@@ -7,7 +7,7 @@ import { preserveFile, removeLocal } from "@/lib/files";
 import { addMutation } from "@/lib/outbox";
 import type { LocalFile, Mutation, Profile } from "@/lib/models";
 import { stockShareScope } from "../lib/stock-share-scope";
-import { captureBelongs, captureDestination, captureStale } from "../lib/share-scope";
+import { captureBelongs, captureDestination, captureStale, shareOwner } from "../lib/share-scope";
 import { notSentMessage } from "../lib/outbox";
 import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
@@ -48,6 +48,11 @@ export function ShareCapture() {
           if (!current()) return;
           if (Platform.OS === "ios" && nativeSharingAvailable && !native) return;
           claimed = native?.claimed ? native.token : undefined;
+          if (native?.blocked && shareOwner(native.scope) === owner) {
+            settle("blocked");
+            sharesChanged();
+            continue;
+          }
           if (native && captureStale(native.scope, owner, bootstrap)) {
             if (native.claimed) {
               if (!(await returnClaim(native.token, owner))) { retry = true; return; }
@@ -64,11 +69,6 @@ export function ShareCapture() {
           if (native && !captureBelongs(native.scope, owner, bootstrap)) return;
           if (!native && !stock.hasShareIntent) return;
           if (!native && !stockShareScope.allow(stock.shareIntent, owner, generation)) return;
-          if (native?.blocked) {
-            settle("blocked");
-            sharesChanged();
-            continue;
-          }
           if (native?.status) {
             // Persist progress discovery before retiring the native receipt.
             if (native.import_id || native.status === "deferred") {

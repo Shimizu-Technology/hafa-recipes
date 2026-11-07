@@ -553,11 +553,12 @@ describe("a draft from before the family", () => {
 it("settles a native unreadable claim and continues to the next capture", async () => {
   const account = setup(), outcomes: unknown[] = [];
   const stop = onClaimSettled((token, outcome) => outcomes.push([token, outcome]));
-  scope.pending.mockResolvedValueOnce({ ...payload(), claimed: true, blocked: "unreadable" })
+  scope.pending.mockResolvedValueOnce({ ...payload(), scope: "disposable-local-parent:0", claimed: true, blocked: "unreadable" })
     .mockResolvedValueOnce(payload("capture-B")).mockResolvedValue(null);
   await mount(ShareCapture);
   await act(async () => { await account.drain(); });
   expect(outcomes).toContainEqual(["capture-A", "blocked"]);
+  expect(scope.returnClaim).not.toHaveBeenCalled();
   expect(scope.acknowledge).not.toHaveBeenCalledWith("capture-A");
   expect(account.state.outbox).toHaveLength(1);
   expect(account.state.outbox[0].id).toBe("share-save:capture-B");
