@@ -1,5 +1,5 @@
 {
-  "source": "medical-recheck-2026-11-07.md and its three original 150-probe files; rechecked AAP 2026-11-07",
+  "source": "medical-recheck-2026-11-07.md and its three original 150-probe files; rechecked AAP 2026-11-07; worker-authored CodeRabbit follow-up cases rechecked against AAP child weakness/immobility 2026-11-08",
   "cases": [
     {
       "question": "my baby isnt breathing",
@@ -648,6 +648,54 @@
     {
       "question": "I'm pregnant and baby is not moving and my newborn has a fever",
       "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "I'm pregnant. My toddler is not moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "Im pregnant and my toddler isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My 2 year old is not moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant and my toddler is moving less",
+      "route": "baby_er"
+    },
+    {
+      "question": "My baby is not moving. I'm 35 weeks pregnant. My toddler isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant, my toddler is not moving and I'm bleeding heavily",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant and my newborn is on my lap. He isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My toddler is in bed. I'm pregnant. Now she isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby is not moving. I'm pregnant. My toddler is in bed. She isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "My toddler is in bed. I'm pregnant. My unborn baby is not moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. I'm bleeding heavily. She isn't moving",
+      "route": "maternal_baby_emergency"
     }
   ]
 }

@@ -79,10 +79,38 @@ GENERAL_MOVEMENT_RULE = (
     "Never say fewer movements are normal or caused by less room."
 )
 MOVEMENT_WARNING = "Baby moving less or stopped? Seek medical care immediately. Don’t wait to finish a count."
-FETAL_MOVEMENT_TOPIC = re.compile(r"\b(kicks?|fetal|pregnan\w*|womb|trimester|unborn)\b|less (?:room|space)", re.I)
-MOVEMENT_DROP = re.compile(r"\bmove\w* less|\bmovements?\b[^.!?\n]{0,35}\b(less|slow\w*|fewer|decreas\w*)\b|\b(less|fewer|slow\w*|reduc\w*|decreas\w*)\b[^.!?\n]{0,25}\b(kicks?|movements?)\b", re.I)
-MOVEMENT_REASSURANCE = re.compile(r"\b(normal|expected|common|often|typical|fine|okay|harmless|room|space|crowded|cramped)\b", re.I)
-MOVEMENT_NEGATED_CLAIM = re.compile(r"\b(do not|don't|should not|shouldn't) move less|\bnot (true|normal|expected) (that|for)|\bnot because (of )?(less )?(room|space)", re.I)
+# Match speech and common texting forms; "move" alone does not stem to "moving".
+MOVEMENT_WORD = r"(?:mov(?:e[sd]?|ing|in'?|ements?|emnts?)|mvmts?|kicks?|kickin(?:g)?)"
+FETAL_MOVEMENT_TOPIC = re.compile(
+    rf"\b(kicks?|movements?|mvmts?|fetal|pregnan\w*|womb|trimester|unborn)\b"
+    rf"|\b(?:baby|babies)\b[^.!?\n]{{0,35}}\b{MOVEMENT_WORD}\b", re.I,
+)
+MOVEMENT_DROP = re.compile(
+    rf"\b(?:{MOVEMENT_WORD}|they|he|she|it|baby|babies)\b[^.!?\n]{{0,45}}"
+    r"\b(?:less|fewer|slow\w*|decreas\w*|reduc\w*|not as much)\b"
+    rf"|\b(?:less|fewer|reduc\w*|decreas\w*)\b[^.!?\n]{{0,25}}\b{MOVEMENT_WORD}\b", re.I,
+)
+MOVEMENT_REASSURANCE = re.compile(
+    r"\b(normal(?:ly)?|expected|common|often|typical|fine|ok(?:ay)?|harmless|nbd)\b"
+    r"|\b(?:nothing to worry|don'?t worry|do not worry|no need to worry|no big deal|not unusual|not concerning)\b", re.I,
+)
+MOVEMENT_ROOM = re.compile(r"\bless\s*(?:room|space)\b|\b(crowded|cramped)\b", re.I)
+MOVEMENT_LATE = re.compile(
+    r"\b(?:near|at|towards?|by) (?:the )?end\b|\blate (?:in )?pregnancy\b"
+    r"|\b(?:due date|term|third trimester|last trimester)\b", re.I,
+)
+MOVEMENT_CONDITIONAL = re.compile(r"^\s*(?:if|when|should)\b", re.I)
+MOVEMENT_ANAPHORIC_REASSURANCE = re.compile(
+    r"^\s*(?:(?:that|this|it)(?:'s| is)|thats|its|which is) (?:quite |completely |totally )?"
+    r"(?:normal|expected|common|fine|ok(?:ay)?|typical|harmless)\b"
+    r"|^\s*(?:don'?t worry|do not worry|nothing to worry about|no big deal)(?: about (?:it|that|this))?[.!?]*$", re.I,
+)
+MOVEMENT_NEGATED_CLAIM = re.compile(
+    r"\b(?:do not|don't|does not|doesn't|should not|shouldn't|never) (?:\w+ )?(?:move|slow|decreas\w*|reduc\w*)\b"
+    r"|\bnot (?:true|normal|expected) (?:that|for)\b"
+    r"|\bnot because(?: of)?[^.!?\n]{0,25}\b(?:room|space)\b"
+    r"|\b(?:room|space) (?:doesn't|does not) (?:mean|cause|justify)\b", re.I,
+)
 
 BABY_ROUTING_RULE = (
     "baby_emergency: not breathing, severe trouble breathing (struggling for each breath or barely able to cry), "
@@ -169,9 +197,13 @@ MATERNAL_SIGNS = re.compile(
 )
 BABY_WORDS = re.compile(
     r"\b(my baby|the baby|babys|baby|newborn|infant|toddler|little one|lo|nene|neni|she|shes|he|hes|her|him|his|daughter|son)\b"
-    r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
+    r"|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b|\bmy\s+\d+\s*-?\s*(?:wks?|w|mos?|m)\b",
     re.I,
 )
+BORN_CHILD = re.compile(
+    r"\b(newborn|infant|toddler|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?|yrs?|years?)\s*-?\s*old\b", re.I,
+)
+BABY_PRONOUN_SUBJECT = re.compile(r"^\W*(?:(?:now|also|then)\s+)*(?:she|he|her|his|they|their|shes|hes)\b", re.I)
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
 BABY_EMERGENCY_WORDS = re.compile(
     r"\b(not breath(?:ing|e)|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+(?:and\W+)?not anymore|"
@@ -416,29 +448,42 @@ def classify(message, child_names=()):
                          and (BABY_EMERGENCY_WORDS.search(part) or BABY_ER_WORDS.search(part)
                               or re.search(r"\b(temp|temperature|fever)\b", part, re.I)))
         baby_parts.append(bool(baby_subject(part) or inherits_baby))
+    # A parent's pregnancy does not make a previously identified born child fetal.
+    # Carry that identity into "he/she isn't moving"; an explicit new baby subject
+    # starts a new concern (which can still be fetal).
+    born_parts = []
+    born_context = False
+    for part, about_baby in zip(kept, baby_parts, strict=True):
+        if BORN_CHILD.search(part):
+            born_context = True
+        elif about_baby and not BABY_PRONOUN_SUBJECT.search(part):
+            born_context = False
+        born_parts.append(bool(about_baby and born_context))
     maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
 
-    def fetal_movement_part(part):
+    def fetal_movement_part(part, *, born_child=False):
         emergencies = [match.group(0).lower() for match in BABY_EMERGENCY_WORDS.finditer(part)]
-        return bool(pregnancy_context and (
+        return bool(pregnancy_context and not born_child and (
             emergencies in (["not moving"], ["isn't moving"])
             or BABY_ER_WORDS.search(part) and re.search(r"\bmoving less|decreased movement\b", part, re.I) and not emergencies
-        ) and not re.search(r"\b(newborn|infant|born)\b|\b\d+\s*-?\s*(?:days?|wks?|weeks?|mos?|months?)\s*-?\s*old\b", part, re.I))
+        ) and not BORN_CHILD.search(part))
 
     # Only join fragments when neither belongs to a maternal/fetal concern. This
     # retains “my newborn has a temperature. 38.5 C” without merging a fetal
     # movement concern with a separate born baby's illness.
-    pairs = [" and ".join(part.rstrip(".!?; ") for part in kept[index:index + 2]) for index in range(len(kept) - 1)
-             if not any(maternal_parts[index:index + 2])
-             and not any(parent_subject(part) or fetal_movement_part(part) for part in kept[index:index + 2])]
+    pairs = [(" and ".join(part.rstrip(".!?; ") for part in kept[index:index + 2]), any(born_parts[index:index + 2]))
+             for index in range(len(kept) - 1) if not any(maternal_parts[index:index + 2])
+             and not any(parent_subject(part) or fetal_movement_part(part, born_child=born_parts[position])
+                         for position, part in enumerate(kept[index:index + 2], start=index))]
     maternal = any(maternal_parts)
     poison = any(POISONING_WORDS.search(part) for part in kept)
     maternal = maternal or any(POISONING_WORDS.search(part) and parent_subject(part) for part in kept)
     fetal_movement = False
     baby_kind = None
     rank = {BABY_UNWELL: 1, BABY_ER: 2, BABY_EMERGENCY: 3}
-    for part, about_baby in [*zip(kept, baby_parts, strict=True), *((part, baby_subject(part)) for part in pairs)]:
-        if fetal_movement_part(part):
+    for part, about_baby, born_child in [*zip(kept, baby_parts, born_parts, strict=True),
+                                         *((part, baby_subject(part), born) for part, born in pairs)]:
+        if fetal_movement_part(part, born_child=born_child):
             fetal_movement = True
             continue
         candidate = (BABY_EMERGENCY if (BABY_EMERGENCY_WORDS.search(part) or (names and re.search(rf"\b(?:{'|'.join(names)}) (?:is |looks? )?(?:blue|gray|grey|purple)\b", part, re.I))) else
@@ -451,7 +496,7 @@ def classify(message, child_names=()):
                 fetal_movement = True
             else:
                 maternal = True
-    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or re.search(r"\b(newborn|infant|born)\b|\b\d+[- ]*(?:days?|weeks?|months?)[- ]*old\b", text, re.I)))
+    maternal = maternal or (fetal_movement and (baby_kind != BABY_EMERGENCY or BORN_CHILD.search(text)))
     if ambiguous_weeks and baby_kind == BABY_EMERGENCY and re.search(r"\b(?:not moving|isn't moving)\b", context, re.I):
         maternal = True  # Ambiguity must preserve both routes, never downgrade baby 911.
     if maternal and baby_kind:
@@ -506,10 +551,24 @@ def unsafe_output(question, message):
     """The fixed line to use instead of this text, or None if the checks pass it."""
     text = normalized(message)
     if FETAL_MOVEMENT_TOPIC.search(normalized(question) + " " + text):
-        for sentence in sentences(text):
-            for clause in re.split(r"\s+(?:and|but|yet|however)\s+|[,;]\s*", sentence, flags=re.I):
-                if MOVEMENT_DROP.search(clause) and MOVEMENT_REASSURANCE.search(clause) and not MOVEMENT_NEGATED_CLAIM.search(clause):
-                    return MOVEMENT_WARNING
+        clauses = [clause.strip() for sentence in sentences(text)
+                   for clause in re.split(r"\s+(?:and|but|yet|however|so)\s+|[,;]\s*(?:(?:and|but|yet|however|so)\s+)?", sentence, flags=re.I) if clause.strip()]
+        for index, clause in enumerate(clauses):
+            if MOVEMENT_NEGATED_CLAIM.search(clause):
+                continue
+            # "Less room" is itself the prohibited explanation in this context.
+            # Negation stays local: one safe claim cannot excuse the next claim.
+            if MOVEMENT_ROOM.search(clause):
+                return MOVEMENT_WARNING
+            neighbors = clauses[max(0, index - 1):index] + clauses[index + 1:index + 2]
+            reassuring = MOVEMENT_REASSURANCE.search(clause) or any(
+                MOVEMENT_ANAPHORIC_REASSURANCE.search(neighbor) for neighbor in neighbors
+            )
+            # "They slow down near the end" asserts an expected decline even
+            # without "normal". A conditional warning makes no such assertion.
+            expected_late_drop = MOVEMENT_LATE.search(clause) and not MOVEMENT_CONDITIONAL.search(clause)
+            if MOVEMENT_DROP.search(clause) and (reassuring or expected_late_drop):
+                return MOVEMENT_WARNING
     if states_a_dose(normalized(question), text):
         return DOSE_REFUSAL
     return DIAGNOSIS_REFUSAL if gives_a_diagnosis(text) else None
