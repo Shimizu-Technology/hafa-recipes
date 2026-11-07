@@ -28,6 +28,7 @@ CASES = [
     ("I have blurry vision and my newborn has a fever", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
     ("my baby is floppy and heavy bleeding", "maternal_baby_er", MATERNAL, BABY_ER),
     ("I can't breathe but my baby has a fever", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
+    ("I noticed bleeding from his umbilical cord and Im bleeding heavily", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
     ("Im bleeding heavily while nursing her and baby has a fever", "maternal_baby_unwell", MATERNAL, BABY_DOCTOR),
     ("baby's lips are blue. Im soaking pads", "maternal_baby_emergency", BABY_911, MATERNAL),
 ]
@@ -88,6 +89,11 @@ async def test_model_question_check_routes_both_people_on_both_paths(baby_api, s
     ("heavy bleeding", MATERNAL),
     ("I'm bleeding heavily while nursing her", MATERNAL),
     ("Im bleeding a lot while holding him", MATERNAL),
+    ("My bleeding is heavy while nursing her", MATERNAL),
+    ("My water broke while holding her", MATERNAL),
+    ("I noticed bleeding from his umbilical cord", BABY_DOCTOR),
+    ("I have noticed bleeding from her umbilical cord", BABY_DOCTOR),
+    ("I'm seeing bleeding from his umbilical cord", BABY_DOCTOR),
 ])
 def test_single_patient_and_fragmented_temperature_routes_do_not_acquire_the_other_person(question, expected):
     assert ask_safety.classify(question).message == expected
@@ -150,10 +156,18 @@ def test_review_findings_keep_patient_fragments_and_fetal_concerns(question, exp
 
 @needs_database
 @pytest.mark.parametrize("v2", [False, True])
-async def test_an_incidental_infant_pronoun_cannot_downgrade_maternal_bleeding(baby_api, monkeypatch, v2):
+@pytest.mark.parametrize("message,expected,help_kind", [
+    ("I'm bleeding heavily while nursing her", MATERNAL, "urgent_maternal"),
+    ("My bleeding is heavy while nursing her", MATERNAL, "urgent_maternal"),
+    ("My water broke while holding her", MATERNAL, "urgent_maternal"),
+    ("I noticed bleeding from his umbilical cord", BABY_DOCTOR, "baby_unwell"),
+    ("I have noticed bleeding from her umbilical cord", BABY_DOCTOR, "baby_unwell"),
+    ("I'm seeing bleeding from his umbilical cord", BABY_DOCTOR, "baby_unwell"),
+])
+async def test_self_reports_and_observations_keep_the_correct_patient(baby_api, monkeypatch, v2, message, expected, help_kind):
     monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda _: False))
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS,
-        json={"request_id": str(uuid4()), "message": "I'm bleeding heavily while nursing her", "ask_v2": v2})
+        json={"request_id": str(uuid4()), "message": message, "ask_v2": v2})
     assert response.status_code == 200
-    assert response.json()["message"] == MATERNAL
-    assert response.json()["help"] == "urgent_maternal"
+    assert response.json()["message"] == expected
+    assert response.json()["help"] == help_kind

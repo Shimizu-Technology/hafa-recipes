@@ -329,8 +329,12 @@ def classify(message, child_names=()):
         maternal_sign = MATERNAL_SIGNS.search(part)
         # “I'm bleeding while nursing her” describes the parent. A later baby
         # pronoun must not turn an explicit maternal symptom into infant illness.
-        if baby and maternal_sign and maternal_sign.start() < baby.start() and re.search(r"^\W*(?:i\b|im\b|my (?:water|bleeding|head|vision|chest|leg|calf|hands|face|incision)\b)", part, re.I):
-            return False
+        if baby and maternal_sign and maternal_sign.start() < baby.start():
+            prefix = part[:maternal_sign.start()]
+            self_report = re.search(r"^\W*(?:i (?:am|have|feel|can't|cannot)\b|i'm\b|im\b|my (?:water|bleeding|head|vision|chest|leg|calf|hands|face|incision)\b)", part, re.I)
+            observation = re.search(r"\b(noticed|noticing|seeing|saw|see|observed|observing|found|heard|watching)\b", prefix, re.I)
+            if self_report and not observation:
+                return False
         return bool(baby or part.strip().lower() == "seizure")
 
     # A patient transition can occur without punctuation or “and”. Split only
