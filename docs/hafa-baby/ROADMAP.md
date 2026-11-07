@@ -482,7 +482,11 @@ Ask V2's production flag remains untouched. The API now defaults to `public` and
 fails closed without the current reviewed marker. For Leon’s private use only,
 set `BABY_HEALTH_RELEASE_AUDIENCE=private_family` **and**
 `BABY_HEALTH_REVIEWED_VERSION=baby-health-2026-11-07-m1-m8` after the reviewed API
-is authorized, merged and deployed. This agent has not changed production.
+is authorized, merged and deployed. Also set `BABY_HEALTH_PRIVATE_USERS` to the
+comma-separated stable application user IDs for Leon/Kami; empty or unlisted
+accounts remain blocked on both paths, including per-call admission and final
+publication. Do not use Clerk subjects or the separate invite rollout list. This
+agent has not changed production.
 Public/paid additionally requires `BABY_ASK_CLINICIAN_APPROVAL` and
 `BABY_WHO_CHART_PERMISSION`. The V2 flag alone cannot open either gate. AI consent
 and current Ask consent still apply. V2-off is not AI-off: old Ask has its own
@@ -504,9 +508,43 @@ The six conservative product defaults remain unchanged.
 Before enabling V2, complete review of the fixes, final automated/native
 acceptance, valid capped safety/whole-Ask evals, installation of the reviewed
 family binary and isolated deployed consent/source/private-family access checks.
-Final prompts are `baby-safety-check-v9`, `baby-ask-v2-4`, old
+Final prompts are `baby-safety-check-v10`, `baby-ask-v2-4`, old
 `baby-chat-reviewed-v3`, and unchanged `baby-research-v2`. The report records
 case-level eval results/cost and native matrix evidence. No production setting,
 deployment, merge or public release is authorized here. Guam hotline call/text
 connectivity remains untested and disclosed.
 
+
+Native health-flow acceptance is now complete on the stock 18.5/26.5 devices,
+normal/largest text and light/dark, using an isolated native QA app and local
+synthetic records. Timers, BP, growth, milestone/shot saves, source/disclosure
+navigation, blank-dose medicine reuse and offline Help/recovery were exercised.
+Largest text keeps urgent Help/911 reachable. This is not an EAS/TestFlight
+family release or proof of actual Guam hotline connectivity. QA apps/services
+and simulators were cleaned; no protected simulator was used.
+
+The final paid v10 safety run made 1,122 checks: no urgent/harm misses or provider
+errors. Final-code replay of those unchanged verdicts has zero misses and 0.70%
+floor false alarms. This replay is not a new independent held-out run. The
+completed earlier whole-Ask run was 56/58; the final whole-Ask run stopped at its
+cap and is incomplete. Keep V2 OFF: resolve the two research cases, complete a
+passing final whole-Ask/independent safety run and review, install the reviewed
+family binary, and perform the isolated deployed consent/access/source/limit
+checks. Reported successful usage is $0.328726; conservative total including all
+incomplete/interrupted ceilings is at most $1.928726. No further paid calls.
+
+Follow-up code review fixed real account authorization, per-call/final
+publication rechecks, mixed maternal/infant routing, claim-scoped movement
+negation, recognized safety-label normalization/unknown-label refusal, and
+closed-gate persistence. Family-space rejection still precedes nonurgent release
+denial; the free emergency reply remains first. Reviews of older heads do not
+approve the final fixes. All PRs remain held and unmerged; retarget #640 to main
+only after #639 is merged by Leon.
+
+The final combined disposable-database `./scripts/check.sh` passed on
+`dd79d05291cc1d65a2b5b7f866ff94afad37e2df`: API 6,122 passed/47 existing skips,
+Baby 2,856 passed, plus the repository TypeScript/build/Doctor/export checks.
+The report-only handback follows that code head. All owned runtime resources,
+the temporary native build/worktree and disposable database were cleaned.
+The held implementation branches remain for independent review; no final-head
+review approval, deployment or TestFlight availability is claimed.
