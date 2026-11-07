@@ -69,3 +69,9 @@ async def test_model_check_route_agrees_without_a_generated_answer(baby_api, stu
     assert response.status_code == 200, response.text
     assert response.json()["message"] == message and response.json()["help"] == "baby_unwell"
     assert stub.sent == []
+
+
+def test_shipped_model_prompt_prioritizes_unresponsiveness_over_other_baby_signs():
+    from app.domains.baby.ask_check import QUESTION_PROMPT
+    assert "Emergency signs take priority over every other baby sign" in QUESTION_PROMPT
+    assert "won’t respond or unable to wake means baby_emergency even with jerking or seizure" in QUESTION_PROMPT
