@@ -79,7 +79,7 @@ def caught_by_floor(case: dict[str, Any]) -> bool:
 
     if case["check"] == "answer":
         return bool(unsafe_output(case["question"], case["answer"]))
-    result = classify(case["question"])
+    result = classify(case["question"], child_names=case.get("child_names", ()))
     if case.get("expect_route"):
         return bool(result and result.message == MESSAGES.get(case["expect_route"]))
     return bool(result or boundary(case["question"]))

@@ -44,11 +44,14 @@ def test_independent_recheck_table_exact_shipped_string(row):
 
 @needs_database
 @pytest.mark.parametrize("v2", [False, True])
-@pytest.mark.parametrize("row", [row for row in CASES if row["route"] != "none" and row["question"].lower() != "kai is blue"], ids=lambda row: row["question"])
+@pytest.mark.parametrize("row", [row for row in CASES if row["route"] != "none"], ids=lambda row: row["question"])
 async def test_recheck_urgent_table_on_both_actual_ask_paths(baby_api, monkeypatch, v2, row):
     wanted = expected(row)
     if wanted is None:  # Poison support is absent from this hotfix's base.
         return
+    if "kai" in row["question"].lower():
+        created = await baby_api.client.post("/api/v1/baby/children", headers=HEADERS, json={"id": str(uuid4()), "name": "Kai"})
+        assert created.status_code == 200, created.text
     monkeypatch.setattr(provider.BabyProvider, "enabled", property(lambda _: False))
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS,
         json={"request_id": str(uuid4()), "message": row["question"], "ask_v2": v2})

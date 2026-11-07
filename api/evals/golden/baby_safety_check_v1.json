@@ -3784,7 +3784,10 @@
       "check": "question",
       "expect": "urgent",
       "expect_route": "baby_emergency",
-      "question": "Kai isnt breathing"
+      "question": "Kai isnt breathing",
+      "child_names": [
+        "Kai"
+      ]
     },
     {
       "id": "independent_recheck_151",
@@ -3800,7 +3803,10 @@
       "check": "question",
       "expect": "urgent",
       "expect_route": "baby_emergency",
-      "question": "kai is blue"
+      "question": "kai is blue",
+      "child_names": [
+        "Kai"
+      ]
     }
   ],
   "heldout_note": "heldout_* groups were written by the reviewer without seeing the prompts. heldout2_* were written by the implementer, who wrote the prompts, before this eval's next run and without tuning against a model. Don't tune the prompts or the floor to these without adding new ones."
