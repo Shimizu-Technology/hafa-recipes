@@ -447,6 +447,36 @@ describe("opened from a family link", () => {
 
 describe("in a family", () => {
   const inFamily = (api: object = {}) => setup([own, shared], api);
+  it("keeps polling the new family and ignores a late old-family response", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const me = { app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }, c = { ...me, app_user_id: "c", display_name: "C" };
+      let oldReply!: (value: { items: typeof me[] }) => void, left = false;
+      const familyMembers = vi.fn((id: string) => id === family
+        ? new Promise<{ items: typeof me[] }>((resolve) => { oldReply = resolve; })
+        : Promise.resolve({ items: left ? [me] : [me, c] }));
+      const b = inFamily({ familyMembers });
+      await open();
+      b.state.bootstrap.spaces = [own, { ...shared, id: "second" }];
+      await act(async () => { view!.update(<Family />); });
+      expect(button("Remove C")).toBeDefined();
+      await act(async () => { oldReply({ items: [me] }); });
+      expect(button("Remove C")).toBeDefined();
+      expect(button("Delete this family")).toBeUndefined();
+      left = true;
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      expect(familyMembers).toHaveBeenLastCalledWith("second");
+      expect(button("Remove C")).toBeUndefined();
+      expect(button("Leave this family")).toBeUndefined();
+      expect(button("Delete this family")).toBeDefined();
+    } finally { vi.useRealTimers(); }
+  });
+  it("accepts member reads after StrictMode replays the effect", async () => {
+    inFamily({ familyMembers: vi.fn(async () => ({ items: [{ app_user_id: "me", role: "parent", status: "active", access_version: 1, display_name: "Me" }] })) });
+    await act(async () => { view = create(<React.StrictMode><Family /></React.StrictMode>); });
+    expect(button("Delete this family")).toBeDefined();
+  });
+
   it("lists who's in it and offers another invite", async () => {
     inFamily();
     await open();
