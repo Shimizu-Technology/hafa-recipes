@@ -14,12 +14,11 @@ from sqlalchemy import String, and_, case, cast, delete, func, or_, select
 from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
-from app.domains.baby.ask_gate import ask_v2_allowed, ask_v2_on
+from app.domains.baby.ask_gate import ask_v2_allowed, ask_v2_flag_on
 from app.domains.baby.ask_research import strings_in
 from app.domains.baby.ask_safety import (
     CANT_ANSWER,
     CANT_ANSWER_LINE,
-    MESSAGES,
     boundary,
     cant_answer,
     classify,
@@ -686,8 +685,9 @@ async def get_conversation(identifier: UUID, user: User, db: Database, client: C
 
 
 def require_new_ask(client):
-    # Until the new Ask is on, and for builds that predate conversations they can manage, these don't exist.
-    if not ask_v2_on() or legacy_client(client):
+    # Managing existing data is not permission to generate health information.
+    # Revoking release access must still let this person remove their chats.
+    if not ask_v2_flag_on() or legacy_client(client):
         raise HTTPException(404, "Not found")
 
 
@@ -842,13 +842,19 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     urgent = classify(body.message, await child_names(db, access, user.id))
     if urgent:
         return await fixed_reply(body, user, db, generation, access, urgent.message, urgent.kind)
+    from app.domains.baby.ask_gate import health_release_allowed
+
     access.check_generation(generation)
     member = access.member
     readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
     if access.enabled and access.target.id != access.personal_space_id:
         raise HTTPException(422, "Ask conversations belong in your personal Baby space")
+    if not health_release_allowed(user.id):
+        from app.domains.baby.ask_safety import CHECK_FAILED
+        return {"conversation_id": None, "message": cant_answer(CHECK_FAILED), "citations": [],
+                "proposal": None, "sources": [], "help": CANT_ANSWER}
     # Old conversations scoped to one area keep the search they began with.
-    use_v2 = body.ask_v2 and body.scope == "all" and not legacy_client(client) and ask_v2_allowed(member.profile)
+    use_v2 = body.ask_v2 and body.scope == "all" and not legacy_client(client) and ask_v2_allowed(member.profile, user.id)
     tracked = {"records": {}, "children": {}} if access.enabled or use_v2 else None
     if use_v2 and (limit := boundary(body.message)):
         return await fixed_reply(body, user, db, generation, access, cant_answer(limit), CANT_ANSWER)
@@ -1031,9 +1037,10 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                                  generation=generation)
         current = fresh.member
         if (
-            not current.profile.get("ai_consent")
+            not health_release_allowed(user.id)
+            or not current.profile.get("ai_consent")
             or current.consent_epoch != epoch
-            or (use_v2 and not ask_v2_allowed(current.profile))
+            or (use_v2 and not ask_v2_allowed(current.profile, user.id))
         ):
             raise HTTPException(403, "AI processing permission changed")
         if use_v2 and access_snapshot(fresh) != question_access:
@@ -1103,8 +1110,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                         context_pack=pack,
                         requested_range=requested_range,
                     )
-                    if result.safety in MESSAGES:
-                        published = ask_v2.fixed_answer(MESSAGES[result.safety], result.safety)
+                    published = await ask_v2.checked_old_answer_reply(provider, body.message, result)
         allowed = {item["id"]: item for item in context}
         if published:
             result = result.model_copy(update={"citation_ids": published["citation_ids"], "proposal": published["proposal"]})
@@ -1122,17 +1128,17 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         proposal = offered_proposal(result.proposal) if use_v2 else legacy_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
         if published:
-            payload.update(message=published["message"], sources=published["sources"], help=published["help"])
+            payload.update(message=clean_assistant_message(published["message"]), sources=published["sources"], help=published["help"])
         access = await access_for(db, user.id, client=client,
                                   space_id=personal_space_id if access.enabled else None,
                                   generation=generation, write=True)
         current = access.member
         readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
-        if current.consent_epoch != epoch or not current.profile.get("ai_consent"):
+        if not health_release_allowed(user.id) or current.consent_epoch != epoch or not current.profile.get("ai_consent"):
             raise HTTPException(
                 403, "AI processing permission changed; this response was discarded"
             )
-        if use_v2 and not ask_v2_allowed(current.profile):
+        if use_v2 and not ask_v2_allowed(current.profile, user.id):
             raise HTTPException(
                 403, "AI processing permission changed; this response was discarded"
             )

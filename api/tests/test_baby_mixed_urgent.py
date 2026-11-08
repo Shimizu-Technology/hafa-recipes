@@ -74,7 +74,7 @@ async def test_model_question_check_routes_both_people_on_both_paths(baby_api, s
     assert response.json()["help"] == ("baby_unwell" if route == "maternal_baby_emergency" else "urgent_maternal")
     assert stub.sent == []  # No generation may replace the fixed guidance.
     assert route in stub.checks[0]["text"]["format"]["schema"]["properties"]["urgent"]["enum"]
-    assert "do not discard either" in stub.checks[0]["instructions"]
+    assert "maternal_baby_unwell" in stub.checks[0]["instructions"]
 
 
 @pytest.mark.parametrize("question,expected", [
@@ -171,3 +171,30 @@ async def test_self_reports_and_observations_keep_the_correct_patient(baby_api, 
     assert response.status_code == 200
     assert response.json()["message"] == expected
     assert response.json()["help"] == help_kind
+
+
+POISON = "If someone collapsed, is having a seizure, has trouble breathing or can’t be woken, call 911 now. For suspected poisoning or an accidental overdose, call US Poison Control now at 1-800-222-1222. Don’t wait for Ask."
+
+
+@needs_database
+@pytest.mark.parametrize("v2", [False, True])
+@pytest.mark.parametrize("route,expected,help_kind", [
+    ("poisoning", POISON, "cant_answer"),
+    ("maternal_poisoning", MATERNAL + "\n\n" + POISON, "urgent_maternal"),
+    ("baby_emergency_poisoning", BABY_911 + "\n\n" + POISON, "baby_unwell"),
+    ("baby_er_poisoning", BABY_ER + "\n\n" + POISON, "baby_unwell"),
+    ("baby_unwell_poisoning", BABY_DOCTOR + "\n\n" + POISON, "baby_unwell"),
+    ("maternal_baby_emergency_poisoning", BABY_911 + "\n\n" + MATERNAL + "\n\n" + POISON, "baby_unwell"),
+    ("maternal_baby_er_poisoning", MATERNAL + "\n\n" + BABY_ER + "\n\n" + POISON, "urgent_maternal"),
+    ("maternal_baby_unwell_poisoning", MATERNAL + "\n\n" + BABY_DOCTOR + "\n\n" + POISON, "urgent_maternal"),
+])
+async def test_every_poison_composite_preserves_exact_guidance_on_both_model_check_paths(baby_api, stub, v2, route, expected, help_kind):  # noqa: F811
+    await enable(baby_api)
+    stub.question_verdict = {"urgent": route}
+    response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS,
+        json={"request_id": str(uuid4()), "message": "Things feel different for both of us", "ask_v2": v2})
+    assert response.status_code == 200, response.text
+    assert response.json()["message"] == expected
+    assert response.json()["help"] == help_kind
+    assert not stub.sent
+

@@ -187,10 +187,10 @@ async def test_the_check_uses_its_configured_model(baby_api, stub):  # noqa: F81
     assert {check["model"] for check in stub.checks} == {"gpt-6.1-terra"} and stub.sent[0]["model"] == "gpt-6-luna"
 
 
-async def test_the_old_path_checks_the_question_only(baby_api, stub):  # noqa: F811
+async def test_the_old_path_checks_both_question_and_answer(baby_api, stub):  # noqa: F811
     await enable(baby_api, acknowledge=False)
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()), "message": PLAIN})
-    assert response.status_code == 200 and [check["instructions"] for check in stub.checks] == [ask_check.QUESTION_PROMPT]
+    assert response.status_code == 200 and [check["instructions"] for check in stub.checks] == [ask_check.QUESTION_PROMPT, ask_check.ANSWER_PROMPT]
 
 
 async def test_a_floor_match_needs_no_paid_check(baby_api, stub):  # noqa: F811
