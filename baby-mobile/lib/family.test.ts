@@ -9,7 +9,8 @@ describe("reading a code", () => {
   it("finds it in the whole message they pasted", () => {
     expect(codeFrom(inviteMessage(code))).toBe(code);
     expect(inviteMessage(code)).toContain(`https://shimizu-technology.com/join/${code}`);
-    expect(inviteMessage(code)).toContain(`\n\n${code}`);
+    expect(inviteMessage(code).split(code)).toHaveLength(2);
+    expect(inviteMessage(code).length).toBeLessThan(120);
     expect(codeFrom(`  ${code}\n`)).toBe(code);
   });
   it("gives back whatever else, for the API to refuse", () => {

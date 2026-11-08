@@ -10,7 +10,7 @@ import { Button, Card, Choice, Copy, Field, Grouped, Loading, Notice, Row, Scree
 import { ApiError, PhonesNotReady } from "../lib/api";
 import { looksLikeCode } from "../lib/family";
 import { takeJoinLink } from "../lib/join-link";
-import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
+import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteLink, inviteMessage, whatBecomesShared, type FamilyInvite, type FamilyMember, type FamilyReadiness, type InvitePreview } from "../lib/family";
 import { babyLabel, familyOpen, familySpaces, herLog, rowFence } from "../lib/spaces";
 import { leftFamilyNotice } from "../lib/outbox";
 import { askForShareSession } from "@/lib/share-session-state";
@@ -94,8 +94,8 @@ function ShownCode({ invite, onDone }: { invite: FamilyInvite; onDone: () => voi
       <Copy kind="small">{invite.code}</Copy>
       <Copy kind="small" tone="muted">{`It works once, until ${friendlyDay(invite.expires_at)}. This is the only time it’s shown. They need the update too.`}</Copy>
     </Card>
-    <Button title="Send the code" icon="share-outline" size="lg" onPress={() => void Share.share({ message: inviteMessage(invite.code!) })} />
-    <Button secondary title="Copy" onPress={() => void Clipboard.setStringAsync(invite.code!).then(() => toast("Copied."))} />
+    <Button title="Share invitation" icon="share-outline" size="lg" onPress={() => void Share.share({ message: inviteMessage(invite.code!) })} />
+    <Button secondary title="Copy link" onPress={() => void Clipboard.setStringAsync(inviteLink(invite.code!)).then(() => toast("Invitation link copied."))} />
     <Button variant="ghost" title="Done" onPress={onDone} />
   </Section>;
 }

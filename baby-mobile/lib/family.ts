@@ -19,8 +19,8 @@ export interface FamilyMember { app_user_id: string; role: "parent" | "caregiver
 /** The code in whatever they pasted, usually the whole message it came in. */
 export const looksLikeCode = (text: string) => codeShape.test(text);
 export const codeFrom = (text: string) => text.match(codeShape)?.[0] ?? text.trim();
-export const inviteMessage = (code: string) =>
-  `Join our family in Håfa Baby. Update the app first, then tap this: https://shimizu-technology.com/join/${code}\n\nIf that doesn’t open the app, open your profile, Family, I have a code, and paste this. It works once, for 7 days.\n\n${code}`;
+export const inviteLink = (code: string) => `https://shimizu-technology.com/join/${code}`;
+export const inviteMessage = (code: string) => `Join our family in Håfa Baby:\n${inviteLink(code)}`;
 
 /** What the API can move between spaces. */
 export const canBeJustMe = (kind: Kind) => kind === "source" || kind === "collection" || kind === "journal";
