@@ -1,6 +1,7 @@
 """Search over all owner/generation records, including retained source contents."""
 
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import String, and_, case, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.orm import aliased
 
 from app.domains.baby.models import BabyRecord
@@ -86,11 +87,23 @@ def records_query(
     if q and q.strip():
         escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         term = f"%{escaped}%"
+        body, data = BabyRecord.body, BabyRecord.data
+        caregivers = [grant.id for grant in owner.spaces if grant.role == "caregiver"] if getattr(owner, "enabled", False) else []
+        if caregivers:
+            from app.domains.baby.access import VISIT_PRIVATE_FIELDS, VISIT_SIGNAL_FIELDS
+
+            # Search only the content this reader may see, including totals and pagination.
+            medical = or_(BabyRecord.data["category"].as_string() == "appointment",
+                BabyRecord.data["medical_visit"].as_boolean().is_(True),
+                *(BabyRecord.data[key].as_string().is_not(None) for key in VISIT_SIGNAL_FIELDS)).is_(True)
+            private = and_(BabyRecord.kind == "event", BabyRecord.space_id.in_(caregivers), medical)
+            body = case((private, ""), else_=body)
+            data = case((private, data.op("-")(array(sorted(VISIT_PRIVATE_FIELDS)))), else_=data)
         query = query.where(
             or_(
                 BabyRecord.title.ilike(term, escape="\\"),
-                BabyRecord.body.ilike(term, escape="\\"),
-                cast(BabyRecord.data, String).ilike(term, escape="\\"),
+                body.ilike(term, escape="\\"),
+                cast(data, String).ilike(term, escape="\\"),
             )
         )
     return query

@@ -566,3 +566,52 @@ it.each(["Related items must be in the same Baby space", "Unrelated validation",
   expect(error.reason).toBe(detail === "Related items must be in the same Baby space" ? "related_space" : undefined);
   expect(error.message).not.toContain("provider text");
 });
+
+it("defers attributed import writes across an API rollback and retries identical words when support returns", async () => {
+  let available = true;
+  const imported = { ...row, revision: undefined, data: { paste_origin: { text: "Private", start: 0, end: 7, original: true } } };
+  const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(imported));
+  const api = createBabyApi("https://service.example", async () => "token", () => true, transport, () => ({ visit_import_available: available }));
+  available = false;
+  await expect(api.save(imported, 1)).rejects.toMatchObject({ status: 503 });
+  expect(transport).not.toHaveBeenCalled();
+  available = true;
+  await api.save(imported, 1);
+  expect(JSON.parse(String(transport.mock.calls[0][1]?.body)).data).toEqual(imported.data);
+});
+
+
+it.each(["journal", "event"] as const)("rechecks support after a racing rollback 422 for an attributed %s and resends unchanged", async (kind) => {
+  let rolledBack = false;
+  const imported = { ...row, kind, revision: undefined, data: { paste_origin: { text: "Private", start: 0, end: 7, original: kind === "journal" } } };
+  const transport = vi.fn<typeof fetch>().mockImplementation(async (url) => String(url).endsWith("/bootstrap")
+    ? Response.json({ generation: 1, profile: {}, children: [], ...(rolledBack ? {} : { visit_import_available: true }) })
+    : rolledBack ? Response.json({ detail: "Enter valid details for this entry" }, { status: 422 }) : Response.json(imported));
+  const api = createBabyApi("https://service.example", async () => "token", () => true, transport, () => ({ visit_import_available: true }));
+  await api.bootstrap();rolledBack = true;
+  await expect(api.save(imported, 1)).rejects.toMatchObject({ status: 503 });
+  rolledBack = false;await api.save(imported, 1);
+  const writes = transport.mock.calls.filter(([url]) => !String(url).endsWith("/bootstrap"));
+  expect(writes).toHaveLength(2);
+  expect(writes[0][1]?.body).toBe(writes[1][1]?.body);
+});
+it("keeps genuine attributed validation errors for review when the service still supports them", async () => {
+  const imported = { ...row, data: { paste_origin: { text: "Private", start: 0, end: 7, original: true } } };
+  const transport = vi.fn<typeof fetch>().mockImplementation(async (url) => String(url).endsWith("/bootstrap")
+    ? Response.json({ generation: 1, profile: {}, children: [], visit_import_available: true })
+    : Response.json({ detail: "Enter valid details for this entry" }, { status: 422 }));
+  const api = createBabyApi("https://service.example", async () => "token", () => true, transport, () => ({ visit_import_available: true }));
+  await api.bootstrap();await expect(api.save(imported, 1)).rejects.toMatchObject({ status: 422 });
+  expect(transport.mock.calls.filter(([url]) => String(url).endsWith("/bootstrap"))).toHaveLength(2);
+});
+
+it("fences an account generation change during rollback verification", async () => {
+  let generation = 1;
+  const imported = { ...row, data: { paste_origin: { text: "Private", start: 0, end: 7, original: true } } };
+  const transport = vi.fn<typeof fetch>().mockImplementation(async (url) => String(url).endsWith("/bootstrap")
+    ? Response.json({ generation, profile: {}, children: [], visit_import_available: generation === 1 })
+    : Response.json({ detail: "Enter valid details for this entry" }, { status: 422 }));
+  const api = createBabyApi("https://service.example", async () => "token", () => true, transport, () => ({ visit_import_available: true }));
+  await api.bootstrap();generation = 2;
+  await expect(api.save(imported, 1)).rejects.toMatchObject({ status: 410, local: true });
+});

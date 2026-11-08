@@ -125,3 +125,71 @@ async def test_build32_calendar_stays_unavailable_before_baby_enrollment(baby_ap
                            params={"original_start": START, "revision": 1})).status_code == 404
     assert (await c.post(f"{API}/events/{identifier}/end-series", headers=h,
                          json={"from_date": "2026-10-22", "revision": 1})).status_code == 404
+
+
+async def test_visit_series_writers_keep_medical_and_contributor_protection(baby_api, family):
+    baby_api.settings.baby_new_kinds_enabled = True
+    c = baby_api.client
+    source = {"text": "Visit words", "start": 0, "end": 11, "original": False}
+    body = shared.payload("event", body="Medical notes", data={"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "paste_origin": source, "results": "Medical result"})
+    saved = await c.post(API + "/records", headers=records.headers(family), json=body)
+    assert saved.status_code == 200, saved.text
+    path = f"{API}/events/{body['id']}"
+    replacement = {**body, "id": str(uuid4()), "occurred_at": "2026-10-21T12:00:00+10:00", "data": {"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}}}
+    split = {"revision": 1, "from_start": "2026-10-21T12:00:00+10:00", "event": replacement}
+    denied = await c.post(path + "/split", headers=records.headers(family, "other"), json=split)
+    assert denied.status_code == 403, denied.text
+    replacement["data"]["paste_origin"] = source
+    allowed = await c.post(path + "/split", headers=records.headers(family, "other"), json=split)
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["event"]["created_by"] == "owner"
+    async with baby_api.sessions() as db:
+        member = await db.get(BabySpaceMember, (family, "other"))
+        member.role = "caregiver"
+        await db.commit()
+    occurrence = await c.put(path + "/occurrences", headers=records.headers(family, "other"), json={"revision": 2, "original_start": START, "overrides": {"category": "other"}})
+    assert occurrence.status_code == 403, occurrence.text
+
+
+async def test_caregiver_future_split_restores_hidden_source_before_contributor_check(baby_api, family):
+    baby_api.settings.baby_new_kinds_enabled = True
+    c = baby_api.client
+    source = {"text": "Visit words", "start": 0, "end": 11, "original": False}
+    body = shared.payload("event", body="Medical notes", data={"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "paste_origin": source, "results": "Medical result"})
+    assert (await c.post(API + "/records", headers=records.headers(family), json=body)).status_code == 200
+    async with baby_api.sessions() as db:
+        (await db.get(BabySpaceMember, (family, "other"))).role = "caregiver"
+        await db.commit()
+    replacement = {**body, "id": str(uuid4()), "body": "", "occurred_at": "2026-10-21T12:00:00+10:00", "data": {"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}}}
+    result = await c.post(f"{API}/events/{body['id']}/split", headers=records.headers(family, "other"), json={"revision": 1, "from_start": replacement["occurred_at"], "event": replacement})
+    assert result.status_code == 200, result.text
+    parent = await c.get(f"{API}/records/{replacement['id']}", headers=records.headers(family))
+    assert parent.json()["data"]["paste_origin"] == source
+    assert parent.json()["body"] == "Medical notes"
+    assert parent.json()["data"]["results"] == "Medical result"
+
+
+@pytest.mark.parametrize("select_new", [False, True])
+async def test_split_provider_default_uses_server_time_only_for_a_new_selection(baby_api, family, monkeypatch, select_new):
+    from datetime import datetime, timedelta, timezone
+
+    from app.domains.baby import events
+
+    baby_api.settings.baby_new_kinds_enabled = True
+    clock = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
+    monkeypatch.setattr(events, "now", lambda: clock[0])
+    c, h = baby_api.client, records.headers(family)
+    original = shared.payload("event", data={"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "provider_default": True, "provider_default_at": 9999999999999, "doctor": "Series doctor"})
+    saved = await c.post(API + "/records", headers=h, json=original)
+    assert saved.status_code == 200, saved.text
+    first_stamp = saved.json()["data"]["provider_default_at"]
+    clock[0] += timedelta(seconds=10)
+    other = shared.payload("event", data={"category": "appointment", "timezone": "Pacific/Guam", "provider_default": True, "provider_default_at": 1, "doctor": "Other doctor"})
+    assert (await c.post(API + "/records", headers=h, json=other)).status_code == 200
+    clock[0] += timedelta(seconds=10)
+    replacement = {**original, "id": str(uuid4()), "occurred_at": "2026-10-21T12:00:00+10:00", "data": {"category": "appointment", "timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}, "provider_default": True, "doctor": "Chosen doctor" if select_new else "Series doctor", **({"provider_default_at": 1} if select_new else {})}}
+    split = await c.post(f"{API}/events/{original['id']}/split", headers=h, json={"revision": 1, "from_start": replacement["occurred_at"], "event": replacement})
+    assert split.status_code == 200, split.text
+    assert split.json()["event"]["data"]["provider_default_at"] == (int(clock[0].timestamp() * 1000) if select_new else first_stamp)
+    defaults = await c.post(API + "/visit-defaults/read", headers=h)
+    assert defaults.status_code == 200 and defaults.json()["doctor"] == ("Chosen doctor" if select_new else "Other doctor"), defaults.text

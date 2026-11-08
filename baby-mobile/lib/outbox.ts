@@ -581,7 +581,7 @@ export function retryLater<T extends Extract<Mutation, { type: "reminder_prefs" 
 /** Kinds the API can refuse for now with a 503 until its flag is on, so a build shipped first keeps them queued. */
 const retriedKinds: readonly Kind[] = trackedKinds.filter((kind) => !careKinds.includes(kind));
 export function retriedSave(change: Mutation): change is Extract<Mutation, { type: "save" }> {
-  return change.type === "save" && retriedKinds.includes(change.record.kind);
+  return change.type === "save" && (retriedKinds.includes(change.record.kind) || !!change.record.data.paste_origin);
 }
 /** How many rejected reads of a timed feed to try before asking her. */
 export const unresolvedAttempts = 5;

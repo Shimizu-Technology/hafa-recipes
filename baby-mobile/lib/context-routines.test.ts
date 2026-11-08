@@ -2097,3 +2097,76 @@ it("rechecks old Retry evidence before sending when a flag-off bootstrap regains
   expect(mock.api.save).not.toHaveBeenCalled(); expect(baby.state.outbox).toEqual([]);
   expect(baby.state.heldDrafts!.some((held) => held.draft.body === "half typed")).toBe(true);
 });
+
+it("rejects a late paste commit after an account switch even when its API lease is unchanged", async () => {
+  await mount();
+  const previous = baby, lease = mock.lease, hashing = held();
+  const apply = vi.fn((state: DeviceState) => ({ ...state, outbox: [...state.outbox, { id: "late-paste", generation: 1, type: "save" as const, record: row("late-paste"), files: [] }] }));
+  let rejection: unknown;
+  const pending = (async () => {
+    await hashing.promise;
+    try { await previous.commit(apply); } catch (error) { rejection = error; }
+  })();
+  await act(async () => {
+    mock.user = "another-account";
+    renderer!.update(React.createElement(BabyProvider, null, React.createElement(Probe)));
+    await settle();
+  });
+  expect(mock.lease).toBe(lease);
+  await act(async () => { hashing.resolve(page([])); await pending; });
+  expect(rejection).toEqual(Error("Your account changed."));
+  expect(apply).not.toHaveBeenCalled();
+  expect(baby.state.outbox).toEqual([]);
+});
+
+it.each(["journal", "event"] as const)("retries an attributed %s after an API rollback and cold relaunch without losing its words", async (kind) => {
+  const text = "Private first test 💛";
+  const record = { id: "attributed", kind, title: "Original words", body: text, child_id: null, occurred_at: "2026-11-04T00:00:00Z", data: { paste_origin: { text, start: 0, end: text.length, original: kind === "journal" }, ...(kind === "event" ? { category: "appointment" as const, timezone: "UTC" } : {}) } };
+  let available = false;
+  mock.api = { bootstrap: vi.fn(async () => ({ ...bootstrap, visit_import_available: available })), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined,
+    save: vi.fn(async (given: any) => { if (!available) throw new ApiError("Import support is temporarily unavailable", 503); return { ...optimisticRecord(given), revision: 1 }; }) };
+  mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, visit_import_available: true }, outbox: [{ id: "write-attributed", generation: 1, type: "save", record, files: [] }] } as unknown as DeviceState;
+  await mount();await act(async () => { await baby.sync();await settle(); });
+  expect(baby.state.outbox).toHaveLength(1);expect(baby.state.outbox[0].error).toBeUndefined();
+  expect(baby.state.outbox[0]).toMatchObject({ record, attempts: 1 });
+  mock.saved = baby.state;
+  await act(async () => renderer!.unmount());renderer = undefined;
+  available = true;await mount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000);await settle();await baby.sync();await settle(); });
+  expect(baby.state.outbox).toEqual([]);
+  expect(mock.api.save).toHaveBeenLastCalledWith(record, 1);
+  expect(baby.state.records.filter((row) => row.id === record.id)).toHaveLength(1);
+  expect(baby.state.records.find((row) => row.id === record.id)?.data.paste_origin?.text).toBe(text);
+});
+
+
+it.each(["journal", "event"] as const)("automatically delivers an attributed %s after a real API-client racing 422 and cold restart", async (kind) => {
+  const { createBabyApi } = await vi.importActual<typeof import("./api")>("./api");
+  const text = "Private racing rollback words 💛", record = { id: "race-attributed", kind, title: "Original", body: text, child_id: null, occurred_at: "2026-11-04T00:00:00Z", data: { paste_origin: { text, start: 0, end: text.length, original: kind === "journal" }, ...(kind === "event" ? { timezone: "UTC", category: "appointment" as const } : {}) } };
+  let available = true, race = true;
+  const transport = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    if (path.endsWith("/identity")) return Response.json({ id: "owner" });
+    if (path.endsWith("/bootstrap")) return Response.json({ ...bootstrap, ...(available ? { visit_import_available: true } : {}) });
+    if (path.endsWith("/records") && init?.method === "POST") {
+      if (race) { race = false;available = false;return Response.json({ detail: "Enter valid details for this entry" }, { status: 422 }); }
+      return Response.json({ ...optimisticRecord(JSON.parse(String(init.body))), revision: 1 });
+    }
+    return Response.json(page([]));
+  });
+  const real = () => createBabyApi("https://service.example", async () => "token", () => true, transport, () => mock.state?.bootstrap ?? mock.saved?.bootstrap);
+  mock.api = real();
+  mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, visit_import_available: true }, outbox: [{ id: "write-race", generation: 1, type: "save", record, files: [] }] } as unknown as DeviceState;
+  await mount();await act(async () => { await baby.sync();await settle(); });
+  expect(baby.state.outbox).toHaveLength(1);
+  expect(baby.state.outbox[0]).toMatchObject({ record, attempts: 1 });
+  expect(baby.state.outbox[0].error).toBeUndefined();
+  mock.saved = baby.state;await act(async () => renderer!.unmount());renderer = undefined;
+  available = true;mock.api = real();await mount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000);await settle();await baby.sync();await settle(); });
+  expect(baby.state.outbox).toEqual([]);
+  expect(baby.state.records.filter((row) => row.id === record.id)).toHaveLength(1);
+  expect(baby.state.records.find((row) => row.id === record.id)?.body).toBe(text);
+  const writes = transport.mock.calls.filter(([url, init]) => String(url).endsWith("/records") && init?.method === "POST");
+  expect(writes).toHaveLength(2);expect(writes[0][1]?.body).toBe(writes[1][1]?.body);
+});

@@ -23,7 +23,7 @@ from app.domains.baby.attachments import retire_unreferenced_attachments, upload
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
 from app.domains.baby.dependencies import Access, Client, Database, Generation, Limit, Offset, User
-from app.domains.baby.events import check_series_cap, day_marks
+from app.domains.baby.events import check_series_cap, day_marks, stamp_provider_default
 from app.domains.baby.events import router as events_router
 from app.domains.baby.feeds import retimed, same_action
 from app.domains.baby.imports import router as imports_router
@@ -167,7 +167,9 @@ def record_response(row, access=None, child_ids=None):
         result.update(space_id=str(row.space_id), generation=row.generation, created_by=row.app_user_id)
     if child_ids is not None and row.kind == "journal" and row.child_id not in child_ids:
         result["child_id"] = None
-    return result
+    from app.domains.baby.access import visit_response
+
+    return visit_response(row, result, access)
 
 
 async def record_reply(db, row, access):
@@ -177,7 +179,7 @@ async def record_reply(db, row, access):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me", "user_text", "legacy_saved_text")
-PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
+PATCH_ADDITIONS = {"event": ("medical_visit", "just_me", "provider_default_at", "provider_default", "paste_origin", "clinician_age", "doctor", "due_date_snapshot", "results", "result_status", "follow_up"), "diaper": ("color",), "journal": ("event_id", "just_me", "paste_origin"), "collection": ("just_me",), "question": ("event_id",)}
 
 
 def reconciled_event(data, start):
@@ -397,6 +399,7 @@ async def bootstrap_state(user, db, *, create, request):
         "profile": Profile.model_validate(member.profile).model_dump(exclude=SERVER_PROFILE_FIELDS),
         # Always here, so a phone can tell this API keeps them: an older one would drop them, and the app hides the fields until it sees this.
         "contacts": member.profile.get("contacts", {}),
+        "visit_import_available": True,
         "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
@@ -1025,6 +1028,34 @@ async def get_record(
     return await record_reply(db, visible_to(row, client), access)
 
 
+def pasted_replay(prior, body):
+    """Replay only an identical attributed capture, keeping its first capture time and due-date snapshot."""
+    origin = body.data.get("paste_origin")
+    if not origin or origin != prior.data.get("paste_origin"):
+        return False
+    if origin.get("original"):
+        # Re-intake is not an edit: keep the first source title/date/profile even on a cache-empty phone.
+        return prior.kind == body.kind == "journal" and prior.body == body.body and prior.data == body.data
+    if any(getattr(prior, key) != getattr(body, key) for key in ("kind", "title", "body", "child_id")):
+        return False
+    if not origin.get("original") and prior.occurred_at != body.occurred_at:
+        return False
+    return {k: v for k, v in prior.data.items() if k not in ("due_date_snapshot", "just_me")} == {k: v for k, v in body.data.items() if k not in ("due_date_snapshot", "just_me")}
+
+
+@router.post("/visit-defaults/read")
+async def visit_defaults(user: User, db: Database, generation: Generation, access: Access):
+    """Read the explicitly selected saved provider snapshot in this space, including uncached history."""
+    access.check_generation(generation)
+    if access.enabled and access.target.role == "caregiver":
+        return None
+    conditions = [row_scope(BabyRecord, access, generation), BabyRecord.deleted_at.is_(None), BabyRecord.kind == "event", BabyRecord.data["provider_default"].as_boolean().is_(True)]
+    if access.enabled:
+        conditions.append(BabyRecord.space_id == access.target.id)
+    row = await db.scalar(select(BabyRecord).where(*conditions).order_by(func.least(BabyRecord.data["provider_default_at"].as_float(), func.extract("epoch", BabyRecord.updated_at) * 1000).desc().nulls_last(), BabyRecord.updated_at.desc(), BabyRecord.id).limit(1))
+    return {"doctor": row.data.get("doctor"), "location": row.data.get("location")} if row else None
+
+
 @router.post("/records")
 async def create_record(
     body: RecordCreate,
@@ -1050,7 +1081,7 @@ async def create_record(
             access.grant(prior)
         if (
             not access.enabled and (prior.app_user_id != user.id or prior.generation != generation)
-        ) or prior.creation_hash not in source_creation_hashes(body):
+        ) or (prior.creation_hash not in source_creation_hashes(body) and not pasted_replay(prior, body)):
             raise HTTPException(409, "This save identity was already used with different content")
         if prior.deleted_at:
             raise HTTPException(410, "This entry was removed; create a new entry")
@@ -1064,6 +1095,8 @@ async def create_record(
     saved = body.model_dump()
     if body.kind == "source" and (body.data.get("url") or body.data.get("attachment_ids")) and body.data.get("user_text") is None:
         saved["data"] = {**body.data, "user_text": body.data.get("source_text")}
+    if body.kind == "event":
+        stamp_provider_default(saved["data"])
     row = BabyRecord(
         **{**saved, "child_id": child_id},
         app_user_id=user.id,
@@ -1116,7 +1149,23 @@ async def patch_record(
             **values["data"],
             "actions": retimed(values["data"]["actions"], body.occurred_at.isoformat()),
         }
+    from app.domains.baby.access import VISIT_PRIVATE_FIELDS, caregiver_visit
+
+    if row.kind in ("event", "journal") and isinstance(body.data, dict) and "paste_origin" in body.data and body.data["paste_origin"] != row.data.get("paste_origin") and row.app_user_id != access.actor:
+        raise HTTPException(403, "Only the person who added the original words can remove or change them")
+    if caregiver_visit(row, access):
+        if values["data"].get("category") != row.data.get("category"):
+            raise HTTPException(403, "Only a parent can change a visit category")
+        values["body"] = row.body
+        values["data"] = {key: value for key, value in values["data"].items() if key not in VISIT_PRIVATE_FIELDS}
+        values["data"].update({key: value for key, value in row.data.items() if key in VISIT_PRIVATE_FIELDS})
     if row.kind == "event":
+        stamp_provider_default(values["data"], row.data)
+        from app.domains.baby.access import medical_visit
+        if medical_visit(row.data):
+            values["data"]["medical_visit"] = True
+        if (row.data.get("just_me") or row.data.get("paste_origin")) and (not access.enabled or access.target.space.kind == "personal"):
+            values["data"]["just_me"] = True
         values["data"] = reconciled_event(values["data"], values["occurred_at"])
     try:
         valid = RecordCreate.model_validate(values)

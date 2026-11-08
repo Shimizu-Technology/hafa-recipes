@@ -125,6 +125,7 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     for method, path in (("GET", "/bootstrap"), ("POST", "/bootstrap")):
         await call(method, API + path, 200)
     await call("POST", API + "/enroll", 200 if member else hidden)
+    await call("POST", API + "/visit-defaults/read", 200 if member else hidden)
     await call("PATCH", API + "/profile", 200 if member else hidden, json={"ai_consent": True})
     await call("PATCH", API + "/profile/contacts", 200 if member else hidden, json={"doctor": {"phone": "671-555-0100"}})
     for path in ("/children", "/records", "/search?q=SOURCE_SECRET", "/export", "/conversations",
