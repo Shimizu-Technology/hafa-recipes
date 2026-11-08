@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 import { emptyState, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
 
@@ -28,7 +29,7 @@ vi.mock("@/lib/trackers", () => import("./trackers"));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 vi.mock("../components/feed-timer", () => ({ useSecondClock: () => new Date() }));
-const ui = vi.hoisted(() => ({ KeyboardDone: "KeyboardDone", PressTarget: "Pressable", Icon: "Icon", Chips: "Chips", easeOut: () => 0, fonts: {}, radii: {}, typeScale: { footnote: {}, caption: {} },
+const ui = vi.hoisted(() => ({ Copy: "Copy", KeyboardDone: "KeyboardDone", PressTarget: "Pressable", Icon: "Icon", Chips: "Chips", easeOut: () => 0, fonts: {}, radii: {}, typeScale: { footnote: {}, caption: {} },
   useColors: () => ({}), useToast: () => scope.toast, tap: () => undefined, Button: "Button", Field: "Field", OnSurface: "OnSurface", KeyboardSave: { Provider: "KeyboardSave" } }));
 vi.mock("../components/ui", () => ui);
 vi.mock("@/components/ui", () => ui);
@@ -105,7 +106,7 @@ it("hands a form's Save to the bar above the keyboard, doing what its own Save d
   setup();
   await mount();
   await press("Temperature");
-  const bar = renderer!.root.findAll((n) => String(n.type) === "KeyboardSave")[0], save = renderer!.root.findAll((n) => String(n.type) === "Button")[0];
+  const bar = renderer!.root.findAll((n) => String(n.type) === "KeyboardSave")[0], save = renderer!.root.findAll((n) => String(n.type) === "Button").find((n) => n.props.accessibilityLabel === "Save temperature")!;
   expect(bar.props.value.label).toBe(save.props.accessibilityLabel);
   await act(async () => bar.props.value.onPress());
   // Nothing typed: it says so in the panel, as its own Save does.
@@ -218,12 +219,13 @@ it("fills the form from a medicine she has given before, and only Save records t
   // A half-asleep tap can't be a second dose.
   expect(saved()).toHaveLength(1);
   expect(field("Name").value).toBe("Vitamin D");
-  expect(field("Dose (optional)").value).toBe("1 mL");
+  expect(field("Dose (optional)").value).toBe("");
   const words = JSON.stringify(renderer!.toJSON());
   expect(words).toContain("1 mL · Last");
   await save("Save medicine");
   expect(saved()).toHaveLength(2);
-  expect(saved()[1]).toMatchObject({ kind: "medicine", title: "Vitamin D", data: { name: "Vitamin D", dose: "1 mL" } });
+  expect(saved()[1]).toMatchObject({ kind: "medicine", title: "Vitamin D", data: { name: "Vitamin D" } });
+  expect(saved()[1].data.dose).toBeUndefined();
 });
 it("lets her change the dose a chip filled in, and a typed name replaced by another chip keeps nothing of the first", async () => {
   const field = (label: string) => renderer!.root.findAll((n) => String(n.type) === "Field").find((n) => n.props.label === label)!.props;
@@ -557,4 +559,23 @@ describe("from the re-check of #543", () => {
     await press("Medicine");
     expect(onOpen).toHaveBeenCalledWith(true, expect.any(Number));
   });
+});
+
+
+it("shows ACOG’s fixed postpartum 140 and/or 90 call route before any reading is entered", async () => {
+  setup(); await mount(); await press("Blood pressure");
+  const text = JSON.stringify(renderer!.toJSON());
+  expect(text).toContain("After delivery, ACOG says:");
+  expect(text).toContain("Call your doctor right away if you check your blood pressure and get a systolic reading of 140 mm Hg or higher and/or a diastolic reading of 90 mm Hg or higher.");
+  expect(text).toContain("If you can’t reach your ob-gyn");
+  expect(text).toContain("call 911 or go to the hospital");
+  expect(text).toContain("without assessing it");
+  expect(saved()).toEqual([]);
+});
+
+it("shows fever-method caveats on the temperature form, not just Help", async () => {
+  setup(); await mount(); await press("Temperature");
+  const text = JSON.stringify(renderer!.toJSON());
+  for (const phrase of ["100.4°F (38°C)", "mouth, ear and forehead", "underarm fever may have a lower cutoff", "under 6 months", "under 12 weeks", "do not give fever medicine before being seen"])
+    expect(text).toContain(phrase);
 });

@@ -47,6 +47,7 @@ export default function Privacy() {
           Håfa account removes information across the Håfa apps.
         </Copy>
       </Section>
+      <Button secondary title="About the health information" onPress={() => router.push("/health-information")} />
       <Card tone="soft">
         <Copy kind="heading">Care decisions stay with you and your clinician.</Copy>
         <Copy>

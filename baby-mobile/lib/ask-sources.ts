@@ -8,7 +8,7 @@ export function askV2Active(bootstrap: Bootstrap | null | undefined) {
 
 /** The question box with AI off. It has one line, and these words have to fit it. */
 export function unavailablePlaceholder(fontScale: number) {
-  return fontScale >= 1.5 ? "Urgent? Open Help" : "Urgent? Ask here or open Help";
+  return fontScale >= 1.5 ? "Question" : "Urgent? Ask here or open Help";
 }
 
 /** The note about sources belongs under an ordinary answer, not under "call 911". */

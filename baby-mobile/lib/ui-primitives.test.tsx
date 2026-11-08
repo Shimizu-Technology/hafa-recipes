@@ -620,3 +620,29 @@ it("20: draws a plain mark for a kind this build has no icon for, rather than cr
   const drawn = view!.root.findByType("Icon" as never).props;
   expect(drawn).toMatchObject({ name: "ellipse-outline", accessible: false, importantForAccessibility: "no", accessibilityElementsHidden: true });
 });
+
+it("contains multiline button labels at every text scale without changing normal pills or colours", async () => {
+  for (const scheme of ["light", "dark"]) for (const scale of [1, 1.5, 3.1]) {
+    mock.scheme = scheme; mock.fontScale = scale;
+    await mount(<Button title="Call 911 now for your baby" onPress={() => {}} />);
+    const control = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
+    const style = Object.assign({}, ...control.props.style.flat());
+    expect(style).toMatchObject({ minHeight: 50, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 25,
+      backgroundColor: scheme === "light" ? "#5A4740" : "#EBD7CA" });
+    expect(style.height).toBeUndefined();
+    const label = renderer!.root.findByType("Text" as React.ElementType);
+    expect(label.props.numberOfLines).toBeUndefined();
+    expect(label.props.maxFontSizeMultiplier).toBe(0);
+    expect(label.props.style).toMatchObject({ flexShrink: 1, color: scheme === "light" ? "#F8F3EE" : "#2D2420" });
+    await act(async () => renderer!.unmount()); renderer = undefined;
+  }
+});
+it("wraps a long screen title in content while retaining the native navigation title", async () => {
+  mock.fontScale = 3.1;
+  await mount(<NativeHeaderContext.Provider value><Screen title="About the health information" wrapTitle back><Copy>Health information</Copy></Screen></NativeHeaderContext.Provider>);
+  expect(mock.options.at(-1)).toMatchObject({ title: "About the health information", headerLargeTitle: false, headerShown: true });
+  const heading = renderer!.root.findAllByType("Text" as React.ElementType).find(n => n.props.children === "About the health information")!;
+  expect(heading.props.numberOfLines).toBeUndefined();
+  expect(heading.props.maxFontSizeMultiplier).toBe(0);
+  expect(heading.props.accessibilityRole).toBe("header");
+});

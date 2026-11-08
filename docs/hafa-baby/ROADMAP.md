@@ -326,7 +326,7 @@ A running feed stores its actions, and everything else is derived by one pure re
 - **Worker** (`push_worker.py`, needs `EXPO_ACCESS_TOKEN`; without one nothing is sent and Today still works): one row is one reminder for one person, sent to the phones they have at that moment. One claim is one request to Expo, at most 100 messages (overflow goes back to waiting without using an attempt), a person's phones together, with its own advisory lock held only while leasing, never during a send and never waiting on imports. One final check is the last thing before each request: for each reminder its role, settings, record, due time by today's settings and zone, and quiet hours; then the phones, the message cap on what is actually prepared, the membership and the lease, which is renewed. It takes at most 5 seconds, and what it hasn't reached waits, so a batch can't outlast its leases or disclose a previous account's anything. A change that lands after it races the request itself. A lease that runs out, a read timeout or a 5xx is an unknown outcome and spends the one retry. A connection that never opened, a 429 or a bad token is not, and backs off for about an hour and a half before `failed`. `MessageRateExceeded`, in a ticket or a receipt, retries only that phone; its tries are stored per phone in `provider_ticket`. Rows don't sync through `/changes`, so they never `touch()`. `GET /reminders/due` and `POST /reminders/{id}/dismiss` are Today's list. Leaving or being removed cancels what's pending for that space.
 - **Triggers** (`triggers.py`): only the worker plans, from what is committed, so no log's transaction has a reminder write in it to fail. A commit that changes a record, child, import or membership wakes the worker through session listeners that exist only while it runs and can't fail a write; a 15-minute paged sweep catches anything missed, including everything a restart missed, and plans two days ahead for what no write announces. Each reason is rechecked when read. When a reason goes, a waiting reminder stops and a delivered one leaves Today but keeps its delivery state; if the reason returns (the newer feed is deleted), the plan brings it back without sending again. A person's dismissal is separate and nothing undoes it. Quiet-hours holds are recomputed on each plan, and a provider's backoff is left alone. A profile change wakes planning. Event reminders follow edits, exceptions and deletes. Visit prep goes at 6 PM the evening before. Import notices go only to the person who asked.
 - **On the phone:** everything hangs off bootstrap's `reminders.push`, so with the flag off a phone makes no calls, asks for no permission and shows nothing. Permission is asked only when a person turns something on, after a sentence saying why. A phone registers whenever notifications are already allowed, and sends its `registration` back at sign-out. Settings save through the outbox like What shows. A tap looks up `notification_id`; gone, offline or lost access lands on Today with one plain sentence. Offline copies are held only while the phone knows it's offline, since online a copy could only sound twice or go stale after another phone's log. There's no silent refresh and no background mode, so nothing launches the app while the phone is locked: Clerk's own token cache deletes a credential on a read error, and ours keeps it regardless. Copies are scheduled while the app is open, and what's due shows when she opens it. Settings queued while the flag is off stay queued and go if it comes back. A sign-out's revocation counts only once the API confirms it; until then the phone stops taking pushes, across launches, and the revocation waits for the next chance.
-- **Care reminders:** the feed reminder runs from the newest feed per child, N hours set per person with no default, off by default, one row for each parent who turned it on. A feed logged on any phone moves it for all of them on the worker's next pass, and the old one can't go out even before that, because the final check reads the newest feed and today's interval. A new setting or zone moves a due time at that same check. A running feed has none until it finishes. Timers left on remind after 1 hour (feed) or 4 hours (sleep) unless the person sets otherwise. A new pregnancy week goes at 9 AM on its first day in the person's zone. Milestone window and well visit are stubs until K4a and K4b land approved content; their settings exist and nothing is scheduled. A private item in a personal space can only ever reach that person, since each person is planned from what they can read.
+- **Care reminders:** the feed reminder runs from the newest feed per child, N hours set per person with no default, off by default, one row for each parent who turned it on. A feed logged on any phone moves it for all of them on the worker's next pass, and the old one can't go out even before that, because the final check reads the newest feed and today's interval. A new setting or zone moves a due time at that same check. A running feed has none until it finishes. Timers left on remind after 1 hour (feed) or 4 hours (sleep) unless the person sets otherwise. A new pregnancy week goes at 9 AM on its first day in the person's zone. Milestone-window and well-visit reminders remain stubs; their settings exist and nothing is scheduled. Releasing K4a/K4b content does not enable those reminders. A private item in a personal space can only ever reach that person, since each person is planned from what they can read.
 - **Routines (N5):** a routine's own schedule on a phone keeps firing, with or without the API, so nothing has to be handed over and no reminder can be lost in a handover. Each phone reports what it holds with `PUT /push/devices/{installation_id}/routines`, replacing its last report. The API plans each person's routines from their first report, shows them on Today, and pushes one only to a phone that has reported and doesn't hold it at its current schedule, such as one that hasn't seen an edit yet. A phone that has never reported gets none, since it may still hold its old schedule. Needs migration 061, and until that's applied `reminders.routines` isn't in bootstrap and everything stays as it was.
 - **Lock screen:** a provider gets only fixed text for each kind, plus `notification_id`, `space_id` and `identity`: no name, title, time, week or reminder type, for any item. A tap looks the reminder up by `notification_id` through `GET /reminders/{id}/tap`, with the same test as Today's list: a 404 means gone, not readable or not due. Today, on the person's own phone, is where details show. **Caregivers** hear only about events and running timers; everything else is for parents.
 
@@ -449,6 +449,112 @@ The API can't see sessions, but it can see clients. Every `POST /bootstrap` or c
 |---|---|
 | F7a | Retry outbox items previously marked as errors after a 404 so the server can return `moved` and the client can retarget them. A feed/session tap that receives 404 must remain durable; refresh or resolve the record and retry the same action ID instead of deleting the local record and losing the tap. On a capture 401, refresh the share credential and rebind pending captures non-destructively; preserve the original capture ID and receipt. After leave/removal, Keep in my personal space preserves the draft text but drops retired/unreadable attachment IDs and asks the user to reattach the files. |
 | F10 | Clear `BABY_FAMILY_TEST_USERS`. Before a real Create family, verify that every signed-in phone has updated to the family-capable build and rebound its share credential. Enforce this as an admission gate, not disclosure copy alone; block family activation while any phone is outdated or its readiness is unknown. Rehearse queued edits/imports, 404-error recovery, a pending feed/session tap and 401 capture recovery across two signed-in phones before admitting real accounts. |
+
+### Health wording: private family release — November 7, 2026
+
+Leon replaced the physician wording gate with agent review **for private family use only**.
+This is not clinician review or medical approval. The complete item verdicts, current
+source checks, cuts, conservative defaults and acceptance ledger are in
+[`medical/AGENT_REVIEW_2026-11-07.md`](../../medical/AGENT_REVIEW_2026-11-07.md).
+
+K2/K3 weekly facts, K4a milestones, K4b well visits/shots and K5 growth may show the
+reviewed private-family wording. Six bundled `approved` flags mean that limited
+agent review; cut lines are removed, including from dev previews. Timers/logs remain
+records, with no dose, diagnosis, normality judgment, kick target or hospital timing
+rule. First-week visits show the 3–5-day range without an invented appointment.
+Sources/limits are reachable from each health surface and Settings/Privacy. The
+About page explicitly states that no clinician reviewed this wording. 911, 988 and
+the maternal hotline remain before disclosures on urgent paths.
+
+For this internal TestFlight release, Leon accepted static reviewed public-source
+content and its disclaimers following the private-family **build**, including for
+an account outside the private list. Ask and the API health-generation paths still
+follow the stable-AppUser private allow-list; an unlisted account cannot use AI.
+This is not an exception for public or paid release: both the static-content build
+gate and the API/Ask gate must remain closed until their release requirements pass.
+
+**Public or paid release is still blocked.** Obtain clinician review of the exact
+shipped wording and WHO chart permission, resolve prematurity/chart handling and
+record both dated approvals in `baby-mobile/lib/health-release.cjs`. The `production`
+EAS profile selects `public` and fails configuration until both records exist.
+Unspecified audiences fail closed too, including direct builds and exports;
+`expo-updates` is not installed, so this app has no current OTA release path;
+local npm QA commands explicitly select `private-family`.
+The explicit `family` build is for the private family only; never submit that binary
+for public distribution. The app cannot prevent an operator from manually distributing
+an old binary, so public release review must verify the build's recorded audience.
+No agent-review record belongs in a field named clinician approval.
+
+Ask V2's production flag remains untouched. The API now defaults to `public` and
+fails closed without the current reviewed marker. For Leon’s private use only,
+set `BABY_HEALTH_RELEASE_AUDIENCE=private_family` **and**
+`BABY_HEALTH_REVIEWED_VERSION=baby-health-2026-11-07-m1-m8` after the reviewed API
+is authorized, merged and deployed. Also set `BABY_HEALTH_PRIVATE_USERS` to the
+comma-separated stable application user IDs for Leon/Kami; empty or unlisted
+accounts remain blocked on both paths, including per-call admission and final
+publication. Do not use Clerk subjects or the separate invite rollout list. This
+agent has not changed production.
+Public/paid additionally requires `BABY_ASK_CLINICIAN_APPROVAL` and
+`BABY_WHO_CHART_PERMISSION`. The V2 flag alone cannot open either gate. AI consent
+and current Ask consent still apply. V2-off is not AI-off: old Ask has its own
+question/output checks and shares the health release gate; free urgent replies
+remain available before consent, budget and availability.
+
+The independent Claude source/code cross-check found eight material gaps. They
+are corrected against primary pages fetched November 7: baby emergencies lead
+with 911 on both Ask paths and their model checker (#642, separate urgent API PR);
+Help adds AAP emergency signs and CDC newborn feeding/diaper warning signs; the
+under-37-week notice restores every ACOG preterm sign; BP quotes ACOG’s
+140-and/or-90 call-right-away advice **after delivery**, without diagnosis; fever
+wording covers AAP’s other methods and lower possible underarm cutoff; week 3
+adds whole-body shaking/call-doctor wording; and old Ask receives the movement
+ban plus a code guard against “less room” reassurance. The ledger corrects its
+previous F4/T1 keep verdicts and the overbroad removal of static feeding warnings.
+The six conservative product defaults remain unchanged.
+
+Before enabling V2, complete review of the fixes, final automated/native
+acceptance, valid capped safety/whole-Ask evals, installation of the reviewed
+family binary and isolated deployed consent/source/private-family access checks.
+Final prompts are `baby-safety-check-v10`, `baby-ask-v2-4`, old
+`baby-chat-reviewed-v3`, and unchanged `baby-research-v2`. The report records
+case-level eval results/cost and native matrix evidence. No production setting,
+deployment, merge or public release is authorized here. Guam hotline call/text
+connectivity remains untested and disclosed.
+
+
+Native health-flow acceptance is now complete on the stock 18.5/26.5 devices,
+normal/largest text and light/dark, using an isolated native QA app and local
+synthetic records. Timers, BP, growth, milestone/shot saves, source/disclosure
+navigation, blank-dose medicine reuse and offline Help/recovery were exercised.
+Largest text keeps urgent Help/911 reachable. This is not an EAS/TestFlight
+family release or proof of actual Guam hotline connectivity. QA apps/services
+and simulators were cleaned; no protected simulator was used.
+
+The final paid v10 safety run made 1,122 checks: no urgent/harm misses or provider
+errors. Final-code replay of those unchanged verdicts has zero misses and 0.70%
+floor false alarms. This replay is not a new independent held-out run. The
+completed earlier whole-Ask run was 56/58; the final whole-Ask run stopped at its
+cap and is incomplete. Keep V2 OFF: resolve the two research cases, complete a
+passing final whole-Ask/independent safety run and review, install the reviewed
+family binary, and perform the isolated deployed consent/access/source/limit
+checks. Reported successful usage is $0.328726; conservative total including all
+incomplete/interrupted ceilings is at most $1.928726. No further paid calls.
+
+Follow-up code review fixed real account authorization, per-call/final
+publication rechecks, mixed maternal/infant routing, claim-scoped movement
+negation, recognized safety-label normalization/unknown-label refusal, and
+closed-gate persistence. Family-space rejection still precedes nonurgent release
+denial; the free emergency reply remains first. Reviews of older heads do not
+approve the final fixes. All PRs remain held and unmerged; retarget #640 to main
+only after #639 is merged by Leon.
+
+The final combined disposable-database `./scripts/check.sh` passed on
+`dd79d05291cc1d65a2b5b7f866ff94afad37e2df`: API 6,122 passed/47 existing skips,
+Baby 2,856 passed, plus the repository TypeScript/build/Doctor/export checks.
+The report-only handback follows that code head. All owned runtime resources,
+the temporary native build/worktree and disposable database were cleaned.
+The held implementation branches remain for independent review; no final-head
+review approval, deployment or TestFlight availability is claimed.
 
 
 ### November 7: mixed parent/baby urgent replies

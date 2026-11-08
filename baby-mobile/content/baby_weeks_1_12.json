@@ -1,12 +1,12 @@
 {
   "batch": "baby-weeks-1-12",
-  "approved": false,
-  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md items N1 are signed off.",
+  "approved": true,
+  "_status": "Agent-reviewed 2026-11-07 by Leon’s decision for private family use. Not clinician-reviewed. Public/paid release requires clinician review and WHO chart permission.",
   "generated": "2026-11-05",
   "unit": "week",
   "note": {
-    "text": "Every baby goes at their own pace, so these may come sooner or later for yours.",
-    "source_url": "https://kidshealth.org/en/parents/development-1mo.html"
+    "text": "Babies develop at different rates. If you are worried or your baby loses a skill, ask your baby's doctor.",
+    "source_url": "https://www.cdc.gov/act-early/milestones/2-months.html"
   },
   "periods": [
     {
@@ -28,7 +28,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 2,
@@ -49,13 +49,13 @@
           ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 3,
       "items": [
         {
-          "text": "Movements are often jerky or jittery. Your baby can't control most of them yet.",
+          "text": "Movements are often jerky or jittery. Your baby can't control most of them yet. If your baby’s whole body is shaking, call their doctor.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
         },
         {
@@ -70,7 +70,7 @@
           ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 4,
@@ -82,14 +82,9 @@
         {
           "text": "Your baby may prefer faces to other patterns, and likes high contrast.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx"
-        },
-        {
-          "text": "Eyes may wander or occasionally cross at this age.",
-          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx",
-          "review_note": "AAP's wording for about 1 month. Do you want a line on when to mention this to the pediatrician?"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 5,
@@ -107,15 +102,14 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 6,
       "items": [
         {
-          "text": "A first real smile can come from around now.",
-          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx",
-          "review_note": "AAP says 'around her sixth week.' Could worry a parent if it's later. AAP's emotional development page says 'by the second month.'"
+          "text": "Smiling in response to people develops in the early months.",
+          "source_url": "https://www.cdc.gov/act-early/milestones/2-months.html"
         },
         {
           "text": "Your baby may wave their arms around when excited.",
@@ -126,7 +120,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 7,
@@ -144,7 +138,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 8,
@@ -165,7 +159,7 @@
           "source_url": "https://kidshealth.org/en/parents/development-2mos.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 9,
@@ -183,7 +177,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Physical-Appearance-and-Growth-1-To-3-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 10,
@@ -204,7 +198,7 @@
           "source_url": "https://kidshealth.org/en/parents/development-2mos.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 11,
@@ -222,7 +216,7 @@
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "age": 12,
@@ -234,16 +228,9 @@
         {
           "text": "Your baby may swipe at objects hanging just out of reach.",
           "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
-        },
-        {
-          "text": "The startle reflex has probably faded by now.",
-          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx",
-          "additional_source_urls": [
-            "https://medlineplus.gov/ency/article/002004.htm"
-          ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     }
   ]
 }

@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 import { emptyState, type BabyRecord, type ChildDetails, type DeviceState } from "./models";
 
 const m = vi.hoisted(() => ({ flow: { panel: null as string | null, toggle(id: string) { m.flow.panel = id; } }, account: null as any, rows: [] as unknown[], push: vi.fn(), now: new Date("2027-02-10T02:00:00.000Z") }));
@@ -69,15 +70,15 @@ it("reads nothing into a measurement, even far off the chart: no alarm, no judge
   expect([...colors]).toEqual(["a"]);
 });
 
-it("keeps our own lines out, and CDC's attribution and non-endorsement in", async () => {
+it("shows reviewed context with CDC attribution and non-endorsement", async () => {
   setup("girl");
   await mount();
   const text = words();
   expect(text).toContain("Source: CDC");
   expect(text).toContain("does not imply endorsement");
   expect(text).toContain("Percentile curves show the distribution of selected body measurements in children.");
-  expect(text).not.toContain("born early");
-  expect(text).not.toContain("says less than");
+  expect(text).toContain("born early");
+  expect(text).toContain("says less than");
 });
 
 it("marks what falls past 24 months without a percentile, and uses CDC's own words for why", async () => {
