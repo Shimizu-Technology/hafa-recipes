@@ -75,19 +75,29 @@ it("uses the shared space for item identity across two family members", async ()
   expect(ids[0]).toBe(ids[1]);
 });
 
-it("snapshots the chosen pregnancy without linking a private event to a family child", async () => {
-  mock.b.state.bootstrap = { ...mock.b.state.bootstrap, children: [{ id: "family-baby", space_id: "family", due_date: "2026-12-10" }], spaces: [{ id: "me", kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] };
-  mock.b.state.selectedChild = "family-baby";
-  await review("2026-11-08 35 weeks per clinic");
+it.each([false, true])("blocks an incompatible visit destination without changing privacy (shared=%s)", async (shared) => {
+  mock.b.state.bootstrap = { ...mock.b.state.bootstrap, children: [{ id: "pregnancy", name: "Baby", space_id: shared ? "me" : "family", due_date: "2026-12-10" }], spaces: [{ id: "me", kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }] };
+  await review("1st Visit - November 8, 2026\n35 weeks");
+  if (shared) await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());
+  expect(saveButton().props.disabled).toBe(true);
+  await act(async () => saveButton().props.onPress());
+  expect(mock.b.commit).not.toHaveBeenCalled();
+  expect(mock.b.state.outbox).toEqual([]);
+  expect(host("Choice", "label", "Share this item and its original words with family").props.selected).toBe(shared);
+  expect(JSON.stringify(tree.toJSON())).toContain("Choose a pregnancy that matches each visit");
+  await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());
+  expect(saveButton().props.disabled).toBe(false);
   await act(async () => saveButton().props.onPress());
   const event = mock.b.state.outbox.find((item: any) => item.record.kind === "event");
-  expect(event.space_id).toBe("me");
-  expect(event.record.child_id).toBeNull();
+  expect(event.record.child_id).toBe("pregnancy");
+  expect(event.space_id).toBe(shared ? "me" : "family");
   expect(event.record.data.due_date_snapshot).toBe("2026-12-10");
+  expect(mock.b.state.outbox[0].space_id).toBe("me");
   await act(async () => tree.unmount());
 });
 
 it("keeps the original personal in a family and imports visits without reminders", async () => {
+  mock.b.state.bootstrap.children[0].space_id = "family";
   mock.b.state.bootstrap.spaces = [{ id: "me", kind: "personal", generation: 1 }, { id: "family", kind: "family", role: "parent", generation: 1 }];
   await review("1st Visit - November 8, 2026\n35 weeks");
   await act(async () => host("Choice", "label", "Share this item and its original words with family").props.onPress());

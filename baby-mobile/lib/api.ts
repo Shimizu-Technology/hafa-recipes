@@ -356,7 +356,17 @@ export function createBabyApi(
           ? { title, body, child_id, occurred_at, data: payloadData, revision }
           : { id, kind, title, body, child_id, occurred_at, data: payloadData },
         g
-      );
+      ).catch(async (failure: unknown) => {
+        if (!(failure instanceof ApiError) || failure.status !== 422 || !data.paste_origin) throw failure;
+        // Support can disappear after sync's bootstrap. Recheck it rather than
+        // treating every validation error as retryable or dropping original words.
+        const captured = lease(), initialized = knownGeneration !== undefined;
+        const support = await request<Bootstrap>("/bootstrap", "POST", {});
+        if (initialized) assertLease(captured);
+        if (support.visit_import_available !== true)
+          throw new ApiError("This service cannot keep reviewed visit imports yet. Your save stays on this phone and will retry.", 503);
+        throw failure;
+      });
     },
     feedAction: (recordId: string, value: FeedAction, g: Fence) =>
       request<BabyRecord>(`/records/${recordId}/feed-action`, "POST",

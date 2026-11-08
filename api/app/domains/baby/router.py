@@ -1164,7 +1164,7 @@ async def patch_record(
         from app.domains.baby.access import medical_visit
         if medical_visit(row.data):
             values["data"]["medical_visit"] = True
-        if row.data.get("paste_origin") and (not access.enabled or access.target.space.kind == "personal"):
+        if (row.data.get("just_me") or row.data.get("paste_origin")) and (not access.enabled or access.target.space.kind == "personal"):
             values["data"]["just_me"] = True
         values["data"] = reconciled_event(values["data"], values["occurred_at"])
     try:

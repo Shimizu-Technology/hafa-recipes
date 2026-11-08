@@ -317,3 +317,24 @@ async def test_split_private_visit_stays_personal_after_source_removal_and_famil
         await db.commit()
     family_rows = await c.get("/api/v1/baby/records", headers=records.headers(family, "other", generation=1))
     assert family_rows.status_code == 200 and replacement["id"] not in family_rows.text
+
+
+async def test_edit_keeps_private_nonimport_event_personal_through_family_creation(baby_api, enabled):
+    baby_api.settings.baby_new_kinds_enabled = True
+    c, h = baby_api.client, records.headers(enabled, generation=1)
+    body = shared.payload("event", body="Private appointment words", data={"category": "appointment", "timezone": "Pacific/Guam", "just_me": True})
+    saved = await c.post("/api/v1/baby/records", headers=h, json=body)
+    assert saved.status_code == 200, saved.text
+    edited = await c.patch(f"/api/v1/baby/records/{body['id']}", headers=h,
+                          json={"revision": 1, "data": {"category": "appointment", "timezone": "Pacific/Guam", "just_me": False, "location": "Updated clinic"}})
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["data"]["just_me"] is True
+    assert edited.json()["data"]["location"] == "Updated clinic"
+    family = await family_for(baby_api, enabled)
+    personal = await c.get(f"/api/v1/baby/records/{body['id']}", headers=h)
+    assert personal.status_code == 200 and personal.json()["space_id"] == str(enabled), personal.text
+    async with baby_api.sessions() as db:
+        db.add(BabySpaceMember(space_id=family, app_user_id="other", role="parent", status="active", access_version=1))
+        await db.commit()
+    visible = await c.get("/api/v1/baby/records", headers=records.headers(family, "other", generation=1))
+    assert visible.status_code == 200 and body["id"] not in visible.text
