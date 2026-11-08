@@ -1,6 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+vi.mock("../components/health-note", () => ({ HealthNote: "HealthNote" }));
 
 const m = vi.hoisted(() => ({ careOptions: undefined as unknown, child: {} as unknown, rows: [] as unknown[], logged: [] as { kind: string; title: string; body: string; data: { label: string } }[], toast: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: vi.fn(async () => undefined) }, useWindowDimensions: () => ({ fontScale: 1 }) }));
@@ -40,13 +41,13 @@ const devButton = () => renderer!.root.findAll((n) => String(n.type) === "PressT
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); m.child = { id: "kid", name: "Isla", birth_date: "2027-01-20", due_date: null }; m.rows = []; m.logged = []; m.toast.mockClear(); });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
 
-it("in a release build shows no visit, date or wording of ours while unapproved, and still links both schedules", async () => {
+it("shows reviewed ages and both schedule links in a release build", async () => {
   vi.stubGlobal("__DEV__", false);
   await mount();
   const text = words();
-  expect(text).toContain("Visit suggestions are coming once a doctor has reviewed them.");
-  expect(text).not.toContain("well visit\"");
-  expect(text).not.toContain("Around ");
+  expect(text).toContain("Your baby’s doctor sets the real schedule.");
+  expect(text).toContain("well visit");
+  expect(text).toContain("Around ");
   expect(text).not.toContain("they differ");
   expect(devButton()).toBeUndefined();
   expect(text).toContain("https://www.healthychildren.org/English/safety-prevention/immunizations/Pages/Recommended-Immunization-Schedules.aspx");
@@ -54,12 +55,12 @@ it("in a release build shows no visit, date or wording of ours while unapproved,
   expect(text).toContain("does not imply endorsement");
 });
 
-it("a development build can preview visits, clearly labelled, and never says missed or overdue", async () => {
+it("reviewed visits need no development preview and never say missed or overdue", async () => {
   vi.stubGlobal("__DEV__", true);
   await mount();
-  await act(async () => devButton()!.props.onPress());
+  expect(devButton()).toBeUndefined();
   const text = words();
-  expect(text).toContain("Development only. Not reviewed by a doctor.");
+  expect(text).not.toContain("Development only");
   expect(text).toContain("2-month well visit");
   expect(text).toContain("Around March 20, 2027");
   expect(text).not.toMatch(/missed|overdue|late\b|behind/i);
@@ -68,13 +69,13 @@ it("a development build can preview visits, clearly labelled, and never says mis
 it("adds a visit to the calendar in one tap, and then says it's there", async () => {
   vi.stubGlobal("__DEV__", true);
   await mount();
-  await act(async () => devButton()!.props.onPress());
+  expect(devButton()).toBeUndefined();
   await act(async () => { await button("Add to calendar").props.onPress(); });
   expect(m.logged[0]).toMatchObject({ kind: "event", child_id: "kid", title: "2-month well visit", data: { all_day: true, timezone: "Pacific/Guam", category: "appointment" } });
   m.rows = [m.logged[0]];
   await act(async () => renderer?.unmount());
   await mount();
-  await act(async () => devButton()!.props.onPress());
+  expect(devButton()).toBeUndefined();
   expect(words()).toContain("On your calendar");
 });
 
@@ -108,4 +109,14 @@ it("reads every page of custom entries, so an old shot can't fall off behind mon
   expect(m.careOptions).toMatchObject({ kinds: ["custom"], poll: false, child: "kid" });
   expect((m.careOptions as { pages: number }).pages).toBeGreaterThanOrEqual(50);
   expect((m.careOptions as { limit: number }).limit).toBeGreaterThanOrEqual(5000);
+});
+
+it("shows the first-week range without a suggested day or one-tap booking", async () => {
+  await mount();
+  const row = renderer!.root.findAll((n) => String(n.type) === "View").find((n) =>
+    n.children.some((child) => typeof child !== "string" && String(child.type) === "Copy" && child.props.children === "First-week well visit"))!;
+  const copy = row.findAll((n) => String(n.type) === "Copy").map((n) => n.props.children).join(" ");
+  expect(copy).toContain("3 to 5 days after birth");
+  expect(row.findAll((n) => String(n.type) === "Button")).toHaveLength(0);
+  expect(copy).not.toContain("Around ");
 });

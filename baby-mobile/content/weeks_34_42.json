@@ -1,23 +1,13 @@
 {
   "batch": "weeks-34-42",
-  "approved": false,
-  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW.md items I1 to I10 are signed off.",
+  "approved": true,
+  "_status": "Agent-reviewed 2026-11-07 by Leon’s decision for private family use. Not clinician-reviewed. Public/paid release requires clinician review and WHO chart permission.",
   "generated": "2026-11-04",
   "size_source": {
-    "used": "INTERGROWTH-21st Newborn Size at Birth Standards: weight-for-gestational-age and length-for-gestational-age, 50th centile at N+0 weeks (Villar et al. Lancet 2014;384:857-68).",
+    "used": "WHO fetal growth study (2017), Table 11, sexes combined, 50th percentile; not a prediction for your baby.",
     "urls": [
-      "https://intergrowth21.com/sites/default/files/2023-02/grow_newborn-ct-boys_bw_table.pdf",
-      "https://intergrowth21.com/sites/default/files/2023-02/grow_newborn-ct-girls_bw_table.pdf",
-      "https://intergrowth21.com/sites/default/files/2023-02/grow_newborn-ct-boys_lt_table.pdf",
-      "https://intergrowth21.com/sites/default/files/2023-02/grow_newborn-ct-girls_lt_table.pdf"
-    ],
-    "method": "The tables are published separately for boys and girls. Displayed value is the arithmetic midpoint of the two 50th-centile figures, computed for this packet, not a published number. Converted at 1 oz = 28.3495 g, 1 in = 2.54 cm, rounded to the nearest ounce and 0.1 inch.",
-    "why": "The only source found that covers both weight and length for all nine weeks. Hadlock 1991 and WHO stop at 40 weeks, and WHO's own birth-weight table for 41 weeks sits below its week-40 fetal figure, so joining them would make weight appear to fall.",
-    "caveat": "These are sizes at birth, not estimates in the womb, and they run lower than the fetal charts (week 40: 3,320 g here, 3,617 g WHO, 3,619 g Hadlock). Kami's ultrasound figures may look higher for that reason. Reviewer decides in item I1.",
-    "alternatives_read": {
-      "who": "Kiserud T et al. PLoS Med 2017;14(1):e1002220, Table 11 (estimated fetal weight regardless of fetal sex), 14 to 40 weeks. https://pmc.ncbi.nlm.nih.gov/articles/PMC5261648/",
-      "hadlock": "Hadlock FP, Harrist RB, Martinez-Poyer J. Radiology 1991;181:129-133, Table 1, 10 to 40 weeks. https://obgyn.utoronto.ca/sites/default/files/Hadlock%20Growth%20Chart-Radiology-1991.pdf . The 50th column matches the published equation to within 1 g, so the 2025 AJOG critique of the printed table's percentile values does not change these figures."
-    }
+      "https://pmc.ncbi.nlm.nih.gov/articles/PMC5261648/#pmed.1002220.t011"
+    ]
   },
   "size_comparison_note": "Everyday objects are our own rough picks, compared on weight only. No source was used and they are not measurements. Not from any app. Kami may swap any of them.",
   "weeks": [
@@ -31,27 +21,11 @@
       },
       "average": {
         "weight": {
-          "lb": 4,
-          "oz": 13,
-          "kg": 2.17,
-          "display": "about 4 lb 13 oz (2.2 kg)"
+          "lb": 5,
+          "oz": 2,
+          "display": "about 5 lb 2 oz (2.3 kg)"
         },
-        "length": {
-          "in": 17.6,
-          "cm": 44.8,
-          "display": "about 17.6 in (44.8 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.22,
-        "intergrowth_50th_girls_kg": 2.13,
-        "intergrowth_midpoint_kg": 2.175,
-        "intergrowth_50th_boys_cm": 45.0,
-        "intergrowth_50th_girls_cm": 44.6,
-        "intergrowth_midpoint_cm": 44.8,
-        "who_kiserud_2017_table_11_50th_g": 2312,
-        "hadlock_1991_table_1_50th_g": 2377
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -64,11 +38,10 @@
         },
         {
           "text": "Many babies have settled into a birth position by now. Your provider can tell you which way yours is lying.",
-          "source_url": "https://kidshealth.org/en/parents/week34.html",
-          "review_note": "Source says 'most babies'; softened to 'many'. Please check."
+          "source_url": "https://kidshealth.org/en/parents/week34.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 35,
@@ -81,26 +54,10 @@
       "average": {
         "weight": {
           "lb": 5,
-          "oz": 6,
-          "kg": 2.42,
-          "display": "about 5 lb 6 oz (2.4 kg)"
+          "oz": 9,
+          "display": "about 5 lb 9 oz (2.5 kg)"
         },
-        "length": {
-          "in": 18.0,
-          "cm": 45.8,
-          "display": "about 18.0 in (45.8 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.47,
-        "intergrowth_50th_girls_kg": 2.38,
-        "intergrowth_midpoint_kg": 2.425,
-        "intergrowth_50th_boys_cm": 46.0,
-        "intergrowth_50th_girls_cm": 45.6,
-        "intergrowth_midpoint_cm": 45.8,
-        "who_kiserud_2017_table_11_50th_g": 2527,
-        "hadlock_1991_table_1_50th_g": 2595
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -111,21 +68,15 @@
           ]
         },
         {
-          "text": "This is a fast stretch for weight gain, about 8 to 12 oz a week, with fat filling in all over.",
-          "source_url": "https://kidshealth.org/en/parents/week35.html",
-          "review_note": "The table used here shows roughly 8 to 9 oz a week around this point, so this fits."
+          "text": "Your baby keeps gaining weight as body fat builds.",
+          "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         },
         {
-          "text": "Kicks may feel stronger as space gets tight. If your baby moves less than usual, don't wait: get care right away.",
-          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html",
-          "additional_source_urls": [
-            "https://kidshealth.org/en/parents/week35.html",
-            "https://www.nhs.uk/pregnancy/keeping-well/your-babys-movements/"
-          ],
-          "review_note": "Deliberately leaves out KidsHealth's 'you might feel fewer movements'. See MEDICAL_REVIEW.md item E4."
+          "text": "If your baby moves less than usual or stops moving, seek medical care immediately.",
+          "source_url": "https://www.cdc.gov/hearher/maternal-warning-signs/index.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 36,
@@ -137,31 +88,15 @@
       },
       "average": {
         "weight": {
-          "lb": 5,
-          "oz": 13,
-          "kg": 2.65,
-          "display": "about 5 lb 13 oz (2.6 kg)"
+          "lb": 6,
+          "oz": 1,
+          "display": "about 6 lb 1 oz (2.7 kg)"
         },
-        "length": {
-          "in": 18.4,
-          "cm": 46.8,
-          "display": "about 18.4 in (46.8 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.69,
-        "intergrowth_50th_girls_kg": 2.6,
-        "intergrowth_midpoint_kg": 2.645,
-        "intergrowth_50th_boys_cm": 47.0,
-        "intergrowth_50th_girls_cm": 46.5,
-        "intergrowth_midpoint_cm": 46.75,
-        "who_kiserud_2017_table_11_50th_g": 2745,
-        "hadlock_1991_table_1_50th_g": 2813
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
-          "text": "The bones of your baby's skull can still move and overlap, which helps during birth. A slightly pointed head right after birth usually rounds out within hours or days.",
+          "text": "The bones of your baby's skull can move and overlap to help during birth.",
           "source_url": "https://kidshealth.org/en/parents/week36.html",
           "additional_source_urls": [
             "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
@@ -172,15 +107,14 @@
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth",
           "additional_source_urls": [
             "https://medlineplus.gov/ency/article/002398.htm"
-          ],
-          "review_note": "MedlinePlus says some may remain on the upper arms and shoulders through weeks 38 to 40."
+          ]
         },
         {
           "text": "Your baby now has definite sleep patterns.",
           "source_url": "https://medlineplus.gov/ency/article/002398.htm"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 37,
@@ -193,26 +127,10 @@
       "average": {
         "weight": {
           "lb": 6,
-          "oz": 4,
-          "kg": 2.84,
-          "display": "about 6 lb 4 oz (2.8 kg)"
+          "oz": 9,
+          "display": "about 6 lb 9 oz (3.0 kg)"
         },
-        "length": {
-          "in": 18.7,
-          "cm": 47.5,
-          "display": "about 18.7 in (47.5 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 2.89,
-        "intergrowth_50th_girls_kg": 2.8,
-        "intergrowth_midpoint_kg": 2.845,
-        "intergrowth_50th_boys_cm": 47.8,
-        "intergrowth_50th_girls_cm": 47.3,
-        "intergrowth_midpoint_cm": 47.55,
-        "who_kiserud_2017_table_11_50th_g": 2966,
-        "hadlock_1991_table_1_50th_g": 3028
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -228,7 +146,7 @@
           "source_url": "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 38,
@@ -240,27 +158,11 @@
       },
       "average": {
         "weight": {
-          "lb": 6,
-          "oz": 11,
-          "kg": 3.02,
-          "display": "about 6 lb 11 oz (3.0 kg)"
+          "lb": 7,
+          "oz": 0,
+          "display": "about 7 lb 0 oz (3.2 kg)"
         },
-        "length": {
-          "in": 19.0,
-          "cm": 48.3,
-          "display": "about 19.0 in (48.3 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.07,
-        "intergrowth_50th_girls_kg": 2.97,
-        "intergrowth_midpoint_kg": 3.02,
-        "intergrowth_50th_boys_cm": 48.6,
-        "intergrowth_50th_girls_cm": 48.0,
-        "intergrowth_midpoint_cm": 48.3,
-        "who_kiserud_2017_table_11_50th_g": 3186,
-        "hadlock_1991_table_1_50th_g": 3236
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -276,11 +178,10 @@
           "source_url": "https://kidshealth.org/en/parents/week38.html",
           "additional_source_urls": [
             "https://my.clevelandclinic.org/health/articles/7247-fetal-development-stages-of-growth"
-          ],
-          "review_note": "Cleveland Clinic says about 0.5 lb a week at week 38. The table used here shows about 6 oz."
+          ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 39,
@@ -293,26 +194,10 @@
       "average": {
         "weight": {
           "lb": 7,
-          "oz": 0,
-          "kg": 3.19,
-          "display": "about 7 lb 0 oz (3.2 kg)"
+          "oz": 8,
+          "display": "about 7 lb 8 oz (3.4 kg)"
         },
-        "length": {
-          "in": 19.3,
-          "cm": 49.0,
-          "display": "about 19.3 in (49.0 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.24,
-        "intergrowth_50th_girls_kg": 3.13,
-        "intergrowth_midpoint_kg": 3.185,
-        "intergrowth_50th_boys_cm": 49.3,
-        "intergrowth_50th_girls_cm": 48.7,
-        "intergrowth_midpoint_cm": 49.0,
-        "who_kiserud_2017_table_11_50th_g": 3403,
-        "hadlock_1991_table_1_50th_g": 3435
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -321,15 +206,14 @@
         },
         {
           "text": "Antibodies from your body pass through the placenta and help protect your baby in the first months of life.",
-          "source_url": "https://kidshealth.org/en/parents/week39.html",
-          "review_note": "Source says 'first 6 to 12 months'. Shortened on purpose; I did not check the duration against a second source."
+          "source_url": "https://kidshealth.org/en/parents/week39.html"
         },
         {
           "text": "The umbilical cord is usually about 22 inches (55 cm) long and about half an inch thick.",
           "source_url": "https://kidshealth.org/en/parents/week39.html"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 40,
@@ -341,27 +225,11 @@
       },
       "average": {
         "weight": {
-          "lb": 7,
-          "oz": 5,
-          "kg": 3.32,
-          "display": "about 7 lb 5 oz (3.3 kg)"
+          "lb": 8,
+          "oz": 0,
+          "display": "about 8 lb 0 oz (3.6 kg)"
         },
-        "length": {
-          "in": 19.5,
-          "cm": 49.5,
-          "display": "about 19.5 in (49.5 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.38,
-        "intergrowth_50th_girls_kg": 3.26,
-        "intergrowth_midpoint_kg": 3.32,
-        "intergrowth_50th_boys_cm": 49.9,
-        "intergrowth_50th_girls_cm": 49.2,
-        "intergrowth_midpoint_cm": 49.55,
-        "who_kiserud_2017_table_11_50th_g": 3617,
-        "hadlock_1991_table_1_50th_g": 3619
+        "label": "Estimated fetal weight in WHO's table (50th percentile), not your baby's measurement."
       },
       "facts": [
         {
@@ -372,16 +240,11 @@
           ]
         },
         {
-          "text": "You may not need extra tests this week. At 41 weeks, your provider may recommend them.",
-          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date",
-          "review_note": "KidsHealth says a nonstress test may be recommended within a week of the due date. ACOG's wording is used here."
-        },
-        {
-          "text": "A newborn's head can look misshapen at first, and skin can have patches or rashes. This is common and usually temporary.",
-          "source_url": "https://kidshealth.org/en/parents/week40.html"
+          "text": "Ask your care team about monitoring and the plan for delivery.",
+          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date"
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 41,
@@ -390,30 +253,6 @@
         "approximate": true,
         "compared_on": "weight",
         "unsourced": true
-      },
-      "average": {
-        "weight": {
-          "lb": 7,
-          "oz": 9,
-          "kg": 3.44,
-          "display": "about 7 lb 9 oz (3.4 kg)"
-        },
-        "length": {
-          "in": 19.7,
-          "cm": 50.1,
-          "display": "about 19.7 in (50.1 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.51,
-        "intergrowth_50th_girls_kg": 3.37,
-        "intergrowth_midpoint_kg": 3.44,
-        "intergrowth_50th_boys_cm": 50.5,
-        "intergrowth_50th_girls_cm": 49.8,
-        "intergrowth_midpoint_cm": 50.15,
-        "who_kiserud_2017_table_11_50th_g": null,
-        "hadlock_1991_table_1_50th_g": null
       },
       "facts": [
         {
@@ -424,16 +263,11 @@
           ]
         },
         {
-          "text": "Your provider may suggest tests to check on your baby, once or twice a week, and may talk with you about delivery.",
+          "text": "Ask your care team about monitoring and the plan for delivery.",
           "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date"
-        },
-        {
-          "text": "Most people who give birth after their due date have uncomplicated labor and healthy babies.",
-          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date",
-          "review_note": "Source says 'most women'."
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     },
     {
       "week": 42,
@@ -443,43 +277,17 @@
         "compared_on": "weight",
         "unsourced": true
       },
-      "average": {
-        "weight": {
-          "lb": 7,
-          "oz": 13,
-          "kg": 3.54,
-          "display": "about 7 lb 13 oz (3.5 kg)"
-        },
-        "length": {
-          "in": 19.9,
-          "cm": 50.6,
-          "display": "about 19.9 in (50.6 cm)"
-        },
-        "label": "Typical size of a healthy baby born at this week"
-      },
-      "figures_read": {
-        "intergrowth_50th_boys_kg": 3.62,
-        "intergrowth_50th_girls_kg": 3.46,
-        "intergrowth_midpoint_kg": 3.54,
-        "intergrowth_50th_boys_cm": 51.0,
-        "intergrowth_50th_girls_cm": 50.2,
-        "intergrowth_midpoint_cm": 50.6,
-        "who_kiserud_2017_table_11_50th_g": null,
-        "hadlock_1991_table_1_50th_g": null
-      },
       "facts": [
         {
           "text": "From 42 weeks, a pregnancy is called postterm.",
           "source_url": "https://www.acog.org/clinical/guidance/committee-opinion/2013/11/definition-of-term-pregnancy/",
           "additional_source_urls": [
             "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date"
-          ],
-          "review_note": "The ACOG FAQ says 'longer than 42 weeks'; Committee Opinion 579 says 42 0/7 and beyond."
+          ]
         },
         {
-          "text": "Some risks can go up now, though problems happen in only a small number of these pregnancies. Ask your provider what the plan is.",
-          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date",
-          "review_note": "The last sentence is ours, not ACOG's."
+          "text": "Ask your care team about the plan for delivery.",
+          "source_url": "https://www.acog.org/womens-health/faqs/when-pregnancy-goes-past-your-due-date"
         },
         {
           "text": "Keep noticing your baby's movements. If they slow or stop, get care right away, even in the middle of the night.",
@@ -489,7 +297,7 @@
           ]
         }
       ],
-      "review_status": "DRAFT"
+      "review_status": "AGENT_REVIEWED_PRIVATE_FAMILY_2026-11-07"
     }
   ]
 }

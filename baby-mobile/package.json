@@ -7,14 +7,14 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "start": "expo start",
-    "ios": "expo run:ios",
-    "android": "expo run:android",
+    "start": "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE=private-family expo start",
+    "ios": "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE=private-family expo run:ios",
+    "android": "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE=private-family expo run:android",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "doctor": "expo-doctor",
-    "export:web": "expo export --platform web",
-    "export:all": "expo export --platform all --source-maps",
+    "doctor": "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE=private-family expo-doctor",
+    "export:web": "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE=private-family expo export --platform web",
+    "export:all": "EXPO_PUBLIC_BABY_RELEASE_AUDIENCE=private-family expo export --platform all --source-maps",
     "audit:runtime": "node scripts/audit-runtime.mjs",
     "check:native-bundles": "node scripts/check-native-bundles.mjs"
   },

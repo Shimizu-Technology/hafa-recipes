@@ -1,7 +1,7 @@
 {
   "batch": "aap-well-visits",
-  "approved": false,
-  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md item Q1 is signed off.",
+  "approved": true,
+  "_status": "Agent-reviewed 2026-11-07 for private family use by Leon’s decision; not clinician-reviewed.",
   "generated": "2026-11-05",
   "source": {
     "name": "American Academy of Pediatrics, Schedule of Well-Child Care Visits",
@@ -16,7 +16,8 @@
       "title": "First-week well visit",
       "age": "3 to 5 days",
       "after_birth": {
-        "days": 3
+        "days": 3,
+        "end_days": 5
       }
     },
     {
@@ -133,5 +134,6 @@
       "name": "CDC vaccine schedule",
       "url": "https://www.cdc.gov/vaccines/hcp/imz-schedules/child-adolescent-age.html"
     }
-  }
+  },
+  "review": "Agent-reviewed 2026-11-07 for private family use by Leon’s decision; not clinician-reviewed."
 }

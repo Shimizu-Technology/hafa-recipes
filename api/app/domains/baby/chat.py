@@ -463,6 +463,9 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
 
     readable = await readable_journal_children(db, rows, owner)
     for position, row in enumerate(rows):
+        from app.domains.baby.access import visit_for_reader
+
+        row = visit_for_reader(row, owner)
         limit = 7000 if row.id in in_full else BRIEF_EXCERPT
         excerpt = excerpt_for(row, terms, limit=min(limit, available), zone=zone)
         if not excerpt or available <= 0:

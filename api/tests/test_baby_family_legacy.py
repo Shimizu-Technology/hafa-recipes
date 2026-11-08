@@ -98,6 +98,7 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     await call("GET", "/api/v1/baby/bootstrap")
     await call("POST", "/api/v1/baby/bootstrap")
     await call("POST", "/api/v1/baby/enroll")
+    await call("POST", "/api/v1/baby/visit-defaults/read")
     await call("PATCH", "/api/v1/baby/profile", json={"ai_consent": True})
     await call("PATCH", "/api/v1/baby/profile/contacts", json={"doctor": {"phone": "671-555-0100"}})
     child_id = str(uuid4())

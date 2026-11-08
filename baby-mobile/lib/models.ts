@@ -92,6 +92,8 @@ export interface Bootstrap {
   /** The personal space's. */
   generation: number;
   ai_available: boolean;
+  /** This API preserves reviewed visit imports and their original source spans. */
+  visit_import_available?: boolean;
   active?: boolean;
   /** Only with the API's family stack on. */
   personal_space_id?: string;
@@ -216,7 +218,16 @@ export interface EventOccurrence {
   revision: number;
 }
 export interface RecordData {
-  /** Ask suggested this. The server keeps it through every edit, and it can't become a reminder. */
+  medical_visit?: boolean;
+  provider_default_at?: number | null;
+  provider_default?: boolean;
+  paste_origin?: { text: string; start: number; end: number; original: boolean } | null;
+  clinician_age?: string | null;
+  doctor?: string | null;
+  due_date_snapshot?: string | null;
+  results?: string | null;
+  result_status?: "unknown" | "pending" | "received" | null;
+  follow_up?: string | null;
   /** Which of CDC's milestones this records. The title keeps the words she checked, even if CDC later rewords them. */
   milestone_id?: string;
   /** What a custom entry is, such as "Shot". */
@@ -607,6 +618,7 @@ export interface UpcomingReminder {
   data: Record<string, unknown>;
 }
 export interface DeviceState {
+  visitDefaults?: Record<string, { doctor: string | null; location: string | null } | null>;
   feedTimer?: FeedTimer;
   /** What the API said is waiting, for the offline copy. */
   upcomingReminders?: UpcomingReminder[];

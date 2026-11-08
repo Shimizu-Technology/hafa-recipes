@@ -1,6 +1,7 @@
 """Space access and commit-ordered stamps. Call before locking records or assets."""
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -16,6 +17,35 @@ CAREGIVER_KINDS = frozenset({
     "feeding", "sleep", "diaper", "routine", "event", "contraction", "kick_session",
     "pumping", "medicine", "temperature", "growth", "milestone", "custom",
 })
+
+
+VISIT_PRIVATE_FIELDS = frozenset({"results", "result_status", "follow_up", "paste_origin", "clinician_age", "due_date_snapshot", "doctor", "provider_default", "provider_default_at"})
+
+VISIT_SIGNAL_FIELDS = ("results", "result_status", "follow_up", "clinician_age", "due_date_snapshot", "provider_default_at")
+
+
+def medical_visit(data):
+    """Category edits cannot declassify prior medical visit content."""
+    return data.get("category") == "appointment" or data.get("medical_visit") is True or any(
+        data.get(key) is not None for key in VISIT_SIGNAL_FIELDS
+    )
+
+
+def caregiver_visit(row, access):
+    return (getattr(access, "enabled", False) and getattr(row, "kind", None) == "event"
+            and medical_visit(row.data or {}) and access.grant(row).role == "caregiver")
+
+
+def visit_response(row, result, access):
+    if caregiver_visit(row, access):
+        result = {**result, "body": "", "data": {key: value for key, value in result["data"].items() if key not in VISIT_PRIVATE_FIELDS}}
+    return result
+
+
+def visit_for_reader(row, access):
+    if not caregiver_visit(row, access):
+        return row
+    return SimpleNamespace(**{**row.__dict__, **visit_response(row, {"body": row.body, "data": row.data}, access)})
 
 
 def family_enabled():
@@ -108,6 +138,8 @@ class BabyAccess:
             details["record"] = jsonable_encoder({key: getattr(row, key) for key in (
                 "id", "kind", "title", "body", "child_id", "occurred_at", "data", "revision",
                 "created_at", "updated_at", "space_id", "generation", "name", "birth_date", "due_date", "details") if hasattr(row, key)})
+            if getattr(row, "kind", None) == "event":
+                details["record"] = visit_response(row, details["record"], self)
             if getattr(row, "kind", None) == "journal" and row.child_id:
                 from app.domains.baby.models import BabyChild
 

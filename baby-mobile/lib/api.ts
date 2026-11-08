@@ -115,7 +115,7 @@ export function createBabyApi(
   current: () => boolean,
   transport: (input: string, init?: RequestInit) => Promise<Response> = fetch,
   /** The bootstrap this phone holds, saved or fresh, which sets the client level. */
-  known: () => Pick<Bootstrap, "spaces" | "personal_space_id"> | undefined = () => undefined
+  known: () => Pick<Bootstrap, "spaces" | "personal_space_id" | "visit_import_available"> | undefined = () => undefined
 ) {
   let epoch = 0,
     knownGeneration: number | undefined;
@@ -318,6 +318,7 @@ export function createBabyApi(
     search: (q: string, kind?: Kind, child_id?: string | null,
       filters: Pick<RecordFilters, "kinds" | "include_general" | "offset" | "limit" | "collection_id" | "topic" | "uncategorized"> = {}) =>
       request<RecordPage>("/search?" + query({ q, kind, child_id, limit: 100, ...filters })),
+    visitDefaults: (g: Fence) => request<{ doctor: string | null; location: string | null } | null>("/visit-defaults/read", "POST", {}, g),
     record: (id: string) => request<BabyRecord>(`/records/${encodeURIComponent(id)}`),
     /** Totals and dots per calendar day, inclusive, on the profile's clock. No child means the logs that have none. */
     careSummary: (from: string, to: string, child_id?: string | null) =>
@@ -333,6 +334,8 @@ export function createBabyApi(
         { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }, g),
     save: (value: RecordWrite, g: Fence) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
+      if (data.paste_origin && known()?.visit_import_available !== true)
+        return Promise.reject(new ApiError("This service cannot keep reviewed visit imports yet. Your save stays on this phone and will retry.", 503));
       // A row read from the API says where it lives, and a write has to go there.
       if (typeof g === "number") g = rowFence(value as { generation?: number; space_id?: string }, g);
       // Repair optional links at the wire boundary, including durable outbox
@@ -353,7 +356,17 @@ export function createBabyApi(
           ? { title, body, child_id, occurred_at, data: payloadData, revision }
           : { id, kind, title, body, child_id, occurred_at, data: payloadData },
         g
-      );
+      ).catch(async (failure: unknown) => {
+        if (!(failure instanceof ApiError) || failure.status !== 422 || !data.paste_origin) throw failure;
+        // Support can disappear after sync's bootstrap. Recheck it rather than
+        // treating every validation error as retryable or dropping original words.
+        const captured = lease(), initialized = knownGeneration !== undefined;
+        const support = await request<Bootstrap>("/bootstrap", "POST", {});
+        if (initialized) assertLease(captured);
+        if (support.visit_import_available !== true)
+          throw new ApiError("This service cannot keep reviewed visit imports yet. Your save stays on this phone and will retry.", 503);
+        throw failure;
+      });
     },
     feedAction: (recordId: string, value: FeedAction, g: Fence) =>
       request<BabyRecord>(`/records/${recordId}/feed-action`, "POST",

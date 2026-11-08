@@ -133,6 +133,7 @@ def test_events_are_a_new_kind_and_question_and_journal_gain_only_an_optional_li
     assert set(EventData.model_fields) == {
         "end", "all_day", "timezone", "category", "location", "attendees", "recurrence", "exceptions",
         "attachment_ids", "reminder_minutes", "category_label",
+        "just_me", "medical_visit", "provider_default_at", "provider_default", "paste_origin", "clinician_age", "doctor", "due_date_snapshot", "results", "result_status", "follow_up",
     }
     plain = RecordCreate.model_validate({"kind": "question", "title": "Q", "occurred_at": START, "data": {}})
     # An unlinked question looks exactly as it did before, so replays keep their hash.

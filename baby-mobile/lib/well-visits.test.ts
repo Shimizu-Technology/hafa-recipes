@@ -15,23 +15,22 @@ describe("the schedule as bundled", () => {
     expect(wellVisits.vaccine_links.cdc.url).toMatch(/^https:\/\/www\.cdc\.gov\//);
     expect(JSON.stringify(wellVisits.visits)).not.toMatch(/vaccin|shot|hepatitis|mmr|dtap/i);
   });
-  it("ships unapproved, and a release build shows no visits even when asked", () => {
-    expect(wellVisits.approved).toBe(false);
-    expect(visitsVisible()).toBe(false);
+  it("releases reviewed ages and keeps the unapproved gate in release and development", () => {
+    expect(wellVisits.approved).toBe(true);
+    expect(visitsVisible()).toBe(true);
     vi.stubGlobal("__DEV__", false);
-    expect(visitsVisible(true)).toBe(false);
+    expect(visitsVisible(true, { approved: false })).toBe(false);
     vi.stubGlobal("__DEV__", true);
-    expect(visitsVisible()).toBe(false);
-    expect(visitsVisible(true)).toBe(true);
-    expect(visitsVisible(false, { approved: true })).toBe(true);
+    expect(visitsVisible(false, { approved: false })).toBe(false);
+    expect(visitsVisible(true, { approved: false })).toBe(true);
   });
 });
 
 describe("suggested days", () => {
   const visit = (id: string) => wellVisits.visits.find((one) => one.id === id)!;
-  it("counts the first visit in days, and the rest in months, keeping the day of the month", () => {
-    expect(visitDay("2026-12-10", visit("3-5-days"))).toBe("2026-12-13");
-    expect(visitDay("2026-12-30", visit("3-5-days"))).toBe("2027-01-02");
+  it("sorts the first-week window by its last day, and the rest by completed months", () => {
+    expect(visitDay("2026-12-10", visit("3-5-days"))).toBe("2026-12-15");
+    expect(visitDay("2026-12-30", visit("3-5-days"))).toBe("2027-01-04");
     expect(visitDay("2026-12-10", visit("2-months"))).toBe("2027-02-10");
     expect(visitDay("2026-12-10", visit("5-years"))).toBe("2031-12-10");
   });

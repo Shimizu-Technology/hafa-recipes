@@ -51,9 +51,10 @@ describe("the last hour", () => {
   });
 });
 
-it("ships no contraction guidance until a clinician approves it, under 37 weeks or after", () => {
-  // MEDICAL_REVIEW F1, F3, F4 are unapproved. Changing this test is a medical decision, not a code one.
-  for (const week of [undefined, 30, 36, 37, 41]) expect(contractionGuidance(week)).toBeNull();
+it("gives immediate preterm routing below 37 weeks and when the week is unknown", () => {
+  for (const week of [undefined, 30, 36]) expect(contractionGuidance(week)).toContain("right away");
+  for (const week of [37, 41]) expect(contractionGuidance(week)).toContain("Go to the hospital");
+  for (const week of [undefined, 36, 37]) expect(contractionGuidance(week)).not.toMatch(/5-1-1|okay|normal|wait an hour/);
 });
 
 it("finds her note by its label, the newest copy, and nothing else", () => {
