@@ -205,15 +205,17 @@ BORN_CHILD = re.compile(
 )
 FUTURE_BIRTH = re.compile(
     # Explicit future or "not yet" wording is not evidence of a born child.
-    r"\b(?:(?:due|expected|scheduled|set|yet)\s+to\s+be|(?:will|would|should|may|might|could)\s+(?:soon\s+)?be|"
+    r"\b(?:(?:due|expected|scheduled|supposed|meant|set|yet)\s+to\s+be|(?:will|would|should|may|might|could)\s+(?:soon\s+)?be|"
     r"(?:going|about)\s+to\s+be|to\s+be)\s+born\b"
     r"|\b(?:(?:isn't|is\s+not|hasn't|has\s+not)\s+yet\s+(?:been\s+)?born|"
-    r"(?:isn't|is\s+not|hasn't|has\s+not)\s+(?:been\s+)?born\s+yet|not\s+(?:yet\s+born|born\s+yet))\b", re.I,
+    r"(?:isn't|is\s+not|hasn't|has\s+not)\s+(?:been\s+)?born\s+yet|not\s+(?:yet\s+born|born\s+yet))\b"
+    r"|\b(?:isn't|is\s+not|hasn't|has\s+not)\s+(?:been\s+)?born\b(?=\s*(?:[,.!?;\n]|$))", re.I,
 )
 PAST_BIRTH_PLAN = re.compile(
     r"\b(?:was|were|wasn't|weren't|had|hadn't)(?:\s+(?:originally|previously|initially|not|been))*\s+$", re.I,
 )
 BABY_PRONOUN_SUBJECT = re.compile(r"^\W*(?:(?:now|also|then)\s+)*(?:she|he|her|his|they|their|shes|hes)\b", re.I)
+BABY_REFERENCE = re.compile(r"\b(?:baby|newborn|infant|toddler|little one|lo|nene|neni|daughter|son)\b", re.I)
 # These are routing signs, not diagnoses. The emergency tier always wins within the whole message.
 BABY_EMERGENCY_WORDS = re.compile(
     r"\b(not breath(?:ing|e)|isn't breathing|is not breathing|stopped breathing|no longer breathing|breathing\W+(?:and\W+)?not anymore|"
@@ -412,18 +414,13 @@ def classify(message, child_names=()):
         planned = FUTURE_BIRTH.search(part)
         return bool(planned and PAST_BIRTH_PLAN.search(part[:planned.start()]))
 
-    born_evidence = BORN_CHILD.search(FUTURE_BIRTH.sub("", context))
     after_birth = re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth|born|newborn|infant)\b", FUTURE_BIRTH.sub("", context), re.I)
     # A bare week count may be an infant's age or weeks after birth. "Kicked"
     # can also describe a born baby's body; neither establishes pregnancy.
     pregnancy_context = any(
-        (re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", part, re.I)
-         or FUTURE_BIRTH.search(part) and not (born_evidence and historical_birth_plan(part)))
+        re.search(r"\b(pregnan\w*|womb|trimester|unborn|fetal)\b|\bin utero\b", part, re.I)
         and not re.search(r"\b(postpartum|postnatal|after (?:giving )?birth|after delivery|gave birth)\b", part, re.I)
         for part in kept
-    )
-    ambiguous_weeks = not after_birth and not pregnancy_context and re.search(
-        r"\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", context, re.I,
     )
 
     def baby_subject(part):
@@ -465,19 +462,31 @@ def classify(message, child_names=()):
                               or re.search(r"\b(temp|temperature|fever)\b", part, re.I)))
         baby_parts.append(bool(baby_subject(part) or inherits_baby))
     # A parent's pregnancy does not make a previously identified born child fetal.
-    # Carry that identity into "he/she isn't moving"; an explicit new baby subject
-    # starts a new concern (which can still be fetal).
+    # Carry identity through pronouns and repeated references. A different subject
+    # or an explicit current unborn concern starts a new context.
     born_parts = []
     born_context = False
+    born_reference = None
     for part, about_baby in zip(kept, baby_parts, strict=True):
+        reference_match = BABY_REFERENCE.search(part)
+        reference = reference_match.group(0).lower() if reference_match else None
         if BORN_CHILD.search(FUTURE_BIRTH.sub("", part)):
             born_context = True
-        elif about_baby and not BABY_PRONOUN_SUBJECT.search(part):
-            # A past delivery expectation cannot undo this child's actual birth.
-            # An explicit separate unborn child still starts a new concern.
-            if not (born_context and historical_birth_plan(part) and not re.search(r"\b(?:unborn|fetal)\b", part, re.I)):
-                born_context = False
+            born_reference = reference or born_reference
+        elif (about_baby and re.search(r"\b(?:unborn|fetal)\b", part, re.I)
+              or FUTURE_BIRTH.search(part) and not historical_birth_plan(part)):
+            born_context, born_reference = False, None
+        elif about_baby and not BABY_PRONOUN_SUBJECT.search(part) and not (reference and reference == born_reference):
+            born_context, born_reference = False, None
         born_parts.append(bool(about_baby and born_context))
+    # A future expectation establishes pregnancy only for an unborn/unknown patient,
+    # not for the already-born child whose historical delivery plan was mentioned.
+    pregnancy_context = pregnancy_context or any(
+        FUTURE_BIRTH.search(part) and not born_child for part, born_child in zip(kept, born_parts, strict=True)
+    )
+    ambiguous_weeks = not after_birth and not pregnancy_context and re.search(
+        r"\b(?:3[0-9]|[12][0-9]) weeks?\b(?!\s*(?:old|-old))", context, re.I,
+    )
     maternal_parts = [bool(MATERNAL_SIGNS.search(part) and not baby) for part, baby in zip(kept, baby_parts, strict=True)]
 
     def fetal_movement_part(part, *, born_child=False):
