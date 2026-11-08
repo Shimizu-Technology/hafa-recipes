@@ -571,8 +571,8 @@ async def log_new(api, kind, title, at, data, child=None, body=""):
     return response.json()["id"]
 
 
-async def new_child(api):
-    response = await api.client.post("/api/v1/baby/children", headers=GEN, json={"name": "Mia", "birth_date": "2026-09-01"})
+async def new_child(api, name="Mia"):
+    response = await api.client.post("/api/v1/baby/children", headers=GEN, json={"name": name, "birth_date": "2026-09-01"})
     assert response.status_code in {200, 201}, response.text
     return response.json()["id"]
 
@@ -640,12 +640,12 @@ async def test_a_dated_question_leaves_out_her_older_logs(baby_api, frozen, new_
 
 
 @needs_database
-async def test_a_journal_entry_with_no_baby_stays_out_when_she_asks_about_herself(baby_api, frozen, new_kinds):
+async def test_a_journal_entry_with_no_baby_is_available_when_she_asks_about_herself(baby_api, frozen, new_kinds):
     child = await new_child(baby_api)
     note = await log(baby_api, "journal", "How my weight feels", guam(4, 9))
     pressure = await log_new(baby_api, "custom", "118/76", guam(4, 9, 5), {"label": "Blood pressure"})
     found = [item["id"] for item in (await ask(baby_api, "What is my blood pressure and my weight?", child_id=child))[0]]
-    assert pressure in found and note not in found
+    assert pressure in found and note in found
 
 
 @needs_database
@@ -707,10 +707,12 @@ async def test_a_general_saved_entry_can_be_focused_with_a_baby_selected(baby_ap
 
 
 @needs_database
-async def test_old_chat_sends_general_entries_to_the_provider_with_selected_baby(baby_api, monkeypatch, frozen, new_kinds):
+@pytest.mark.parametrize("message", ["Tell me about what’s going on please", "What do you know about Mia?"])
+async def test_old_chat_sends_general_entries_to_the_provider_with_selected_baby(baby_api, monkeypatch, frozen, new_kinds, message):
     child = await new_child(baby_api)
     note = await log(baby_api, "journal", "First day felt good", guam(4, 19, 52))
     event = await log_new(baby_api, "event", "Doctor’s appointment", guam(12, 11, 15), {"timezone": "Pacific/Guam"})
+    source = await log(baby_api, "source", "What we know", guam(2), data={"source_text": "Hospital paperwork"})
     calls = []
     async def answer(self, **kwargs):
         await self.gate()
@@ -719,9 +721,9 @@ async def test_old_chat_sends_general_entries_to_the_provider_with_selected_baby
     monkeypatch.setattr(BabyProvider, "enabled", property(lambda _: True))
     monkeypatch.setattr(BabyProvider, "answer", answer)
     await baby_api.client.patch("/api/v1/baby/profile", headers=GEN, json={"ai_consent": True})
-    response = await baby_api.client.post("/api/v1/baby/chat", headers={**GEN, "X-Baby-Client": "2"}, json={"request_id": str(uuid4()), "message": "Tell me about what’s going on please", "child_id": child, "ask_v2": False})
+    response = await baby_api.client.post("/api/v1/baby/chat", headers={**GEN, "X-Baby-Client": "2"}, json={"request_id": str(uuid4()), "message": message, "child_id": child, "ask_v2": False})
     assert response.status_code == 200, response.text
-    assert {note, event} <= {row["id"] for row in calls[0]["context"]}
+    assert {note, event, source} <= {row["id"] for row in calls[0]["context"]}
 
 
 @needs_database
@@ -757,3 +759,37 @@ async def test_focusing_a_sibling_entry_still_rejects_the_selected_baby(baby_api
     with pytest.raises(HTTPException) as error:
         await ask(baby_api, "Summarize this", scope="library", record_id=saved, child_id=child)
     assert error.value.status_code == 422
+
+
+@needs_database
+async def test_maternal_note_question_keeps_general_journal_and_saved_context(baby_api, frozen):
+    child = await new_child(baby_api)
+    note = await log(baby_api, "journal", "My feeling notes", guam(4, 18))
+    source = await log(baby_api, "source", "Feeling notes from class", guam(3), data={"source_text": "Notes to discuss at the next visit"})
+    found = {row["id"] for row in (await ask(baby_api, "Find my feeling notes", child_id=child))[0]}
+    assert {note, source} <= found
+
+
+@needs_database
+@pytest.mark.parametrize(("name", "kind", "question", "data"), [
+    ("Mia Nurse", "feeding", "Did she nurse?", {"method": "breast", "side": "left"}),
+    ("Nurse", "feeding", "Did she nurse?", {"method": "breast", "side": "left"}),
+    ("Mia Weight", "growth", "What is her weight?", {"weight": 3.4, "weight_unit": "kg"}),
+    ("Weight", "growth", "What is her weight?", {"weight": 3.4, "weight_unit": "kg"}),
+])
+async def test_http_specific_care_keeps_unassigned_logs_out_with_a_care_word_name(baby_api, monkeypatch, frozen, new_kinds, name, kind, question, data):
+    child = await new_child(baby_api, name)
+    assigned = await log_new(baby_api, kind, "Selected baby's log", guam(4, 18), data, child=child)
+    general = await log_new(baby_api, kind, "Unassigned log", guam(4, 19), data)
+    calls = []
+    async def answer(self, **kwargs):
+        await self.gate()
+        calls.append(kwargs)
+        return AnswerOutput(message="These are the entries provided for your question.")
+    monkeypatch.setattr(BabyProvider, "enabled", property(lambda _: True))
+    monkeypatch.setattr(BabyProvider, "answer", answer)
+    await baby_api.client.patch("/api/v1/baby/profile", headers=GEN, json={"ai_consent": True})
+    result = await baby_api.client.post("/api/v1/baby/chat", headers={**GEN, "X-Baby-Client": "2"}, json={"request_id": str(uuid4()), "message": question, "child_id": child, "ask_v2": False})
+    assert result.status_code == 200, result.text
+    found = {row["id"] for row in calls[0]["context"]}
+    assert assigned in found and general not in found

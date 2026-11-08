@@ -413,11 +413,15 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
     """Citable records, their display excerpts, and the date range they answer, if one was asked."""
     window = None if request.record_id else date_window(request.message, now().astimezone(zone))
     names = set(query_terms(" ".join(child_names)))
-    terms = [term for term in query_terms(without_dates(request.message)) if term not in names]
+    raw_terms = query_terms(without_dates(request.message))
+    terms = [term for term in raw_terms if term not in names]
     # A selected baby does not hide general notes and references that Today also shows.
     # General care logs are only recap context; a specific baby's feed/weight question
     # must not silently substitute logs that were never assigned to that baby.
-    overview = not terms or set(terms) <= {"know", "partner", "family", "information", "info"}
+    recap_words = {"know", "partner", "family", "information", "info"}
+    recap = not terms or set(terms) <= recap_words
+    # Removing a child's name must not turn a care question into an all-logs recap.
+    overview = recap and (not raw_terms or set(raw_terms) <= recap_words)
     query = records_query(owner, generation)
     if request.child_id:
         general = BabyRecord.child_id.is_(None)
@@ -425,12 +429,15 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
             general = and_(general, BabyRecord.kind.not_in(SCOPE_KINDS["care"]))
         query = query.where(or_(BabyRecord.child_id == request.child_id, general))
     if request.child_id and asks_about_her(request.message, child_names):
-        # With a baby selected, a question about herself still reaches her own logs, and nothing else without a baby.
+        # Her own logs and general writing remain available when a baby is selected.
         query = records_query(owner, generation).where(or_(
             BabyRecord.child_id == request.child_id,
-            and_(BabyRecord.child_id.is_(None), BabyRecord.kind == "custom", BabyRecord.data["label"].astext.in_(HER_LOG_LABELS)),
+            and_(BabyRecord.child_id.is_(None), or_(
+                BabyRecord.kind.not_in(SCOPE_KINDS["care"]),
+                and_(BabyRecord.kind == "custom", BabyRecord.data["label"].astext.in_(HER_LOG_LABELS)),
+            )),
         ))
-    if overview:
+    if recap:
         # "Know" or "partner" in a saved source must not crowd out the rest of a recap.
         terms = []
     # What she calls it isn't always what it's stored as, so "my meds" still finds "Vitamins and medicine".

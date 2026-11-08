@@ -172,7 +172,8 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   responses must admit missing evidence. With a baby selected, legacy Ask also
   retrieves visible general notes, saved references and events. Broad recaps
   include unassigned care entries without assigning them to that baby; specific
-  care questions retain baby-only logs and the existing maternal-log exception.
+  care questions retain baby-only logs. Name filtering cannot widen the care-log
+  scope; maternal questions retain permitted general writing as well as maternal logs.
   Scope, consent, deletion and family revocation checks still apply. Partner
   private journals remain excluded. App guidance, family identity summaries,
   expanded calendar occurrences and unsynced-entry disclosure remain follow-up
