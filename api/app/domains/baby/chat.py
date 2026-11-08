@@ -414,13 +414,25 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
     window = None if request.record_id else date_window(request.message, now().astimezone(zone))
     names = set(query_terms(" ".join(child_names)))
     terms = [term for term in query_terms(without_dates(request.message)) if term not in names]
-    query = records_query(owner, generation, child_id=request.child_id)
+    # A selected baby does not hide general notes and references that Today also shows.
+    # General care logs are only recap context; a specific baby's feed/weight question
+    # must not silently substitute logs that were never assigned to that baby.
+    overview = not terms or set(terms) <= {"know", "partner", "family", "information", "info"}
+    query = records_query(owner, generation)
+    if request.child_id:
+        general = BabyRecord.child_id.is_(None)
+        if not overview:
+            general = and_(general, BabyRecord.kind.not_in(SCOPE_KINDS["care"]))
+        query = query.where(or_(BabyRecord.child_id == request.child_id, general))
     if request.child_id and asks_about_her(request.message, child_names):
         # With a baby selected, a question about herself still reaches her own logs, and nothing else without a baby.
         query = records_query(owner, generation).where(or_(
             BabyRecord.child_id == request.child_id,
             and_(BabyRecord.child_id.is_(None), BabyRecord.kind == "custom", BabyRecord.data["label"].astext.in_(HER_LOG_LABELS)),
         ))
+    if overview:
+        # "Know" or "partner" in a saved source must not crowd out the rest of a recap.
+        terms = []
     # What she calls it isn't always what it's stored as, so "my meds" still finds "Vitamins and medicine".
     if re.search(r"\bbp\b", request.message, re.IGNORECASE):  # Too short to be a search term by itself.
         terms = [*terms, "blood pressure"]
@@ -435,7 +447,7 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
         focus = await owned(db, BabyRecord, owner, generation, request.record_id)
         if legacy and focus.kind not in V1_KINDS:
             raise HTTPException(404, "Item unavailable")
-        if request.child_id and focus.child_id != request.child_id:
+        if request.child_id and focus.child_id is not None and focus.child_id != request.child_id:
             raise HTTPException(422, "The selected entry belongs to a different child")
         if request.scope in SCOPE_KINDS and focus.kind not in SCOPE_KINDS[request.scope]:
             raise HTTPException(422, "The selected entry is outside this conversation scope")
