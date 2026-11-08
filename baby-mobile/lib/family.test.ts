@@ -9,7 +9,10 @@ describe("reading a code", () => {
   it("finds it in the whole message they pasted", () => {
     expect(codeFrom(inviteMessage(code))).toBe(code);
     expect(inviteMessage(code)).toContain(`https://shimizu-technology.com/join/${code}`);
-    expect(inviteMessage(code)).toContain(`\n\n${code}`);
+    expect(inviteMessage(code).split(code)).toHaveLength(2);
+    expect(inviteMessage(code).length).toBeLessThan(120);
+    expect(inviteMessage(code).split(String.fromCharCode(10))).toEqual(["Join our family in Håfa Baby:", `https://shimizu-technology.com/join/${code}`]);
+    expect(inviteMessage(code)).not.toContain(String.fromCharCode(92) + "n");
     expect(codeFrom(`  ${code}\n`)).toBe(code);
   });
   it("gives back whatever else, for the API to refuse", () => {

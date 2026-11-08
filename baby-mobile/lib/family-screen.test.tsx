@@ -134,8 +134,12 @@ describe("before there's a family", () => {
     expect(b.api.createInvite).toHaveBeenCalledWith("parent", true, 1);
     expect(text()).toContain(code);
     expect(b.refresh).toHaveBeenCalled();
-    await press("Send the code");
+    await press("Share invitation");
     expect(f.share).toHaveBeenCalledWith({ message: expect.stringContaining(code) });
+    const link = `https://shimizu-technology.com/join/${code}`;
+    expect(f.share).toHaveBeenLastCalledWith({ message: `Join our family in Håfa Baby:\n${link}` });
+    await press("Copy link");
+    expect(f.copy).toHaveBeenCalledWith(link);
   });
   it("keeps the code on screen through the remount a new family causes", async () => {
     const b = setup();
