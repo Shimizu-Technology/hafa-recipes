@@ -405,7 +405,7 @@ async def bootstrap_state(user, db, *, create, request):
         "active": member.status == "active",
         "ai_available": BabyProvider().enabled,
         # Present only while the new Ask is on: the disclosure version the app must show.
-        "ask_consent_version": ASK_CONSENT_VERSION if ask_v2_on() else None,
+        "ask_consent_version": ASK_CONSENT_VERSION if ask_v2_on(user.id) else None,
     }
     if push_enabled():
         # Only with the flag on, so a phone reads nothing else about it and asks nothing of it until then.

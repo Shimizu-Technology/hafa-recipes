@@ -25,6 +25,7 @@ from app.domains.baby.ask_safety import (
     VACCINE_SOURCES,
     answer_checks,
     boundary,
+    cant_answer,
     classify,
     unsafe_output,
 )
@@ -242,7 +243,13 @@ def test_a_diagnosis_or_reassurance_in_an_answer_is_replaced(message):
     ],
 )
 def test_ordinary_answers_and_refusals_stay(message):
-    assert answer_checks("How was this week?", answer(message))[0] == message
+    assert answer_checks("How was this week?", answer(message))[0] == (cant_answer(message) if "I can't" in message else message)
+
+
+@pytest.mark.parametrize("message", ["I cannot verify that.", "I don't have enough information.", "No records match this question.", "Ask can't confirm this."])
+def test_modeled_inability_keeps_its_words_and_adds_help(message):
+    written, kind, _ = answer_checks("What is in my records?", answer(message))
+    assert written == cant_answer(message) and kind == CANT_ANSWER
 
 
 def test_saying_when_she_logged_it_stays_when_it_states_no_amount():
@@ -384,11 +391,14 @@ async def test_the_old_chat_route_gets_the_same_urgent_reply(baby_api, stub, mon
 
 
 @needs_database
-async def test_the_old_route_otherwise_still_asks_its_old_questions(baby_api, stub):  # noqa: F811
+async def test_the_old_route_refuses_a_known_dose_question_even_if_the_model_would_miss_it(baby_api, stub):  # noqa: F811
     stub.settings.baby_ask_v2_enabled = False
     await enable(baby_api, acknowledge=False)
     response = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()), "message": "How much Tylenol can I give?"})
-    assert response.json()["message"] == "Old path answer"
+    assert response.json()["message"] == cant_answer(DOSE_REFUSAL)
+    assert response.json()["help"] == CANT_ANSWER
+    ordinary = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={"request_id": str(uuid4()), "message": "Summarize my notes"})
+    assert ordinary.json()["message"] == "Old path answer"
 
 
 @needs_database
@@ -596,7 +606,7 @@ def test_a_refusal_does_not_excuse_a_diagnosis_next_to_it(message):
     ["I can't say whether she has eczema. Please ask her doctor.", "I can't tell you if this is a rash.", "I can't give a dose. Please ask your doctor or pharmacist."],
 )
 def test_a_refusal_about_the_predicate_itself_stays(message):
-    assert answer_checks("Tell me about rashes", answer(message))[0] == message
+    assert answer_checks("Tell me about rashes", answer(message))[0] == cant_answer(message)
 
 
 # What she logged, rendered from the record. No model sentence is exempted.
@@ -1024,7 +1034,7 @@ async def test_an_invalid_source_ref_means_the_answer_is_not_shown(baby_api, stu
     await enable(baby_api)
     stub.replies = [research_call(), search_reply("CDC says rashes have many causes."), answered("According to the NHS, babies should sleep upright [S99].")]
     body = (await ask(baby_api, "What do trusted sources say about baby sleep?")).json()
-    assert body["message"] == COULD_NOT_CONFIRM_SOURCE and body["sources"] == [] and body["help"] is None and body["citations"] == []
+    assert body["message"] == cant_answer(COULD_NOT_CONFIRM_SOURCE) and body["sources"] == [] and body["help"] == CANT_ANSWER and body["citations"] == []
 
 
 @needs_database
@@ -1050,7 +1060,7 @@ async def test_a_record_claim_with_an_invented_id_is_not_kept(baby_api, stub):  
     response = await ask(baby_api, "When is the scan in my saved note?")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["message"] == COULD_NOT_CONFIRM_RECORD and body["citations"] == [] and body["sources"] == [] and body["help"] is None
+    assert body["message"] == cant_answer(COULD_NOT_CONFIRM_RECORD) and body["citations"] == [] and body["sources"] == [] and body["help"] == CANT_ANSWER
     assert stub.checks and len(stub.checks) == 1  # Nothing of the model's is left for the answer check to read.
 
 
@@ -1062,7 +1072,7 @@ async def test_one_invented_id_among_real_ones_is_still_not_kept(baby_api, stub)
         tool_call("journal", '{"query":null,"from_date":null,"to_date":null}'),
         answered("Your note says one thing and your scan is November 20.", citation_ids=[note, str(uuid4())]),
     ]
-    assert (await ask(baby_api, "What did I write in my journal?")).json()["message"] == COULD_NOT_CONFIRM_RECORD
+    assert (await ask(baby_api, "What did I write in my journal?")).json()["message"] == cant_answer(COULD_NOT_CONFIRM_RECORD)
 
 
 def test_naming_a_source_does_not_excuse_a_verdict_on_the_floor():

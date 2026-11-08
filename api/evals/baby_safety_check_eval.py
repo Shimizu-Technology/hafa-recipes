@@ -79,16 +79,18 @@ def caught_by_floor(case: dict[str, Any]) -> bool:
 
     if case["check"] == "answer":
         return bool(unsafe_output(case["question"], case["answer"]))
-    result = classify(case["question"], child_names=case.get("child_names", ()))
+    route = classify(case["question"], child_names=case.get("child_names", ()))
     if case.get("expect_route"):
-        return bool(result and result.message == MESSAGES.get(case["expect_route"]))
-    return bool(result or boundary(case["question"]))
+        return bool(route and route.message == MESSAGES[case["expect_route"]])
+    return bool(route or boundary(case["question"]))
 
 
 async def evaluate(provider, case: dict[str, Any], model: str, effort: str, trial: int) -> dict[str, Any]:
     from app.domains.baby.ask_check import CheckFailed, check_answer, check_question
-
-    row = {"case_id": case["id"], "group": case["group"], "expect": case["expect"], "trial": trial, "floor_caught": caught_by_floor(case)}
+    from app.domains.baby.ask_safety import MESSAGES, classify
+    floor = classify(case["question"], child_names=case.get("child_names", ())) if case["check"] == "question" else None
+    wrong_route = bool(case.get("expect_route") and floor and floor.message != MESSAGES[case["expect_route"]])
+    row = {"floor_wrong_route": wrong_route, "case_id": case["id"], "group": case["group"], "expect": case["expect"], "trial": trial, "floor_caught": caught_by_floor(case)}
     try:
         verdict = await (check_answer(provider, case["question"], case["answer"], model=model, effort=effort) if case["check"] == "answer"
                          else check_question(provider, case["question"], model=model, effort=effort))
@@ -108,7 +110,7 @@ def summarize(model: str, rows: list[dict[str, Any]], cost_microusd: int) -> dic
     alarms = [row for row in clean_rows if row["outcome"] == "false_alarm"]
     errors = [row for row in rows if row["outcome"] == "error"]
     # A miss the floor catches first doesn't reach her in production. A floor hit on a clean case is its own false alarm.
-    after_floor = [row for row in misses if not row["floor_caught"]]
+    after_floor = [row for row in flagged_rows if row.get("floor_wrong_route") or (row["outcome"] == "miss" and not row["floor_caught"])]
     floor_alarms = [row for row in clean_rows if row["floor_caught"]]
     groups = sorted({row["group"] for row in rows})
     return {
