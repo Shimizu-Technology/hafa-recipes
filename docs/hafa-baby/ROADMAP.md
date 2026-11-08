@@ -498,3 +498,176 @@ The conservative default for a baby with unspecified age and breathing trouble
 is ER. Choking over-triage is retained; no treatment instructions or dose added.
 #639 and #640 remain unmerged; integration and R5 follow the hotfix.
 No production configuration or V2 flag change is authorized here.
+
+### November 7 re-check integration and private API configuration
+
+R1–R4 from the independent medical re-check are integrated from the standalone
+hotfix into this held API branch. Main's two conflicts retained the reviewed
+branch's guards before the newer hotfix was integrated. Poisoning never drops
+an independent maternal or infant warning: the fixed replies preserve both
+people and Poison Control, with baby 911 first and maternal immediate-care/911
+before baby ER/doctor. Model-selected and generated composite labels use the
+same fixed replies. No diagnosis, dose or home treatment was added.
+
+The API normalizes mobile's `private-family` to `private_family`. Unknown or
+empty explicit audience values become `disabled`, so Baby AI fails closed
+without crashing the shared Recipes/Workouts service. Omitted audience remains
+`public`, which still needs the review marker plus both public release records.
+
+For Leon to configure private use on Render after review (not changed by this task):
+
+- `BABY_HEALTH_RELEASE_AUDIENCE=private_family` (underscore preferred; hyphen accepted).
+- `BABY_HEALTH_REVIEWED_VERSION=baby-health-2026-11-07-m1-m8` acknowledges the dated agent review at Leon's direction, never clinician approval.
+- `BABY_HEALTH_PRIVATE_USERS` is a comma-separated list of Leon's and Kami's stable application user IDs, not Clerk subjects. Empty denies everyone.
+- Keep `BABY_ASK_CLINICIAN_APPROVAL` and `BABY_WHO_CHART_PERMISSION` empty for this private use. Public or paid use requires actual clinician review and WHO chart permission; the mobile public build gate also remains closed.
+- Leave `BABY_ASK_V2_ENABLED` unset until the final safety/whole-Ask evidence and independent review are accepted, the family binary is installed, and deployed consent/access/source/budget/revocation checks pass. No production setting or flag was changed here.
+
+R5 extends Help on the mobile branch with choking on an object and passing out
+under 911, and any breathing trouble under one year under ER. Existing urgent
+phone actions remain first. The family build must stay internal to TestFlight;
+it uses agent-reviewed information and must not be submitted as a public app.
+
+### Current R1–R5 validation and remaining acceptance
+
+The standalone #643 hotfix is integrated, including the final distinction
+between maternal self-reports and observations of the baby's symptoms. Both
+people's guidance and poisoning guidance survive; emergency order is covered
+on the old and V2 HTTP paths. The general choking model case is non-urgent;
+the floor retains its conservative emergency response. Latest affected runs
+passed 115 standalone and 131 integrated tests.
+
+The full combined disposable-database gate passed on code/test head
+`83302dc8db0be6c4161f9a1a1925ac6d05d180f3`: API 6,698 passed/47 existing skips,
+Baby 2,857 passed, plus repository TypeScript, Doctor, build/export and native
+bundle checks. The standalone hotfix API passed 6,605 tests/47 existing skips;
+its final unchanged Baby stage was resumed after installing its missing local
+dependencies. No source or prompt was changed for that environment repair.
+
+The paid integrated safety run completed 1,590 checks. Corrected grading and a
+saved-verdict replay of the final code give 2.5% model misses, zero misses after
+the floor, no model false alarms/errors and 1.4% floor false alarms. This replay
+is not another independent run. Seven post-freeze worker-authored holdouts
+passed 21/21 model checks. Whole Ask completed 57/58; the two research failures
+are fixed, but `crosscheck_movement_general` still produces a guard replacement
+that fails the expected general response. Keep V2 off. Recorded successful
+eval usage totals $0.553873; including all unresolved earlier ceilings, the
+upper bound is $1.653873, inside the original $2. No further paid calls.
+
+R5 source/mounted-screen checks passed, but its new native matrix is blocked:
+the isolated iOS 18.5 QA app asserted in native Clerk.configure before health
+UI. The advised relaunch failed again, requiring device automation to stop.
+No new R5 native dimension passed; iOS 26.5 was not run after that stop. Prior
+native passes remain evidence only for their recorded pre-R5 build. The app,
+API/Metro and owned simulator were cleaned; the lock was released. Resume
+native QA only after resolving that startup block, with the specified stock
+devices and a fresh noclobber lock. The protected devices remain untouched.
+
+Final-head review, the native matrix, the remaining whole-Ask case, an internal
+family binary and deployed consent/access/revocation/source/budget checks remain
+before the V2 flag. The historical `whole-ask-v11-final.json` run used
+`baby-ask-v2-5-recheck`; its exact clean source revision was not captured. Do not
+attribute that paid run to the canonical `83302dc8` gate or later floor changes;
+it is historical regression evidence, superseded by the dated V2 v6 run below.
+No PR was merged and no production configuration was
+changed by this worker. The full item ledger, primary-source decisions,
+conservative defaults and evidence are in #640's medical review report.
+
+### November 8 continuation after #643
+
+Latest acceptance (November 8): Leon reports the R5 native matrix passed on
+#640 after Settings layout fix `c26d9e24` and accepts static-content visibility.
+That accepted UI is preserved during the API rebase; the blocked attempts below
+are historical. Leon set private-family release settings on Render without a
+deploy; this worker has not accessed or changed production. V2 stays off until
+its complete whole-Ask eval passes (the latest 57/58 run still fails teething).
+
+The final review strengthens the code-only movement floor for reduced-movement
+reassurance, split clauses, late-pregnancy decline and texting forms; safe
+conditional warnings and negated claims retain their existing protections. Both
+Ask paths replace unsafe drafts before the model safety check, with Help and
+no proposal. The old generation prompt now lists all fixed-reply labels from the
+shared catalog (`baby-chat-reviewed-v7-safety-labels`). Checker/V2 prompts and
+clinical routing text are unchanged. A later review also caught a toddler being
+treated as fetal in pregnancy context and reassurance in a relative clause
+("Kicks decrease, which is normal"). Born-child words/ages now preserve the
+baby emergency tier locally and carry a known born child into subsequent
+he/she clauses, without converting a separate explicit fetal concern.
+Relative-clause reassurance is stopped before the
+model check on both Ask paths. Future or negated birth wording (for example,
+“due to be born soon” or “not yet born”) now establishes pregnancy context
+without marking the baby as born. Explicit newborn/infant/toddler and age
+context stays intact, including mixed fetal and born-child concerns. Thirty
+regression rows cover the distinction on the floor and both HTTP Ask paths.
+A same-child historical delivery expectation does not undo an established
+birth, including a repeated “my baby” reference. Historical plans are not
+new pregnancy evidence once a birth is established; an overdue pregnancy
+without birth evidence and an explicit switch to a separate unborn baby retain
+maternal guidance. A later bot follow-up added unqualified present negation
+(“has not been born”) and another repeated “my baby” after delivery history.
+The classifier now retains the referenced born child through that repetition
+and infers a future pregnancy per patient context, so another child’s birth
+does not hide an overdue pregnancy. Present birth negation ends at its
+predicate boundary, preserving past-birth qualification such as “not born
+prematurely”. The regression table covers both HTTP paths
+and stored replies. AAP child weakness/immobility guidance was rechecked
+November 8 at https://www.healthychildren.org/English/tips-tools/symptom-checker/Pages/symptomviewer.aspx?symptom=Weakness%2Band%2BFatigue.
+Schema/catalog parity and literal composite
+Help-route expectations cover the smaller review findings. The immediate-care
+warning remains based on CDC HEAR HER, rechecked November 8:
+https://www.cdc.gov/hearher/maternal-warning-signs/index.html. No new paid calls.
+
+Leon merged #643; #639 and #640 remain held. The API branch now includes the
+merged main without conflicts, and the mobile branch includes that API branch.
+Do not retarget #640 until #639 is actually merged by its owner.
+
+The generation prompts now distinguish a general late-pregnancy movement question
+from a report of a current decrease. The explicit reduced-movement ban and the
+urgent floor remain. The old prompt explicitly asks for its `safety` field.
+A bare week count or a born baby's kick cannot establish fetal context; when a
+week count makes a motionless baby's context ambiguous, preserve baby 911 and
+maternal immediate-care guidance. Postpartum infant immobility retains baby 911.
+Conversation rename/delete remains available to a current V2 client when release
+access is revoked, subject to the original feature flag, ownership and generation
+checks; this does not grant permission to generate a health answer.
+
+The earlier native attempt was blocked: the old crash's simulator log confirms Clerk
+Keychain OSStatus -34018 (missing entitlement), not an invalid-key diagnosis.
+The new isolated ARM64 build used the same development publishable key as the
+working Settings bundle and explicit expanded signing entitlements, but iOS 18.5
+denied launch (SBMainWorkspace / nested NSPOSIXErrorDomain 153). No new Clerk
+crash was observed. Device automation stopped after the advised relaunch failed;
+the R5 matrix and cold-relaunch acceptance were not passed in that attempt.
+No iOS 26.5 run was attempted then. Leon's later acceptance above supersedes
+that block; do not infer acceptance from the older matrix.
+
+Before enabling V2, require a **complete passing final whole-Ask evaluation**,
+not only an isolated rerun of the formerly failing movement case, plus the full
+required native matrix, final review, reviewed internal family binary and isolated
+deployed consent/access/revocation/source/budget checks. Leave the production
+flag unset. No production configuration was changed by this task.
+
+The final paid V2 run uses `baby-ask-v2-6-movement-context`: movement education
+passed, but the **complete whole-Ask run is 57/58**, with the general teething
+answer replaced by a safety refusal. The cause of that refusal is not established
+from the privacy-bounded report; do not treat it as a passing complete eval.
+The safety check retained 1,590 verdicts: 3.53% model-only misses, zero misses
+after the fixed floor, zero model false alarms/errors, 1.4% floor false alarms.
+A zero-call replay verifies the final floor; all 588 existing eval inputs have
+unchanged floor outcomes. Old generation's explicit safety field is capture-tested
+and has not been separately sampled live. No further paid calls will run: recorded
+spend/reservations are $0.772048; the conservative entire-task upper bound, keeping
+earlier unresolved caps, is $1.912048 of the $2 ceiling. At that snapshot native acceptance and
+final review remained gates regardless of test/CI counts. The detailed dated ledger
+and raw/replayed evidence are in the held content PR's medical report.
+
+Combined canonical `./scripts/check.sh` passed on code/test head
+`55be9ace245807c3bca8d68eb7cc93fbaf5f4d6b` (API source
+`77e52ff383b413440cb43c1ae5d0d3170b623eca`): 6,738 API tests passed, 47 existing
+skips; Baby 2,857/141 files, Recipes 1,610/201, Admin 14/4, Workouts 1,901/122
+plus one existing skip. TypeScript, Doctor 21/21, runtime audits, web checks,
+all-platform exports and native-bundle checks passed. The gate used an owned
+PG16 UTF-8/C.UTF-8 disposable database with the synthetic postgres role and no
+global SSL override. This is automated acceptance, not native UI acceptance.
+That isolated native build never reached a health screen; its requested R5 matrix
+dimensions and cold relaunch were blocked/not run, before Leon's later acceptance.
+No merge, production setting change or flag change was performed by this worker.

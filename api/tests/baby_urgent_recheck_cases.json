@@ -1,5 +1,5 @@
 {
-  "source": "medical-recheck-2026-11-07.md and its three original 150-probe files; rechecked AAP 2026-11-07",
+  "source": "medical-recheck-2026-11-07.md and its three original 150-probe files; rechecked AAP 2026-11-07; worker-authored CodeRabbit follow-up cases rechecked against AAP child weakness/immobility 2026-11-08",
   "cases": [
     {
       "question": "my baby isnt breathing",
@@ -315,18 +315,15 @@
     },
     {
       "question": "baby swallowed a button battery",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "my baby swallowed a button battery and im bleeding heavily",
-      "route": "maternal_poison",
-      "base_route": "urgent_maternal"
+      "route": "maternal_poisoning"
     },
     {
       "question": "i took too many tylenol and baby is choking",
-      "route": "maternal_baby_emergency",
-      "base_route": "baby_emergency"
+      "route": "maternal_baby_emergency_poisoning"
     },
     {
       "question": "she was choking on milk for a second but shes fine now",
@@ -486,23 +483,19 @@
     },
     {
       "question": "baby swallowed bleach",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "baby drank some cleaning stuff",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "my baby got into my pills",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "baby ate a battery",
-      "route": "poison",
-      "base_route": "none"
+      "route": "poisoning"
     },
     {
       "question": "BABY NOT BREATHING",
@@ -615,6 +608,214 @@
     {
       "question": "kai is blue",
       "route": "baby_emergency"
+    },
+    {
+      "question": "I'm 12 weeks postpartum and my baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm 12 weeks after giving birth and my baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "she kicked a bit then stopped and now she isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby is 12 weeks old and isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I am 35 weeks and my baby isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm 35 weeks pregnant and my baby isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I am pregnant and my newborn isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I am bleeding heavily 12 weeks postpartum and my baby isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "My baby is not moving. I am 35 weeks pregnant. My newborn has a fever",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "I'm pregnant and baby is not moving and my newborn has a fever",
+      "route": "maternal_baby_unwell"
+    },
+    {
+      "question": "I'm pregnant. My toddler is not moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "Im pregnant and my toddler isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My 2 year old is not moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant and my toddler is moving less",
+      "route": "baby_er"
+    },
+    {
+      "question": "My baby is not moving. I'm 35 weeks pregnant. My toddler isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant, my toddler is not moving and I'm bleeding heavily",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant and my newborn is on my lap. He isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My toddler is in bed. I'm pregnant. Now she isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby is not moving. I'm pregnant. My toddler is in bed. She isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "My toddler is in bed. I'm pregnant. My unborn baby is not moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. I'm bleeding heavily. She isn't moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My baby is due to be born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby will be born next month. He isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby is expected to be born next week. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby isn't born yet. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby has not been born yet. He isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is not yet born. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is going to be born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. My baby is due to be born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is due to be born soon. She isn't moving. My toddler is not moving",
+      "route": "maternal_baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My newborn was born soon after her due date. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby will\tbe born soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby is due to be\nborn soon. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby was not born prematurely. He isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born yesterday. She was scheduled to be born next week. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born two days ago. He wasn't expected to be born until next month. He isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My newborn was born last week. My unborn baby is due to be born next month. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby was born yesterday. My baby was scheduled to be born next week. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born two days ago. My baby wasn't expected to be born until next month. He isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born yesterday. My baby was scheduled to be born next week. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My baby was born yesterday. My baby was scheduled to be born next week. She isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was due to be born last week. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My newborn was born last week. My unborn baby was due to be born yesterday. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby hasn't been born. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby has not been born and she isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby isn't born. He isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby was born yesterday. My baby was scheduled to be born next week. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. My baby isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby was born yesterday. My baby has not been born prematurely. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born yesterday. My baby was supposed to be born next week. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My toddler was born two years ago. My baby was due to be born last week. She isn't moving",
+      "route": "urgent_maternal"
     }
   ]
 }

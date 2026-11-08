@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.domains.baby import ask_gate, chat, provider
+from app.domains.baby.ask_safety import CANT_ANSWER, DOSE_REFUSAL, cant_answer
 from app.domains.baby.models import BabyConversation, BabyMembership, BabyMessage
 from tests import test_baby_access as foundation
 from tests import test_baby_family_records as records
@@ -330,7 +331,8 @@ async def test_plain_suggestions_still_come_through(baby_api, stub, proposal):  
 
 async def test_a_medical_journal_suggestion_is_dropped_on_the_old_path_too(baby_api, stub):  # noqa: F811
     body = await on_the_old_path(baby_api, stub, {**JOURNAL, "body": "Take two tablets every four hours."})
-    assert body["proposal"] is None and body["message"] == "Old answer"
+    assert body["proposal"] is None and body["message"] == cant_answer(DOSE_REFUSAL)
+    assert body["help"] == CANT_ANSWER
 
 
 def test_the_mark_on_suggested_routines_is_gone():
@@ -376,3 +378,16 @@ async def test_an_ordinary_chat_has_no_focus_date(baby_api, stub):  # noqa: F811
     await enable(baby_api)
     identifier = await asked(baby_api)
     assert (await baby_api.client.get(f"{URL}/{identifier}", headers=HEADERS)).json()["focus_date"] is None
+
+
+async def test_release_revocation_still_allows_rename_and_permanent_delete(baby_api, stub, monkeypatch):  # noqa: F811
+    await enable(baby_api)
+    identifier = await asked(baby_api)
+    monkeypatch.setattr(ask_gate, "health_release_allowed", lambda actor=None: False)
+    assert not ask_gate.ask_v2_on("owner")
+    renamed = await baby_api.client.patch(f"{URL}/{identifier}", headers=HEADERS, json={"title": "Private history"})
+    assert renamed.status_code == 200
+    assert (await baby_api.client.delete(f"{URL}/{identifier}", headers=HEADERS)).status_code == 204
+    async with baby_api.sessions() as db:
+        assert await db.get(BabyConversation, identifier) is None
+    assert await message_count(baby_api) == 0
