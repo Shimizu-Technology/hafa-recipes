@@ -784,6 +784,38 @@
     {
       "question": "I'm pregnant. My newborn was born last week. My unborn baby was due to be born yesterday. She isn't moving",
       "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby hasn't been born. She isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby has not been born and she isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "My baby isn't born. He isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby was born yesterday. My baby was scheduled to be born next week. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "I'm pregnant. My toddler is in bed. My baby isn't moving",
+      "route": "urgent_maternal"
+    },
+    {
+      "question": "I'm pregnant. My baby was born yesterday. My baby has not been born prematurely. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My baby was born yesterday. My baby was supposed to be born next week. My baby isn't moving",
+      "route": "baby_emergency"
+    },
+    {
+      "question": "My toddler was born two years ago. My baby was due to be born last week. She isn't moving",
+      "route": "urgent_maternal"
     }
   ]
 }
