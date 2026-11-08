@@ -169,7 +169,16 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
 - `POST /chat`: `{conversation_id?,message,scope?:all|library|journal|care,
   record_id?,child_id?}` -> `{conversation_id,message,citations:[{id,title,excerpt}],
   proposal?:{kind,title,body,data}}`. Explicit consent; source-filtered retrieval;
-  responses must admit missing evidence. `GET /conversations` and
+  responses must admit missing evidence. With a baby selected, legacy Ask also
+  retrieves visible general notes, saved references and events. Broad recaps
+  include unassigned care entries without assigning them to that baby; specific
+  care questions retain baby-only logs. Name filtering cannot widen the care-log
+  scope; maternal questions retain permitted general writing as well as maternal logs.
+  Scope, consent, deletion and family revocation checks still apply. Partner
+  private journals remain excluded. App guidance, family identity summaries,
+  expanded calendar occurrences and unsynced-entry disclosure remain follow-up
+  work; this retrieval correction does not enable Ask V2.
+  `GET /conversations` and
   `GET /conversations/{id}` restore private history. A proposal is only applied
   through ordinary reviewed record creation, never a hidden AI write.
 - `GET /export`: portable owner data including sources/journal/care/routines.

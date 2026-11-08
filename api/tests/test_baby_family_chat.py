@@ -20,8 +20,9 @@ from tests import test_baby_integration as shared
 baby_api, family, pytestmark = foundation.baby_api, foundation.family, foundation.pytestmark
 
 
+@pytest.mark.parametrize("selected_child", [False, True])
 @pytest.mark.parametrize("race", ["none", "move", "remove"])
-async def test_every_model_record_rechecked_even_without_citation(baby_api, family, monkeypatch, race):
+async def test_every_model_record_rechecked_even_without_citation(baby_api, family, monkeypatch, race, selected_child):
     c = baby_api.client
     async with baby_api.sessions() as db:
         personal = (await db.get(BabyMembership, "owner")).personal_space_id
@@ -61,6 +62,10 @@ async def test_every_model_record_rechecked_even_without_citation(baby_api, fami
 
     monkeypatch.setattr("app.domains.baby.chat.BabyProvider", Provider)
     body = {"request_id": str(uuid4()), "message": "Summarize everything", "scope": "all"}
+    if selected_child:
+        child = {"id": str(uuid4()), "name": "Selected baby"}
+        assert (await c.post("/api/v1/baby/children", headers=h, json=child)).status_code == 200
+        body["child_id"] = child["id"]
     result = await c.post("/api/v1/baby/chat", headers=h, json=body)
     assert result.status_code == 200, result.text
     assert result.json()["message"] == "Current safe answer"
