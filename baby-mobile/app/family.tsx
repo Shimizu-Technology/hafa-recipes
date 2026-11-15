@@ -101,7 +101,7 @@ function ShownCode({ invite, onDone }: { invite: FamilyInvite; onDone: () => voi
 }
 function Invite({ onBack }: { onBack: () => void }) {
   const b = useBaby(), bootstrap = b.state.bootstrap!, [rows, setRows] = useState<BabyRecord[] | null>(null), [unread, setUnread] = useState(false), [justMe, setJustMe] = useState<string[]>([]),
-    [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null), [role, setRole] = useState<Role>("parent");
+    [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null), [role, setRole] = useState<Role>("caregiver");
   const { readiness, setReadiness, failed, checking, check, confirmPhones } = usePhones(setError);
   /** What becomes shared is what she's agreeing to, so a list that didn't load stops her, rather than reading as nothing. */
   function readRows() {
@@ -132,6 +132,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     going = (rows ?? []).filter((row) => !justMe.includes(row.id));
   return <>
     {!!error && <Notice error>{error}</Notice>}
+    <Copy kind="label">Choose their access</Copy>
     <RoleChoice role={role} onChange={setRole} disabled={busy} />
     {unread ? <Card>
       <Notice error>We couldn’t read what would be shared, so nothing has changed.</Notice>
@@ -219,7 +220,7 @@ function YourName() {
 }
 function InFamily() {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], fence = rowFence({ space_id: family.id, generation: family.generation }, bootstrap.generation),
-    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false), [role, setRole] = useState<Role>("parent"),
+    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false), [role, setRole] = useState<Role>("caregiver"),
     parent = family.role === "parent", alive = useRef(true), newest = useRef(0), reading = useRef(false);
   async function load(quiet = false) {
     if (!parent) return setMembers([]);

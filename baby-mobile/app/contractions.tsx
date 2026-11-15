@@ -52,15 +52,16 @@ export default function Contractions() {
   const toggle = () => running ? stop(running) : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
   const elapsed = running ? secondsWords((now.getTime() - new Date(running.occurred_at).getTime()) / 1000) : "";
   return <Screen title="Contractions" back>
-    <Button title="Open Help" onPress={() => router.push("/help")} />
-    {!!guidance && <Notice>{guidance}</Notice>}
-    <SyncStatus />
-    <DoctorNote childId={childId} />
     <PressTarget accessibilityRole="button" accessibilityLabel={running ? `Stop. Timing, started ${friendlyTime(running.occurred_at, minute, timeZone)}` : "Start"} accessibilityHint="Saves straight away" onPress={() => void toggle()}
       style={{ minHeight: 148, borderRadius: radii.card, alignItems: "center", justifyContent: "center", gap: 4, padding: 16, backgroundColor: c.action }}>
       <Text key={fontScale} maxFontSizeMultiplier={1.5} style={{ fontFamily: fonts.display, fontSize: 40, lineHeight: 48, color: c.onAction }}>{running ? "Stop" : "Start"}</Text>
       {!!running && <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 22, lineHeight: 28, color: c.onAction, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>}
     </PressTarget>
+    <Button title="Open Help" onPress={() => router.push("/help")} />
+    {!!guidance && <Notice>{guidance}</Notice>}
+    <SyncStatus />
+    <DoctorNote childId={childId} />
+
     {others.map((row) => <Card key={row.id} tone="soft">
       <Copy kind="label">Another one is still timing</Copy>
       <Copy numeric kind="small" tone="muted">{`Started ${friendlyTime(row.occurred_at, minute, timeZone)} · ${secondsWords((now.getTime() - new Date(row.occurred_at).getTime()) / 1000)}`}</Copy>

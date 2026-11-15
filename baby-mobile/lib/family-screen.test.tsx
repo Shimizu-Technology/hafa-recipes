@@ -131,7 +131,7 @@ describe("before there's a family", () => {
     await open();
     await press("Invite someone");
     await press("Share and get a code");
-    expect(b.api.createInvite).toHaveBeenCalledWith("parent", true, 1);
+    expect(b.api.createInvite).toHaveBeenCalledWith("caregiver", true, 1);
     expect(text()).toContain(code);
     expect(b.refresh).toHaveBeenCalled();
     await press("Share invitation");

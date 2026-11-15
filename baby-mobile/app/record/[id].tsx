@@ -1,3 +1,4 @@
+import { FeedEnded } from "../../components/feed-ended";
 import { sourceTitle } from "@/lib/source-title";
 import { writtenTitle } from "../../lib/journal-title";
 import { useEffect, useState } from "react";
@@ -129,6 +130,7 @@ export default function RecordDetail() {
           <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
           {feedProgress(record, b.records) === "running" && <Copy tone="muted">Feeding now</Copy>}
           {feedProgress(record, b.records) === "no_end" && <Copy tone="muted">No end time</Copy>}
+          {["running", "no_end"].includes(feedProgress(record, b.records) ?? "") && <FeedEnded record={record} timeZone={clock} />}
         </Card>
       )}
       {record.kind === "sleep" && (

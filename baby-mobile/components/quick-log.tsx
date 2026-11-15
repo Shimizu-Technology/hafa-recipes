@@ -1,3 +1,4 @@
+import { FeedEnded } from "./feed-ended";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { AccessibilityInfo, Animated, Text, TextInput, View, useWindowDimensions } from "react-native";
@@ -95,8 +96,9 @@ function RunningCard({ feed, timeZone, onSwitch, onDone }: { feed: RunningFeed; 
     </View>
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       <Option label={`Switch to ${word[other(side)]}`} height={64} onPress={onSwitch} />
-      <Option label="Done" strong height={64} hint="Records how long this feed took" onPress={onDone} />
+      {now.getTime() - new Date(feed.started_at).getTime() < 60 * 60_000 && <Option label="Done" strong height={64} hint="Records how long this feed took" onPress={onDone} />}
     </View>
+    {now.getTime() - new Date(feed.started_at).getTime() >= 60 * 60_000 && <FeedEnded record={feed.record} timeZone={timeZone} />}
   </View>;
 }
 

@@ -102,7 +102,7 @@ export function retimedActions(actions: readonly FeedAction[], at: string) {
   return ordered.map((action) => (action === named ? { ...action, at } : action));
 }
 
-/** A running feed nobody finished stops showing as running. It stays saved with a side and start time, and no duration. */
+/** After an hour, offer help recording a forgotten end without silently ending the feed. */
 export const runningLimit = 60 * 60_000;
 
 /** Mirror of `FEED_START_TOLERANCE`: a phone's clock can run a little ahead. Further ahead is a plan or a typo. */
@@ -122,7 +122,7 @@ export function runningFeed(rows: readonly BabyRecord[], childId: string | null,
   if (!newest) return undefined;
   const reduced = reduceFeed(newest.data.actions);
   if (reduced?.state !== "running" || !reduced.segments.length || !reduced.started_at) return undefined;
-  return now.getTime() * 1000 - instant(reduced.started_at) < runningLimit * 1000 ? { ...reduced, record: newest, started_at: reduced.started_at } : undefined;
+  return { ...reduced, record: newest, started_at: reduced.started_at };
 }
 
 /** What one timed feed is now, for any screen naming it: everything but the one running feed has an end or has none. */
@@ -131,4 +131,16 @@ export function feedProgress(record: BabyRecord, rows: readonly BabyRecord[], no
   if (!reduced) return undefined;
   if (reduced.state === "finished") return "finished";
   return runningFeed(rows, record.child_id, now)?.record.id === record.id ? "running" : "no_end";
+}
+
+/** Suggest twenty minutes, bounded by now and the latest side tap so no segment is lost. */
+export function suggestedFeedEnd(record: BabyRecord, now = new Date()) {
+  const times = (record.data.actions ?? []).map((action) => new Date(action.at).getTime()).filter(Number.isFinite);
+  const start = new Date(record.occurred_at).getTime();
+  return new Date(Math.min(now.getTime(), Math.max(start + 20 * 60_000, ...times))).toISOString();
+}
+export function validFeedEnd(record: BabyRecord, at: string, now = new Date()) {
+  const end = new Date(at).getTime();
+  return Number.isFinite(end) && end <= now.getTime() && end >= new Date(record.occurred_at).getTime()
+    && (record.data.actions ?? []).every((action) => instant(at) >= instant(action.at));
 }

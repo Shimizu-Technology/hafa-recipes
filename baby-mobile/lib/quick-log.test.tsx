@@ -200,17 +200,28 @@ it("keeps two taps in one frame from saving twice", async () => {
   expect(saves()).toHaveLength(1);
 });
 
-it("stops showing a feed as running after an hour, saved with no duration", async () => {
+it("keeps a forgotten feed visible and asks before saving its end", async () => {
   const b = setup();
   await mount();
   await press("Breastfeed");
   await press("Left");
   expect(runningFeed(pendingRecords(b.state), "baby", new Date(start.getTime() + runningLimit - 1))).toBeDefined();
-  expect(runningFeed(pendingRecords(b.state), "baby", new Date(start.getTime() + runningLimit))).toBeUndefined();
+  expect(runningFeed(pendingRecords(b.state), "baby", new Date(start.getTime() + runningLimit))).toBeDefined();
   vi.setSystemTime(start.getTime() + runningLimit);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   await refresh();
   expect(target("Done")).toBeUndefined();
+  expect(renderer!.root.findAll((node) => node.type === "Button" && node.props.title === "It ended at…")).toHaveLength(1);
   expect(pendingRecords(b.state)[0].data.duration_minutes).toBeUndefined();
+  const button = (title: string) => renderer!.root.findAll((node) => node.type === "Button" && node.props.title === title)[0];
+  await act(async () => button("It ended at…").props.onPress());
+  expect(b.state.outbox.filter((m) => m.type === "feed_action")).toHaveLength(0);
+  const picker = renderer!.root.findAll((node) => node.type === "DateField")[0];
+  expect(picker.props.value).toBe(new Date(start.getTime() + 20 * 60_000).toISOString());
+  await act(async () => button("Save end time").props.onPress());
+  expect(b.state.outbox.filter((m) => m.type === "feed_action")).toMatchObject([
+    { action: { action: "finish", at: new Date(start.getTime() + 20 * 60_000).toISOString() } },
+  ]);
 });
 
 it("shows a feed the other phone started, and finishes it from here", async () => {

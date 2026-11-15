@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { feedProgress, instant, newestFirst, orderActions, reduceFeed, retimedActions, roundMinutes, runningFeed, runningLimit, withFeedAction, withRecordAction } from "./feed-reducer";
+import { suggestedFeedEnd, validFeedEnd, feedProgress, instant, newestFirst, orderActions, reduceFeed, retimedActions, roundMinutes, runningFeed, runningLimit, withFeedAction, withRecordAction } from "./feed-reducer";
 import { optimisticRecord, type BabyRecord, type FeedAction } from "./models";
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 10, 4, 12, minutes)).toISOString();
@@ -118,11 +118,11 @@ describe("the running feed for a baby", () => {
     expect(runningFeed([old, feed("newer", [start(5)])], "baby", now)?.record.id).toBe("newer");
     expect(runningFeed([old], "baby", now)?.record.id).toBe("older");
   });
-  it("keeps to its own baby, and ignores one past the limit", () => {
+  it("keeps to its own baby, and keeps forgotten feeds available", () => {
     expect(runningFeed([feed("sibling", [start(5)], "other")], "baby", now)).toBeUndefined();
     const edge = new Date(new Date(at(0)).getTime() + runningLimit);
     expect(runningFeed([feed("x", [start(0)])], "baby", new Date(edge.getTime() - 1))).toBeDefined();
-    expect(runningFeed([feed("x", [start(0)])], "baby", edge)).toBeUndefined();
+    expect(runningFeed([feed("x", [start(0)])], "baby", edge)).toBeDefined();
   });
   it("leaves records from before actions alone", () => {
     expect(runningFeed([optimisticRecord({ id: "plain", kind: "feeding", title: "", body: "", child_id: "baby", occurred_at: at(9), data: { method: "breast", side: "left" } })], "baby", now)).toBeUndefined();
@@ -181,10 +181,20 @@ describe("one settlement for every screen", () => {
     expect(feedProgress(newer, [old, newer], moment)).toBe("running");
     expect(feedProgress(old, [old, plain("both", 5, "breast", "both")], moment)).toBe("no_end");
   });
-  it("calls one past the limit no end, one finished finished, and plain entries nothing", () => {
+  it("keeps one past the limit running, one finished finished, and plain entries nothing", () => {
     const old = feed("older", [start(0)]);
-    expect(feedProgress(old, [old], new Date(new Date(at(0)).getTime() + runningLimit))).toBe("no_end");
+    expect(feedProgress(old, [old], new Date(new Date(at(0)).getTime() + runningLimit))).toBe("running");
     expect(feedProgress(feed("x", [start(0), finish(3)]), [], moment)).toBe("finished");
     expect(feedProgress(plain("both", 5, "breast", "both"), [], moment)).toBeUndefined();
   });
+});
+
+it("suggests an end without losing switches and validates corrections", () => {
+  const record = optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null,
+    occurred_at: at(0), data: { method: "breast", actions: [start(0), swap(25, "right")] } });
+  expect(suggestedFeedEnd(record, new Date(at(60)))).toBe(at(25));
+  expect(suggestedFeedEnd({ ...record, data: { actions: [start(0)] } }, new Date(at(5)))).toBe(at(5));
+  expect(validFeedEnd(record, at(20), new Date(at(60)))).toBe(false);
+  expect(validFeedEnd(record, at(61), new Date(at(60)))).toBe(false);
+  expect(validFeedEnd(record, at(30), new Date(at(60)))).toBe(true);
 });
