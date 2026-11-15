@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.domains.workouts.models import WorkoutsSession
 from app.domains.workouts.part_result_models import PartResultRow
@@ -128,6 +128,10 @@ async def test_optional_rollout_rebuild_results_and_erasure(data_api, monkeypatc
     async with api.sessions.begin() as db:
         with pytest.raises(RuntimeError, match="conflict"):
             await rebuild(db, apply=True)
+    async with api.engine.begin() as db:
+        await db.execute(text("ALTER TABLE workouts_part_results ALTER COLUMN sort_value TYPE numeric"))
+    with pytest.raises(RuntimeError, match="incomplete"):
+        await verify_part_results_schema(api.engine, settings())
     erased = await api.client.delete("/api/v1/workouts/data", headers=GENERATION)
     assert erased.status_code == 200, erased.text
     async with api.sessions() as db:

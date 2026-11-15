@@ -56,8 +56,14 @@ async def results_ready(db):
 
 
 async def schema_complete(db):
-    columns = set((await db.execute(text("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='workouts_part_results'"))).scalars())
-    if not set(R.__table__.columns.keys()) <= columns:
+    columns = {name: (kind, nullable) for name, kind, nullable in (await db.execute(text("SELECT column_name,udt_name,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='workouts_part_results'"))).all()}
+    types = {**dict.fromkeys(("id", "session_id", "source_workout_id"), "uuid"),
+             **dict.fromkeys(("app_user_id", "block_id", "block_label", "comparison_key", "benchmark_key", "kind", "scaling", "better"), "varchar"),
+             "generation": "int4", "sort_value": "float8", "performed_at": "timestamptz", "created_at": "timestamptz", "superseded": "bool"}
+    if any(columns.get(c.name) != (types[c.name], "YES" if c.nullable else "NO") for c in R.__table__.columns):
+        return False
+    foreign_keys = set((await db.execute(text("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.workouts_part_results'::regclass AND contype='f' AND convalidated"))).scalars())
+    if not {"FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE CASCADE", "FOREIGN KEY (session_id) REFERENCES workouts_sessions(id) ON DELETE CASCADE"} <= foreign_keys:
         return False
     constraints = await db.scalar(text("SELECT count(*) FROM pg_constraint WHERE conrelid='public.workouts_part_results'::regclass AND convalidated AND ((contype='f' AND confdeltype='c') OR conname IN ('uq_workouts_part_result','ck_workouts_part_result'))"))
     indexes = set((await db.execute(text("SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename IN ('workouts_part_results','workouts_sessions')"))).scalars())
