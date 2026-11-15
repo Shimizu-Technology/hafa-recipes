@@ -597,7 +597,7 @@ async def reconcile_snapshot(db, user_id, generation, provider, request):
     return {"deleted": removed, "outside_window_preserved": True}
 
 
-async def actual_for_export(db, user_id, generation, session_id):
+async def actual_for_export(db, user_id, generation, session_id, *, supports_class_activity_types=False):
     row = await db.scalar(
         select(WorkoutsSession).where(
             WorkoutsSession.id == session_id,
@@ -678,7 +678,7 @@ async def actual_for_export(db, user_id, generation, session_id):
             "Recorded pause intervals are unavailable; elapsed time cannot replace active duration.",
         )
     activity = {"strength_training": "strength", "general_fitness": "other"}.get(
-        content.get("activity_type"), content.get("activity_type", "other")
+        content.get("activity_type"), content.get("activity_type") or "other"
     )
     if activity not in {
         "running",
@@ -691,6 +691,8 @@ async def actual_for_export(db, user_id, generation, session_id):
         "other",
     }:
         raise HTTPException(422, "The saved activity type needs review before export")
+    if activity in {"cross_training", "hiit", "functional_strength"} and not supports_class_activity_types:
+        activity = "other"
     return (
         row,
         {

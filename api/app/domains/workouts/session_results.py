@@ -1,11 +1,14 @@
 """Optional class scores and splits; heart-rate upload requires an explicit storage grant."""
 
+import re
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import HTTPException
 from pydantic import AwareDatetime, Field, StrictBool, model_validator
 from sqlalchemy import select, text
 
+from app.domains.workouts.heart_rate_erasure import heart_rate_erasure_ready
 from app.domains.workouts.models import WorkoutsGrant
 from app.domains.workouts.schemas import DomainModel
 
@@ -90,6 +93,17 @@ class Segment(DomainModel):
         return self
 
 
+CLOCK_SKEW = timedelta(seconds=5)
+
+
+def inside_interval(item, start, end):
+    if item.started_at < start - CLOCK_SKEW or item.ended_at > end + CLOCK_SKEW:
+        return False
+    item.started_at = min(end, max(start, item.started_at))
+    item.ended_at = min(end, max(start, item.ended_at))
+    return True
+
+
 def validate_intervals(request):
     """Validate without a database so malformed intervals never reach a write."""
     ids = [result.block_id for result in request.results]
@@ -98,9 +112,7 @@ def validate_intervals(request):
     previous = {}
     identities = set()
     for item in [*request.results, *request.segments]:
-        if item.started_at is not None and (
-            item.started_at < request.started_at or item.ended_at > request.finished_at
-        ):
+        if item.started_at is not None and not inside_interval(item, request.started_at, request.finished_at):
             raise ValueError("Part and segment intervals must lie inside the session")
     for segment in request.segments:
         key = (segment.block_id, segment.kind, segment.index)
@@ -120,7 +132,10 @@ def validate_snapshot(request, snapshot):
         mode = (block.get("execution") or {}).get("mode")
         allowed = {"amrap": {"rounds_reps"}, "for_time": {"time"},
                    "emom": {"reps", "completed"}, "work_rest": {"reps", "completed"}}
-        if block.get("score_kind") == "none" or result.kind not in allowed.get(mode, {"load", "reps", "completed"}):
+        score_kind = block.get("score_kind")
+        kinds = ({score_kind} if score_kind not in {None, "auto"} else
+                 allowed.get(mode, {"load", "reps", "completed"}) | {"distance", "calories"})
+        if score_kind == "none" or result.kind not in kinds:
             raise HTTPException(422, "Result kind does not fit the saved part")
         buy_ins = [ex for ex in block.get("exercises", []) if ex.get("segment") == "buy_in"]
         if (result.buy_in_done is not None or result.buy_in_seconds is not None) and not buy_ins:
@@ -131,9 +146,16 @@ def validate_snapshot(request, snapshot):
     for segment in request.segments:
         if segment.block_id not in blocks:
             raise HTTPException(422, "A segment does not reference the saved prescription")
+        block = blocks[segment.block_id]
+        buy_in_runs = [ex for ex in block.get("exercises", [])
+                      if ex.get("segment") == "buy_in" and ex.get("distance_meters")
+                      and re.search(r"\b(run|running|jog|jogging|treadmill)\b", ex.get("name", ""), re.I)]
+        if segment.kind == "buy_in" and buy_in_runs and segment.run_environment is None:
+            raise HTTPException(422, "Run buy-ins require Outdoor or Treadmill")
         result = next((r for r in request.results if r.block_id == segment.block_id), None)
-        if result and result.started_at is not None and (
-            segment.started_at < result.started_at or segment.ended_at > result.ended_at
+        # Inter-part rests belong to the preceding part and can extend beyond its score interval.
+        if result and result.started_at is not None and segment.kind != "rest" and not inside_interval(
+            segment, result.started_at, result.ended_at
         ):
             raise HTTPException(422, "A segment must lie inside its part interval")
 
@@ -158,7 +180,7 @@ HEALTH_SUMMARY_SCOPE = "health_workout_summary_store"
 
 
 async def health_summary_ready(db):
-    return bool(await db.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.workouts_grants'::regclass AND conname='ck_workouts_grant_scope' AND convalidated AND position('health_workout_summary_store' in pg_get_constraintdef(oid))>0)")))
+    return bool(await heart_rate_erasure_ready(db) and await db.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.workouts_grants'::regclass AND conname='ck_workouts_grant_scope' AND convalidated AND position('health_workout_summary_store' in pg_get_constraintdef(oid))>0)")))
 
 
 async def health_summary_enabled(db, owner, generation):

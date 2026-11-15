@@ -952,7 +952,7 @@ class SessionRequest(DomainModel):
     results: list[PartResult] = Field(default_factory=list, max_length=100, exclude_if=lambda v: not v)
     segments: list[Segment] = Field(default_factory=list, max_length=500, exclude_if=lambda v: not v)
     recorded_on: Literal["phone", "watch"] | None = Field(default=None, exclude_if=lambda v: v is None)
-    health_workout_uuid: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    apple_workout_uuid: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     client_session_id: UUID
     workout_id: UUID | None = None
     workout_revision: int | None = Field(default=None, strict=True, ge=1)
@@ -1148,11 +1148,8 @@ async def record_session(
         raise HTTPException(409, "The selected prescription version does not exist")
     await require_summary_permission(db, user.id, generation, request)
     validate_snapshot(request, snapshot)
-    is_class = snapshot.get("programming") is not None or any(
-        block.get("role") is not None or block.get("rest_after_seconds") is not None
-        or any(ex.get("segment") for ex in block.get("exercises", [])) for block in snapshot["blocks"])
-    if request.activity_type is None and is_class:
-        content["activity_type"] = "cross_training"
+    if request.segments:
+        content["segments"] = [segment.model_dump(mode="json") for segment in request.segments]
     blocks = {block["id"]: block for block in snapshot["blocks"]}
     for actual in request.actuals:
         block = blocks.get(actual.block_id)
@@ -1300,6 +1297,35 @@ async def replace_grants(request: GrantRequest, user: User, db: Database, genera
         db.add(WorkoutsGrant(app_user_id=user.id, generation=generation, scope=scope))
     await db.commit()
     return await grants_for(db, user.id, generation)
+
+
+@router.delete("/health-summary-consent")
+async def delete_summary_choice(user: User, db: Database, generation: Generation):
+    """Turn off and delete saved heart-rate summaries, including corrections."""
+    await membership_for(db, user.id, generation=generation, write=True)
+    await db.execute(delete(WorkoutsGrant).where(
+        WorkoutsGrant.app_user_id == user.id, WorkoutsGrant.generation == generation,
+        WorkoutsGrant.scope == HEALTH_SUMMARY_SCOPE))
+    from app.domains.workouts.heart_rate_erasure import heart_rate_erasure_ready
+
+    removed_count = 0
+    if await heart_rate_erasure_ready(db):
+        removed = await db.execute(text("""
+            UPDATE workouts_sessions SET content = public.workouts_without_heart_rate(content)
+            WHERE app_user_id=:owner AND generation=:generation
+                AND content IS DISTINCT FROM public.workouts_without_heart_rate(content)
+        """), {"owner": user.id, "generation": generation})
+        removed_count = removed.rowcount
+    elif await db.scalar(text("""SELECT EXISTS(SELECT 1 FROM workouts_sessions
+        WHERE app_user_id=:owner AND generation=:generation AND (content ? 'heart_rate'
+        OR jsonb_path_exists(content, '$.segments[*].avg_hr') OR jsonb_path_exists(content, '$.segments[*].max_hr')))"""),
+        {"owner": user.id, "generation": generation}):
+        raise HTTPException(503, "Heart-rate summary deletion is being set up")
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user.id, generation)
+    await db.commit()
+    return {"enabled": False, "deleted_sessions": removed_count}
 
 
 @router.get("/health-summary-consent")

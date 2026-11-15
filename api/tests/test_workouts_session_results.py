@@ -27,7 +27,7 @@ BASE = dict(client_session_id="11111111-1111-4111-8111-111111111111",
 def test_old_request_hash_is_unchanged():
     content = SessionRequest(**BASE).model_dump(mode="json")
     assert hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest() == "5b5b64d89cd607c476ad654ce29c7d44583f826f3192122a1d6dee5fb03a9ecf"
-    assert not {"results", "segments", "recorded_on", "health_workout_uuid"} & content.keys()
+    assert not {"results", "segments", "recorded_on", "apple_workout_uuid"} & content.keys()
     assert "session_results_v1" in EnrollmentResponse.model_fields["features"].default_factory()
 
 
@@ -85,8 +85,8 @@ def test_result_kind_against_snapshot(mode, kind, ok):
 
 @pytest.mark.parametrize("changes", [
     {"results": [{"block_id": "a", "kind": "completed"}] * 2},
-    {"results": [{"block_id": "a", "kind": "completed", "started_at": "2026-11-16T23:59:59Z", "ended_at": BASE["finished_at"]}]},
-    {"segments": [{"block_id": "a", "kind": "round", "index": 1, "started_at": BASE["started_at"], "ended_at": "2026-11-17T01:00:01Z"}]},
+    {"results": [{"block_id": "a", "kind": "completed", "started_at": "2026-11-16T23:59:54Z", "ended_at": BASE["finished_at"]}]},
+    {"segments": [{"block_id": "a", "kind": "round", "index": 1, "started_at": BASE["started_at"], "ended_at": "2026-11-17T01:00:06Z"}]},
     {"segments": [{"block_id": "a", "kind": "round", "index": 1, "started_at": BASE["started_at"], "ended_at": BASE["finished_at"]}] * 2},
     {"heart_rate": {"avg": 180, "max": 160, "source": "apple_watch"}},
     {"segments": [{"block_id": "a", "kind": "round", "index": 1, "started_at": BASE["started_at"], "ended_at": BASE["finished_at"], "avg_hr": 251}]},
@@ -101,7 +101,7 @@ async def test_scores_retry_correction_and_legacy_client(data_api):  # noqa: F81
     api = data_api
     saved = await workout(api)
     original = session_payload(saved, results=[{"block_id": "strength", "kind": "load", "load": 80, "load_unit": "kg", "scaling": "rx"}], active_seconds=600,
-                               recorded_on="watch", health_workout_uuid=str(uuid4()), activity_type="cross_training")
+                               recorded_on="watch", apple_workout_uuid=str(uuid4()), activity_type="cross_training")
     created = await api.client.post("/api/v1/workouts/sessions", json=original, headers=GENERATION)
     assert created.status_code == 201, created.text
     replay = await api.client.post("/api/v1/workouts/sessions", json=original, headers=GENERATION)
@@ -124,7 +124,7 @@ async def test_scores_retry_correction_and_legacy_client(data_api):  # noqa: F81
         await append_workout_version(db, row, {**row.content, "programming": {"source_kind": "gym"}})
         saved["revision"] = row.revision
     default = await api.client.post("/api/v1/workouts/sessions", json=session_payload(saved), headers=GENERATION)
-    assert default.status_code == 201 and default.json()["content"]["activity_type"] == "cross_training"
+    assert default.status_code == 201 and default.json()["content"]["activity_type"] is None
 
 
 
@@ -156,6 +156,8 @@ async def test_hr_opt_in_and_revocation(data_api):  # noqa: F811
     assert (await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)).status_code == 403
     # Simulate only migration063's grant capability in the disposable test DB.
     async with api.sessions.begin() as db:
+        from app.domains.workouts.heart_rate_erasure import install_heart_rate_erasure
+        await install_heart_rate_erasure(db)
         await db.execute(text("ALTER TABLE workouts_grants DROP CONSTRAINT ck_workouts_grant_scope"))
         await db.execute(text("ALTER TABLE workouts_grants ADD CONSTRAINT ck_workouts_grant_scope CHECK (scope IN ('health_workout_summary_store'))"))
     assert "health_workout_summary_v1" in (await api.client.get("/api/v1/workouts/enrollment")).json()["features"]
@@ -170,3 +172,125 @@ async def test_hr_opt_in_and_revocation(data_api):  # noqa: F811
     payload["segments"] = [{"block_id": "strength", "kind": "part", "index": 1,
                             "started_at": payload["started_at"], "ended_at": payload["finished_at"], "avg_hr": 120}]
     assert (await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)).status_code == 403
+
+
+@pytest.mark.parametrize("mode", [None, "amrap", "for_time", "emom", "work_rest"])
+@pytest.mark.parametrize("kind,values", [
+    ("rounds_reps", {"rounds": 1, "reps": 2}), ("time", {"time_seconds": 42}),
+    ("load", {"load": 80, "load_unit": "kg"}), ("reps", {"reps": 20}),
+    ("distance", {"distance_meters": 400}), ("calories", {"calories": 20}),
+])
+def test_explicit_score_kind_overrides_format_and_auto_supports_distance_calories(mode, kind, values):
+    request = SessionRequest(**BASE, results=[{"block_id": "a", "kind": kind, **values}])
+    block = {"id": "a", "execution": {"mode": mode}, "score_kind": kind if kind not in {"distance", "calories"} else "auto"}
+    validate_snapshot(request, {"blocks": [block]})
+    block["score_kind"] = "reps" if kind != "reps" else "load"
+    with pytest.raises(HTTPException):
+        validate_snapshot(request, {"blocks": [block]})
+
+
+def test_clock_skew_is_clamped_and_inter_part_rest_belongs_to_preceding_part():
+    request = SessionRequest(**BASE,
+        results=[{"block_id": "a", "kind": "reps", "reps": 1, "started_at": "2026-11-16T23:59:57Z", "ended_at": "2026-11-17T00:15:00Z"}],
+        segments=[{"block_id": "a", "kind": "part", "index": 1, "started_at": "2026-11-16T23:59:56Z", "ended_at": "2026-11-17T00:15:04Z"},
+                  {"block_id": "a", "kind": "rest", "index": 1, "started_at": "2026-11-17T00:15:00Z", "ended_at": "2026-11-17T00:18:00Z"}])
+    validate_snapshot(request, {"blocks": [{"id": "a"}]})
+    assert request.results[0].started_at == request.started_at
+    assert request.segments[0].ended_at == request.results[0].ended_at
+    assert request.segments[1].ended_at > request.results[0].ended_at
+
+
+@pytest.mark.parametrize("name", ["Run", "1000m Run", "Treadmill", "Running"])
+def test_distance_run_buy_in_requires_environment(name):
+    snapshot = {"blocks": [{"id": "a", "exercises": [{"segment": "buy_in", "name": name, "distance_meters": 1000}]}]}
+    segment = dict(block_id="a", kind="buy_in", index=1, started_at=BASE["started_at"], ended_at=BASE["finished_at"], distance_meters=600)
+    with pytest.raises(HTTPException, match="Outdoor or Treadmill"):
+        validate_snapshot(SessionRequest(**BASE, segments=[segment]), snapshot)
+    for environment, source in [("outdoor", "gps"), ("treadmill", "prescribed")]:
+        validate_snapshot(SessionRequest(**BASE, segments=[{**segment, "run_environment": environment, "distance_source": source}]), snapshot)
+    snapshot["blocks"][0]["exercises"][0]["name"] = "Row"
+    validate_snapshot(SessionRequest(**BASE, segments=[segment]), snapshot)
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_apple_workout_id_remains_available_to_coach(data_api):  # noqa: F811
+    from app.domains.workouts.coach_actions import current_actuals, health_derived
+
+    saved = await workout(data_api)
+    response = await data_api.client.post("/api/v1/workouts/sessions", json=session_payload(saved, apple_workout_uuid=str(uuid4())), headers=GENERATION)
+    assert response.status_code == 201, response.text
+    async with data_api.sessions() as db:
+        rows = await current_actuals(db, "owner", 1, workout_id=saved["id"])
+    assert [str(row.id) for row in rows] == [response.json()["id"]]
+    assert not health_derived(rows[0].content)
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_hr_delete_is_fenced_private_idempotent_and_covers_corrections(data_api, monkeypatch):  # noqa: F811
+    from app.domains.workouts import export_service
+    from app.domains.workouts.models import WorkoutsSession
+
+    api = data_api
+    saved = await workout(api)
+    async with api.sessions.begin() as db:
+        from app.domains.workouts.heart_rate_erasure import install_heart_rate_erasure
+        await install_heart_rate_erasure(db)
+        await db.execute(text("ALTER TABLE workouts_grants DROP CONSTRAINT ck_workouts_grant_scope"))
+        await db.execute(text("ALTER TABLE workouts_grants ADD CONSTRAINT ck_workouts_grant_scope CHECK (scope IN ('health_workout_summary_store'))"))
+    consent = "/api/v1/workouts/health-summary-consent"
+    await api.client.put(consent, json={"enabled": True}, headers=GENERATION)
+    payload = session_payload(saved, heart_rate={"avg": 120, "max": 160, "source": "apple_watch"})
+    payload["segments"] = [{"block_id": "strength", "kind": "part", "index": 1, "started_at": payload["started_at"], "ended_at": payload["finished_at"], "avg_hr": 120, "max_hr": 160}]
+    first = await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert first.status_code == 201, first.text
+    correction = {**payload, "client_session_id": str(uuid4()), "supersedes_session_id": first.json()["id"]}
+    corrected = await api.client.post("/api/v1/workouts/sessions", json=correction, headers=GENERATION)
+    assert corrected.status_code == 201, corrected.text
+    async with api.sessions.begin() as db:
+        db.add(WorkoutsSession(app_user_id="other", generation=1, client_session_id=uuid4(), request_hash="fixture", content=payload))
+    invalidated = []
+    original = export_service.invalidate_export_snapshots
+    async def track(db, owner, generation):
+        invalidated.append((owner, generation))
+        await original(db, owner, generation)
+    monkeypatch.setattr(export_service, "invalidate_export_snapshots", track)
+    assert (await api.client.delete(consent, headers={"X-Workouts-Generation": "2"})).status_code == 409
+    deleted = await api.client.delete(consent, headers=GENERATION)
+    assert deleted.status_code == 200 and deleted.json() == {"enabled": False, "deleted_sessions": 2}, deleted.text
+    assert invalidated == [("owner", 1)]
+    assert (await api.client.get(consent)).json()["enabled"] is False
+    assert (await api.client.delete(consent, headers=GENERATION)).json()["deleted_sessions"] == 0
+    async with api.sessions() as db:
+        rows = (await db.execute(text("SELECT app_user_id, content FROM workouts_sessions"))).all()
+    for owner, content in rows:
+        if owner == "owner":
+            assert "heart_rate" not in content
+            assert not {"avg_hr", "max_hr"} & content["segments"][0].keys()
+            assert content["actuals"] == first.json()["content"]["actuals"]
+        else:
+            assert content["heart_rate"] == payload["heart_rate"]
+    # A queued replay must neither conflict nor restore deleted HR.
+    replay = await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert replay.status_code == 200 and "heart_rate" not in replay.json()["content"]
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_hr_erasure_guard_keeps_scores_identity_and_prescriptions_immutable(data_api):  # noqa: F811
+    from sqlalchemy.exc import DBAPIError
+
+    from app.domains.workouts.heart_rate_erasure import install_heart_rate_erasure
+
+    saved = await workout(data_api)
+    created = await data_api.client.post("/api/v1/workouts/sessions", json=session_payload(saved), headers=GENERATION)
+    assert created.status_code == 201
+    async with data_api.sessions.begin() as db:
+        await install_heart_rate_erasure(db)
+    for change in ["content = jsonb_set(content, '{status}', '\"partial\"')", "request_hash = 'changed'"]:
+        async with data_api.sessions.begin() as db:
+            with pytest.raises(DBAPIError, match="immutable"):
+                await db.execute(text("UPDATE workouts_sessions SET " + change))
+            await db.rollback()
+    async with data_api.sessions.begin() as db:
+        with pytest.raises(DBAPIError, match="immutable"):
+            await db.execute(text("UPDATE workouts_library_versions SET content = content - 'title'"))
+        await db.rollback()

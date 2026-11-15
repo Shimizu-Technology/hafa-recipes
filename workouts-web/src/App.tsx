@@ -465,8 +465,9 @@ function Privacy() {
         feature, include these summaries in public shares, or send them to AI coaching.
       </p>
       <p>
-        Turning this choice off stops new summary uploads. Summaries you already saved remain with your private session
-        history until you remove your Workouts data or account. They are included in your Workouts data export. Removing
+        Turning this choice off stops new summary uploads. Choose “Turn off and delete saved heart-rate summaries” to
+        also remove saved workout and split summaries, including corrected and replaced sessions. Otherwise, saved
+        summaries remain in your private history and Workouts data export until you remove your Workouts data or account. Removing
         Workouts data does not remove the original workout from Apple Health or Health Connect.
       </p>
       <h2>Recipes connections</h2>
