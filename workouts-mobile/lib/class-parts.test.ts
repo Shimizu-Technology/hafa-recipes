@@ -6,7 +6,10 @@ import { nov17Class } from "./fixtures/nov17-class";
 import { prescriptionLine } from "./discover";
 import { authoredWorkout } from "./api";
 import { benchmarkLine, instructionsTitle, partTags, programmingLine, relativeLoadSuggestion, restAfterText, segmentLabel } from "./class-parts";
-import type { ExercisePrescription } from "./models";
+import type { ExercisePrescription, Workout } from "./models";
+import { timedCircuit } from "./timed-circuit";
+import { onceOnlyMovesProblem, timedFormat } from "./timed-execution";
+import { createTrainingStore, trackingPrescriptionWarning } from "./training";
 
 vi.mock("@/components/ui", () => ({ Copy: "Copy", ListGroup: "ListGroup", ListRow: "ListRow" }));
 import { WorkoutExerciseList } from "../components/workout-exercise-list";
@@ -24,6 +27,14 @@ describe("class part presentation (Nov 17)", () => {
     expect(prescriptionLine({ name: "Hold", duration_seconds: 60, duration_seconds_max: 90 })).toBe("1 min–1m 30s");
     expect(prescriptionLine({ name: "Thruster", load_options: [{ load: 95, load_unit: "lb", label: "Rx men" }, { load: 30, load_unit: "kg", label: "Rx women" }] }))
       .toBe("Rx men 95 lb / Rx women 30 kg");
+    expect(prescriptionLine({ name: "Lunge", load_options: [{ load: 24, load_unit: "kg", load_convention: "per_hand" }, { load: 16, load_unit: "kg", load_convention: "per_hand" }] }))
+      .toBe("24 / 16 kg per hand");
+    expect(prescriptionLine({ name: "Carry", load_options: [{ load: 20, load_unit: "kg", load_convention: "per_hand" }, { load: 20, load_unit: "kg", load_convention: "total" }] }))
+      .toBe("20 kg per hand / 20 kg total");
+    expect(prescriptionLine({ name: "Pull-up", load_options: [{ load: 10, load_unit: "kg", load_convention: "added" }, { load: 20, load_unit: "kg", load_convention: "assistance" }] }))
+      .toBe("10 kg added / 20 kg assistance");
+    expect(prescriptionLine({ name: "Dip", load_options: [{ load: 20, load_unit: "lb", load_convention: "added", label: "Rx" }, { load: 10, load_unit: "lb", load_convention: "added", label: "Scaled" }] }))
+      .toBe("Rx 20 lb added / Scaled 10 lb added");
     expect(prescriptionLine({ name: "Squat", sets: 5, reps_min: 3, relative_load: { basis: "one_rep_max", percent: 80 } })).toBe("5 × 3 reps · 80% 1RM");
   });
   it("leaves older prescriptions exactly as before", () => {
@@ -74,8 +85,36 @@ describe("WorkoutExerciseList", () => {
     expect(rows[1].props.detail).toBe("15 reps · 75% bodyweight\n≈ 64 kg (75% of 85 kg)\nUnbroken");
     const copy = tree!.root.findAllByType("Copy" as never).map((node) => node.children.join(""));
     expect(copy).toContain("Rest 3 min, then B");
-    expect(copy).toContain("Active recovery.");
-    const headers = tree!.root.findAllByType("ListGroup" as never).map((group) => group.props.header);
-    expect(headers[2]).toBe("C · Cool-down · Not scored · Straight sets");
+    expect(copy).not.toContain("Active recovery.");
+    const groups = tree!.root.findAllByType("ListGroup" as never);
+    expect(groups[2].props.header).toBe("C · Cool-down · Not scored · Straight sets");
+    // C's note belongs to C, inside its group, not floating between B and C.
+    expect(groups[2].props.notes).toEqual(["Active recovery."]);
+    expect(groups[1].props.notes).toBeUndefined();
+  });
+});
+
+describe("the single-part timer and once-only moves (Nov 17 part A)", () => {
+  const partA: Workout = { ...nov17Class, blocks: [{ ...a, rest_after_seconds: null }] };
+  const device = () => { const data = new Map<string, string>();
+    return { getItem: async (k: string) => data.get(k) ?? null, setItem: async (k: string, v: string) => { data.set(k, v); }, removeItem: async (k: string) => { data.delete(k); } }; };
+  it("doesn't time a part whose buy-in would repeat every round, and says why", () => {
+    expect(timedCircuit(partA)).toBeNull();
+    expect(trackingPrescriptionWarning(partA)).toBe(onceOnlyMovesProblem);
+    const forTime: Workout = { ...partA, blocks: [{ ...partA.blocks[0], execution: { mode: "for_time", time_cap_seconds: 900 }, rounds: 3 }] };
+    expect(timedFormat(forTime)).toBeNull();
+    expect(trackingPrescriptionWarning(forTime)).toBe(onceOnlyMovesProblem);
+    // The same AMRAP without the buy-in still runs on the timer.
+    const withoutBuyIn: Workout = { ...partA, blocks: [{ ...partA.blocks[0], exercises: partA.blocks[0].exercises.slice(1) }] };
+    expect(timedCircuit(withoutBuyIn)).toMatchObject({ time_cap_seconds: 900 });
+  });
+  it("refuses a timed start but can be tracked without the timer, with the buy-in once", async () => {
+    const store = createTrainingStore(device(), "owner", partA.generation, () => 1_000);
+    await store.load();
+    await expect(store.start(partA, { workout_id: partA.id, workout_revision: 1 }, "s1")).rejects.toThrow(onceOnlyMovesProblem);
+    await store.start(partA, { workout_id: partA.id, workout_revision: 1 }, "s1", 1_000, { log_as_you_go: true });
+    const d = store.snapshot().active!;
+    expect(d.timed_circuit).toBeUndefined();
+    expect(d.steps.filter((step) => step.exercise_index === 0)).toHaveLength(1);
   });
 });

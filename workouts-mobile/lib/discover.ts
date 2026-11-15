@@ -3,7 +3,9 @@
  * the screens share. Contract: docs/hafa-workouts/DISCOVER.md.
  */
 import type { AuthoredWorkout, ExercisePrescription, Workout } from "./models";
-import { formatLabel, repPattern, type FormatBlock } from "./timed-execution";
+import { formatLabel, formatSeconds, repPattern, type FormatBlock } from "./timed-execution";
+// Kept here for existing importers; it lives in timed-execution so that module needs nothing from this one.
+export { formatSeconds };
 
 export interface Publication {
   is_public: boolean;
@@ -234,7 +236,6 @@ export const PUBLISHING_DISCLOSURE_POINTS = [
   "This is the same sharing agreement as Håfa Recipes, so it also covers recipes you choose to make public.",
 ];
 
-/** "3 × 10–12 reps · 45s rest" style summary for one exercise. */
 /** "800–1000 m", or the single distance. */
 export function distanceText(e: Pick<ExercisePrescription, "distance_meters" | "distance_meters_min">) {
   if (e.distance_meters == null) return null;
@@ -248,12 +249,23 @@ export function durationText(e: Pick<ExercisePrescription, "duration_seconds" | 
   if (high == null || high === low) return formatSeconds(low);
   return high < 60 ? `${low}–${high}s` : `${formatSeconds(low)}–${formatSeconds(high)}`;
 }
-/** "20 / 14 lb" when the options share a unit and have no labels; otherwise each option in full. */
+const conventionText = { total: "total", per_hand: "per hand", added: "added", assistance: "assistance" } as const;
+/**
+ * "20 / 14 lb", or "24 / 16 kg per hand" when the options share a unit and a convention and have no labels.
+ * Otherwise each option in full, so "20 kg per hand / 20 kg total" never reads as "20 / 20 kg". A missing
+ * convention is the API default, total.
+ */
 export function loadOptionsText(options: NonNullable<ExercisePrescription["load_options"]>) {
   const unit = options[0]?.load_unit;
-  if (options.every((o) => o.load_unit === unit && !o.label)) return `${options.map((o) => o.load).join(" / ")} ${unit}`;
-  return options.map((o) => [o.label, `${o.load} ${o.load_unit}`].filter(Boolean).join(" ")).join(" / ");
+  const convention = (o: (typeof options)[number]) => o.load_convention ?? "total";
+  const shared = convention(options[0]);
+  if (options.every((o) => o.load_unit === unit && convention(o) === shared && !o.label))
+    return `${options.map((o) => o.load).join(" / ")} ${unit}${shared === "total" ? "" : ` ${conventionText[shared]}`}`;
+  const mixed = options.some((o) => convention(o) !== shared);
+  return options.map((o) => [o.label, `${o.load} ${o.load_unit}`,
+    mixed || convention(o) !== "total" ? conventionText[convention(o)] : null].filter(Boolean).join(" ")).join(" / ");
 }
+/** "3 × 10–12 reps · 45s rest" style summary for one exercise. */
 export function relativeLoadText(load: NonNullable<ExercisePrescription["relative_load"]>) {
   return `${load.percent}% ${load.basis === "bodyweight" ? "bodyweight" : "1RM"}`;
 }
@@ -287,10 +299,6 @@ export function prescriptionLine(e: ExercisePrescription) {
   if (e.tempo) parts.push(`Tempo ${e.tempo}`);
   if (e.effort) parts.push(e.effort);
   return parts.join(" · ") || "Details not specified";
-}
-export function formatSeconds(seconds: number) {
-  if (seconds < 60 || seconds % 60) return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
-  return `${seconds / 60} min`;
 }
 
 /** Library's short format name, or null so an older response keeps its minutes. */

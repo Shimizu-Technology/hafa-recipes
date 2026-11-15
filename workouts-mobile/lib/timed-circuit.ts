@@ -1,4 +1,5 @@
 import type { Workout } from "./models";
+import { hasOnceOnlyMoves } from "./timed-execution";
 
 export interface TimedCircuit {
   time_cap_seconds: number;
@@ -8,7 +9,7 @@ export interface TimedCircuit {
 export function timedCircuit(workout: Workout): TimedCircuit | null {
   if (workout.kind === "program" || workout.blocks.length !== 1) return null;
   const block = workout.blocks[0];
-  if (block.grouping !== "circuit" || block.rounds != null || !block.exercises.length) return null;
+  if (block.grouping !== "circuit" || block.rounds != null || !block.exercises.length || hasOnceOnlyMoves(block)) return null;
   const instructions = (workout.notes ?? []).filter((note) => note.trim());
   if (block.execution) {
     const cap = amrapFor(block);

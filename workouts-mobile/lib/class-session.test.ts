@@ -26,11 +26,17 @@ describe("part kinds and the legacy single-part path", () => {
     const emom: Workout["blocks"][number] = { id: "e", label: "E", grouping: "interval", execution: { mode: "emom", interval_seconds: 60, intervals: 10, rotation: null }, exercises: [{ name: "Burpee", reps_min: 10 }] };
     expect(partKind(emom)).toBe("emom");
     expect(partCapMs(emom)).toBe(10 * min);
+    // Parts with a buy-in stay timed here: the class runner does the buy-in once. Only the single-part timer refuses them.
+    const forTimeBuyIn: Workout["blocks"][number] = { ...A, rounds: 3, execution: { mode: "for_time", time_cap_seconds: 900 } };
+    expect(partKind(forTimeBuyIn)).toBe("for_time");
+    expect(timedFormat({ kind: "session", blocks: [forTimeBuyIn] })).toBeNull();
   });
   it("keeps the single-part wrappers unchanged: a multi-part class still has no single-part clock", () => {
     expect(timedCircuit(w)).toBeNull();
     expect(timedFormat(w)).toBeNull();
-    expect(timedCircuit({ ...w, blocks: [A] })?.time_cap_seconds).toBe(900);
+    // Part A alone has a buy-in, which the single-part timer would repeat; without it, A still times as before.
+    expect(timedCircuit({ ...w, blocks: [A] })).toBeNull();
+    expect(timedCircuit({ ...w, blocks: [{ ...A, exercises: A.exercises.slice(1) }] })?.time_cap_seconds).toBe(900);
   });
 });
 

@@ -1,11 +1,22 @@
 import type { ActualSet, ExercisePrescription, RepLadder, Workout, WorkoutExecution } from "./models";
-import { formatSeconds } from "./discover";
 
 /**
  * EMOM, for-time and work/rest formats. Pure helpers: the clock comes from real
  * timestamps, and completed work always comes from what the person marked.
  */
 type Block = Workout["blocks"][number];
+/** "45s", "1m 30s" or "2 min". */
+export function formatSeconds(seconds: number) {
+  if (seconds < 60 || seconds % 60) return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
+  return `${seconds / 60} min`;
+}
+/**
+ * A buy-in or cash-out is done once, but the single-part timers repeat every move each round. Those parts
+ * are left to the class runner rather than repeating a 1000 m buy-in every round.
+ */
+export const hasOnceOnlyMoves = (block: Pick<Block, "exercises">) => block.exercises.some((exercise) => exercise.segment != null);
+export const onceOnlyMovesProblem =
+  "This part has a buy-in or cash-out that's done once, and the timer would repeat it every round. Track it without the timer for now; the class runner will time it.";
 /** Public card projections omit exercise names and personal fields. */
 export type FormatBlock = Pick<Block, "execution" | "rounds"> & {
   exercises: Partial<ExercisePrescription>[];
@@ -123,7 +134,8 @@ export const unsetRotation = (execution: TimedFormat, block: Pick<Block, "exerci
 export const trackedIntervalLimit = 100;
 /** A single timed block the player can run, or null. AMRAP stays on its own path. */
 export function timedFormat(workout: Pick<Workout, "kind" | "blocks">): TimedFormat | null {
-  if (workout.kind === "program" || workout.blocks.length !== 1) return null;
+  // The class runner times buy-ins once; this single-part timer would repeat them every round.
+  if (workout.kind === "program" || workout.blocks.length !== 1 || hasOnceOnlyMoves(workout.blocks[0])) return null;
   return timedFormatFor(workout.blocks[0]);
 }
 /** One part's EMOM, for-time or work/rest clock, or null: the same rules for a single-part workout or a class part. */
@@ -141,6 +153,7 @@ export function timedFormatProblem(workout: Pick<Workout, "kind" | "blocks">) {
   if (!timed.length || timedFormat(workout)) return null;
   if (workout.blocks.length > 1)
     return `This workout has ${workout.blocks.length} parts, and the timer runs one timed part per session. Track every part without the timer, or edit the workout so the timed part is a workout of its own.`;
+  if (hasOnceOnlyMoves(timed[0])) return onceOnlyMovesProblem;
   const execution = timed[0].execution!;
   if (isUnknownMode(execution))
     return "This version of the app can’t run this workout’s timer yet. Track it without the timer, or update the app.";

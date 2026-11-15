@@ -23,10 +23,9 @@ export function WorkoutExerciseList({ blocks, formatChip, weightKg, units = "met
     const rest = restAfterText(block);
     // Buy-ins and cash-outs happen once, so only the repeating moves are numbered.
     let number = 0;
-    // Coach notes come before the moves, as the gym writes them; the rest to the next part comes after.
+    // Coach notes sit inside the part, before its moves, as the gym writes them; the rest to the next part comes after.
     return <Fragment key={index}>
-      {block.instructions?.map((line, i) => <Copy key={i} kind="small" tone="muted">{line}</Copy>)}
-      <ListGroup header={caption} separatorInset={38}>
+      <ListGroup header={caption} notes={block.instructions} separatorInset={38}>
       {block.exercises.map((exercise, i) => {
         const once = segmentLabel(exercise);
         if (!once) number++;
