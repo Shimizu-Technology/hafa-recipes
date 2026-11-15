@@ -28,7 +28,7 @@ describe("the list", () => {
     expect(items.find((item) => item.id === "bag:baby:car-seat")?.label).toBe("Rear-facing car seat, installed before the day");
   });
   it("is found among her lists, newest first, and nothing else is", () => {
-    const other = { ...bag({ id: "evening" }), data: { routine_type: "checklist", items: [{ id: "x", label: "Bath", done: false }] } } as BabyRecord;
+    const other = { ...bag({ id: "evening", title: "Evening routine" }), data: { routine_type: "checklist", items: [{ id: "x", label: "Bath", done: false }] } } as BabyRecord;
     expect(isBag(other)).toBe(false);
     expect(findBag([other, bag({ id: "old", updated_at: "2026-11-01" }), bag({ id: "new" })])?.id).toBe("new");
     expect(findBag([other])).toBeUndefined();
@@ -44,6 +44,10 @@ describe("the list", () => {
     row = { ...row, data: removed(row, "bag:baby:k1") };
     expect(row.data.items!.some((item) => item.id === "bag:baby:k1")).toBe(false);
     expect(packedLine({ ...row, data: { ...row.data, items: [{ id: "bag:mom:a", label: "A", done: true }] } })).toBe("All 1 packed");
+  });
+  it("stays the bag with every starter line removed, and nothing else titled otherwise is", () => {
+    expect(isBag(bag({ data: { ...bag().data, items: [] } }))).toBe(true);
+    expect(isBag(bag({ title: "Evening", data: { ...bag().data, items: [] } }))).toBe(false);
   });
   it("keeps a line added in the routine editor, under Also packing", () => {
     expect(sectionOf("4f0c-uuid")).toBe("other");
@@ -94,8 +98,10 @@ describe("the screen", () => {
     await act(async () => { removeRobe.props.onPress(); });
     expect(m.baby.queue.mock.calls[1][0].record.data.items.some((item: { id: string }) => item.id === "bag:mom:robe")).toBe(false);
     expect(m.toast.mock.calls[0][0]).toBe("Removed Robe or loose, comfortable clothes");
-    m.baby.records = [{ ...bag(), data: m.baby.queue.mock.calls[1][0].record.data }];
+    // A second bag, newer, from the other phone: Undo still goes back into this one.
+    m.baby.records = [bag({ id: "other", updated_at: "2026-11-16T00:00:00.000Z" }), { ...bag(), data: m.baby.queue.mock.calls[1][0].record.data }];
     await act(async () => { m.toast.mock.calls[0][1].onPress(); });
+    expect(m.baby.queue.mock.calls[2][0].record).toMatchObject({ id: "bag" });
     expect(m.baby.queue.mock.calls[2][0].record.data.items[0]).toMatchObject({ id: "bag:mom:robe" });
   });
 });
