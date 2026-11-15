@@ -203,7 +203,9 @@ async def test_everything_is_off_until_turned_on(push):
     assert response.status_code == 200
     state = response.json()
     assert state["quiet_hours"] is None
-    assert len(state["kinds"]) == 9
+    assert len(state["kinds"]) == 10
+    # The one exception: family news only comes when a family member chose to tell this person, so it's on until they say no.
+    assert state["kinds"].pop("family_news") == {"enabled": True, "break_through": True, "hours": None, "feed_hours": None, "sleep_hours": None}
     assert all(not item["enabled"] and not item["break_through"] for item in state["kinds"].values())
 
 
