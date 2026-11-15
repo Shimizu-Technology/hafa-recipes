@@ -827,9 +827,11 @@ export interface FilterChip { label: string; value: string; icon?: IconName; dot
  * The sub-navigation chip row at the top of a list: 34pt pills that scroll edge to edge and fade
  * at the trailing edge instead of clipping a word. Selected is filled cocoa; the rest are sand.
  */
-export function FilterChips({ options, value, onChange, label, wrap = false }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string;
+export function FilterChips({ options, value, onChange, label, wrap = false, maxFontSizeMultiplier = 0 }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string;
   /** Every choice in sight, on as many lines as it takes, for a choice she mustn't have to go looking for. */
-  wrap?: boolean }) {
+  wrap?: boolean;
+  /** Caps how far the labels grow with the text size, for a switch that must stay compact. Unlimited by default. */
+  maxFontSizeMultiplier?: number }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), scroller = useRef<ScrollView>(null),
     frames = useRef<Record<string, { x: number; width: number }>>({}), view = useRef({ x: 0, width: 0 });
   // Bring a chip chosen elsewhere (Today's "See all", a category row) into view; leave visible ones still.
@@ -853,7 +855,7 @@ export function FilterChips({ options, value, onChange, label, wrap = false }: {
         backgroundColor: on ? c.action : c.surface }}>
         {option.icon && <Icon name={option.icon} size={16} color={ink} />}
         {!!option.dot && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }} />}
-        <Text key={fontScale} maxFontSizeMultiplier={0}
+        <Text key={fontScale} maxFontSizeMultiplier={maxFontSizeMultiplier}
           style={{ ...typeScale.subhead, fontFamily: on ? fonts.semibold : fonts.medium, color: ink }}>{option.label}</Text>
       </View>
     </PressTarget>;

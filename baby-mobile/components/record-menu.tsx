@@ -5,6 +5,7 @@ import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { replaceRecord } from "@/lib/outbox";
+import { sourceTitle } from "../lib/source-title";
 import { CategoryPicker } from "@/components/category-picker";
 import { useToast } from "@/components/ui";
 import { headerActions } from "@/components/tab-stack";
@@ -17,6 +18,13 @@ export function shareableLink(record: BabyRecord) {
     const url = new URL(record.data.url);
     return ["http:", "https:"].includes(url.protocol) ? url.toString() : null;
   } catch { return null; }
+}
+
+/** The ⋯ menu's heading: a saved post by its own title, so she knows which post she's acting on. */
+export function recordMenuTitle(record: BabyRecord, label: string) {
+  if (record.kind !== "source") return label;
+  const title = sourceTitle(record).trim();
+  return title && title !== "Saved source" ? title : "Saved post";
 }
 
 /** What an entry's ⋯ menu offers, in order. Organizing comes first on a saved post, since that's what Saved is for. */
@@ -71,7 +79,7 @@ export function RecordMenu({ record, title, onError }: { record: BabyRecord; tit
   };
   return <>
     <Stack.Screen options={headerActions(<MenuButton label="More actions" onPress={() => setOpen(true)} />)} />
-    <ActionSheet visible={open} title={title} actions={recordMenuKeys(record).map((key) => all[key])} onClose={() => setOpen(false)} />
+    <ActionSheet visible={open} title={recordMenuTitle(record, title)} actions={recordMenuKeys(record).map((key) => all[key])} onClose={() => setOpen(false)} />
     {organizing && <CategoryPicker sourceIds={[record.id]} onClose={() => setOrganizing(false)} onSaved={(category, added) => void categorized(category, added)} />}
   </>;
 }
