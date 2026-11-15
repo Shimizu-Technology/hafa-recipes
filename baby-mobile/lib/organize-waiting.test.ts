@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dailyAiLimitMessage, sourceRefusalMessages } from "./import-status";
+import { aiUnavailableMessage, dailyAiLimitMessage, sourceRefusalMessages } from "./import-status";
 import { advanceOrganize, clearOrganize, findWaiting, organizeAtOnce, organizeWords, startOrganize, stopOrganize, waitingSource } from "./organize-waiting";
 import { emptyState, type BabyRecord, type DeviceState } from "./models";
 
@@ -7,7 +7,7 @@ const source = (id: string, over: Partial<BabyRecord["data"]> = {}, at = `2026-1
   id, kind: "source", title: `Post ${id}`, body: "", child_id: null, occurred_at: at, revision: 1, created_at: at, updated_at: at,
   data: { url: `https://www.tiktok.com/@a/video/${id}`, status: "saved", topics: [], ...over },
 } as BabyRecord);
-const base = (): DeviceState => ({ ...emptyState(), bootstrap: { generation: 4 } as DeviceState["bootstrap"] });
+const base = (): DeviceState => ({ ...emptyState(), bootstrap: { generation: 4, ai_available: true, profile: { ai_consent: true } } as DeviceState["bootstrap"] });
 let n = 0;
 const uuid = () => `import-${++n}`;
 const now = new Date("2026-11-15T12:00:00.000Z");
@@ -139,6 +139,47 @@ describe("a run", () => {
   it("doesn't start twice", () => {
     const state = started();
     expect(startOrganize(state, [source("new")], now)).toBe(state);
+  });
+});
+
+describe("what the review found", () => {
+  const started = (count = 5) => advanceOrganize(startOrganize(base(), Array.from({ length: count }, (_, i) => source("x".repeat(i + 1))), now), uuid, now);
+  it("stops when AI is unavailable, instead of marking every post organized", () => {
+    let state = started();
+    const first = state.organizeRun!.active[0];
+    state = { ...state, outbox: state.outbox.filter((m) => m.id !== first.import_id),
+      imports: [{ id: first.import_id, status: "incomplete", record_id: first.record_id, error: aiUnavailableMessage }] };
+    state = advanceOrganize(state, uuid, now);
+    expect(state.organizeRun).toMatchObject({ stopped: "ai_off", organized: 0 });
+    expect(state.outbox).toHaveLength(2);
+    // An incomplete read with any other problem needs a look; it isn't "organized".
+    expect(state.organizeRun!.waiting[0].record_id).toBe(first.record_id);
+  });
+  it("hands nothing more over once AI is switched off", () => {
+    let state = started();
+    state = { ...state, bootstrap: { ...state.bootstrap!, profile: { ...state.bootstrap!.profile, ai_consent: false } } };
+    const before = state.outbox.length;
+    state = advanceOrganize({ ...state, outbox: [], imports: state.organizeRun!.active.map((a) => ({ id: a.import_id, status: "ready", record_id: a.record_id })) }, uuid, now);
+    expect(state.outbox).toHaveLength(0);
+    expect(before).toBe(3);
+    expect(state.organizeRun).toMatchObject({ stopped: "ai_off", organized: 3 });
+    expect(state.organizeRun!.finished_at).toBeTruthy();
+    expect(organizeWords(state.organizeRun, 0).body).toContain("AI processing is off or unavailable right now");
+  });
+  it("leaves a post organized on another phone, or deleted, out of the run", () => {
+    let state = started();
+    state = { ...state, outbox: [], records: state.records.filter((r) => r.id !== "xxxx").map((r) => r.id === "xxxxx" ? { ...r, data: { ...r.data, status: "ready" } } : r),
+      imports: state.organizeRun!.active.map((a) => ({ id: a.import_id, status: "ready", record_id: a.record_id })) };
+    state = advanceOrganize(state, uuid, now);
+    expect(state.outbox).toHaveLength(0);
+    expect(state.organizeRun).toMatchObject({ total: 3, organized: 3 });
+    expect(organizeWords(state.organizeRun, 0).heading).toBe("All organized");
+  });
+  it("counts a post another phone is already reading as on its way", () => {
+    let state = started();
+    const first = state.organizeRun!.active[0];
+    state = advanceOrganize({ ...state, outbox: state.outbox.map((m) => m.id === first.import_id ? { ...m, error: sourceRefusalMessages.source_already_processing } : m) }, uuid, now);
+    expect(state.organizeRun).toMatchObject({ organized: 1, attention: [] });
   });
 });
 

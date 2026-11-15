@@ -1,4 +1,4 @@
-import { dailyAiLimitMessage, importFinished, sourceRefusalMessages } from "./import-status";
+import { aiUnavailableMessage, dailyAiLimitMessage, importFinished, sourceRefusalMessages } from "./import-status";
 import { addMutation, withoutRefusedRetry } from "./outbox";
 import type { BabyRecord, DeviceState, ImportJob, Mutation } from "./models";
 
@@ -20,7 +20,7 @@ export interface OrganizeRun {
   /** Posts that couldn't be read this time. Each keeps its original, and its own page offers Try again. */
   attention: string[];
   /** Why it stopped before the end. A limit means the rest wait for tomorrow. */
-  stopped?: "limit" | "cancelled";
+  stopped?: "limit" | "ai_off" | "cancelled";
   /** Another phone or share filled the API's queue: wait a little before handing over more. */
   paused_until?: string;
   finished_at?: string;
@@ -75,6 +75,8 @@ export function startOrganize(state: DeviceState, rows: BabyRecord[], now = new 
 }
 
 const limitMessages = [sourceRefusalMessages.source_daily_limit, dailyAiLimitMessage];
+/** The API finishes a job it couldn't read with AI as incomplete, with one of these: the rest would only do the same. */
+const stopMessages = [dailyAiLimitMessage, aiUnavailableMessage];
 
 /** One pass: settle what finished, then hand the outbox what fits. Returns the same state when nothing changed. */
 export function advanceOrganize(state: DeviceState, uuid: () => string, now = new Date()): DeviceState {
@@ -82,7 +84,7 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
   if (!run || run.finished_at) return state;
   let next = state, changed = false;
   const active: OrganizeRun["active"] = [], back: OrganizeItem[] = [], attention = [...run.attention];
-  let organized = run.organized, stopped = run.stopped, paused_until = run.paused_until;
+  let organized = run.organized, total = run.total, stopped = run.stopped, paused_until = run.paused_until;
   const itemFor = (id: string): OrganizeItem => {
     const row = state.records.find((r) => r.id === id);
     return { record_id: id, space_id: row?.space_id, child_id: row?.child_id ?? null, topics: row?.data.topics ?? [] };
@@ -95,6 +97,7 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
       next = withoutRefusedRetry(next, queued.id);
       changed = true;
       if (limitMessages.includes(queued.error)) { stopped = "limit"; back.push(itemFor(item.record_id)); }
+      else if (queued.error === sourceRefusalMessages.source_already_processing) organized++; // Another phone has it.
       else if (queued.error === sourceRefusalMessages.source_queue_full) {
         paused_until = new Date(now.getTime() + pauseMs).toISOString(); back.push(itemFor(item.record_id));
       } else attention.push(item.record_id);
@@ -104,12 +107,16 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
     if (job && !importFinished(job.status)) { active.push(item); continue; }
     changed = true;
     if (!job) attention.push(item.record_id); // Discarded from Sync & recovery.
-    else if (job.error === dailyAiLimitMessage) { stopped = "limit"; back.push(itemFor(item.record_id)); }
-    else if (["ready", "complete", "completed", "incomplete"].includes(job.status)) organized++;
+    else if (job.error && stopMessages.includes(job.error)) {
+      stopped = job.error === dailyAiLimitMessage ? "limit" : "ai_off"; back.push(itemFor(item.record_id));
+    }
+    else if (["ready", "complete", "completed"].includes(job.status) || (job.status === "incomplete" && !job.error)) organized++;
     else attention.push(item.record_id);
   }
   let waiting = [...back, ...run.waiting];
   if (paused_until && new Date(paused_until) <= now) { paused_until = undefined; changed = true; }
+  // AI switched off, or the service down, since she started: nothing more goes until she starts again.
+  if (!stopped && !(next.bootstrap?.ai_available && next.bootstrap.profile?.ai_consent)) { stopped = "ai_off"; changed = true; }
   if (!stopped && !paused_until) {
     const ours = new Set(active.map((item) => item.record_id)),
       others = next.outbox.filter((m) => m.type === "import" && !m.error && !ours.has(m.record_id ?? "")).length +
@@ -120,6 +127,9 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
       changed = true;
       // Started from its own page or another phone since: it's on its way already, so it isn't this run's.
       if (importFor(next, item.record_id)) { organized++; continue; }
+      // Organized elsewhere or removed since the list was read: leave it be, and don't count it.
+      const row = next.records.find((r) => r.id === item.record_id);
+      if (!row || !waitingSource(row, next)) { total--; continue; }
       const import_id = uuid();
       const change: Mutation = { id: import_id, generation: next.bootstrap.generation, type: "import", record_id: item.record_id,
         ...(item.space_id ? { space_id: item.space_id } : {}), files: [], child_id: item.child_id, topics: item.topics };
@@ -129,7 +139,7 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
   }
   if (!changed) return state;
   const done = !active.length && (!waiting.length || !!stopped);
-  return { ...next, organizeRun: { ...run, active, waiting, organized, attention, stopped, paused_until,
+  return { ...next, organizeRun: { ...run, total, active, waiting, organized, attention, stopped, paused_until,
     ...(done ? { finished_at: now.toISOString() } : {}) } };
 }
 
@@ -162,6 +172,7 @@ export function organizeWords(run: OrganizeRun | undefined, waitingCount: number
   const attention = run.attention.length
     ? ` ${run.attention.length === 1 ? "1 couldn’t be read" : `${run.attention.length} couldn’t be read`} this time. Their originals are kept, and each one’s page has Try again.` : "";
   const rest = run.stopped === "limit" && left ? ` ${left === 1 ? "1 is" : `${left} are`} still waiting: today’s processing allowance is used. You can organize the rest tomorrow.`
+    : run.stopped === "ai_off" && left ? ` ${left === 1 ? "1 is" : `${left} are`} still waiting: AI processing is off or unavailable right now. You can organize the rest later.`
     : run.stopped === "cancelled" && left ? ` ${left === 1 ? "1 is" : `${left} are`} still saved as ${left === 1 ? "it was" : "they were"}.` : "";
   return { heading: run.attention.length || (run.stopped && left) ? "Done for now" : "All organized",
     body: `${organized}${attention}${rest}${run.organized ? " Suggested categories are in Uncategorized." : ""}`, settled };
