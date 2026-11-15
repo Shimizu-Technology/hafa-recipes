@@ -517,6 +517,9 @@ export type Mutation = {
       /** From the birth flow: her name for the baby and the birth answers, sent with the date. */
       name?: string;
       details?: Pick<ChildDetails, "birth_time" | "weight_at_birth_g">;
+      /** What those were before, for Undo: null was nothing. */
+      previous_name?: string;
+      previous_details?: Pick<ChildDetails, "birth_time" | "weight_at_birth_g">;
       hold_until?: string;
       sent?: boolean;
       attempts?: number;

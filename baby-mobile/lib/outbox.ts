@@ -632,7 +632,10 @@ export function birthExtrasPending(server: Pick<Child, "name" | "details">, m: E
 export function withoutBirth(state: DeviceState, m: Extract<Mutation, { type: "child_birth" }>, server?: Child): DeviceState {
   if (!state.bootstrap) return state;
   return { ...state, bootstrap: { ...state.bootstrap,
-    children: state.bootstrap.children.map((child) => (child.id !== m.child_id ? child : server ?? { ...child, birth_date: m.previous })) } };
+    children: state.bootstrap.children.map((child) => (child.id !== m.child_id ? child : server ?? { ...child, birth_date: m.previous,
+      // The birth flow's name and answers go back with it, as they were before.
+      ...(m.name && m.previous_name !== undefined ? { name: m.previous_name } : {}),
+      ...(m.previous_details ? { details: Object.fromEntries(Object.entries({ ...child.details, ...m.previous_details }).filter(([, value]) => value !== null)) } : {}) })) } };
 }
 /**
  * What to do with a birth change, from the API's copy. Its revision is only how a write gets in: the question is the

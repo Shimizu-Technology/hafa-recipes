@@ -66,6 +66,10 @@ describe("family news", () => {
     expect(newsAvailable({ reminders: { push: true }, spaces: [{ kind: "family", role: "parent" }] } as never)).toBe(false);
     expect(newsAvailable({ reminders: { family_news: true }, spaces: [{ kind: "family", role: "caregiver" }] } as never)).toBe(false);
     expect(newsAvailable({ reminders: { family_news: true }, spaces: [{ kind: "family", role: "parent" }] } as never)).toBe(true);
+    // A parent in another family, but a caregiver in this baby's, can't tell this one.
+    const two = { reminders: { family_news: true }, spaces: [{ id: "mine", kind: "family", role: "parent" }, { id: "theirs", kind: "family", role: "caregiver" }] } as never;
+    expect(newsAvailable(two, "mine")).toBe(true);
+    expect(newsAvailable(two, "theirs")).toBe(false);
   });
   it("waits for the birth date to land, keeps going through no signal, and drops what's refused", async () => {
     const at = new Date().toISOString();
@@ -87,6 +91,26 @@ describe("family news", () => {
     await sendPending(state, ok, commit);
     expect(ok).not.toHaveBeenCalled();
     expect(state.pendingNews).toHaveLength(0);
+  });
+});
+
+describe("held, and told with no signal", () => {
+  it("waits out the Undo window, then looks up the other parents as it goes", async () => {
+    let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: [], parents: true, queued_at: new Date().toISOString(),
+      hold_until: new Date(Date.now() + 5000).toISOString() });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    const send = vi.fn(async () => ({})), parents = vi.fn(async () => ["leon"]);
+    await sendPending(state, send, commit, parents);
+    expect(send).not.toHaveBeenCalled();
+    await sendPending(state, send, commit, parents, Date.now() + 6000);
+    expect(send).toHaveBeenCalledWith({ id: "n", news: "labor", child_id: "c", to: ["leon"] });
+    expect(state.pendingNews).toEqual([]);
+  });
+  it("keeps it when the family can't be read yet", async () => {
+    let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: [], parents: true, queued_at: new Date().toISOString() });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    await sendPending(state, vi.fn(), commit, async () => { throw new ApiError("offline", 0, true); });
+    expect(state.pendingNews).toHaveLength(1);
   });
 });
 
@@ -116,10 +140,28 @@ describe("the screen", () => {
     expect(m.baby.state.pendingNews).toMatchObject([{ news: "birth", child_id: "c", to: ["leon"] }]);
     expect(m.toast.mock.calls[0][0]).toBe("Welcome, Mia. Telling Leon.");
     expect(m.back).toHaveBeenCalled();
-    // Undo before it's sent: nothing happened.
+    expect(m.baby.state.pendingNews[0].hold_until).toBeTruthy();
+    // Undo before it's sent: nothing happened, name, time and weight included.
     await act(async () => { await m.toast.mock.calls[0][1].onPress(); });
     expect(m.baby.state.outbox).toHaveLength(0);
     expect(m.baby.state.pendingNews).toHaveLength(0);
+  });
+  it("with no signal, still tells her partner once she's back online", async () => {
+    m.baby.api.familyMembers = vi.fn(async () => { throw new ApiError("offline", 0, true); });
+    await mount();
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Your partner", true]]);
+    await save();
+    expect(m.baby.state.pendingNews).toMatchObject([{ news: "birth", to: [], parents: true }]);
+    expect(m.toast.mock.calls[0][0]).toBe("Welcome, Baby. Telling your partner.");
+  });
+  it("undoes before it's sent, leaving the profile as it was", async () => {
+    await mount();
+    await act(async () => { all("Field")[0].props.onChange("Mia"); });
+    await save();
+    m.baby.state.bootstrap.children = withPendingBirths(m.baby.state).bootstrap!.children;
+    await act(async () => { await m.toast.mock.calls[0][1].onPress(); });
+    expect(m.baby.state.bootstrap.children[0]).toMatchObject({ name: "Baby", birth_date: null, details: { sex: "girl" } });
+    expect(m.baby.state.bootstrap.children[0].details.birth_time).toBeUndefined();
   });
   it("adds Grandma in one tap, or tells no one", async () => {
     await mount();
@@ -144,6 +186,18 @@ describe("the screen", () => {
     m.baby.state.outbox[0].sent = true;
     await act(async () => { await m.toast.mock.calls[0][1].onPress(); });
     expect(m.baby.state.outbox.map((c: any) => [c.birth_date, c.previous])).toEqual([[expect.any(String), null], [null, m.baby.state.outbox[0].birth_date]]);
+  });
+  it("undoes the name, time and weight too, sent or not", async () => {
+    await mount();
+    await act(async () => { all("Field")[0].props.onChange("Mia"); all("Field")[1].props.onChange("7"); });
+    await save();
+    // As the provider shows it while it waits.
+    const shown = withPendingBirths(m.baby.state).bootstrap!.children[0];
+    expect(shown).toMatchObject({ name: "Mia", details: { birth_time: expect.any(String), weight_at_birth_g: 3175 } });
+    m.baby.state.bootstrap.children = [shown];
+    m.baby.state.outbox[0].sent = true;
+    await act(async () => { await m.toast.mock.calls[0][1].onPress(); });
+    expect(m.baby.state.outbox[1]).toMatchObject({ birth_date: null, name: "Baby", details: { birth_time: null, weight_at_birth_g: null } });
   });
   it("starts on the family's day, not the phone's", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
