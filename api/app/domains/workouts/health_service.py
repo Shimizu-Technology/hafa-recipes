@@ -653,25 +653,30 @@ async def actual_for_export(db, user_id, generation, session_id, *, supports_cla
         try:
             elapsed = 0
             last_end = start
+            retained = []
             for interval in intervals:
                 interval_start = datetime.fromisoformat(interval["started_at"])
                 interval_end = datetime.fromisoformat(interval["ended_at"])
                 if (
                     interval_start.tzinfo is None
                     or interval_end.tzinfo is None
-                    or not start <= interval_start < interval_end <= end
+                    or not start <= interval_start <= interval_end <= end
                     or interval_start < last_end
                 ):
                     raise ValueError("Invalid recorded interval")
+                if interval_start == interval_end:
+                    continue  # Previously accepted clamped intervals contribute no activity.
+                retained.append(interval)
                 elapsed += (interval_end - interval_start).total_seconds()
                 last_end = interval_end
             if len(intervals) > 100 or abs(duration - elapsed) > 1:
                 raise ValueError("Active duration differs from recorded intervals")
+            intervals = retained
         except (KeyError, TypeError, ValueError):
             raise HTTPException(
                 422, "Recorded active intervals need review before export"
             ) from None
-    elif abs(duration - (end - start).total_seconds()) > 1:
+    if not intervals and abs(duration - (end - start).total_seconds()) > 1:
         return (
             row,
             None,

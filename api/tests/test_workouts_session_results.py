@@ -305,3 +305,83 @@ def test_watch_active_time_clock_skew_is_clamped_without_changing_legacy_hashes(
     assert request.active_intervals[0].ended_at == request.finished_at
     with pytest.raises(ValidationError):
         SessionRequest(**BASE, active_seconds=3606)
+
+
+
+def test_collapsed_active_intervals_are_dropped_but_zero_segments_remain_valid():
+    request = SessionRequest(**BASE, active_seconds=3600, active_intervals=[
+        {"started_at": "2026-11-16T23:59:58Z", "ended_at": BASE["started_at"]},
+        {"started_at": BASE["started_at"], "ended_at": BASE["finished_at"]}],
+        segments=[{"block_id": "a", "kind": "part", "index": 1, "started_at": BASE["started_at"], "ended_at": BASE["started_at"]}])
+    assert len(request.active_intervals) == 1 and request.active_seconds == 3600
+    assert request._sync_warnings
+    assert request.segments[0].started_at == request.segments[0].ended_at
+    assert not {"warnings", "_sync_warnings", "_legacy_active_intervals"} & request.model_dump().keys()
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_collapsed_interval_upload_replay_and_legacy_health_export(data_api):  # noqa: F811
+    from app.domains.workouts.health_service import actual_for_export
+    from app.domains.workouts.models import WorkoutsSession
+
+    api = data_api
+    saved = await workout(api)
+    payload = session_payload(saved, active_seconds=1200, active_intervals=[
+        {"started_at": "2026-10-09T23:59:58Z", "ended_at": "2026-10-10T00:00:00Z"},
+        {"started_at": "2026-10-10T00:00:00Z", "ended_at": "2026-10-10T00:20:00Z"}])
+    response = await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert response.status_code == 201, response.text
+    assert response.json()["warnings"] and len(response.json()["content"]["active_intervals"]) == 1
+    replay = await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert replay.status_code == 200 and replay.json()["warnings"]
+    request = SessionRequest(**payload)
+    legacy = {**request.model_dump(mode="json"), "active_intervals": request._legacy_active_intervals}
+    legacy["client_session_id"] = str(uuid4())
+    digest = hashlib.sha256(json.dumps(legacy, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    async with api.sessions.begin() as db:
+        row = WorkoutsSession(app_user_id="owner", generation=1, client_session_id=legacy["client_session_id"], request_hash=digest,
+                              source_workout_id=saved["id"], content=legacy)
+        db.add(row)
+        await db.flush()
+        identifier = row.id
+    old_payload = {**payload, "client_session_id": legacy["client_session_id"]}
+    assert (await api.client.post("/api/v1/workouts/sessions", json=old_payload, headers=GENERATION)).status_code == 200
+    async with api.sessions() as db:
+        _, actual, reason = await actual_for_export(db, "owner", 1, identifier)
+    assert reason is None and len(actual["active_intervals"]) == 1
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_collapsed_interval_advances_legacy_replay_normalization(data_api):  # noqa: F811
+    from app.domains.workouts.models import WorkoutsSession
+
+    api = data_api
+    saved = await workout(api)
+    start = "2026-10-10T00:00:00Z"
+    end = "2026-10-10T00:01:00Z"
+    first = {"started_at": start, "ended_at": "2026-10-10T00:00:58Z"}
+    payload = session_payload(saved, started_at=start, finished_at=end, active_seconds=58, active_intervals=[
+        first,
+        {"started_at": end, "ended_at": "2026-10-10T00:01:02Z"},
+        {"started_at": "2026-10-10T00:00:59Z", "ended_at": end},
+    ])
+    request = SessionRequest(**payload)
+    # Explicitly reproduce the stored pre-drop representation, independently
+    # of the new validator's compatibility reconstruction.
+    expected_intervals = [first, {"started_at": end, "ended_at": end}, {"started_at": end, "ended_at": end}]
+    assert request._legacy_active_intervals == expected_intervals
+    assert request.model_dump(mode="json")["active_intervals"] == [first]
+    assert request.active_seconds == 58 and request._sync_warnings
+    legacy = {**request.model_dump(mode="json"), "active_intervals": expected_intervals}
+    digest = hashlib.sha256(json.dumps(legacy, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    async with api.sessions.begin() as db:
+        row = WorkoutsSession(app_user_id="owner", generation=1, client_session_id=payload["client_session_id"], request_hash=digest,
+                              source_workout_id=saved["id"], content=legacy)
+        db.add(row)
+        await db.flush()
+        identifier = str(row.id)
+    replay = await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["id"] == identifier
+    assert replay.json()["content"] == legacy
+    assert replay.json()["warnings"]

@@ -1,5 +1,7 @@
 """Narrow database exception for removing HR without rewriting recorded actuals."""
 
+import re
+
 from sqlalchemy import text
 
 STRIP_BODY = """
@@ -25,8 +27,15 @@ async def install_heart_rate_erasure(db):
     await db.execute(text(f"CREATE OR REPLACE FUNCTION public.prevent_workouts_snapshot_update() RETURNS trigger LANGUAGE plpgsql AS $body${GUARD_BODY}$body$"))
 
 
+def normalized_body(body):
+    # Ignore formatting outside quoted SQL literals, preserving their meaning.
+    return re.sub(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|\s+",
+                  lambda match: "" if match[0].isspace() else match[0], body)
+
+
 async def heart_rate_erasure_ready(db):
-    return await db.scalar(text("""SELECT count(*) = 2 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname='public' AND ((p.oid=to_regprocedure('public.workouts_without_heart_rate(jsonb)') AND p.prosrc=:strip)
-        OR (p.oid=to_regprocedure('public.prevent_workouts_snapshot_update()') AND p.prosrc=:guard))"""),
-        {"strip": STRIP_BODY, "guard": GUARD_BODY})
+    bodies = dict((await db.execute(text("""SELECT proname,prosrc FROM pg_proc
+        WHERE oid IN (to_regprocedure('public.workouts_without_heart_rate(jsonb)'),
+                      to_regprocedure('public.prevent_workouts_snapshot_update()'))"""))).all())
+    return all(normalized_body(bodies.get(name, "")) == normalized_body(body) for name, body in (
+        ("workouts_without_heart_rate", STRIP_BODY), ("prevent_workouts_snapshot_update", GUARD_BODY)))

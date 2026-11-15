@@ -83,6 +83,34 @@ async def test_optional_rollout_rebuild_results_and_erasure(data_api, monkeypatc
     await migration.run_migration(configured=settings(), migration_engine=api.engine)
     await migration.run_migration(configured=settings(), migration_engine=api.engine)
     await verify_part_results_schema(api.engine, settings())
+    from app.domains.workouts.heart_rate_erasure import (
+        GUARD_BODY,
+        STRIP_BODY,
+        heart_rate_erasure_ready,
+        install_heart_rate_erasure,
+    )
+
+    # A previously recorded063 can lack the later erasure extension.
+    async with api.engine.begin() as db:
+        await db.execute(text("DROP FUNCTION public.workouts_without_heart_rate(jsonb)"))
+        await db.execute(text("ALTER TABLE workouts_schema_migrations DROP COLUMN part_results_rebuilt_at"))
+    with pytest.raises(RuntimeError, match="RESTORE_POINT"):
+        await migration.run_migration(configured=settings().model_copy(update={"environment": "production"}), migration_engine=api.engine)
+    await migration.run_migration(configured=settings(), migration_engine=api.engine)
+    async with api.engine.begin() as db:
+        assert await heart_rate_erasure_ready(db)
+        formatted = STRIP_BODY.replace("\n", "\n   ")
+        await db.execute(text(f"CREATE OR REPLACE FUNCTION public.workouts_without_heart_rate(value jsonb) RETURNS jsonb LANGUAGE sql IMMUTABLE AS $body${formatted}$body$"))
+        assert await heart_rate_erasure_ready(db)
+        assert await db.scalar(text("SELECT count(*) FROM workouts_schema_migrations WHERE version=63")) == 1
+        # Normalization must not ignore semantic whitespace inside SQL literals.
+        changed = GUARD_BODY.replace("'workouts_sessions'", "'workouts_ sessions'")
+        await db.execute(text(f"CREATE OR REPLACE FUNCTION public.prevent_workouts_snapshot_update() RETURNS trigger LANGUAGE plpgsql AS $body${changed}$body$"))
+        assert not await heart_rate_erasure_ready(db)
+    with pytest.raises(RuntimeError, match="schema does not match"):
+        await migration.run_migration(configured=settings(), migration_engine=api.engine)
+    async with api.engine.begin() as db:
+        await install_heart_rate_erasure(db)
     async with api.sessions.begin() as db:
         dry = await rebuild(db)
         assert dry == {"mode": "dry_run", "sessions": 1, "insert": 1, "existing": 0}
@@ -168,3 +196,89 @@ async def test_rebuild_releases_each_owner_and_bounds_lock_and_statement_waits(d
     assert result["sessions"] == 2
     async with api.sessions.begin() as db:
         assert await db.scalar(select(func.count()).select_from(PartResultRow)) == (2 if apply else 0)
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("conflict", [False, True])
+async def test_history_read_fence_covers_not_started_partial_and_failed_rebuild(data_api, monkeypatch, conflict):  # noqa: F811
+    from app.domains.workouts import rebuild_part_results as worker
+    from app.domains.workouts.lifecycle import lock_owner
+    from app.domains.workouts.part_results import benchmark_results, query_results, results_ready
+
+    api = data_api
+    for name in importlib.import_module("migrations.run").OPTIONAL_MIGRATIONS[1:]:
+        await importlib.import_module(name).run_migration(configured=settings(), migration_engine=api.engine)
+    def row(owner):
+        source = session()
+        return WorkoutsSession(id=source.id, app_user_id=owner, generation=1, client_session_id=uuid4(), request_hash="a" * 64, content=source.content)
+    async with api.sessions.begin() as db:
+        db.add_all([row("other"), row("owner")])
+        new = row("owner")
+        db.add(new)
+        assert await write_part_results(db, new) == []  # Write-through starts before reads are complete.
+        assert "results_summary" not in new.content
+    async with api.sessions() as db:
+        before = await query_results(db, "owner", 1)
+        assert before["history_limited"] and len(before["items"]) == 2
+        await rebuild(db)  # A successful dry-run must not publish history readiness.
+        assert not await results_ready(db)
+    if conflict:
+        async with api.sessions.begin() as db:
+            await db.execute(text("UPDATE workouts_part_results SET sort_value=-999"))
+    observed = []
+    async def inspect(db, owner):
+        await lock_owner(db, owner)
+        if owner == "owner":
+            partial = await query_results(db, "other", 1)
+            assert partial["history_limited"] and len(partial["items"]) == 1
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as error:
+                await benchmark_results(db, "other", 1)
+            assert error.value.status_code == 503
+            observed.append(owner)
+    monkeypatch.setattr(worker, "lock_owner", inspect)
+    async with api.sessions() as db:
+        if conflict:
+            with pytest.raises(RuntimeError, match="conflict"):
+                await rebuild(db, apply=True)
+            assert not await results_ready(db)
+            assert (await query_results(db, "owner", 1))["history_limited"]
+            async with api.sessions.begin() as repair:
+                await repair.execute(text("UPDATE workouts_part_results SET sort_value=30015"))
+        await rebuild(db, apply=True)
+        assert await results_ready(db)
+        after = await query_results(db, "owner", 1)
+        assert not after["history_limited"] and len(after["items"]) == 2
+        assert await benchmark_results(db, "owner", 1)
+    assert observed
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_rebuild_does_not_publish_with_late_unprojected_history(data_api, monkeypatch):  # noqa: F811
+    from app.domains.workouts import rebuild_part_results as worker
+    from app.domains.workouts.lifecycle import lock_owner
+    from app.domains.workouts.part_results import query_results, results_ready
+    from app.models.identity import AppUser
+
+    api = data_api
+    for name in importlib.import_module("migrations.run").OPTIONAL_MIGRATIONS[1:]:
+        await importlib.import_module(name).run_migration(configured=settings(), migration_engine=api.engine)
+    async with api.sessions.begin() as db:
+        for owner in ["other", "owner"]:
+            db.add(WorkoutsSession(app_user_id=owner, generation=1, client_session_id=uuid4(), request_hash="a" * 64, content=session().content))
+    async def late_writer(db, owner):
+        await lock_owner(db, owner)
+        if owner == "owner":
+            async with api.sessions.begin() as writer:
+                writer.add(AppUser(id="aa-late"))
+                await writer.flush()
+                writer.add(WorkoutsSession(app_user_id="aa-late", generation=1, client_session_id=uuid4(), request_hash="a" * 64, content=session().content))
+    monkeypatch.setattr(worker, "lock_owner", late_writer)
+    async with api.sessions() as db:
+        with pytest.raises(RuntimeError, match="remain unindexed"):
+            await rebuild(db, apply=True)
+        assert not await results_ready(db)
+        assert len((await query_results(db, "aa-late", 1))["items"]) == 1
+        monkeypatch.setattr(worker, "lock_owner", lock_owner)
+        await rebuild(db, apply=True)
+        assert await results_ready(db)

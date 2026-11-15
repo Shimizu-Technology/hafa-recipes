@@ -113,3 +113,8 @@ class WorkoutsImportRoute(WorkoutsRoute):
                 )(scope, receive, send)
         finally:
             _import_ingress.release()
+
+
+class WorkoutsClassImportRoute(WorkoutsImportRoute):
+    """Only POST /imports accepts the larger class-document body."""
+    max_body_bytes = 18 * 1024 * 1024
