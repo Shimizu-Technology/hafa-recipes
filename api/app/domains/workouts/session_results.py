@@ -158,7 +158,7 @@ HEALTH_SUMMARY_SCOPE = "health_workout_summary_store"
 
 
 async def health_summary_ready(db):
-    return bool(await db.scalar(text("SELECT EXISTS(SELECT 1 FROM workouts_schema_migrations WHERE version=63)")))
+    return bool(await db.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.workouts_grants'::regclass AND conname='ck_workouts_grant_scope' AND convalidated AND position('health_workout_summary_store' in pg_get_constraintdef(oid))>0)")))
 
 
 async def health_summary_enabled(db, owner, generation):

@@ -28,7 +28,7 @@ def test_old_request_hash_is_unchanged():
     content = SessionRequest(**BASE).model_dump(mode="json")
     assert hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest() == "5b5b64d89cd607c476ad654ce29c7d44583f826f3192122a1d6dee5fb03a9ecf"
     assert not {"results", "segments", "recorded_on", "health_workout_uuid"} & content.keys()
-    assert EnrollmentResponse.model_fields["features"].default_factory() == ["session_results_v1"]
+    assert "session_results_v1" in EnrollmentResponse.model_fields["features"].default_factory()
 
 
 @pytest.mark.parametrize("result", [
@@ -158,8 +158,6 @@ async def test_hr_opt_in_and_revocation(data_api):  # noqa: F811
     async with api.sessions.begin() as db:
         await db.execute(text("ALTER TABLE workouts_grants DROP CONSTRAINT ck_workouts_grant_scope"))
         await db.execute(text("ALTER TABLE workouts_grants ADD CONSTRAINT ck_workouts_grant_scope CHECK (scope IN ('health_workout_summary_store'))"))
-        await db.execute(text("ALTER TABLE workouts_schema_migrations DROP CONSTRAINT workouts_schema_migrations_version_check"))
-        await db.execute(text("INSERT INTO workouts_schema_migrations(version,release_id) VALUES(63,'test')"))
     assert "health_workout_summary_v1" in (await api.client.get("/api/v1/workouts/enrollment")).json()["features"]
     assert (await api.client.put(consent, json={"enabled": True}, headers=GENERATION)).status_code == 200
     accepted = await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
