@@ -54,8 +54,9 @@ const event = (extra: Partial<BabyRecord["data"]> = {}, id = "class") => ({ ...o
 const found = (type: string, match: (props: any) => boolean) => renderer!.root.findAll((n) => String(n.type) === type && match(n.props))[0];
 async function mount(component: React.ComponentType) { await act(async () => { renderer = create(React.createElement(component)); }); }
 const press = (type: string, title: string) => act(async () => { await found(type, (p) => p.title === title).props.onPress(); });
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.alerts = []; mock.ids = 0; });
-afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+// Event fixtures are in November 2026; relative labels must not depend on the run date.
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-08T00:00:00Z")); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.alerts = []; mock.ids = 0; });
+afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("asks which dates an edit to a repeating event reaches, in plain words, before opening the editor", async () => {
   setup([event()]);
@@ -699,7 +700,7 @@ describe("adding to the phone's calendar", () => {
 });
 
 it("passes the shown occurrence date to visit capture, including a moved date", async () => {
-  const event = { ...optimisticRecord({ id: "visit", kind: "event", title: "Visit", body: "", child_id: "baby", occurred_at: "2026-11-01T00:00:00Z", data: { category: "appointment", timezone: "UTC", recurrence: { frequency: "weekly" }, exceptions: [{ original_start: "2026-11-08T00:00:00Z", overrides: { start: "2026-11-09T00:00:00Z" } }] } }), revision: 1 };
+  const event = { ...optimisticRecord({ id: "visit", kind: "event", title: "Visit", body: "", child_id: "baby", occurred_at: "2026-11-08T00:00:00Z", data: { category: "appointment", timezone: "UTC", recurrence: { frequency: "weekly" }, exceptions: [{ original_start: "2026-11-08T00:00:00Z", overrides: { start: "2026-11-09T00:00:00Z" } }] } }), revision: 1 };
   setup([event]); mock.params = { id: event.id, at: "2026-11-08T00:00:00Z" };
   await mount(EventDetail);
   expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")[0].props.visit.occurred_at).toBe("2026-11-09T00:00:00.000Z");
