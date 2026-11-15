@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 
-from app.domains.baby.feeds import reduce_feed, retimed, with_derived
+from app.domains.baby.feeds import ordered, reduce_feed, retimed, with_derived
 from app.domains.baby.schemas import RecordCreate
 from app.domains.baby.stats import custom_days, next_side, summarize
 from tests import test_baby_integration as shared
@@ -77,14 +77,18 @@ def test_a_switch_before_the_finish_applies_even_if_it_arrived_after():
     assert reduce_feed([start, finish, switch])["duration_minutes"] == 30
 
 
-def test_timestamp_ties_break_by_id_and_offsets_compare_as_instants():
+def test_timestamp_ties_put_a_finish_last_then_break_by_id_and_offsets_compare_as_instants():
     low, high = UUID(int=1), UUID(int=2)
-    finish_first = [action("start", 0, "left"), action("finish", 10, identifier=low), action("switch", 10, "right", high)]
-    switch_first = [action("start", 0, "left"), action("switch", 10, "right", low), action("finish", 10, identifier=high)]
-    for order in permutations(finish_first):
-        assert reduce_feed(list(order))["side"] == "left"
-    for order in permutations(switch_first):
-        assert reduce_feed(list(order))["side"] == "both"
+    # Whichever id sorts first, a finish at the switch's own instant does not swallow the switch.
+    for finish_id, switch_id in ((low, high), (high, low)):
+        tied = [action("start", 0, "left"), action("finish", 10, identifier=finish_id), action("switch", 10, "right", switch_id)]
+        for order in permutations(tied):
+            result = reduce_feed(list(order))
+            assert result["side"] == "both" and result["segments"][-1]["side"] == "right"
+            assert [item["action"] for item in with_derived({"method": "breast", "actions": list(order)})["actions"]] == ["start", "switch", "finish"]
+    # Among side actions, ids still break the tie.
+    first, second = action("switch", 10, "right", low), action("switch", 10, "left", high)
+    assert [item["id"] for item in ordered([second, first])] == [str(low), str(high)]
     # 22:10 UTC on the 31st is 08:10 in Guam, so it sorts before the 08:20 finish.
     switch = {"id": str(uuid4()), "action": "switch", "at": "2026-10-31T22:10:00Z", "side": "right"}
     assert reduce_feed([action("start", 0, "left"), action("finish", 20), switch])["side"] == "both"

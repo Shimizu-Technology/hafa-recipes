@@ -20,11 +20,22 @@ describe("the reducer gives one result whatever the arrival order", () => {
     for (const order of permutations([start(0), finish(9), swap(10, "right"), finish(12)]))
       expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "left", end_at: at(9), duration_minutes: 9 });
   });
-  it("breaking timestamp ties by action id", () => {
-    const first = finish(5, "a-finish"), second = swap(5, "right", "b-switch");
-    for (const order of permutations([start(0), first, second])) expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "left", end_at: at(5) });
-    const earlier = swap(5, "right", "a-switch"), later = finish(5, "b-finish");
-    for (const order of permutations([start(0), earlier, later])) expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "both", duration_minutes: 5 });
+  it("puts a finish after a side action at the same instant, whichever id sorts first", () => {
+    for (const [finishId, switchId] of [["a-finish", "b-switch"], ["b-finish", "a-switch"]]) {
+      const tied = finish(5, finishId), side = swap(5, "right", switchId);
+      for (const order of permutations([start(0), tied, side])) {
+        expect(orderActions(order).map((a) => a.action)).toEqual(["start", "switch", "finish"]);
+        expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "both", end_at: at(5), duration_minutes: 5 });
+      }
+      // Saving the end at the switch's own instant keeps the switch in the saved side and segments.
+      const saved = withFeedAction({ method: "breast", side: "left", state: "running", actions: [start(0), side] }, tied);
+      expect(saved).toMatchObject({ state: "finished", side: "both", end_at: at(5), duration_minutes: 5 });
+      expect(reduceFeed(saved.actions)?.segments.map((s) => s.side)).toEqual(["left", "right"]);
+    }
+  });
+  it("still breaks ties among side actions by action id", () => {
+    const earlier = swap(5, "right", "a-switch"), later = swap(5, "left", "b-switch");
+    expect(orderActions([later, earlier, finish(5, "0-finish")]).map((a) => a.id)).toEqual(["a-switch", "b-switch", "0-finish"]);
   });
   it("orders by real time, not by the text of a timestamp", () => {
     const zoned: FeedAction = { id: "z", action: "start", at: "2026-11-04T22:00:00+10:00", side: "left" }, utc: FeedAction = { id: "u", action: "finish", at: "2026-11-04T12:30:00Z" };
@@ -147,7 +158,7 @@ describe("matching the API exactly", () => {
     expect(orderActions([second, first]).map((a) => a.id)).toEqual(["z", "a"]);
   });
   it("orders ids as lowercase text, as stored", () => {
-    const upper: FeedAction = { id: "B", action: "switch", at: at(1), side: "right" }, lower: FeedAction = { id: "a", action: "finish", at: at(1) };
+    const upper: FeedAction = { id: "B", action: "switch", at: at(1), side: "right" }, lower: FeedAction = { id: "a", action: "switch", at: at(1), side: "left" };
     expect(orderActions([upper, lower]).map((a) => a.id)).toEqual(["a", "B"]);
   });
   it("gives a feed finished before its start the start's side, not the side stored before", () => {

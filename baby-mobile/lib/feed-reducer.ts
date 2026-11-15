@@ -43,9 +43,13 @@ export function roundMinutes(value: number) {
   return Number(value.toFixed(2));
 }
 
-/** The one order, whatever order actions arrive in: by instant, then id as plain text. */
+/**
+ * The one order, whatever order actions arrive in: by instant, a finish after any side action at that same instant
+ * (so it never swallows a switch it ties with), then id as plain text. Mirrors `ordered` in the API's feeds.py.
+ */
 export function orderActions(actions: readonly FeedAction[]) {
-  return [...actions].sort((a, b) => instant(a.at) - instant(b.at) || byId(a.id, b.id));
+  const ends = (action: FeedAction) => (action.action === "finish" ? 1 : 0);
+  return [...actions].sort((a, b) => instant(a.at) - instant(b.at) || ends(a) - ends(b) || byId(a.id, b.id));
 }
 
 /**
