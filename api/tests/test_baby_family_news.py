@@ -7,7 +7,7 @@ from sqlalchemy import delete, update
 
 from app.domains.baby.family_news import clock_words
 from app.domains.baby.lifecycle import now
-from app.domains.baby.models import BabyNotification, BabyPushDevice
+from app.domains.baby.models import BabyNotification, BabyPushDevice, BabySpaceMember
 from app.domains.baby.reminders import LOCK_SCREEN
 from tests import test_baby_family_records as records
 from tests import test_baby_push_family as push_family
@@ -69,12 +69,19 @@ async def test_birth_news_says_the_name_and_time_and_labor_news_ends_at_the_birt
     assert texts == ["Your family: Mia is here! Born at 11:40 PM."]
 
 
-async def test_birth_news_before_the_birth_date_lands_waits_for_it(family):
+async def test_birth_news_before_the_birth_date_is_refused_until_it_lands_then_pushed(family):
     child = await add_child(family, family.space, due_date=(now() + timedelta(days=2)).date().isoformat())
-    assert (await tell(family, child, ["other"], news="birth")).status_code == 200
-    assert await due(family, "other", family.space) == []
+    same = str(uuid4())
+    early = await tell(family, child, ["other"], news="birth", id=same)
+    # Nothing is queued: the phone keeps the news and sends it again once the birth has synced.
+    assert early.status_code == 409
+    assert early.json()["detail"]["code"] == "not_born"
+    assert await rows_of(family, "family_news") == []
     await family.client.patch(f"{API}/children/{child['id']}", headers=records.headers(family.space, generation=1),
                               json={"revision": child["revision"], "birth_date": now().date().isoformat()})
+    assert (await tell(family, child, ["other"], news="birth", id=same)).status_code == 200
+    await family.worker.tick()
+    assert [message["to"] for message in family.expo.messages] == [phone("other")]
     assert [item["text"] for item in await due(family, "other", family.space)] == ["Your family: Mia is here!"]
 
 
@@ -98,7 +105,10 @@ async def test_a_retry_is_the_same_news_and_a_stuck_button_is_limited(family):
 
 async def test_only_family_members_a_parent_and_never_herself(family):
     child = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
-    assert (await tell(family, child, ["stranger"])).status_code == 422
+    # Someone not in the family is named back, not told; nothing goes.
+    stranger = await tell(family, child, ["stranger"])
+    assert stranger.status_code == 200, stranger.text
+    assert (stranger.json()["sent_to"], stranger.json()["skipped"]) == ([], ["stranger"])
     assert (await tell(family, child, ["owner"])).status_code == 422
     assert (await tell(family, child, ["owner"], actor="sitter", space=family.space)).status_code == 409
     assert await rows_of(family, "family_news") == []
@@ -154,6 +164,42 @@ async def test_everyone_in_the_family_can_see_who_is_expecting(family):
     # On her partner's phone, so the labor card never offers to tell her.
     seen = await family.client.get(API + "/bootstrap", headers=records.headers(family.space, "other", 1))
     assert [kid["created_by"] for kid in seen.json()["children"] if kid["id"] == child["id"]] == ["owner"]
+
+
+async def test_someone_who_left_is_skipped_and_named_and_the_rest_are_told(family):
+    child = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
+    first = str(uuid4())
+    assert (await tell(family, child, ["other", "sitter"], id=first)).status_code == 200
+    async with family.sessions() as db:
+        await db.execute(update(BabySpaceMember).where(BabySpaceMember.app_user_id == "sitter",
+                                                       BabySpaceMember.space_id == family.space).values(status="left"))
+        await db.commit()
+    response = await tell(family, child, ["other", "sitter"])
+    assert response.status_code == 200, response.text
+    assert (response.json()["sent_to"], response.json()["skipped"]) == (["other"], ["sitter"])
+    assert response.json()["push"] == {"other": True}
+    news_id = response.json()["id"]
+    assert sorted(row.app_user_id for row in await rows_of(family, "family_news") if row.payload["news_id"] == news_id) == ["other"]
+    # A retry of the first, sent before she left, is still the same news: nothing changes, and nothing is refused.
+    again = await tell(family, child, ["other", "sitter"], id=first)
+    assert again.status_code == 200, again.text
+    assert (again.json()["sent_to"], again.json()["skipped"]) == (["other", "sitter"], [])
+
+
+async def test_in_quiet_hours_the_sender_learns_when_it_will_come(family):
+    child = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
+    start, end = (now() - timedelta(hours=1)).strftime("%H:%M"), (now() + timedelta(hours=2)).strftime("%H:%M")
+    quiet = await family.client.patch(PREFS, headers=records.headers(family.other_personal, "other", 1), json={
+        "quiet_hours": {"start": start, "end": end, "timezone": "UTC"}, "kinds": {"family_news": {"break_through": False}}})
+    assert quiet.status_code == 200, quiet.text
+    response = await tell(family, child, ["other", "sitter"])
+    assert response.status_code == 200, response.text
+    assert response.json()["push"] == {"other": "after_quiet_hours", "sitter": True}
+    assert set(response.json()["push_after"]) == {"other"}
+    assert response.json()["push_after"]["other"][11:16] == end
+    # Coming through quiet hours, as it does unless she changed it, it's simply on its way.
+    await family.client.patch(PREFS, headers=records.headers(family.other_personal, "other", 1), json={"kinds": {"family_news": {"break_through": True}}})
+    assert (await tell(family, child, ["other"])).json()["push"] == {"other": True}
 
 
 async def test_bootstrap_says_the_api_can_send_it(family):

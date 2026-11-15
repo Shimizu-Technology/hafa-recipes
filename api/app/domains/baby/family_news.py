@@ -2,10 +2,12 @@
 
 The sender chooses each person, every time, from the members of the baby's family space. Nothing is sent
 to anyone outside it, and nothing leaves the app except the push itself, whose lock-screen words are fixed
-and generic like every other kind's. A news row is an ordinary reminder row for its recipient, so delivery,
-quiet hours, retries, Today and dismissal all work as they do for the rest. Its reason is checked again at
-every read: labor news stops once the baby is born, birth news needs the birth date, and both need the
-sender to still be in the family. Either stays on Today for a day at most.
+and generic like every other kind's. Someone she picked who has left the family since is left out and named
+back as `skipped`, so the rest are still told. A news row is an ordinary reminder row for its recipient, so
+delivery, quiet hours, retries, Today and dismissal all work as they do for the rest. Birth news is refused
+(409 not_born) until the birth date is here; the phone keeps it and sends it again once the birth has synced.
+Its reason is checked again at every read: labor news stops once the baby is born, and both need the sender
+to still be in the family. Either stays on Today for a day at most.
 
 Unlike every other kind, this one is on for a recipient until they turn it off: it only ever comes because a
 family member chose to tell them, and a partner who misses "it's time" because of a default has lost it.
@@ -28,7 +30,7 @@ from app.domains.baby.models import (
     BabyPushDevice,
     BabySpaceMember,
 )
-from app.domains.baby.push import available, load_prefs
+from app.domains.baby.push import available, load_prefs, quiet_until
 from app.domains.baby.reminders import (
     LOCK_SCREEN,
     RESOLVERS,
@@ -55,15 +57,31 @@ class FamilyNews(DomainModel):
     to: list[str] = Field(min_length=1, max_length=20)
 
 
-async def will_buzz(db, people):
-    """Whether each person's phone will show it: a phone signed in with notifications allowed, and the news not
-    turned off. Only yes or no, so the sender learns nothing about anyone's phones but what to tell them."""
+async def will_buzz(db, people, moment):
+    """Whether each person's phone will show it, and when: a phone signed in with notifications allowed, and the
+    news not turned off. "after_quiet_hours" when they've let it wait for quiet hours and it's quiet now, with
+    the time it ends in the second map. Nothing else, so the sender learns only what to tell them."""
     phones = set(await db.scalars(select(BabyPushDevice.app_user_id).where(
         BabyPushDevice.app_user_id.in_(people), BabyPushDevice.enabled.is_(True))))
     spaces = dict((await db.execute(select(BabyMembership.app_user_id, BabyMembership.personal_space_id).where(
         BabyMembership.app_user_id.in_(people)))).all())
-    return {person: person in phones and (await load_prefs(db, person, spaces.get(person))).kind(KIND).enabled
-            for person in people}
+    push, after = {}, {}
+    for person in people:
+        prefs = await load_prefs(db, person, spaces.get(person))
+        pref = prefs.kind(KIND)
+        if person not in phones or not pref.enabled:
+            push[person] = False
+        elif not pref.break_through and (ends := quiet_until(prefs.quiet_hours, moment)):
+            push[person], after[person] = "after_quiet_hours", ends.isoformat()
+        else:
+            push[person] = True
+    return push, after
+
+
+async def answer(db, news_id, sent_to, skipped):
+    push, after = await will_buzz(db, sent_to, now())
+    return {"id": str(news_id), "sent_to": sent_to, "skipped": skipped, "push": push,
+            **({"push_after": after} if after else {})}
 
 
 async def active_members(db, space_id):
@@ -83,19 +101,28 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
         raise HTTPException(404, "Baby unavailable")
     if role_in(access, child.space_id) != "parent" or child.space_id == access.personal_space_id:
         raise HTTPException(409, {"code": "no_family", "message": "Only a parent in a family can tell the family"})
+    if body.news == "birth" and child.birth_date is None:
+        raise HTTPException(409, {"code": "not_born", "message": "The birth date isn't here yet; send the news once it is"})
     members = await active_members(db, child.space_id)
-    recipients = list(dict.fromkeys(body.to))
-    if user.id in recipients or any(person not in members for person in recipients):
+    picked = list(dict.fromkeys(body.to))
+    if user.id in picked:
         raise HTTPException(422, "Choose people in this family")
-    # A retry is the same news, to the same people, and changes nothing that was sent or when it ends.
+    # Someone who has left since she picked them is left out, and named back so she knows they weren't told.
+    recipients = [person for person in picked if person in members]
+    skipped = [person for person in picked if person not in members]
+    # A retry is the same news, to the same people, and changes nothing that was sent or when it ends. Anyone
+    # who has left since is named as skipped, rather than the whole retry being refused.
     prior = list(await db.scalars(select(BabyNotification).where(
         BabyNotification.kind == KIND, BabyNotification.payload["news_id"].astext == str(body.id))))
     if prior:
         same = all(row.payload.get("news") == body.news and row.payload.get("child_id") == str(child.id)
                    and row.payload.get("from") == user.id for row in prior)
-        if not same or {row.app_user_id for row in prior} != set(recipients):
+        told = {row.app_user_id for row in prior}
+        if not same or not told <= set(picked) or set(recipients) - told:
             raise HTTPException(409, "This news was already sent with different details")
-        return {"id": str(body.id), "sent_to": recipients, "push": await will_buzz(db, recipients)}
+        return await answer(db, body.id, [person for person in picked if person in told], [person for person in picked if person not in told])
+    if not recipients:
+        return await answer(db, body.id, [], skipped)
     sent = await db.scalar(select(func.count(func.distinct(BabyNotification.payload["news_id"].astext))).where(
         BabyNotification.kind == KIND, BabyNotification.payload["from"].astext == user.id,
         BabyNotification.created_at > now() - timedelta(hours=1),
@@ -109,7 +136,7 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
         await schedule(db, owner=person, space_id=child.space_id, kind=KIND, key=str(body.id), due_at=moment, payload=payload)
     await db.commit()
     baby_push_worker.notify()
-    return {"id": str(body.id), "sent_to": recipients, "push": await will_buzz(db, recipients)}
+    return await answer(db, body.id, recipients, skipped)
 
 
 async def news_words(db, row, access, prefs):
