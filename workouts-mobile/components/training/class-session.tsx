@@ -11,7 +11,7 @@ import { prescriptionLine } from "@/lib/discover";
 import type { ActualSet } from "@/lib/models";
 import { adjustRest, buyInDone, endPart, endRest, isRun, pausePart, resumePart, setRun, skipLeadIn, skipPart, startPart, tapRound, undoTap,
   type ClassRun, type PartResult, type RunEnvironment } from "@/lib/class-session";
-import { classPayload, scoreProblem } from "@/lib/class-scores";
+import { classPayload, scoreProblem, scoredParts } from "@/lib/class-scores";
 import { CopyForWodUp, ScoreEditor } from "@/components/training/score-editor";
 import { classOver, currentPart, endClass, hasBuyIn } from "@/lib/class-training";
 import { buyInMove, partClock, partTitle, restLeft, restLine, roundMoves, visibleRuns } from "@/lib/class-view";
@@ -98,8 +98,10 @@ export function ClassSession(p: ClassSessionProps) {
   const canComplete = over && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
     d.steps.every((s) => d.actuals.some((a) => actualIdentity(a) === s.key));
   const review = over ? classPayload(d.class_run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : null;
-  const unready = review?.results.some((r) => scoreProblem(r) || !r.scaling) ?? false;
-  const save = () => p.finish(canComplete ? "completed" : "partial", review?.results);
+  // Every scored part is reviewed, including one still missing its value; only valid scores are ever sent.
+  const scored = over ? scoredParts(d.class_run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }).map((x) => x.result) : [];
+  const unready = scored.some((r) => scoreProblem(r) || !r.scaling);
+  const save = () => p.finish(canComplete ? "completed" : "partial", scored);
 
   // A set-by-set part logs the prescribed dose, or the timed hold the person just ran.
   const timing = d.interval_started_at != null;
@@ -129,8 +131,8 @@ export function ClassSession(p: ClassSessionProps) {
         })}
       </Card>
       {!canComplete && <Copy kind="small" tone="muted">Skipped parts or sets save this as a partial session.</Copy>}
-      {!!review?.results.length && <SectionHeader title="Your scores" />}
-      {review?.results.map((r) => {
+      {!!scored.length && <SectionHeader title="Your scores" />}
+      {review && scored.map((r) => {
         const b = d.workout.blocks.find((x) => x.id === r.block_id)!;
         return <ScoreEditor key={r.block_id} block={b} result={r} segments={review.segments.filter((s) => s.block_id === r.block_id)}
           onChange={(next) => setEdits((e) => ({ ...e, [r.block_id]: next }))} onRunDistance={(i, m) => p.runDistance(r.block_id, i, m)} />;

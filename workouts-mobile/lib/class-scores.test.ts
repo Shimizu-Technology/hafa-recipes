@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
-import { buyInDone, setRun, skipPart, startPart, tapRound, type PartResult } from "./class-session";
-import { classPayload, cleanScore, parseTime, scoreProblem, wodupText } from "./class-scores";
+import { buyInDone, endPart, planClass, setRun, skipPart, startPart, tapRound, type PartResult } from "./class-session";
+import { classPayload, cleanScore, parseTime, scoreProblem, scoredParts, wodupText } from "./class-scores";
+import { endClass } from "./class-training";
 import { createTrainingStore, unsentProblem } from "./training";
 import { createWorkoutsApi } from "./api";
 import type { SessionRequest, TrainingSession } from "./models";
@@ -128,5 +129,44 @@ describe("sending scores only to a server that takes them", () => {
     expect((await sentBody()).results).toBeUndefined();
     expect((await sentBody(["class_parts_v1"])).recorded_on).toBeUndefined();
     expect((await sentBody(["session_results_v1", "class_parts_v1"])).results).toHaveLength(1);
+  });
+});
+
+describe("review fixes", () => {
+  it("End class ends the part on screen and skips the rest without starting or scoring them", async () => {
+    let now = T0;
+    const store = createTrainingStore(device(), "owner", 1, () => now);
+    await store.load(); store.setLeadIn(10);
+    await store.start(w, { workout_id: w.id, workout_revision: 1 }, "e1", now);
+    await store.classAct(startPart);
+    now = T0 + 5 * min; await store.classAct(endClass);
+    const d = store.snapshot().active!;
+    expect(d.class_run!.parts.map((p) => [p.skipped ?? false, p.started_at != null])).toEqual([[false, true], [true, false], [true, false], [true, false]]);
+    expect(classPayload(d.class_run!, w, now, d.actuals).results.map((r) => r.block_id)).toEqual(["a"]);
+    await expect(store.finish("completed", undefined, "keep", "general_fitness")).rejects.toThrow("partial");
+    // End class during a lead-in skips that part too, so nothing ends in the future.
+    const other = createTrainingStore(device(), "owner", 1, () => now);
+    await other.load(); other.setLeadIn(10);
+    await other.start(w, { workout_id: w.id, workout_revision: 1 }, "e2", now);
+    await other.classAct(startPart); await other.classAct(endClass);
+    expect(other.snapshot().active!.class_run!.parts[0]).toMatchObject({ skipped: true, ended_at: now });
+    await expect(other.finish("partial", undefined, "keep", "general_fitness")).rejects.toThrow("Start a part");
+  });
+  it("asks for the score a part sets (load) and sends none until it's entered", async () => {
+    const scored = { ...w, blocks: [{ ...w.blocks[3], score_kind: "load" as const }, w.blocks[0]] };
+    const run = endPart(startPart(planClass(scored), scored, 0), scored, min);
+    const [first] = scoredParts(run, scored, min, []);
+    expect(first.result).toMatchObject({ block_id: "d", kind: "load" });
+    expect(scoreProblem(first.result)).toMatch("kg or lb");
+    expect(classPayload(run, scored, min, []).results).toEqual([]);
+  });
+  it("keeps scores on a 403 that isn't about heart rate", async () => {
+    const { store } = await classDay();
+    await store.finish("partial", undefined, "keep", "general_fitness");
+    await store.sync(async () => { throw Object.assign(Error("enrollment"), { status: 403 }); });
+    const item = store.snapshot().history[0];
+    expect(item.state).toBe("blocked");
+    expect(item.request.results).toHaveLength(2);
+    expect(item.unsent_results).toBeUndefined();
   });
 });

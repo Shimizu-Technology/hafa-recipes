@@ -13,8 +13,12 @@ const blockOf = (workout: Workout, id: string) => workout.blocks.find((b) => b.i
 export function scoredParts(run: ClassRun, workout: Workout, now: number, actuals: readonly ActualSet[], edits: Record<string, PartResult> = {}) {
   return run.parts.flatMap((part) => {
     const block = blockOf(workout, part.block_id);
-    const fromClock = partScore(block, part, now, {}, actuals);
-    if (!fromClock) return [];
+    const clockScore = partScore(block, part, now, {}, actuals);
+    if (!clockScore) return [];
+    // A part the source scores a set way (say, by load) asks for that score, starting empty.
+    const explicit = block.score_kind && block.score_kind !== "auto" && block.score_kind !== "none" ? block.score_kind : null;
+    const fromClock: PartResult = explicit && clockScore.kind !== explicit ? { block_id: block.id, kind: explicit, origin: clockScore.origin,
+      started_at: clockScore.started_at, ended_at: clockScore.ended_at } : clockScore;
     // Timestamps always come from the clock; the person edits only the score.
     const edit = edits[block.id];
     const result: PartResult = edit ? { ...edit, block_id: block.id, started_at: fromClock.started_at, ended_at: fromClock.ended_at,
@@ -34,7 +38,8 @@ export function restSegments(run: ClassRun, workout: Workout, now: number): Segm
 }
 /** `results` and `segments` for the session request, in part order. */
 export function classPayload(run: ClassRun, workout: Workout, now: number, actuals: readonly ActualSet[], edits: Record<string, PartResult> = {}) {
-  const results = scoredParts(run, workout, now, actuals, edits).map((x) => x.result);
+  // A score still missing its value stays out of the request rather than make the server refuse every score.
+  const results = scoredParts(run, workout, now, actuals, edits).map((x) => x.result).filter((r) => !scoreProblem(r));
   const rests = restSegments(run, workout, now);
   const segments = run.parts.flatMap((part) => [...partSegments(blockOf(workout, part.block_id), part), ...rests.filter((r) => r.block_id === part.block_id)]);
   return { results, segments };

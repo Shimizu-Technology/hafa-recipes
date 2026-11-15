@@ -1,5 +1,5 @@
 import type { Workout } from "./models";
-import { buyIn, classIntervals, endPart, endRest, isTimedPart, partKind, partStatus, resolve, skipPart, type ClassRun, type RunEnvironment } from "./class-session";
+import { buyIn, classIntervals, isTimedPart, partKind, partStatus, resolve, type ClassRun, type RunEnvironment } from "./class-session";
 import { hasOnceOnlyMoves, isUnknownMode } from "./timed-execution";
 import { visibleRuns } from "./class-view";
 
@@ -71,11 +71,24 @@ export function classActive(run: ClassRun, workout: Workout, now: number) {
     seconds: Math.floor(ms / 1000) };
 }
 
-/** "End class": the part on screen ends now, a rest in progress ends, and parts not started are skipped. */
+/**
+ * "End class": the part on screen ends now (or is skipped if its clock hasn't started), any rest ends, and parts
+ * not started are skipped, never started, so they get no score and the class saves as partial.
+ */
 export function endClass(run: ClassRun, workout: Workout, now: number) {
-  for (let guard = 0; guard < run.parts.length * 3 && !classOver(run, workout, now); guard++) {
-    const { status } = currentPart(run, workout, now);
-    run = status === "resting_after" ? endRest(run, workout, now) : status === "pending" ? skipPart(run, workout, now) : endPart(run, workout, now);
+  const next = resolve(run, workout, now);
+  const part = next.parts[next.cursor];
+  const status = partStatus(part, workout.blocks.find((b) => b.id === part.block_id)!, now);
+  if (status === "pending" || status === "lead_in") {
+    Object.assign(part, { skipped: true, ended_at: now });
+    delete part.started_at; delete part.lead_in_ms;
+  } else if (status === "running" || status === "paused") {
+    const open = part.pauses.find((p) => p.until == null);
+    if (open) open.until = now;
+    part.ended_at = now;
   }
-  return run;
+  if (!part.skipped) part.rest_ended_at ??= now;
+  for (const later of next.parts.slice(next.cursor + 1)) Object.assign(later, { skipped: true, ended_at: now });
+  next.cursor = next.parts.length - 1;
+  return next;
 }

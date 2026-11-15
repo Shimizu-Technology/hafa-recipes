@@ -483,7 +483,8 @@ export function createTrainingStore(
         // Two results rejected the same way in a row look like a service-wide problem,
         // not a problem with each result; keep the rest queued for a later retry.
         const transient = stoppedHere === true || isTransientSyncError(status) || previousRejection === status;
-        if (!transient && (status === 422 || status === 403) && carriesResults(item.request)) {
+        // A 403 is about the scores only when heart rate went with them (its storage was turned off); otherwise it's the account.
+        if (!transient && (status === 422 || (status === 403 && item.request.heart_rate != null)) && carriesResults(item.request)) {
           // Never strand a session over its optional scores: save it without them now, and keep them on the
           // device so the person can see them and correct the score later.
           await update((s) => {
