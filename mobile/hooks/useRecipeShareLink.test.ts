@@ -5,11 +5,21 @@ vi.mock('@/lib/api', () => ({ api: { listRecipeShareLinks: m.list, getRecipeShar
 vi.mock('@/hooks/useRecipeQuery', () => ({ useRecipeQuery: vi.fn(), useRecipeMutation: vi.fn(), useRecipeQueryClient: vi.fn() }));
 vi.mock('expo-secure-store', () => ({ WHEN_UNLOCKED_THIS_DEVICE_ONLY: 1, getItemAsync: vi.fn(), setItemAsync: vi.fn(), deleteItemAsync: vi.fn() }));
 
-import { findActiveRecipeLinks, usableStoredLink } from './useRecipeShareLink';
+import { scopedRecipeKey } from '@/lib/recipeQueryScope';
+import { findActiveRecipeLinks, recipeShareLinkKeys, usableStoredLink } from './useRecipeShareLink';
 
 const summary = (id: string) => ({ recipe_id: id, title: `Recipe ${id}`, thumbnail_url: null, created_at: `2026-11-16T03:00:0${id.length}Z` });
 
 beforeEach(() => vi.clearAllMocks());
+
+describe('share link query keys', () => {
+  it('are the owner-scoped keys the recipe queries observe, so cache writes reach the sheet', () => {
+    for (const key of [recipeShareLinkKeys.status('r1'), recipeShareLinkKeys.device('r1'), recipeShareLinkKeys.active()]) {
+      expect(key.length).toBeGreaterThan(3);
+      expect(scopedRecipeKey(key)).toEqual(key);
+    }
+  });
+});
 
 describe('link kept on this phone', () => {
   const stored = { url: 'https://hafa-recipes.com/r/key', createdAt: '2026-11-16T03:00:00Z' };
