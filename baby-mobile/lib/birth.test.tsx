@@ -130,6 +130,35 @@ describe("family news", () => {
     expect(state.pendingNews).toHaveLength(0);
     expect(late.dropped[0].message).toBe("Your news to Leon couldn’t be sent within a day, so it wasn’t. Tell them another way.");
   });
+  it("keeps who \"the other parents\" turned out to be before sending, so a retry is the same news to the same people", async () => {
+    let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: [], parents: true, queued_at: new Date().toISOString() });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    let family: FamilyNow = { active: ["kami", "leon"], parents: ["leon"], names: { leon: "Leon" } };
+    // The first answer is lost on the way back.
+    const send = vi.fn(async () => { throw new ApiError("offline", 0, true); });
+    await sendPending(state, send, commit, async () => family);
+    expect(state.pendingNews).toMatchObject([{ id: "n", to: ["leon"], names: { leon: "Leon" } }]);
+    expect(state.pendingNews![0].parents).toBeUndefined();
+    // Someone joins before the retry: it still goes to Leon alone, as the API already has it.
+    family = { active: ["kami", "leon", "tita"], parents: ["leon", "tita"], names: { leon: "Leon", tita: "Tita" } };
+    const again = vi.fn(async () => ({ sent_to: ["leon"] }));
+    await sendPending(state, again, commit, async () => family);
+    expect(again).toHaveBeenCalledWith({ id: "n", news: "labor", child_id: "c", to: ["leon"] });
+  });
+  it("a write that fails partway still says what already happened", async () => {
+    const old = "2026-11-01T00:00:00.000Z";
+    let state = queueNews(queueNews(emptyState(), { id: "a", news: "labor", child_id: "c", to: ["leon"], queued_at: old, names: { leon: "Leon" } }),
+      { id: "b", news: "labor", child_id: "c", to: ["nana"], queued_at: old, names: { nana: "Grandma" } });
+    let writes = 0;
+    const commit = async (change: (s: DeviceState) => DeviceState) => {
+      if (++writes > 1) throw Error("Storage full");
+      state = change(state);
+    };
+    const { dropped } = await sendPending(state, vi.fn(), commit);
+    // The first was let go and is said; the second couldn't be, so it's still on the phone and nothing is said of it.
+    expect(dropped.map((one) => one.item.id)).toEqual(["a"]);
+    expect(state.pendingNews!.map((one) => one.id)).toEqual(["b"]);
+  });
   it("too many this hour, or the birth not on the API yet: kept, and tried again later", async () => {
     const at = new Date().toISOString(), now = Date.now();
     let state = queueNews(queueNews(emptyState(), { id: "busy", news: "labor", child_id: "c", to: ["leon"], queued_at: at }),
@@ -234,8 +263,14 @@ describe("the screen", () => {
     m.baby = { owner: "kami", get state() { return state; }, sync: vi.fn(), api: { familyMembers: vi.fn(async () => ({ items: people })) },
       commit: vi.fn(async (change: (s: DeviceState) => DeviceState) => { state = change(state); }) };
   }
-  beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); m.toast.mockClear(); m.back.mockClear(); m.params = { id: "c" }; m.reader = false; setup(); });
-  afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); m.toast.mockClear(); m.back.mockClear(); m.params = { id: "c" }; m.reader = false; setup();
+    // One fixed moment for every screen test (Dec 10, noon in Guam), so none depends on the day it's run. The tests
+    // about a day's edge set their own.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-12-10T02:00:00.000Z"));
+  });
+  afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); });
   const mount = async () => { await act(async () => { renderer = create(<Birth />); }); };
   const save = () => act(async () => { await all("Screen")[0].props.footer.props.onPress(); });
 
@@ -269,6 +304,43 @@ describe("the screen", () => {
     m.baby.state.bootstrap.children = [baby];
     await mount();
     expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Kami", false], ["Grandma", false]]);
+  });
+  it("opened for a baby who's no longer on this phone, it says so and records nothing on another baby", async () => {
+    const other = { ...baby, id: "other", name: "Leo" } as Child;
+    m.baby.state.bootstrap.children = [other];
+    await mount();
+    expect(all("Notice")[0].props.children).toContain("This baby’s profile isn’t on this phone any more");
+    expect(all("Screen")[0].props.footer).toBeUndefined();
+    expect(all("Field")).toHaveLength(0);
+    expect(m.baby.state.outbox).toHaveLength(0);
+  });
+  it("opened with no baby named, it takes the one still expected", async () => {
+    m.params = {};
+    m.baby.state.bootstrap.children = [{ ...baby, id: "born", birth_date: "2026-01-01" }, baby];
+    await mount();
+    await save();
+    expect(m.baby.state.outbox[0]).toMatchObject({ type: "child_birth", child_id: "c" });
+  });
+  it("unticking \"Your partner\" while the family is loading stays unticked once it's read", async () => {
+    let finish!: (value: { items: FamilyMember[] }) => void;
+    m.baby.api.familyMembers = vi.fn(() => new Promise((done) => { finish = done; }));
+    await mount();
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Your partner", true]]);
+    await act(async () => { all("Choice")[0].props.onPress(); });
+    await act(async () => { finish({ items: people }); });
+    // Leon is listed, and not ticked: her "no" stands.
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Leon", false], ["Grandma", false]]);
+    await save();
+    expect(m.baby.state.pendingNews ?? []).toHaveLength(0);
+  });
+  it("ticked again while loading, it's her partners once the family's read", async () => {
+    let finish!: (value: { items: FamilyMember[] }) => void;
+    m.baby.api.familyMembers = vi.fn(() => new Promise((done) => { finish = done; }));
+    await mount();
+    await act(async () => { all("Choice")[0].props.onPress(); });
+    await act(async () => { all("Choice")[0].props.onPress(); });
+    await act(async () => { finish({ items: people }); });
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Leon", true], ["Grandma", false]]);
   });
   it("starts with no time, and sends one only if she chose it", async () => {
     await mount();

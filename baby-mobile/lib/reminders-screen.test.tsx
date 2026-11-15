@@ -18,6 +18,7 @@ vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/reminder-permission", () => import("./reminder-permission"));
 vi.mock("@/lib/reminder-prefs", () => import("./reminder-prefs"));
 vi.mock("./reminders", () => ({ requestReminders: vi.fn(async () => {}) }));
+import * as reminders from "./reminders";
 import Reminders from "../app/reminders";
 
 let view: ReactTestRenderer;
@@ -106,6 +107,23 @@ describe("Reminders", () => {
     await act(async () => { await scope.alerts[0][2][1].onPress(); });
     expect(b.registerPush).toHaveBeenCalled();
     expect(row()).toBeUndefined();
+  });
+  it("refused at the phone for good: the row gives way to opening Settings", async () => {
+    const b = account({}, [{ id: "f", kind: "family", role: "parent", generation: 1, access_version: 1 }]);
+    b.state.bootstrap.reminders = { push: true, family_news: true };
+    b.state.reminderPrefs.kinds.family_news = { ...off, enabled: true };
+    await render();
+    await rerender();
+    const rows = () => view.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title);
+    await act(async () => { view.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.title === "Turn on notifications")!.props.onPress(); });
+    // She says Continue, and the phone's own question is refused: it can't be asked again.
+    scope.permissions = { granted: false, canAskAgain: false };
+    vi.mocked(reminders.requestReminders).mockRejectedValueOnce(Error("Notifications are off."));
+    await act(async () => { await scope.alerts[0][2][1].onPress(); });
+    await rerender();
+    expect(rows()).not.toContain("Turn on notifications");
+    expect(rows()).toContain("Open notification settings");
+    expect(b.registerPush).not.toHaveBeenCalled();
   });
   it("doesn't offer it once the phone allows notifications", async () => {
     const b = account({}, [{ id: "f", kind: "family", role: "parent", generation: 1, access_version: 1 }]);

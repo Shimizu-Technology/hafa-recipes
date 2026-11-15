@@ -358,6 +358,19 @@ describe("joining with a code", () => {
     expect(state.newsAskSeen).toBe(true);
     expect(b.registerPush).toHaveBeenCalled();
   });
+  it("doesn't ask again on joining if she's already answered on this phone", async () => {
+    const b = setup();
+    b.state.bootstrap.reminders = { push: true, family_news: true };
+    b.state.newsAskSeen = true;
+    b.registerPush = vi.fn(async () => true);
+    f.paste.mockResolvedValue(code);
+    await open();
+    await press("I have a code");
+    await press("Paste");
+    await press("Join this family");
+    expect(b.api.acceptInvite).toHaveBeenCalled();
+    expect(f.notify).not.toHaveBeenCalled();
+  });
   it("says something that isn't a code isn't one, without asking the API", async () => {
     const b = setup();
     f.paste.mockResolvedValue("the grocery list");

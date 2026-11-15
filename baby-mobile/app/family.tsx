@@ -186,7 +186,8 @@ function Join({ link, onBack }: { link: string | null; onBack: () => void }) {
       await b.refresh();
       void b.sync();
       // A new parent is who "it's time" is for: asked here, once, with the reason. Reminders has it later.
-      if (preview?.role === "parent" && b.state.bootstrap?.reminders?.family_news) void askNewsOnJoin(b);
+      // Not if she's already answered it on this phone ("Not now" stays answered); Reminders keeps the way back.
+      if (preview?.role === "parent" && b.state.bootstrap?.reminders?.family_news && !b.state.newsAskSeen) void askNewsOnJoin(b);
     } catch (failure) {
       if (failure instanceof PhonesNotReady) setReadiness(failure.readiness);
       else setError(codeProblem(failure));
