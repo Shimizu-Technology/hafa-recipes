@@ -49,6 +49,7 @@ import {
   pendingRecords,
   replaceRecord,
   shouldRetry,
+  birthExtrasPending,
   advancePending,
   advanceAfterImport,
   birthStep,
@@ -470,9 +471,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
             });
             if (!taken) continue;
             let saved = server!;
-            if (step === "send") {
+            // The date may already be there from the other phone, with her name and time for the baby still to go.
+            if (step === "send" || birthExtrasPending(server!, next)) {
               try {
-                saved = await api.child({ id: server!.id, birth_date: next.birth_date, revision: server!.revision }, rowFence(server!, next.generation));
+                saved = await api.child({ id: server!.id, birth_date: next.birth_date, revision: server!.revision,
+                  ...(next.name ? { name: next.name } : {}), ...(next.details ? { details: next.details } : {}) }, rowFence(server!, next.generation));
               } catch (failure) {
                 if (!(failure instanceof ApiError && !failure.local && failure.status === 409) || !current()) throw failure;
                 // Something else on this child moved. The next pass reads it again and sends the date at its new revision.
