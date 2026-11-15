@@ -315,6 +315,43 @@ describe('classified image recovery', () => {
     await act(async () => renderer.unmount());
   });
 
+  it.each([true, false])('carries one composer confirmation into one import (public=%s)', async approved => {
+    mocks.realInbox = true;
+    await importInbox.hydrate();
+    for (const entry of importInbox.snapshot()) await importInbox.remove(entry.id);
+    mocks.requestPublishing.mockResolvedValueOnce(approved);
+    mocks.extraction.startExtraction.mockResolvedValue({ jobId: 'composer-job' });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<><ExtractScreen /><InboxProcessor /></>); });
+    try {
+      await act(async () => renderer.root.findByProps({ placeholder: 'Paste a recipe link' }).props.onChangeText('https://example.com/composer'));
+      await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Import Recipe')!.props.onPress());
+      expect(mocks.requestPublishing).toHaveBeenCalledOnce();
+      expect(mocks.extraction.startExtraction).toHaveBeenCalledExactlyOnceWith(
+        { url: 'https://example.com/composer', location: 'Guam', notes: '', is_public: approved },
+        'share:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+      expect(importInbox.snapshot()[0]).toMatchObject({ ownerId: 'owner-a', state: 'accepted', jobId: 'composer-job' });
+      expect(importInbox.snapshot()[0].publicConfirmed).toBeUndefined();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('does not carry composer approval to a changed request', async () => {
+    let approve!: (value: boolean) => void;
+    mocks.requestPublishing.mockImplementationOnce(() => new Promise<boolean>(resolve => { approve = resolve; }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    try {
+      const input = () => renderer.root.findByProps({ placeholder: 'Paste a recipe link' });
+      await act(async () => input().props.onChangeText('https://example.com/a'));
+      let submit!: Promise<void>;
+      await act(async () => { submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Import Recipe')!.props.onPress(); });
+      await act(async () => input().props.onChangeText('https://example.com/b'));
+      await act(async () => { approve(true); await submit; });
+      expect(mocks.addInbox).not.toHaveBeenCalled();
+      expect(input().props.value).toBe('https://example.com/b');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
   it.each(['failed', 'expired', 'processing'] as const)('confirms cancellation for selected %s imports and retains the composer', async (status) => {
     mocks.extraction.jobId = 'selected-attempt';
     mocks.extraction.isFailed = status !== 'processing';
@@ -650,7 +687,8 @@ describe('classified image recovery', () => {
     await act(async () => renderer!.unmount());
   });
 
-  it.each(['duplicate', 'storage'] as const)('retains B while intake A awaits %s', async (boundary) => {
+  it.each(['duplicate', 'storage'] as const)('retains B while private intake A awaits %s', async (boundary) => {
+    mocks.preferences.isPublic = false;
     let finish!: () => void;
     if (boundary === 'duplicate') mocks.checkDuplicate.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ exists: false }); }));
     else mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>((resolve) => { finish = () => resolve(undefined); }));

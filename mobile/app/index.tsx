@@ -503,10 +503,14 @@ function ExtractScreenContent() {
     const draft = { url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId };
     if (currentDraft.current.ownerId !== draft.ownerId) return;
     let requestedPublic = draft.isPublic;
-    if (requestedPublic && !(await requestPublishing())) {
-      if (!didChoosePrivate() || JSON.stringify(currentDraft.current) !== JSON.stringify(draft)) return;
-      requestedPublic = false;
-      setIsPublic(false);
+    if (requestedPublic) {
+      const approved = await requestPublishing();
+      if (JSON.stringify(currentDraft.current) !== JSON.stringify(draft)) return;
+      if (!approved) {
+        if (!didChoosePrivate()) return;
+        requestedPublic = false;
+        setIsPublic(false);
+      }
     }
 
     try {
@@ -524,7 +528,8 @@ function ExtractScreenContent() {
       await importInbox.add({
         id: Crypto.randomUUID(), ownerId: inbox.ownerId,
         capture: { kind: 'url', url: importUrl }, createdAt: Date.now(), state: 'ready',
-        request: { url: importUrl, location: selectedLocation, notes: notes.trim(), is_public: requestedPublic },
+        publicConfirmed: requestedPublic,
+        request: { url: importUrl, location: draft.selectedLocation, notes: draft.notes.trim(), is_public: requestedPublic },
       });
       if (JSON.stringify({ ...currentDraft.current, isPublic: draft.isPublic }) === JSON.stringify(draft)) {
         setUrl('');

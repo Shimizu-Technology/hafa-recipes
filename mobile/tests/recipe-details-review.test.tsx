@@ -90,6 +90,25 @@ describe('recipe editor draft preservation', () => {
       expect(mocks.editorSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ is_public: true }) }));
     } finally { await act(async () => tree.unmount()); }
   });
+  it('confirms the changed preview after approving a different title', async () => {
+    mocks.editorRecipe = { ...recipe, is_public: false };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    try {
+      const title = () => host(tree, 'TextInput', p => p.placeholder === 'Recipe name')[0];
+      await act(async () => title().props.onChangeText('A'));
+      await act(async () => host(tree, 'TouchableOpacity', p => p.accessibilityLabel === 'Private recipe. Tap to publish.')[0].props.onPress());
+      expect(mocks.requestPublishing).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('“A”'));
+      await act(async () => title().props.onChangeText('B'));
+      let approve!: (value: boolean) => void;
+      mocks.requestPublishing.mockImplementationOnce(() => new Promise<boolean>(resolve => { approve = resolve; }));
+      await act(async () => { void host(tree, 'TouchableOpacity')[0].props.onPress(); });
+      expect(mocks.requestPublishing).toHaveBeenLastCalledWith(expect.stringContaining('“B”'));
+      expect(mocks.editorSubmit).not.toHaveBeenCalled();
+      await act(async () => approve(true));
+      expect(mocks.editorSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ title: 'B', is_public: true }) }));
+    } finally { await act(async () => tree.unmount()); }
+  });
   it('keeps unsaved scalar, ingredient, and step edits when a foreground refetch replaces the recipe object', async () => {
     mocks.editorRecipe = { ...recipe, is_public: false };
     let tree!: ReactTestRenderer;

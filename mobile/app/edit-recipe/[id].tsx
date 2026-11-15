@@ -493,7 +493,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
     },
   });
 
-  const publishingConfirmed = useRef(false);
+  const approvedPublishingPreview = useRef<string | null>(null);
 
   const publishPreview = () => {
     try {
@@ -514,13 +514,16 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
       return;
     }
 
-    if (snapshot.data.is_public && (capture || !recipe?.is_public) && !publishingConfirmed.current) {
+    if (snapshot.data.is_public && (capture || !recipe?.is_public) && (!snapshot.publishingPreview || approvedPublishingPreview.current !== snapshot.publishingPreview)) {
       if (!snapshot.publishingPreview) return;
       if (!(await requestPublishing(snapshot.publishingPreview))) {
         if (!didChoosePrivate()) return;
+        approvedPublishingPreview.current = null;
         setIsPublic(false);
         snapshot = { ...snapshot, data: { ...snapshot.data, is_public: false },
           captureRequest: snapshot.captureRequest ? { ...snapshot.captureRequest, is_public: false } : undefined };
+      } else {
+        approvedPublishingPreview.current = snapshot.publishingPreview;
       }
     }
     if (alive.current) editMutation.mutate(snapshot);
@@ -792,7 +795,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
           : 'Making it private will remove it from Discover when you save.',
         [
           { text: 'Keep public', style: 'cancel' },
-          { text: 'Make private', style: 'destructive', onPress: () => { publishingConfirmed.current = false; setIsPublic(false); } },
+          { text: 'Make private', style: 'destructive', onPress: () => { approvedPublishingPreview.current = null; setIsPublic(false); } },
         ],
       );
       return;
@@ -801,7 +804,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
     if (!capture && recipe?.is_public) { setIsPublic(true); return; }
     const preview = publishPreview();
     if (preview && await requestPublishing(preview)) {
-      publishingConfirmed.current = true;
+      approvedPublishingPreview.current = preview;
       setIsPublic(true);
     }
   };
