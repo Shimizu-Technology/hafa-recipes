@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from app.domains.workouts.export_context import SnapshotSourceContext
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from pydantic import AwareDatetime, Field, StrictBool, model_validator
+from pydantic import AwareDatetime, Field, PrivateAttr, StrictBool, model_validator
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -958,6 +958,8 @@ class ActiveInterval(DomainModel):
 
 
 class SessionRequest(DomainModel):
+    _sync_warnings: list[str] = PrivateAttr(default_factory=list)
+    _legacy_active_intervals: list[dict] | None = PrivateAttr(default=None)
     heart_rate: HeartRateSummary | None = Field(default=None, exclude_if=lambda v: v is None)
     results: list[PartResult] = Field(default_factory=list, max_length=100, exclude_if=lambda v: not v)
     segments: list[Segment] = Field(default_factory=list, max_length=500, exclude_if=lambda v: not v)
@@ -999,6 +1001,7 @@ class SessionRequest(DomainModel):
                 raise ValueError("Active intervals require a recorded active duration")
             previous_end = self.started_at
             duration = 0
+            retained, legacy = [], []
             for interval in self.active_intervals:
                 if not inside_interval(interval, self.started_at, self.finished_at) or interval.started_at < previous_end - CLOCK_SKEW:
                     raise ValueError(
@@ -1006,8 +1009,16 @@ class SessionRequest(DomainModel):
                     )
                 interval.started_at = max(previous_end, interval.started_at)
                 interval.ended_at = max(interval.started_at, interval.ended_at)
+                legacy.append(interval.model_dump(mode="json"))
+                if interval.ended_at == interval.started_at:
+                    continue
+                retained.append(interval)
                 duration += (interval.ended_at - interval.started_at).total_seconds()
                 previous_end = interval.ended_at
+            if len(retained) != len(self.active_intervals):
+                self._legacy_active_intervals = legacy
+                self._sync_warnings = ["Empty active intervals caused by clock skew were removed."]
+                self.active_intervals = retained
             if abs(duration - self.active_seconds) > CLOCK_SKEW.total_seconds():
                 raise ValueError("Active intervals must match the recorded active duration")
             if abs(duration - self.active_seconds) > 1:
@@ -1032,6 +1043,7 @@ class SessionRequest(DomainModel):
 
 
 class SessionResponse(DomainModel):
+    warnings: list[str] = Field(default_factory=list, exclude_if=lambda v: not v)
     results_summary: list[dict] = Field(default_factory=list, exclude_if=lambda v: not v)
     id: UUID
     generation: int
@@ -1040,8 +1052,9 @@ class SessionResponse(DomainModel):
     created_at: datetime
 
 
-def session_response(row):
+def session_response(row, warnings=()):
     return SessionResponse(
+        warnings=list(warnings),
         id=row.id,
         generation=row.generation,
         client_session_id=row.client_session_id,
@@ -1109,12 +1122,16 @@ async def record_session(
         )
     )
     if existing:
-        if existing.request_hash != digest:
+        legacy_digest = None
+        if request._legacy_active_intervals is not None:
+            legacy_content = {**content, "active_intervals": request._legacy_active_intervals}
+            legacy_digest = hashlib.sha256(json.dumps(legacy_content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        if existing.request_hash not in {digest, legacy_digest}:
             raise HTTPException(
                 409, "Client session identity was already used for different actuals"
             )
         response.status_code = 200
-        return session_response(existing)
+        return session_response(existing, request._sync_warnings)
     if request.supersedes_session_id:
         previous = await owned_record(
             db, WorkoutsSession, request.supersedes_session_id, user.id, generation
@@ -1192,7 +1209,7 @@ async def record_session(
 
     await write_part_results(db, row)
     await db.commit()
-    return session_response(row)
+    return session_response(row, request._sync_warnings)
 
 
 class ConsentRequest(DomainModel):
