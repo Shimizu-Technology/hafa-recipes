@@ -13,6 +13,7 @@ vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/components/call-contact", () => ({ CallContact: "CallContact" }));
+vi.mock("../components/expecting-ask", () => ({ ExpectingAsk: "ExpectingAsk" }));
 vi.mock("@/lib/contractions", () => import("./contractions"));
 vi.mock("@/lib/medical-wording", () => import("./medical-wording"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
@@ -280,7 +281,7 @@ it("reads as Kami's contractions on her partner's phone, and plain Contractions 
     { app_user_id: "leon", role: "parent", status: "active", access_version: 1, display_name: "Leon" }] });
   Object.assign(b.state.bootstrap!, { people: { kami: "Kami", leon: "Leon" }, reminders: { push: true, family_news: true },
     spaces: [{ id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }] });
-  Object.assign(b.state.bootstrap!.children[0], { created_by: "kami", space_id: "fam" });
+  Object.assign(b.state.bootstrap!.children[0], { details: { expecting_member: "kami", expecting_confirmed: true }, space_id: "fam" });
   Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people("parent")) } });
   await mount();
   expect(title()).toBe("Kami’s contractions");
@@ -289,12 +290,19 @@ it("reads as Kami's contractions on her partner's phone, and plain Contractions 
   await mount();
   expect(title()).toBe("Contractions");
   await act(async () => renderer!.unmount());
-  // Kami isn't a parent here (or the family can't be read): no guessing.
+  // Kami isn't a parent here: the answer doesn't hold, so no guessing.
   Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people("caregiver")) } });
   await mount();
   expect(title()).toBe("Contractions");
   await act(async () => renderer!.unmount());
+  // With no signal, the family's answer on this phone still stands.
   Object.assign(b, { api: { ...b.api, familyMembers: vi.fn(async () => { throw new Error("offline"); }) } });
+  await mount();
+  expect(title()).toBe("Kami’s contractions");
+  await act(async () => renderer!.unmount());
+  // Nobody has said, and Leon's own phone can't guess: everyday words.
+  b.state.bootstrap!.children[0].details = { expecting_member: "leon", expecting_confirmed: false };
+  Object.assign(b, { api: { ...b.api, familyMembers: vi.fn(async () => people("parent")) } });
   await mount();
   expect(title()).toBe("Contractions");
 });

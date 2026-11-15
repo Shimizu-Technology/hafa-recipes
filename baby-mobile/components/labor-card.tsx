@@ -5,11 +5,12 @@ import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import type { Child } from "../lib/models";
 import { callLines, contactsOn, deliveryMatters } from "../lib/contacts";
-import { defaultRecipients, memberName, newsAbout, newsAvailable, queueNews, recipientWords, tellable, withoutNews } from "../lib/family-news";
+import { defaultRecipients, memberName, newsAvailable, queueNews, recipientWords, tellable, withoutNews } from "../lib/family-news";
 import type { FamilyMember } from "../lib/family";
 import { familySpaces, isCaregiver } from "../lib/spaces";
 import { findBag, packedLine } from "../lib/hospital-bag";
-import { supporting, whenToCall } from "../lib/labor";
+import { laborView, whenToCall } from "../lib/labor";
+import { ExpectingAsk } from "./expecting-ask";
 import { undoShown } from "../lib/running-feed";
 import { CallContact } from "@/components/call-contact";
 import { MedicalSource } from "./medical-source";
@@ -27,7 +28,7 @@ export function useLaborFamily(child: Child | null) {
     b.api.familyMembers(family!.id).then(({ items }) => { if (alive) setMembers(items); }).catch(() => { if (alive) setUnread(true); });
     return () => { alive = false; };
   }, [canTell, family?.id]);
-  return { family, canTell, members, unread, support: supporting(child, b.owner, bootstrap?.people, members) };
+  return { family, canTell, members, unread, ...laborView(child, b.owner, bootstrap?.people, { inFamily: !!family, members }) };
 }
 export type LaborFamily = ReturnType<typeof useLaborFamily>;
 
@@ -36,16 +37,16 @@ export type LaborFamily = ReturnType<typeof useLaborFamily>;
  * she saved, and the bag. Nothing here reads the timer and says it's time; that's her care team's call.
  *
  * On Leon's phone it's a support view: when to call reads about Kami by name, and Kami isn't ticked for the news.
- * Whose labor it is comes from who added the pregnancy (`created_by`), so it fails soft: the support words only when
- * that person is clearly the other parent in this family, and nobody is ever left out of the list.
+ * Whose labor it is is the family's word (`expecting_member`). Until it's said, this asks once, the words are
+ * everyday ones and nobody is ticked; and nobody is ever left out of the list.
  */
 export function LaborCard({ child, today, running, week, family: known }: { child: Child | null; today: Date; running: boolean; week?: number; family: LaborFamily }) {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap, bag = findBag(b.records),
-    { family, canTell, support, unread } = known, members = known.members ? tellable(known.members, b.owner) : null,
-    // Someone else added the pregnancy: with no signal, "your partner" might mean her, so it isn't offered.
-    maybeHers = !!child?.created_by && child.created_by !== b.owner;
+    { family, canTell, unread, who, voice } = known, members = known.members ? tellable(known.members, b.owner) : null,
+    // Someone else is expecting: with no signal, "your partner" would mean her, so it isn't offered.
+    maybeHers = !!who.id && who.id !== b.owner;
   const [choosing, setChoosing] = useState(false), [picked, setPicked] = useState<string[]>([]), [told, setTold] = useState(""), sending = useRef(false);
-  const partners = members ? defaultRecipients(members, b.owner, newsAbout(child)) : [], others = (members ?? []).filter((member) => !partners.includes(member.app_user_id));
+  const partners = members ? defaultRecipients(members, b.owner, who.id) : [], others = (members ?? []).filter((member) => !partners.includes(member.app_user_id));
   /** No list means no signal: "the other parents" are looked up as it goes. It waits out Undo first, so Undo really takes it back. */
   async function tell(to: string[] | "parents") {
     if (!child || !to.length || sending.current) return;
@@ -54,21 +55,23 @@ export function LaborCard({ child, today, running, week, family: known }: { chil
       // Only the partner button says "Told …": telling Grandma mustn't relabel the button that tells Leon.
       partner = to === "parents" || to === partners;
     try {
-      // As long as Undo is really on screen, however long that is for her: VoiceOver keeps it up longer.
-      const shown = undoShown(await AccessibilityInfo.isScreenReaderEnabled().catch(() => false));
+      // As long as Undo is really on screen, however long that is for her (VoiceOver keeps it up longer). One moment
+      // for both, so the news always leaves after Undo has gone.
+      const until = Date.now() + undoShown(await AccessibilityInfo.isScreenReaderEnabled().catch(() => false));
       await b.commit((s) => queueNews(s, { id, news: "labor", child_id: child.id, to: to === "parents" ? [] : to, ...(to === "parents" ? { parents: true } : {}),
-        queued_at: new Date().toISOString(), hold_until: new Date(Date.now() + shown + 500).toISOString(),
+        queued_at: new Date().toISOString(), hold_until: new Date(until + 500).toISOString(),
         names: Object.fromEntries((members ?? []).map((member) => [member.app_user_id, memberName(member)])) }));
       tap("success");
       if (partner) setTold(who);
       setChoosing(false); setPicked([]);
       toast(to === "parents" ? `${who} will be told once you’re back online.` : `Telling ${who}.`,
-        { label: "Undo", until: Date.now() + shown, onPress: () => void b.commit((s) => withoutNews(s, id)).then(() => { if (partner) setTold(""); }) });
+        { label: "Undo", until, onPress: () => void b.commit((s) => withoutNews(s, id)).then(() => { if (partner) setTold(""); }) });
     } catch { toast("That couldn’t be kept on this phone. Try again."); }
     finally { sending.current = false; }
   }
   const lines = callLines(bootstrap, today).filter((line) => line.key === "delivery" || line.key === "doctor");
   return <Section title="When it’s time">
+    {canTell && who.ask && !!known.members && <ExpectingAsk child={child!} members={known.members} />}
     {/* No signal: "your partner" on her phone. On his, the family can't be read to know who else there is. */}
     {canTell && !members && unread && !maybeHers && <Button title={told ? "Told your partner. Tell again" : "Tell your partner"} icon="notifications-outline"
       onPress={() => void tell("parents")} />}
@@ -85,7 +88,7 @@ export function LaborCard({ child, today, running, week, family: known }: { chil
       detail="Settings, then Family" onPress={() => router.push("/family")} />}
     <View style={{ gap: 2 }}>
       <Copy kind="label">When to call</Copy>
-      {whenToCall(week, support?.name || undefined).map((line) => <View key={line.text} style={{ gap: 0 }}>
+      {whenToCall(week, voice).map((line) => <View key={line.text} style={{ gap: 0 }}>
         <Copy kind="small">{line.text}</Copy>
         <MedicalSource source={line.source.name} url={line.source.url} />
       </View>)}

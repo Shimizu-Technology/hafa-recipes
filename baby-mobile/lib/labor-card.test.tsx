@@ -12,12 +12,14 @@ vi.mock("expo-router", () => ({ router: { push: m.push } }));
 vi.mock("@/lib/context", () => ({ useBaby: () => m.baby }));
 vi.mock("@/components/call-contact", () => ({ CallContact: "CallContact" }));
 vi.mock("../components/medical-source", () => ({ MedicalSource: "MedicalSource" }));
+vi.mock("../components/expecting-ask", () => ({ ExpectingAsk: "ExpectingAsk" }));
 vi.mock("../components/ui", () => ({ Button: "Button", Choice: "Choice", Copy: "Copy", QuietRow: "QuietRow", Row: "Row", Section: "Section",
   tap: vi.fn(), useToast: () => m.toast }));
 import { LaborCard, useLaborFamily } from "../components/labor-card";
 
 const member = (id: string, role: "parent" | "caregiver", name: string): FamilyMember => ({ app_user_id: id, role, status: "active", access_version: 1, display_name: name });
-const expecting = { id: "c", name: "Baby", due_date: "2026-12-10", birth_date: null, revision: 1, space_id: "fam" } as unknown as Child;
+const expecting = { id: "c", name: "Baby", due_date: "2026-12-10", birth_date: null, revision: 1, space_id: "fam",
+  details: { expecting_member: "kami", expecting_confirmed: true } } as unknown as Child;
 function setup({ family = true, news = true, contacts = {} as Record<string, unknown> } = {}) {
   let state = { ...emptyState(), bootstrap: { generation: 1, profile: { timezone: "Pacific/Guam" }, children: [expecting], contacts,
     reminders: news ? { push: true, family_news: true } : { push: true }, spaces: family ? [{ id: "fam", kind: "family", role: "parent", generation: 1 }] : [] } } as unknown as DeviceState;
@@ -103,7 +105,7 @@ it("has the delivery number and the bag one tap away", async () => {
   expect(m.push).toHaveBeenCalledWith("/hospital-bag");
 });
 describe("on Leon's phone, where Kami is the one in labor", () => {
-  const hers = { ...expecting, created_by: "kami" } as Child;
+  const hers = expecting;
   beforeEach(() => { m.baby.owner = "leon"; m.baby.state.bootstrap.people = { kami: "Kami", leon: "Leon", nana: "Grandma" }; });
   it("never ticks Kami, but doesn't hide her either: she's in the list with Grandma", async () => {
     await mount(hers);
@@ -138,6 +140,24 @@ describe("on Leon's phone, where Kami is the one in labor", () => {
     expect(button("Tell your partner")).toBeUndefined();
   });
 });
+describe("until the family says who's expecting", () => {
+  // Kami's own guess of herself, unconfirmed: on her phone that's not settled yet.
+  const unsettled = { ...expecting, details: { expecting_member: "kami", expecting_confirmed: false } } as Child;
+  it("asks once, uses everyday words, and ticks nobody", async () => {
+    await mount(unsettled, 38);
+    expect(all("ExpectingAsk")).toHaveLength(1);
+    expect(words()).toContain("The provider’s instructions come first.");
+    expect(words()).toContain("Call the doctor or midwife right away");
+    expect(words()).not.toContain("Your provider’s");
+    // No "Tell Leon" pressed for her: she picks.
+    expect(all("Button").map((node) => node.props.title)).toEqual(["Tell your family"]);
+  });
+  it("with no signal, \"Tell your partner\" still works: whoever presses it is telling the other parents", async () => {
+    m.baby.api.familyMembers = vi.fn(async () => { throw new Error("offline"); });
+    await mount(unsettled);
+    expect(button("Tell your partner")).toBeTruthy();
+  });
+});
 it("with VoiceOver on, holds the news as long as Undo is really there", async () => {
   m.reader = true;
   await mount();
@@ -147,6 +167,7 @@ it("with VoiceOver on, holds the news as long as Undo is really there", async ()
   expect(hold).toBeGreaterThanOrEqual(20_500);
   expect(m.toast.mock.calls[0][1].until - before).toBeGreaterThanOrEqual(20_000);
   expect(m.toast.mock.calls[0][1].until).toBeLessThan(before + hold);
+  expect(before + hold - m.toast.mock.calls[0][1].until).toBe(500);
 });
 it("says nothing about telling anyone once the baby is born", async () => {
   await mount({ ...expecting, birth_date: "2026-12-08" } as Child);

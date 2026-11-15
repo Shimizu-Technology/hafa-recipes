@@ -1,3 +1,7 @@
+import type { Child } from "./models";
+import type { FamilyMember } from "./family";
+import { expectingFor } from "./expecting";
+
 export interface Sourced { text: string; source: { name: string; url: string } }
 
 /**
@@ -20,24 +24,31 @@ const about = (name: string): Sourced[] => [
   lines[1],
   { text: `Call ${name}’s doctor or midwife right away if fluid is leaking, there’s bleeding beyond light spotting, or the baby is moving less.`, source: lines[2].source },
 ];
+/** Until the family says who's expecting: words that fit whoever is reading. */
+const neutral: Sourced[] = [
+  { text: "The provider’s instructions come first. If labor might have started and you aren’t sure, call the doctor or midwife, or the hospital.", source: lines[0].source },
+  lines[1],
+  { text: "Call the doctor or midwife right away if fluid is leaking, there’s bleeding beyond light spotting, or the baby is moving less.", source: lines[2].source },
+];
+/** Whose words: hers ("you"), her partner's (her by name), or everyday ones while that isn't settled. */
+export type Voice = "mine" | "neutral" | { name: string };
 
 /**
  * Before 37 weeks there's no pattern to wait for: the preterm notice says don't wait, so "5-1-1" isn't shown, and nor
- * is it when the week isn't known. `name` is whose labor it is, on someone else's phone.
+ * is it when the week isn't known.
  */
-export const whenToCall = (week: number | undefined, name?: string) => {
-  const shown = name ? about(name) : lines;
+export const whenToCall = (week: number | undefined, voice: Voice = "mine") => {
+  const shown = voice === "mine" ? lines : voice === "neutral" ? neutral : about(voice.name);
   return week !== undefined && week >= 37 ? shown : [shown[0], shown[2]];
 };
 
 /**
- * On someone else's phone in the family: the person expecting, by id and name. Only when whoever added the pregnancy
- * is clearly the other parent, an active parent in this family who isn't this phone's owner; otherwise null, and the
- * screen keeps its everyday words. Null too until the family has been read.
+ * Labor as this phone should say it, from who the family says is expecting (`expecting_member`). Hers in her words;
+ * on another parent's phone a support view by her name; and while it isn't settled, everyday words and the question.
  */
-export function supporting(child: { created_by?: string | null } | null | undefined, owner: string | null | undefined,
-  people: Record<string, string> | undefined, members: readonly { app_user_id: string; role: string; status: string }[] | null) {
-  const id = child?.created_by;
-  if (!id || id === owner || !members?.some((member) => member.app_user_id === id && member.role === "parent" && member.status === "active")) return null;
-  return { id, name: people?.[id]?.trim() || "" };
+export function laborView(child: Pick<Child, "birth_date" | "details"> | null | undefined, owner: string | null | undefined,
+  people: Record<string, string> | undefined, family: { inFamily: boolean; members: readonly Pick<FamilyMember, "app_user_id" | "role" | "status">[] | null }) {
+  const who = expectingFor(child, owner, family), name = who.id && who.id !== owner ? people?.[who.id]?.trim() ?? "" : "";
+  const voice: Voice = !who.id ? "neutral" : who.id === owner ? "mine" : name ? { name } : "neutral";
+  return { who, voice, support: typeof voice === "object" ? { id: who.id!, name: voice.name } : null };
 }
