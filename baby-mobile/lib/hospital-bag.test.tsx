@@ -1,11 +1,12 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { added, bagSections, findBag, grouped, isBag, packedLine, removed, sectionOf, starterBag, starterItems, toggled } from "./hospital-bag";
+import { added, bagSections, findBag, findBags, grouped, isBag, packedLine, removed, sectionOf, starterBag, starterItems, toggled } from "./hospital-bag";
 import type { BabyRecord } from "./models";
 
-const m = vi.hoisted(() => ({ baby: null as any, toast: vi.fn() }));
+const m = vi.hoisted(() => ({ baby: null as any, toast: vi.fn(), push: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View" }));
+vi.mock("expo-router", () => ({ router: { push: m.push } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `id-${++n.count}` }));
 const n = vi.hoisted(() => ({ count: 0 }));
 vi.mock("@/lib/context", () => ({ useBaby: () => m.baby }));
@@ -32,6 +33,13 @@ describe("the list", () => {
     expect(isBag(other)).toBe(false);
     expect(findBag([other, bag({ id: "old", updated_at: "2026-11-01" }), bag({ id: "new" })])?.id).toBe("new");
     expect(findBag([other])).toBeUndefined();
+  });
+  it("puts the starter bag first, and never hides a list she called Hospital bag herself", () => {
+    const hers = bag({ id: "hers", updated_at: "2026-11-16T09:00:00.000Z", data: { routine_type: "checklist", items: [{ id: "a", label: "Snacks", done: true }] } });
+    const starter = bag({ id: "starter", updated_at: "2026-11-15T09:00:00.000Z" });
+    // Hers is newer, but the starter bag is the one the screen is built around; hers is listed under it.
+    expect(findBags([hers, starter]).map((row) => row.id)).toEqual(["starter", "hers"]);
+    expect(findBag([hers])?.id).toBe("hers");
   });
   it("counts, ticks, adds in its section and removes", () => {
     let row = bag();
@@ -76,6 +84,17 @@ describe("the screen", () => {
     expect(change).toMatchObject({ type: "save", generation: 3, files: [],
       record: { kind: "routine", title: "Hospital bag", child_id: null, data: { routine_type: "checklist", enabled: false, repeat: "none" } } });
     expect(change.record.data.items).toHaveLength(starterItems().length);
+  });
+  it("shows her own Hospital bag list under the starter one, to tick or open", async () => {
+    const hers = bag({ id: "hers", revision: 4, data: { routine_type: "checklist", items: [{ id: "a", label: "Snacks", done: false }] } });
+    setup([hers, bag()]);
+    await mount();
+    const extra = all("Section").find((node) => node.props.title === "Hospital bag" && node.findAll((n) => String(n.type) === "Choice").some((n) => n.props.label === "Snacks"))!;
+    expect(extra).toBeTruthy();
+    await act(async () => { extra.findAll((n) => String(n.type) === "Choice")[0].props.onPress(); });
+    expect(m.baby.queue.mock.calls[0][0].record).toMatchObject({ id: "hers", data: { items: [{ id: "a", done: true }] } });
+    await act(async () => { extra.findAll((n) => String(n.type) === "Button").find((n) => n.props.title === "Open this list")!.props.onPress(); });
+    expect(m.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "hers" } });
   });
   it("ticks an item off with one tap, and says who sees it", async () => {
     setup([bag()], [{ id: "f", kind: "family", role: "parent" }]);

@@ -24,6 +24,14 @@ const sourceReadProblems = new Set([
   "The site is limiting requests. Your original link is saved; try later or add screenshots.",
   "Image reading is busy. Available text and your original link are saved; try again later.",
 ]);
+/**
+ * Reads that can never work as the post is: it's private or gone, or it has been tried as often as the API allows.
+ * Its own page still offers screenshots or notes; "Organize all" leaves it out rather than spend the day's allowance.
+ */
+export const neverReadable = (error?: string | null) => !!error && (
+  error === "This post is private or needs permission. Available text and your original link are saved." ||
+  error === "This post is no longer available. Available text and your original link are saved." ||
+  error === sourceRefusalMessages.source_retry_limit);
 export function importProblem(error?: string | null) {
   if (error && sourceReadProblems.has(error)) return error;
   if (error === dailyAiLimitMessage) return dailyAiLimitMessage;

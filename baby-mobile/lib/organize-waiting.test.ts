@@ -24,6 +24,9 @@ describe("which posts are waiting", () => {
     expect(waitingSource({ ...source("g"), kind: "journal" } as BabyRecord, state)).toBe(false);
     const queued = { ...state, imports: [{ id: "j", status: "queued", record_id: "a" }] };
     expect(waitingSource(source("a"), queued)).toBe(false);
+    // Its last read said it's private: not waiting, it can't be read as it is.
+    const refused = { ...state, imports: [{ id: "k", status: "incomplete", record_id: "b", error: "This post is no longer available. Available text and your original link are saved." }] };
+    expect(waitingSource(source("b", { status: "failed" }), refused)).toBe(false);
   });
   it("are read a page at a time, oldest first", async () => {
     const pages = [{ items: [source("aa"), source("b", { status: "ready" })], has_more: true }, { items: [source("c")], has_more: false }];
@@ -122,6 +125,24 @@ describe("a run", () => {
     expect(state.organizeRun!.attention).toEqual([first.record_id]);
     expect(state.organizeRun!.stopped).toBeUndefined();
     expect(state.outbox).toHaveLength(3);
+    // Out of tries for good: "Organize all" won't offer it again and spend the day's allowance on it.
+    expect(state.unreadableSources).toEqual([first.record_id]);
+    expect(waitingSource(state.records.find((row) => row.id === first.record_id)!, state)).toBe(false);
+  });
+
+  it("remembers a private or deleted post, so it isn't offered again once its import is gone", async () => {
+    let state = started();
+    const [first, second] = state.organizeRun!.active;
+    state = { ...state, outbox: state.outbox.filter((m) => m.id !== first.import_id && m.id !== second.import_id), imports: [
+      { id: first.import_id, status: "incomplete", record_id: first.record_id, error: "This post is private or needs permission. Available text and your original link are saved." },
+      // A busy reader is worth trying again another time.
+      { id: second.import_id, status: "incomplete", record_id: second.record_id, error: "Image reading is busy. Available text and your original link are saved; try again later." },
+    ] };
+    state = advanceOrganize(state, uuid, now);
+    expect(state.unreadableSources).toEqual([first.record_id]);
+    const later = { ...state, imports: [] };
+    const rows = await findWaiting(async () => ({ items: [source(first.record_id, { status: "failed" }), source(second.record_id, { status: "failed" })], has_more: false }), later);
+    expect(rows.map((row) => row.id)).toEqual([second.record_id]);
   });
 
   it("skips a post started from its own page since", () => {
