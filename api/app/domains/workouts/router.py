@@ -1010,11 +1010,12 @@ class SessionRequest(DomainModel):
                 interval.started_at = max(previous_end, interval.started_at)
                 interval.ended_at = max(interval.started_at, interval.ended_at)
                 legacy.append(interval.model_dump(mode="json"))
+                # Preserve legacy overlap normalization even for empty intervals.
+                previous_end = interval.ended_at
                 if interval.ended_at == interval.started_at:
                     continue
                 retained.append(interval)
                 duration += (interval.ended_at - interval.started_at).total_seconds()
-                previous_end = interval.ended_at
             if len(retained) != len(self.active_intervals):
                 self._legacy_active_intervals = legacy
                 self._sync_warnings = ["Empty active intervals caused by clock skew were removed."]
