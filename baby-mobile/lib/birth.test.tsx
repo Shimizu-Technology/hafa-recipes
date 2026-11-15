@@ -3,7 +3,8 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
 import { birthParts, birthWrite, gramsFrom, welcome } from "./birth";
-import { defaultRecipients, newsAvailable, queueNews, readyToSend, recipientWords, sendPending, tellable } from "./family-news";
+import { defaultRecipients, deliveredWords, newsAvailable, queueNews, readyToSend, recipientWords, sendPending, tellable } from "./family-news";
+import { newsAskFor } from "./news-ask";
 import { birthExtrasPending, withPendingBirths } from "./outbox";
 import { emptyState, type Child, type DeviceState } from "./models";
 import type { FamilyMember } from "./family";
@@ -62,6 +63,31 @@ describe("family news", () => {
     expect(recipientWords(people, ["leon"])).toBe("Leon");
     expect(recipientWords(people, ["leon", "nana"])).toBe("Leon and Grandma");
   });
+  it("lists parents first, and never offers it to the person it's about", () => {
+    const grandmaFirst = [member("nana", "caregiver", "Grandma"), member("kami", "parent", "Kami"), member("leon", "parent", "Leon"), member("tita", "caregiver", "Tita")];
+    expect(tellable(grandmaFirst, "kami").map((p) => p.app_user_id)).toEqual(["leon", "nana", "tita"]);
+    // On Leon's phone: Kami is in labor, so she's not someone to tell, and she's not his default either.
+    expect(tellable(grandmaFirst, "leon", "kami").map((p) => p.app_user_id)).toEqual(["nana", "tita"]);
+    expect(defaultRecipients(grandmaFirst, "leon", "kami")).toEqual([]);
+    // Her own phone: "about" is her, which changes nothing.
+    expect(defaultRecipients(grandmaFirst, "kami", "kami")).toEqual(["leon"]);
+  });
+  it("says who'll get a notification only when their phone will show it", () => {
+    const name = (id: string) => ({ leon: "Leon", nana: "Grandma", tita: "Tita" })[id]!;
+    expect(deliveredWords(["leon"], { leon: true }, name)).toBe("Leon will get a notification.");
+    expect(deliveredWords(["leon"], { leon: false }, name)).toBe("Leon hasn’t turned on notifications yet, so it’ll be waiting in Håfa Baby.");
+    expect(deliveredWords(["leon", "nana", "tita"], { leon: true, nana: false, tita: false }, name))
+      .toBe("Leon will get a notification. Grandma and Tita haven’t turned on notifications yet, so it’ll be waiting in Håfa Baby.");
+    expect(deliveredWords(["leon", "nana", "tita"], { leon: true, nana: true, tita: true }, name)).toBe("Leon, Grandma and Tita will get a notification.");
+    // An API that doesn't say promises nothing.
+    expect(deliveredWords(["leon"], undefined, name)).toBe("Sent to Leon.");
+  });
+  it("hands back what the API said about each person's phone", async () => {
+    let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: ["leon"], queued_at: new Date().toISOString(), names: { leon: "Leon" } });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    const sent = await sendPending(state, async () => ({ id: "n", sent_to: ["leon"], push: { leon: false } }), commit);
+    expect(sent).toMatchObject([{ item: { id: "n", names: { leon: "Leon" } }, to: ["leon"], push: { leon: false } }]);
+  });
   it("needs the API's word and a family she's a parent in", () => {
     expect(newsAvailable({ reminders: { push: true }, spaces: [{ kind: "family", role: "parent" }] } as never)).toBe(false);
     expect(newsAvailable({ reminders: { family_news: true }, spaces: [{ kind: "family", role: "caregiver" }] } as never)).toBe(false);
@@ -91,6 +117,27 @@ describe("family news", () => {
     await sendPending(state, ok, commit);
     expect(ok).not.toHaveBeenCalled();
     expect(state.pendingNews).toHaveLength(0);
+  });
+});
+
+describe("asking her partner's phone, once", () => {
+  const kids = (created_by?: string, birth_date: string | null = null) => [{ ...baby, created_by, birth_date }];
+  const state = (over: Record<string, unknown> = {}) => ({ ...emptyState(), bootstrap: { generation: 1, children: kids("kami"), people: { kami: "Kami", leon: "Leon" },
+    reminders: { push: true, family_news: true }, spaces: [{ id: "fam", kind: "family", role: "parent" }] }, ...over }) as unknown as DeviceState;
+  it("names who'll tell them, on Leon's phone before the birth", () => {
+    expect(newsAskFor(state(), "leon")).toEqual({ name: "Kami", reason: "So Kami can tell you the moment labor starts, even with Håfa Baby closed." });
+  });
+  it("isn't asked of her, after the birth, twice, or with family news off", () => {
+    expect(newsAskFor(state(), "kami")).toBeNull();
+    expect(newsAskFor(state({ newsAskSeen: true }), "leon")).toBeNull();
+    const born = state();
+    born.bootstrap!.children = kids("kami", "2026-12-08");
+    expect(newsAskFor(born, "leon")).toBeNull();
+    expect(newsAskFor(state({ reminderPrefs: { quiet_hours: null, kinds: { family_news: { enabled: false } } } }), "leon")).toBeNull();
+    // An API that doesn't say who's expecting asks no one.
+    const unknown = state();
+    unknown.bootstrap!.children = kids(undefined);
+    expect(newsAskFor(unknown, "leon")).toBeNull();
   });
 });
 
@@ -145,6 +192,22 @@ describe("the screen", () => {
     await act(async () => { await m.toast.mock.calls[0][1].onPress(); });
     expect(m.baby.state.outbox).toHaveLength(0);
     expect(m.baby.state.pendingNews).toHaveLength(0);
+  });
+  it("keeps the names she saw, so the result can say who'll get a notification", async () => {
+    await mount();
+    await save();
+    expect(m.baby.state.pendingNews[0].names).toEqual({ leon: "Leon", nana: "Grandma" });
+  });
+  it("on Leon's phone, lists Grandma but never Kami, who gave birth", async () => {
+    m.baby.owner = "leon";
+    m.baby.state.bootstrap.children = [{ ...baby, created_by: "kami" }];
+    await mount();
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Grandma", false]]);
+  });
+  it("lists Leon above Grandma whatever order the family comes in", async () => {
+    m.baby.api.familyMembers = vi.fn(async () => ({ items: [people[2], people[0], people[1]] }));
+    await mount();
+    expect(all("Choice").map((c) => c.props.label)).toEqual(["Leon", "Grandma"]);
   });
   it("with no signal, still tells her partner once she's back online", async () => {
     m.baby.api.familyMembers = vi.fn(async () => { throw new ApiError("offline", 0, true); });

@@ -14,6 +14,7 @@ import { codeFrom, forgetInvite, heldInvite, holdInvite, inviteLink, inviteMessa
 import { babyLabel, familyOpen, familySpaces, herLog, rowFence } from "../lib/spaces";
 import { leftFamilyNotice } from "../lib/outbox";
 import { askForShareSession } from "@/lib/share-session-state";
+import { askToNotify } from "@/lib/reminder-permission";
 import { friendlyDay } from "../lib/family-format";
 import { sourceTitle } from "../lib/source-title";
 
@@ -181,6 +182,8 @@ function Join({ link, onBack }: { link: string | null; onBack: () => void }) {
       await b.api.acceptInvite(codeFrom(code), b.state.bootstrap!.generation);
       await b.refresh();
       void b.sync();
+      // A new parent is who "it's time" is for: asked here, once, with the reason. Reminders has it later.
+      if (preview?.role === "parent" && b.state.bootstrap?.reminders?.family_news) void askNewsOnJoin(b);
     } catch (failure) {
       if (failure instanceof PhonesNotReady) setReadiness(failure.readiness);
       else setError(codeProblem(failure));
@@ -204,6 +207,11 @@ function Join({ link, onBack }: { link: string | null; onBack: () => void }) {
     </Section>}
     <Button variant="ghost" title="Not now" disabled={busy} onPress={onBack} />
   </>;
+}
+async function askNewsOnJoin(b: ReturnType<typeof useBaby>) {
+  const answer = await askToNotify("family_news");
+  await b.commit((state) => ({ ...state, newsAskSeen: true })).catch(() => undefined);
+  if (answer === "granted") void b.registerPush();
 }
 /** "Logged by" reads this, so it asks once, here, where it matters. Nothing else needs it. */
 function YourName() {

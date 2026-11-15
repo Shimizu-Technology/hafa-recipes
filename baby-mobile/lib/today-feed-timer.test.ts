@@ -58,6 +58,7 @@ vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/waiting-shares", () => ({ WaitingShares: "WaitingShares" }));
 vi.mock("@/components/due-reminders", () => ({ DueReminders: "DueReminders" }));
+vi.mock("@/components/news-ask", () => ({ NewsAsk: "NewsAsk" }));
 vi.mock("@/components/stage-options", () => ({ BabySetupCard: "BabySetupCard" }));
 vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));

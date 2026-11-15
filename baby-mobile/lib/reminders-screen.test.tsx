@@ -93,6 +93,29 @@ describe("Reminders", () => {
     expect(view.root.findAll((n) => String(n.type) === "Notice")).toHaveLength(1);
     expect(view.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).toContain("Open notification settings");
   });
+  it("family news is on before the phone allows it: it says so and asks, with the reason, when tapped", async () => {
+    const b = account({ reminderPrefs: { quiet_hours: null, kinds: { event: off, feed_interval: off, family_news: { ...off, enabled: true, break_through: true } } } },
+      [{ id: "f", kind: "family", role: "parent", generation: 1, access_version: 1 }]);
+    b.state.bootstrap.reminders = { push: true, family_news: true };
+    await render();
+    await rerender();
+    const row = () => view.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.title === "Turn on notifications");
+    expect(row()!.props.detail).toMatch(/Family news is on/);
+    await act(async () => { row()!.props.onPress(); });
+    expect(scope.alerts[0][1]).toMatch(/moment labor starts/);
+    await act(async () => { await scope.alerts[0][2][1].onPress(); });
+    expect(b.registerPush).toHaveBeenCalled();
+    expect(row()).toBeUndefined();
+  });
+  it("doesn't offer it once the phone allows notifications", async () => {
+    const b = account({}, [{ id: "f", kind: "family", role: "parent", generation: 1, access_version: 1 }]);
+    b.state.bootstrap.reminders = { push: true, family_news: true };
+    b.state.reminderPrefs.kinds.family_news = { ...off, enabled: true };
+    scope.permissions = { granted: true, canAskAgain: true };
+    await render();
+    await rerender();
+    expect(view.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.title)).not.toContain("Turn on notifications");
+  });
 });
 
 describe("with the flag off", () => {

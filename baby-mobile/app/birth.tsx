@@ -7,7 +7,7 @@ import { addMutation, withoutBirth } from "../lib/outbox";
 import { messageFor } from "../lib/models";
 import { familySpaces } from "../lib/spaces";
 import { birthParts, birthWrite, gramsFrom, welcome } from "../lib/birth";
-import { defaultRecipients, memberName, newsAvailable, queueNews, recipientWords, tellable, withoutNews } from "../lib/family-news";
+import { defaultRecipients, memberName, newsAbout, newsAvailable, queueNews, recipientWords, tellable, withoutNews } from "../lib/family-news";
 import { undoWindow } from "../lib/running-feed";
 import type { FamilyMember } from "../lib/family";
 import { DateField } from "@/components/date-field";
@@ -34,8 +34,9 @@ export default function Birth() {
     let alive = true;
     b.api.familyMembers(family!.id).then(({ items }) => {
       if (!alive) return;
-      setMembers(tellable(items, b.owner));
-      setTo(defaultRecipients(items, b.owner));
+      // Whoever's phone this is, never the person who gave birth: she knows.
+      setMembers(tellable(items, b.owner, newsAbout(child)));
+      setTo(defaultRecipients(items, b.owner, newsAbout(child)));
     }).catch(() => { if (alive) setLoadError(true); });
     return () => { alive = false; };
   }, [canTell, family?.id]);
@@ -52,6 +53,7 @@ export default function Birth() {
     try {
       await b.commit((s) => queueNews(addMutation(s, { id: birth, generation, type: "child_birth", child_id: child.id, birth_date, previous, ...extras, ...undoFields }),
         { id: news, news: "birth", child_id: child.id, to: canTell && !unread ? to : [], ...(unread && tellParents ? { parents: true } : {}),
+          names: Object.fromEntries((members ?? []).map((member) => [member.app_user_id, memberName(member)])),
           queued_at: new Date().toISOString(), hold_until: new Date(Date.now() + undoWindow(false)).toISOString() }));
       void b.sync();
       tap("success");
@@ -77,7 +79,9 @@ export default function Birth() {
   }
   return <Screen title="Baby is here" back
     footer={<Button size="lg" title="Save" busy={saving} onPress={() => void save()} />}>
-    <Copy tone="muted">Congratulations. Add what you know now. Everything here but the day can wait, and you can change it later in Settings.</Copy>
+    {/* One word that never breaks: at the largest text it shrinks to the width instead. */}
+    <Copy tone="muted" fit>Congratulations.</Copy>
+    <Copy tone="muted">Add what you know now. Everything here but the day can wait, and you can change it later in Settings.</Copy>
     {!!error && <Notice error>{error}</Notice>}
     <Field label="Baby’s name (optional)" value={name} onChange={setName} maxLength={120} capitalize="words" />
     <Section title="Born">
@@ -103,7 +107,7 @@ export default function Birth() {
         : members!.map((member) => <Choice key={member.app_user_id} label={memberName(member)} detail={member.role === "parent" ? "Parent" : "Caregiver"}
           selected={to.includes(member.app_user_id)}
           onPress={() => setTo((all) => all.includes(member.app_user_id) ? all.filter((one) => one !== member.app_user_id) : [...all, member.app_user_id])} />)}
-      <Copy kind="small" tone="muted">Who’s ticked gets a notification from Håfa Baby saying there’s news. Nothing is sent outside your family.</Copy>
+      <Copy kind="small" tone="muted">Who’s ticked sees it in Håfa Baby, and gets a notification if they’ve turned them on. Nothing is sent outside your family.</Copy>
     </Section>}
   </Screen>;
 }

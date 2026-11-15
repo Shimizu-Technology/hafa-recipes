@@ -15,6 +15,7 @@ import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { DueReminders } from "@/components/due-reminders";
+import { NewsAsk } from "@/components/news-ask";
 import { WaitingShares } from "@/components/waiting-shares";
 import { CareGlance, useMinuteClock } from "@/components/care-glance";
 import { BabySetupCard } from "@/components/stage-options";
@@ -87,6 +88,7 @@ export default function Today() {
       <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       <DueReminders />
+      <NewsAsk />
       <WaitingShares />
       {children.length > 1 && <ChildFilter />}
       <LegacyTimer />
