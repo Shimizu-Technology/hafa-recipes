@@ -84,6 +84,11 @@ async def test_a_retry_is_the_same_news_and_a_stuck_button_is_limited(family):
     assert (await tell(family, child, ["other"], id=same)).status_code == 200
     assert (await tell(family, child, ["other"], id=same)).status_code == 200
     assert len(await rows_of(family, "family_news", "other")) == 1
+    # The same id with other details or other people is refused, and adds no one.
+    changed = await tell(family, child, ["other", "sitter"], id=same)
+    assert changed.status_code == 409
+    assert await rows_of(family, "family_news", "sitter") == []
+    assert (await tell(family, child, ["other"], news="birth", id=same)).status_code == 409
     for _ in range(5):
         assert (await tell(family, child, ["other"])).status_code == 200
     refused = await tell(family, child, ["other"])

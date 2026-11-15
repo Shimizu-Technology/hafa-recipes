@@ -70,6 +70,15 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
     recipients = list(dict.fromkeys(body.to))
     if user.id in recipients or any(person not in members for person in recipients):
         raise HTTPException(422, "Choose people in this family")
+    # A retry is the same news, to the same people, and changes nothing that was sent or when it ends.
+    prior = list(await db.scalars(select(BabyNotification).where(
+        BabyNotification.kind == KIND, BabyNotification.payload["news_id"].astext == str(body.id))))
+    if prior:
+        same = all(row.payload.get("news") == body.news and row.payload.get("child_id") == str(child.id)
+                   and row.payload.get("from") == user.id for row in prior)
+        if not same or {row.app_user_id for row in prior} != set(recipients):
+            raise HTTPException(409, "This news was already sent with different details")
+        return {"id": str(body.id), "sent_to": recipients}
     sent = await db.scalar(select(func.count(func.distinct(BabyNotification.payload["news_id"].astext))).where(
         BabyNotification.kind == KIND, BabyNotification.payload["from"].astext == user.id,
         BabyNotification.created_at > now() - timedelta(hours=1),
@@ -80,7 +89,6 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
     payload = {"news_id": str(body.id), "news": body.news, "child_id": str(child.id), "from": user.id,
                "expires_at": (moment + STAYS[body.news]).isoformat()}
     for person in recipients:
-        # Same id, same rows: a retry after a lost response changes nothing that was sent.
         await schedule(db, owner=person, space_id=child.space_id, kind=KIND, key=str(body.id), due_at=moment, payload=payload)
     await db.commit()
     baby_push_worker.notify()
