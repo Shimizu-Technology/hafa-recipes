@@ -21,7 +21,7 @@ import { DECLINED, defaultShareToDiscover } from "@/lib/discover";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { setNativeShareVisibility } from "@/lib/native-share-session";
 export default function Capture() {
-  const { shared, request_id: sharedRequest } = useLocalSearchParams<{ shared?: string; request_id?: string }>();
+  const { shared, request_id: sharedRequest, class: classRoute } = useLocalSearchParams<{ shared?: string; request_id?: string; class?: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const navigation = useNavigation();
   const [leaving, setLeaving] = useState(false);
@@ -186,10 +186,10 @@ export default function Capture() {
     setSubmittedId(null);
     void slot
       .load(currentScope)
-      .then((value) => {
+      .then(async (value) => {
         if (!active) return;
         saved.current = value;
-        const next =
+        let next: CaptureDraft =
           value.value?.generation === generation
             ? value.value
             : {
@@ -201,6 +201,14 @@ export default function Capture() {
                 files: [],
                 created_at: new Date().toISOString()
               };
+        if (!value.value && classRoute === "1") {
+          const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`);
+          currentScope();
+          if (!active) return;
+          next = { ...next, kind: "text", class_parts: true, is_public: false,
+            programming: { source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK",
+              date: new Date().toLocaleDateString("en-CA") } };
+        }
         draftRef.current = next;
         setDraft(next);
         readyRef.current = true;
@@ -245,7 +253,7 @@ export default function Capture() {
     });
     return () => { active = false; };
   }, [slot, generation, shared, sharedRequest, ready, busy]);
-  function update(patch: Partial<Pick<CaptureDraft, "text" | "source_url">>) {
+  function update(patch: Partial<Pick<CaptureDraft, "text" | "source_url" | "class_parts" | "programming" | "kind" | "is_public">>) {
     // Once the stable queue is saved, reject late native input events during
     // the render that releases usePreventRemove and dispatches the departure.
     if (leaving || afterSave.current || guard.current || draftRef.current.pending_import || !readyRef.current || stale) return;
@@ -256,7 +264,7 @@ export default function Capture() {
       setError((e as Error).message);
       return;
     }
-    if (patch.source_url !== undefined && draftRef.current.kind !== "url") return;
+    if (patch.source_url !== undefined && patch.class_parts !== true && draftRef.current.kind !== "url") return;
     const value = { ...draftRef.current, ...patch, request_id: Crypto.randomUUID(), job_id: undefined };
     draftRef.current = value;
     setDraft(value);
@@ -302,7 +310,7 @@ export default function Capture() {
     const prior = saved.current.value;
     const next = { ...value, cleanup_files: [...(prior?.cleanup_files ?? []), ...(prior?.files ?? [])] };
     const registered = await persist(next);
-    await cleanupCaptureFiles(next.cleanup_files, true);
+    await cleanupCaptureFiles(next.cleanup_files ?? [], true);
     await persist({ ...registered, cleanup_files: [] });
   }
   async function reloadSaved() {
@@ -365,6 +373,18 @@ export default function Capture() {
       if (mounted.current) setBusy(false);
     }
   }
+  async function chooseClass() {
+    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import) return;
+    guard.current = true; setBusy(true); setError("");
+    try {
+      await flush();
+      const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`); current();
+      await persist({ ...draftRef.current, request_id: Crypto.randomUUID(), class_parts: true,
+        kind: draftRef.current.kind === "url" ? "text" : draftRef.current.kind, source_url: "", is_public: false,
+        programming: { source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK", date: new Date().toLocaleDateString("en-CA") } });
+    } catch (e) { if (mounted.current) setError((e as Error).message); }
+    finally { guard.current = false; if (mounted.current) setBusy(false); }
+  }
   async function choose(kind: CaptureKind) {
     if (guard.current || !readyRef.current || stale || draftRef.current.pending_import || kind === draft.kind) return;
     guard.current = true;
@@ -395,10 +415,10 @@ export default function Capture() {
         slot.assertCurrent(original.revision);
       };
       files =
-        kind === "images" ? await pickImages(camera, pickerCurrent, owner) : await pickDocument(pickerCurrent, owner);
+        kind === "images" ? await pickImages(camera, pickerCurrent, owner, draftRef.current.class_parts ? 8 : 4) : await pickDocument(pickerCurrent, owner, draftRef.current.class_parts);
       if (files.length) {
         current();
-        const next = {
+        let next: CaptureDraft = {
           ...draftRef.current,
           request_id: Crypto.randomUUID(),
           kind,
@@ -409,7 +429,7 @@ export default function Capture() {
         const registeredDraft = await persist(next, () => {
           registered = true;
         });
-        await cleanupCaptureFiles(next.cleanup_files, true);
+        await cleanupCaptureFiles(next.cleanup_files ?? [], true);
         await persist({ ...registeredDraft, cleanup_files: [] });
       }
     } catch (e) {
@@ -467,8 +487,8 @@ export default function Capture() {
         current();
       }
       const original = draftRef.current;
-      const serverSave = original.pending_import ? original.server_auto_save === true : capabilities.data?.server_auto_save === true;
-      let isPublic = original.is_public ?? defaultShareToDiscover(original.kind);
+      const serverSave = !original.class_parts && (original.pending_import ? original.server_auto_save === true : capabilities.data?.server_auto_save === true);
+      let isPublic = !original.class_parts && (original.is_public ?? defaultShareToDiscover(original.kind));
       isPublic = isPublic && capabilities.data?.discover === true;
       if (serverSave && isPublic) {
         const allowed = await disclosure.run(async () => {
@@ -493,7 +513,10 @@ export default function Capture() {
       // Persist original UUID/fields before any transport; retries stay frozen.
       const frozen = await persist(pending);
       const source = await sourceFor(frozen, current);
-      const job = frozen.server_auto_save
+      if (frozen.class_parts) {
+        await localDrafts.save(owner, `class-preferences:${generation}`, frozen.programming); current();
+      }
+      const job = frozen.server_auto_save || frozen.class_parts
         ? await api.startImport(frozen.request_id, source, frozen.generation, { auto_save: frozen.auto_save === true, is_public: frozen.is_public === true })
         : await api.startImport(frozen.request_id, source, frozen.generation);
       await persist({ ...frozen, job_id: job.id });
@@ -522,7 +545,7 @@ export default function Capture() {
       const blank: CaptureDraft = { request_id: Crypto.randomUUID(), generation, kind: "url", source_url: "", text: "", files: [], created_at: new Date().toISOString() };
       draftRef.current = blank; setDraft(blank); setSubmittedId(job.id);
       setStale(false); setPanel(null); setPasteNote("");
-      router.push({ pathname: "/import/[id]", params: { id: job.id, auto: "1" } });
+      router.push({ pathname: "/import/[id]", params: { id: job.id, auto: frozen.class_parts ? "0" : "1" } });
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -562,14 +585,14 @@ export default function Capture() {
     } catch (e) { if (mounted.current) setError((e as Error).message); }
     finally { guard.current = false; if (mounted.current) setBusy(false); }
   }
-  const discoverOn = capabilities.data?.server_auto_save === true && capabilities.data.discover === true;
+  const discoverOn = !draft.class_parts && capabilities.data?.server_auto_save === true && capabilities.data.discover === true;
   const isPublic = draft.is_public ?? defaultShareToDiscover(draft.kind);
   const notesApply = draft.kind !== "text";
   const consentOk = !!aiConsent.data?.accepted && aiConsent.data.disclosure_version === 1;
   const submittable = draft.kind === "url" ? linkLooksComplete(draft.source_url) : !captureErrors(draft).length;
   const limits = capabilities.data?.limits;
   return (
-    <Screen back title="Add workout" subtitle="Save a workout from a link, text, photos or a PDF." action={<AccountButton />} scrollRef={scrollRef}>
+    <Screen back title={draft.class_parts ? "Today’s class" : "Add workout"} subtitle={draft.class_parts ? "Paste the class, add screenshots or a Safari Full Page PDF. Review each part before saving." : "Save a workout from a link, text, photos or a PDF."} action={<AccountButton />} scrollRef={scrollRef}>
       {(draft.job_id || submittedId) && <Card compact>
         <Row gap={10} align="flex-start">
           <Ionicons name="checkmark-circle" size={22} color={colors.success} />
@@ -589,6 +612,15 @@ export default function Capture() {
         <Notice>Automatic importing is not on for this build. You can still write a workout yourself.</Notice>
       )}
       <Card>
+        {!draft.class_parts && <Button title="Today’s class" secondary disabled={locked} onPress={() => { void chooseClass(); }} />}
+        {draft.class_parts && <>
+          <Button title="Use regular import" size="sm" variant="ghost" disabled={locked} onPress={() => update({ class_parts: false, programming: undefined })} />
+          <Notice>Gym programming stays private. Crop screenshots to leave out the leaderboard and comments.</Notice>
+          <Field label="Gym" optional disabled={locked} value={draft.programming?.gym_name ?? ""} onChange={gym_name => update({ programming: { ...draft.programming, source_kind: "gym", gym_name } })} />
+          <Field label="Track" optional disabled={locked} value={draft.programming?.track ?? ""} onChange={track => update({ programming: { ...draft.programming, source_kind: "gym", track } })} />
+          <Field label="Class date (YYYY-MM-DD)" optional disabled={locked} value={draft.programming?.date ?? ""} onChange={date => update({ programming: { ...draft.programming, source_kind: "gym", date: date || null } })} />
+          <Copy kind="small">In Safari, use Share → Håfa Workouts on the open class page. Or save a Full Page screenshot as a PDF and choose it here.</Copy>
+        </>}
         {draft.kind === "url" ? (
           <>
             <Row gap={8} align="flex-end">
@@ -608,7 +640,7 @@ export default function Capture() {
         ) : (
           <Row gap={8}>
             <Grow><Copy kind="label">{modeTitles[draft.kind]}</Copy></Grow>
-            <Button title="Use a link instead" size="sm" variant="ghost" inline disabled={locked} onPress={() => { void choose("url"); }} />
+            {!draft.class_parts && <Button title="Use a link instead" size="sm" variant="ghost" inline disabled={locked} onPress={() => { void choose("url"); }} />}
           </Row>
         )}
         {draft.kind === "url" && duplicateUrl === draft.source_url.trim() && !!duplicateHint.data?.matches.length && (
@@ -629,7 +661,7 @@ export default function Capture() {
           <>
             <Row gap={8}>
               <Grow>
-                <Button title="Choose up to four images" size="sm" variant="secondary" icon="images-outline" busy={busy} disabled={locked}
+                <Button title={draft.class_parts ? "Choose up to eight screenshots" : "Choose up to four images"} size="sm" variant="secondary" icon="images-outline" busy={busy} disabled={locked}
                   onPress={() => { void pick("images"); }} />
               </Grow>
               <Grow>

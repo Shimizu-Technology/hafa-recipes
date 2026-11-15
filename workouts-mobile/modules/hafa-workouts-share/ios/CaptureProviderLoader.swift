@@ -49,7 +49,18 @@
         let results = dictionary[NSExtensionJavaScriptPreprocessingResultsKey] as? NSDictionary,
         let source = results["baseURI"] as? String, let sourceURL = URL(string: source), !sourceURL.isFileURL
       else { throw captureError("Could not read the shared webpage. Please share it again.") }
-      sharedWebUrl.append(WebUrl(url: source, meta: results["meta"] as? String ?? ""))
+      let clean = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false)
+      guard ["https", "http"].contains(clean?.scheme ?? ""), clean?.user == nil, clean?.password == nil
+      else { throw captureError("Share a webpage without account credentials.") }
+      guard let safeURL = clean?.string else { throw captureError("Could not read the shared webpage URL.") }
+      let host = sourceURL.host?.lowercased() ?? ""
+      if host == "wodup.com" || host.hasSuffix(".wodup.com") {
+        guard let page = WorkoutsShareStore.classPage(sourceURL, text: results["classText"] as? String)
+        else { throw captureError("Could not read the class. Paste its text or share screenshots instead.") }
+        sharedText.append(page.text)
+      }
+      let classURL = WorkoutsShareStore.classPage(sourceURL, text: results["classText"] as? String)?.url
+      sharedWebUrl.append(WebUrl(url: classURL ?? safeURL, meta: ""))
     } else if attachment.hasItemConformingToTypeIdentifier(urlContentType)
       && !attachment.hasItemConformingToTypeIdentifier(fileURLType) {
       let item = try await attachment.loadItem(forTypeIdentifier: urlContentType)

@@ -10,6 +10,7 @@ import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
+import { partTags, restAfterText, segmentLabel } from "@/lib/class-parts";
 import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
 import { recoverySource } from "@/lib/import-recovery";
 import type { ExtractionRequest, ImportJob } from "@/lib/capture";
@@ -271,7 +272,7 @@ export default function ImportReview() {
         current();
         command = { request_id: Crypto.randomUUID(),
           source: recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption),
-          auto_save: q.data.replace_target ? false : capabilities.data.server_auto_save === true,
+          auto_save: retained?.class_parts || isClass || q.data.replace_target ? false : capabilities.data.server_auto_save === true,
           ...(q.data.replace_target ? { replace_target: q.data.replace_target } : {}) };
         await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
         setRetryCommand(command);
@@ -351,18 +352,19 @@ export default function ImportReview() {
           ? `Some workout details may need checking. ${reviewAction}`
           : null;
   const diagnostics = [...new Set([...(result?.warnings ?? []), ...(result?.source.coverage_notes ?? [])])];
-  const discoverOn = capabilities.data?.discover === true;
+  const isClass = originalSource?.class_parts || result?.workout?.programming?.source_kind === "gym";
+  const discoverOn = !isClass && capabilities.data?.discover === true;
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
     !!workout && publishable(workout) && !(q.data?.status === "incomplete" && !(routeReady && edited));
   const wantsShare = shareChoice ?? originalSource?.is_public ?? q.data?.source_is_public ?? defaultShareToDiscover(result?.workout?.capture_kind ?? originalSource?.kind);
   const sharing = !q.data?.replace_target && discoverOn && shareable && wantsShare;
   useEffect(() => {
-    if ((!autoAllowed && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
+    if (isClass || (!autoAllowed && !originalSource?.auto_save) || !routeReady || !restored || !q.data || edited || editing ||
       error || !visible || !active || !capabilities.data || capabilities.data.server_auto_save || !canSaveAutomatically(q.data) || autoAttempt.current === epoch) return;
     autoAttempt.current = epoch;
     void accept(true);
-  }, [autoAllowed, originalSource?.auto_save, routeReady, restored, q.data, edited, editing, error, visible, active, capabilities.data, epoch]);
+  }, [isClass, autoAllowed, originalSource?.auto_save, routeReady, restored, q.data, edited, editing, error, visible, active, capabilities.data, epoch]);
   useEffect(() => {
     if (!q.data?.accepted_workout_id || !routeReady || !restored || reconciledSave.current === epoch) return;
     reconciledSave.current = epoch;
@@ -397,7 +399,7 @@ export default function ImportReview() {
         }}
       >
         {q.data && ["queued", "processing"].includes(q.data.status) && (
-          <ImportProgress job={q.data} autoSave={capabilities.data?.server_auto_save} connectionError={q.error} refreshing={q.isFetching} active={visible && active}
+          <ImportProgress job={q.data} autoSave={!isClass && capabilities.data?.server_auto_save} connectionError={q.error} refreshing={q.isFetching} active={visible && active}
             refresh={() => { void q.refetch(); }} openLibrary={() => router.replace("/(tabs)/library")} />
         )}
         {!!q.data?.accepted_workout_id && (
@@ -437,6 +439,7 @@ export default function ImportReview() {
                   <WorkoutEditor value={workout} onChange={update} disabled={busy} />
                 ) : (
                   <>
+                    {isClass && <Notice>Review every class part and its prescriptions before saving. Gym programming stays private.</Notice>}
                     <SectionHeader title={hasExercises ? workout.title : "No exercises were imported"} />
                     <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
                     {hasExercises && <ChipRow wrap>
@@ -449,19 +452,22 @@ export default function ImportReview() {
                     {workout.blocks.map((block) => (
                       <Card key={block.id}>
                         <Copy kind="subheading">{block.label}</Copy>
+                        {block.instructions?.map((line, index) => <Copy key={index} kind="small">{line}</Copy>)}
+                        {!!partTags(block).length && <Copy kind="small">{partTags(block).join(" · ")}</Copy>}
                         <Copy kind="small" tone={block.rounds == null ? "accent" : "muted"}>
                           {blockSummary(block, block.label)}{block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? " · Rounds not specified" : ""}
                           {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
                         </Copy>
                         {block.exercises.map((e, index) => (
                           <Copy key={index}>
-                            <Copy kind="label">{e.name}</Copy>
+                            <Copy kind="label">{segmentLabel(e) ? `${segmentLabel(e)} · ` : ""}{e.name}</Copy>
                             {" · "}
                             <Copy>{prescriptionLine(e)}</Copy>
                             {e.instructions ? <Copy kind="small">{"\n"}{e.instructions}</Copy> : null}
                       {e.notes ? <Copy kind="small">{"\n"}Private note · {e.notes}</Copy> : null}
                           </Copy>
                         ))}
+                        {!!restAfterText(block) && <Copy kind="label">{restAfterText(block)} before the next part</Copy>}
                       </Card>
                     ))}
                   </>

@@ -95,7 +95,7 @@ it.each(choices)("dismisses the native sheet before opening %s", async (label, p
 it("replaces the regular web route without retaining an Add page in history", async () => {
   f.os = "web";
   await act(() => { tree = create(createElement(Add)); });
-  await act(() => tree.root.findAllByType("ListRow" as any)[0].props.onPress());
+  await act(() => tree.root.findAllByType("ListRow" as any).find(row => row.props.title === "Paste a link")!.props.onPress());
   expect(f.replace).toHaveBeenCalledExactlyOnceWith("/extract");
   expect(f.back).not.toHaveBeenCalled();
   expect(routeNames()).toEqual(["(tabs)", "extract"]);
@@ -128,7 +128,7 @@ it("Close replaces an unanchored Add route with Today when back is unavailable",
 it("replaces an unanchored native Add route when choosing a flow", async () => {
   state = navigation.getRehydratedState({ stale: true, routes: [{ name: "add" }] }, config);
   await act(() => { tree = create(createElement(Add)); });
-  await act(() => tree.root.findAllByType("ListRow" as any)[0].props.onPress());
+  await act(() => tree.root.findAllByType("ListRow" as any).find(row => row.props.title === "Paste a link")!.props.onPress());
   expect(routeNames()).toEqual(["extract"]);
   expect(frames).toHaveLength(0);
 });

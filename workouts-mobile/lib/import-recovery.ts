@@ -1,3 +1,4 @@
+import { isClassPage } from "./class-import";
 import type { ExtractionRequest, ImportJob } from "./capture";
 import { boundedSource } from "./capture";
 
@@ -29,7 +30,9 @@ export function importSourceLabel(label: string) {
 
 /** Retry exact source material; never infer exercises or overwrite a saved workout. */
 export function recoverySource(source: ExtractionRequest | null, sourceURL: string | undefined | null, caption: string): ExtractionRequest {
-  const fallback: ExtractionRequest | null = sourceURL && /^https?:\/\//i.test(sourceURL) ? { kind: "url", source_url: sourceURL, ai_consent: true } : null;
+  const classPage = isClassPage(sourceURL);
+  const safeURL = classPage ? (() => { const url = new URL(sourceURL!); url.search = ""; url.hash = ""; return url.href; })() : sourceURL;
+  const fallback: ExtractionRequest | null = sourceURL && /^https?:\/\//i.test(sourceURL) ? { kind: classPage ? "text" : "url", source_url: safeURL!, ai_consent: true, ...(classPage ? { class_parts: true, programming: { source_kind: "gym" as const, app_name: "WodUp" } } : {}) } : null;
   const original = source ?? fallback;
   if (!original && !caption.trim()) throw Error("This source is no longer available. Paste its caption or choose another source.");
   const text = [original?.text?.trim(), caption.trim()].filter(Boolean).join("\n\n");
@@ -37,6 +40,7 @@ export function recoverySource(source: ExtractionRequest | null, sourceURL: stri
   // The retained server payload can include internal saving metadata. Forward
   // source fields only, so an earlier public choice cannot leak into the retry.
   return boundedSource({ kind: original?.kind ?? "text", source_url: original?.source_url,
+    ...(original?.class_parts ? { class_parts: true, programming: original.programming } : {}),
     images: original?.images, document_base64: original?.document_base64,
     document_mime: original?.document_mime, ...(text ? { text } : {}), ai_consent: true, typed_formats: true });
 }

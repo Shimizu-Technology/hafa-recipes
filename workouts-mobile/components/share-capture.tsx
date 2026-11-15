@@ -9,6 +9,7 @@ import { archiveCapturedImport, sharedWorkoutURL, updateImportReferences, type C
 import { createPrivateDraftSlot } from "@/lib/private-form";
 import { normalizeImages, normalizeDocument, cleanupCaptureFiles } from "@/lib/capture-io";
 import * as NativeShare from "@/modules/hafa-workouts-share/src";
+import { isClassPage } from "@/lib/class-import";
 import { useNativeShareSession } from "./native-share-session";
 export function ShareCapture() {
   const stock = useShareIntentContext();
@@ -45,6 +46,7 @@ export function ShareCapture() {
     else stock.resetShareIntent();
   };
   const sourceURL = sharedWorkoutURL(shareIntent.webUrl, shareIntent.text, shareIntent.meta?.url);
+  const classPage = isClassPage(sourceURL);
   const fingerprint = JSON.stringify([native?.captureId, sourceURL, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
   const live = useRef({ owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent, active: false });
   useLayoutEffect(() => {
@@ -87,12 +89,17 @@ export function ShareCapture() {
         request_id: native?.captureId ?? Crypto.randomUUID(),
         generation,
         created_at: new Date().toISOString(),
-        kind: sourceURL ? "url" : "text",
-        source_url: sourceURL ?? "",
+        kind: classPage ? "text" : sourceURL ? "url" : "text",
+        source_url: classPage ? (() => { const url = new URL(sourceURL!); url.search = ""; url.hash = ""; return url.href; })() : sourceURL ?? "",
         text: shareIntent.text ?? "",
         files: [],
-        ...(native ? { is_public: native.isPublic } : {})
+        ...(native ? { is_public: native.isPublic } : {}),
+        ...(classPage ? { class_parts: true, is_public: false, auto_save: false, programming: { source_kind: "gym" as const, app_name: "WodUp", date: new Date().toLocaleDateString("en-CA") } } : {})
       };
+      if (classPage) {
+        const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`); guard();
+        draft.programming = { ...draft.programming, source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK" };
+      }
       async function preserveNativeSource(saved: Awaited<ReturnType<typeof slot.load>>) {
         const prior = saved.value;
         if (!native || !prior) return false;

@@ -33,3 +33,11 @@ it("distinguishes a processing failure from workout details that still need revi
   job.result!.workout!.blocks = [];
   expect(importPresentation(job).label).toBe("No exercises extracted");
 });
+
+it("retains class mode and programming on retry and never falls back to fetching WodUp", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", track: "BUILD | BRIK" };
+  expect(recoverySource({ kind: "text", text: "A. Squats", class_parts: true, programming, ai_consent: true }, null, "10 reps"))
+    .toMatchObject({ kind: "text", class_parts: true, programming, text: "A. Squats\n\n10 reps" });
+  expect(recoverySource(null, "https://wodup.com/gym?token=private#scores", "A. Squats"))
+    .toMatchObject({ kind: "text", class_parts: true, source_url: "https://wodup.com/gym" });
+});

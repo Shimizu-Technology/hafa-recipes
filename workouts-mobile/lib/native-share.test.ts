@@ -157,6 +157,7 @@ describe("Workouts native share generation", () => {
       expect(readFileSync(join(extension, "ShareViewController.swift"), "utf8")).toContain("completeRequest(returningItems: []");
       const info = plist.parse(readFileSync(join(extension, "ShareExtension-Info.plist"), "utf8"));
       expect(info.UIAppFonts).toBeUndefined();
+      expect(readFileSync(join(extension, "ShareExtensionPreprocessor.js"), "utf8")).toContain("document.body.innerText");
       for (const font of legacyFonts) expect(existsSync(join(extension, font))).toBe(false);
       expect(removeResourceFile.mock.calls).toEqual(legacyFonts.map(font => [font, { target: "extension-target" }, "extension-group"]));
       const controller = readFileSync(join(extension, "ShareViewController.swift"), "utf8");

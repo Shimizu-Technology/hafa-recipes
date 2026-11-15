@@ -3,7 +3,14 @@
     let text = sharedText.joined(separator: "\n")
     let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     let links = detector?.matches(in: text, range: NSRange(text.startIndex..., in: text)) ?? []
-    let link = sharedWebUrl.first?.url ?? (links.count == 1 ? links.first?.url?.absoluteString : nil)
+    let sourceLink = sharedWebUrl.first?.url ?? (links.count == 1 ? links.first?.url?.absoluteString : nil)
+    let host = sourceLink.flatMap { URL(string: $0)?.host?.lowercased() } ?? ""
+    captureClassPage = host == "wodup.com" || host.hasSuffix(".wodup.com")
+    var link = sourceLink
+    if captureClassPage, let sourceLink, var parts = URLComponents(string: sourceLink) {
+      guard parts.user == nil, parts.password == nil else { throw captureError("Share a webpage without account credentials.") }
+      parts.query = nil; parts.fragment = nil; link = parts.string
+    }
     let files = sharedMedia.map { f -> [String: Any] in
       var file: [String: Any] = ["path": f.path, "mimeType": f.mimeType, "fileName": f.fileName]
       file["width"] = f.width; file["height"] = f.height; return file
@@ -16,6 +23,7 @@
     showConfirmation(title: "Saving your source", detail: "Keeping the source on this device before importing it.", finished: false)
     saveCaptureSource()
   }
+  private var captureClassPage = false
   private var capturePayload: [String: Any]?
   private var captureDurable = false
   private var captureWriting = false
@@ -61,7 +69,7 @@
         controller.captureDetail?.text = "Couldn’t save this source. Try again before closing this sheet."
         return
       }
-      controller.captureDurable = true; controller.capturePayload = nil; controller.captureIsPublic = isPublic
+      controller.captureDurable = true; controller.capturePayload = nil; controller.captureIsPublic = controller.captureClassPage ? false : isPublic
       controller.captureDoneTitle = "Import workout"
       controller.showConfirmation(title: "Save this workout", detail: "Choose where this workout goes. Incomplete imports always stay private.", finished: false)
     }
@@ -163,11 +171,14 @@
     captureTitle?.text = title; captureDetail?.text = detail
     if finished { captureDoneTitle = "Done"; captureImporting = true; captureSpinner?.stopAnimating(); UIAccessibility.post(notification: .announcement, argument: title) }
     else if captureImporting { captureSpinner?.startAnimating() }
+    if captureClassPage { capturePrivacy?.text = "Class programming stays private. Open Håfa Workouts to review and save its parts." }
     refreshCaptureControls()
   }
   private func refreshCaptureControls() {
     let enabled = captureDurable && !captureWriting && !captureImporting && !captureConfirmationFinished
     for button in captureChoices {
+      button.isHidden = captureClassPage
+
       button.isEnabled = enabled; button.isSelected = (button.tag == 1) == captureIsPublic
       // Explicit trait edits must not retain the initial saving state.
       button.accessibilityTraits.remove(.notEnabled)

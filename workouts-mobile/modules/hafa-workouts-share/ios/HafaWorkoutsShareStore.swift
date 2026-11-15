@@ -240,6 +240,16 @@ enum WorkoutsShareStore {
     config.timeoutIntervalForRequest = 7; config.timeoutIntervalForResource = 8
     return URLSession(configuration: config, delegate: WorkoutsShareNetworkDelegate(), delegateQueue: nil)
   }
+  // Foundation-only so the Safari bridge contract is executable in the existing Swift harness.
+  static func classPage(_ source: URL, text: String?) -> (url: String, text: String)? {
+    guard var parts = URLComponents(url: source, resolvingAgainstBaseURL: false),
+      ["https", "http"].contains(parts.scheme ?? ""), parts.user == nil, parts.password == nil,
+      let host = parts.host?.lowercased(), host == "wodup.com" || host.hasSuffix(".wodup.com"),
+      let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    parts.query = nil; parts.fragment = nil
+    guard let url = parts.string else { return nil }
+    return (url, String(text.prefix(30000)))
+  }
   static func enqueue(_ key: String, completion: @escaping (Bool) -> Void) {
     guard let state = locked({ d -> ([String: Any], String, [String: Any])? in
       guard let session = d.dictionary(forKey: sessionKey), let capability = token(),
@@ -252,6 +262,9 @@ enum WorkoutsShareStore {
     }) ?? nil, let base = state.0["apiBaseURL"] as? String, let url = baseURL(base),
       (state.2["files"] as? [[String: Any]] ?? []).isEmpty,
       let source = state.2["url"] as? String, let capture = state.2["captureId"] as? String else { completion(false); return }
+    // Class page text must go through the authenticated app, never the URL-only credential.
+    let host = URL(string: source)?.host?.lowercased() ?? ""
+    guard host != "wodup.com", !host.hasSuffix(".wodup.com") else { completion(false); return }
     var request = URLRequest(url: url.appendingPathComponent("api/v1/workouts/share/imports"))
     request.httpMethod = "POST"; request.timeoutInterval = 7
     request.setValue("Bearer " + state.1, forHTTPHeaderField: "Authorization")

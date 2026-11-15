@@ -1032,3 +1032,21 @@ it("rejects an oversized single-photo picker result before normalizing and clean
   expect(native.files.has(sdk)).toBe(false);
   expect(native.files.get(original)).toBe("USER PHOTO");
 });
+
+it("class sources preserve hints and admit Full Page PDFs up to 10 MiB without changing ordinary limits", async () => {
+  native.size = 2 * 1024 * 1024;
+  const uri = "file:///shared/class.pdf"; native.files.set(uri, "UERG");
+  await expect(normalizeDocument({ uri, mimeType: "application/pdf", name: "Class.pdf" }, () => {}, "class-owner")).rejects.toThrow("under 128 KB");
+  const files = await normalizeDocument({ uri, mimeType: "application/pdf", name: "Class.pdf" }, () => {}, "class-owner", true);
+  const source = await sourceFor({ ...draft, kind: "document", files, class_parts: true, programming: { source_kind: "gym", gym_name: "Unified", date: "2026-11-17" } }, () => {});
+  expect(source).toMatchObject({ kind: "document", document_mime: "application/pdf", class_parts: true, ai_consent: true, programming: { gym_name: "Unified" } });
+  native.size = 10 * 1024 * 1024 + 1;
+  await expect(sourceFor({ ...draft, kind: "document", files, class_parts: true }, () => {})).rejects.toThrow("too large");
+});
+it("class image bounds allow eight and reject invalid dates and oversized individual screenshots", () => {
+  const files = Array.from({ length: 8 }, (_, i) => ({ uri: `file://${i}`, name: `${i}`, mime_type: "image/jpeg", owned: true }));
+  expect(captureErrors({ ...draft, kind: "images", files, class_parts: true })).toEqual([]);
+  expect(captureErrors({ ...draft, kind: "images", files })).not.toEqual([]);
+  expect(captureErrors({ ...draft, kind: "text", text: "A", class_parts: true, programming: { source_kind: "gym", date: "2026-02-30" } })).not.toEqual([]);
+  expect(() => boundedSource({ kind: "images", ai_consent: true, class_parts: true, images: [{ base64_data: "A".repeat(6 * 1024 * 1024), mime_type: "image/jpeg" }] })).toThrow("4 MiB");
+});

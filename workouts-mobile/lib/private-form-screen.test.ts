@@ -14,7 +14,7 @@ const fixture = vi.hoisted(() => ({
   map: new Map<string, string>(),
   owner: "owner-initial",
   run: 0,
-  params: {} as { id?: string; shared?: string; request_id?: string; auto?: string },
+  params: {} as { class?: string; id?: string; shared?: string; request_id?: string; auto?: string },
   revision: 1,
   generation: 1,
   saveWorkout: vi.fn(),
@@ -3284,4 +3284,42 @@ it("Extract Back drains edits entered after Back while storage is delayed", asyn
   expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(action);
   await unmount(); await mount(Capture);
   expect(field().props.value).toBe("https://example.test/after-back");
+});
+
+it("Today's class starts private, remembers gym/track and requires review even with server auto-save", async () => {
+  fixture.params = { class: "1" };
+  fixture.map.set(draftKey(fixture.owner, "class-preferences:1"), JSON.stringify({ gym_name: "My gym", track: "BUILD | BRIK" }));
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.startImport.mockResolvedValue({ id: "class-job" });
+  await mount(Capture);
+  expect(nodes("Field").find(n => n.props.label === "Gym")!.props.value).toBe("My gym");
+  await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("A. 15 minute AMRAP: 10 squats"));
+  await click("Import workout");
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: false, is_public: false });
+  expect(fixture.sourceFor.mock.calls[0][0]).toMatchObject({ class_parts: true, is_public: false, programming: { gym_name: "My gym", track: "BUILD | BRIK" } });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "class-job", auto: "0" } });
+});
+it("a class review never offers Discover or saves automatically and preserves all class parts", async () => {
+  fixture.params = { id: "class-job", auto: "1" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "class-job", generation: 1, status: "ready", result: {
+    status: "ready", workout: nov17Class, source: { platform: "text", channels: [], coverage_notes: [] }, warnings: [], evidence: [] } });
+  fixture.importSource.mockResolvedValue({ kind: "text", class_parts: true, text: "class" });
+  fixture.acceptImport.mockResolvedValue({ ...nov17Class, id: "saved-class" });
+  await mount(ImportReview);
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(nodes("Choice").some(n => n.props.label === "Share to Discover")).toBe(false);
+  await click("Save workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("class-job", nov17Class, 1, false, true);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "saved-class" } });
+});
+
+it("Safari WodUp visible text becomes a private class draft rather than a URL import", async () => {
+  fixture.share = true;
+  fixture.intent = { webUrl: "https://wodup.com/gym?token=private#scores", text: "Coach notes\nA. 15 minute AMRAP: 10 squats", files: [] };
+  await mount(ShareCapture);
+  const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  expect(captured).toMatchObject({ kind: "text", class_parts: true, is_public: false, auto_save: false,
+    source_url: "https://wodup.com/gym", text: fixture.intent.text, programming: { source_kind: "gym", app_name: "WodUp" } });
+  expect(fixture.startImport).not.toHaveBeenCalled();
 });

@@ -41,6 +41,7 @@ module.exports = function withWorkoutsShare(config) {
       await fs.readFile(path.join(native, "CaptureConfirmation.swift"), "utf8"),
       await fs.readFile(path.join(native, "HafaWorkoutsShareStore.swift"), "utf8"),
       await fs.readFile(path.join(native, "CaptureProviderLoader.swift"), "utf8")));
+    await fs.copyFile(path.join(native, "ClassPagePreprocessor.js"), path.join(extension, "ShareExtensionPreprocessor.js"));
     // Remove resources left by an earlier prebuild; the share UI uses system type.
     const fonts = ["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"];
     const target = mod.modResults.findTargetKey("ShareExtension") ?? mod.modResults.findTargetKey('"ShareExtension"');
