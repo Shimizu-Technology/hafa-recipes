@@ -21,7 +21,13 @@ from sqlalchemy import func, select
 
 from app.domains.baby.dependencies import Client, Database, User
 from app.domains.baby.lifecycle import now
-from app.domains.baby.models import BabyChild, BabyMembership, BabyNotification, BabyPushDevice, BabySpaceMember
+from app.domains.baby.models import (
+    BabyChild,
+    BabyMembership,
+    BabyNotification,
+    BabyPushDevice,
+    BabySpaceMember,
+)
 from app.domains.baby.push import available, load_prefs
 from app.domains.baby.reminders import (
     LOCK_SCREEN,
