@@ -131,7 +131,7 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
       </RNView>
       {source && (
         <RNView style={[styles.group, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
-          <RecipeDetailRow icon="play-circle-outline" title="Original" value={source.label} accessibilityRole="link"
+          <RecipeDetailRow icon="play-circle-outline" title="Original" value={source.label} stacked accessibilityRole="link"
             onPress={() => void openRecipeSource(source.url)} />
         </RNView>
       )}

@@ -133,4 +133,10 @@ describe('shared recipe view', () => {
     expect(texts(root)).toContain('TikTok video by @thecoreyb');
     expect(texts(root)).not.toContain('A Håfa cook');
   });
+
+  it('uses the same stacked row as the share sheet for the original source', async () => {
+    const root = await render();
+    const original = root.container.queryAll((n: any) => n.type === 'Row' && n.props.title === 'Original')[0];
+    expect(original.props).toMatchObject({ stacked: true, value: 'TikTok video by @thecoreyb' });
+  });
 });
