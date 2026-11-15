@@ -189,6 +189,8 @@ Details may be tightened together, never changed independently in API/client.
 
 **Care contacts.** `PATCH /profile/contacts` keeps her doctor and where she plans to deliver in `baby_memberships.profile`; `details.doctor` on a child keeps the baby's doctor, so it goes with the baby and everyone in the family reads it. Each is a name and a phone number, with what a copied number brings along cleaned up the same way by the app and the API. Bootstrap always carries `contacts`, which is how a phone knows the API keeps them, and the fields stay hidden until then. Her own are stored in `baby_memberships.profile` under `contacts`, and they're in `SERVER_PROFILE_FIELDS`, so they're never in the `profile` a phone reads and echoes back, and nobody else reads them. They're in her export and removed with her data. No request to a model carries any of them: the Ask context and tools name the child fields they send, and `test_baby_contacts.py` checks that at the HTTP layer.
 
+**Hospital bag.** `/hospital-bag` is an ordinary checklist routine (no reminder) started from an editable starter list, grouped For you, For baby, For your partner, and Papers & phone. The section rides in each item's id (`bag:<section>:<key>`), since the API allows only `id,label,done` on an item; a line added in the plain routine editor shows under "Also packing". It is shared with the family like any list, so a partner or caregiver can tick things off. Today shows it from week 28 of a pregnancy, and Lists & routines always lists it. The starter content avoids medical claims and says the hospital's own list wins; Kami signs off on it.
+
 ## Family, tracker and calendar contracts
 
 Decided November 4, 2026 with Leon and Kami. These extend the API contract above

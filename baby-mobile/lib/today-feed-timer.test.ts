@@ -246,7 +246,7 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   // Add has these now: nothing here says it twice.
   for (const label of ["Save a link", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(0);
   // Under the tiles, above everything else, so she needn't scroll for it in labour.
-  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Lists & routines", "Journal"]);
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Hospital bag", "Lists & routines", "Journal"]);
   scope.push.mockClear();
   await act(async () => (find("Row", p => p.title === "Journal")[0].props.onPress as () => void)());
   expect(scope.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/journal", params: expect.objectContaining({ filter: "all" }) }));

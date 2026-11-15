@@ -29,7 +29,8 @@ import { trackerOn, trackersFor } from "../../../lib/trackers";
 import { BabyAgeCard, PregnancyHero, TipSection, WeekDetails } from "@/components/tips";
 import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
-import { dueLine, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
+import { dueLine, pregnancyProgress, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
+import { findBag, packedLine } from "../../../lib/hospital-bag";
 import { useTimingTips } from "@/lib/use-timing-tips";
 import { journalHome } from "../../../lib/use-open-journal";
 
@@ -52,6 +53,7 @@ export default function Today() {
     latestCare = useTodayCare(),
     glance = careGlance(latestCare.all, child?.id ?? null, now, b.state.bootstrap!.profile.timezone),
     routines = records.filter((r) => routineToday(r, now)),
+    bag = findBag(b.records),
     stage = todayStage(child, today),
     pregnant = stage === "pregnancy",
     expecting = pregnant || stage === "needs_birth",
@@ -116,7 +118,12 @@ export default function Today() {
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
-      <Grouped>{keptRows}</Grouped>
+      <Grouped>
+        {/* From the third trimester, where she'd look for it. It's also in Lists & routines. */}
+        {pregnant && (pregnancyProgress(child.due_date!, today)?.week ?? 0) >= 28 && <Row key="bag" numericDetail title="Hospital bag"
+          detail={bag ? packedLine(bag) : "A starter list to pack from"} icon="bag-handle-outline" onPress={() => router.push("/hospital-bag")} />}
+        {keptRows}
+      </Grouped>
     </Screen>
   );
   const feedsShow = showing("breast", "bottle"),
