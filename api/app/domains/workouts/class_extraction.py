@@ -126,7 +126,7 @@ def ground_class(workout, raw, source, warnings):
 
 # Conservative section boundaries for visible WodUp/page text. Never use an AI
 # call to identify the private rows we are trying to keep out of that call.
-CLASS_SECTION = re.compile(r"^(?:part\s+)?[a-z](?:[.)]|\s*:)\s+|^(?:workout(?:\s+of\s+the\s+day)?|wod|coach(?:'s)? notes?|warm[- ]?up|cool[- ]?down|accessories)\s*[:—-]?$", re.I)
+CLASS_SECTION = re.compile(r"^(?:part\s+)?[a-z](?:[.)]|\s*:)(?:\s*(?:amrap|emom|for time|warm[- ]?up|cool[- ]?down|active recovery|accessories|strength|conditioning|\d+\s+(?:sets|rounds))\b.*|\s*)$|^(?:workout(?:\s+of\s+the\s+day)?|wod|coach(?:'s)? notes?|warm[- ]?up|cool[- ]?down|accessories)\s*[:—-]?$", re.I)
 PRIVATE_SECTION = re.compile(r"^(?:log (?:a )?result|leaderboard|(?:view |show |all )?(?:results?|comments?|athletes?|members?))(?:\b|$)", re.I)
 
 

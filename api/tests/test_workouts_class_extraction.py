@@ -209,7 +209,7 @@ async def test_class_privacy_trims_members_before_provider_and_drops_context(kin
 def test_class_privacy_resumes_at_next_part_after_member_results():
     from app.domains.workouts.class_extraction import class_text
 
-    assert class_text("A. AMRAP 15 min\n15 Squat\nLeaderboard\nAlice 3 rounds\nComments\nBob: hi\nB. For time\nRun 400m") == "A. AMRAP 15 min\n15 Squat\nB. For time\nRun 400m"
+    assert class_text("A. AMRAP 15 min\n15 Squat\nLeaderboard\nAlice 3 rounds\nA. MEMBER_NAME 12:43\nComments\nBob: hi\nB. For time\nRun 400m") == "A. AMRAP 15 min\n15 Squat\nB. For time\nRun 400m"
 
 
 async def test_class_failure_does_not_retain_source_context():
