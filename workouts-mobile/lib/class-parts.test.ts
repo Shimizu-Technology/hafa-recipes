@@ -24,6 +24,14 @@ describe("class part presentation (Nov 17)", () => {
     expect(prescriptionLine({ name: "Hold", duration_seconds: 60, duration_seconds_max: 90 })).toBe("1 min–1m 30s");
     expect(prescriptionLine({ name: "Thruster", load_options: [{ load: 95, load_unit: "lb", label: "Rx men" }, { load: 30, load_unit: "kg", label: "Rx women" }] }))
       .toBe("Rx men 95 lb / Rx women 30 kg");
+    expect(prescriptionLine({ name: "Lunge", load_options: [{ load: 24, load_unit: "kg", load_convention: "per_hand" }, { load: 16, load_unit: "kg", load_convention: "per_hand" }] }))
+      .toBe("24 / 16 kg per hand");
+    expect(prescriptionLine({ name: "Carry", load_options: [{ load: 20, load_unit: "kg", load_convention: "per_hand" }, { load: 20, load_unit: "kg", load_convention: "total" }] }))
+      .toBe("20 kg per hand / 20 kg total");
+    expect(prescriptionLine({ name: "Pull-up", load_options: [{ load: 10, load_unit: "kg", load_convention: "added" }, { load: 20, load_unit: "kg", load_convention: "assistance" }] }))
+      .toBe("10 kg added / 20 kg assistance");
+    expect(prescriptionLine({ name: "Dip", load_options: [{ load: 20, load_unit: "lb", load_convention: "added", label: "Rx" }, { load: 10, load_unit: "lb", load_convention: "added", label: "Scaled" }] }))
+      .toBe("Rx 20 lb added / Scaled 10 lb added");
     expect(prescriptionLine({ name: "Squat", sets: 5, reps_min: 3, relative_load: { basis: "one_rep_max", percent: 80 } })).toBe("5 × 3 reps · 80% 1RM");
   });
   it("leaves older prescriptions exactly as before", () => {
