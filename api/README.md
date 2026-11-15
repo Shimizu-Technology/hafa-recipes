@@ -429,14 +429,20 @@ The lead configures the proxy after review; these PRs do not change secrets:
    HS256 JWS with issuer `netlify` and a valid required expiry, then reads
    `x-nf-client-connection-ip`. Forwarded-for alone has no authority.
    Before configuration, absent/invalid signatures use the socket peer with a
-   12,000 requests/minute ceiling (also a global per-process ceiling). Verified
-   visitors have 120 requests/minute. Each page normally uses two requests.
+   12,000 requests/minute ceiling (also a global per-process ceiling). Once the
+   secret is set, unsigned/invalid traffic instead shares a 600/minute bucket,
+   checked before the global ceiling. Verified visitors have 120 requests/minute;
+   IPv6 addresses share their /64. Signature expiry allows 30 seconds of clock
+   skew. Each page normally uses two requests. Through production Netlify, send
+   a spoofed `x-nf-client-connection-ip` and confirm the proxy overwrites it.
    These are process-local budgets; revisit shared quotas if API replicas grow.
 
 Migration **062** remains additive and replayable; **063 belongs to Workouts**.
 It now adds `created_at timestamptz NOT NULL DEFAULT now()`, including when the
 original 062 table already exists. Existing grants get the upgrade time because
 no historical creation timestamp was recorded. No default expiry is introduced.
+Replay accepts additional columns from later additive migrations and still
+validates every required column type/nullability and the original constraints.
 The lead must verify a production backup/restore point before running:
 
 ```sh
@@ -447,6 +453,9 @@ MIGRATION_062_RESTORE_POINT='<verified restore-point name>' uv run python -m mig
 OG generation releases the DB connection before media I/O. At most four jobs
 run, same-image requests coalesce, Pillow has two dedicated workers, and readers
 fall back to the default image after two seconds (or immediately at capacity).
+HTML starts the same bounded/coalesced image job without awaiting it, so the
+first unfurl can find the photo ready. External async downloads have a ten-second
+overall deadline; owned S3 threads retain admission until their sockets finish.
 Successful photos occupy a 32-entry, five-minute process cache. Failed fetches
 are retried rather than cached. S3 OG persistence is deferred: existing thumbnail
 variants are immutable public objects, which would bypass unlisted revocation;
@@ -455,9 +464,9 @@ protected OG storage needs its own access/deletion lifecycle.
 Uvicorn suppresses `/public/r/*` access records, and Sentry drops its traces and
 removes request details from errors. Render application logs therefore do not
 receive those Uvicorn paths. This cannot redact provider-owned ingress logs or
-Netlify traffic logs: capability URLs necessarily reach both proxies. Before
-releasing private links, the lead must inspect enabled Render/Netlify log drains,
-redact `/r/<key>` and `/public/r/<key>` (including `/data` and `/og.jpg`) before
-export/storage, restrict provider log access/retention, and verify using a
-throwaway link followed by revocation. No provider logging setting was changed
-by this fix round. Link recipients and messaging services can retain previews.
+Netlify traffic logs: capability URLs necessarily reach both proxies. Provider
+logs are accepted only after the lead confirms there are no third-party log
+drains and the mobile phase provides easy-to-reach revocation. Restrict provider
+log access and retention. Do not export capability URLs to third-party sinks.
+No provider logging setting was changed by these PRs. Link recipients and
+messaging services can retain previews.

@@ -40,8 +40,9 @@ async def schema_ready(db):
     return bool(await db.scalar(text("SELECT to_regclass('public.recipe_share_links') IS NOT NULL")))
 
 
-async def owner(db, recipe_id, user):
-    recipe = await db.scalar(select(Recipe).where(Recipe.id == recipe_id).with_for_update())
+async def owner(db, recipe_id, user, *, lock=True):
+    query = select(Recipe).where(Recipe.id == recipe_id)
+    recipe = await db.scalar(query.with_for_update() if lock else query)
     if recipe is None or recipe.user_id != user.id:
         raise HTTPException(404, 'Recipe not found')
     if not await schema_ready(db):
@@ -72,7 +73,7 @@ async def revoke_link(recipe_id: UUID, user: ClerkUser = Depends(get_current_use
 
 @router.get('/api/recipes/{recipe_id}/share-link')
 async def link_status(recipe_id: UUID, response: Response, user: ClerkUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    await owner(db, recipe_id, user)
+    await owner(db, recipe_id, user, lock=False)
     link = await db.get(RecipeLink, recipe_id)
     response.headers.update(PRIVATE_HEADERS)
     return {'active': link is not None, 'created_at': link.created_at if link else None}
@@ -84,16 +85,24 @@ def verified_client_ip(request: Request):
         return None
     try:
         jwt.decode(request.headers.get('x-nf-sign', ''), secret, algorithms=['HS256'],
-                   issuer='netlify', options={'require': ['exp', 'iss']})
+                   issuer='netlify', leeway=30, options={'require': ['exp', 'iss']})
         return str(ipaddress.ip_address(request.headers.get('x-nf-client-connection-ip', '')))
     except (jwt.InvalidTokenError, ValueError):
         return None
 
 
 async def read_budget(request: Request):
-    # Unsigned proxy traffic shares a peer; never apply the small visitor quota
-    # to that peer. X-Forwarded-For is never an authority.
-    await budget('global', 'recipe-page-ceiling', 12000)
+    # Verify before admitting unsigned traffic to the shared ceiling: direct
+    # onrender.com clients must not spend the signed visitors' entire budget.
     client_ip = verified_client_ip(request)
-    peer = request.client.host if request.client else 'unknown'
-    await budget(f'visitor:{client_ip}' if client_ip else f'peer:{peer}', 'recipe-page', 120 if client_ip else 12000)
+    signing_enabled = bool(os.getenv('RECIPE_PROXY_SECRET', '').strip())
+    if signing_enabled and not client_ip:
+        await budget('unsigned', 'recipe-page', 600)
+    await budget('global', 'recipe-page-ceiling', 12000)
+    if client_ip:
+        address = ipaddress.ip_address(client_ip)
+        visitor = str(ipaddress.ip_network(f'{address}/64', strict=False)) if address.version == 6 else client_ip
+        await budget(f'visitor:{visitor}', 'recipe-page', 120)
+    elif not signing_enabled:
+        peer = request.client.host if request.client else 'unknown'
+        await budget(f'peer:{peer}', 'recipe-page', 12000)

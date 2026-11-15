@@ -129,7 +129,12 @@ async def page(key: str, db: AsyncSession = Depends(get_db), viewer: ClerkUser |
         if exc.status_code != 404:
             raise
         return HTMLResponse(f'<!doctype html><html lang="en"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style><main><h1>{UNAVAILABLE}</h1><a href="{APP_STORE}">Get Håfa Recipes</a></main></html>', status_code=404, headers=HTML_HEADERS)
-    return HTMLResponse(render_page(project(recipe), key), headers=HTML_HEADERS)
+    data = project(recipe)
+    cache_key = (str(recipe.id), recipe.thumbnail_url)
+    await db.close()
+    # Start early, without delaying HTML or holding a pooled DB connection.
+    start_image(cache_key)
+    return HTMLResponse(render_page(data, key), headers=HTML_HEADERS)
 
 
 # No public S3 object: a private grant must remain revocable. The existing
@@ -159,7 +164,7 @@ async def build_image(cache_key):
         recipe_id, thumbnail_url = cache_key
         # Keep admission until the underlying I/O actually finishes: cancelling
         # an S3 to_thread call cannot stop its socket or free its worker.
-        raw = await storage_service.fetch_thumbnail_source(thumbnail_url, recipe_id)
+        raw = await storage_service.fetch_thumbnail_source(thumbnail_url, recipe_id, external_timeout_seconds=10)
         payload = await asyncio.get_running_loop().run_in_executor(_image_executor, jpeg, raw.data)
         _images[cache_key] = (monotonic() + 300, payload)
         _images.move_to_end(cache_key)
@@ -171,6 +176,17 @@ async def build_image(cache_key):
         return _default_image
     finally:
         _image_jobs.pop(cache_key, None)
+
+
+def start_image(cache_key):
+    cached = _images.get(cache_key)
+    if not cache_key[1] or cached and cached[0] > monotonic():
+        return None
+    job = _image_jobs.get(cache_key)
+    if job is None and len(_image_jobs) < MAX_IMAGE_JOBS:
+        job = asyncio.create_task(build_image(cache_key))
+        _image_jobs[cache_key] = job
+    return job
 
 
 @router.get('/{key}/og.jpg')
@@ -185,10 +201,7 @@ async def og_image(key: str, db: AsyncSession = Depends(get_db), viewer: ClerkUs
         _images.move_to_end(cache_key)
         payload = cached[1]
     elif cache_key[1]:
-        job = _image_jobs.get(cache_key)
-        if job is None and len(_image_jobs) < MAX_IMAGE_JOBS:
-            job = asyncio.create_task(build_image(cache_key))
-            _image_jobs[cache_key] = job
+        job = start_image(cache_key)
         if job is not None:
             try:
                 payload = await asyncio.wait_for(asyncio.shield(job), timeout=IMAGE_WAIT_SECONDS)

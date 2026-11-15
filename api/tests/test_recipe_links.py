@@ -249,6 +249,8 @@ async def test_signed_proxy_budgets(monkeypatch):
             (b'x-forwarded-for', b'198.51.100.5')]})
     claims = {'iss': 'netlify', 'exp': time.time() + 60}
     token = jwt.encode(claims, secret, algorithm='HS256')
+    assert verified_client_ip(request(jwt.encode(claims | {'exp': time.time() - 10}, secret, algorithm='HS256'))) == '203.0.113.7'
+    assert verified_client_ip(request(jwt.encode(claims | {'exp': time.time() - 60}, secret, algorithm='HS256'))) is None
     assert verified_client_ip(request(token)) == '203.0.113.7'
     for forged in ('', jwt.encode(claims, 'wrong-secret-with-at-least-32-bytes', algorithm='HS256'),
                    jwt.encode(claims | {'exp': 1}, secret, algorithm='HS256'),
@@ -298,7 +300,7 @@ async def test_image_releases_connection_bounds_wait_and_retries(monkeypatch):
     monkeypatch.setattr(pages, 'resolve', AsyncMock(return_value=recipe))
     gate = asyncio.Event()
     calls = 0
-    async def fetch(*args):
+    async def fetch(*args, **kwargs):
         nonlocal calls
         assert db.close.await_count > 0
         calls += 1
@@ -347,3 +349,169 @@ def test_recipe_capabilities_not_logged_or_traced():
     event = {'request': {'url': 'https://api.invalid' + path}, 'breadcrumbs': [{'message': path}]}
     assert path not in str(redact_workouts_event(event))
     assert redact_workouts_transaction(event) is None
+
+
+@pytest.mark.asyncio
+async def test_page_budgets_do_not_scan_full_event_windows(monkeypatch):
+    from collections import deque
+
+    from app.rate_limit import RateLimitExceeded, UserRateLimiter
+
+    class NoScan(deque):
+        def __iter__(self):
+            raise AssertionError('A page budget must not scan its admissions')
+
+    clock = [100.0]
+    bucket = UserRateLimiter(clock=lambda: clock[0])
+    # Use the actual page budget helper, including its 429 path.
+    monkeypatch.setattr('app.recipe_links.limiter', bucket)
+    from app.recipe_links import budget
+    key = ('global', 'recipe-page-ceiling')
+    bucket._quota_events[key] = NoScan([100.0] * 11999)
+    bucket._quota_horizons[key] = 60
+    await budget(*key, 12000)
+    for _ in range(10):
+        with pytest.raises(HTTPException) as exc:
+            await budget(*key, 12000)
+        assert exc.value.status_code == 429
+    assert len(bucket._quota_events[key]) == 12000
+    clock[0] = 160.0
+    await budget(*key, 12000)
+    assert len(bucket._quota_events[key]) == 1
+    # Multi-window quotas still count only the events inside each smaller window.
+    from app.rate_limit import QuotaWindow
+    await bucket.consume_quota(user_id='multi', capability='test', windows=[QuotaWindow(60, 10), QuotaWindow(10, 1)])
+    with pytest.raises(RateLimitExceeded):
+        await bucket.consume_quota(user_id='multi', capability='test', windows=[QuotaWindow(60, 10), QuotaWindow(10, 1)])
+
+
+@pytest.mark.asyncio
+async def test_unsigned_ceiling_is_checked_before_shared_budget(monkeypatch):
+    import time
+
+    import jwt
+    from starlette.requests import Request
+
+    from app.recipe_links import read_budget
+    secret = 'test-only-secret-with-at-least-32-bytes'
+    monkeypatch.setenv('RECIPE_PROXY_SECRET', secret)
+    limiter.reset()
+    def request(token='', ip='203.0.113.9'):
+        return Request({'type': 'http', 'client': ('10.0.0.1', 80), 'headers': [
+            (b'x-nf-sign', token.encode()), (b'x-nf-client-connection-ip', ip.encode())]})
+    for _ in range(600):
+        await read_budget(request())
+    for i in range(20):
+        # Neither a new forged client header nor a bad signature gets a new bucket.
+        with pytest.raises(HTTPException) as exc:
+            await read_budget(request('invalid', f'203.0.113.{i}'))
+        assert exc.value.status_code == 429
+    assert len(limiter._quota_events[('global', 'recipe-page-ceiling')]) == 600
+    token = jwt.encode({'iss': 'netlify', 'exp': time.time() + 60}, secret, algorithm='HS256')
+    await read_budget(request(token))
+    assert len(limiter._quota_events[('global', 'recipe-page-ceiling')]) == 601
+    limiter.reset()
+    for _ in range(120):
+        await read_budget(request(token, '2001:db8:abcd:1234::1'))
+    with pytest.raises(HTTPException):
+        await read_budget(request(token, '2001:db8:abcd:1234::2'))
+    await read_budget(request(token, '2001:db8:abcd:1235::1'))
+    limiter.reset()
+
+
+@pytest.mark.asyncio
+async def test_migration_replays_after_later_additive_columns(fixture):
+    db, recipe = fixture
+    await db.execute(text('CREATE TABLE schema_migrations (version integer primary key, name text)'))
+    await db.execute(text('ALTER TABLE recipe_share_links ADD COLUMN future_metadata text'))
+    await db.commit()
+    migration = importlib.import_module('migrations.062_add_recipe_share_links')
+    await migration.run_migration(migration_engine=db.bind)
+    await migration.run_migration(migration_engine=db.bind)
+    assert await db.get(Recipe, recipe.id)
+    await db.execute(text('ALTER TABLE recipe_share_links ALTER COLUMN token_hash DROP NOT NULL'))
+    await db.commit()
+    with pytest.raises(RuntimeError, match='schema drift'):
+        await migration.run_migration(migration_engine=db.bind)
+
+
+@pytest.mark.asyncio
+async def test_link_status_does_not_lock_recipe(fixture):
+    from sqlalchemy import event
+
+    from app.recipe_links import link_status
+    db, recipe = fixture
+    queries = []
+    def record(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+    event.listen(db.bind.sync_engine, 'before_cursor_execute', record)
+    try:
+        await link_status(recipe.id, Response(), user(), db)
+        assert not any('FOR UPDATE' in query.upper() for query in queries)
+    finally:
+        event.remove(db.bind.sync_engine, 'before_cursor_execute', record)
+
+
+@pytest.mark.asyncio
+async def test_page_prewarms_image_without_waiting_or_holding_db(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import app.recipe_pages as pages
+    recipe = SimpleNamespace(id=uuid4(), thumbnail_url='https://example.com/photo',
+                             extracted={'title': 'Rice'}, extractor_display_name='Cook', source_url=None)
+    db = SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr(pages, 'resolve', AsyncMock(return_value=recipe))
+    gate = asyncio.Event()
+    async def fetch(*args, **kwargs):
+        assert db.close.await_count > 0
+        assert kwargs == {'external_timeout_seconds': 10}
+        await gate.wait()
+        return SimpleNamespace(data=jpeg(None))
+    monkeypatch.setattr(pages.storage_service, 'fetch_thumbnail_source', fetch)
+    _images.clear()
+    try:
+        html = await asyncio.wait_for(pages.page(str(recipe.id), db, None), .5)
+        assert html.status_code == 200 and len(pages._image_jobs) == 1
+        await pages.page(str(recipe.id), db, None)
+        assert len(pages._image_jobs) == 1  # HTML and og.jpg coalesce the same job.
+        gate.set()
+        await asyncio.gather(*list(pages._image_jobs.values()))
+        image = await pages.og_image(str(recipe.id), db, None)
+        assert image.body == _images[(str(recipe.id), recipe.thumbnail_url)][1]
+    finally:
+        gate.set()
+        await asyncio.gather(*list(pages._image_jobs.values()))
+        _images.clear()
+
+
+@pytest.mark.asyncio
+async def test_external_image_deadline_cancels_download_but_not_owned_thread(monkeypatch):
+    import asyncio
+    import time
+
+    from app.recipe_pages import storage_service as storage
+    out = io.BytesIO()
+    Image.new('RGB', (80, 60), 'red').save(out, 'JPEG')
+    image = out.getvalue()
+    cancelled = asyncio.Event()
+    async def external(*args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+    monkeypatch.setattr(storage, '_owned_storage_key', lambda url: None)
+    monkeypatch.setattr(storage, '_owned_storage_hosts', lambda: set())
+    monkeypatch.setattr(storage, '_download_public_url', external)
+    with pytest.raises(TimeoutError):
+        await storage.fetch_thumbnail_source('https://example.com/photo', str(uuid4()), external_timeout_seconds=.01)
+    assert cancelled.is_set()
+    monkeypatch.setattr(storage, '_owned_storage_key', lambda url: 'owned')
+    monkeypatch.setattr(storage, '_key_belongs_to_recipe', lambda *args: True)
+    def owned(*args):
+        time.sleep(.03)
+        return image, 'image/jpeg'
+    monkeypatch.setattr(storage, '_download_owned_thumbnail', owned)
+    result = await storage.fetch_thumbnail_source('https://example.com/photo', str(uuid4()), external_timeout_seconds=.001)
+    assert result.data == image

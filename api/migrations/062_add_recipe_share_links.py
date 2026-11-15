@@ -26,7 +26,8 @@ async def run_migration(*, migration_engine=None):
             SELECT count(*) FROM pg_constraint WHERE conrelid='recipe_share_links'::regclass
             AND (contype IN ('p','u') OR (contype='f' AND confrelid='recipes'::regclass AND confdeltype='c'))
         """))
-        if [tuple(row) for row in columns] != [('created_at', 'timestamp with time zone', 'NO'), ('recipe_id', 'uuid', 'NO'), ('token_hash', 'character varying', 'NO')] or constraints != 3:
+        required_columns = {('created_at', 'timestamp with time zone', 'NO'), ('recipe_id', 'uuid', 'NO'), ('token_hash', 'character varying', 'NO')}
+        if not required_columns.issubset({tuple(row) for row in columns}) or constraints < 3:
             raise RuntimeError('Migration062 schema drift: unexpected recipe link schema')
         await db.execute(text("INSERT INTO schema_migrations(version,name) VALUES(62,'unlisted recipe links') ON CONFLICT(version) DO NOTHING"))
 
