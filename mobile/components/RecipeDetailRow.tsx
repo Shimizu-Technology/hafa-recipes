@@ -8,17 +8,19 @@ type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & 
   title: string;
   value?: string;
   accessory?: ReactNode;
+  /** Put the value on its own line under the title (two lines at most) instead of beside it. */
+  stacked?: boolean;
 };
 
 /** Shared anatomy for every row in recipe detail's More group. */
-export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...props }: RecipeDetailRowProps) {
+export function RecipeDetailRow({ icon, title, value, accessory, stacked, onPress, ...props }: RecipeDetailRowProps) {
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
   const content = <>
     <View style={styles.icon}><Ionicons name={icon} size={20} color={colors.textSecondary} /></View>
-    <View style={styles.copy}>
+    <View style={stacked ? styles.stackedCopy : styles.copy}>
       <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-      {value ? <Text style={[styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
+      {value ? <Text numberOfLines={stacked ? 2 : undefined} style={[stacked ? styles.stackedValue : styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
     </View>
     <View style={styles.accessory}>{accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}</View>
     <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />
@@ -62,4 +64,6 @@ const styles = StyleSheet.create({
   copy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4 },
   title: { fontSize: 17, lineHeight: 22, flexGrow: 1, flexShrink: 1 },
   value: { fontSize: 15, lineHeight: 20, flexShrink: 1, textAlign: 'right', marginLeft: 'auto' },
+  stackedCopy: { flex: 1, gap: 2 },
+  stackedValue: { fontSize: 15, lineHeight: 20 },
 });

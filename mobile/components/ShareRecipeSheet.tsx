@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View as RNView } from 'react-native';
+import { useContext, useEffect, useState } from 'react';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View as RNView, useWindowDimensions } from 'react-native';
+import { useNavigation } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Button, Text, useColors } from '@/components/Themed';
+import { Button, Text, TextScaleContext, useColors } from '@/components/Themed';
 import { RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { ToastHost } from '@/components/Toast';
@@ -68,11 +69,22 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
   const model = getShareSheetModel(mode, linkState);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
-  const [useScaled, setUseScaled] = useState(false);
-  useEffect(() => { if (!visible) { setConfirm(null); setUseScaled(false); } }, [visible]);
-
   const original = recipe.extracted.servings;
   const scaled = original && scaledServings && scaledServings !== original ? scaledServings : null;
+  // Text follows what the reader is looking at: a scaled recipe starts on its scaled servings.
+  const [useScaled, setUseScaled] = useState(!!scaled);
+  useEffect(() => {
+    if (visible) setUseScaled(!!scaled);
+    else setConfirm(null);
+    // Reset each time the sheet opens, not while it is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+  // Another screen opening (a tapped link, a notification) hides this one; don't leave the sheet over it.
+  const navigation = useNavigation();
+  useEffect(() => (visible ? navigation.addListener('blur', onClose) : undefined), [visible, navigation, onClose]);
+  // At accessibility text sizes the card drops to title and credit, and Send link comes right after it.
+  const { fontScale } = useWindowDimensions();
+  const large = fontScale * useContext(TextScaleContext) >= 1.6;
   const source = getSourceCredit(recipe.source_url, recipe.source_type);
   const contributorName = !isOwner ? recipe.extractor_display_name?.trim() || null : null;
   const credit = [contributorName && `Recipe by ${contributorName}`, source?.label].filter(Boolean).join(' · ');
@@ -148,6 +160,9 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
 
   const confirmCopy = confirm ? CONFIRM_COPY[confirm.kind] : null;
   const linkChecking = mode === 'private' && link.isLoading;
+  const primaryButton = model.primary === 'send-link'
+    ? <Button title={linkChecking ? 'Checking link…' : 'Send link'} onPress={() => void requestLink('send')} loading={linkChecking} />
+    : <Button title="Send as text" onPress={() => void sendText()} />;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={confirm ? () => setConfirm(null) : onClose}>
@@ -156,7 +171,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
           style={[styles.sheet, { backgroundColor: colors.background, borderColor: colors.hairline, paddingBottom: insets.bottom + spacing.md }]}>
           <RNView style={styles.grabberRow}><RNView style={[styles.grabber, { backgroundColor: colors.border }]} /></RNView>
           <RNView style={styles.header}>
-            <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>{confirmCopy ? confirmCopy.title : 'Share recipe'}</Text>
+            <Text accessibilityRole="header" maxFontSizeMultiplier={2} style={[styles.heading, { color: colors.text }]}>{confirmCopy ? confirmCopy.title : 'Share recipe'}</Text>
             <Pressable onPress={confirm ? () => setConfirm(null) : onClose} hitSlop={8} style={styles.close}
               accessibilityRole="button" accessibilityLabel={confirm ? 'Back' : 'Close'}>
               <Ionicons name={confirm ? 'arrow-back' : 'close'} size={22} color={colors.textSecondary} />
@@ -165,15 +180,15 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
 
           <ScrollView bounces={false} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
             <RNView testID="share-preview" style={[styles.card, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
-              <RecipeThumbnail uri={recipe.thumbnail_url} style={styles.photo} accessible={false} placeholderIconName="restaurant-outline" placeholderIconSize={26} />
+              {!large && <RecipeThumbnail uri={recipe.thumbnail_url} style={styles.photo} accessible={false} placeholderIconName="restaurant-outline" placeholderIconSize={26} />}
               <RNView style={styles.cardCopy}>
-                <Text numberOfLines={3} style={[styles.cardTitle, { color: colors.text }]}>{recipe.extracted.title}</Text>
-                {facts ? <Text style={[styles.cardMeta, { color: colors.textSecondary }]}>{facts}</Text> : null}
+                <Text numberOfLines={large ? undefined : 3} maxFontSizeMultiplier={2} style={[styles.cardTitle, { color: colors.text }]}>{recipe.extracted.title}</Text>
+                {facts && !large ? <Text style={[styles.cardMeta, { color: colors.textSecondary }]}>{facts}</Text> : null}
                 {credit ? <Text numberOfLines={2} style={[styles.cardMeta, { color: colors.textSecondary }]}>{credit}</Text> : null}
-                <RNView style={styles.cardSite}>
+                {!large && <RNView style={styles.cardSite}>
                   <Ionicons name={model.showCopyLink ? 'link' : 'lock-closed-outline'} size={13} color={colors.textMuted} />
                   <Text style={[styles.cardSiteText, { color: colors.textMuted }]}>on Håfa Recipes</Text>
-                </RNView>
+                </RNView>}
               </RNView>
             </RNView>
 
@@ -186,6 +201,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
               </RNView>
             ) : (
               <>
+                {large && primaryButton}
                 <Text style={[styles.footnote, { color: colors.textSecondary }]}>{footnote}</Text>
                 {scaled ? (
                   <RNView accessibilityRole="radiogroup" style={[styles.segment, { backgroundColor: colors.surface2 }]}>
@@ -194,8 +210,8 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
                       return (
                         <Pressable key={String(option)} accessibilityRole="radio" accessibilityState={{ selected, checked: selected }}
                           onPress={() => setUseScaled(option)}
-                          style={[styles.segmentOption, selected && { backgroundColor: colors.chromeSegment }]}>
-                          <Text style={[styles.segmentText, { color: selected ? colors.text : colors.textSecondary }]}>
+                          style={[styles.segmentOption, selected && { backgroundColor: colors.ink }]}>
+                          <Text style={[styles.segmentText, { color: selected ? colors.onInk : colors.textSecondary }]}>
                             {option ? `Serves ${scaled}` : `Serves ${original} (original)`}
                           </Text>
                         </Pressable>
@@ -203,15 +219,13 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
                     })}
                   </RNView>
                 ) : null}
-                {model.primary === 'send-link'
-                  ? <Button title={linkChecking ? 'Checking link…' : 'Send link'} onPress={() => void requestLink('send')} loading={linkChecking} />
-                  : <Button title="Send as text" onPress={() => void sendText()} />}
+                {!large && primaryButton}
                 <RNView style={[styles.group, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
                   {model.showCopyLink && <RecipeDetailRow icon="link-outline" title="Copy link" accessory={<></>}
                     disabled={linkChecking} onPress={() => void requestLink('copy')} />}
                   {model.primary === 'send-link' && <RecipeDetailRow icon="document-text-outline" title="Send as text"
-                    value="Ingredients and steps" onPress={() => void sendText()} />}
-                  {source && <RecipeDetailRow icon="play-circle-outline" title="Original" value={source.label}
+                    value="Ingredients and steps" stacked onPress={() => void sendText()} />}
+                  {source && <RecipeDetailRow icon="play-circle-outline" title="Original" value={source.label} stacked
                     accessibilityLabel={`Send the original: ${source.label}`} onPress={() => void sendOriginal()} />}
                 </RNView>
                 {link.isError && mode === 'private' ? (

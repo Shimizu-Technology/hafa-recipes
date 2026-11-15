@@ -5,17 +5,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({
   share: vi.fn(), copy: vi.fn(), toast: vi.fn(), close: vi.fn(), create: vi.fn(), revoke: vi.fn(),
-  link: {} as Record<string, unknown>,
+  link: {} as Record<string, unknown>, fontScale: 1, blur: null as null | (() => void),
 }));
 vi.mock('react-native', () => ({
   Modal: 'Modal', Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', ActivityIndicator: 'ActivityIndicator',
   Platform: { OS: 'ios' }, Share: { share: m.share, sharedAction: 'sharedAction' },
-  StyleSheet: { create: (s: unknown) => s, hairlineWidth: 1 },
+  StyleSheet: { create: (s: unknown) => s, hairlineWidth: 1 }, useWindowDimensions: () => ({ fontScale: m.fontScale }),
 }));
+vi.mock('expo-router', () => ({ useNavigation: () => ({ addListener: (event: string, handler: () => void) => {
+  if (event === 'blur') m.blur = handler;
+  return () => { m.blur = null; };
+} }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('expo-clipboard', () => ({ setStringAsync: m.copy }));
-vi.mock('@/components/Themed', () => ({ Text: 'Text', Button: 'Button', useColors: () => ({}) }));
+vi.mock('@/components/Themed', async () => ({ Text: 'Text', Button: 'Button', TextScaleContext: (await import('react')).createContext(1),
+  useColors: () => ({ ink: 'INK', onInk: 'ON_INK', textSecondary: 'MUTED' }) }));
 vi.mock('@/components/RecipeDetailRow', () => ({ RecipeDetailRow: 'Row' }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: 'Thumbnail' }));
 vi.mock('@/lib/toast', () => ({ showToast: m.toast }));
@@ -42,9 +47,9 @@ function link(state: Partial<{ active: boolean; url: string | null; createdAt: s
   };
 }
 
-async function open(r: any, isOwner = true) {
+async function open(r: any, isOwner = true, scaledServings?: number) {
   const root = createRoot();
-  await act(async () => root.render(<ShareRecipeSheet recipe={r} isOwner={isOwner} visible onClose={m.close} />));
+  await act(async () => root.render(<ShareRecipeSheet recipe={r} isOwner={isOwner} visible onClose={m.close} scaledServings={scaledServings} />));
   return root;
 }
 const texts = (root: any) => root.container.queryAll((n: any) => n.type === 'Text').map((n: any) => n.children.filter((c: unknown) => typeof c === 'string').join('')).join('\n');
@@ -59,6 +64,7 @@ const pressText = async (root: any, label: string) => {
 beforeEach(() => {
   vi.clearAllMocks();
   m.share.mockResolvedValue({ action: 'sharedAction' });
+  m.fontScale = 1;
   link();
 });
 
@@ -166,5 +172,43 @@ describe('share recipe sheet', () => {
     expect(texts(root)).toContain('Private links aren’t available yet.');
     expect(button(root, 'Send as text')).toBeDefined();
     expect(row(root, 'Copy link')).toBeUndefined();
+  });
+
+  it('starts Send as text on the scaled servings the reader is looking at, with the choice clearly marked', async () => {
+    const root = await open(recipe(true), true, 12);
+    const options = root.container.queryAll((n: any) => n.type === 'Pressable' && n.props.accessibilityRole === 'radio');
+    expect(options.map((n: any) => n.props.accessibilityState.selected)).toEqual([false, true]);
+    // The selected option is filled with ink so it reads in dark mode too.
+    expect(options[1].props.style).toContainEqual({ backgroundColor: 'INK' });
+    await act(async () => row(root, 'Send as text').props.onPress());
+    expect(m.share.mock.calls[0][0].message).toContain('Serves 12 (scaled from 8)');
+    await act(async () => options[0].props.onPress());
+    await act(async () => row(root, 'Send as text').props.onPress());
+    expect(m.share.mock.calls[1][0].message).toContain('Serves 8 · 70 min');
+  });
+
+  it('puts long credits on their own line under the row title', async () => {
+    const root = await open(recipe(true));
+    expect(row(root, 'Original').props.stacked).toBe(true);
+    expect(row(root, 'Send as text').props.stacked).toBe(true);
+  });
+
+  it('keeps Send link on the first screen at accessibility text sizes', async () => {
+    m.fontScale = 3.1;
+    const root = await open(recipe(true));
+    expect(root.container.queryAll((n: any) => n.type === 'Thumbnail')).toHaveLength(0);
+    const title = root.container.queryAll((n: any) => n.type === 'Text' && n.children.includes('Sunday Bread'))[0];
+    expect(title.props.numberOfLines).toBeUndefined();
+    expect(texts(root)).not.toContain('Serves 8 · 70 min');
+    // Send link comes straight after the card, ahead of the footnote.
+    const order = root.container.queryAll((n: any) => (n.type === 'Button' && n.props.title === 'Send link')
+      || (n.type === 'Text' && n.children.includes('Public in Discover. Anyone with the link can open it.')));
+    expect(order[0].type).toBe('Button');
+  });
+
+  it('closes when another screen opens over the recipe', async () => {
+    await open(recipe(true));
+    await act(async () => m.blur!());
+    expect(m.close).toHaveBeenCalledTimes(1);
   });
 });
