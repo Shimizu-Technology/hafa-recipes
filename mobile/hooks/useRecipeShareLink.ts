@@ -1,14 +1,16 @@
 import { useEffect } from 'react';
 import { api } from '@/lib/api';
 import { forgetRecipeLink, readStoredRecipeLink, storeRecipeLink, type StoredRecipeLink } from '@/lib/recipeLinkStore';
+import { scopedRecipeKey } from '@/lib/recipeQueryScope';
 import { useRecipeMutation as useMutation, useRecipeQuery as useQuery, useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import type { RecipeShareLinkStatus } from '@/types/recipe';
 
+// Owner-scoped like every recipe query, so setQueryData reaches the queries the sheet observes.
 export const recipeShareLinkKeys = {
   all: ['recipeShareLink'] as const,
-  status: (recipeId: string) => [...recipeShareLinkKeys.all, 'status', recipeId] as const,
-  device: (recipeId: string) => [...recipeShareLinkKeys.all, 'device', recipeId] as const,
-  active: () => [...recipeShareLinkKeys.all, 'active'] as const,
+  status: (recipeId: string) => scopedRecipeKey([...recipeShareLinkKeys.all, 'status', recipeId]),
+  device: (recipeId: string) => scopedRecipeKey([...recipeShareLinkKeys.all, 'device', recipeId]),
+  active: () => scopedRecipeKey([...recipeShareLinkKeys.all, 'active']),
 };
 
 function httpStatus(error: unknown): number | undefined {
