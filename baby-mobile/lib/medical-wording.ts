@@ -13,9 +13,24 @@ export const cdcMovementSign = "Baby's movement stopping or slowing during pregn
 export const cdcMovementDetail = "You feel that your baby has stopped moving or your baby is moving less than before. There is no specific number of movements that is considered normal. A change in your baby's movement is what is important.";
 
 /** Reviewed F3/F4. No timing rule or “okay” result. Unknown week retains the preterm warning. */
-export function contractionGuidance(pregnancyWeek: number | undefined): string {
-  return pregnancyWeek === undefined || pregnancyWeek < 37
-    ? "Before 37 weeks, don’t wait if you have any signs of preterm labor. Call your care team right away or go to the hospital. Signs include regular or frequent contractions or tightening, often painless; mild abdominal cramps with or without diarrhea; watery, bloody or mucus discharge, or more discharge; pelvic or lower belly pressure; a constant low, dull backache; or your water breaking with a gush or trickle."
+const pretermSigns = "regular or frequent contractions or tightening, often painless; mild abdominal cramps with or without diarrhea; watery, bloody or mucus discharge, or more discharge; pelvic or lower belly pressure; a constant low, dull backache;";
+/**
+ * The same guidance in whoever's words fit: hers ("you"), her partner's (her by name, never a guessed pronoun), or
+ * everyday ones while the family hasn't said who's expecting. Only the person addressed changes, never the advice.
+ */
+export function contractionGuidance(pregnancyWeek: number | undefined, voice: "mine" | "neutral" | { name: string } = "mine"): string {
+  const preterm = pregnancyWeek === undefined || pregnancyWeek < 37;
+  if (typeof voice === "object") {
+    const name = voice.name;
+    return preterm
+      ? `Before 37 weeks, don’t wait if ${name} has any signs of preterm labor. Call ${name}’s care team right away or go to the hospital. Signs include ${pretermSigns} or ${name}’s water breaking with a gush or trickle.`
+      : `If labor might have started and you aren’t sure, call ${name}’s care team. Go to the hospital if ${name}’s water breaks without contractions, there’s heavy bleeding or constant severe pain, or the baby moves less.`;
+  }
+  if (voice === "neutral") return preterm
+    ? `Before 37 weeks, don’t wait if there are any signs of preterm labor. Call the care team right away or go to the hospital. Signs include ${pretermSigns} or the water breaking with a gush or trickle.`
+    : "If labor might have started and you aren’t sure, call the care team. Go to the hospital if the water breaks without contractions, there’s heavy bleeding or constant severe pain, or the baby moves less.";
+  return preterm
+    ? `Before 37 weeks, don’t wait if you have any signs of preterm labor. Call your care team right away or go to the hospital. Signs include ${pretermSigns} or your water breaking with a gush or trickle.`
     : "If you think you’re in labor or aren’t sure, call your care team. Go to the hospital if your water breaks without contractions, you bleed heavily, have constant severe pain, or your baby moves less.";
 }
 export const contractionSourceUrl = "https://www.acog.org/womens-health/faqs/how-to-tell-when-labor-begins";

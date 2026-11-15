@@ -51,6 +51,15 @@ export function zonedInstant(key: string, hours: number, minutes: number, timeZo
     return new Date(real.length ? (second ? Math.max : Math.min)(...real) : guess - (second ? after : before));
   } catch { return new Date(year, month - 1, day, hours, minutes); }
 }
+/**
+ * A day picked in a date picker, at the time of day already chosen, on the family's clock. The picker hands back its
+ * own time (midnight, on iOS), so taking its date as it is would reset a birth at 11:40 PM to 12:00 AM.
+ */
+export function withDay(picked: Date, current: Date, timeZone?: string | null) {
+  let clock = { hour: current.getHours(), minute: current.getMinutes() };
+  try { if (timeZone) clock = zoneParts(current, timeZone); } catch { /* An unreadable zone is the phone's clock, as everywhere here. */ }
+  return zonedInstant(recordDay(picked.toISOString(), timeZone), clock.hour, clock.minute, timeZone);
+}
 export function dayRange(key: string, timeZone?: string | null) {
   return { from: zonedInstant(key, 0, 0, timeZone).toISOString(), to: zonedInstant(addDays(key, 1), 0, 0, timeZone).toISOString() };
 }

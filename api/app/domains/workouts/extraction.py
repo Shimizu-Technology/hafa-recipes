@@ -17,13 +17,14 @@ from contextlib import suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal, Protocol, get_args
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
 from pydantic import Field, ValidationError, model_validator
 
 from app.domains.workouts.budget import BudgetError, ProviderEnvelope, provider_budget
+from app.domains.workouts.class_extraction import CLASS_PROMPT, ground_class, legacy_shape
 from app.domains.workouts.execution import (
     FORMAT_WORDS,
     format_complete,
@@ -40,7 +41,7 @@ from app.domains.workouts.formats import (
     scheme_wording,
     work_rest_ratios,
 )
-from app.domains.workouts.schemas import DomainModel, Evidence, WorkoutContent
+from app.domains.workouts.schemas import DomainModel, Evidence, Programming, WorkoutContent
 from app.domains.workouts.source_context import retain_source_context
 from app.image_validation import (
     ImageValidationError,
@@ -67,6 +68,7 @@ MAX_WEB_BYTES = 2 * 1024 * 1024
 MAX_ACQUISITION_SECONDS = 90
 MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
+MAX_CLASS_DOCUMENT_BYTES = 10 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v9"
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
@@ -98,17 +100,31 @@ class ExtractionRequest(DomainModel):
     text: str | None = Field(default=None, max_length=MAX_TEXT_CHARS)
     source_url: str | None = Field(default=None, max_length=2000)
     images: list[ExtractionImage] = Field(default_factory=list, max_length=MAX_IMAGES)
-    document_base64: str | None = Field(default=None, max_length=3 * 1024 * 1024)
+    document_base64: str | None = Field(default=None, max_length=14 * 1024 * 1024)
     document_mime: str | None = Field(default=None, max_length=100)
     ai_consent: bool = False
     # Builds that run EMOM, for-time and work/rest formats opt in. Older builds
     # receive AMRAP-only executions; an absent False keeps request digests stable.
     typed_formats: bool = Field(default=False, exclude_if=lambda value: not value)
+    class_parts: bool = Field(default=False, exclude_if=lambda value: not value)
+    programming: Programming | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def require_payload(self):
+        parsed = urlsplit(self.source_url or "")
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if host == "wodup.com" or host.endswith(".wodup.com"):
+            if parsed.username or parsed.password:
+                raise ValueError("WodUp credentials must never be included")
+            self.source_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        if self.kind == "url" and (self.class_parts or host == "wodup.com" or host.endswith(".wodup.com")):
+            raise ValueError("Paste class text or upload screenshots/a Full Page PDF; WodUp is never fetched")
+        if self.programming is not None and not self.class_parts:
+            raise ValueError("Programming hints require class_parts")
         if self.kind == "url" and not self.source_url:
             raise ValueError("A URL import requires source_url")
+        if self.document_base64 and not self.class_parts and len(self.document_base64) > 4 * ((MAX_DOCUMENT_BYTES + 2) // 3):
+            raise ValueError("Non-class documents must fit the 2 MiB document limit")
         if self.kind == "text" and not self.text:
             raise ValueError("A text import requires text")
         if self.kind == "images" and not self.images:
@@ -161,6 +177,7 @@ class SourceImage:
 @dataclass
 class SourceBundle:
     metadata: SourceMetadata
+    class_parts: bool = field(default=False, kw_only=True)
     parts: list[SourcePart] = field(default_factory=list)
     images: list[SourceImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -393,7 +410,7 @@ def provider_messages(source: SourceBundle) -> list[dict]:
         )
     photo = ("\nRead text and labels on every supplied photo as primary source evidence when the caption is thin. "
              "Preserve photo locations in evidence (image:0 is slide 1). Music/lyrics do not establish exercises or doses.") if source.photo_slides is not None else ""
-    return [{"role": "system", "content": SYSTEM_PROMPT + photo}, {"role": "user", "content": content}]
+    return [{"role": "system", "content": SYSTEM_PROMPT + photo + (CLASS_PROMPT if source.class_parts else "")}, {"role": "user", "content": content}]
 
 
 def workout_response_format() -> dict:
@@ -556,7 +573,7 @@ class ProductionExtractionProvider:
                             raise ExtractionFailure("provider_incomplete_response")
                         parsed = json.loads(choice["message"]["content"])
                         warnings = _validate_provider_workout(parsed)
-                        grounded, _, _ = ground_workout(parsed, source)
+                        grounded, _, _ = ground_workout(parsed, source, class_parts=source.class_parts)
                         quality = _prescription_quality(grounded)
                         if quality[0] and (best is None or (
                             quality > best[0] and _prescription_preserves(grounded, best[3])
@@ -915,6 +932,9 @@ class ProductionSourceAcquirer:
         current = url
         async with httpx.AsyncClient(timeout=25, transport=PublicHTTPTransport()) as client:
             for _ in range(6):
+                host = (urlsplit(current).hostname or "").lower().rstrip(".")
+                if host == "wodup.com" or host.endswith(".wodup.com"):
+                    raise ExtractionFailure("class_source_requires_capture")
                 async with client.stream(
                     "GET", current, headers=WebsiteService.HEADERS, follow_redirects=False
                 ) as response:
@@ -1230,17 +1250,22 @@ def _prescription_quality(workout: WorkoutContent) -> tuple[int, int]:
 
 def _prescription_preserves(candidate: WorkoutContent, previous: WorkoutContent) -> bool:
     """More movements must not erase already grounded doses, structure or cues."""
-    if (previous.estimated_minutes is not None and candidate.estimated_minutes != previous.estimated_minutes
+    if (previous.benchmark is not None and candidate.benchmark != previous.benchmark
+            or previous.programming is not None and candidate.programming != previous.programming
+            or previous.estimated_minutes is not None and candidate.estimated_minutes != previous.estimated_minutes
             or not set(previous.instructions).issubset(candidate.instructions)
             or not set(previous.equipment_required).issubset(candidate.equipment_required)
             or not set(previous.equipment_optional).issubset(candidate.equipment_optional)):
         return False
     fields = ("sets", "reps_min", "reps_max", "per_side", "duration_seconds", "distance_meters",
               "rest_seconds", "load", "load_unit", "load_convention", "tempo", "effort", "instructions",
-              "rep_scheme", "ladder")
+              "rep_scheme", "ladder", "segment", "distance_meters_min", "duration_seconds_max",
+              "relative_load", "load_options")
 
     def block_preserves(new, old):
-        for field_name in ("rounds", "rest_between_rounds_seconds", "execution"):
+        if old.instructions and not set(old.instructions).issubset(new.instructions or []):
+            return False
+        for field_name in ("rounds", "rest_between_rounds_seconds", "execution", "role", "rest_after_seconds", "score_kind"):
             value = getattr(old, field_name, None)
             if value is not None and getattr(new, field_name, None) != value:
                 return False
@@ -1721,9 +1746,10 @@ def _legacy_execution(workout):
 
 
 def ground_workout(
-    raw: dict, source: SourceBundle, *, typed_formats: bool = True
+    raw: dict, source: SourceBundle, *, typed_formats: bool = True, class_parts: bool = False
 ) -> tuple[WorkoutContent, list[str], list[Evidence]]:
     """Schema validity is insufficient: strip unsupported values, retain the draft."""
+    raw = raw if class_parts else legacy_shape(raw)
     workout = WorkoutContent.model_validate(
         {key: value for key, value in raw.items() if key not in SERVER_CONTENT_FIELDS}
     ).model_copy(deep=True)
@@ -1842,7 +1868,7 @@ def ground_workout(
             collected.extend(item.evidence)
         block_warnings[id(block)] = (first_warning, len(warnings))
     scaled_versions = _fold_scaled_versions(
-        workout, source, block_warnings, clean_execution, warnings) if typed_formats else []
+        workout, source, block_warnings, clean_execution, warnings) if typed_formats and not class_parts else []
     # The existing block Evidence shape can carry workout-wide context without
     # changing stored/client schemas. Never trust a model estimate or paraphrase:
     # instructions are source quotes, plus one line per folded version built only
@@ -1854,7 +1880,7 @@ def ground_workout(
                     if block.execution is not None and block.execution.mode != "amrap"]
     if not typed_formats:
         _legacy_execution(workout)
-    if any(block.execution for block in workout.blocks) and not supports_timed(workout):
+    if not class_parts and any(block.execution for block in workout.blocks) and not supports_timed(workout):
         warnings.append("Review the timed blocks as separate single-circuit workouts before training.")
     context_evidence = [entry for block in workout.blocks for entry in block.evidence
                         if entry.location in text_locations and (
@@ -1914,6 +1940,8 @@ def ground_workout(
                     f"Equipment {equipment} needs direct requirement/optional evidence."
                 )
         setattr(workout, field_name, grounded)
+    if class_parts:
+        ground_class(workout, raw, source, warnings)
     return workout, warnings, collected
 
 
@@ -1970,7 +1998,7 @@ def _complete(workout: WorkoutContent, warnings: list[str]) -> bool:
             if not item.evidence or not any(entry.field == "name" for entry in item.evidence):
                 return False
             if workout.kind in {"session", "program", "accessory"}:
-                if item.sets is None and block.rounds is None and not is_timed(block):
+                if item.sets is None and block.rounds is None and not is_timed(block) and not (block.role in {"warm_up", "cool_down"} and item.duration_seconds is not None):
                     return False
                 if not has_dose(block, item) or not format_complete(block):
                     return False
@@ -2041,7 +2069,7 @@ class WorkoutExtractor:
 
     async def extract(self, request: ExtractionRequest) -> WorkoutExtractionResult:
         progress = _current_progress.get()
-        source = SourceBundle(SourceMetadata(platform=request.kind), progress=progress)
+        source = SourceBundle(SourceMetadata(platform=request.kind), progress=progress, class_parts=request.class_parts)
         staged_media = False
         deadline = asyncio.get_running_loop().time() + MAX_EXTRACTION_SECONDS
 
@@ -2053,6 +2081,17 @@ class WorkoutExtractor:
             if (len(source.images) > (MAX_PHOTO_IMAGES if source.photo_slides is not None else MAX_IMAGES) or sum(image.payload_bytes
                                                        for image in source.images) > MAX_TOTAL_IMAGE_BYTES):
                 raise ExtractionFailure("source_image_limit")
+            if request.class_parts:
+                from app.domains.workouts.class_extraction import (
+                    ClassTextUnavailable,
+                    trim_class_parts,
+                )
+
+                try:
+                    source.parts = [SourcePart(location, text) for location, text in trim_class_parts(
+                        [(part.location, part.text) for part in source.parts], source.warnings)]
+                except ClassTextUnavailable:
+                    raise ExtractionFailure("class_workout_section_missing") from None
             await source.report("extracting_workout")
             remaining = max(0, deadline - asyncio.get_running_loop().time())
             return await asyncio.wait_for(self.provider.extract(source), timeout=min(130, remaining))
@@ -2120,7 +2159,7 @@ class WorkoutExtractor:
             elif request.kind == "document":
                 await source.report("reading_document")
                 data = base64.b64decode(request.document_base64, validate=True)
-                if len(data) > MAX_DOCUMENT_BYTES:
+                if len(data) > (MAX_CLASS_DOCUMENT_BYTES if request.class_parts else MAX_DOCUMENT_BYTES):
                     raise ExtractionFailure("document_size_limit")
                 if request.document_mime == "application/pdf":
                     source.parts = await _pdf_parts(data)
@@ -2175,15 +2214,15 @@ class WorkoutExtractor:
                 await acquire_media()
                 staged_media = False
                 raw = await extract_provider()
-            typed = request.typed_formats
-            workout, warnings, evidence = ground_workout(raw, source, typed_formats=typed)
+            typed = request.typed_formats or request.class_parts
+            workout, warnings, evidence = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts)
             if (staged_media and not source.paid_recovery_denied
                     and not _text_prescription_usable(workout, source.warnings + warnings, source)):
                 previous = (workout, warnings, evidence)
                 await acquire_media()
                 try:
                     raw = await extract_provider()
-                    candidate = ground_workout(raw, source, typed_formats=typed)
+                    candidate = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts)
                     if (_prescription_quality(candidate[0]) >= _prescription_quality(workout)
                             and _prescription_preserves(candidate[0], workout)):
                         workout, warnings, evidence = candidate
@@ -2196,6 +2235,9 @@ class WorkoutExtractor:
                     source.metadata.coverage_notes.append(
                         "Additional media could not improve extraction; supported caption facts were kept."
                     )
+            if request.class_parts:
+                workout.kind = "session"
+                workout.programming = (request.programming or Programming(source_kind="gym")).model_copy(update={"source_kind": "gym"})
             workout.capture_kind = request.kind
             retain_source_context(workout, source)
             warnings = source.warnings + warnings
@@ -2225,6 +2267,10 @@ class WorkoutExtractor:
                     warnings=["The source URL is unsupported."],
                     source=SourceMetadata(platform=request.kind),
                 )
+            if exc.code == "class_workout_section_missing":
+                from app.domains.workouts.class_extraction import MISSING_CLASS_TEXT
+
+                return draft(source, exc.code, MISSING_CLASS_TEXT)
             return draft(
                 source,
                 exc.code,

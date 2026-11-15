@@ -47,6 +47,7 @@ def datasets():
         WorkoutLibraryOrganization,
     )
     from app.domains.workouts.measurement_models import WorkoutsMeasurement
+    from app.domains.workouts.part_result_models import PartResultRow
     from app.domains.workouts.recipe_grant_models import WorkoutsRecipeGrantEpoch
 
     return (
@@ -55,6 +56,7 @@ def datasets():
         (None, "programs", WorkoutsProgram),
         (None, "program_versions", WorkoutsProgramVersion),
         (None, "sessions", WorkoutsSession),
+        ("workouts_part_results", "part_results", PartResultRow),
         (None, "activities", WorkoutsActivity),
         ("workouts_import_jobs", "imports", WorkoutImport),
         ("workouts_import_jobs", "proposals", WorkoutProposal),

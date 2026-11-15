@@ -14,9 +14,11 @@ import { SignupGate } from "@/components/signup-gate";
 import { AccountGate } from "@/components/account-gate";
 import { SpaceBoundary } from "@/components/space-boundary";
 import { NotificationResponseHandler } from "@/components/notification-response-handler";
+import { NewsRunner } from "../components/news-runner";
 import { ShareSessionGuard } from "@/lib/use-share-session";
 import { StockShareBoundary } from "@/components/stock-share-boundary";
 import { ShareCapture } from "@/components/share-capture";
+import { OrganizeRunner } from "../components/organize-waiting";
 import { Copy, Loading, Notice, Screen, ToastProvider, NativeHeaderContext, fonts, palettes, useColors } from "@/components/ui";
 import { fontFiles } from "@/lib/fonts";
 
@@ -56,11 +58,13 @@ function Routes() {
         <Stack.Screen name="privacy-data" />
         <Stack.Screen name="family" />
         <Stack.Screen name="child" />
+        <Stack.Screen name="birth" />
         <Stack.Screen name="what-shows" />
         <Stack.Screen name="reminders" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="sync" />
         <Stack.Screen name="routines" />
+        <Stack.Screen name="hospital-bag" />
         <Stack.Screen name="care-history" />
         <Stack.Screen name="journal" />
         <Stack.Screen name="day" />
@@ -81,8 +85,10 @@ function Routes() {
       <BabyProvider key={userId}>
         <AccountGate>
           <ShareCapture />
+          <OrganizeRunner />
           <SpaceBoundary><NativeHeaderContext.Provider value={true}>{stack}</NativeHeaderContext.Provider></SpaceBoundary>
           <NotificationResponseHandler />
+          <NewsRunner />
         </AccountGate>
       </BabyProvider>
     </SignupGate>
