@@ -62,6 +62,8 @@ captures before cleanup. Captures made before an owner is established are kept
 unassigned rather than attached to a later account. Existing
 Recipes/Workouts data are not sent to Baby AI.
 
+**Organize everything waiting.** Saved shows one card when posts are `saved` (never processed, because automatic organizing was off) or `failed`. One tap, after the usual AI consent, reads them all through the ordinary `POST /imports` with `record_id`, the same request as "Read with AI". The phone hands the outbox at most three at a time, leaving room in the API's five-waiting limit for new shares, and keeps the run in device state (`organizeRun`) so it continues after a relaunch. A refusal for the daily allowance or AI spending window stops the run and leaves the rest saved for tomorrow; a full queue waits two minutes; a post refused for itself is counted as needing a look. No new endpoint, flag or migration.
+
 ## API contract
 
 Prefix `/api/v1/baby`; existing Clerk bearer auth resolves stable AppUser ID.
@@ -188,8 +190,6 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
 Details may be tightened together, never changed independently in API/client.
 
 **Care contacts.** `PATCH /profile/contacts` keeps her doctor and where she plans to deliver in `baby_memberships.profile`; `details.doctor` on a child keeps the baby's doctor, so it goes with the baby and everyone in the family reads it. Each is a name and a phone number, with what a copied number brings along cleaned up the same way by the app and the API. Bootstrap always carries `contacts`, which is how a phone knows the API keeps them, and the fields stay hidden until then. Her own are stored in `baby_memberships.profile` under `contacts`, and they're in `SERVER_PROFILE_FIELDS`, so they're never in the `profile` a phone reads and echoes back, and nobody else reads them. They're in her export and removed with her data. No request to a model carries any of them: the Ask context and tools name the child fields they send, and `test_baby_contacts.py` checks that at the HTTP layer.
-
-**Organize everything waiting.** Saved shows one card when posts are `saved` (never processed, because automatic organizing was off) or `failed`. One tap, after the usual AI consent, reads them all through the ordinary `POST /imports` with `record_id`, the same request as "Read with AI". The phone hands the outbox at most three at a time, leaving room in the API's five-waiting limit for new shares, and keeps the run in device state (`organizeRun`) so it continues after a relaunch. A refusal for the daily allowance or AI spending window stops the run and leaves the rest saved for tomorrow; a full queue waits two minutes; a post refused for itself is counted as needing a look. No new endpoint, flag or migration.
 
 ## Family, tracker and calendar contracts
 
