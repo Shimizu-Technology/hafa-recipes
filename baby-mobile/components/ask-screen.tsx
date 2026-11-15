@@ -13,7 +13,7 @@ import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import { kindName, type Proposal } from "@/lib/models";
 import { babyLabel, isCaregiver } from "../lib/spaces";
-import { Button, Card, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors, useToast } from "@/components/ui";
+import { Button, Card, Copy, FilterChips, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors, useToast } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
 /** Where an older conversation from History searches; new chats always search everything. */
 const scopeLine = { all: "All your entries", library: "Saved posts only", journal: "Journal only", care: "Care logs only" } as const;
@@ -23,6 +23,19 @@ const suggestions = [
   "What did I save for the weeks ahead?",
   "Help me prepare questions from my recent notes.",
 ];
+
+/** Starting points on a screen opened for one entry, so the first question is a tap away. */
+export function focusSuggestions(kind: string | undefined, day: boolean) {
+  if (day) return ["Summarize this day.", "When were the feeds and diapers?", "What should I mention to the doctor?"];
+  if (kind === "collection") return ["Summarize the posts in this category.", "What do these posts agree on?", "Make a checklist from these posts."];
+  if (kind === "source") return ["Summarize this post.", "What are the steps, in order?", "What could I ask my doctor about this?"];
+  if (kind === "journal" || kind === "question") return ["Summarize what I wrote.", "Turn this into questions for my doctor."];
+  return ["Explain this entry in plain words.", "What could I ask my doctor about this?"];
+}
+/** The switch's first chip, named for what the screen was opened on. */
+export function focusLabel(kind: string | undefined, day: boolean) {
+  return day ? "This day" : kind === "collection" ? "This category" : kind === "source" ? "This post" : "This entry";
+}
 
 /**
  * Why Ask can't answer most questions yet, as one compact line above the question box. The box itself always works:
@@ -87,7 +100,11 @@ function AskChat({ back }: { back: boolean }) {
   const [composerContentHeight, setComposerContentHeight] = useState(composerMinimum);
   const focusedDay = chat.context.focus_date, focused = !!chat.context.record_id || !!focusedDay,
     askedAbout = b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id),
-    focusedCategory = b.records.some((row) => row.id === chat.context.record_id && row.kind === "collection");
+    focusedCategory = b.records.some((row) => row.id === chat.context.record_id && row.kind === "collection"),
+    // Opened on one entry or day: a two-chip switch, "This post" or "Everything", always above the question box.
+    home = chat.focusContext, homeKind = b.records.find((row) => row.id === home?.record_id)?.kind,
+    homeLabel = focusLabel(homeKind, !!home?.focus_date),
+    starters = focused ? focusSuggestions(b.records.find((row) => row.id === chat.context.record_id)?.kind, !!focusedDay) : suggestions;
   async function review(proposal: Proposal) {
     const result = await chat.review(proposal);
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
@@ -134,6 +151,10 @@ function AskChat({ back }: { back: boolean }) {
         </>}
         {!available && !urgentReply && !(needsHelp && large) && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
         {available && !urgentReply && !(needsHelp && large) && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
+        {!!home && !showHistory && <FilterChips wrap label="What Ask looks at" value={chat.onFocus ? "entry" : chat.context.record_id || focusedDay ? "" : "all"}
+          onChange={(value) => chat.switchFocus(value === "entry" ? "entry" : "all")}
+          options={[{ label: homeLabel, value: "entry", icon: home.focus_date ? "calendar-outline" : homeKind === "collection" ? "folder-outline" : "bookmark-outline" },
+            { label: "Everything", value: "all", icon: "albums-outline" }]} />}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}
@@ -173,9 +194,12 @@ function AskChat({ back }: { back: boolean }) {
       {focused && (
         <>
           <Notice>{focusedDay ? "Questions start with this day’s log." : focusedCategory ? "Questions start with the posts in this category." : "Questions use this saved entry and its own child profile, including general entries."}</Notice>
-          <Button secondary title={focusedDay ? "Ask about everything" : "Ask without a specific entry"} onPress={() => chat.selectScope("all")} />
+          {/* A focused chat opened from History has no switch below, so it keeps its own way out. */}
+          {!home && <Button secondary title={focusedDay ? "Ask about everything" : "Ask without a specific entry"} onPress={() => chat.selectScope("all")} />}
         </>
       )}
+      {/* Off its entry: say so plainly, beside the switch's way back. */}
+      {!!home && !focused && !showHistory && <Copy kind="small" tone="muted">{`Asking about everything. Tap “${homeLabel}” below to go back to it.`}</Copy>}
       <Copy kind="small" tone="muted">
         {[chat.context.child_id ? "For " + (askedAbout ? babyLabel(askedAbout, b.state.bootstrap) : "the conversation’s child profile") : "",
           // A conversation keeps searching where it began, so it says so next to the child.
@@ -196,7 +220,7 @@ function AskChat({ back }: { back: boolean }) {
               ? "Ask for a summary, find a detail, or draft a question for your doctor. You will review any proposed changes."
               : "Ask across your saved posts, journal and care logs. Try one of these:"}
           </Copy>
-          {!focused && <Grouped separatorInset={16}>{suggestions.map((text) => (
+          {!chat.resolving && <Grouped separatorInset={16}>{starters.map((text) => (
             <PressTarget key={text} accessibilityRole="button" accessibilityLabel={`Use question: ${text}`}
               accessibilityHint={available ? "Puts it in the question box" : "Puts it in the question box. Sending needs AI permission."}
               onPress={() => chat.setQuestion(text)}

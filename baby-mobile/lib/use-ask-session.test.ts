@@ -493,3 +493,64 @@ it("with AI off, a connection failure does not falsely ask for AI permission", a
   await act(async () => { await result.send(); });
   expect(result.error).toBe("Request failed");
 });
+
+it("switches an entry's chat to everything and back, each side keeping its own conversation and draft", async () => {
+  const account = setup();
+  await mount("entry");
+  const home = { scope: "all", record_id: "entry", child_id: null };
+  expect(result.focusContext).toEqual(home);
+  expect(result.onFocus).toBe(true);
+  await question("About this post");
+  await act(async () => { await result.send(); });
+  expect(result.conversation).toBe("answer-conversation");
+  await act(async () => result.switchFocus("all"));
+  expect(result.onFocus).toBe(false);
+  expect(result.context).toEqual(general);
+  expect(result.messages).toEqual([]);
+  await question("Across everything");
+  account.api.chat.mockResolvedValueOnce({ conversation_id: "general-conversation", message: "General answer", citations: [] });
+  await act(async () => { await result.send(); });
+  expect(account.api.chat.mock.calls[1][0]).toMatchObject({ record_id: undefined, conversation_id: undefined });
+  await act(async () => result.switchFocus("entry"));
+  expect(result.onFocus).toBe(true);
+  expect(result.conversation).toBe("answer-conversation");
+  expect(result.messages.map((m) => m.content)).toEqual(["About this post", "Answer"]);
+  expect(result.focusedTitle).toBe("Saved advice");
+  await act(async () => result.switchFocus("all"));
+  expect(result.conversation).toBe("general-conversation");
+  await question("Unsent general draft");
+  await act(async () => result.switchFocus("entry"));
+  expect(result.question).toBe("");
+  await act(async () => result.switchFocus("all"));
+  expect(result.question).toBe("Unsent general draft");
+});
+
+it("offers no switch on a general Ask, and a day's chat switches back to its day", async () => {
+  const account = setup();
+  withNewAsk(account, 1);
+  await mount();
+  expect(result.focusContext).toBeNull();
+  await act(async () => result.switchFocus("entry"));
+  expect(result.context).toEqual(general);
+  await act(async () => renderer!.unmount());
+  await act(async () => { renderer = TestRenderer.create(React.createElement(function Day() { result = useAskSession(undefined, true, "2026-11-03"); return null; })); });
+  expect(result.onFocus).toBe(true);
+  await act(async () => result.switchFocus("all"));
+  expect(result.context.focus_date).toBeUndefined();
+  await act(async () => result.switchFocus("entry"));
+  expect(result.context.focus_date).toBe("2026-11-03");
+});
+
+it("forgets a deleted conversation on the other side of the switch", async () => {
+  const account = setup();
+  Object.assign(account.api, { deleteConversation: vi.fn(async () => undefined) });
+  await mount("entry");
+  await question("About this post");
+  await act(async () => { await result.send(); });
+  await act(async () => result.switchFocus("all"));
+  await act(async () => { await result.deleteConversation("answer-conversation"); });
+  await act(async () => result.switchFocus("entry"));
+  expect(result.conversation).toBeUndefined();
+  expect(result.messages).toEqual([]);
+  expect(result.context.record_id).toBe("entry");
+});

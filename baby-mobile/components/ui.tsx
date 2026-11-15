@@ -101,6 +101,8 @@ const type = {
   title: typeScale.largeTitle, heading: typeScale.title3, body: typeScale.body,
   label: typeScale.headline, small: typeScale.footnote,
 };
+/** The floating button's height (components/detail-chrome's Ask pill), for the space Screen leaves under the content. */
+export const FLOATING_HEIGHT = 52;
 /** Tab roots supply their title and controls through a native stack. */
 export const NativeHeaderContext = createContext(false);
 /** Tab roots end at the top of the JS tab bar, so the home indicator inset is the bar's, not theirs. */
@@ -316,6 +318,7 @@ export function Screen({
   scroll = true,
   brand = false,
   footer,
+  floating,
   followEnd = false,
   onRefresh,
   scrollRef,
@@ -334,6 +337,8 @@ export function Screen({
   brand?: boolean;
   /** Docked below the scrolling content and above the keyboard, for example a message composer. */
   footer?: React.ReactNode;
+  /** A floating button at the bottom right (a detail page's Ask). The content ends above it, and toasts rise over it. */
+  floating?: React.ReactNode;
   /** Keep the newest content in view as it grows (a conversation). */
   followEnd?: boolean;
   /** Pull to refresh. */
@@ -360,18 +365,21 @@ export function Screen({
   const hasFooter = !!footer;
   const focused = useScreenFocused();
   // Toasts float above the docked footer while this screen shows it; above the keyboard it is out of their way.
-  const dockedFooter = hasFooter && focused && !keyboardVisible ? footerHeight : 0;
+  const floatBottom = Math.max(16, insets.bottom + 4),
+    dockedFooter = Math.max(hasFooter && focused && !keyboardVisible ? footerHeight : 0, floating && focused && !keyboardVisible ? floatBottom + FLOATING_HEIGHT : 0);
   useEffect(() => {
     const owner = {};
     reportDockedFooter(owner, dockedFooter);
     return () => reportDockedFooter(owner, 0);
   }, [dockedFooter]);
+  // A floating button steps aside for the keyboard, so it never sits on a field being typed in.
+  const watchKeyboard = hasFooter || !!floating;
   useEffect(() => {
-    if (!hasFooter) return;
+    if (!watchKeyboard) return;
     const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardVisible(true));
     const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardVisible(false));
     return () => { show.remove(); hide.remove(); };
-  }, [hasFooter]);
+  }, [watchKeyboard]);
   async function pull() {
     setRefreshing(true);
     try {
@@ -386,7 +394,7 @@ export function Screen({
       style={{
         paddingHorizontal: 16,
         paddingTop: back || close ? 2 : 14,
-        paddingBottom: footer || nativeHeader ? 24 : Math.max(24, insets.bottom),
+        paddingBottom: (footer || nativeHeader ? 24 : Math.max(24, insets.bottom)) + (floating ? FLOATING_HEIGHT + 16 : 0),
         gap: 26,
         width: "100%",
         maxWidth: 720,
@@ -460,6 +468,7 @@ export function Screen({
             {footer}
           </View>
         )}
+        {!!floating && !keyboardVisible && <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom: floatBottom }}>{floating}</View>}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

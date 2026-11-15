@@ -21,6 +21,12 @@ interface Session {
 }
 type Account = ReturnType<typeof useBaby>;
 interface DraftSession { owner?: symbol; version: number; question: string; requestId?: string }
+/** One side of the "this entry / everything" switch, kept while she looks at the other. */
+interface Parked { context: AskContext; conversation?: string; messages: ChatMessage[]; title?: string }
+/** The screen's own entry or day, as opposed to everything or a conversation opened from History. */
+export function sameFocus(a: AskContext, b: AskContext | null | undefined) {
+  return !!b && a.record_id === b.record_id && (a.focus_date ?? null) === (b.focus_date ?? null) && a.child_id === b.child_id && a.scope === b.scope;
+}
 const draftSessions = new WeakMap<object, Map<string, DraftSession>>();
 export function useAskSession(recordId?: string, active = true, focusDate?: string) {
   const [attempt, setAttempt] = useState(0);
@@ -31,7 +37,9 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
   live.current = { b, key, active };
   const mounted = useRef(true), sequence = useRef(0), initialized = useRef(false), working = useRef(false), historyRequest = useRef(0),
     token = useRef(Symbol("Ask screen")),
-    owned = useRef<{ entry: DraftSession; key: string; version: number } | undefined>(undefined);
+    owned = useRef<{ entry: DraftSession; key: string; version: number } | undefined>(undefined),
+    // What this screen was opened for, once it's known, and the conversation each side of the switch last showed.
+    focus = useRef<Parked | null>(null), parked = useRef<{ focus?: Parked; all?: Parked }>({});
   const initial: Session = {
     context: { scope: "all", record_id: recordId ?? null, child_id: b.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) },
     messages: [], question: "", resolving: !!recordId,
@@ -142,13 +150,16 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     }
     if (initialized.current) stash();
     release();
+    focus.current = null; parked.current = {};
     initialized.current = true;
     activeKey.current = key;
     const operation = ticket(), account = operation.account;
     setHistory([]); setShowHistory(false); setError("");
     const row = account.records.find((item) => item.id === recordId);
     if (!recordId) {
-      activate({ scope: "all", record_id: null, child_id: account.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) });
+      const context: AskContext = { scope: "all", record_id: null, child_id: account.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) };
+      if (focusDate) focus.current = { context, messages: [] };
+      activate(context);
       return;
     }
     activeAccount.current = account;
@@ -157,7 +168,9 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     update({ ...initial, focusedTitle: row?.title, question: "", resolving: true });
     working.current = true; setBusy(true);
     void account.api.record(recordId).then((row) => {
-      if (operation.valid()) activate({ scope: "all", record_id: row.id, child_id: row.child_id }, undefined, [], row.title);
+      if (!operation.valid()) return;
+      focus.current = { context: { scope: "all", record_id: row.id, child_id: row.child_id }, messages: [], title: row.title };
+      activate(focus.current.context, undefined, [], row.title);
     }).catch((failure) => { if (operation.valid()) setError(messageFor(failure)); })
       .finally(() => { if (operation.valid()) { working.current = false; setBusy(false); } });
   }, [key, active]);
@@ -180,6 +193,23 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     if (!live.current.active) return;
     stash(); sequence.current++;
     activate({ scope, record_id: null, child_id: live.current.b.state.selectedChild });
+  }
+  /**
+   * The switch on a screen opened for one entry or day: "entry" asks about it, "all" about everything.
+   * Each side keeps the conversation it last showed, so flipping back and forth loses nothing.
+   */
+  function switchFocus(to: "entry" | "all") {
+    const home = focus.current, prior = current.current;
+    if (!live.current.active || !home || working.current || prior.resolving) return;
+    const onEntry = sameFocus(prior.context, home.context), general = !prior.context.record_id && !prior.context.focus_date && prior.context.scope === "all";
+    if ((to === "entry") === onEntry && (to === "entry" || general)) return;
+    stash(); sequence.current++;
+    const side = { context: prior.context, conversation: prior.conversation, messages: prior.messages, title: prior.focusedTitle };
+    if (onEntry) parked.current.focus = side; else if (general) parked.current.all = side;
+    const next = to === "entry" ? parked.current.focus ?? home
+      : parked.current.all ?? { context: { scope: "all", record_id: null, child_id: live.current.b.state.selectedChild }, messages: [] };
+    activate(next.context, next.conversation, next.messages, next.title);
+    setShowHistory(false);
   }
   async function send() {
     const snapshot = current.current, account = live.current.b;
@@ -260,6 +290,7 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     }
     if (!operation.valid()) return true;
     setHistory((items) => items.filter((item) => item.id !== id));
+    for (const side of ["focus", "all"] as const) if (parked.current[side]?.conversation === id) parked.current[side] = side === "focus" && focus.current ? focus.current : undefined;
     if (current.current.conversation === id) {
       void operation.account.saveDraft(askDraftKey(current.current.context, id), null, operation.valid).catch(() => undefined);
       const context = { scope: "all" as const, record_id: null, child_id: live.current.b.state.selectedChild };
@@ -282,6 +313,8 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     void save(current.current).catch(() => { if (operation.valid()) setError("Could not save this question draft. Try again."); });
   }
   return { ...session, history, showHistory, busy, error, send, openHistory, load, review, startNew, selectScope, renameConversation, deleteConversation,
+    /** The entry or day this screen was opened for, once resolved; null on a general Ask. */
+    focusContext: focus.current?.context ?? null, onFocus: sameFocus(session.context, focus.current?.context), switchFocus,
     retryFocus: () => setAttempt((value) => value + 1),
     setQuestion: (question: string) => { if (live.current.active && owned.current?.entry.owner === token.current && !working.current && !current.current.resolving) update({ ...current.current, question, requestId: undefined }); } };
 }
