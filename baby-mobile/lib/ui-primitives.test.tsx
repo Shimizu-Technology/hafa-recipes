@@ -637,6 +637,14 @@ it("contains multiline button labels at every text scale without changing normal
     await act(async () => renderer!.unmount()); renderer = undefined;
   }
 });
+it("passes a caller's maxFontSizeMultiplier to the real Button label, where the default is no growth", async () => {
+  mock.scheme = "light"; mock.fontScale = 3.1;
+  await mount(<Button title="Start" maxFontSizeMultiplier={1.5} onPress={() => {}} />);
+  expect(renderer!.root.findByType("Text" as React.ElementType).props.maxFontSizeMultiplier).toBe(1.5);
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  await mount(<Button title="Start" onPress={() => {}} />);
+  expect(renderer!.root.findByType("Text" as React.ElementType).props.maxFontSizeMultiplier).toBe(0);
+});
 it("wraps a long screen title in content while retaining the native navigation title", async () => {
   mock.fontScale = 3.1;
   await mount(<NativeHeaderContext.Provider value><Screen title="About the health information" wrapTitle back><Copy>Health information</Copy></Screen></NativeHeaderContext.Provider>);

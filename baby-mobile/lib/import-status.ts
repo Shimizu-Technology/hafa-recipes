@@ -15,7 +15,7 @@ export function importLabel(status: string, error?: string | null) {
 
 export const dailyAiLimitMessage =
   "Daily AI limit reached. Your originals and available text are saved. Try again later.";
-const aiUnavailableMessage =
+export const aiUnavailableMessage =
   "AI processing is temporarily unavailable. Your originals and available text are saved. Try again later.";
 const sourceReadProblems = new Set([
   "This post is private or needs permission. Available text and your original link are saved.",

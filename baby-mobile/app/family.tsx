@@ -42,10 +42,12 @@ function codeProblem(failure: unknown) {
 const changedUnderneath = (failure: unknown) => failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409);
 const familyActionProblem = (failure: unknown) => changedUnderneath(failure) ? "Something here just changed. Check the list and try again." : codeProblem(failure);
 type Role = "parent" | "caregiver";
-function RoleChoice({ role, onChange, disabled }: { role: Role; onChange: (role: Role) => void; disabled?: boolean }) {
-  return <Section title="Who are they?">
-    <Choice label="Parent" detail="Sees and changes everything shared, and can invite others" selected={role === "parent"} disabled={disabled} onPress={() => onChange("parent")} />
-    <Choice label="Caregiver" detail="Logs care and sees the calendar. Can’t see saved posts or doctor questions, can’t use Ask, and can’t change a baby’s profile" selected={role === "caregiver"} disabled={disabled} onPress={() => onChange("caregiver")} />
+/** Nothing is picked for her: which access someone gets is a decision, so the invite waits until she makes it. */
+function RoleChoice({ role, onChange, disabled }: { role: Role | null; onChange: (role: Role) => void; disabled?: boolean }) {
+  return <Section title="Choose their access">
+    <Choice label="Parent" detail="Full access. Sees and changes everything shared, including saved posts, uses Ask, and can invite others" selected={role === "parent"} disabled={disabled} onPress={() => onChange("parent")} />
+    <Choice label="Caregiver" detail="Logs care only, and sees the calendar. Can’t see saved posts or doctor questions, can’t use Ask, and can’t change a baby’s profile" selected={role === "caregiver"} disabled={disabled} onPress={() => onChange("caregiver")} />
+    {!role && <Copy kind="small" tone="muted">Choose one to continue.</Copy>}
   </Section>;
 }
 /** An older build would lose sight of her baby when it moves. Nothing moves until her phones are updated, or she says one is gone. */
@@ -102,7 +104,7 @@ function ShownCode({ invite, onDone }: { invite: FamilyInvite; onDone: () => voi
 }
 function Invite({ onBack }: { onBack: () => void }) {
   const b = useBaby(), bootstrap = b.state.bootstrap!, [rows, setRows] = useState<BabyRecord[] | null>(null), [unread, setUnread] = useState(false), [justMe, setJustMe] = useState<string[]>([]),
-    [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null), [role, setRole] = useState<Role>("parent");
+    [busy, setBusy] = useState(false), [error, setError] = useState(""), [invite, setInvite] = useState<FamilyInvite | null>(null), [role, setRole] = useState<Role | null>(null);
   const { readiness, setReadiness, failed, checking, check, confirmPhones } = usePhones(setError);
   /** What becomes shared is what she's agreeing to, so a list that didn't load stops her, rather than reading as nothing. */
   function readRows() {
@@ -115,6 +117,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     readRows();
   }, []);
   async function create() {
+    if (!role) return;
     setBusy(true); setError("");
     try {
       for (const row of rows ?? []) if (justMe.includes(row.id)) await b.api.save({ ...row, data: { ...row.data, just_me: true } }, bootstrap.generation);
@@ -152,7 +155,7 @@ function Invite({ onBack }: { onBack: () => void }) {
     </>}
     {!readiness?.ready
       ? <PhoneGate readiness={readiness} failed={failed} busy={busy || checking} onCheck={() => void check()} onConfirm={confirmPhones} />
-      : !unread && <Button title="Share and get a code" size="lg" icon="people-outline" busy={busy || checking} disabled={!rows} onPress={() => void create()} />}
+      : !unread && <Button title="Share and get a code" size="lg" icon="people-outline" busy={busy || checking} disabled={!rows || !role} onPress={() => void create()} />}
     <Button variant="ghost" title="Not now" disabled={busy} onPress={onBack} />
   </>;
 }
@@ -227,7 +230,7 @@ function YourName() {
 }
 function InFamily() {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], fence = rowFence({ space_id: family.id, generation: family.generation }, bootstrap.generation),
-    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false), [role, setRole] = useState<Role>("parent"),
+    [members, setMembers] = useState<FamilyMember[] | null>(null), [invites, setInvites] = useState<FamilyInvite[]>([]), [invite, setInvite] = useState<FamilyInvite | null>(heldInvite(b.owner, family.id)), [busy, setBusy] = useState(false), [error, setError] = useState(""), [unread, setUnread] = useState(false), [role, setRole] = useState<Role | null>(null),
     parent = family.role === "parent", alive = useRef(true), newest = useRef(0), reading = useRef(false);
   async function load(quiet = false) {
     if (!parent) return setMembers([]);
@@ -289,7 +292,10 @@ function InFamily() {
     </Section>}
     {parent && !unread && members !== null && <RoleChoice role={role} onChange={setRole} disabled={busy} />}
     {parent && !unread && members !== null && <Section title="Invite">
-      <Button title="Invite someone" icon="person-add-outline" busy={busy} onPress={() => void run(async () => { const made = await b.api.createInvite(role, false, fence); holdInvite(made, b.owner); setInvite(made); })} />
+      <Button title="Invite someone" icon="person-add-outline" busy={busy} disabled={!role} onPress={() => void run(async () => {
+        if (!role) return;
+        const made = await b.api.createInvite(role, false, fence); holdInvite(made, b.owner); setInvite(made); setRole(null);
+      })} />
       {invites.map((row) => <Button key={row.id} variant="ghost" title={`Cancel the code sent ${friendlyDay(row.expires_at, -7)}`} disabled={busy} onPress={() => void run(() => b.api.revokeInvite(family.id, row.id, fence))} />)}
     </Section>}
     {last ? <Section title="Delete this family">
