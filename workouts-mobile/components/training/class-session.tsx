@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { Alert, Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Button, Card, Copy, IconButton, ListRow, Notice, RestTimer, Row, Screen, SectionHeader, Sheet, formatClock, haptics, useColors } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
@@ -15,6 +15,7 @@ import { classPayload, scoreProblem, scoredParts } from "@/lib/class-scores";
 import { CopyForWodUp, ScoreEditor } from "@/components/training/score-editor";
 import { classOver, currentPart, endClass, hasBuyIn } from "@/lib/class-training";
 import { buyInMove, partClock, partTitle, restLeft, restLine, roundMoves, visibleRuns } from "@/lib/class-view";
+import { footerCellWidth, footerLabelScale, largeText } from "@/lib/readable-layout";
 import { actualIdentity, exerciseElapsedSeconds, restRemainingSeconds, type SessionDraft } from "@/lib/training";
 import { moveText, movesFor, repsFor, timedFormatFor, type IntervalFormat } from "@/lib/timed-execution";
 
@@ -70,6 +71,11 @@ export function ClassSession(p: ClassSessionProps) {
   const { run, part, block, index, status } = currentPart(d.class_run, d.workout, now);
   const over = classOver(d.class_run, d.workout, now);
   const next = d.workout.blocks[index + 1];
+  // At large text the clock is pinned above the scrolling body, as on the single-part timer, and the small actions
+  // in a two-column row grow only as far as their longest word fits, without their icon, so no label breaks mid-word.
+  const { fontScale, width } = useWindowDimensions();
+  const grid = largeText(fontScale);
+  const half = (title: string) => (grid ? { maxScale: footerLabelScale(title, footerCellWidth(width) - 12, fontScale), icon: undefined } : {});
   const [more, setMore] = useState(false);
   const [instructions, setInstructions] = useState(false);
   const [leadInDone, setLeadInDone] = useState<number | null>(null);
@@ -121,6 +127,7 @@ export function ClassSession(p: ClassSessionProps) {
 
   let body: ReactNode = null;
   let footer: ReactNode = null;
+  let pinned: ReactNode = null;
   if (over) {
     body = <>
       <Copy kind="heading">Class done</Copy>
@@ -146,14 +153,16 @@ export function ClassSession(p: ClassSessionProps) {
     </>;
   } else if (status === "resting_after") {
     const left = restLeft(part, block, now);
+    const restClock = <SessionClock text={formatClock(left)} caption={`Rest · ${restLine(next)}`} progress={block.rest_after_seconds ? left / block.rest_after_seconds : null}
+      trigger={index} compact={grid} accessibilityLabel={`${formatClock(left)} of rest left, ${restLine(next)}`}>
+      <Copy kind="small" tone="muted" align="center" maxScale={grid ? 1.5 : undefined}>{block.label} is done. Your clock keeps going with the phone locked.</Copy>
+    </SessionClock>;
+    pinned = grid ? restClock : null;
     body = <>
-      <SessionClock text={formatClock(left)} caption={`Rest · ${restLine(next)}`} progress={block.rest_after_seconds ? left / block.rest_after_seconds : null}
-        trigger={index} compact={false} accessibilityLabel={`${formatClock(left)} of rest left, ${restLine(next)}`}>
-        <Copy kind="small" tone="muted" align="center">{block.label} is done. Your clock keeps going with the phone locked.</Copy>
-      </SessionClock>
+      {!grid && restClock}
       <Row gap={12}>
-        <View style={{ flex: 1 }}><Button title="−15 s" variant="secondary" size="lg" disabled={busy} onPress={() => p.act((r, w, at) => adjustRest(r, w, -15_000, at))} /></View>
-        <View style={{ flex: 1 }}><Button title="+15 s" variant="secondary" size="lg" disabled={busy} onPress={() => p.act((r, w, at) => adjustRest(r, w, 15_000, at))} /></View>
+        <View style={{ flex: 1 }}><Button title="−15 s" variant="secondary" size="lg" disabled={busy} {...half("−15 s")} onPress={() => p.act((r, w, at) => adjustRest(r, w, -15_000, at))} /></View>
+        <View style={{ flex: 1 }}><Button title="+15 s" variant="secondary" size="lg" disabled={busy} {...half("+15 s")} onPress={() => p.act((r, w, at) => adjustRest(r, w, 15_000, at))} /></View>
       </Row>
     </>;
     footer = <Button title={next ? `Start ${next.label} now` : "End rest"} icon="play-skip-forward" size="lg" disabled={busy} onPress={() => p.act(endRest)} />;
@@ -185,8 +194,8 @@ export function ClassSession(p: ClassSessionProps) {
     footer = setPart ? <>
       <BigTap title={`Done · ${setName}`} hint="Logs this set as prescribed" disabled={busy} onPress={() => logSet(true)} />
       <Row gap={12}>
-        <View style={{ flex: 1 }}><Button title="Skip set" variant="secondary" disabled={busy} onPress={() => logSet(false)} /></View>
-        {d.undo.length > 0 && d.actuals.at(-1)?.block_id === block.id && <View style={{ flex: 1 }}><Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy} onPress={p.undo} /></View>}
+        <View style={{ flex: 1 }}><Button title="Skip set" variant="secondary" disabled={busy} {...half("Skip set")} onPress={() => logSet(false)} /></View>
+        {d.undo.length > 0 && d.actuals.at(-1)?.block_id === block.id && <View style={{ flex: 1 }}><Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy} {...half("Undo")} onPress={p.undo} /></View>}
       </Row>
     </> : <Button title={`End ${block.label}`} variant="secondary" disabled={busy} onPress={() => p.act(endPart)} />;
   } else {
@@ -197,15 +206,17 @@ export function ClassSession(p: ClassSessionProps) {
     const format = timedFormatFor(block);
     const intervalMoves = clock.interval && format && format.mode !== "for_time"
       ? movesFor(format as IntervalFormat, block, clock.interval.index).map((i) => moveText(block.exercises[i], 1)).join(" + ") : null;
+    const clockCard = <SessionClock text={formatClock(clock.seconds)} caption={[partTitle(block), clock.interval?.label].filter(Boolean).join(" · ")}
+      phase={clock.interval && format?.mode === "work_rest" ? (clock.interval.phase === "work" ? "Work" : "Rest") : null}
+      progress={clock.progress} trigger={part.round_taps.length} compact={grid}
+      accessibilityLabel={`${formatClock(clock.seconds)} ${clock.direction}`}>
+      {counting && !buyingIn && <Copy kind="numeric" align="center" maxScale={grid ? 1.5 : undefined} style={{ fontSize: 40, lineHeight: 46 }}
+        accessibilityLabel={`${roundText(part.round_taps.length)} done`}>{roundText(part.round_taps.length)}</Copy>}
+      {!!intervalMoves && <Copy kind="label" align="center">{intervalMoves}</Copy>}
+    </SessionClock>;
+    pinned = grid ? clockCard : null;
     body = <>
-      <SessionClock text={formatClock(clock.seconds)} caption={[partTitle(block), clock.interval?.label].filter(Boolean).join(" · ")}
-        phase={clock.interval && format?.mode === "work_rest" ? (clock.interval.phase === "work" ? "Work" : "Rest") : null}
-        progress={clock.progress} trigger={part.round_taps.length} compact={false}
-        accessibilityLabel={`${formatClock(clock.seconds)} ${clock.direction}`}>
-        {counting && !buyingIn && <Copy kind="numeric" align="center" style={{ fontSize: 40, lineHeight: 46 }}
-          accessibilityLabel={`${roundText(part.round_taps.length)} done`}>{roundText(part.round_taps.length)}</Copy>}
-        {!!intervalMoves && <Copy kind="label" align="center">{intervalMoves}</Copy>}
-      </SessionClock>
+      {!grid && clockCard}
       {paused && <Notice tone="warning">{block.label} is paused. Only this part’s clock stopped.</Notice>}
       {buyingIn ? <Copy kind="label">Buy-in · {buyInMove(block)}</Copy>
         : counting && <Copy tone="muted">This round · {roundMoves(block)}</Copy>}
@@ -219,9 +230,9 @@ export function ClassSession(p: ClassSessionProps) {
       {part.kind === "for_time" && <Button title="Done · stop the clock" icon="stop-circle-outline" size="lg" disabled={busy} onPress={() => p.act(endPart)} />}
       <Row gap={12}>
         <View style={{ flex: 1 }}><Button title={paused ? "Resume" : "Pause"} icon={paused ? "play" : "pause"} variant="secondary" disabled={busy}
-          onPress={() => p.act(paused ? resumePart : pausePart)} /></View>
+          {...half(paused ? "Resume" : "Pause")} onPress={() => p.act(paused ? resumePart : pausePart)} /></View>
         {(part.round_taps.length > 0 || part.buy_in_done_at != null) && <View style={{ flex: 1 }}>
-          <Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy}
+          <Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy} {...half("Undo")}
             accessibilityHint={part.round_taps.length ? "Removes the last round" : "Takes back the buy-in"} onPress={() => p.act(undoTap)} /></View>}
       </Row>
     </>;
@@ -231,7 +242,7 @@ export function ClassSession(p: ClassSessionProps) {
   return (
     <Screen native back title={over ? d.workout.title : partTitle(block)} subtitle={over ? undefined : d.workout.title}
       action={<IconButton icon="ellipsis-horizontal" label="More class actions" onPress={() => setMore(true)} />}
-      footer={<>{!!p.error && <Notice error>{p.error}</Notice>}{footer}</>}>
+      footer={<>{!!p.error && <Notice error>{p.error}</Notice>}{footer}</>} pinned={pinned ?? undefined}>
       {body}
       {!over && run.parts.length > 1 && <>
         <SectionHeader title="Today’s parts" />
