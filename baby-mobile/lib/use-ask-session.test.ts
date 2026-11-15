@@ -554,3 +554,22 @@ it("forgets a deleted conversation on the other side of the switch", async () =>
   expect(result.messages).toEqual([]);
   expect(result.context.record_id).toBe("entry");
 });
+
+it("brings back a side left through History, with its latest messages", async () => {
+  const account = setup();
+  await mount("entry");
+  await question("About this post");
+  await act(async () => { await result.send(); });
+  account.api.conversation.mockResolvedValueOnce(conversation(general, "general-chat"));
+  await act(async () => { await result.load("general-chat"); });
+  expect(result.onFocus).toBe(false);
+  await act(async () => result.switchFocus("entry"));
+  expect(result.conversation).toBe("answer-conversation");
+  await question("Second about the post");
+  account.api.chat.mockResolvedValueOnce({ conversation_id: "answer-conversation", message: "Second answer", citations: [] });
+  await act(async () => { await result.send(); });
+  await act(async () => result.switchFocus("all"));
+  expect(result.conversation).toBe("general-chat");
+  await act(async () => result.switchFocus("entry"));
+  expect(result.messages.map((m) => m.content)).toEqual(["About this post", "Answer", "Second about the post", "Second answer"]);
+});

@@ -134,6 +134,10 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     activeAccount.current = live.current.b;
     const next = { context, conversation, messages, ...restored(context, conversation), focusedTitle: title, resolving: false };
     claim(next); update(next);
+    // Each side of the switch remembers what it last showed, however she got there (the switch, History, a reply).
+    const side = { context, conversation, messages, title };
+    if (sameFocus(context, focus.current?.context)) parked.current.focus = side;
+    else if (!context.record_id && !context.focus_date && context.scope === "all") parked.current.all = side;
     working.current = false; setBusy(false); setError("");
   }
   useEffect(() => {
@@ -204,8 +208,6 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     const onEntry = sameFocus(prior.context, home.context), general = !prior.context.record_id && !prior.context.focus_date && prior.context.scope === "all";
     if ((to === "entry") === onEntry && (to === "entry" || general)) return;
     stash(); sequence.current++;
-    const side = { context: prior.context, conversation: prior.conversation, messages: prior.messages, title: prior.focusedTitle };
-    if (onEntry) parked.current.focus = side; else if (general) parked.current.all = side;
     const next = to === "entry" ? parked.current.focus ?? home
       : parked.current.all ?? { context: { scope: "all", record_id: null, child_id: live.current.b.state.selectedChild }, messages: [] };
     activate(next.context, next.conversation, next.messages, next.title);
