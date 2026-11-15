@@ -63,8 +63,9 @@ const pick = async (title: string) => {
 };
 /** Opens the ⋯ menu at the top right and chooses from it. */
 const menu = async (title: string) => { await act(async () => { await sheetItem("More actions").props.onPress(); }); await pick(title); };
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.alerts = []; mock.ids = 0; });
-afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+// Event fixtures are in November 2026; relative labels must not depend on the run date.
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-08T00:00:00Z")); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.alerts = []; mock.ids = 0; });
+afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("asks which dates an edit to a repeating event reaches, in plain words, before opening the editor", async () => {
   setup([event()]);

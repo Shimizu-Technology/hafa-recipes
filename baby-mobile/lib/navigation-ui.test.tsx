@@ -96,6 +96,7 @@ import AskEntry from "../app/ask-entry";
 import { ApiError } from "./api";
 import { emptyState, optimisticRecord } from "./models";
 import { getDockedFooterHeight } from "./bottom-overlay";
+import { recordMenuTitle } from "../components/record-menu";
 let renderer: ReactTestRenderer | undefined;
 const row = (id: string, kind: "journal" | "feeding" | "question" | "source" | "sleep") => optimisticRecord({
   id, kind, title: id, body: `Observation ${id}`, child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z",
@@ -258,6 +259,16 @@ describe("an entry's ⋯ menu", () => {
     expect(below).not.toContain("Edit this entry");
     expect(below).not.toContain("Delete this entry");
   });
+  it("names a saved post by its own title, and says Saved post when it has none", async () => {
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    await press("More actions");
+    const heading = sheet().findAllByType("Text" as React.ElementType).find((n) => n.props.accessibilityRole === "header")!;
+    expect(heading.props.children).toBe("Observation Saved source");
+    const bare = optimisticRecord({ id: "bare", kind: "source", title: "Saved source", body: "", child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z" });
+    expect(recordMenuTitle(bare, "Saved post")).toBe("Saved post");
+    expect(recordMenuTitle(row("Journal observation", "journal"), "Journal entry")).toBe("Journal entry");
+  });
   it("offers only edit and delete on a journal entry or a care log", async () => {
     for (const id of ["Journal observation", "Bottle observation"]) {
       mock.params = { id };
@@ -327,6 +338,21 @@ describe("Ask opened on an entry", () => {
     expect(said).toContain("Asking about everything");
     await press("This post");
     expect(switchFocus).toHaveBeenLastCalledWith("entry");
+  });
+  it("keeps the switch compact at the largest text, and names the post the same way everywhere", async () => {
+    mock.fontScale = 3.1;
+    mock.ask = { context: home, focusContext: home, onFocus: true };
+    await mount(<AskEntry />);
+    const labels = radios().map((n) => n.findAllByType("Text" as React.ElementType)[0]);
+    expect(labels.map((t) => t.props.maxFontSizeMultiplier)).toEqual([1.5, 1.5]);
+    await act(async () => renderer!.unmount());
+    mock.fontScale = 1;
+    await mount(<AskEntry />);
+    const input = renderer!.root.findAllByType("TextInput" as React.ElementType)[0];
+    expect(input.props.placeholder).toBe("Ask about this post…");
+    expect(input.props.accessibilityLabel).toBe("Ask about this post");
+    const said = renderer!.root.findAllByType("Text" as React.ElementType).map((t) => [t.props.children].flat().join("")).join(" | ");
+    expect(said).toContain("Ask about this post.");
   });
   it("starts with questions about the post itself", async () => {
     mock.ask = { context: home, focusContext: home, onFocus: true, setQuestion: vi.fn() };

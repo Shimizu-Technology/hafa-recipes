@@ -104,6 +104,8 @@ function AskChat({ back }: { back: boolean }) {
     // Opened on one entry or day: a two-chip switch, "This post" or "Everything", always above the question box.
     home = chat.focusContext, homeKind = b.records.find((row) => row.id === home?.record_id)?.kind,
     homeLabel = focusLabel(homeKind, !!home?.focus_date),
+    // One name for what's in focus, used the same way by the heading, the question box and VoiceOver.
+    focusName = focusLabel(b.records.find((row) => row.id === chat.context.record_id)?.kind, !!focusedDay).toLowerCase(),
     starters = focused ? focusSuggestions(b.records.find((row) => row.id === chat.context.record_id)?.kind, !!focusedDay) : suggestions;
   async function review(proposal: Proposal) {
     const result = await chat.review(proposal);
@@ -151,17 +153,18 @@ function AskChat({ back }: { back: boolean }) {
         </>}
         {!available && !urgentReply && !(needsHelp && large) && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
         {available && !urgentReply && !(needsHelp && large) && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
-        {!!home && !showHistory && <FilterChips wrap label="What Ask looks at" value={chat.onFocus ? "entry" : chat.context.record_id || focusedDay ? "" : "all"}
+        {/* Capped at 1.5× so, at the largest text sizes, the switch stays one short row above the question box. */}
+        {!!home && !showHistory && <FilterChips wrap maxFontSizeMultiplier={1.5} label="What Ask looks at" value={chat.onFocus ? "entry" : chat.context.record_id || focusedDay ? "" : "all"}
           onChange={(value) => chat.switchFocus(value === "entry" ? "entry" : "all")}
           options={[{ label: homeLabel, value: "entry", icon: home.focus_date ? "calendar-outline" : homeKind === "collection" ? "folder-outline" : "bookmark-outline" },
             { label: "Everything", value: "all", icon: "albums-outline" }]} />}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}
-            accessibilityLabel={focusedDay ? "Ask about this day" : focusedCategory ? "Ask about this category" : focused ? "Ask about this source or entry" : "Your question"}
+            accessibilityLabel={focused ? `Ask about ${focusName}` : "Your question"}
             value={question}
             onChangeText={chat.setQuestion}
-            placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…"
+            placeholder={available ? fontScale >= 1.5 ? "Question" : focused ? `Ask about ${focusName}…` : "Ask about your saved entries…"
               : unavailablePlaceholder(fontScale)}
             placeholderTextColor={c.muted}
             selectionColor={c.accentText}
@@ -212,7 +215,7 @@ function AskChat({ back }: { back: boolean }) {
         onRename={chat.renameConversation} onDelete={chat.deleteConversation} />}
       {!showHistory && !messages.length && (
         <View style={{ gap: 12 }}>
-          <Copy kind="heading">{focusedDay ? "Ask about this day." : focusedCategory ? "Ask about this category." : focused ? "Ask about this entry." : "Start with something on your mind."}</Copy>
+          <Copy kind="heading">{focused ? `Ask about ${focusName}.` : "Start with something on your mind."}</Copy>
           <Copy tone="muted">
             {focusedDay
               ? "Ask for a summary or find a detail. You will review any proposed changes."

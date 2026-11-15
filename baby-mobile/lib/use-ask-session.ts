@@ -27,6 +27,20 @@ interface Parked { context: AskContext; conversation?: string; messages: ChatMes
 export function sameFocus(a: AskContext, b: AskContext | null | undefined) {
   return !!b && a.record_id === b.record_id && (a.focus_date ?? null) === (b.focus_date ?? null) && a.child_id === b.child_id && a.scope === b.scope;
 }
+/**
+ * The newest conversation she had about this entry or day, so opening Ask from it again carries on where she left off.
+ * History still lists every conversation. Nothing found, or no connection, starts a fresh one as before.
+ */
+export async function lastAbout(account: Pick<Account, "api">, context: AskContext): Promise<Parked | null> {
+  try {
+    const { items } = await account.api.conversations(),
+      match = [...items].sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""))
+        .find((item) => sameFocus({ scope: item.scope, record_id: item.record_id, child_id: item.child_id, ...(item.focus_date ? { focus_date: item.focus_date } : {}) }, context));
+    if (!match) return null;
+    const full = await account.api.conversation(match.id);
+    return { context, conversation: match.id, messages: full.messages ?? [] };
+  } catch { return null; }
+}
 const draftSessions = new WeakMap<object, Map<string, DraftSession>>();
 export function useAskSession(recordId?: string, active = true, focusDate?: string) {
   const [attempt, setAttempt] = useState(0);
@@ -164,6 +178,12 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
       const context: AskContext = { scope: "all", record_id: null, child_id: account.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) };
       if (focusDate) focus.current = { context, messages: [] };
       activate(context);
+      // A day opens at once; its last conversation follows if she hasn't started anything yet.
+      if (focusDate) void lastAbout(account, context).then((last) => {
+        const now = current.current;
+        if (last && operation.valid() && !working.current && sameFocus(now.context, context) && !now.conversation && !now.messages.length && !now.question.trim())
+          activate(last.context, last.conversation, last.messages);
+      });
       return;
     }
     activeAccount.current = account;
@@ -171,10 +191,13 @@ export function useAskSession(recordId?: string, active = true, focusDate?: stri
     // Resolve current ownership metadata before choosing the AI context.
     update({ ...initial, focusedTitle: row?.title, question: "", resolving: true });
     working.current = true; setBusy(true);
-    void account.api.record(recordId).then((row) => {
+    void account.api.record(recordId).then(async (row) => {
       if (!operation.valid()) return;
-      focus.current = { context: { scope: "all", record_id: row.id, child_id: row.child_id }, messages: [], title: row.title };
-      activate(focus.current.context, undefined, [], row.title);
+      const home: Parked = { context: { scope: "all", record_id: row.id, child_id: row.child_id }, messages: [], title: row.title },
+        last = await lastAbout(account, home.context);
+      if (!operation.valid()) return;
+      focus.current = home;
+      activate(home.context, last?.conversation, last?.messages ?? [], row.title);
     }).catch((failure) => { if (operation.valid()) setError(messageFor(failure)); })
       .finally(() => { if (operation.valid()) { working.current = false; setBusy(false); } });
   }, [key, active]);
