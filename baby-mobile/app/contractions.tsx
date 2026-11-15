@@ -32,9 +32,10 @@ export default function Contractions() {
     [running, ...others] = runningContractions(rows, childId, now),
     writing = useRef(false),
     week = child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined,
-    guidance = contractionGuidance(week),
-    // On her partner's phone, timing for her: "Kami's contractions". Only when that's clearly who it is.
-    family = useLaborFamily(child), support = family.support;
+    // On her partner's phone, timing for her: "Kami's contractions", and the guidance about her. Only when that's
+    // been said; until then, everyday words.
+    family = useLaborFamily(child), support = family.support,
+    guidance = contractionGuidance(week, family.voice);
   async function save(action: () => Promise<() => Promise<unknown>>, message: string) {
     if (writing.current) return;
     writing.current = true;

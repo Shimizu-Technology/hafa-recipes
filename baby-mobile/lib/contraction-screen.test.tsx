@@ -285,6 +285,8 @@ it("reads as Kami's contractions on her partner's phone, and plain Contractions 
   Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people("parent")) } });
   await mount();
   expect(title()).toBe("Kami’s contractions");
+  // The week's guidance under her name is about her too, not "you".
+  expect(words()).toContain("don’t wait if Kami has any signs of preterm labor");
   await act(async () => renderer!.unmount());
   Object.assign(b, { owner: "kami" });
   await mount();
@@ -300,9 +302,15 @@ it("reads as Kami's contractions on her partner's phone, and plain Contractions 
   await mount();
   expect(title()).toBe("Kami’s contractions");
   await act(async () => renderer!.unmount());
-  // Nobody has said, and Leon's own phone can't guess: everyday words.
+  // Nobody has said, and a guess settles nothing: everyday words, on his phone and on hers.
   b.state.bootstrap!.children[0].details = { expecting_member: "leon", expecting_confirmed: false };
   Object.assign(b, { api: { ...b.api, familyMembers: vi.fn(async () => people("parent")) } });
   await mount();
   expect(title()).toBe("Contractions");
+  expect(words()).toContain("don’t wait if there are any signs of preterm labor");
+  await act(async () => renderer!.unmount());
+  Object.assign(b, { owner: "kami" });
+  await mount();
+  expect(title()).toBe("Contractions");
+  expect(words()).not.toContain("Leon’s");
 });

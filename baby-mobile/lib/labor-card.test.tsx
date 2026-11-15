@@ -140,6 +140,22 @@ describe("on Leon's phone, where Kami is the one in labor", () => {
     expect(button("Tell your partner")).toBeUndefined();
   });
 });
+describe("Leon added the pregnancy, so the API guessed him: on Kami's phone", () => {
+  const leonGuessed = { ...expecting, details: { expecting_member: "leon", expecting_confirmed: false } } as Child;
+  it("nothing reads as Leon's labor: everyday words, the question, and nobody pressed", async () => {
+    await mount(leonGuessed, 38);
+    expect(all("ExpectingAsk")).toHaveLength(1);
+    expect(words()).not.toContain("Leon’s");
+    expect(words()).toContain("The provider’s instructions come first.");
+    expect(all("Button").map((node) => node.props.title)).toEqual(["Tell your family"]);
+  });
+  it("with no signal, \"Tell your partner\" is still there for her", async () => {
+    m.baby.api.familyMembers = vi.fn(async () => { throw new Error("offline"); });
+    await mount(leonGuessed);
+    expect(button("Tell your partner")).toBeTruthy();
+    expect(words()).not.toContain("Leon’s");
+  });
+});
 describe("until the family says who's expecting", () => {
   // Kami's own guess of herself, unconfirmed: on her phone that's not settled yet.
   const unsettled = { ...expecting, details: { expecting_member: "kami", expecting_confirmed: false } } as Child;
