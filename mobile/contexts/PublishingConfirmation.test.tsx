@@ -27,6 +27,13 @@ describe('screen-local publishing confirmation', () => {
     await act(async () => tree.root.findAllByType('Pressable' as any)[0].props.onPress());
     expect(await result).toBe(true);
   });
+  it('draws every label in a face the app loads', async () => {
+    await act(async () => { confirm({ message: 'Rice', label: 'Make public' }).catch(() => undefined); });
+    const families = tree.root.findAllByType('Text' as any).map(node => node.props.style?.fontFamily);
+    expect(families).toHaveLength(5);
+    // Only Figtree faces are loaded for UI text; an unknown family silently falls back to the system font.
+    for (const family of families) expect(family).toMatch(/^Figtree_/);
+  });
   it('treats Android back as Keep private', async () => {
     let result!: Promise<boolean>;
     await act(async () => { result = confirm({ message: '', label: 'Make public' }); });

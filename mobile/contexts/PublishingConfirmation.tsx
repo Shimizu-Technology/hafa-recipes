@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
+import { fontFamily } from '@/constants/Colors';
 
 type Prompt = { message: string; label: string };
 type Confirm = ((prompt: Prompt) => Promise<boolean>) & { cancel?: () => void };
@@ -70,11 +71,11 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
       <View style={{ flex: 1 }} accessibilityElementsHidden={!!prompt} importantForAccessibility={prompt ? 'no-hide-descendants' : 'auto'}>{children}</View>
       {prompt && <View testID="publishing-confirmation" accessibilityViewIsModal style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000, justifyContent: 'flex-end', backgroundColor: '#0008' }}>
         <ScrollView style={{ flexGrow: 0, maxHeight: '85%', backgroundColor: dark ? '#18221F' : '#F7F7F5', borderTopLeftRadius: 24, borderTopRightRadius: 24 }} contentContainerStyle={{ padding: 28, paddingBottom: 48, gap: 20 }}>
-          <Text accessibilityRole="header" style={{ fontSize: 26, fontFamily: 'Fraunces_600SemiBold', color: dark ? '#F7F7F5' : '#18221F' }}>Make this recipe public?</Text>
-          <Text style={{ fontSize: 17, lineHeight: 25, color: dark ? '#F7F7F5' : '#18221F' }}>Anyone can find it in Discover and open its link.</Text>
-          <Text style={{ fontSize: 16, lineHeight: 24, color: dark ? '#D6DFDA' : '#45564F' }}>{prompt.message}</Text>
-          <Pressable accessibilityRole="button" onPress={() => finish(true)} style={{ padding: 16, borderRadius: 14, backgroundColor: '#145E52' }}><Text style={{ color: '#FFF', textAlign: 'center', fontSize: 17 }}>{prompt.label}</Text></Pressable>
-          <Pressable accessibilityRole="button" onPress={() => finish(false)} style={{ padding: 16 }}><Text style={{ color: dark ? '#F7F7F5' : '#145E52', textAlign: 'center', fontSize: 17 }}>Cancel · Keep private</Text></Pressable>
+          <Text accessibilityRole="header" style={{ fontSize: 26, fontFamily: fontFamily.bold, color: dark ? '#F7F7F5' : '#18221F' }}>Make this recipe public?</Text>
+          <Text style={{ fontSize: 17, lineHeight: 25, fontFamily: fontFamily.regular, color: dark ? '#F7F7F5' : '#18221F' }}>Anyone can find it in Discover and open its link.</Text>
+          <Text style={{ fontSize: 16, lineHeight: 24, fontFamily: fontFamily.regular, color: dark ? '#D6DFDA' : '#45564F' }}>{prompt.message}</Text>
+          <Pressable accessibilityRole="button" onPress={() => finish(true)} style={{ padding: 16, borderRadius: 14, backgroundColor: '#145E52' }}><Text style={{ color: '#FFF', textAlign: 'center', fontSize: 17, fontFamily: fontFamily.semibold }}>{prompt.label}</Text></Pressable>
+          <Pressable accessibilityRole="button" onPress={() => finish(false)} style={{ padding: 16 }}><Text style={{ color: dark ? '#F7F7F5' : '#145E52', textAlign: 'center', fontSize: 17, fontFamily: fontFamily.semibold }}>Cancel · Keep private</Text></Pressable>
         </ScrollView>
       </View>}
     </View>
