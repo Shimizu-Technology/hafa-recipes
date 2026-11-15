@@ -1419,7 +1419,7 @@ def _affirmative_execution_prefix(prefix: str) -> bool:
 
 def _amrap_wording(wording: str) -> bool:
     return any(_affirmative_execution_prefix(wording[:match.start()]) for match in re.finditer(
-        r"\bamrap\b|\bas many rounds as (?:possible|you can|you are able)\b"
+        r"\bamrap\b|\bas many rounds(?:\s*(?:and|&|\+)\s*reps)? as (?:possible|you can|you are able)\b"
         r"|\brepeat(?:ing)?\s+(?:(?:this|the)\s+(?:circuit|routine|workout)\s+)?for\s+\d+(?:\.\d+)?\s*(?:minutes?|mins?|seconds?|secs?)\b",
         wording, re.I,
     ))
@@ -1448,7 +1448,7 @@ def _amrap_cap_supported(seconds: int, wording: str) -> bool:
             )
             suffix = re.match(r"\s*\)?\s*(?:amrap|workout|session|circuit)\b", after, re.I)
             loop = re.search(
-                r"\b(?:amrap|as many rounds as (?:possible|you can|you are able)|repeat(?:ing)?)\b"
+                r"\b(?:amrap|as many rounds(?:\s*(?:and|&|\+)\s*reps)? as (?:possible|you can|you are able)|repeat(?:ing)?)\b"
                 r"(?:(?!\b(?:rest|recover|recovery|break|pause|off|hold|work|perform|each|per)\b)[^.!?;\n]){0,160}"
                 r"\b(?:for|in)\s*$", before, re.I,
             )
@@ -2015,7 +2015,7 @@ def _text_prescription_usable(workout, warnings, source):
     # that the creator deliberately left open-ended.
     names, dosed = _prescription_quality(workout)
     return (names > 0 and names == dosed and workout.estimated_minutes is not None
-            and any(re.search(r"\bamrap\b|as many rounds as", note, re.I) for note in workout.instructions)
+            and any(re.search(r"\bamrap\b|as many rounds(?:\s*(?:and|&|\+)\s*reps)? as", note, re.I) for note in workout.instructions)
             and all("open-ended rounds (AMRAP)" in warning for warning in warnings))
 
 
