@@ -24,7 +24,8 @@ import { Button, Choice, Copy, Field, Notice, Screen, Section, tap, useToast } f
 export default function Birth() {
   const b = useBaby(), toast = useToast(), { id } = useLocalSearchParams<{ id?: string }>(),
     bootstrap = b.state.bootstrap!, timezone = bootstrap.profile.timezone,
-    child = bootstrap.children.find((one) => one.id === id) ?? bootstrap.children.find((one) => !one.birth_date && one.due_date);
+    // Opened for a baby, it's that baby or none: a refresh that took it away must never put this birth on another one.
+    child = id ? bootstrap.children.find((one) => one.id === id) : bootstrap.children.find((one) => !one.birth_date && one.due_date);
   const [name, setName] = useState(child?.name ?? ""),
     [day, setDay] = useState(() => birthParts(new Date().toISOString(), timezone, false).birth_date),
     [time, setTime] = useState<string | null>(null), [lb, setLb] = useState(""), [oz, setOz] = useState(""),
@@ -45,9 +46,21 @@ export default function Birth() {
     return () => { alive = false; };
   }, [canTell, family?.id]);
   // Ticked by default: the partners of whoever the family says is expecting, and nobody until that's said. Once it's
-  // answered here, the ticks follow, unless she's already chosen.
-  const who = expectingFor(child, b.owner, { inFamily: !!family, members: read }), touched = useRef(false);
-  useEffect(() => { if (read && !touched.current) setTo(defaultRecipients(read, b.owner, who.id)); }, [who.id, read]);
+  // answered here, the ticks follow, unless she's already chosen. A choice she made while the family was loading
+  // ("Your partner" unticked) carries over: her partners or no one, never the defaults back.
+  const who = expectingFor(child, b.owner, { inFamily: !!family, members: read }), touched = useRef(false), earlyChoice = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!read) return;
+    if (earlyChoice.current !== null) {
+      setTo(earlyChoice.current ? defaultRecipients(read, b.owner, who.id ?? b.owner ?? null) : []);
+      earlyChoice.current = null;
+      touched.current = true;
+    } else if (!touched.current) setTo(defaultRecipients(read, b.owner, who.id));
+  }, [who.id, read]);
+  if (id && !child) return <Screen title="Baby is here" back>
+    <Notice>This baby’s profile isn’t on this phone any more. It may have been removed, or moved to another family. Nothing was saved.</Notice>
+    <Button secondary title="Back to Today" onPress={() => router.back()} />
+  </Screen>;
   if (!child) return <Screen title="Baby is here" back><Notice>Add your baby’s profile first, in Settings.</Notice></Screen>;
   const grams = gramsFrom(lb, oz);
   async function save() {
@@ -111,7 +124,7 @@ export default function Birth() {
     {canTell && <Section title="Tell your family">
       {who.ask && !!read && <ExpectingAsk child={child} members={read} />}
       {unread ? <Choice label="Your partner" detail={loadError ? "No signal right now. They’ll be told once you’re back online." : "Loading your family…"}
-          selected={tellParents} onPress={() => setTellParents(!tellParents)} />
+          selected={tellParents} onPress={() => { earlyChoice.current = !tellParents; setTellParents(!tellParents); }} />
         : !members!.length ? <Copy kind="small" tone="muted">No one else is in your family yet.</Copy>
         : members!.map((member) => <Choice key={member.app_user_id} label={memberName(member)} detail={member.role === "parent" ? "Parent" : "Caregiver"}
           selected={to.includes(member.app_user_id)}

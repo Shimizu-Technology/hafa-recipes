@@ -41,12 +41,13 @@ export default function Reminders() {
     [choosingHours, setChoosingHours] = useState(false), [opening, setOpening] = useState(""),
     zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const live = remindersOn(bootstrap);
+  /** What the phone allows now: asked and refused for good, or still askable. Read again after every answer. */
+  const look = () => {
+    if (Platform.OS !== "web") void Notifications.getPermissionsAsync().then((now) => { setDenied(!now.granted && !now.canAskAgain); setAskable(!now.granted && now.canAskAgain); }).catch(() => undefined);
+  };
   useEffect(() => { if (live) void b.refreshPrefs(); }, [live]);
   useEffect(() => {
     if (!live) return;
-    const look = () => {
-      if (Platform.OS !== "web") void Notifications.getPermissionsAsync().then((now) => { setDenied(!now.granted && !now.canAskAgain); setAskable(!now.granted && now.canAskAgain); }).catch(() => undefined);
-    };
     look();
     const app = AppState.addEventListener("change", (status) => { if (status === "active") look(); });
     return () => app.remove();
@@ -61,7 +62,9 @@ export default function Reminders() {
   // Family news is on before she's ever been asked, so this is where "Not now" on Today comes back to.
   const newsWaiting = askable && kinds.includes("family_news") && !!prefs.kinds.family_news?.enabled;
   const allowNews = async () => {
+    // Refused at the phone, it may not ask again: the row gives way to "Open notification settings".
     if (await askToNotify("family_news") === "granted") { setAskable(false); void b.registerPush(); }
+    else look();
   };
   const feed = prefs.kinds.feed_interval, showHours = kinds.includes("feed_interval") && (choosingHours || !!feed?.enabled);
   return <Screen title="Reminders" back>

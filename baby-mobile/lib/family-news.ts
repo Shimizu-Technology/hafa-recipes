@@ -111,6 +111,23 @@ const dayOld = 24 * 3600_000;
 export async function sendPending(state: DeviceState, send: Sender, commit: (change: (s: DeviceState) => DeviceState) => Promise<void>,
   family: (childId: string) => Promise<FamilyNow> = async () => nobody, now = Date.now()) {
   const sent: SentNews[] = [], dropped: DroppedNews[] = [];
+  try {
+    await sendEach(state, send, commit, family, now, sent, dropped);
+  } catch {
+    // A write to this phone failed partway: whatever already went, or was already let go, is still said. The item
+    // whose write failed is still on the phone, so it's said nothing about and tried again.
+  }
+  return { sent, dropped };
+}
+/**
+ * Before the first send, the people it's going to are kept on the item: a retry after a lost answer then goes to the
+ * same people under the same id, so the API sees the same news rather than a change (and refuses it).
+ */
+const settleRecipients = (commit: (change: (s: DeviceState) => DeviceState) => Promise<void>, id: string, to: string[], names: Record<string, string>) =>
+  commit((s) => ({ ...s, pendingNews: (s.pendingNews ?? []).map((one) => one.id !== id ? one
+    : { ...one, to, parents: undefined, names: { ...names, ...one.names } }) }));
+async function sendEach(state: DeviceState, send: Sender, commit: (change: (s: DeviceState) => DeviceState) => Promise<void>,
+  family: (childId: string) => Promise<FamilyNow>, now: number, sent: SentNews[], dropped: DroppedNews[]) {
   for (const item of state.pendingNews ?? []) {
     const named = (seen: Record<string, string> = {}) => (id: string) => item.names?.[id] ?? seen[id] ?? "Your partner";
     // Who it was for, by name when every name is known.
@@ -135,6 +152,7 @@ export async function sendPending(state: DeviceState, send: Sender, commit: (cha
         dropped.push({ item, message: "No one else is in your family yet, so no one was told." });
         continue;
       }
+      if (item.parents) await settleRecipients(commit, item.id, to, seen);
       let answer: NewsAnswer | undefined;
       try {
         answer = await send({ id: item.id, news: item.news, child_id: item.child_id, to });
@@ -146,7 +164,10 @@ export async function sendPending(state: DeviceState, send: Sender, commit: (cha
         skipped = to.filter((id) => !current.active.includes(id));
         to = to.filter((id) => current.active.includes(id));
         if (!skipped.length) throw failure;
-        if (to.length) answer = await send({ id: item.id, news: item.news, child_id: item.child_id, to });
+        if (to.length) {
+          await settleRecipients(commit, item.id, to, seen);
+          answer = await send({ id: item.id, news: item.news, child_id: item.child_id, to });
+        }
       }
       skipped = [...skipped, ...(answer?.skipped ?? [])];
       to = answer?.sent_to ?? to.filter((id) => !skipped.includes(id));
@@ -166,7 +187,6 @@ export async function sendPending(state: DeviceState, send: Sender, commit: (cha
       dropped.push({ item, message: `Your news couldn’t be sent to ${whom(seen)}. Tell them another way if it can’t wait.` });
     }
   }
-  return { sent, dropped };
 }
 
 /** The earliest moment something held becomes ready, for the runner to look again then. */
