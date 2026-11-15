@@ -1,21 +1,22 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "./api";
+import { ApiError, NotBornYet } from "./api";
 import { birthParts, birthWrite, gramsFrom, welcome } from "./birth";
-import { defaultRecipients, deliveredWords, newsAvailable, queueNews, readyToSend, recipientWords, sendPending, tellable } from "./family-news";
+import { defaultRecipients, deliveredWords, newsAvailable, queueNews, readyToSend, recipientWords, sendPending, skippedWords, tellable, type FamilyNow } from "./family-news";
 import { newsAskFor } from "./news-ask";
 import { birthExtrasPending, withPendingBirths } from "./outbox";
 import { emptyState, type Child, type DeviceState } from "./models";
 import type { FamilyMember } from "./family";
 
-const m = vi.hoisted(() => ({ baby: null as any, toast: vi.fn(), back: vi.fn(), params: {} as Record<string, string> }));
-vi.mock("react-native", () => ({ View: "View" }));
+const m = vi.hoisted(() => ({ baby: null as any, toast: vi.fn(), back: vi.fn(), params: {} as Record<string, string>, reader: false }));
+vi.mock("react-native", () => ({ View: "View", AccessibilityInfo: { isScreenReaderEnabled: async () => m.reader } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `id-${Math.random().toString(36).slice(2)}` }));
 vi.mock("expo-router", () => ({ router: { back: m.back }, useLocalSearchParams: () => m.params }));
 vi.mock("@/lib/context", () => ({ useBaby: () => m.baby }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
-vi.mock("@/components/ui", () => ({ Button: "Button", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Notice: "Notice",
+vi.mock("@/components/time-field", () => ({ TimeField: "TimeField" }));
+vi.mock("@/components/ui", () => ({ Button: "Button", Choice: "Choice", Copy: "Copy", Field: "Field", Notice: "Notice",
   Screen: "Screen", Section: "Section", tap: vi.fn(), useToast: () => m.toast }));
 import Birth from "../app/birth";
 
@@ -63,11 +64,11 @@ describe("family news", () => {
     expect(recipientWords(people, ["leon"])).toBe("Leon");
     expect(recipientWords(people, ["leon", "nana"])).toBe("Leon and Grandma");
   });
-  it("lists parents first, and never offers it to the person it's about", () => {
+  it("lists parents first, and never ticks the person it's about, without hiding her", () => {
     const grandmaFirst = [member("nana", "caregiver", "Grandma"), member("kami", "parent", "Kami"), member("leon", "parent", "Leon"), member("tita", "caregiver", "Tita")];
     expect(tellable(grandmaFirst, "kami").map((p) => p.app_user_id)).toEqual(["leon", "nana", "tita"]);
-    // On Leon's phone: Kami is in labor, so she's not someone to tell, and she's not his default either.
-    expect(tellable(grandmaFirst, "leon", "kami").map((p) => p.app_user_id)).toEqual(["nana", "tita"]);
+    // On Leon's phone: Kami is listed (if the profile's creator isn't her, she's one tick away), but not his default.
+    expect(tellable(grandmaFirst, "leon").map((p) => p.app_user_id)).toEqual(["kami", "nana", "tita"]);
     expect(defaultRecipients(grandmaFirst, "leon", "kami")).toEqual([]);
     // Her own phone: "about" is her, which changes nothing.
     expect(defaultRecipients(grandmaFirst, "kami", "kami")).toEqual(["leon"]);
@@ -81,11 +82,15 @@ describe("family news", () => {
     expect(deliveredWords(["leon", "nana", "tita"], { leon: true, nana: true, tita: true }, name)).toBe("Leon, Grandma and Tita will get a notification.");
     // An API that doesn't say promises nothing.
     expect(deliveredWords(["leon"], undefined, name)).toBe("Sent to Leon.");
+    // In Leon's quiet hours, with family news set to wait for them: when it'll come.
+    expect(deliveredWords(["leon"], { leon: "after_quiet_hours" }, name, { at: { leon: "2026-12-08T21:00:00Z" }, clock: () => "7:00 AM" }))
+      .toBe("Leon will get it at 7:00 AM, after their quiet hours.");
+    expect(skippedWords(["nana"], name)).toBe("Grandma is no longer in your family, so the news didn’t go to them.");
   });
   it("hands back what the API said about each person's phone", async () => {
     let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: ["leon"], queued_at: new Date().toISOString(), names: { leon: "Leon" } });
     const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
-    const sent = await sendPending(state, async () => ({ id: "n", sent_to: ["leon"], push: { leon: false } }), commit);
+    const { sent } = await sendPending(state, async () => ({ id: "n", sent_to: ["leon"], push: { leon: false } }), commit);
     expect(sent).toMatchObject([{ item: { id: "n", names: { leon: "Leon" } }, to: ["leon"], push: { leon: false } }]);
   });
   it("needs the API's word and a family she's a parent in", () => {
@@ -109,14 +114,61 @@ describe("family news", () => {
     await sendPending({ ...state, outbox: withBirth.outbox }, send, commit);
     expect(send).toHaveBeenCalledTimes(1); // Only the labor news was ready, and it waits.
     expect(state.pendingNews).toHaveLength(2);
-    const refused = vi.fn(async () => { throw new ApiError("no", 422); });
-    await sendPending(state, refused, commit);
+    // The baby gone from this family: it can't go, and she's told rather than left thinking it went.
+    const refused = vi.fn(async () => { throw new ApiError("no", 404); });
+    const { dropped } = await sendPending(state, refused, commit);
     expect(state.pendingNews).toHaveLength(0);
-    state = queueNews(state, { id: "old", news: "labor", child_id: "c", to: ["leon"], queued_at: "2026-11-01T00:00:00.000Z" });
+    // These were queued without names: it doesn't guess one.
+    expect(dropped.map((one) => one.message)).toEqual(["Your news couldn’t be sent to the people you picked. Tell them another way if it can’t wait.",
+      "Your news couldn’t be sent to the people you picked. Tell them another way if it can’t wait."]);
+    state = queueNews(state, { id: "old", news: "labor", child_id: "c", to: ["leon"], queued_at: "2026-11-01T00:00:00.000Z", names: { leon: "Leon" } });
     const ok = vi.fn(async () => ({}));
-    await sendPending(state, ok, commit);
+    const late = await sendPending(state, ok, commit);
     expect(ok).not.toHaveBeenCalled();
     expect(state.pendingNews).toHaveLength(0);
+    expect(late.dropped[0].message).toBe("Your news to Leon couldn’t be sent within a day, so it wasn’t. Tell them another way.");
+  });
+  it("too many this hour, or the birth not on the API yet: kept, and tried again later", async () => {
+    const at = new Date().toISOString(), now = Date.now();
+    let state = queueNews(queueNews(emptyState(), { id: "busy", news: "labor", child_id: "c", to: ["leon"], queued_at: at }),
+      { id: "early", news: "birth", child_id: "c", to: ["leon"], queued_at: at });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    const send = vi.fn(async (body: { id: string }) => { throw body.id === "busy" ? new ApiError("Please wait", 429) : new NotBornYet(); });
+    const { sent, dropped } = await sendPending(state, send, commit, undefined, now);
+    expect([sent, dropped]).toEqual([[], []]);
+    expect(state.pendingNews!.map((one) => [one.id, new Date(one.hold_until!).getTime() - now])).toEqual([["busy", 300_000], ["early", 60_000]]);
+    // Not before then.
+    await sendPending(state, send, commit, undefined, now + 1000);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+  it("someone who left since she picked them: the rest are told, and she's told who wasn't", async () => {
+    let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: ["leon", "nana"], queued_at: new Date().toISOString(),
+      names: { leon: "Leon", nana: "Grandma" } });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    const family = async (): Promise<FamilyNow> => ({ active: ["kami", "leon"], parents: ["leon"], names: { leon: "Leon" } });
+    // Today's API refuses the whole message for her: it's read again and sent to Leon alone.
+    const send = vi.fn(async (body: { to: string[] }) => {
+      if (body.to.includes("nana")) throw new ApiError("Choose people in this family", 422);
+      return { sent_to: body.to, push: { leon: true } };
+    });
+    const { sent } = await sendPending(state, send, commit, family);
+    expect(send).toHaveBeenLastCalledWith({ id: "n", news: "labor", child_id: "c", to: ["leon"] });
+    expect(sent).toMatchObject([{ to: ["leon"], skipped: ["nana"], push: { leon: true } }]);
+    expect(state.pendingNews).toEqual([]);
+    // The next API sends to who's still here and names the rest.
+    state = queueNews(state, { id: "m", news: "labor", child_id: "c", to: ["leon", "nana"], queued_at: new Date().toISOString() });
+    const next = await sendPending(state, async () => ({ sent_to: ["leon"], skipped: ["nana"], push: { leon: true } }), commit, family);
+    expect(next.sent).toMatchObject([{ to: ["leon"], skipped: ["nana"] }]);
+    // Everyone she picked has left: nothing goes, and she's told.
+    state = queueNews(state, { id: "o", news: "labor", child_id: "c", to: ["nana"], queued_at: new Date().toISOString(), names: { nana: "Grandma" } });
+    const none = await sendPending(state, async () => ({ sent_to: [], skipped: ["nana"] }), commit, family);
+    expect(none.dropped[0].message).toBe("Grandma is no longer in your family, so the news didn’t go to them.");
+  });
+  it("says so when there's no one else in the family to tell", async () => {
+    let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: [], parents: true, queued_at: new Date().toISOString() });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    const { dropped } = await sendPending(state, vi.fn(), commit, async () => ({ active: ["kami"], parents: [], names: {} }));
+    expect(dropped[0].message).toBe("No one else is in your family yet, so no one was told.");
   });
 });
 
@@ -146,7 +198,7 @@ describe("held, and told with no signal", () => {
     let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: [], parents: true, queued_at: new Date().toISOString(),
       hold_until: new Date(Date.now() + 5000).toISOString() });
     const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
-    const send = vi.fn(async () => ({})), parents = vi.fn(async () => ["leon"]);
+    const send = vi.fn(async () => ({})), parents = vi.fn(async () => ({ active: ["kami", "leon"], parents: ["leon"], names: { leon: "Leon" } }));
     await sendPending(state, send, commit, parents);
     expect(send).not.toHaveBeenCalled();
     await sendPending(state, send, commit, parents, Date.now() + 6000);
@@ -170,7 +222,7 @@ describe("the screen", () => {
     m.baby = { owner: "kami", get state() { return state; }, sync: vi.fn(), api: { familyMembers: vi.fn(async () => ({ items: people })) },
       commit: vi.fn(async (change: (s: DeviceState) => DeviceState) => { state = change(state); }) };
   }
-  beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); m.toast.mockClear(); m.back.mockClear(); m.params = { id: "c" }; setup(); });
+  beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); m.toast.mockClear(); m.back.mockClear(); m.params = { id: "c" }; m.reader = false; setup(); });
   afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
   const mount = async () => { await act(async () => { renderer = create(<Birth />); }); };
   const save = () => act(async () => { await all("Screen")[0].props.footer.props.onPress(); });
@@ -179,7 +231,9 @@ describe("the screen", () => {
     await mount();
     expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Leon", true], ["Grandma", false]]);
     await act(async () => { all("Field")[0].props.onChange("Mia"); all("Field")[1].props.onChange("7"); all("Field")[2].props.onChange("8"); });
-    await act(async () => { all("DateField")[0].props.onChange("2026-12-08T13:40:00.000Z"); });
+    expect(all("TimeField")[0].props).toMatchObject({ value: null, placeholder: "Add the time of birth" });
+    await act(async () => { all("DateField")[0].props.onChange("2026-12-08"); });
+    await act(async () => { all("TimeField")[0].props.onChange("23:40"); });
     await save();
     const [change] = m.baby.state.outbox;
     expect(change).toMatchObject({ type: "child_birth", child_id: "c", birth_date: "2026-12-08", previous: null, name: "Mia",
@@ -198,11 +252,46 @@ describe("the screen", () => {
     await save();
     expect(m.baby.state.pendingNews[0].names).toEqual({ leon: "Leon", nana: "Grandma" });
   });
-  it("on Leon's phone, lists Grandma but never Kami, who gave birth", async () => {
+  it("on Leon's phone, lists Kami unticked (she gave birth) rather than hiding her", async () => {
     m.baby.owner = "leon";
     m.baby.state.bootstrap.children = [{ ...baby, created_by: "kami" }];
     await mount();
-    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Grandma", false]]);
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Kami", false], ["Grandma", false]]);
+  });
+  it("starts with no time, and sends one only if she chose it", async () => {
+    await mount();
+    await act(async () => { all("DateField")[0].props.onChange("2026-12-07"); });
+    await save();
+    expect(m.baby.state.outbox[0]).toMatchObject({ birth_date: "2026-12-07" });
+    expect(m.baby.state.outbox[0].details).toBeUndefined();
+  });
+  it("a time she set can be taken back off", async () => {
+    await mount();
+    await act(async () => { all("TimeField")[0].props.onChange("04:10"); });
+    await act(async () => { all("Button").find((n) => n.props.title === "Remove the time")!.props.onPress(); });
+    expect(all("TimeField")[0].props.value).toBeNull();
+  });
+  it("won't take a time today that hasn't come yet", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-12-08T00:00:00.000Z")); // 10:00 AM, Dec 8, in Guam.
+    await mount();
+    await act(async () => { all("TimeField")[0].props.onChange("23:40"); });
+    await save();
+    expect(all("Notice")[0].props.children).toContain("That time hasn’t come yet today");
+    expect(m.baby.state.outbox).toHaveLength(0);
+    vi.useRealTimers();
+  });
+  it("with VoiceOver on, holds the news as long as Undo is really on screen", async () => {
+    m.reader = true;
+    await mount();
+    const before = Date.now();
+    await save();
+    const hold = new Date(m.baby.state.pendingNews[0].hold_until).getTime() - before, until = m.toast.mock.calls[0][1].until - before;
+    expect(hold).toBeGreaterThanOrEqual(20_500);
+    expect(hold).toBeLessThan(21_500);
+    // Undo goes from the toast before the news leaves the phone, never after.
+    expect(until).toBeGreaterThanOrEqual(20_000);
+    expect(until).toBeLessThan(hold);
   });
   it("lists Leon above Grandma whatever order the family comes in", async () => {
     m.baby.api.familyMembers = vi.fn(async () => ({ items: [people[2], people[0], people[1]] }));
@@ -235,7 +324,6 @@ describe("the screen", () => {
   });
   it("just the day, with nothing else, still works", async () => {
     await mount();
-    await act(async () => { all("Chips")[0].props.onChange("day"); });
     await act(async () => { all("DateField")[0].props.onChange("2026-12-07"); });
     await act(async () => { all("Choice")[0].props.onPress(); });
     await save();
@@ -252,7 +340,7 @@ describe("the screen", () => {
   });
   it("undoes the name, time and weight too, sent or not", async () => {
     await mount();
-    await act(async () => { all("Field")[0].props.onChange("Mia"); all("Field")[1].props.onChange("7"); });
+    await act(async () => { all("Field")[0].props.onChange("Mia"); all("Field")[1].props.onChange("7"); all("DateField")[0].props.onChange("2026-11-14"); all("TimeField")[0].props.onChange("04:10"); });
     await save();
     // As the provider shows it while it waits.
     const shown = withPendingBirths(m.baby.state).bootstrap!.children[0];
@@ -266,7 +354,6 @@ describe("the screen", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-12-08T14:30:00.000Z")); // Dec 9, 12:30 AM in Guam.
     await mount();
-    await act(async () => { all("Chips")[0].props.onChange("day"); });
     await save();
     expect(m.baby.state.outbox[0]).toMatchObject({ birth_date: "2026-12-09" });
     vi.useRealTimers();
