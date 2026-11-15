@@ -155,6 +155,12 @@ export interface RecipeListItem {
   uncertainty_count?: number;
 }
 
+/** Owner view of a recipe's unlisted link. The link itself is only returned when it is created. */
+export interface RecipeShareLinkStatus {
+  active: boolean;
+  created_at: string | null;
+}
+
 export interface PaginatedRecipes {
   items: RecipeListItem[];
   total: number;

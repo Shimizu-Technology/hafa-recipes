@@ -41,6 +41,7 @@ import {
   MealPlanEntryCreate,
   DayMeals,
   WeekPlan,
+  RecipeShareLinkStatus,
 } from '../types/recipe';
 import type {
   AppealCreatePayload,
@@ -492,6 +493,23 @@ class ApiClient {
   async setRecipeSharing(id: string, isPublic: boolean): Promise<{ is_public: boolean; message: string }> {
     const { data } = await this.client.post(`/api/recipes/${id}/share`, { is_public: isPublic });
     return data;
+  }
+
+  /** Owner only: whether the recipe has an unlisted link. The link itself is never returned again. */
+  async getRecipeShareLink(id: string): Promise<RecipeShareLinkStatus> {
+    const { data } = await this.client.get(`/api/recipes/${id}/share-link`, { timeout: 15_000 });
+    return { active: data?.active === true, created_at: typeof data?.created_at === 'string' ? data.created_at : null };
+  }
+
+  /** Owner only: creates the unlisted link, replacing (and turning off) any earlier one. */
+  async createRecipeShareLink(id: string): Promise<{ url: string }> {
+    const { data } = await this.client.post(`/api/recipes/${id}/share-link`, undefined, { timeout: 15_000 });
+    if (typeof data?.url !== 'string' || !data.url.startsWith('https://')) throw new Error('The link wasn’t created. Please try again.');
+    return { url: data.url };
+  }
+
+  async revokeRecipeShareLink(id: string): Promise<void> {
+    await this.client.delete(`/api/recipes/${id}/share-link`, { timeout: 15_000 });
   }
 
   async getPublishingDisclosure(): Promise<PublishingDisclosureStatus> {

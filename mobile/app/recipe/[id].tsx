@@ -9,13 +9,12 @@ import { NutritionPanel } from '@/components/NutritionPanel';
 import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { recipeCost, recipeLoadError, recipeDetailView, recipeFacts, recipeTagLabels } from '@/lib/recipeDetailPresentation';
-import { formatNutritionAsText, type NutritionBasisId } from '@/lib/nutritionPresentation';
+import { type NutritionBasisId } from '@/lib/nutritionPresentation';
 import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
-  Share,
   View as RNView,
   ActivityIndicator,
   ActionSheetIOS,
@@ -43,6 +42,7 @@ import { ASK_PILL_HEIGHT, OVERLAY_GAP } from '@/lib/bottomOverlay';
 import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
+import { ShareRecipeSheet } from '@/components/ShareRecipeSheet';
 import { 
   useRecipe, 
   useToggleRecipeSharing,
@@ -168,6 +168,7 @@ function RecipeDetailScreenContent() {
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showDetailsReview, setShowDetailsReview] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [reportTarget, setReportTarget] = useState<SafetyTargetType | null>(null);
@@ -468,128 +469,6 @@ function RecipeDetailScreenContent() {
     setAndroidMenuActions(actions);
   };
 
-  const formatRecipeAsText = () => {
-    if (!recipe) return '';
-    const { extracted } = recipe;
-    
-    let text = `${extracted.title}\n`;
-    text += '━'.repeat(30) + '\n\n';
-    
-    // Meta info
-    const metaParts: string[] = [];
-    if (extracted.servings) metaParts.push(`${currentServings} servings`);
-    if (extracted.times?.total) metaParts.push(`${extracted.times.total}`);
-    if (costSummary) metaParts.push(`$${costSummary.total.toFixed(2)} estimated total`);
-    if (metaParts.length > 0) {
-      text += metaParts.join('  •  ') + '\n\n';
-    }
-    
-    // Tags
-    if (extracted.tags.length > 0) {
-      text += `Tags: ${extracted.tags.join(', ')}\n\n`;
-    }
-    
-    // Ingredients
-    text += 'INGREDIENTS\n';
-    text += '─'.repeat(20) + '\n';
-    extracted.components.forEach((component, compIndex) => {
-      if (extracted.components.length > 1 && component.name) {
-        text += `\n${component.name}:\n`;
-      }
-      component.ingredients.forEach(ing => {
-        const amount = getIngredientAmount(ing);
-        const qty = scaleQuantity(amount.quantity, scaleFactor, amount.unit) || '';
-        const unit = amount.unit || '';
-        const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
-        const usefulNotes = getCookingNotes(ing.notes);
-        const notes = usefulNotes ? ` (${usefulNotes})` : '';
-        text += `• ${qtyUnit}${ing.name}${amount.isEstimate ? ' (AI estimate)' : ''}${notes}\n`;
-      });
-    });
-    
-    text += '\n';
-    
-    // Steps
-    text += 'INSTRUCTIONS\n';
-    text += '─'.repeat(20) + '\n';
-    let stepNum = 1;
-    extracted.components.forEach((component) => {
-      if (extracted.components.length > 1 && component.name) {
-        text += `\n${component.name}:\n`;
-      }
-      component.steps.forEach(step => {
-        text += `${stepNum}. ${step}\n`;
-        stepNum++;
-      });
-    });
-    
-    const nutritionText = formatNutritionAsText(extracted.nutrition, extracted.derivedData?.nutrition, scaleFactor, nutritionBasis, extracted.servings ?? null);
-    if (nutritionText) text += `\n${nutritionText}\n`;
-    
-    // Equipment
-    if (extracted.equipment && extracted.equipment.length > 0) {
-      text += '\nEQUIPMENT\n';
-      text += '─'.repeat(20) + '\n';
-      text += extracted.equipment.join(', ') + '\n';
-    }
-    
-    // Source
-    text += '\n' + '━'.repeat(30) + '\n';
-    if (hasExternalSource) {
-      text += `Source: ${recipe.source_url}\n`;
-    }
-    text += `${hasExternalSource ? 'Extracted' : 'Created'} with Håfa Recipes`;
-    
-    return text;
-  };
-
-  const handleShare = async () => {
-    if (!recipe) return;
-
-    if (!hasExternalSource) {
-      try {
-        await Share.share({ message: formatRecipeAsText() });
-      } catch {
-        // Share cancelled by user - not an error
-      }
-      return;
-    }
-    
-    Alert.alert(
-      'Share Recipe',
-      'How would you like to share?',
-      [
-        {
-          text: 'Full Recipe',
-          onPress: async () => {
-            try {
-              await Share.share({
-                message: formatRecipeAsText(),
-              });
-            } catch {
-              // Share cancelled by user - not an error
-            }
-          },
-        },
-        {
-          text: 'Just Link',
-          onPress: async () => {
-            try {
-              await Share.share({
-                title: recipe.extracted.title,
-                message: `Check out this recipe: ${recipe.extracted.title}\n\n${recipe.source_url}`,
-                url: recipe.source_url,
-              });
-            } catch {
-              // Share cancelled by user - not an error
-            }
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
-
   const handleOpenSource = async () => {
     if (recipe?.source_url) {
       await openRecipeSource(recipe.source_url);
@@ -754,7 +633,7 @@ function RecipeDetailScreenContent() {
           title={extracted.title}
           expectHero={Boolean(recipe.thumbnail_url?.trim()) || thumbnailPending}
           actions={[
-            { icon: 'share-outline', accessibilityLabel: 'Share recipe', onPress: handleShare },
+            { icon: 'share-outline', accessibilityLabel: 'Share recipe', onPress: () => setShowShareSheet(true) },
             { icon: 'ellipsis-horizontal', accessibilityLabel: 'More recipe options', onPress: handleMoreOptions },
           ]}
           // Room below the last section so the Ask pill never covers it.
@@ -1186,6 +1065,9 @@ function RecipeDetailScreenContent() {
           originalServings={originalServings}
         />
       )}
+
+      <ShareRecipeSheet recipe={recipe} isOwner={isOwner} visible={showShareSheet} onClose={() => setShowShareSheet(false)}
+        scaledServings={isScaled ? currentServings : null} />
 
       {/* AI Chat Modal */}
       {recipe && (
