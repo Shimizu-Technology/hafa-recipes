@@ -12,6 +12,13 @@ from app.domains.workouts.part_result_models import PartResultRow
 from app.domains.workouts.part_results import schema_complete
 
 
+def restore_point(configured):
+    restore = os.environ.get("MIGRATION_063_RESTORE_POINT", "").strip()
+    if (configured.environment == "production" and not restore) or len(restore) > 160 or any(ord(c) < 32 for c in restore):
+        raise RuntimeError("MIGRATION_063_RESTORE_POINT must name a verified restore point")
+    return restore
+
+
 async def run_migration(*, configured=None, migration_engine=None):
     configured = configured or get_settings()
     if not configured.workouts_api_enabled:
@@ -23,12 +30,13 @@ async def run_migration(*, configured=None, migration_engine=None):
         if not await db.scalar(text("SELECT to_regclass('public.workouts_schema_migrations') IS NOT NULL")) or not await db.scalar(text("SELECT EXISTS(SELECT 1 FROM workouts_schema_migrations WHERE version=49)")):
             raise RuntimeError("Workouts migration049 must precede063")
         if await db.scalar(text("SELECT EXISTS(SELECT 1 FROM workouts_schema_migrations WHERE version=63)")):
+            if not await db.scalar(text("SELECT to_regprocedure('public.workouts_without_heart_rate(jsonb)') IS NOT NULL AND to_regprocedure('public.prevent_workouts_snapshot_update()') IS NOT NULL")):
+                restore_point(configured)  # Repairing an old ledger is still a production schema write.
+                await install_heart_rate_erasure(db)
             if not await schema_complete(db):
                 raise RuntimeError("Workouts results schema does not match migration063")
             return
-        restore = os.environ.get("MIGRATION_063_RESTORE_POINT", "").strip()
-        if (configured.environment == "production" and not restore) or len(restore) > 160 or any(ord(c) < 32 for c in restore):
-            raise RuntimeError("MIGRATION_063_RESTORE_POINT must name a verified restore point")
+        restore = restore_point(configured)
         await install_heart_rate_erasure(db)
         await db.run_sync(lambda sync: PartResultRow.__table__.create(sync, checkfirst=True))
         # This migration and its ledger are atomic; CONCURRENTLY cannot run in

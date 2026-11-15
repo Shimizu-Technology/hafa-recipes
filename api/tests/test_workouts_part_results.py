@@ -83,6 +83,33 @@ async def test_optional_rollout_rebuild_results_and_erasure(data_api, monkeypatc
     await migration.run_migration(configured=settings(), migration_engine=api.engine)
     await migration.run_migration(configured=settings(), migration_engine=api.engine)
     await verify_part_results_schema(api.engine, settings())
+    from app.domains.workouts.heart_rate_erasure import (
+        GUARD_BODY,
+        STRIP_BODY,
+        heart_rate_erasure_ready,
+        install_heart_rate_erasure,
+    )
+
+    # A previously recorded063 can lack the later erasure extension.
+    async with api.engine.begin() as db:
+        await db.execute(text("DROP FUNCTION public.workouts_without_heart_rate(jsonb)"))
+    with pytest.raises(RuntimeError, match="RESTORE_POINT"):
+        await migration.run_migration(configured=settings().model_copy(update={"environment": "production"}), migration_engine=api.engine)
+    await migration.run_migration(configured=settings(), migration_engine=api.engine)
+    async with api.engine.begin() as db:
+        assert await heart_rate_erasure_ready(db)
+        formatted = STRIP_BODY.replace("\n", "\n   ")
+        await db.execute(text(f"CREATE OR REPLACE FUNCTION public.workouts_without_heart_rate(value jsonb) RETURNS jsonb LANGUAGE sql IMMUTABLE AS $body${formatted}$body$"))
+        assert await heart_rate_erasure_ready(db)
+        assert await db.scalar(text("SELECT count(*) FROM workouts_schema_migrations WHERE version=63")) == 1
+        # Normalization must not ignore semantic whitespace inside SQL literals.
+        changed = GUARD_BODY.replace("'workouts_sessions'", "'workouts_ sessions'")
+        await db.execute(text(f"CREATE OR REPLACE FUNCTION public.prevent_workouts_snapshot_update() RETURNS trigger LANGUAGE plpgsql AS $body${changed}$body$"))
+        assert not await heart_rate_erasure_ready(db)
+    with pytest.raises(RuntimeError, match="schema does not match"):
+        await migration.run_migration(configured=settings(), migration_engine=api.engine)
+    async with api.engine.begin() as db:
+        await install_heart_rate_erasure(db)
     async with api.sessions.begin() as db:
         dry = await rebuild(db)
         assert dry == {"mode": "dry_run", "sessions": 1, "insert": 1, "existing": 0}
