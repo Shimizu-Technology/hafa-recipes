@@ -404,7 +404,7 @@ function DeleteAccount() {
 }
 function Privacy() {
   return (
-    <Reading kicker="PRIVACY POLICY · OCTOBER 10, 2026" title="Useful connections. Clear boundaries.">
+    <Reading kicker="PRIVACY POLICY · NOVEMBER 15, 2026" title="Useful connections. Clear boundaries.">
       <p className="lead">
         Håfa Workouts is developed by Shimizu Technology in Guam, USA. This policy describes the Workouts app, its
         optional connections, and this public website. Contact <Email subject="Håfa Workouts privacy question" /> with
@@ -447,7 +447,7 @@ function Privacy() {
       </p>
       <h2>Apple Health and Health Connect</h2>
       <p>
-        Optional native connections request exercise summaries, not body measurements, sleep, or heart-rate permissions.
+        Optional phone connections request exercise summaries, not body measurements or sleep. Watch workouts can collect heart rate with your device permission.
         Reading is foreground only. On-device reading, server upload, eligible AI use, and actual-workout write-back
         have separate app choices and device permissions. Imported summaries keep their source attribution and are not
         silently turned into completed Håfa sessions. Write-back uses recorded actual training, including supported
@@ -456,6 +456,18 @@ function Privacy() {
       <p>
         Disconnecting blocks new access and removes imported server projections. You can revoke device permissions in
         your operating system. Removing app data does not erase workout records already in the system Health store.
+      </p>
+      <h2>Optional heart-rate summary storage</h2>
+      <p>
+        Server storage of workout heart-rate summaries is off by default. When this feature is available, a separate
+        choice lets you upload average and maximum heart rate for a workout and its splits, with their source. Device
+        Health permission alone does not enable upload. We do not upload a continuous heart-rate stream through this
+        feature, include these summaries in public shares, or send them to AI coaching.
+      </p>
+      <p>
+        Turning this choice off stops new summary uploads. Summaries you already saved remain with your private session
+        history until you remove your Workouts data or account. They are included in your Workouts data export. Removing
+        Workouts data does not remove the original workout from Apple Health or Health Connect.
       </p>
       <h2>Recipes connections</h2>
       <p>

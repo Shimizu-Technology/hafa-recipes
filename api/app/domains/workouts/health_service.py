@@ -685,6 +685,9 @@ async def actual_for_export(db, user_id, generation, session_id):
         "walking",
         "strength",
         "basketball",
+        "cross_training",
+        "hiit",
+        "functional_strength",
         "other",
     }:
         raise HTTPException(422, "The saved activity type needs review before export")
