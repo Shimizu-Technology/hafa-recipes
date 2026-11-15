@@ -294,3 +294,14 @@ async def test_hr_erasure_guard_keeps_scores_identity_and_prescriptions_immutabl
         with pytest.raises(DBAPIError, match="immutable"):
             await db.execute(text("UPDATE workouts_library_versions SET content = content - 'title'"))
         await db.rollback()
+
+
+
+def test_watch_active_time_clock_skew_is_clamped_without_changing_legacy_hashes():
+    request = SessionRequest(**BASE, active_seconds=3603, active_intervals=[{
+        "started_at": "2026-11-16T23:59:58Z", "ended_at": "2026-11-17T01:00:02Z"}])
+    assert request.active_seconds == 3600
+    assert request.active_intervals[0].started_at == request.started_at
+    assert request.active_intervals[0].ended_at == request.finished_at
+    with pytest.raises(ValidationError):
+        SessionRequest(**BASE, active_seconds=3606)
