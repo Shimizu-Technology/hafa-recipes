@@ -7,7 +7,9 @@ import { addMutation, withoutBirth } from "../lib/outbox";
 import { messageFor } from "../lib/models";
 import { familySpaces } from "../lib/spaces";
 import { birthParts, birthWrite, gramsFrom, welcome } from "../lib/birth";
-import { defaultRecipients, memberName, newsAbout, newsAvailable, queueNews, recipientWords, tellable, withoutNews } from "../lib/family-news";
+import { defaultRecipients, memberName, newsAvailable, queueNews, recipientWords, tellable, withoutNews } from "../lib/family-news";
+import { expectingFor } from "../lib/expecting";
+import { ExpectingAsk } from "@/components/expecting-ask";
 import { undoShown } from "../lib/running-feed";
 import type { FamilyMember } from "../lib/family";
 import { DateField } from "@/components/date-field";
@@ -26,7 +28,7 @@ export default function Birth() {
   const [name, setName] = useState(child?.name ?? ""),
     [day, setDay] = useState(() => birthParts(new Date().toISOString(), timezone, false).birth_date),
     [time, setTime] = useState<string | null>(null), [lb, setLb] = useState(""), [oz, setOz] = useState(""),
-    [members, setMembers] = useState<FamilyMember[] | null>(null), [to, setTo] = useState<string[]>([]),
+    [members, setMembers] = useState<FamilyMember[] | null>(null), [read, setRead] = useState<FamilyMember[] | null>(null), [to, setTo] = useState<string[]>([]),
     [loadError, setLoadError] = useState(false), [tellParents, setTellParents] = useState(true), [error, setError] = useState(""), [saving, setSaving] = useState(false), saved = useRef(false);
   const family = familySpaces(bootstrap).find((space) => space.id === child?.space_id), canTell = !!family && newsAvailable(bootstrap, family.id),
     // No signal in a delivery room: "the other parents" still works, and who they are is read when it goes.
@@ -36,13 +38,16 @@ export default function Birth() {
     let alive = true;
     b.api.familyMembers(family!.id).then(({ items }) => {
       if (!alive) return;
-      // Whoever's phone this is, the person who gave birth is listed but not ticked: she knows. If someone else added
-      // the profile, nobody is hidden; it's one tick.
+      // Whoever's phone this is, everyone is listed: the person who gave birth just isn't ticked.
       setMembers(tellable(items, b.owner));
-      setTo(defaultRecipients(items, b.owner, newsAbout(child)));
+      setRead(items);
     }).catch(() => { if (alive) setLoadError(true); });
     return () => { alive = false; };
   }, [canTell, family?.id]);
+  // Ticked by default: the partners of whoever the family says is expecting, and nobody until that's said. Once it's
+  // answered here, the ticks follow, unless she's already chosen.
+  const who = expectingFor(child, b.owner, { inFamily: !!family, members: read }), touched = useRef(false);
+  useEffect(() => { if (read && !touched.current) setTo(defaultRecipients(read, b.owner, who.id)); }, [who.id, read]);
   if (!child) return <Screen title="Baby is here" back><Notice>Add your baby’s profile first, in Settings.</Notice></Screen>;
   const grams = gramsFrom(lb, oz);
   async function save() {
@@ -52,7 +57,8 @@ export default function Birth() {
     if (time && day === today.birth_date && time > today.birth_time!) return setError("That time hasn’t come yet today. Check the time of birth, or remove it.");
     saved.current = true; setSaving(true); setError("");
     // Sent only after Undo has gone from the screen, however long that is for her: VoiceOver keeps it up longer.
-    const shown = undoShown(await AccessibilityInfo.isScreenReaderEnabled().catch(() => false));
+    // One moment for both, so the news always leaves after Undo has gone.
+    const until = Date.now() + undoShown(await AccessibilityInfo.isScreenReaderEnabled().catch(() => false));
     const birth_date = day, birth_time = time, extras = birthWrite(child, name, birth_time, grams),
       birth = Crypto.randomUUID(), news = Crypto.randomUUID(), previous = child.birth_date ?? null, generation = bootstrap.generation,
       before = Object.fromEntries(Object.keys(extras.details ?? {}).map((key) => [key, child.details?.[key as "birth_time"] ?? null])),
@@ -61,11 +67,11 @@ export default function Birth() {
       await b.commit((s) => queueNews(addMutation(s, { id: birth, generation, type: "child_birth", child_id: child.id, birth_date, previous, ...extras, ...undoFields }),
         { id: news, news: "birth", child_id: child.id, to: canTell && !unread ? to : [], ...(unread && tellParents ? { parents: true } : {}),
           names: Object.fromEntries((members ?? []).map((member) => [member.app_user_id, memberName(member)])),
-          queued_at: new Date().toISOString(), hold_until: new Date(Date.now() + shown + 500).toISOString() }));
+          queued_at: new Date().toISOString(), hold_until: new Date(until + 500).toISOString() }));
       void b.sync();
       tap("success");
       const told = unread ? (tellParents ? "your partner" : "") : canTell && members ? recipientWords(members, to) : "";
-      toast(`${welcome(extras.name ?? child.name)}${told ? ` Telling ${told}.` : ""}`, { label: "Undo", until: Date.now() + shown, onPress: async () => {
+      toast(`${welcome(extras.name ?? child.name)}${told ? ` Telling ${told}.` : ""}`, { label: "Undo", until, onPress: async () => {
         try {
           await b.commit((s) => {
             const queued = s.outbox.find((m) => m.id === birth), unsent = withoutNews(s, news);
@@ -103,12 +109,13 @@ export default function Birth() {
       </View>
     </Section>
     {canTell && <Section title="Tell your family">
+      {who.ask && !!read && <ExpectingAsk child={child} members={read} />}
       {unread ? <Choice label="Your partner" detail={loadError ? "No signal right now. They’ll be told once you’re back online." : "Loading your family…"}
           selected={tellParents} onPress={() => setTellParents(!tellParents)} />
         : !members!.length ? <Copy kind="small" tone="muted">No one else is in your family yet.</Copy>
         : members!.map((member) => <Choice key={member.app_user_id} label={memberName(member)} detail={member.role === "parent" ? "Parent" : "Caregiver"}
           selected={to.includes(member.app_user_id)}
-          onPress={() => setTo((all) => all.includes(member.app_user_id) ? all.filter((one) => one !== member.app_user_id) : [...all, member.app_user_id])} />)}
+          onPress={() => { touched.current = true; setTo((all) => all.includes(member.app_user_id) ? all.filter((one) => one !== member.app_user_id) : [...all, member.app_user_id]); }} />)}
       <Copy kind="small" tone="muted">Who’s ticked sees it in Håfa Baby, and gets a notification if they’ve turned them on. Nothing is sent outside your family.</Copy>
     </Section>}
   </Screen>;

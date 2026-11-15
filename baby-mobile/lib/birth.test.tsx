@@ -16,6 +16,7 @@ vi.mock("expo-router", () => ({ router: { back: m.back }, useLocalSearchParams: 
 vi.mock("@/lib/context", () => ({ useBaby: () => m.baby }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("@/components/time-field", () => ({ TimeField: "TimeField" }));
+vi.mock("@/components/expecting-ask", () => ({ ExpectingAsk: "ExpectingAsk" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Choice: "Choice", Copy: "Copy", Field: "Field", Notice: "Notice",
   Screen: "Screen", Section: "Section", tap: vi.fn(), useToast: () => m.toast }));
 import Birth from "../app/birth";
@@ -23,7 +24,8 @@ import Birth from "../app/birth";
 const member = (id: string, role: "parent" | "caregiver", name = id, status: FamilyMember["status"] = "active"): FamilyMember =>
   ({ app_user_id: id, role, status, access_version: 1, display_name: name });
 const people = [member("kami", "parent", "Kami"), member("leon", "parent", "Leon"), member("nana", "caregiver", "Grandma"), member("old", "parent", "Old", "left")];
-const baby = { id: "c", name: "Baby", due_date: "2026-12-10", birth_date: null, details: { sex: "girl" }, revision: 3, space_id: "fam" } as unknown as Child;
+const baby = { id: "c", name: "Baby", due_date: "2026-12-10", birth_date: null, revision: 3, space_id: "fam",
+  details: { sex: "girl", expecting_member: "kami", expecting_confirmed: true } } as unknown as Child;
 
 describe("the birth's own answers", () => {
   it("are on her profile's clock: 11:40 PM in Guam is that day", () => {
@@ -60,7 +62,7 @@ describe("the birth's own answers", () => {
 describe("family news", () => {
   it("goes to the other parents by default, never her or someone who left", () => {
     expect(tellable(people, "kami").map((p) => p.app_user_id)).toEqual(["leon", "nana"]);
-    expect(defaultRecipients(people, "kami")).toEqual(["leon"]);
+    expect(defaultRecipients(people, "kami", "kami")).toEqual(["leon"]);
     expect(recipientWords(people, ["leon"])).toBe("Leon");
     expect(recipientWords(people, ["leon", "nana"])).toBe("Leon and Grandma");
   });
@@ -173,7 +175,7 @@ describe("family news", () => {
 });
 
 describe("asking her partner's phone, once", () => {
-  const kids = (created_by?: string, birth_date: string | null = null) => [{ ...baby, created_by, birth_date }];
+  const kids = (expecting_member?: string, birth_date: string | null = null) => [{ ...baby, birth_date, details: { expecting_member, expecting_confirmed: false } }];
   const state = (over: Record<string, unknown> = {}) => ({ ...emptyState(), bootstrap: { generation: 1, children: kids("kami"), people: { kami: "Kami", leon: "Leon" },
     reminders: { push: true, family_news: true }, spaces: [{ id: "fam", kind: "family", role: "parent" }] }, ...over }) as unknown as DeviceState;
   it("names who'll tell them, on Leon's phone before the birth", () => {
@@ -186,7 +188,7 @@ describe("asking her partner's phone, once", () => {
     born.bootstrap!.children = kids("kami", "2026-12-08");
     expect(newsAskFor(born, "leon")).toBeNull();
     expect(newsAskFor(state({ reminderPrefs: { quiet_hours: null, kinds: { family_news: { enabled: false } } } }), "leon")).toBeNull();
-    // An API that doesn't say who's expecting asks no one.
+    // Nobody has said who's expecting: that's asked on the labor and birth screens first.
     const unknown = state();
     unknown.bootstrap!.children = kids(undefined);
     expect(newsAskFor(unknown, "leon")).toBeNull();
@@ -254,7 +256,7 @@ describe("the screen", () => {
   });
   it("on Leon's phone, lists Kami unticked (she gave birth) rather than hiding her", async () => {
     m.baby.owner = "leon";
-    m.baby.state.bootstrap.children = [{ ...baby, created_by: "kami" }];
+    m.baby.state.bootstrap.children = [baby];
     await mount();
     expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Kami", false], ["Grandma", false]]);
   });
@@ -292,6 +294,27 @@ describe("the screen", () => {
     // Undo goes from the toast before the news leaves the phone, never after.
     expect(until).toBeGreaterThanOrEqual(20_000);
     expect(until).toBeLessThan(hold);
+    // Worked out once: the news leaves exactly half a second after Undo goes, however long the save took.
+    expect(hold - until).toBe(500);
+  });
+  it("until the family says who's expecting, asks, and ticks nobody", async () => {
+    // Kami added the pregnancy, so the API guessed her, but nobody has said so: on her own phone that's not settled.
+    m.baby.state.bootstrap.children = [{ ...baby, details: { expecting_member: "kami", expecting_confirmed: false } }];
+    await mount();
+    expect(all("ExpectingAsk")).toHaveLength(1);
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Leon", false], ["Grandma", false]]);
+    // She answers Me (the profile updates): Leon is ticked, as her partner.
+    m.baby.state.bootstrap.children = [baby];
+    await act(async () => { renderer!.update(<Birth />); });
+    expect(all("ExpectingAsk")).toHaveLength(0);
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Leon", true], ["Grandma", false]]);
+  });
+  it("on Leon's phone, an unconfirmed guess of Kami is taken as hers, so he isn't asked", async () => {
+    m.baby.owner = "leon";
+    m.baby.state.bootstrap.children = [{ ...baby, details: { expecting_member: "kami", expecting_confirmed: false } }];
+    await mount();
+    expect(all("ExpectingAsk")).toHaveLength(0);
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Kami", false], ["Grandma", false]]);
   });
   it("lists Leon above Grandma whatever order the family comes in", async () => {
     m.baby.api.familyMembers = vi.fn(async () => ({ items: [people[2], people[0], people[1]] }));

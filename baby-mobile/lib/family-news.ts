@@ -1,6 +1,7 @@
 import { ApiError, NotBornYet } from "./api";
 import type { FamilyMember } from "./family";
-import type { Bootstrap, Child, DeviceState } from "./models";
+import type { Bootstrap, DeviceState } from "./models";
+import { statedExpecting } from "./expecting";
 import { familySpaces } from "./spaces";
 
 /**
@@ -27,19 +28,18 @@ export interface PendingNews {
 export function newsAvailable(bootstrap: Pick<Bootstrap, "reminders" | "spaces"> | null | undefined, spaceId?: string | null) {
   return !!bootstrap?.reminders?.family_news && familySpaces(bootstrap).some((space) => space.role === "parent" && (spaceId === undefined || space.id === spaceId));
 }
-/**
- * Who the news is probably about: whoever added the pregnancy. That's usually the person expecting (her own phone, at
- * setup), and moving the baby into a family keeps it. It's only a default: if someone else added the profile, the
- * worst case is a name unticked by default, never a parent who can't be told.
- */
-export const newsAbout = (child: Pick<Child, "created_by"> | null | undefined) => child?.created_by ?? null;
+/** Who the news is about: who the family says is expecting (`expecting_member`), or null while that isn't settled. */
+export const newsAbout = statedExpecting;
 /** Everyone she could tell: active members of her family but her. Parents first, so Leon is never under Grandma. */
 export const tellable = (members: readonly FamilyMember[], me: string | null | undefined) =>
   members.filter((member) => member.status === "active" && member.app_user_id !== me)
     .sort((a, b) => Number(a.role !== "parent") - Number(b.role !== "parent"));
-/** Her partner by default: the other parents, but not the person it's about, who's listed unticked. Grandma is hers to add. */
-export const defaultRecipients = (members: readonly FamilyMember[], me: string | null | undefined, about?: string | null) =>
-  tellable(members, me).filter((member) => member.role === "parent" && member.app_user_id !== about).map((member) => member.app_user_id);
+/**
+ * Her partner by default: the other parents, but not the person it's about, who's listed unticked. Grandma is hers to
+ * add. While who's expecting isn't settled (`about` null), nobody is ticked: any parent might be her.
+ */
+export const defaultRecipients = (members: readonly FamilyMember[], me: string | null | undefined, about: string | null) =>
+  about === null ? [] : tellable(members, me).filter((member) => member.role === "parent" && member.app_user_id !== about).map((member) => member.app_user_id);
 export const memberName = (member: FamilyMember) => member.display_name.trim() || (member.role === "parent" ? "Your partner" : "Family member");
 
 export const together = (names: string[]) => names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
