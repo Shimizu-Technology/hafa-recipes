@@ -64,6 +64,9 @@ describe("EMOM", () => {
     // The app is killed; a new process loads the saved draft much later.
     const relaunched = createTrainingStore(s.data, "owner", 1, () => 9_000_000);
     await relaunched.load();
+    // The clock kept running while the app was closed, until the person says they stopped when it closed.
+    expect(relaunched.snapshot().active).toMatchObject({ paused: false, clock_kept_running: { left_at: 1_050_000 } });
+    await relaunched.confirmKeptClock(1_050_000, 9_000_000);
     const d = relaunched.snapshot().active!;
     expect(d.paused).toBe(true);
     expect(sessionElapsedMilliseconds(d, 9_000_000)).toBe(150_000);

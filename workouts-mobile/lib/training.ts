@@ -49,6 +49,15 @@ export interface SessionDraft {
   /** Started without fixed set/round counts; the person adds rounds and sets as they go. */
   open_ended?: boolean;
   /**
+   * "wall": a timed clock that only an explicit pause stops; lock, app switch and relaunch don't.
+   * Drafts saved by older versions have no policy and keep pausing on relaunch.
+   */
+  clock_policy?: "wall" | "pausable";
+  /** The 3-2-1 lead-in ends here; `active_started_at` is set to the same moment, so the lead-in never counts as work. */
+  lead_in_until?: number | null;
+  /** The app reopened with this wall clock still running; the person confirms it or says when they stopped. */
+  clock_kept_running?: { left_at: number };
+  /**
    * `steps_length` restores steps a Death by session added after this point. `clock` is the running clock
    * a final for-time tick or Death by miss stopped, so undoing that tick restarts it as if it never stopped.
    */
@@ -324,6 +333,10 @@ export function capRemainingSeconds(d: SessionDraft, now = Date.now()) {
   const cap = capSeconds(d);
   return cap == null ? null : Math.max(0, Math.ceil(cap - sessionElapsedMilliseconds(d, now) / 1000));
 }
+/** The clock as its screen shows it: an AMRAP counts down to its cap; other timed clocks show time elapsed. */
+export function displayedClockSeconds(d: SessionDraft, now = Date.now()) {
+  return d.timed_circuit ? capRemainingSeconds(d, now)! : Math.floor(sessionElapsedMilliseconds(d, now) / 1000);
+}
 /**
  * Rest after `step`: between rounds, or after a superset/circuit pass (A1 then A2, then rest),
  * the block's rest applies; otherwise the exercise's own rest.
@@ -340,6 +353,31 @@ function effectiveActiveEnd(d: SessionDraft, now: number) {
   const cap = capSeconds(d);
   const capEnd = cap != null ? d.active_started_at + Math.max(0, cap * 1000 - d.active_milliseconds) : Infinity;
   return Math.max(d.active_started_at, Math.min(now, capEnd));
+}
+export const isWallClock = (d: Pick<SessionDraft, "clock_policy">) => d.clock_policy === "wall";
+/** Milliseconds left in the lead-in, or 0 once the clock is running. */
+export function leadInRemaining(d: Pick<SessionDraft, "lead_in_until" | "paused">, now = Date.now()) {
+  return d.lead_in_until == null || d.paused ? 0 : Math.max(0, d.lead_in_until - now);
+}
+/**
+ * Stops the clock at `at`, which may be earlier than now: "I stopped at…" after a relaunch. A clock the cap
+ * already froze is trimmed back instead.
+ */
+function stopAt(d: SessionDraft, at: number) {
+  if (d.active_started_at != null) {
+    at = Math.max(at, d.active_started_at);
+    freezeTimers(d, at);
+    closeActive(d, at);
+  } else {
+    const last = d.active_intervals?.at(-1);
+    const end = last ? Date.parse(last.ended_at) : NaN;
+    if (last && at < end) {
+      at = Math.max(at, Date.parse(last.started_at));
+      d.active_milliseconds = Math.max(0, d.active_milliseconds - (end - at));
+      last.ended_at = new Date(at).toISOString();
+    }
+  }
+  d.paused = true;
 }
 function closeActive(d: SessionDraft, now: number) {
   if (d.active_started_at == null) return;
@@ -360,6 +398,8 @@ export function createTrainingStore(
 ) {
   let state: TrainingState = { version: 1, generation, active: null, history: [] };
   let loaded = false;
+  // The device's countdown choice, mirrored in by the reminders provider; none until it says.
+  let leadInSeconds = 0;
   let operations = Promise.resolve();
   let syncing: Promise<void> | null = null;
   let transport = Promise.resolve();
@@ -383,8 +423,10 @@ export function createTrainingStore(
           closeActive(next.active, clock());
           next.active.paused = true;
         }
+        // A clock still in its lead-in starts in the future; the checkpoint stays at the present.
         if (next.active)
-          next.active.checkpoint_at = Math.max(clock(), next.active.checkpoint_at, next.active.active_started_at ?? 0);
+          next.active.checkpoint_at = Math.max(clock(), next.active.checkpoint_at,
+            leadInRemaining(next.active, clock()) > 0 ? 0 : next.active.active_started_at ?? 0);
         await storage.setItem(key, JSON.stringify(next));
         state = next;
         listeners.forEach((fn) => fn());
@@ -520,6 +562,10 @@ export function createTrainingStore(
       };
     },
     snapshot: () => state,
+    /** Countdown for timed starts on this device: 0 (off) to 10 seconds. */
+    setLeadIn(seconds: number) {
+      leadInSeconds = Number.isFinite(seconds) ? seconds : 0;
+    },
     async load() {
       const raw = await storage.getItem(key);
       if (raw) {
@@ -540,16 +586,24 @@ export function createTrainingStore(
         if (state.active && !state.active.paused) {
           const d = state.active;
           const checkpoint = d.checkpoint_at ?? new Date(d.started_at).getTime();
-          freezeTimers(d, checkpoint);
-          closeActive(d, checkpoint);
-          d.paused = true;
+          // A class clock is a wall clock: it ran on while the app was closed. Keep it, and ask.
+          if (isWallClock(d)) d.clock_kept_running ??= { left_at: checkpoint };
+          else {
+            freezeTimers(d, checkpoint);
+            closeActive(d, checkpoint);
+            d.paused = true;
+          }
         }
       }
       loaded = true;
       listeners.forEach((fn) => fn());
     },
-    /** `choice` lets a workout without fixed counts start open-ended or with chosen rounds. */
-    start(workout: Workout, source: SessionSource, id: string, now = clock(), choice?: StartChoice) {
+    /**
+     * `choice` lets a workout without fixed counts start open-ended or with chosen rounds. A timed workout
+     * runs on a wall clock, after `lead_in_seconds` of countdown (by default the device's choice).
+     */
+    start(workout: Workout, source: SessionSource, id: string, now = clock(), choice?: StartChoice,
+      options: { lead_in_seconds?: number } = {}) {
       return update((s) => {
         if (s.active) throw Error("Finish or discard your current session before starting another.");
         if (workout.generation !== generation)
@@ -562,6 +616,7 @@ export function createTrainingStore(
         const execution = choice ? null : timedCircuit(workout);
         const format = choice || execution ? null : timedFormat(workout);
         if (!steps.length) throw Error("Add at least one exercise before training.");
+        const lead = execution || format ? Math.max(0, Math.min(10, options.lead_in_seconds ?? leadInSeconds)) * 1000 : 0;
         s.active = {
           id,
           cell_identity_version: 2,
@@ -577,11 +632,13 @@ export function createTrainingStore(
           paused: false,
           notes: "",
           undo: [],
-          active_started_at: now,
+          active_started_at: now + lead,
           active_milliseconds: 0,
           active_intervals: [],
           checkpoint_at: now,
           activity_type: null,
+          ...(execution || format ? { clock_policy: "wall" as const } : {}),
+          ...(lead ? { lead_in_until: now + lead } : {}),
           ...(execution ? { timed_circuit: {
             time_cap_seconds: execution.time_cap_seconds, round_size: steps.length,
           } } : {}),
@@ -643,10 +700,33 @@ export function createTrainingStore(
     checkpoint() {
       return update((s) => s);
     },
+    /** Starts the clock now instead of waiting out the lead-in. */
+    skipLeadIn(now = clock()) {
+      return update((s) => {
+        const d = s.active;
+        if (d && leadInRemaining(d, now) > 0) d.active_started_at = d.lead_in_until = now;
+        return s;
+      });
+    },
+    /** After a relaunch: the clock was right ("Keep"), or the person stopped at `at`, between leaving and now. */
+    confirmKeptClock(stoppedAt?: number, now = clock()) {
+      return update((s) => {
+        const d = s.active;
+        if (!d?.clock_kept_running) return s;
+        if (stoppedAt != null) stopAt(d, Math.min(now, Math.max(stoppedAt, d.clock_kept_running.left_at)));
+        delete d.clock_kept_running;
+        return s;
+      });
+    },
     pause(paused: boolean, now = clock()) {
       return update((s) => {
         const d = s.active;
-        if (d && d.paused !== paused) {
+        if (d && paused && !d.paused && leadInRemaining(d, now) > 0) {
+          // Pausing during the countdown cancels it; Resume starts the clock straight away.
+          d.active_started_at = d.lead_in_until = null;
+          d.checkpoint_at = now;
+          d.paused = true;
+        } else if (d && d.paused !== paused) {
           now = Math.max(now, d.checkpoint_at);
           if (paused) {
             freezeTimers(d, now);
