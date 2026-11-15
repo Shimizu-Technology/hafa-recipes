@@ -70,7 +70,8 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("offers where she plans to deliver as a call, a quiet line, or nothing, and never during a contraction", async () => {
-  const b = setup(), calls = () => renderer!.root.findAll((n) => String(n.type) === "CallContact"), quiet = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow");
+  const b = setup(), calls = () => renderer!.root.findAll((n) => String(n.type) === "CallContact"),
+    quiet = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow" && n.props.title === "Add where you plan to deliver");
   await mount();
   expect(calls().length + quiet().length).toBe(0);
   b.state = { ...b.state, bootstrap: { ...b.state.bootstrap!, contacts: {} } };
