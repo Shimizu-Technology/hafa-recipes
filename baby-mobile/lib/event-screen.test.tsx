@@ -700,7 +700,7 @@ describe("adding to the phone's calendar", () => {
 });
 
 it("passes the shown occurrence date to visit capture, including a moved date", async () => {
-  const event = { ...optimisticRecord({ id: "visit", kind: "event", title: "Visit", body: "", child_id: "baby", occurred_at: "2026-11-08T00:00:00Z", data: { category: "appointment", timezone: "UTC", recurrence: { frequency: "weekly" }, exceptions: [{ original_start: "2026-11-08T00:00:00Z", overrides: { start: "2026-11-09T00:00:00Z" } }] } }), revision: 1 };
+  const event = { ...optimisticRecord({ id: "visit", kind: "event", title: "Visit", body: "", child_id: "baby", occurred_at: "2026-11-01T00:00:00Z", data: { category: "appointment", timezone: "UTC", recurrence: { frequency: "weekly" }, exceptions: [{ original_start: "2026-11-08T00:00:00Z", overrides: { start: "2026-11-09T00:00:00Z" } }] } }), revision: 1 };
   setup([event]); mock.params = { id: event.id, at: "2026-11-08T00:00:00Z" };
   await mount(EventDetail);
   expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")[0].props.visit.occurred_at).toBe("2026-11-09T00:00:00.000Z");
