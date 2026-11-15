@@ -150,16 +150,17 @@ MEMBER_SCORE = re.compile(
     r"\d+(?:\.\d+)?(?:\s*(?:rounds?|reps?|kg|lbs?|calories|meters?|m|seconds?|s|minutes?|min))?)"
     r"(?:\s+(?:rx|scaled|custom))?$", re.I)
 MEMBER_COMMENT = re.compile(rf"^{MEMBER_NAME}:\s*\S.*$")
-WORKOUT_BOUNDARY = re.compile(r"\b(?:amrap|emom|as many|for time|work[ /-]?rest|metcon|technique|mobility|conditioning|accessor\w*|warm[ -]?up|cool[ -]?down|active recovery|sets?|rounds?|run|squat\w*|deadlift\w*|press\w*|burpee\w*|pallof|cuban|powell|bike|row|wall ball|hold)\b", re.I)
+PART_FORMAT = re.compile(r"\b(?:amrap|emom|e\d+mom|for time|rounds?|\d+\s*(?:minutes?|mins?)|sets of|every|interval|tabata|strength|metcon|conditioning|accessories|buy[- ]in|cash[- ]out|rest)\b", re.I)
 PREAMBLE_BOUNDARY = re.compile(r"^(?:phase\s+\d|week\s+\d|workout specific|coach(?:'s)? notes?)\b", re.I)
 
 
 def workout_part(value, part):
     body = value[part.end():] if part else ""
-    dose = re.match(r"^\d+(?:[-–]\d+)?\s*(?:min(?:utes?)?|sec(?:onds?)?|sets?|rounds?)\b", body, re.I)
-    if (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)) and not (WORKOUT_BOUNDARY.match(body) or dose):
+    if re.match(r"^\d", body):
+        return True
+    if (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)) and not PART_FORMAT.match(body):
         return False
-    return bool(WORKOUT_BOUNDARY.search(body) or dose)
+    return bool(PART_FORMAT.search(body))
 
 
 TRIM_WARNING = "Navigation, results or member sections were removed. Review all workout parts against the source."
@@ -183,7 +184,7 @@ def trim_class_parts(parts, warnings=None):
     result = []
     for location, page in lines:
         clean = []
-        for line in page:
+        for index, line in enumerate(page):
             value = line.strip()
             part = PART_HEADING.match(value)
             expected = chr(ord(current) + 1) if current else "a"
@@ -193,10 +194,15 @@ def trim_class_parts(parts, warnings=None):
                 removed = True
                 continue
             if PRIVATE_SECTION.fullmatch(value):
-                suppressed, removed = True, True
+                # WodUp's header has adjacent action buttons before its phase
+                # heading. This is navigation, not a member-results section.
+                header_navigation = (current is None and not suppressed and value.lower().rstrip(":") == "leaderboard"
+                                     and index > 0 and BUTTON_LABEL.fullmatch(page[index - 1].strip())
+                                     and index + 1 < len(page) and PREAMBLE_BOUNDARY.search(page[index + 1].strip()))
+                suppressed, removed = not header_navigation, True
                 continue
             if suppressed:
-                boundary = (next_part and workout_part(value, part)) or CLASS_SECTION.fullmatch(value) or PREAMBLE_BOUNDARY.search(value)
+                boundary = (next_part and workout_part(value, part)) or CLASS_SECTION.fullmatch(value)
                 if not boundary:
                     removed = True
                     continue
