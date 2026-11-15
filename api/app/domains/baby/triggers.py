@@ -304,7 +304,7 @@ async def plan_feeds(db, plan, access, prefs, moment):
         if not may_hear(access, "feed_interval", space_id):
             continue
         feed = await db.scalar(newest_feed(access, space_id, child_id, moment))
-        if feed is None or feed.data.get("state") == "running":
+        if feed is None:
             continue
         due = feed.occurred_at + timedelta(hours=hours)
         if moment - due <= FEED_TOO_LATE:
@@ -320,7 +320,7 @@ async def child_name(db, access, child_id):
 
 async def feed_words(db, row, access, prefs):
     feed = await readable(db, access, BabyRecord, UUID(row.payload["record_id"]))
-    if feed is None or feed.kind != "feeding" or feed.data.get("state") == "running":
+    if feed is None or feed.kind != "feeding":
         return None
     moment = now()
     newest = await db.scalar(newest_feed(access, feed.space_id, feed.child_id, moment))
