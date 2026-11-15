@@ -34,9 +34,13 @@ export function usePublishingDisclosure() {
   const isScreenActive = useRef(false);
   const [isCheckingDisclosure, setIsCheckingDisclosure] = useState(false);
 
-  useEffect(() => () => {
-    isMounted.current = false;
-  }, []);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      confirm.cancel?.();
+    };
+  }, [confirm]);
 
   useFocusEffect(useCallback(() => {
     isScreenActive.current = true;

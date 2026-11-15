@@ -390,3 +390,18 @@ it('lets long part and ingredient notes wrap and preserves their text on save', 
     expect(component.ingredients[0].notes).toBe(notes);
   } finally { await act(async () => tree.unmount()); }
 });
+
+it.each([true, false])('confirms an unsaved public capture and saves the chosen visibility (%s)', async approved => {
+  const captured = { ...structuredClone(recipe), is_public: true, extraction_evidence: undefined };
+  mocks.requestPublishing.mockResolvedValueOnce(approved);
+  let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(<EditRecipeForm owner="subject-a" capture={{ id: 'capture-id', ownerId: 'stable-a', recipe: captured, guard: vi.fn() }} />); });
+  try {
+    const save = tree.root.findAllByType('TouchableOpacity' as any).find(node => node.findAllByType('Text' as any).some(text => text.props.children === 'Save'))!;
+    await act(async () => save.props.onPress());
+    expect(mocks.requestPublishing).toHaveBeenCalledTimes(1);
+    const snapshot = mocks.editorSubmit.mock.calls.at(-1)![0];
+    expect(snapshot.data.is_public).toBe(approved);
+    expect(snapshot.captureRequest.is_public).toBe(approved);
+  } finally { await act(async () => tree.unmount()); }
+});

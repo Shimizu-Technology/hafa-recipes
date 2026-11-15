@@ -514,7 +514,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
       return;
     }
 
-    if (snapshot.data.is_public && !recipe?.is_public && !publishingConfirmed.current) {
+    if (snapshot.data.is_public && (capture || !recipe?.is_public) && !publishingConfirmed.current) {
       if (!snapshot.publishingPreview || !(await requestPublishing(snapshot.publishingPreview))) {
         if (!didChoosePrivate()) return;
         setIsPublic(false);
@@ -797,7 +797,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
       return;
     }
 
-    if (recipe?.is_public) { setIsPublic(true); return; }
+    if (!capture && recipe?.is_public) { setIsPublic(true); return; }
     const preview = publishPreview();
     if (preview && await requestPublishing(preview)) {
       publishingConfirmed.current = true;

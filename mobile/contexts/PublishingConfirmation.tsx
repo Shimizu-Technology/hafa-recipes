@@ -3,7 +3,8 @@ import { BackHandler, Keyboard, Pressable, ScrollView, Text, View } from 'react-
 import { useTheme } from '@/contexts/ThemeContext';
 
 type Prompt = { message: string; label: string };
-const Context = createContext<(prompt: Prompt) => Promise<boolean>>(async () => false);
+type Confirm = ((prompt: Prompt) => Promise<boolean>) & { cancel?: () => void };
+const Context = createContext<Confirm>(async () => false);
 export const usePublishingConfirmation = () => useContext(Context);
 export const CONFIRMATION_TIMEOUT_MS = 120_000;
 
@@ -17,6 +18,14 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
     if (pending.current) {
       clearTimeout(pending.current.timer);
       pending.current.resolve(answer);
+      pending.current = null;
+    }
+    setPrompt(null);
+  }, []);
+  const cancel = useCallback(() => {
+    if (pending.current) {
+      clearTimeout(pending.current.timer);
+      pending.current.reject(new Error('Publishing screen closed.'));
       pending.current = null;
     }
     setPrompt(null);
@@ -47,7 +56,7 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
       pending.current = null;
     }
   }, []);
-  return <Context.Provider value={confirm}>
+  return <Context.Provider value={Object.assign(confirm, { cancel })}>
     <View style={{ flex: 1 }}>
       <View style={{ flex: 1 }} accessibilityElementsHidden={!!prompt} importantForAccessibility={prompt ? 'no-hide-descendants' : 'auto'}>{children}</View>
       {prompt && <View testID="publishing-confirmation" accessibilityViewIsModal style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000, justifyContent: 'flex-end', backgroundColor: '#0008' }}>

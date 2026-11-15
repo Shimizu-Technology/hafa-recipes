@@ -41,6 +41,13 @@ describe('screen-local publishing confirmation', () => {
     expect(await result).toContain('timed out');
     expect(tree.root.findAll(node => node.type === ('View' as any) && node.props.testID === 'publishing-confirmation')).toHaveLength(0);
   });
+  it('cancels an old form prompt when its account or capture scope changes', async () => {
+    let result!: Promise<string>;
+    await act(async () => { result = confirm({ message: '', label: 'Make public' }).then(String, error => error.message); });
+    await act(async () => confirm.cancel?.());
+    expect(await result).toContain('screen closed');
+    expect(tree.root.findAll(node => node.type === ('View' as any) && node.props.testID === 'publishing-confirmation')).toHaveLength(0);
+  });
   it('settles pending work when the screen unmounts', async () => {
     let result!: Promise<string>;
     await act(async () => { result = confirm({ message: '', label: 'Make public' }).then(String, error => error.message); });
