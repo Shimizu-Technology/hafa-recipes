@@ -189,8 +189,11 @@ describe('share recipe sheet', () => {
 
   it('puts long credits on their own line under the row title', async () => {
     const root = await open(recipe(true));
-    expect(row(root, 'Original').props.stacked).toBe(true);
-    expect(row(root, 'Send as text').props.stacked).toBe(true);
+    // Every action row uses the one stacked layout, so they line up.
+    for (const title of ['Copy link', 'Send as text', 'Original']) {
+      expect(row(root, title).props.stacked).toBe(true);
+      expect(row(root, title).props.accessory).toBeUndefined();
+    }
   });
 
   it('keeps Send link on the first screen at accessibility text sizes', async () => {
