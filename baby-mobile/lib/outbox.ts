@@ -619,14 +619,23 @@ export function retryMutation<T extends Mutation>(change: T): T {
 export function withPendingBirths(state: DeviceState): DeviceState {
   if (!state.bootstrap || !state.outbox.some((m) => m.type === "child_birth")) return state;
   const children = state.outbox.reduce<Child[]>((rows, m) => m.type !== "child_birth" ? rows
-    : rows.map((child) => (child.id === m.child_id && (child.birth_date ?? null) !== m.birth_date ? { ...child, birth_date: m.birth_date } : child)), state.bootstrap.children);
+    : rows.map((child) => (child.id !== m.child_id || ((child.birth_date ?? null) === m.birth_date && !birthExtrasPending(child, m)) ? child
+      : { ...child, birth_date: m.birth_date, ...(m.name ? { name: m.name } : {}), ...(m.details ? { details: { ...child.details, ...m.details } } : {}) })), state.bootstrap.children);
   return children === state.bootstrap.children ? state : { ...state, bootstrap: { ...state.bootstrap, children } };
+}
+/** The birth flow's name, time or weight that the API's copy doesn't have yet. */
+export function birthExtrasPending(server: Pick<Child, "name" | "details">, m: Extract<Mutation, { type: "child_birth" }>) {
+  return (!!m.name && m.name !== server.name) ||
+    Object.entries(m.details ?? {}).some(([key, value]) => (server.details?.[key as keyof NonNullable<typeof m.details>] ?? null) !== (value ?? null));
 }
 /** What a removed birth change leaves behind: what the API said, or else what it saw before. */
 export function withoutBirth(state: DeviceState, m: Extract<Mutation, { type: "child_birth" }>, server?: Child): DeviceState {
   if (!state.bootstrap) return state;
   return { ...state, bootstrap: { ...state.bootstrap,
-    children: state.bootstrap.children.map((child) => (child.id !== m.child_id ? child : server ?? { ...child, birth_date: m.previous })) } };
+    children: state.bootstrap.children.map((child) => (child.id !== m.child_id ? child : server ?? { ...child, birth_date: m.previous,
+      // The birth flow's name and answers go back with it, as they were before.
+      ...(m.name && m.previous_name !== undefined ? { name: m.previous_name } : {}),
+      ...(m.previous_details ? { details: Object.fromEntries(Object.entries({ ...child.details, ...m.previous_details }).filter(([, value]) => value !== null)) } : {}) })) } };
 }
 /**
  * What to do with a birth change, from the API's copy. Its revision is only how a write gets in: the question is the

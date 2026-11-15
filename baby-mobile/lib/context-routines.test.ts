@@ -341,6 +341,19 @@ describe("Baby's here with no signal", () => {
     expect(baby.state.outbox).toEqual([]);
     expect(shown()).toMatchObject({ birth_date: "2026-11-05", revision: 4 });
   });
+  it("sends the birth flow's name, time and weight with the date", async () => {
+    mock.saved = { ...mock.saved!, outbox: [{ ...born, name: "Noa", details: { birth_time: "23:40", weight_at_birth_g: 3402 } }] } as DeviceState;
+    await mount(); await flush();
+    expect(mock.api.child).toHaveBeenCalledExactlyOnceWith({ id: "baby", birth_date: "2026-11-05", revision: 3, name: "Noa",
+      details: { birth_time: "23:40", weight_at_birth_g: 3402 } }, 1);
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("still sends her name and time when the other phone set the same date first", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [{ ...child, birth_date: "2026-11-05", revision: 4 }] }));
+    mock.saved = { ...mock.saved!, outbox: [{ ...born, name: "Noa", details: { birth_time: "23:40" } }] } as DeviceState;
+    await mount(); await flush();
+    expect(mock.api.child).toHaveBeenCalledExactlyOnceWith({ id: "baby", birth_date: "2026-11-05", revision: 4, name: "Noa", details: { birth_time: "23:40" } }, 1);
+  });
   it("doesn't overwrite a different date saved elsewhere; it asks", async () => {
     mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [{ ...child, birth_date: "2026-11-04", revision: 4 }] }));
     await mount(); await flush();

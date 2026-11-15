@@ -195,6 +195,7 @@ export function Copy({
   lines,
   numeric = false,
   limit = 0,
+  fit = false,
 }: {
   children: React.ReactNode;
   kind?: "body" | "small" | "heading" | "title" | "label";
@@ -204,13 +205,17 @@ export function Copy({
   numeric?: boolean;
   /** How far it grows with text size. By default as far as she's set it. */
   limit?: number;
+  /** One line that shrinks to the width rather than breaking mid-word, for a single long word. */
+  fit?: boolean;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     style = type[kind];
   return (
     <Text
       key={`${kind}:${fontScale}`}
-      numberOfLines={lines}
+      numberOfLines={fit ? 1 : lines}
+      adjustsFontSizeToFit={fit}
+      minimumFontScale={fit ? 0.4 : undefined}
       maxFontSizeMultiplier={limit}
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
@@ -725,19 +730,22 @@ export function Choice({
   selected,
   onPress,
   disabled,
+  radio = false,
 }: {
   label: string;
   detail?: string;
   selected: boolean;
   onPress: () => void;
   disabled?: boolean;
+  /** One answer from a few: VoiceOver says "radio button" and "selected", and it's drawn as a circle. */
+  radio?: boolean;
 }) {
   const c = useColors();
   return (
     <PressTarget
-      accessibilityRole="checkbox"
+      accessibilityRole={radio ? "radio" : "checkbox"}
       accessibilityLabel={[label, detail].filter(Boolean).join(". ")}
-      accessibilityState={{ checked: selected, disabled }}
+      accessibilityState={radio ? { selected, disabled } : { checked: selected, disabled }}
       onPress={() => {
         tap();
         onPress();
@@ -752,7 +760,7 @@ export function Choice({
         opacity: on ? 0.6 : disabled ? 0.5 : 1,
       })}
     >
-      <Icon name={selected ? "checkbox" : "square-outline"} color={selected ? c.action : c.muted} />
+      <Icon name={radio ? (selected ? "radio-button-on" : "radio-button-off") : selected ? "checkbox" : "square-outline"} color={selected ? c.action : c.muted} />
       <View style={{ flex: 1, gap: 3 }}>
         <Copy>{label}</Copy>
         {detail && (
