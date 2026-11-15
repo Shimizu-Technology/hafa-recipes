@@ -31,6 +31,7 @@ import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
 import { timedStartHint } from "@/lib/timed-execution";
 import { WorkoutStartSheet } from "@/components/workout-start-sheet";
 import { WorkoutExerciseList } from "@/components/workout-exercise-list";
+import { benchmarkLine, instructionsTitle, programmingLine } from "@/lib/class-parts";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
 import { SavedSourceText } from "@/components/workout-source";
@@ -45,7 +46,7 @@ import { reportAskScroll, resetAskScroll } from "@/lib/ask-pill";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api, owner, enrollment, isCurrentAccount } = useTraining();
+  const { api, owner, enrollment, isCurrentAccount, units } = useTraining();
   const mounted = useRef(true);
   const action = useRef<"start" | "delete" | null>(null);
   const scope = `${owner}:${enrollment?.generation}:${id}`;
@@ -58,6 +59,12 @@ export default function WorkoutDetail() {
     enabled: !!enrollment?.enrolled,
   });
   const workout = q.data;
+  // Only a %-bodyweight load needs the profile weight, for its suggested weight.
+  const profile = useQuery({
+    queryKey: [owner, "profile", enrollment?.generation, "snapshot"],
+    queryFn: api.profileSnapshot,
+    enabled: !!enrollment?.enrolled && !!workout?.blocks.some((b) => b.exercises.some((e) => e.relative_load)),
+  });
   const offline = useOfflineTraining();
   const insets = useSafeAreaInsets();
   useEffect(() => { resetAskScroll(); }, []);
@@ -247,9 +254,14 @@ export default function WorkoutDetail() {
           />
         ) : (
           <>
-            <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} said={formatChip} />
+            {(!!programmingLine(workout) || !!benchmarkLine(workout)) && <View style={{ gap: 2 }}>
+              {!!programmingLine(workout) && <Copy kind="label" tone="accent">{programmingLine(workout)}</Copy>}
+              {!!benchmarkLine(workout) && <Copy kind="small" tone="muted">{benchmarkLine(workout)}</Copy>}
+            </View>}
+            <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} said={formatChip} title={instructionsTitle(workout)} />
             {exercises > 0 && <SectionHeader title="Exercises" />}
-            <WorkoutExerciseList blocks={workout.blocks} formatChip={formatChip} />
+            <WorkoutExerciseList blocks={workout.blocks} formatChip={formatChip} units={units}
+              weightKg={profile.data?.profile?.weight_kg} />
             {workout.kind !== "program" && exercises > 0 && <ListGroup>
               <ListRow
                 icon="calendar-outline"

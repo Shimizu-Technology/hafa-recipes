@@ -235,6 +235,28 @@ export const PUBLISHING_DISCLOSURE_POINTS = [
 ];
 
 /** "3 × 10–12 reps · 45s rest" style summary for one exercise. */
+/** "800–1000 m", or the single distance. */
+export function distanceText(e: Pick<ExercisePrescription, "distance_meters" | "distance_meters_min">) {
+  if (e.distance_meters == null) return null;
+  return e.distance_meters_min != null && e.distance_meters_min !== e.distance_meters
+    ? `${e.distance_meters_min}–${e.distance_meters} m` : `${e.distance_meters} m`;
+}
+/** "30–40s", "1m–1m 30s", or the single duration. */
+export function durationText(e: Pick<ExercisePrescription, "duration_seconds" | "duration_seconds_max">) {
+  const low = e.duration_seconds, high = e.duration_seconds_max;
+  if (low == null) return null;
+  if (high == null || high === low) return formatSeconds(low);
+  return high < 60 ? `${low}–${high}s` : `${formatSeconds(low)}–${formatSeconds(high)}`;
+}
+/** "20 / 14 lb" when the options share a unit and have no labels; otherwise each option in full. */
+export function loadOptionsText(options: NonNullable<ExercisePrescription["load_options"]>) {
+  const unit = options[0]?.load_unit;
+  if (options.every((o) => o.load_unit === unit && !o.label)) return `${options.map((o) => o.load).join(" / ")} ${unit}`;
+  return options.map((o) => [o.label, `${o.load} ${o.load_unit}`].filter(Boolean).join(" ")).join(" / ");
+}
+export function relativeLoadText(load: NonNullable<ExercisePrescription["relative_load"]>) {
+  return `${load.percent}% ${load.basis === "bodyweight" ? "bodyweight" : "1RM"}`;
+}
 export function prescriptionLine(e: ExercisePrescription) {
   const parts: string[] = [];
   const reps =
@@ -247,8 +269,8 @@ export function prescriptionLine(e: ExercisePrescription) {
         : null;
   const targets = [
     reps ?? repPattern(e),
-    e.duration_seconds != null ? formatSeconds(e.duration_seconds) : null,
-    e.distance_meters != null ? `${e.distance_meters} m` : null,
+    durationText(e),
+    distanceText(e),
   ].filter((target): target is string => target != null);
   if (e.sets != null && targets.length) parts.push(`${e.sets} × ${targets[0]}`);
   else if (e.sets != null) parts.push(`${e.sets} sets`);
@@ -260,6 +282,8 @@ export function prescriptionLine(e: ExercisePrescription) {
     const convention = { total: "total", per_hand: "per hand", added: "added", assistance: "assistance" };
     parts.push(`${e.provenance === "source" ? "Source load" : "Load"}: ${e.load} ${e.load_unit ?? "unit unspecified"}${e.load_convention ? ` ${convention[e.load_convention]}` : " · convention unspecified"}`);
   }
+  if (e.load_options?.length) parts.push(loadOptionsText(e.load_options));
+  if (e.relative_load) parts.push(relativeLoadText(e.relative_load));
   if (e.tempo) parts.push(`Tempo ${e.tempo}`);
   if (e.effort) parts.push(e.effort);
   return parts.join(" · ") || "Details not specified";

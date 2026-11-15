@@ -75,7 +75,22 @@ export interface Workout {
     rounds?: number | null;
     rest_between_rounds_seconds?: number | null;
     exercises: ExercisePrescription[];
+    /** Class parts (API W1). All optional and omitted when absent. */
+    role?: "warm_up" | "main" | "accessory" | "cool_down" | null;
+    /** Rest before the next part; never on the last part. */
+    rest_after_seconds?: number | null;
+    score_kind?: "auto" | "rounds_reps" | "time" | "load" | "reps" | "none" | null;
+    /** Coach notes for this part, quoted from the source. */
+    instructions?: string[] | null;
   }>;
+  /** A gym's named test, e.g. Everest, progression 2 of 3. Results compare within the same key and stage. */
+  benchmark?: { key: string; name: string; stage?: number | null; stages?: number | null; block_ids?: string[] } | null;
+  /** Where a class came from. Gym programming stays private (the API refuses to publish it). */
+  programming?: {
+    source_kind: "gym" | "coach" | "self";
+    app_name?: string | null; gym_name?: string | null; track?: string | null; track_variant?: string | null;
+    date?: string | null;
+  } | null;
   capture_kind?: "url" | "text" | "images" | "document" | "shared";
   source_url?: string | null;
   source_title?: string | null;
@@ -99,7 +114,23 @@ export type WorkoutExecution =
   | { mode: "work_rest"; work_seconds: number; rest_seconds: number; intervals: number | null };
 /** Reps change by `step` each round or interval; `end: null` runs until the person stops (Death by). */
 export interface RepLadder { start: number; step: number; end: number | null }
+export interface LoadOption {
+  load: number;
+  load_unit: "kg" | "lb";
+  load_convention?: "total" | "per_hand" | "added" | "assistance";
+  /** Source wording only, e.g. "Rx men". */
+  label?: string | null;
+}
 export interface ExercisePrescription {
+  /** Done once, before (buy-in) or after (cash-out) the repeating moves of an AMRAP or for-time part. */
+  segment?: "buy_in" | "cash_out" | null;
+  /** With `distance_meters` as the maximum: "800–1000 m". */
+  distance_meters_min?: number | null;
+  /** With `duration_seconds` as the minimum: "30–40 s". */
+  duration_seconds_max?: number | null;
+  /** Choices such as 20/14 lb; never together with `load` or `relative_load`. */
+  load_options?: LoadOption[] | null;
+  relative_load?: { basis: "bodyweight" | "one_rep_max"; percent: number } | null;
   exercise_id?: string | null;
   name: string;
   provenance?: "source" | "user" | "suggestion";

@@ -1,10 +1,10 @@
 import { Card, Copy } from "./ui";
 /** `said`: a line already shown on the screen (the format chip), skipped when an instruction only repeats it. */
-export function WorkoutInstructions({ instructions: all, notes, said }: { instructions?: string[]; notes?: string[]; said?: string | null }) {
+export function WorkoutInstructions({ instructions: all, notes, said, title = "Workout instructions" }: { instructions?: string[]; notes?: string[]; said?: string | null; title?: string }) {
   const instructions = said ? all?.filter(line => line.trim().toLowerCase() !== said.toLowerCase()) : all;
   return <>
     {!!instructions?.length && <Card compact>
-      <Copy kind="subheading">Workout instructions</Copy>
+      <Copy kind="subheading">{title}</Copy>
       {instructions.map((line, index) => <Copy key={index} kind="small">{line}</Copy>)}
     </Card>}
     {!!notes?.length && <Card compact>
