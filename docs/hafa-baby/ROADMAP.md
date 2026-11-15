@@ -62,6 +62,8 @@ captures before cleanup. Captures made before an owner is established are kept
 unassigned rather than attached to a later account. Existing
 Recipes/Workouts data are not sent to Baby AI.
 
+**Organize everything waiting.** Saved shows one card when posts are `saved` (never processed, because automatic organizing was off) or `failed`. One tap, after the usual AI consent, reads them all through the ordinary `POST /imports` with `record_id`, the same request as "Read with AI". The phone hands the outbox at most three at a time, leaving room in the API's five-waiting limit for new shares, and keeps the run in device state (`organizeRun`) so it continues after a relaunch. A refusal for the daily allowance or AI spending window stops the run and leaves the rest saved for tomorrow; a full queue waits two minutes; a post refused for itself is counted as needing a look. No new endpoint, flag or migration.
+
 ## API contract
 
 Prefix `/api/v1/baby`; existing Clerk bearer auth resolves stable AppUser ID.

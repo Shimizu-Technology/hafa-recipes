@@ -17,6 +17,7 @@ import { NotificationResponseHandler } from "@/components/notification-response-
 import { ShareSessionGuard } from "@/lib/use-share-session";
 import { StockShareBoundary } from "@/components/stock-share-boundary";
 import { ShareCapture } from "@/components/share-capture";
+import { OrganizeRunner } from "../components/organize-waiting";
 import { Copy, Loading, Notice, Screen, ToastProvider, NativeHeaderContext, fonts, palettes, useColors } from "@/components/ui";
 import { fontFiles } from "@/lib/fonts";
 
@@ -81,6 +82,7 @@ function Routes() {
       <BabyProvider key={userId}>
         <AccountGate>
           <ShareCapture />
+          <OrganizeRunner />
           <SpaceBoundary><NativeHeaderContext.Provider value={true}>{stack}</NativeHeaderContext.Provider></SpaceBoundary>
           <NotificationResponseHandler />
         </AccountGate>
