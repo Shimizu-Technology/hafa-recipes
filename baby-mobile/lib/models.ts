@@ -647,6 +647,8 @@ export interface DeviceState {
   askNoticeSeen?: boolean;
   /** She's answered "so Kami can tell you the moment labor starts", either way: it's only asked once. */
   newsAskSeen?: boolean;
+  /** Today's cards she chose to hide on this phone: "this_week", "day_of_life". */
+  hiddenToday?: string[];
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];
@@ -660,6 +662,10 @@ export interface DeviceState {
   /** By child id, or `new` for a profile not saved yet. Not in `drafts`: those are all records. */
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
+  /** "Organize everything waiting", while it runs and until she dismisses what it did. */
+  organizeRun?: import("./organize-waiting").OrganizeRun;
+  /** After a run met the daily limit: "Organize all" isn't offered again until then. */
+  organizeHeldUntil?: string;
   selectedChild: string | null;
   /** Her own babies she's chosen to keep alongside a family's, so she's only asked once. */
   personalBabiesKept?: string[];

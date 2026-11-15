@@ -136,7 +136,7 @@ export function fencedState(state: DeviceState, next: number | Pick<Bootstrap, "
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, dueReminders: ____, dismissing: _____, upcomingReminders: ______, heldDrafts: _______, ...rest } = state,
+    const { routine_sync: _, feedTimer, feedNotices: ___, settled, childDrafts, changes, dueReminders: ____, dismissing: _____, upcomingReminders: ______, heldDrafts: _______, organizeRun: _run, ...rest } = state,
       kept = (id?: string) => !!id && surviving.has(id),
       familyBaby = (id?: string | null) => kept(state.bootstrap?.children?.find((child) => child.id === id)?.space_id),
       outbox = state.outbox.filter((m) => kept(m.space_id)),

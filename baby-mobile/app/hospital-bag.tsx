@@ -59,7 +59,7 @@ export default function HospitalBag() {
   }
   return <Screen title={bagTitle} back subtitle={bag ? `${packedLine(bag)}${shared ? " · shared with your family" : ""}` : undefined} numericSubtitle
     action={bag && <HeaderAction title={editing ? "Done" : "Edit"} onPress={() => setEditing(!editing)} />}>
-    <SyncStatus />
+    {/* Under the list, so the line coming and going never moves a row from under her thumb. */}
     {!!error && <Notice error>{error}</Notice>}
     {!bag ? <Card tone="hero" style={{ gap: 12 }}>
       <Copy kind="heading">A list to pack from</Copy>
@@ -86,5 +86,6 @@ export default function HospitalBag() {
     {bag && !editing && <Copy kind="small" tone="muted">{shared
       ? "Everyone in your family sees this list and can tick things off."
       : "Only you see this list. If you invite family, it’s shared with them."}</Copy>}
+    <SyncStatus />
   </Screen>;
 }
