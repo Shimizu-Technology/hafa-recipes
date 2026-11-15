@@ -645,6 +645,8 @@ export interface DeviceState {
   /** By child id, or `new` for a profile not saved yet. Not in `drafts`: those are all records. */
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
+  /** "Organize everything waiting", while it runs and until she dismisses what it did. */
+  organizeRun?: import("./organize-waiting").OrganizeRun;
   selectedChild: string | null;
   /** Her own babies she's chosen to keep alongside a family's, so she's only asked once. */
   personalBabiesKept?: string[];
