@@ -11,9 +11,10 @@ export function newsAskFor(state: Pick<DeviceState, "bootstrap" | "newsAskSeen" 
   const bootstrap = state.bootstrap;
   if (!bootstrap?.reminders?.family_news || state.newsAskSeen || shownPrefs(state).kinds.family_news?.enabled === false) return null;
   const families = new Set(familySpaces(bootstrap).map((space) => space.id));
+  // Someone else in the family is expecting, by the family's word: an unconfirmed guess of themselves is theirs to settle.
   const expected = bootstrap.children.find((child) => !child.birth_date && child.due_date && child.space_id && families.has(child.space_id)
-    && child.created_by && child.created_by !== owner);
+    && child.details?.expecting_member && child.details.expecting_member !== owner);
   if (!expected) return null;
-  const name = bootstrap.people?.[expected.created_by!]?.trim();
+  const name = bootstrap.people?.[expected.details!.expecting_member!]?.trim();
   return { name: name || "your family", reason: `So ${name || "your family"} can tell you the moment labor starts, even with Håfa Baby closed.` };
 }

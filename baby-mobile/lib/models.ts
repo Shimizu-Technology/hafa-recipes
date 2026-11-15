@@ -30,6 +30,9 @@ export interface ChildDetails {
   tracking?: Record<string, boolean> | null;
   /** "HH:MM", 24 hours, on the birth date's own clock. An older API drops it, and the date still stands. */
   birth_time?: string | null;
+  /** Who's expecting, by app user id: a parent in the family. Set to whoever added the pregnancy until confirmed. */
+  expecting_member?: string | null;
+  expecting_confirmed?: boolean | null;
 }
 /**
  * The setup screen's values. `grams` and `cm` are the exact value once there is one, kept through any change of unit;

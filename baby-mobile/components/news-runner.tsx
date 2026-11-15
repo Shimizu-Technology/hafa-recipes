@@ -26,7 +26,8 @@ export function NewsRunner() {
       const { items } = await now.api.familyMembers(space);
       for (const member of items) names[member.app_user_id] = memberName(member);
       return { active: items.filter((member) => member.status === "active").map((member) => member.app_user_id),
-        parents: defaultRecipients(items, now.owner, newsAbout(child)), names: { ...names } };
+        // "Tell your partner" came from her: if the family hasn't said who's expecting, she has.
+        parents: defaultRecipients(items, now.owner, newsAbout(child, now.owner) ?? now.owner ?? null), names: { ...names } };
     };
     void sendPending(now.state, now.api.familyNews, now.commit, family)
       .then(({ sent, dropped }) => {
