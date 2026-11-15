@@ -28,7 +28,7 @@ describe("the list", () => {
     expect(items.find((item) => item.id === "bag:baby:car-seat")?.label).toBe("Rear-facing car seat, installed before the day");
   });
   it("is found among her lists, newest first, and nothing else is", () => {
-    const other = { ...bag({ id: "evening" }), data: { routine_type: "checklist", items: [{ id: "x", label: "Bath", done: false }] } } as BabyRecord;
+    const other = { ...bag({ id: "evening", title: "Evening routine" }), data: { routine_type: "checklist", items: [{ id: "x", label: "Bath", done: false }] } } as BabyRecord;
     expect(isBag(other)).toBe(false);
     expect(findBag([other, bag({ id: "old", updated_at: "2026-11-01" }), bag({ id: "new" })])?.id).toBe("new");
     expect(findBag([other])).toBeUndefined();
