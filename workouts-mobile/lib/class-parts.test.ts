@@ -85,9 +85,12 @@ describe("WorkoutExerciseList", () => {
     expect(rows[1].props.detail).toBe("15 reps · 75% bodyweight\n≈ 64 kg (75% of 85 kg)\nUnbroken");
     const copy = tree!.root.findAllByType("Copy" as never).map((node) => node.children.join(""));
     expect(copy).toContain("Rest 3 min, then B");
-    expect(copy).toContain("Active recovery.");
-    const headers = tree!.root.findAllByType("ListGroup" as never).map((group) => group.props.header);
-    expect(headers[2]).toBe("C · Cool-down · Not scored · Straight sets");
+    expect(copy).not.toContain("Active recovery.");
+    const groups = tree!.root.findAllByType("ListGroup" as never);
+    expect(groups[2].props.header).toBe("C · Cool-down · Not scored · Straight sets");
+    // C's note belongs to C, inside its group, not floating between B and C.
+    expect(groups[2].props.notes).toEqual(["Active recovery."]);
+    expect(groups[1].props.notes).toBeUndefined();
   });
 });
 
