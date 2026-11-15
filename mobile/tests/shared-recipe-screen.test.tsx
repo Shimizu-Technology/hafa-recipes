@@ -66,7 +66,7 @@ describe('shared recipe view', () => {
   it('shows the recipe with credit and saves a private copy, then opens it', async () => {
     m.save.mockResolvedValue({ recipe_id: 'copy-1' });
     const root = await render();
-    expect(texts(root)).toContain('Shared by Ana');
+    expect(texts(root)).toContain('TikTok video by @thecoreyb · Shared by Ana');
     expect(texts(root)).toContain('Saves a private copy you can scale, plan and cook from.');
     await act(async () => button(root, 'Save to my library').props.onPress());
     expect(m.save).toHaveBeenCalledTimes(1);
@@ -125,5 +125,12 @@ describe('shared recipe view', () => {
     const root = await render();
     expect(texts(root)).toContain('This recipe isn’t available');
     expect(button(root, 'Save to my library')).toBeUndefined();
+  });
+
+  it('says nothing about a sharer who only has a placeholder name', async () => {
+    m.query = { ...m.query, data: { ...shared, creator: 'A Håfa cook' } };
+    const root = await render();
+    expect(texts(root)).toContain('TikTok video by @thecoreyb');
+    expect(texts(root)).not.toContain('A Håfa cook');
   });
 });

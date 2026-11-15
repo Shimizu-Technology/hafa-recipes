@@ -95,6 +95,9 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   }
 
   const source = getSourceCredit(recipe.source_url, null);
+  // The API sends "A Håfa cook" when the sharer has no public name; then say nothing about them.
+  const sharer = recipe.creator && recipe.creator !== 'A Håfa cook' ? recipe.creator : null;
+  const credit = [source?.handle ? source.label : null, sharer && `Shared by ${sharer}`].filter(Boolean).join(' · ');
   const facts = [recipe.servings ? `Serves ${recipe.servings}` : null, recipe.time].filter(Boolean).join(' · ');
   const components = recipe.components.filter(component => component.ingredients.length || component.steps.length);
   const named = components.length > 1;
@@ -112,7 +115,7 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
           accessible={false} style={[styles.photo, { backgroundColor: colors.placeholder }]} contentFit="cover" onError={() => setPhotoFailed(true)} />
       )}
       <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>{recipe.title}</Text>
-      <Text style={[styles.credit, { color: colors.text }]}>Shared by {recipe.creator}</Text>
+      {credit ? <Text style={[styles.credit, { color: colors.text }]}>{credit}</Text> : null}
       {facts ? <Text style={[styles.meta, { color: colors.textSecondary }]}>{facts}</Text> : null}
       <RNView style={[styles.notice, { backgroundColor: colors.surface2 }]}>
         <Ionicons name="lock-closed-outline" size={16} color={colors.textSecondary} />

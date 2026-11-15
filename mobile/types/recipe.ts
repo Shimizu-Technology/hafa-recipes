@@ -99,6 +99,8 @@ export interface RecipeExtracted {
   sourceIncomplete?: boolean;
   lowConfidence?: boolean;
   confidenceWarning?: string | null;
+  /** Set on a private copy saved from a Håfa link: the sharer's public name, or null. */
+  sharedCopy?: { sharedBy: string | null } | null;
 }
 
 export interface Recipe {

@@ -8,6 +8,7 @@ import {
   getShareSheetModel,
   getSourceCredit,
   publicRecipeLink,
+  recipeCreditLine,
   resolveLinkRequest,
 } from './recipeShare';
 
@@ -160,5 +161,20 @@ describe('link status', () => {
     expect(formatLinkCreated('2026-11-16T03:00:00', now)).toBe('Link active · created Nov 16');
     expect(formatLinkCreated('2025-12-01T03:00:00', now)).toBe('Link active · created Dec 1, 2025');
     expect(formatLinkCreated(null, now)).toBe('Link active');
+  });
+});
+
+describe('credit line under the title', () => {
+  const base = { source_url: 'https://www.instagram.com/@lanicooks/reel/abc/', source_type: 'instagram', extractor_display_name: 'Leon' };
+  it('keeps the usual source and importer for ordinary recipes', () => {
+    expect(recipeCreditLine({ ...base, extracted: {} }, 'Instagram')).toBe('Instagram · Leon');
+  });
+  it('credits the original creator and the sharer on a saved copy, never the viewer', () => {
+    const copy = { ...base, extractor_display_name: null, extracted: { sharedCopy: { sharedBy: 'Lani' } } };
+    expect(recipeCreditLine(copy, 'Instagram')).toBe('Instagram post by @lanicooks · Shared by Lani');
+    expect(recipeCreditLine({ ...copy, extracted: { sharedCopy: { sharedBy: null } } }, 'Instagram')).toBe('Instagram post by @lanicooks');
+    expect(recipeCreditLine({ ...copy, source_url: 'https://example.com/rice', source_type: 'website' }, 'Website')).toBe('Website · Shared by Lani');
+    // An older copy whose own name column was set is still credited to the original, not that name.
+    expect(recipeCreditLine({ ...copy, extractor_display_name: 'A Håfa cook' }, 'Instagram')).not.toContain('A Håfa cook');
   });
 });

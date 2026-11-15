@@ -43,6 +43,7 @@ import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { ShareRecipeSheet } from '@/components/ShareRecipeSheet';
+import { recipeCreditLine } from '@/lib/recipeShare';
 import { 
   useRecipe, 
   useToggleRecipeSharing,
@@ -681,7 +682,7 @@ function RecipeDetailScreenContent() {
             )}
 
             <Text style={[styles.source, { color: colors.textSecondary }]}>
-              {[sourceLabel, recipe.extractor_display_name].filter(Boolean).join(' · ')}
+              {recipeCreditLine(recipe, sourceLabel)}
             </Text>
             {facts.length > 0 && <RNView style={styles.facts}>
               {facts.map((fact) => (
