@@ -6,7 +6,7 @@ import secrets
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import Column, DateTime, ForeignKey, String, delete, func, select, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,21 @@ async def owner(db, recipe_id, user, *, lock=True):
     if not await schema_ready(db):
         raise HTTPException(503, 'Recipe links are not available yet')
     return recipe
+
+
+@router.get('/api/recipes/share-links')
+async def list_links(response: Response, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
+                     user: ClerkUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not await schema_ready(db):
+        raise HTTPException(503, 'Recipe links are not available yet', headers=PRIVATE_HEADERS)
+    rows = (await db.execute(select(
+        Recipe.id.label('recipe_id'), Recipe.extracted['title'].astext.label('title'),
+        Recipe.thumbnail_url, RecipeLink.created_at,
+    ).join(RecipeLink, RecipeLink.recipe_id == Recipe.id).where(
+        Recipe.user_id == user.id,
+    ).order_by(RecipeLink.created_at.desc(), Recipe.id).limit(limit).offset(offset))).mappings().all()
+    response.headers.update(PRIVATE_HEADERS)
+    return [dict(row) | {'title': row['title'] or 'Recipe'} for row in rows]
 
 
 @router.post('/api/recipes/{recipe_id}/share-link')

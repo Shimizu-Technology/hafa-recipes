@@ -11,21 +11,22 @@ from pathlib import Path
 from threading import local
 from time import monotonic
 from unicodedata import normalize
-from uuid import UUID
+from uuid import UUID, uuid5
 
 import regex
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import ClerkUser, get_optional_user
+from app.auth import ClerkUser, get_current_user, get_optional_user
 from app.contributor_attribution import PLACEHOLDER_NAMES
 from app.db.database import get_db
 from app.models.recipe import Recipe
 from app.moderation import public_recipe_conditions
-from app.recipe_links import PRIVATE_HEADERS, SITE, RecipeLink, read_budget, schema_ready
+from app.recipe_links import PRIVATE_HEADERS, SITE, RecipeLink, budget, read_budget, schema_ready
 from app.services.storage import storage_service
 
 router = APIRouter(prefix='/public/r', tags=['public-recipes'], dependencies=[Depends(read_budget)])
@@ -70,7 +71,7 @@ def project(recipe):
     }
 
 
-async def resolve(db, key, viewer=None):
+async def resolve(db, key, viewer=None, *, for_save=False):
     try:
         recipe_id = UUID(key)
     except ValueError:
@@ -78,6 +79,7 @@ async def resolve(db, key, viewer=None):
     viewer_id = viewer.id if viewer else None
     if recipe_id:
         query = select(Recipe).where(Recipe.id == recipe_id, *public_recipe_conditions(viewer_id))
+        lock_tables = (Recipe,)
     elif re.fullmatch(r'[A-Za-z0-9_-]{43}', key) and await schema_ready(db):
         # Retain moderation, completeness, owner moderation and viewer blocks; only
         # replace the public flag with the explicit unlisted grant.
@@ -85,12 +87,51 @@ async def resolve(db, key, viewer=None):
             RecipeLink.token_hash == hashlib.sha256(key.encode()).hexdigest(),
             *public_recipe_conditions(viewer_id, require_public=False),
         )
+        lock_tables = (Recipe, RecipeLink)
     else:
         raise HTTPException(404, UNAVAILABLE, headers=PRIVATE_HEADERS)
-    recipe = await db.scalar(query)
+    if for_save:
+        # Serialize with owner rotation/revocation and visibility changes. A
+        # deleted/replaced grant must not authorize a save after a lock wait.
+        query = query.with_for_update(of=lock_tables)
+    recipe = await db.scalar(query.execution_options(populate_existing=True))
     if recipe is None:
         raise HTTPException(404, UNAVAILABLE, headers=PRIVATE_HEADERS)
     return recipe
+
+
+# Stable namespace + primary-key conflict handling makes concurrent retries
+# converge without another migration. Only stable application IDs participate.
+COPY_NAMESPACE = UUID('2086b9df-a508-4707-98e9-70b323f034c1')
+
+
+@router.post('/{key}/save')
+async def save_shared_recipe(key: str, db: AsyncSession = Depends(get_db), viewer: ClerkUser = Depends(get_current_user)):
+    await budget(viewer.id, 'recipe-link-save', 30)
+    recipe = await resolve(db, key, viewer, for_save=True)
+    if recipe.user_id == viewer.id:
+        raise HTTPException(400, 'This recipe is already in your library', headers=PRIVATE_HEADERS)
+    copy_id = uuid5(COPY_NAMESPACE, f'{viewer.id}:{recipe.id}')
+    # Use exactly the same allowlist as the shared view, never the raw JSON,
+    # transcripts, evidence, original snapshots or per-user RecipeNote rows.
+    data = project(recipe)
+    extracted = {
+        'title': data['title'], 'sourceUrl': data['source_url'] or '',
+        'servings': data['servings'], 'times': {'total': data['time']},
+        'components': data['components'],
+        'notes': f"Shared by {data['creator']}" + (f"\n\n{data['notes']}" if data['notes'] else ''),
+        'media': {'thumbnail': recipe.thumbnail_url},
+    }
+    await db.execute(insert(Recipe).values(
+        id=copy_id, user_id=viewer.id, is_public=False,
+        source_url=data['source_url'] or '', source_type=recipe.source_type,
+        extracted=extracted, thumbnail_url=recipe.thumbnail_url,
+        # This field identifies the library owner in contributor/profile queries;
+        # retain the original cook's credit in the visible cooking notes instead.
+        extractor_display_name=viewer.recipe_display_name, extraction_method='manual',
+    ).on_conflict_do_nothing(index_elements=[Recipe.id]))
+    await db.commit()
+    return JSONResponse({'saved': True, 'recipe_id': str(copy_id)}, headers=PRIVATE_HEADERS)
 
 
 def render_page(data, key, has_photo=False):

@@ -416,6 +416,35 @@ request. Unlisted links do not expire by default. Owners can inspect
 `GET /api/recipes/{id}/share-link` (`active`, `created_at`), rotate with POST,
 and revoke with DELETE. No read endpoint returns the token or its hash.
 
+Share-sheet API (authenticated with the usual bearer token):
+
+- `GET /api/recipes/share-links?limit=50&offset=0` returns an array of
+  `{recipe_id, title, thumbnail_url, created_at}` for the caller's active links,
+  newest first (recipe ID breaks ties). `limit` is 1–100, `offset` is nonnegative;
+  fetch pages until a short page. Includes public and private recipes with a link
+  so every active grant remains reachable for revocation. Missing migration 062
+  returns 503, matching link management.
+- `POST /public/r/{key}/save` takes no body. `key` is a public recipe UUID or
+  unlisted token. Returns 200 `{saved: true, recipe_id: "<private copy UUID>"}`
+  on first save and retry; open that ID through the ordinary library/detail API.
+  It creates a private recipe owned by the viewer, using the shared-view field
+  allowlist, original source URL and photo. Visible notes retain “Shared by”
+  credit; the contributor field identifies the viewer, so copies cannot change
+  the viewer's profile attribution. Private note rows, transcripts, evidence,
+  original snapshots and tokens are never copied. Concurrent saves and either
+  key format converge on one copy per stable viewer/source identity.
+- Every save rechecks the current grant and moderation/block/completeness
+  policy, including retries. Invalid/revoked/rotated links and private UUIDs
+  return the same 404. Own-recipe saves return 400 (“already in your library”);
+  missing sign-in returns 401. Public UUID saves work before migration 062;
+  token saves then return 404. Saves use the existing public-route budgets plus
+  30 attempts per viewer/minute (429 with `Retry-After`). Responses use no-store
+  and no-referrer. Existing access-log/Sentry redaction covers `/save` too.
+  Saved copies remain private library items after source revocation/deletion.
+
+The old `/api/recipes/{id}/save` remains a public bookmark, not a copy operation.
+This addition needs no migration beyond the existing 062 link table.
+
 The lead configures the proxy after review; these PRs do not change secrets:
 
 1. Generate one random secret of at least 32 bytes using a password manager.
