@@ -107,7 +107,7 @@ async def provision(
     credential.location = request.location
     # Every public capture requires the foreground recipe confirmation.
     credential.is_public = False
-    credential.display_name = user.display_name[:200]
+    credential.display_name = user.recipe_display_name[:200]
     credential.issued_at = now
     credential.expires_at = now + TTL
     credential.revoked_at = None

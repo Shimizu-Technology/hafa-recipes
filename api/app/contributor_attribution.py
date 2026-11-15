@@ -11,7 +11,7 @@ from app.config import ClerkEnvironment
 from app.models.recipe import Recipe
 from app.services.clerk import ClerkBackendClient
 
-PLACEHOLDER_NAMES = ("a chef", "anonymous chef")
+PLACEHOLDER_NAMES = ("a chef", "anonymous chef", "a håfa cook")
 _NAME_CACHE_LIMIT = 1024
 _NAME_CACHE_TTL = 300
 _FAILURE_CACHE_TTL = 30

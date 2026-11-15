@@ -955,7 +955,7 @@ async def create_manual_recipe(
         extraction_quality=None,
         has_audio_transcript=False,
         user_id=user.id,
-        extractor_display_name=user.display_name,  # Store display name for attribution
+        extractor_display_name=user.recipe_display_name,  # Store display name for attribution
         is_public=recipe_input.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
@@ -1082,7 +1082,7 @@ async def _save_captured_recipe(
         user_id=user.id,
         capture_id=capture_data.capture_id,
         capture_request_hash=request_hash,
-        extractor_display_name=user.display_name,  # Store display name for attribution
+        extractor_display_name=user.recipe_display_name,  # Store display name for attribution
         is_public=capture_data.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
