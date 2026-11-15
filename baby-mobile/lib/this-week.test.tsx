@@ -87,6 +87,8 @@ describe("on Today", () => {
     const rows = all("Row");
     expect(rows.map((row) => row.props.title)[0]).toBe("Finish packing your bag");
     expect(rows[0].props.detail).toBe("1 of 2 packed");
+    // "Ask your provider when to call or come in once contractions start" is the whole point: never cut at two lines.
+    expect(rows.every((row) => row.props.wrap)).toBe(true);
     expect(words()).toContain("From week 36, visits are usually every week.");
     await act(async () => rows[0].props.onPress());
     expect(m.push).toHaveBeenLastCalledWith("/hospital-bag");

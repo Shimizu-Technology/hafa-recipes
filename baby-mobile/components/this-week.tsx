@@ -50,7 +50,7 @@ export function ThisWeek({ child, today }: { child: Child; today: Date }) {
     <Lines lines={plan.expect} />
     <Copy kind="small" tone="muted">Getting ready</Copy>
     <Grouped>
-      {plan.prepare.map((item) => <Row key={item.id} title={item.label} detail={detail(item)} numericDetail
+      {plan.prepare.map((item) => <Row key={item.id} wrap title={item.label} detail={detail(item)} numericDetail
         icon={todoDone(item, b.state.bootstrap, child) ? "checkmark-circle" : icons[item.link]} onPress={() => open(item)} />)}
     </Grouped>
   </Section>;
