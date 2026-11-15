@@ -155,6 +155,9 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     await call("POST", f"{API}/reminders/{reminder.id}/dismiss", 204)
     async with api.sessions() as db:
         assert (await db.get(BabyNotification, reminder.id)).dismissed_at is None
+    # Family news about a baby: only a parent in that baby's family can send it; nobody else can tell it exists.
+    await call("POST", API + "/family/news", 200 if parent else 409 if member else 404,
+               json={"id": str(uuid4()), "news": "labor", "child_id": child, "to": ["owner"]})
     await call("GET", f"{API}/records/{rows['care']['id']}", 200 if member else hidden)
     await call("GET", f"{API}/conversations/{owner.conversation_id}", denied)
     # Renaming and deleting someone's chat are refused whatever the role, and don't exist with the flag off.
