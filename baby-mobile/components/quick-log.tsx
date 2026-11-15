@@ -90,14 +90,16 @@ function RunningCard({ feed, timeZone, onSwitch, onDone }: { feed: RunningFeed; 
     overdue = now.getTime() - new Date(feed.started_at).getTime() >= runningLimit,
     recent = touchedRecently(feed.record, now),
     length = duration((now.getTime() - new Date(feed.started_at).getTime()) / 60_000),
+    // Mid-sentence, "Yesterday 9:29 PM" reads as "yesterday 9:29 PM".
+    began = friendlyTime(feed.started_at, now, timeZone).replace(/^(Yesterday|Today)\b/, (word) => word.toLowerCase()),
     opens = { accessibilityRole: "button" as const, accessibilityHint: "Opens this feed", onPress: () => router.push({ pathname: "/record/[id]", params: { id: feed.record.id } }) },
     eyebrow = (text: string) => <Text key={`e:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>{text}</Text>,
     switchSide = <Option label="Switch" detail={`to ${word[other(side)]}`} spoken={`Switch to ${word[other(side)]}`} height={quickTarget} onPress={onSwitch} />;
   if (overdue) return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10, borderWidth: 2, borderColor: c.accent }}>
-    <PressTarget {...opens} accessibilityLabel={`Still feeding? ${word[side]} side, started ${friendlyTime(feed.started_at, now, timeZone)}, ${length} ago`}
+    <PressTarget {...opens} accessibilityLabel={`Still feeding? ${word[side]} side, started ${began}, ${length} ago`}
       style={{ paddingHorizontal: 4, gap: 2 }}>
       {eyebrow("Still feeding?")}
-      <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 22, lineHeight: 28, color: c.text }}>{`${word[side]} · started ${friendlyTime(feed.started_at, now, timeZone)}`}</Text>
+      <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 22, lineHeight: 28, color: c.text }}>{`${word[side]} · started ${began}`}</Text>
       <Text key={`c:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ ...typeScale.footnote, color: c.muted }}>{`Running ${length}. Say when it ended so the log is right.`}</Text>
     </PressTarget>
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>

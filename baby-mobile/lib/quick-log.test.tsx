@@ -375,6 +375,22 @@ it("shows last fed and next side on opening, with no tap, for eyes and VoiceOver
   expect(hero.props.accessibilityLabel).toContain("Last fed 2 h ago.");
   expect(hero.props.accessibilityLabel).toContain("Next side right.");
 });
+it("keeps Last fed in view beside Next side: the next side's column takes at most half the row", async () => {
+  setup();
+  await act(async () => { renderer = create(<CareGlance child={child} rows={[breast("last", "left")]} now={new Date()} />); });
+  const column = renderer!.root.findAll((n) => String(n.type) === "View" && n.props.style?.borderLeftWidth === 1)[0];
+  expect(column.props.style).toMatchObject({ flexShrink: 1, maxWidth: "50%" });
+});
+it("lower-cases yesterday mid-sentence on an overdue feed", async () => {
+  setup();
+  await mount();
+  await press("Breastfeed");
+  await press("Left");
+  vi.setSystemTime(start.getTime() + 24 * 60 * 60_000);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  await refresh();
+  expect(texts().some((t) => /^Left · started yesterday /.test(t))).toBe(true);
+});
 it("shows the running side on the hero while feeding, and no next side until nothing is running", async () => {
   const b = setup();
   await mount();

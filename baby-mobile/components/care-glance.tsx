@@ -51,7 +51,8 @@ export function CareGlance({ child, rows, now, running, timeZone, sides = true }
         </Text> : <Copy kind="heading">No recent feed</Copy>}
       <Copy numeric kind="small" tone="muted">{side ? `Started ${friendlyTime(running!.started_at, now, timeZone)}${overdue ? ` · ${runningFor} ago` : ""}` : detail}</Copy>
     </View>
-    {!!next && <View style={{ gap: 2, alignItems: stacked ? "flex-start" : "flex-end", paddingLeft: stacked ? 0 : 14,
+    {/* At most half the row, so its caption never squeezes "Last fed" out of sight. */}
+    {!!next && <View style={{ gap: 2, alignItems: stacked ? "flex-start" : "flex-end", paddingLeft: stacked ? 0 : 14, flexShrink: 1, maxWidth: stacked ? undefined : "50%",
       borderLeftWidth: stacked ? 0 : 1, borderLeftColor: c.border }}>
       {eyebrow("Next side")}
       <Copy kind="small" tone="muted">Last record only. Follow your care team’s feeding plan.</Copy>
