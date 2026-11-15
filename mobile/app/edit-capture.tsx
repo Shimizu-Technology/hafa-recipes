@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { assertRecipeScope } from '@/lib/recipeQueryScope';
 import { useMemo, useRef } from 'react';
@@ -9,7 +10,7 @@ import type { Recipe } from '@/types/recipe';
 import { Text } from '@/components/Themed';
 
 /** Reuse the canonical component editor only after a definitive validation rejection. */
-export default function EditCaptureScreen() {
+function EditCaptureScreenContent() {
   const authority = useRecipeOwnerGeneration();
   const params = useLocalSearchParams<{ initialData: string; captureId: string; captureOwnerId: string; captureSource: string; isPublic: string; resumeDraft: string; originalPages?: string }>();
   const { userId } = useAuth();
@@ -20,4 +21,8 @@ export default function EditCaptureScreen() {
   if (!ownerId || ownerId !== params.captureOwnerId || JSON.parse(authority)[1] !== ownerId) return <Text>Sign in to the account that owns this draft.</Text>;
   return <EditRecipeForm key={`${authority}:${params.captureId}`} owner={userId} capture={{ id: params.captureId,
     ownerId, recipe, originalPages: params.originalPages ? JSON.parse(params.originalPages) : undefined, resume: params.resumeDraft === 'true', guard: () => { assertRecipeScope(authority); if (current.current !== ownerId) throw new Error('Account changed.'); } }} />;
+}
+
+export default function EditCaptureScreen() {
+  return <PublishingConfirmationProvider><EditCaptureScreenContent /></PublishingConfirmationProvider>;
 }

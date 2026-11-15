@@ -256,3 +256,15 @@ async def test_cached_name_refreshes_after_profile_changes(monkeypatch):
     clock[0] += attribution._NAME_CACHE_TTL + 1
     assert await attribution.resolve_contributor_name(**kwargs) == "Updated Shimizu"
     assert get_user.await_count == 2
+
+
+def test_unnamed_cook_matches_public_page_placeholder():
+    from app.auth import ClerkUser
+
+    cook = ClerkUser(id='stable-owner', clerk_user_id='clerk',
+                     clerk_issuer='https://test.clerk.accounts.dev', clerk_environment='development')
+    assert cook.recipe_display_name == 'A Håfa cook'
+    assert cook.model_copy(update={'email': 'private@example.test'}).recipe_display_name == 'A Håfa cook'
+    assert cook.model_copy(update={'attribution_name': ' A chef '}).recipe_display_name == 'A Håfa cook'
+    assert 'a håfa cook' in attribution.PLACEHOLDER_NAMES
+    assert cook.model_copy(update={'first_name': 'Tasi', 'last_name': 'Cruz'}).recipe_display_name == 'Tasi Cruz'

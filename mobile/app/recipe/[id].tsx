@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { RecipeIngredientGroup } from '@/components/RecipeIngredientGroup';
 import { RecipeDetailAction, RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
@@ -140,7 +141,7 @@ function SimilarRecipeCard({
 }
 
 /** Render a complete recipe and its connected cooking actions. */
-export default function RecipeDetailScreen() {
+function RecipeDetailScreenRoute() {
   const generation = useRecipeOwnerGeneration();
   return <RecipeDetailScreenContent key={generation} />;
 }
@@ -609,8 +610,8 @@ function RecipeDetailScreenContent() {
         const detail = error?.response?.data?.detail;
         if (error?.response?.status === 409 && detail?.code === 'RECIPE_REVIEW_REQUIRED') {
           Alert.alert(
-            'Review before sharing',
-            detail.message || 'Complete and review this recipe before sharing it to Discover.',
+            'Review before publishing',
+            detail.message || 'Complete and review this recipe before publishing it to Discover.',
             [
               { text: 'Not now', style: 'cancel' },
               { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
@@ -618,16 +619,16 @@ function RecipeDetailScreenContent() {
           );
           return;
         }
-        Alert.alert('Couldn’t update sharing', 'Your recipe’s visibility didn’t change. Please try again.');
+        Alert.alert('Couldn’t change visibility', 'Your recipe’s visibility didn’t change. Please try again.');
       }
     };
 
     if (recipe.is_public) {
       Alert.alert(
         'Review public recipe',
-        `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private means people who saved it will no longer be able to open it.`,
+        `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private means people who saved it will no longer be able to open it. Public links you’ve sent will stop opening. Previews already in chats may still show the title and photo.`,
         [
-          { text: 'Keep shared', style: 'cancel' },
+          { text: 'Keep public', style: 'cancel' },
           { text: 'Make private', style: 'destructive', onPress: updateSharing },
         ],
       );
@@ -2004,3 +2005,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 });
+
+export default function RecipeDetailScreen() {
+  return <PublishingConfirmationProvider><RecipeDetailScreenRoute /></PublishingConfirmationProvider>;
+}

@@ -15,7 +15,7 @@ describe('per-item native share visibility', () => {
     expect(submit).toContain('metadata[\"confirmed\"] = true');
   });
   it('offers labelled, growing choices that update only the captured receipt', () => {
-    expect(controller).toContain('["Private", "Share to Discover"]');
+    expect(controller).toContain('["Private", "Public in Discover"]');
     expect(controller).toContain('heightAnchor.constraint(greaterThanOrEqualToConstant: 48)');
     expect(controller).toContain('choice.titleLabel?.numberOfLines = 0');
     const choice = controller.split('@objc private func changeCaptureVisibility')[1].split('private func showCaptureConfirmation')[0];

@@ -1,3 +1,4 @@
+vi.mock('@/contexts/PublishingConfirmation', () => ({ PublishingConfirmationProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => JSON.stringify(['subject', mocks.ownerId, 'fixture', 0]) }));
 vi.mock('@/hooks/useRecipeQuery', async () => {
   const query = await import('@tanstack/react-query');

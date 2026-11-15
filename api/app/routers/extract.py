@@ -624,7 +624,7 @@ async def extract_recipe(
             extraction_quality=extraction_result.extraction_quality,
             has_audio_transcript=False,
             user_id=user.id,
-            extractor_display_name=user.display_name,
+            extractor_display_name=user.recipe_display_name,
             is_public=request.is_public,
             total_minutes=_compute_total_minutes(extracted_recipe),
         )
@@ -698,7 +698,7 @@ async def extract_recipe(
         extraction_quality=extraction_result.extraction_quality,
         has_audio_transcript=extraction_result.has_audio_transcript,
         user_id=user.id,  # Assign to current user
-        extractor_display_name=user.display_name,  # Store display name for attribution
+        extractor_display_name=user.recipe_display_name,  # Store display name for attribution
         is_public=request.is_public,
         total_minutes=_compute_total_minutes(extracted_recipe),
     )
@@ -787,7 +787,7 @@ async def start_extraction_job(
                 location=request.location,
                 notes=request.notes,
                 is_public=request.is_public,
-                display_name=user.display_name,
+                display_name=user.recipe_display_name,
             )
             return {
                 "job_id": str(idempotent_job.id),
@@ -843,7 +843,7 @@ async def start_extraction_job(
                 location=request.location,
                 notes=request.notes,
                 is_public=request.is_public,
-                display_name=user.display_name,
+                display_name=user.recipe_display_name,
             )
             return {
                 "job_id": str(existing_job.id),
@@ -866,7 +866,7 @@ async def start_extraction_job(
         status="queued",
         job_kind="extract",
         requested_is_public=request.is_public,
-        requested_display_name=user.display_name,
+        requested_display_name=user.recipe_display_name,
         idempotency_key=idempotency_key,
         progress=0,
         current_step="queued",
@@ -899,7 +899,7 @@ async def start_extraction_job(
                     location=request.location,
                     notes=request.notes,
                     is_public=request.is_public,
-                    display_name=user.display_name,
+                    display_name=user.recipe_display_name,
                 )
                 return {
                     "job_id": str(idempotent_job.id),
@@ -930,7 +930,7 @@ async def start_extraction_job(
             location=request.location,
             notes=request.notes,
             is_public=request.is_public,
-            display_name=user.display_name,
+            display_name=user.recipe_display_name,
         )
         return {
             "job_id": str(raced_job.id),
@@ -953,7 +953,7 @@ async def run_extraction_job(
     location: str,
     notes: str,
     user_id: str,  # User ID for the recipe
-    user_display_name: str = "A chef",  # Display name for attribution
+    user_display_name: str = "A Håfa cook",  # Display name for attribution
     is_public: bool = False,  # Private unless the user explicitly publishes it
     lease_token: str | None = None,
 ):
@@ -1485,7 +1485,7 @@ async def save_failed_extraction_as_draft(
         extraction_quality="low",
         has_audio_transcript=False,
         user_id=user.id,
-        extractor_display_name=user.display_name,
+        extractor_display_name=user.recipe_display_name,
         is_public=False,
         total_minutes=None,
     )
@@ -1697,7 +1697,7 @@ async def start_re_extraction_job(
         status="queued",
         job_kind="reextract",
         target_recipe_id=recipe_id,
-        requested_display_name=user.display_name,
+        requested_display_name=user.recipe_display_name,
         requested_is_public=recipe.is_public,
         idempotency_key=idempotency_key,
         progress=0,

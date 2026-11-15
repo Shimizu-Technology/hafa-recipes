@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ClerkEnvironment, get_settings
-from app.contributor_attribution import resolve_contributor_name
+from app.contributor_attribution import PLACEHOLDER_NAMES, resolve_contributor_name
 from app.db import get_db
 from app.deletion_cleanup import hash_auth_identity
 from app.models.deletion import DeletedAuthIdentity
@@ -68,6 +68,11 @@ class ClerkUser(BaseModel):
         if self.attribution_name:
             return self.attribution_name
         return "A chef"
+
+    @property
+    def recipe_display_name(self) -> str:
+        name = " ".join(part.strip() for part in (self.first_name, self.last_name) if part and part.strip()) or (self.attribution_name or "").strip()
+        return name if name and name.lower() not in PLACEHOLDER_NAMES and "@" not in name else "A Håfa cook"
 
 
 class VerifiedClerkToken(BaseModel):
