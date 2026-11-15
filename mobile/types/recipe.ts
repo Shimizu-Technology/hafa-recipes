@@ -161,6 +161,14 @@ export interface RecipeShareLinkStatus {
   created_at: string | null;
 }
 
+/** A recipe with an active unlisted link (GET /api/recipes/share-links). Never includes the link. */
+export interface RecipeShareLinkSummary {
+  recipe_id: string;
+  title: string;
+  thumbnail_url: string | null;
+  created_at: string;
+}
+
 export interface PaginatedRecipes {
   items: RecipeListItem[];
   total: number;

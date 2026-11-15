@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { api } from '@/lib/api';
 import { forgetRecipeLink, readStoredRecipeLink, storeRecipeLink, type StoredRecipeLink } from '@/lib/recipeLinkStore';
 import { useRecipeMutation as useMutation, useRecipeQuery as useQuery, useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
-import type { RecipeListItem, RecipeShareLinkStatus } from '@/types/recipe';
+import type { RecipeShareLinkStatus } from '@/types/recipe';
 
 export const recipeShareLinkKeys = {
   all: ['recipeShareLink'] as const,
@@ -78,38 +78,21 @@ export function useRecipeShareLink(recipeId: string, enabled: boolean) {
   };
 }
 
-export type ActiveRecipeLink = { recipe: RecipeListItem; createdAt: string | null };
+export type ActiveRecipeLink = { recipe: { id: string; title: string; thumbnail_url: string | null }; createdAt: string | null };
 
-async function mapLimit<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await run(items[index]);
-    }
-  }));
-  return results;
-}
+const LINKS_PAGE = 100;
 
-/**
- * Settings › Sharing links. The API has a per-recipe status endpoint only, so this checks each of the
- * owner's recipes a few at a time. A list endpoint would replace this (reported as an API gap).
- */
+/** Settings › Sharing links: every recipe the owner has an active link for, public or private, newest first. */
 export async function findActiveRecipeLinks(): Promise<ActiveRecipeLink[]> {
-  const owned: RecipeListItem[] = [];
-  for (let offset = 0; ; ) {
-    const page = await api.getRecipes(100, offset);
-    owned.push(...page.items.filter(item => item.is_owner !== false));
-    offset += page.items.length;
-    if (!page.has_more || page.items.length === 0) break;
+  const links: ActiveRecipeLink[] = [];
+  for (let offset = 0; ; offset += LINKS_PAGE) {
+    const page = await api.listRecipeShareLinks(LINKS_PAGE, offset);
+    links.push(...page.map(link => ({
+      recipe: { id: link.recipe_id, title: link.title, thumbnail_url: link.thumbnail_url },
+      createdAt: link.created_at,
+    })));
+    if (page.length < LINKS_PAGE) return links;
   }
-  const statuses = await mapLimit(owned, 4, recipe => api.getRecipeShareLink(recipe.id)
-    .then(status => ({ recipe, status }), error => {
-      if (httpStatus(error) === 404) return { recipe, status: { active: false, created_at: null } };
-      throw error;
-    }));
-  return statuses.filter(({ status }) => status.active).map(({ recipe, status }) => ({ recipe, createdAt: status.created_at }));
 }
 
 export function useActiveRecipeLinks(enabled: boolean) {

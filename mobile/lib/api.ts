@@ -42,6 +42,7 @@ import {
   DayMeals,
   WeekPlan,
   RecipeShareLinkStatus,
+  RecipeShareLinkSummary,
 } from '../types/recipe';
 import type {
   AppealCreatePayload,
@@ -506,6 +507,12 @@ class ApiClient {
     const { data } = await this.client.post(`/api/recipes/${id}/share-link`, undefined, { timeout: 15_000 });
     if (typeof data?.url !== 'string' || !data.url.startsWith('https://')) throw new Error('The link wasn’t created. Please try again.');
     return { url: data.url };
+  }
+
+  /** Owner only: one page of recipes with an active unlisted link, newest first. */
+  async listRecipeShareLinks(limit = 100, offset = 0): Promise<RecipeShareLinkSummary[]> {
+    const { data } = await this.client.get('/api/recipes/share-links', { params: { limit, offset }, timeout: 15_000 });
+    return Array.isArray(data) ? data : [];
   }
 
   async revokeRecipeShareLink(id: string): Promise<void> {

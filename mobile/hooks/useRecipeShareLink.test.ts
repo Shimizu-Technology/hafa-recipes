@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ getRecipes: vi.fn(), status: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { getRecipes: m.getRecipes, getRecipeShareLink: m.status, getAuthScope: () => ({ userId: 'user_a' }) } }));
+const m = vi.hoisted(() => ({ list: vi.fn(), status: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: { listRecipeShareLinks: m.list, getRecipeShareLink: m.status, getAuthScope: () => ({ userId: 'user_a' }) } }));
 vi.mock('@/hooks/useRecipeQuery', () => ({ useRecipeQuery: vi.fn(), useRecipeMutation: vi.fn(), useRecipeQueryClient: vi.fn() }));
 vi.mock('expo-secure-store', () => ({ WHEN_UNLOCKED_THIS_DEVICE_ONLY: 1, getItemAsync: vi.fn(), setItemAsync: vi.fn(), deleteItemAsync: vi.fn() }));
 
 import { findActiveRecipeLinks, usableStoredLink } from './useRecipeShareLink';
 
-const item = (id: string, is_owner = true) => ({ id, title: id, is_owner }) as any;
+const summary = (id: string) => ({ recipe_id: id, title: `Recipe ${id}`, thumbnail_url: null, created_at: `2026-11-16T03:00:0${id.length}Z` });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -23,40 +23,29 @@ describe('link kept on this phone', () => {
 });
 
 describe('Settings › Sharing links', () => {
-  it('pages through owned recipes and keeps only those with an active link', async () => {
-    m.getRecipes
-      .mockResolvedValueOnce({ items: [item('a'), item('saved', false), item('b')], has_more: true })
-      .mockResolvedValueOnce({ items: [item('c')], has_more: false });
-    m.status.mockImplementation(async (id: string) => (id === 'b' ? { active: true, created_at: '2026-11-16T03:00:00Z' } : { active: false, created_at: null }));
-    await expect(findActiveRecipeLinks()).resolves.toEqual([{ recipe: item('b'), createdAt: '2026-11-16T03:00:00Z' }]);
-    expect(m.getRecipes).toHaveBeenNthCalledWith(2, 100, 3);
-    expect(m.status.mock.calls.map(([id]) => id).sort()).toEqual(['a', 'b', 'c']);
+  it('reads one list request when everything fits on a page', async () => {
+    m.list.mockResolvedValueOnce([summary('a'), { ...summary('b'), thumbnail_url: 'https://media.test/b.webp' }]);
+    await expect(findActiveRecipeLinks()).resolves.toEqual([
+      { recipe: { id: 'a', title: 'Recipe a', thumbnail_url: null }, createdAt: '2026-11-16T03:00:01Z' },
+      { recipe: { id: 'b', title: 'Recipe b', thumbnail_url: 'https://media.test/b.webp' }, createdAt: '2026-11-16T03:00:01Z' },
+    ]);
+    expect(m.list).toHaveBeenCalledTimes(1);
+    expect(m.list).toHaveBeenCalledWith(100, 0);
+    expect(m.status).not.toHaveBeenCalled();
   });
 
-  it('skips a recipe deleted mid-check but surfaces other failures', async () => {
-    m.getRecipes.mockResolvedValue({ items: [item('gone'), item('b')], has_more: false });
-    m.status.mockImplementation(async (id: string) => {
-      if (id === 'gone') throw { response: { status: 404 } };
-      return { active: true, created_at: null };
-    });
-    await expect(findActiveRecipeLinks()).resolves.toEqual([{ recipe: item('b'), createdAt: null }]);
-    m.status.mockRejectedValue({ response: { status: 503 } });
+  it('pages until a short page', async () => {
+    m.list
+      .mockResolvedValueOnce(Array.from({ length: 100 }, (_, i) => summary(`r${i}`)))
+      .mockResolvedValueOnce([summary('last')]);
+    const links = await findActiveRecipeLinks();
+    expect(links).toHaveLength(101);
+    expect(m.list).toHaveBeenNthCalledWith(2, 100, 100);
+  });
+
+  it('passes a missing-table 503 to the screen, which shows links as unavailable', async () => {
+    m.list.mockRejectedValue({ response: { status: 503 } });
     await expect(findActiveRecipeLinks()).rejects.toEqual({ response: { status: 503 } });
-  });
-
-  it('checks a few recipes at a time', async () => {
-    m.getRecipes.mockResolvedValue({ items: Array.from({ length: 10 }, (_, i) => item(`r${i}`)), has_more: false });
-    let running = 0;
-    let peak = 0;
-    m.status.mockImplementation(async () => {
-      running += 1;
-      peak = Math.max(peak, running);
-      await new Promise(resolve => setTimeout(resolve, 1));
-      running -= 1;
-      return { active: false, created_at: null };
-    });
-    await findActiveRecipeLinks();
-    expect(m.status).toHaveBeenCalledTimes(10);
-    expect(peak).toBeLessThanOrEqual(4);
+    expect(m.status).not.toHaveBeenCalled();
   });
 });

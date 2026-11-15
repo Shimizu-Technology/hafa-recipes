@@ -13,7 +13,7 @@ import { formatLinkCreated } from '@/lib/recipeShare';
 import { appRoutes } from '@/lib/routes';
 import { showToast } from '@/lib/toast';
 
-/** Settings › Sharing links: every private recipe with a link that still opens, each one revocable. */
+/** Settings › Sharing links: every recipe with a private link that still opens, each one revocable. */
 export default function SharingLinksScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -51,7 +51,7 @@ export default function SharingLinksScreen() {
       refreshControl={<RefreshControl refreshing={links.isRefetching} onRefresh={() => void links.refetch()} />}>
       {header}
       <Text style={[styles.intro, { color: colors.textSecondary }]}>
-        Private recipes you’ve sent with a link. Anyone with a link can open that recipe, and none of them appear in Discover.
+        Recipes you’ve sent with a private link. Anyone with one of these links can open the recipe until you turn the link off.
       </Text>
       {links.isLoading ? (
         <RNView style={styles.state}>
