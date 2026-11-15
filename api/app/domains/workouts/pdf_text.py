@@ -5,7 +5,7 @@ import json
 import resource
 import sys
 
-MAX_BYTES = 2 * 1024 * 1024
+MAX_BYTES = 10 * 1024 * 1024
 MAX_PAGES = 30
 MAX_CHARS = 30_000
 
