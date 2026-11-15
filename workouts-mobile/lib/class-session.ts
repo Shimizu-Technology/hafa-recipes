@@ -140,13 +140,15 @@ export const resumePart = (run: ClassRun, workout: Workout, now: number) =>
 /** The person ends the part early (or a for-time part is finished); a capped part keeps its cap end. */
 export const endPart = (run: ClassRun, workout: Workout, now: number) =>
   edit(run, workout, now, (part, block) => {
-    if (part.started_at == null || partEndedAt(part, block, now) != null) return;
+    // During the lead-in there is nothing to end yet; a part ending before its clock starts would end in the future.
+    if (part.started_at == null || part.started_at > now || partEndedAt(part, block, now) != null) return;
     const open = part.pauses.find((p) => p.until == null);
     if (open) open.until = now;
     part.ended_at = Math.max(part.started_at, now);
   });
 export const skipPart = (run: ClassRun, workout: Workout, now: number) =>
-  edit(run, workout, now, (part) => { if (part.ended_at == null) { part.skipped = true; part.ended_at = now; } });
+  // A part that already ended, by the person or at its cap, keeps its result.
+  edit(run, workout, now, (part, block) => { if (partEndedAt(part, block, now) == null) { part.skipped = true; part.ended_at = now; } });
 export const adjustRest = (run: ClassRun, workout: Workout, deltaMs: number, now: number) =>
   edit(run, workout, now, (part, block) => {
     if (partStatus(part, block, now) === "resting_after") part.rest_adjust_ms = (part.rest_adjust_ms ?? 0) + deltaMs;
@@ -174,7 +176,8 @@ export const setRun = (run: ClassRun, workout: Workout, exerciseIndex: number, e
   edit(run, workout, now, (part) => {
     part.runs = { ...part.runs, [exerciseIndex]: { environment, ...(distance != null ? { distance_meters: distance } : {}) } };
   });
-export const isRun = (e: Block["exercises"][number]) => /\b(run|running|jog)\b/i.test(e.name) && e.distance_meters != null;
+/** The API's own run test, so every run it requires Outdoor/Treadmill for gets the choice. */
+export const isRun = (e: Block["exercises"][number]) => /\b(run|running|jog|jogging|treadmill)\b/i.test(e.name) && !!e.distance_meters;
 
 /** Running spans of every part, for `active_intervals`; rests and pauses between them are not active time. */
 export function classIntervals(run: ClassRun, workout: Workout, now: number) {

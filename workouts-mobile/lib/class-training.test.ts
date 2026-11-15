@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
 import { createTrainingStore } from "./training";
-import { buyInDone, endPart, endRest, skipPart, startPart, tapRound, undoTap } from "./class-session";
+import { buyInDone, endPart, endRest, isRun, partStatus, pausePart, resumePart, skipPart, startPart, tapRound, undoTap } from "./class-session";
 import { currentPart, isClassWorkout } from "./class-training";
 import type { ActualSet, Workout } from "./models";
 
@@ -133,5 +133,43 @@ describe("a class draft (Nov 17)", () => {
     expect(again.snapshot().active!.clock_kept_running).toBeUndefined();
     expect(currentPart(again.snapshot().active!.class_run!, w, T0 + 10 * min).status).toBe("running");
     await again.classAct(endRest);
+  });
+  it("won't skip a part that already capped, or end one during its lead-in", async () => {
+    const { store, at, part } = await classStore();
+    await store.classAct(startPart);
+    await store.classAct(endPart, T0 + 1000);
+    expect(store.snapshot().active!.class_run!.parts[0].ended_at).toBeUndefined();
+    at(3000 + 16 * min);
+    await store.classAct(skipPart);
+    expect(store.snapshot().active!.class_run!.parts[0].skipped).toBeUndefined();
+    expect(part()).toMatchObject({ index: 0, status: "resting_after" });
+  });
+  it("keeps undo inside the part on screen", async () => {
+    const { store, at, part } = await classStore();
+    await store.classAct(skipPart); await store.classAct(skipPart);
+    const d = store.snapshot().active!;
+    at(min);
+    await store.log({ ...done(d.steps[d.cursor]), reps: null, duration_seconds: 600 });
+    expect(part().index).toBe(3);
+    // C's last set ended C; once anything in D has changed, undo can't reach back into C.
+    await store.classAct(pausePart, T0 + 2 * min); await store.classAct(resumePart, T0 + 3 * min);
+    await expect(store.undo()).rejects.toThrow("no set to undo in this part");
+    expect(store.snapshot().active!.steps[store.snapshot().active!.cursor].block_id).toBe("d");
+  });
+  it("saves as partial when a set-by-set part ended with sets not logged", async () => {
+    const { store, at } = await classStore();
+    for (let i = 0; i < 2; i++) await store.classAct(startPart).then(() => store.classAct(endPart, T0 + 5000 * (i + 1)));
+    at(30 * min);
+    await store.classAct(endPart); await store.classAct(endPart);
+    await expect(store.finish("completed", undefined, "keep", "general_fitness")).rejects.toThrow("partial");
+  });
+});
+
+describe("runs the API asks Outdoor/Treadmill for", () => {
+  it("matches its names, with a distance", () => {
+    for (const name of ["Run", "Running", "Jog", "Jogging", "Treadmill"]) expect(isRun({ name, distance_meters: 400 })).toBe(true);
+    expect(isRun({ name: "Run", distance_meters: null })).toBe(false);
+    expect(isRun({ name: "Rowing", distance_meters: 500 })).toBe(false);
+    expect(partStatus).toBeDefined();
   });
 });
