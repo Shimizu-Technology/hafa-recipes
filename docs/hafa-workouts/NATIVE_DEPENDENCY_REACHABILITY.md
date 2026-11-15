@@ -739,3 +739,13 @@ Renewed, with why:
 Fresh audit: 11 inherited findings, 7 reviewed advisories, zero critical, zero unexpected. Reviewed whole-lock SHA-256:
 `d13203582bbab24842156098356708deb773f4240126a246efd47c27995ccdd6`. `npm ci`, tests, typecheck, doctor, audit, exports and
 the native bundle check pass on Node 22.22.2. No device journey is claimed.
+
+
+### Expo SDK 57 patch alignment (2026-11-15)
+
+The exact lock review now covers Expo 57.0.33 and its required tooling patches.
+Fingerprint 0.20.16 removes glob; remaining glob copies are patched 14.x.
+Minimatch remains build-only; Router 57.0.31 still uses query-string 7.1.3.
+Existing decoder and wallet reachability assessments and the 2027-01-15 deadline
+remain unchanged. No new advisories are accepted. Native bundle evidence is in
+the alignment PR.

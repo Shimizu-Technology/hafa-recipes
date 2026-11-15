@@ -345,3 +345,14 @@ Fresh native exports contain 2,986 iOS and 3,071 Android sources, select native 
 stream-json, Jayson, Zod, abitype, viem, ox, braces and Solana. Map SHA-256: iOS
 `f44d599104a465c95f2a0091986ab4daff4ae52ba1b7a10b3011d1cb82f90f70`; Android
 `78e65277640392e29462ff19ded9c5dab5840600fae1f3b3619503aa89a89cc4`. No device journey is claimed.
+
+
+### Expo SDK 57 patch alignment (2026-11-15)
+
+Expo 57.0.33 requires updated CLI/config/fingerprint/native-core patches.
+Fingerprint 0.20.16 removes its glob dependency; the remaining glob copies are
+patched 14.x. Minimatch 10.2.6 remains build-only in fingerprint, with the same
+review deadline of 2027-01-15. Router 57.0.31 still declares query-string 7.1.3;
+the existing decoder reachability and acceptance deadline remain unchanged.
+The exact audit snapshot was refreshed for these changes; no new advisory is
+accepted. Native bundle checks are recorded in the alignment PR.
