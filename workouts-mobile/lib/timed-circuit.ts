@@ -12,10 +12,8 @@ export function timedCircuit(workout: Workout): TimedCircuit | null {
   if (block.grouping !== "circuit" || block.rounds != null || !block.exercises.length || hasOnceOnlyMoves(block)) return null;
   const instructions = (workout.notes ?? []).filter((note) => note.trim());
   if (block.execution) {
-    if (block.execution.mode !== "amrap") return null;
-    const { time_cap_seconds } = block.execution;
-    return Number.isInteger(time_cap_seconds) && time_cap_seconds > 0 && time_cap_seconds <= 86400
-      ? { time_cap_seconds, instructions } : null;
+    const cap = amrapFor(block);
+    return cap == null ? null : { time_cap_seconds: cap, instructions };
   }
   if (workout.provenance !== "source" || !["session", "accessory"].includes(workout.kind) ||
     !Number.isInteger(workout.estimated_minutes) || workout.estimated_minutes! < 1 || workout.estimated_minutes! > 1440 ||
@@ -42,6 +40,13 @@ export function timedCircuit(workout: Workout): TimedCircuit | null {
   });
   if (!explicitCap) return null;
   return { time_cap_seconds: workout.estimated_minutes! * 60, instructions };
+}
+
+/** A typed AMRAP part's cap in seconds, or null: the same rules for a single-part workout or a class part. */
+export function amrapFor(block: Workout["blocks"][number]) {
+  if (block.grouping !== "circuit" || block.rounds != null || !block.exercises.length || block.execution?.mode !== "amrap") return null;
+  const { time_cap_seconds } = block.execution;
+  return Number.isInteger(time_cap_seconds) && time_cap_seconds > 0 && time_cap_seconds <= 86400 ? time_cap_seconds : null;
 }
 
 export interface TimedClock {

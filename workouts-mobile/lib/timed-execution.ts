@@ -134,10 +134,14 @@ export const unsetRotation = (execution: TimedFormat, block: Pick<Block, "exerci
 export const trackedIntervalLimit = 100;
 /** A single timed block the player can run, or null. AMRAP stays on its own path. */
 export function timedFormat(workout: Pick<Workout, "kind" | "blocks">): TimedFormat | null {
-  if (workout.kind === "program" || workout.blocks.length !== 1) return null;
-  const block = workout.blocks[0];
+  // The class runner times buy-ins once; this single-part timer would repeat them every round.
+  if (workout.kind === "program" || workout.blocks.length !== 1 || hasOnceOnlyMoves(workout.blocks[0])) return null;
+  return timedFormatFor(workout.blocks[0]);
+}
+/** One part's EMOM, for-time or work/rest clock, or null: the same rules for a single-part workout or a class part. */
+export function timedFormatFor(block: Block): TimedFormat | null {
   const execution = block.execution;
-  if (!isTimedFormat(execution) || !block.exercises.length || hasOnceOnlyMoves(block) || formatError(execution, block)) return null;
+  if (!isTimedFormat(execution) || !block.exercises.length || formatError(execution, block)) return null;
   if (execution.mode === "for_time") return (block.rounds ?? 1) <= trackedIntervalLimit ? execution : null;
   if (unsetRotation(execution, block)) return null;
   if (execution.intervals == null) return isDeathBy(execution, block) ? execution : null;
