@@ -50,6 +50,18 @@ from app.domains.workouts.schemas import (
     WorkoutContent,
 )
 from app.domains.workouts.security import WorkoutsRoute, require_workouts_user
+from app.domains.workouts.session_results import (
+    HEALTH_SUMMARY_SCOPE,
+    HealthSummaryChoice,
+    HeartRateSummary,
+    PartResult,
+    Segment,
+    health_summary_enabled,
+    health_summary_ready,
+    require_summary_permission,
+    validate_intervals,
+    validate_snapshot,
+)
 
 router = APIRouter(prefix="/api/v1/workouts", tags=["workouts"], route_class=WorkoutsRoute)
 User = Annotated[ClerkUser, Depends(require_workouts_user)]
@@ -67,6 +79,7 @@ GrantScope = Literal[
     "health_activity_write",
     "health_body_measurements_read",
     "ai_health_context",
+    "health_workout_summary_store",
 ]
 
 
@@ -86,7 +99,7 @@ class EnrollmentRequest(DomainModel):
 
 
 class EnrollmentResponse(DomainModel):
-    features: list[str] = Field(default_factory=lambda: ["class_parts_v1"])
+    features: list[str] = Field(default_factory=lambda: ["session_results_v1", "class_parts_v1"])
     enrolled: bool
     generation: int | None
     disclosure_version: int = DISCLOSURE_VERSION
@@ -303,7 +316,10 @@ async def replay_creation(db, model, user_id, generation, key, digest):
 
 @router.get("/enrollment", response_model=EnrollmentResponse)
 async def get_enrollment(user: User, db: Database):
-    return enrollment_response(await db.get(WorkoutsMembership, user.id))
+    result = enrollment_response(await db.get(WorkoutsMembership, user.id))
+    if await health_summary_ready(db):
+        result.features.append("health_workout_summary_v1")
+    return result
 
 
 @router.post("/enrollment", response_model=EnrollmentResponse)
@@ -940,6 +956,11 @@ class ActiveInterval(DomainModel):
 
 
 class SessionRequest(DomainModel):
+    heart_rate: HeartRateSummary | None = Field(default=None, exclude_if=lambda v: v is None)
+    results: list[PartResult] = Field(default_factory=list, max_length=100, exclude_if=lambda v: not v)
+    segments: list[Segment] = Field(default_factory=list, max_length=500, exclude_if=lambda v: not v)
+    recorded_on: Literal["phone", "watch"] | None = Field(default=None, exclude_if=lambda v: v is None)
+    apple_workout_uuid: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     client_session_id: UUID
     workout_id: UUID | None = None
     workout_revision: int | None = Field(default=None, strict=True, ge=1)
@@ -952,7 +973,8 @@ class SessionRequest(DomainModel):
     active_seconds: int | None = Field(default=None, strict=True, ge=0, le=86400)
     active_intervals: list[ActiveInterval] = Field(default_factory=list, max_length=100)
     activity_type: (
-        Literal["strength_training", "running", "walking", "basketball", "general_fitness"] | None
+        Literal["strength_training", "running", "walking", "basketball", "general_fitness",
+                "cross_training", "hiit", "functional_strength"] | None
     ) = None
     actuals: list[ActualSet] = Field(default_factory=list, max_length=1000)
     notes: str | None = Field(default=None, max_length=4000)
@@ -997,7 +1019,7 @@ class SessionRequest(DomainModel):
         ]
         if len(set(keys)) != len(keys):
             raise ValueError("Actual set identities must be unique")
-        return self
+        return validate_intervals(self)
 
 
 class SessionResponse(DomainModel):
@@ -1132,6 +1154,10 @@ async def record_session(
         )
     if snapshot is None:
         raise HTTPException(409, "The selected prescription version does not exist")
+    await require_summary_permission(db, user.id, generation, request)
+    validate_snapshot(request, snapshot)
+    if request.segments:
+        content["segments"] = [segment.model_dump(mode="json") for segment in request.segments]
     blocks = {block["id"]: block for block in snapshot["blocks"]}
     for actual in request.actuals:
         block = blocks.get(actual.block_id)
@@ -1214,7 +1240,7 @@ async def update_ai_consent(
 
 
 class GrantRequest(DomainModel):
-    scopes: list[GrantScope] = Field(default_factory=list, max_length=6)
+    scopes: list[GrantScope] = Field(default_factory=list, max_length=7)
 
     @model_validator(mode="after")
     def unique_scopes(self):
@@ -1260,6 +1286,8 @@ async def replace_grants(request: GrantRequest, user: User, db: Database, genera
         ).all()
     )
     wanted = set(request.scopes)
+    if HEALTH_SUMMARY_SCOPE in wanted and not await health_summary_ready(db):
+        raise HTTPException(503, "Heart-rate summary storage is being set up")
     if wanted == previous:
         return await grants_for(db, user.id, generation)
     if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
@@ -1277,6 +1305,60 @@ async def replace_grants(request: GrantRequest, user: User, db: Database, genera
         db.add(WorkoutsGrant(app_user_id=user.id, generation=generation, scope=scope))
     await db.commit()
     return await grants_for(db, user.id, generation)
+
+
+@router.delete("/health-summary-consent")
+async def delete_summary_choice(user: User, db: Database, generation: Generation):
+    """Turn off and delete saved heart-rate summaries, including corrections."""
+    await membership_for(db, user.id, generation=generation, write=True)
+    await db.execute(delete(WorkoutsGrant).where(
+        WorkoutsGrant.app_user_id == user.id, WorkoutsGrant.generation == generation,
+        WorkoutsGrant.scope == HEALTH_SUMMARY_SCOPE))
+    from app.domains.workouts.heart_rate_erasure import heart_rate_erasure_ready
+
+    removed_count = 0
+    if await heart_rate_erasure_ready(db):
+        removed = await db.execute(text("""
+            UPDATE workouts_sessions SET content = public.workouts_without_heart_rate(content)
+            WHERE app_user_id=:owner AND generation=:generation
+                AND content IS DISTINCT FROM public.workouts_without_heart_rate(content)
+        """), {"owner": user.id, "generation": generation})
+        removed_count = removed.rowcount
+    elif await db.scalar(text("""SELECT EXISTS(SELECT 1 FROM workouts_sessions
+        WHERE app_user_id=:owner AND generation=:generation AND (content ? 'heart_rate'
+        OR jsonb_path_exists(content, '$.segments[*].avg_hr') OR jsonb_path_exists(content, '$.segments[*].max_hr')))"""),
+        {"owner": user.id, "generation": generation}):
+        raise HTTPException(503, "Heart-rate summary deletion is being set up")
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user.id, generation)
+    await db.commit()
+    return {"enabled": False, "deleted_sessions": removed_count}
+
+
+@router.get("/health-summary-consent")
+async def get_summary_choice(user: User, db: Database):
+    membership = await membership_for(db, user.id)
+    return {"available": await health_summary_ready(db),
+            "enabled": await health_summary_enabled(db, user.id, membership.generation)}
+
+
+@router.put("/health-summary-consent")
+async def put_summary_choice(request: HealthSummaryChoice, user: User, db: Database, generation: Generation):
+    await membership_for(db, user.id, generation=generation, write=True)
+    available = await health_summary_ready(db)
+    if request.enabled and not available:
+        raise HTTPException(503, "Heart-rate summary storage is being set up")
+    enabled = await health_summary_enabled(db, user.id, generation)
+    if enabled != request.enabled:
+        if request.enabled:
+            db.add(WorkoutsGrant(app_user_id=user.id, generation=generation, scope=HEALTH_SUMMARY_SCOPE))
+        else:
+            await db.execute(delete(WorkoutsGrant).where(
+                WorkoutsGrant.app_user_id == user.id, WorkoutsGrant.generation == generation,
+                WorkoutsGrant.scope == HEALTH_SUMMARY_SCOPE))
+        await db.commit()
+    return {"available": available, "enabled": request.enabled}
 
 
 class ActivityResponse(DomainModel):
