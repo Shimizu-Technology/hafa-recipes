@@ -51,6 +51,8 @@ from app.domains.workouts.source_planning import compose_coach_sources
 from app.grocery_sync import verify_grocery_sync_schema
 from app.job_worker import job_worker
 from app.moderation import verify_moderation_schema
+from app.recipe_links import router as recipe_links_router
+from app.recipe_pages import router as recipe_pages_router
 from app.recipe_source_pages import router as source_pages_router
 from app.request_context import RequestContextMiddleware
 from app.request_limits import PastedTextBodyLimitMiddleware
@@ -150,6 +152,8 @@ app.include_router(workouts_discover_admin_router)
 workout_coach.compose_library_program = compose_coach_sources
 app.include_router(admin_router)
 app.include_router(recipes_router)
+app.include_router(recipe_links_router)
+app.include_router(recipe_pages_router)
 app.include_router(source_pages_router)
 app.include_router(extract_router)
 app.include_router(grocery_router)

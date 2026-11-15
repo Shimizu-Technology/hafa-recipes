@@ -28,8 +28,9 @@ ACTIVE_MIGRATIONS = (
     "migrations.033_add_nutrition_backfill_audit",
     "migrations.053_add_planned_servings",
     "migrations.054_add_recipe_source_pages",
+    "migrations.062_add_recipe_share_links",
 )
-LATEST_MIGRATION = 54
+LATEST_MIGRATION = 62
 OPTIONAL_MIGRATIONS = (
     "migrations.034_add_workouts_domain",
     "migrations.035_add_workouts_automation",
