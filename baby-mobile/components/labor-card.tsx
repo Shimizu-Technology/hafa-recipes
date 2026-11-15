@@ -36,13 +36,16 @@ export function LaborCard({ child, today, running, week }: { child: Child | null
   async function tell(to: string[] | "parents") {
     if (!child || !to.length || sending.current) return;
     sending.current = true;
-    const id = Crypto.randomUUID(), who = to === "parents" ? "Your partner" : recipientWords(members ?? [], to);
+    const id = Crypto.randomUUID(), who = to === "parents" ? "Your partner" : recipientWords(members ?? [], to),
+      // Only the partner button says "Told …": telling Grandma mustn't relabel the button that tells Leon.
+      partner = to === "parents" || to === partners;
     try {
       await b.commit((s) => queueNews(s, { id, news: "labor", child_id: child.id, to: to === "parents" ? [] : to, ...(to === "parents" ? { parents: true } : {}),
         queued_at: new Date().toISOString(), hold_until: new Date(Date.now() + undoWindow(false)).toISOString() }));
       tap("success");
-      setTold(who); setChoosing(false); setPicked([]);
-      toast(`${who} will get a notification${to === "parents" ? " once you’re back online" : ""}.`, { label: "Undo", onPress: () => void b.commit((s) => withoutNews(s, id)).then(() => setTold("")) });
+      if (partner) setTold(who);
+      setChoosing(false); setPicked([]);
+      toast(`${who} will get a notification${to === "parents" ? " once you’re back online" : ""}.`, { label: "Undo", onPress: () => void b.commit((s) => withoutNews(s, id)).then(() => { if (partner) setTold(""); }) });
     } catch { toast("That couldn’t be kept on this phone. Try again."); }
     finally { sending.current = false; }
   }

@@ -63,6 +63,9 @@ it("adds Grandma when she chooses to", async () => {
   await act(async () => { all("Choice")[0].props.onPress(); });
   await act(async () => { await button("Tell Grandma")!.props.onPress(); });
   expect(m.baby.state.pendingNews[0].to).toEqual(["nana"]);
+  // The partner button still says what it does: it tells Leon, and Leon hasn't been told.
+  expect(button("Tell Leon")).toBeTruthy();
+  expect(button("Told Grandma. Tell again")).toBeUndefined();
 });
 it("names 5-1-1 only from 37 weeks, as a source's guidance with her provider first", async () => {
   await mount(expecting, 36);
