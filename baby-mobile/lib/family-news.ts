@@ -40,6 +40,12 @@ export const tellable = (members: readonly FamilyMember[], me: string | null | u
  */
 export const defaultRecipients = (members: readonly FamilyMember[], me: string | null | undefined, about: string | null) =>
   about === null ? [] : tellable(members, me).filter((member) => member.role === "parent" && member.app_user_id !== about).map((member) => member.app_user_id);
+/**
+ * "Tell your partner" with no signal, resolved as it goes: the other parents of whoever pressed it, unless the family
+ * has confirmed someone else is expecting. A guess never decides it: a guess naming Leon on Kami's phone still tells Leon.
+ */
+export const partnersFor = (members: readonly FamilyMember[], me: string | null | undefined, child: Parameters<typeof statedExpecting>[0]) =>
+  defaultRecipients(members, me, statedExpecting(child) ?? me ?? null);
 export const memberName = (member: FamilyMember) => member.display_name.trim() || (member.role === "parent" ? "Your partner" : "Family member");
 
 export const together = (names: string[]) => names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;

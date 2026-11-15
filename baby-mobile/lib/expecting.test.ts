@@ -15,10 +15,13 @@ describe("who's expecting", () => {
     expect(expectingFor(kid("kami", true), "leon", { inFamily: true, members: family })).toEqual({ id: "kami", ask: false });
     expect(expectingFor(kid("kami", true), "kami", { inFamily: true, members: family })).toEqual({ id: "kami", ask: false });
   });
-  it("an unconfirmed guess of someone else stands; of yourself, you're asked", () => {
-    expect(expectingFor(kid("kami", false), "leon", { inFamily: true, members: family })).toEqual({ id: "kami", ask: false });
-    // Leon added the pregnancy for Kami: the API guessed him. His phone asks.
+  it("an unconfirmed guess settles nothing while there's another parent: every parent's phone asks", () => {
+    expect(expectingFor(kid("kami", false), "leon", { inFamily: true, members: family })).toEqual({ id: null, ask: true });
+    // Leon added the pregnancy for Kami, so the API guessed him: his phone asks, and so does hers. Never "Leon's contractions".
     expect(expectingFor(kid("leon", false), "leon", { inFamily: true, members: family })).toEqual({ id: null, ask: true });
+    expect(expectingFor(kid("leon", false), "kami", { inFamily: true, members: family })).toEqual({ id: null, ask: true });
+    // With no signal on her phone: nothing guessed, and nothing asked until the family can be read.
+    expect(expectingFor(kid("leon", false), "kami", { inFamily: true, members: null })).toEqual({ id: null, ask: false });
   });
   it("nothing said, or someone no longer a parent here: asked", () => {
     expect(expectingFor(kid(undefined), "leon", { inFamily: true, members: family })).toEqual({ id: null, ask: true });
@@ -34,8 +37,8 @@ describe("who's expecting", () => {
     expect(expectingFor(kid(undefined, false, "2026-12-08"), "leon", { inFamily: true, members: family })).toEqual({ id: null, ask: false });
   });
   it("with only the profile to go on", () => {
-    expect(statedExpecting(kid("kami", false), "leon")).toBe("kami");
-    expect(statedExpecting(kid("kami", false), "kami")).toBeNull();
-    expect(statedExpecting(kid("kami", true), "kami")).toBe("kami");
+    expect(statedExpecting(kid("kami", false))).toBeNull();
+    expect(statedExpecting(kid("leon", false))).toBeNull();
+    expect(statedExpecting(kid("kami", true))).toBe("kami");
   });
 });

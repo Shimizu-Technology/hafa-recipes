@@ -730,19 +730,22 @@ export function Choice({
   selected,
   onPress,
   disabled,
+  radio = false,
 }: {
   label: string;
   detail?: string;
   selected: boolean;
   onPress: () => void;
   disabled?: boolean;
+  /** One answer from a few: VoiceOver says "radio button" and "selected", and it's drawn as a circle. */
+  radio?: boolean;
 }) {
   const c = useColors();
   return (
     <PressTarget
-      accessibilityRole="checkbox"
+      accessibilityRole={radio ? "radio" : "checkbox"}
       accessibilityLabel={[label, detail].filter(Boolean).join(". ")}
-      accessibilityState={{ checked: selected, disabled }}
+      accessibilityState={radio ? { selected, disabled } : { checked: selected, disabled }}
       onPress={() => {
         tap();
         onPress();
@@ -757,7 +760,7 @@ export function Choice({
         opacity: on ? 0.6 : disabled ? 0.5 : 1,
       })}
     >
-      <Icon name={selected ? "checkbox" : "square-outline"} color={selected ? c.action : c.muted} />
+      <Icon name={radio ? (selected ? "radio-button-on" : "radio-button-off") : selected ? "checkbox" : "square-outline"} color={selected ? c.action : c.muted} />
       <View style={{ flex: 1, gap: 3 }}>
         <Copy>{label}</Copy>
         {detail && (

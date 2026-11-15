@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, NotBornYet } from "./api";
 import { birthParts, birthWrite, gramsFrom, welcome } from "./birth";
-import { defaultRecipients, deliveredWords, newsAvailable, queueNews, readyToSend, recipientWords, sendPending, skippedWords, tellable, type FamilyNow } from "./family-news";
+import { defaultRecipients, deliveredWords, newsAvailable, partnersFor, queueNews, readyToSend, recipientWords, sendPending, skippedWords, tellable, type FamilyNow } from "./family-news";
 import { newsAskFor } from "./news-ask";
 import { birthExtrasPending, withPendingBirths } from "./outbox";
 import { emptyState, type Child, type DeviceState } from "./models";
@@ -178,16 +178,26 @@ describe("asking her partner's phone, once", () => {
   const kids = (expecting_member?: string, birth_date: string | null = null) => [{ ...baby, birth_date, details: { expecting_member, expecting_confirmed: false } }];
   const state = (over: Record<string, unknown> = {}) => ({ ...emptyState(), bootstrap: { generation: 1, children: kids("kami"), people: { kami: "Kami", leon: "Leon" },
     reminders: { push: true, family_news: true }, spaces: [{ id: "fam", kind: "family", role: "parent" }] }, ...over }) as unknown as DeviceState;
-  it("names who'll tell them, on Leon's phone before the birth", () => {
-    expect(newsAskFor(state(), "leon")).toEqual({ name: "Kami", reason: "So Kami can tell you the moment labor starts, even with Håfa Baby closed." });
+  it("names who'll tell them, on Leon's phone before the birth, once the family has said it's Kami", () => {
+    const said = state();
+    said.bootstrap!.children = [{ ...baby, details: { expecting_member: "kami", expecting_confirmed: true } }];
+    expect(newsAskFor(said, "leon")).toEqual({ name: "Kami", reason: "So Kami can tell you the moment labor starts, even with Håfa Baby closed." });
+    // A guess isn't enough to name her: "So Leon can tell you…" on Kami's phone must never happen.
+    expect(newsAskFor(state(), "leon")).toBeNull();
+    const leonGuessed = state();
+    leonGuessed.bootstrap!.children = kids("leon");
+    expect(newsAskFor(leonGuessed, "kami")).toBeNull();
   });
   it("isn't asked of her, after the birth, twice, or with family news off", () => {
-    expect(newsAskFor(state(), "kami")).toBeNull();
-    expect(newsAskFor(state({ newsAskSeen: true }), "leon")).toBeNull();
-    const born = state();
-    born.bootstrap!.children = kids("kami", "2026-12-08");
-    expect(newsAskFor(born, "leon")).toBeNull();
-    expect(newsAskFor(state({ reminderPrefs: { quiet_hours: null, kinds: { family_news: { enabled: false } } } }), "leon")).toBeNull();
+    const said = (over: Record<string, unknown> = {}, birth_date: string | null = null) => {
+      const one = state(over);
+      one.bootstrap!.children = [{ ...baby, birth_date, details: { expecting_member: "kami", expecting_confirmed: true } }];
+      return one;
+    };
+    expect(newsAskFor(said(), "kami")).toBeNull();
+    expect(newsAskFor(said({ newsAskSeen: true }), "leon")).toBeNull();
+    expect(newsAskFor(said({}, "2026-12-08"), "leon")).toBeNull();
+    expect(newsAskFor(said({ reminderPrefs: { quiet_hours: null, kinds: { family_news: { enabled: false } } } }), "leon")).toBeNull();
     // Nobody has said who's expecting: that's asked on the labor and birth screens first.
     const unknown = state();
     unknown.bootstrap!.children = kids(undefined);
@@ -309,12 +319,30 @@ describe("the screen", () => {
     expect(all("ExpectingAsk")).toHaveLength(0);
     expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Leon", true], ["Grandma", false]]);
   });
-  it("on Leon's phone, an unconfirmed guess of Kami is taken as hers, so he isn't asked", async () => {
+  it("on Leon's phone, an unconfirmed guess of Kami is still a guess: he's asked too, and nobody is ticked", async () => {
     m.baby.owner = "leon";
     m.baby.state.bootstrap.children = [{ ...baby, details: { expecting_member: "kami", expecting_confirmed: false } }];
     await mount();
-    expect(all("ExpectingAsk")).toHaveLength(0);
+    expect(all("ExpectingAsk")).toHaveLength(1);
     expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Kami", false], ["Grandma", false]]);
+  });
+  it("Leon added the pregnancy (the API guessed him): on Kami's phone she's asked, and Leon isn't treated as expecting", async () => {
+    m.baby.state.bootstrap.children = [{ ...baby, details: { expecting_member: "leon", expecting_confirmed: false } }];
+    await mount();
+    expect(all("ExpectingAsk")).toHaveLength(1);
+    // Leon listed, not ticked until she says, and not hidden as "the one in labor".
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Leon", false], ["Grandma", false]]);
+  });
+  it("the same, with no signal: \"Your partner\" is offered, and goes to Leon when it's sent", async () => {
+    const leonGuessed = { ...baby, details: { expecting_member: "leon", expecting_confirmed: false } } as Child;
+    m.baby.state.bootstrap.children = [leonGuessed];
+    m.baby.api.familyMembers = vi.fn(async () => { throw new ApiError("offline", 0, true); });
+    await mount();
+    expect(all("Choice").map((c) => [c.props.label, c.props.selected])).toEqual([["Your partner", true]]);
+    await save();
+    expect(m.baby.state.pendingNews).toMatchObject([{ news: "birth", parents: true }]);
+    // What the runner resolves "your partner" to once it can read the family: Leon, not "No one else is in your family".
+    expect(partnersFor(people, "kami", leonGuessed)).toEqual(["leon"]);
   });
   it("lists Leon above Grandma whatever order the family comes in", async () => {
     m.baby.api.familyMembers = vi.fn(async () => ({ items: [people[2], people[0], people[1]] }));
