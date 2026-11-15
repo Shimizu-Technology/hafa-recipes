@@ -3,11 +3,11 @@
 from datetime import timedelta
 from uuid import uuid4
 
-from sqlalchemy import update
+from sqlalchemy import delete, update
 
 from app.domains.baby.family_news import clock_words
 from app.domains.baby.lifecycle import now
-from app.domains.baby.models import BabyNotification
+from app.domains.baby.models import BabyNotification, BabyPushDevice
 from app.domains.baby.reminders import LOCK_SCREEN
 from tests import test_baby_family_records as records
 from tests import test_baby_push_family as push_family
@@ -128,6 +128,32 @@ async def test_on_unless_turned_off_and_gone_after_a_day(family):
             {"expires_at": (now() - timedelta(minutes=1)).isoformat()})))
         await db.commit()
     assert await due(family, "other", family.space) == []
+
+
+async def test_the_sender_learns_who_gets_a_notification_and_nothing_else(family):
+    child = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
+    async with family.sessions() as db:
+        await db.execute(delete(BabyPushDevice).where(BabyPushDevice.app_user_id == "sitter"))
+        await db.commit()
+    same = str(uuid4())
+    response = await tell(family, child, ["other", "sitter"], id=same)
+    assert response.status_code == 200, response.text
+    # Yes or no per person: no tokens, phones or settings.
+    assert response.json()["push"] == {"other": True, "sitter": False}
+    # Turned off counts as no phone, and a retry answers as things are now.
+    await family.client.patch(PREFS, headers=records.headers(family.other_personal, "other", 1),
+                              json={"kinds": {"family_news": {"enabled": False}}})
+    again = await tell(family, child, ["other", "sitter"], id=same)
+    assert again.status_code == 200, again.text
+    assert again.json()["push"] == {"other": False, "sitter": False}
+
+
+async def test_everyone_in_the_family_can_see_who_is_expecting(family):
+    child = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
+    assert child["created_by"] == "owner"
+    # On her partner's phone, so the labor card never offers to tell her.
+    seen = await family.client.get(API + "/bootstrap", headers=records.headers(family.space, "other", 1))
+    assert [kid["created_by"] for kid in seen.json()["children"] if kid["id"] == child["id"]] == ["owner"]
 
 
 async def test_bootstrap_says_the_api_can_send_it(family):

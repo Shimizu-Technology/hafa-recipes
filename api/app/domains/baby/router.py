@@ -112,7 +112,9 @@ def child_response(row, access=None):
         "revision": row.revision,
     }
     if getattr(access, "enabled", False) and access.client == "3":
-        result.update(space_id=str(row.space_id), generation=row.generation)
+        # Who added it, which for a pregnancy is the person expecting: news of her labor is never offered back to her.
+        # Kept when the baby moves into a family. Members already see each other's names, so this adds nothing new.
+        result.update(space_id=str(row.space_id), generation=row.generation, created_by=row.app_user_id)
     return result
 
 

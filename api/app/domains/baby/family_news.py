@@ -21,8 +21,8 @@ from sqlalchemy import func, select
 
 from app.domains.baby.dependencies import Client, Database, User
 from app.domains.baby.lifecycle import now
-from app.domains.baby.models import BabyChild, BabyMembership, BabyNotification, BabySpaceMember
-from app.domains.baby.push import available
+from app.domains.baby.models import BabyChild, BabyMembership, BabyNotification, BabyPushDevice, BabySpaceMember
+from app.domains.baby.push import available, load_prefs
 from app.domains.baby.reminders import (
     LOCK_SCREEN,
     RESOLVERS,
@@ -47,6 +47,17 @@ class FamilyNews(DomainModel):
     news: Literal["labor", "birth"]
     child_id: UUID
     to: list[str] = Field(min_length=1, max_length=20)
+
+
+async def will_buzz(db, people):
+    """Whether each person's phone will show it: a phone signed in with notifications allowed, and the news not
+    turned off. Only yes or no, so the sender learns nothing about anyone's phones but what to tell them."""
+    phones = set(await db.scalars(select(BabyPushDevice.app_user_id).where(
+        BabyPushDevice.app_user_id.in_(people), BabyPushDevice.enabled.is_(True))))
+    spaces = dict((await db.execute(select(BabyMembership.app_user_id, BabyMembership.personal_space_id).where(
+        BabyMembership.app_user_id.in_(people)))).all())
+    return {person: person in phones and (await load_prefs(db, person, spaces.get(person))).kind(KIND).enabled
+            for person in people}
 
 
 async def active_members(db, space_id):
@@ -78,7 +89,7 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
                    and row.payload.get("from") == user.id for row in prior)
         if not same or {row.app_user_id for row in prior} != set(recipients):
             raise HTTPException(409, "This news was already sent with different details")
-        return {"id": str(body.id), "sent_to": recipients}
+        return {"id": str(body.id), "sent_to": recipients, "push": await will_buzz(db, recipients)}
     sent = await db.scalar(select(func.count(func.distinct(BabyNotification.payload["news_id"].astext))).where(
         BabyNotification.kind == KIND, BabyNotification.payload["from"].astext == user.id,
         BabyNotification.created_at > now() - timedelta(hours=1),
@@ -92,7 +103,7 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
         await schedule(db, owner=person, space_id=child.space_id, kind=KIND, key=str(body.id), due_at=moment, payload=payload)
     await db.commit()
     baby_push_worker.notify()
-    return {"id": str(body.id), "sent_to": recipients}
+    return {"id": str(body.id), "sent_to": recipients, "push": await will_buzz(db, recipients)}
 
 
 async def news_words(db, row, access, prefs):
