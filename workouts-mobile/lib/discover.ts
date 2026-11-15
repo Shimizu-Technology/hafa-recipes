@@ -3,7 +3,9 @@
  * the screens share. Contract: docs/hafa-workouts/DISCOVER.md.
  */
 import type { AuthoredWorkout, ExercisePrescription, Workout } from "./models";
-import { formatLabel, repPattern, type FormatBlock } from "./timed-execution";
+import { formatLabel, formatSeconds, repPattern, type FormatBlock } from "./timed-execution";
+// Kept here for existing importers; it lives in timed-execution so that module needs nothing from this one.
+export { formatSeconds };
 
 export interface Publication {
   is_public: boolean;
@@ -297,10 +299,6 @@ export function prescriptionLine(e: ExercisePrescription) {
   if (e.tempo) parts.push(`Tempo ${e.tempo}`);
   if (e.effort) parts.push(e.effort);
   return parts.join(" · ") || "Details not specified";
-}
-export function formatSeconds(seconds: number) {
-  if (seconds < 60 || seconds % 60) return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
-  return `${seconds / 60} min`;
 }
 
 /** Library's short format name, or null so an older response keeps its minutes. */
