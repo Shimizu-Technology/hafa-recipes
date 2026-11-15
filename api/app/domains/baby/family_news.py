@@ -13,7 +13,7 @@ Unlike every other kind, this one is on for a recipient until they turn it off: 
 family member chose to tell them, and a partner who misses "it's time" because of a default has lost it.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -57,10 +57,11 @@ class FamilyNews(DomainModel):
     to: list[str] = Field(min_length=1, max_length=20)
 
 
-async def will_buzz(db, people, moment):
+async def will_buzz(db, people, moment, expires):
     """Whether each person's phone will show it, and when: a phone signed in with notifications allowed, and the
     news not turned off. "after_quiet_hours" when they've let it wait for quiet hours and it's quiet now, with
-    the time it ends in the second map. Nothing else, so the sender learns only what to tell them."""
+    the time it ends in the second map; no, if those end after the news itself has gone. Nothing else, so the
+    sender learns only what to tell them."""
     phones = set(await db.scalars(select(BabyPushDevice.app_user_id).where(
         BabyPushDevice.app_user_id.in_(people), BabyPushDevice.enabled.is_(True))))
     spaces = dict((await db.execute(select(BabyMembership.app_user_id, BabyMembership.personal_space_id).where(
@@ -72,14 +73,17 @@ async def will_buzz(db, people, moment):
         if person not in phones or not pref.enabled:
             push[person] = False
         elif not pref.break_through and (ends := quiet_until(prefs.quiet_hours, moment)):
-            push[person], after[person] = "after_quiet_hours", ends.isoformat()
+            if ends >= expires:
+                push[person] = False  # Held past the moment it stops being news: it never goes.
+            else:
+                push[person], after[person] = "after_quiet_hours", ends.isoformat()
         else:
             push[person] = True
     return push, after
 
 
-async def answer(db, news_id, sent_to, skipped):
-    push, after = await will_buzz(db, sent_to, now())
+async def answer(db, news_id, sent_to, skipped, expires):
+    push, after = await will_buzz(db, sent_to, now(), expires)
     return {"id": str(news_id), "sent_to": sent_to, "skipped": skipped, "push": push,
             **({"push_after": after} if after else {})}
 
@@ -110,19 +114,21 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
     # Someone who has left since she picked them is left out, and named back so she knows they weren't told.
     recipients = [person for person in picked if person in members]
     skipped = [person for person in picked if person not in members]
-    # A retry is the same news, to the same people, and changes nothing that was sent or when it ends. Anyone
-    # who has left since is named as skipped, rather than the whole retry being refused.
+    # A retry is the same news and changes nothing that was sent or when it ends. Anyone it didn't go to the
+    # first time, who has left since or wasn't picked then, is named as skipped rather than the retry refused.
     prior = list(await db.scalars(select(BabyNotification).where(
         BabyNotification.kind == KIND, BabyNotification.payload["news_id"].astext == str(body.id))))
     if prior:
         same = all(row.payload.get("news") == body.news and row.payload.get("child_id") == str(child.id)
                    and row.payload.get("from") == user.id for row in prior)
         told = {row.app_user_id for row in prior}
-        if not same or not told <= set(picked) or set(recipients) - told:
+        if not same or not told <= set(picked):
             raise HTTPException(409, "This news was already sent with different details")
-        return await answer(db, body.id, [person for person in picked if person in told], [person for person in picked if person not in told])
+        expires = datetime.fromisoformat(prior[0].payload["expires_at"])
+        return await answer(db, body.id, [person for person in picked if person in told],
+                            [person for person in picked if person not in told], expires)
     if not recipients:
-        return await answer(db, body.id, [], skipped)
+        return await answer(db, body.id, [], skipped, now() + STAYS[body.news])
     sent = await db.scalar(select(func.count(func.distinct(BabyNotification.payload["news_id"].astext))).where(
         BabyNotification.kind == KIND, BabyNotification.payload["from"].astext == user.id,
         BabyNotification.created_at > now() - timedelta(hours=1),
@@ -130,13 +136,14 @@ async def send_news(body: FamilyNews, user: User, db: Database, client: Client =
     if sent >= PER_HOUR:
         raise HTTPException(429, {"code": "news_limit", "message": "That's a lot of news this hour. Your family can see it in the app."})
     moment = now()
+    expires = moment + STAYS[body.news]
     payload = {"news_id": str(body.id), "news": body.news, "child_id": str(child.id), "from": user.id,
-               "expires_at": (moment + STAYS[body.news]).isoformat()}
+               "expires_at": expires.isoformat()}
     for person in recipients:
         await schedule(db, owner=person, space_id=child.space_id, kind=KIND, key=str(body.id), due_at=moment, payload=payload)
     await db.commit()
     baby_push_worker.notify()
-    return await answer(db, body.id, recipients, skipped)
+    return await answer(db, body.id, recipients, skipped, expires)
 
 
 async def news_words(db, row, access, prefs):

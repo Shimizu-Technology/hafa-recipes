@@ -91,10 +91,13 @@ async def test_a_retry_is_the_same_news_and_a_stuck_button_is_limited(family):
     assert (await tell(family, child, ["other"], id=same)).status_code == 200
     assert (await tell(family, child, ["other"], id=same)).status_code == 200
     assert len(await rows_of(family, "family_news", "other")) == 1
-    # The same id with other details or other people is refused, and adds no one.
+    # The same id with someone added: still the same news. They weren't told, and are named as skipped.
     changed = await tell(family, child, ["other", "sitter"], id=same)
-    assert changed.status_code == 409
+    assert changed.status_code == 200, changed.text
+    assert (changed.json()["sent_to"], changed.json()["skipped"]) == (["other"], ["sitter"])
     assert await rows_of(family, "family_news", "sitter") == []
+    # Leaving out someone it went to, or other details, is different news under the same id.
+    assert (await tell(family, child, ["sitter"], id=same)).status_code == 409
     assert (await tell(family, child, ["other"], news="birth", id=same)).status_code == 409
     for _ in range(5):
         assert (await tell(family, child, ["other"])).status_code == 200
@@ -200,6 +203,50 @@ async def test_in_quiet_hours_the_sender_learns_when_it_will_come(family):
     # Coming through quiet hours, as it does unless she changed it, it's simply on its way.
     await family.client.patch(PREFS, headers=records.headers(family.other_personal, "other", 1), json={"kinds": {"family_news": {"break_through": True}}})
     assert (await tell(family, child, ["other"])).json()["push"] == {"other": True}
+
+
+async def test_held_past_the_moment_it_stops_being_news_is_reported_as_not_coming(family):
+    child = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
+    # Quiet from an hour ago until 13 hours from now: labor news is only news for 12 hours.
+    start, end = (now() - timedelta(hours=1)).strftime("%H:%M"), (now() + timedelta(hours=13)).strftime("%H:%M")
+    await family.client.patch(PREFS, headers=records.headers(family.other_personal, "other", 1), json={
+        "quiet_hours": {"start": start, "end": end, "timezone": "UTC"}, "kinds": {"family_news": {"break_through": False}}})
+    response = await tell(family, child, ["other"])
+    assert response.json()["push"] == {"other": False}
+    assert "push_after" not in response.json()
+
+
+async def test_who_is_expecting_is_her_creator_until_the_family_says_otherwise(family):
+    expecting = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
+    assert (expecting["details"]["expecting_member"], expecting["details"]["expecting_confirmed"]) == ("owner", False)
+    born = await add_child(family, family.space, name="Leo", birth_date=now().date().isoformat())
+    assert "expecting_member" not in born["details"]
+
+    async def say(actor, details, child=expecting):
+        current = (await family.client.get(API + "/bootstrap", headers=records.headers(family.space, actor, 1))).json()
+        revision = next(kid["revision"] for kid in current["children"] if kid["id"] == child["id"])
+        return await family.client.patch(f"{API}/children/{child['id']}", headers=records.headers(family.space, actor, 1),
+                                         json={"revision": revision, "details": details})
+
+    # Her partner says it's her: stored for everyone, confirmed.
+    confirmed = await say("other", {"expecting_member": "owner", "expecting_confirmed": True})
+    assert confirmed.status_code == 200, confirmed.text
+    seen = await family.client.get(API + "/bootstrap", headers=records.headers(family.space, "owner", 1))
+    [kid] = [kid for kid in seen.json()["children"] if kid["id"] == expecting["id"]]
+    assert (kid["details"]["expecting_member"], kid["details"]["expecting_confirmed"]) == ("owner", True)
+    # Only a parent in this family can be the one expecting.
+    assert (await say("other", {"expecting_member": "sitter"})).status_code == 422
+    assert (await say("other", {"expecting_member": "stranger"})).status_code == 422
+    # Saving something else never trips over it, even after who it names has gone.
+    assert (await say("owner", {"sex": "girl"})).status_code == 200
+
+
+async def test_in_her_personal_space_only_she_can_be_expecting(family):
+    own = await add_child(family, family.owner_personal, due_date=(now() + timedelta(days=20)).date().isoformat())
+    assert own["details"]["expecting_member"] == "owner"
+    refused = await family.client.patch(f"{API}/children/{own['id']}", headers=records.headers(family.owner_personal, "owner", 1),
+                                        json={"revision": own["revision"], "details": {"expecting_member": "other"}})
+    assert refused.status_code == 422
 
 
 async def test_bootstrap_says_the_api_can_send_it(family):
