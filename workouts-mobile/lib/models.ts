@@ -195,6 +195,8 @@ export interface Enrollment {
   adult_confirmed: boolean;
   shared_account_deletion_acknowledged: boolean;
   enrolled_at: string | null;
+  /** Server features this account can use, such as `session_results_v1`; absent on older servers. */
+  features?: string[];
 }
 export interface ActualSet {
   block_id: string;
@@ -230,6 +232,12 @@ export interface SessionRequest {
   actuals: ActualSet[];
   notes?: string | null;
   supersedes_session_id?: string;
+  /** Class scores and splits (API `session_results_v1`); sent only when the account's enrollment lists it. */
+  results?: import("./class-session").PartResult[];
+  segments?: import("./class-session").Segment[];
+  recorded_on?: "phone" | "watch";
+  apple_workout_uuid?: string;
+  heart_rate?: { avg: number; max: number; source: "apple_watch" | "health" };
 }
 export const goalLabels: Record<Goal, string> = {
   general_fitness: "Feel stronger every day",

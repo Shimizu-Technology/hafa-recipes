@@ -1,3 +1,4 @@
+import { withoutResults } from "./class-scores";
 import type { DayProposal } from "@/components/adjust-training";
 import type { ScheduleOnceCommand } from "./schedule-once";
 import { streamCoachRequest } from "./coach-stream";
@@ -1123,7 +1124,9 @@ export function createWorkoutsApi(
       return sessionRecord((await request<SessionEnvelope>(`/sessions/${encodeURIComponent(id)}`)).data);
     },
     async saveSession(body: SessionRequest, generation: number) {
-      return sessionRecord((await request<SessionEnvelope>("/sessions", "POST", body, { generation })).data);
+      // Scores and splits go only to a server that says it takes them; the session never depends on them.
+      const sendable = membership?.features?.includes("session_results_v1") ? body : withoutResults(body);
+      return sessionRecord((await request<SessionEnvelope>("/sessions", "POST", sendable, { generation })).data);
     },
   };
 }

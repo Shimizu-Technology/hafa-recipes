@@ -1,3 +1,4 @@
+vi.mock("@/components/training/score-editor", () => ({ ScoreEditor: "ScoreEditor", CopyForWodUp: "CopyForWodUp" }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

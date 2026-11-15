@@ -1,5 +1,5 @@
 import type { Workout } from "./models";
-import { buyIn, classIntervals, isTimedPart, partKind, partStatus, resolve, type ClassRun, type RunEnvironment } from "./class-session";
+import { buyIn, classIntervals, endPart, endRest, isTimedPart, partKind, partStatus, resolve, skipPart, type ClassRun, type RunEnvironment } from "./class-session";
 import { hasOnceOnlyMoves, isUnknownMode } from "./timed-execution";
 import { visibleRuns } from "./class-view";
 
@@ -69,4 +69,13 @@ export function classActive(run: ClassRun, workout: Workout, now: number) {
   const ms = spans.reduce((sum, s) => sum + (s.ended_at - s.started_at), 0);
   return { intervals: spans.map((s) => ({ started_at: new Date(s.started_at).toISOString(), ended_at: new Date(s.ended_at).toISOString() })),
     seconds: Math.floor(ms / 1000) };
+}
+
+/** "End class": the part on screen ends now, a rest in progress ends, and parts not started are skipped. */
+export function endClass(run: ClassRun, workout: Workout, now: number) {
+  for (let guard = 0; guard < run.parts.length * 3 && !classOver(run, workout, now); guard++) {
+    const { status } = currentPart(run, workout, now);
+    run = status === "resting_after" ? endRest(run, workout, now) : status === "pending" ? skipPart(run, workout, now) : endPart(run, workout, now);
+  }
+  return run;
 }

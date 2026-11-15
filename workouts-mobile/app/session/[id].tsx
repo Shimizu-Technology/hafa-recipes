@@ -12,6 +12,10 @@ import { friendlyDate } from "@/lib/progress-insights";
 import { sessionStatusLabel } from "@/lib/labels";
 import { formatScore } from "@/lib/timed-execution";
 import type { ActualSet } from "@/lib/models";
+import { formatPartScore, type PartResult } from "@/lib/class-session";
+import { partTitle } from "@/lib/class-view";
+import { unsentProblem } from "@/lib/training";
+import { CopyForWodUp, ScoreEditor } from "@/components/training/score-editor";
 type NumericActual = "reps" | "duration_seconds" | "distance_meters" | "load" | "effort";
 export default function SessionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -22,6 +26,11 @@ export default function SessionDetail() {
   const [editing, setEditing] = useState<ActualSet[] | null>(null);
   const [numericDraft, setNumericDraft] = useState<Record<number, Partial<Record<NumericActual, string>>>>({});
   const [notes, setNotes] = useState("");
+  const [scores, setScores] = useState<PartResult[] | null>(null);
+  // Scores the server refused stay on this device; a correction sends them again.
+  const local = offline.state.history.find((h) => h.synced_id === id);
+  const savedScores = q.data?.content.results?.length ? q.data.content.results : local?.unsent_results?.results ?? [];
+  const blockOf = (blockId: string) => q.data!.content.prescription_snapshot.blocks.find((b) => b.id === blockId);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function save() {
@@ -36,7 +45,9 @@ export default function SessionDetail() {
         }
         return result;
       });
-      await offline.store.correct(q.data, actuals, notes, Crypto.randomUUID());
+      const correctionId = Crypto.randomUUID();
+      if (scores?.length) await offline.store.correct(q.data, actuals, notes, correctionId, scores);
+      else await offline.store.correct(q.data, actuals, notes, correctionId);
       void offline.store.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
       router.replace("/progress");
     } catch (e) {
@@ -84,6 +95,17 @@ export default function SessionDetail() {
                 <Copy>{q.data.content.notes}</Copy>
               </Card>
             )}
+            {!editing && !!savedScores.length && (
+              <Card compact>
+                <Copy kind="label">Scores</Copy>
+                {savedScores.map((r) => <Copy key={r.block_id}>{[blockOf(r.block_id) ? partTitle(blockOf(r.block_id)!) : r.block_id, formatPartScore(r),
+                  r.scaling === "rx" ? "Rx" : r.scaling === "scaled" ? `Scaled${r.scaling_note ? ` (${r.scaling_note})` : ""}` : null].filter(Boolean).join(" · ")}</Copy>)}
+                <CopyForWodUp workout={q.data.content.prescription_snapshot} results={savedScores} segments={q.data.content.segments ?? []} />
+              </Card>
+            )}
+            {!editing && !!local?.unsent_results && !q.data.content.results?.length && <Notice error>{unsentProblem}</Notice>}
+            {editing && scores?.map((r, i) => blockOf(r.block_id) && <ScoreEditor key={r.block_id} block={blockOf(r.block_id)!} result={r}
+              onChange={(next) => setScores((old) => old?.map((x, j) => (j === i ? next : x)) ?? null)} />)}
             {!editing && <SessionTable actuals={q.data.content.actuals} workout={q.data.content.prescription_snapshot} units={units} />}
             {!editing && <HealthExport sessionId={q.data.id} />}
             {editing?.map((a, index) => (
@@ -189,6 +211,7 @@ export default function SessionDetail() {
                 onPress={() => {
                   setEditing(q.data!.content.actuals.map((a) => ({ ...a })));
                   setNumericDraft({});
+                  setScores(savedScores.map((r) => ({ ...r })));
                   setNotes(q.data!.content.notes ?? "");
                 }}
               />
