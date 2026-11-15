@@ -15,7 +15,7 @@ import { classPayload, scoreProblem } from "@/lib/class-scores";
 import { CopyForWodUp, ScoreEditor } from "@/components/training/score-editor";
 import { classOver, currentPart, endClass, hasBuyIn } from "@/lib/class-training";
 import { buyInMove, partClock, partTitle, restLeft, restLine, roundMoves, visibleRuns } from "@/lib/class-view";
-import { exerciseElapsedSeconds, restRemainingSeconds, type SessionDraft } from "@/lib/training";
+import { actualIdentity, exerciseElapsedSeconds, restRemainingSeconds, type SessionDraft } from "@/lib/training";
 import { moveText, movesFor, repsFor, timedFormatFor, type IntervalFormat } from "@/lib/timed-execution";
 
 type Change = (run: ClassRun, workout: SessionDraft["workout"], now: number) => ClassRun;
@@ -95,7 +95,8 @@ export function ClassSession(p: ClassSessionProps) {
     p.act((r, w, at) => setRun(r, w, i, next, r.parts[r.cursor].runs?.[i]?.distance_meters, at), next);
   const endEarly = () => Alert.alert(`End ${block.label} now?`, "The clock stops here and the class moves on.", [
     { text: "Keep going", style: "cancel" }, { text: `End ${block.label}`, style: "destructive", onPress: () => p.act(endPart) }]);
-  const canComplete = over && !run.parts.some((x) => x.skipped) && d.cursor === d.steps.length && d.actuals.every((a) => a.completed);
+  const canComplete = over && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
+    d.steps.every((s) => d.actuals.some((a) => actualIdentity(a) === s.key));
   const review = over ? classPayload(d.class_run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : null;
   const unready = review?.results.some((r) => scoreProblem(r) || !r.scaling) ?? false;
   const save = () => p.finish(canComplete ? "completed" : "partial", review?.results);
@@ -183,13 +184,13 @@ export function ClassSession(p: ClassSessionProps) {
       <BigTap title={`Done · ${setName}`} hint="Logs this set as prescribed" disabled={busy} onPress={() => logSet(true)} />
       <Row gap={12}>
         <View style={{ flex: 1 }}><Button title="Skip set" variant="secondary" disabled={busy} onPress={() => logSet(false)} /></View>
-        {d.undo.length > 0 && <View style={{ flex: 1 }}><Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy} onPress={p.undo} /></View>}
+        {d.undo.length > 0 && d.actuals.at(-1)?.block_id === block.id && <View style={{ flex: 1 }}><Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy} onPress={p.undo} /></View>}
       </Row>
     </> : <Button title={`End ${block.label}`} variant="secondary" disabled={busy} onPress={() => p.act(endPart)} />;
   } else {
     const clock = partClock(part, block, now);
     const paused = status === "paused";
-    const buyingIn = part.kind === "amrap" && hasBuyIn(block) && part.buy_in_done_at == null;
+    const buyingIn = (part.kind === "amrap" || part.kind === "for_time") && hasBuyIn(block) && part.buy_in_done_at == null;
     const counting = part.kind === "amrap" || (part.kind === "for_time" && rounds > 1);
     const format = timedFormatFor(block);
     const intervalMoves = clock.interval && format && format.mode !== "for_time"
@@ -239,9 +240,9 @@ export function ClassSession(p: ClassSessionProps) {
         onSkip={() => p.act(skipLeadIn)} onDone={() => setLeadInDone(part.started_at!)} />}
       <Sheet visible={more} onClose={() => setMore(false)} title="Class">
         <ListRow icon="book-outline" title="Coach notes" onPress={() => { setMore(false); setInstructions(true); }} />
-        {!over && status !== "pending" && status !== "resting_after" && part.kind !== "sets" &&
+        {!over && (status === "running" || status === "paused") && part.kind !== "sets" &&
           <ListRow icon="stop-circle-outline" title={`End ${block.label} now`} disabled={busy} onPress={() => { setMore(false); endEarly(); }} />}
-        {!over && <ListRow icon="play-skip-forward-outline" title={`Skip ${block.label}`} disabled={busy} onPress={() => { setMore(false); p.act(skipPart); }} />}
+        {!over && status !== "resting_after" && <ListRow icon="play-skip-forward-outline" title={`Skip ${block.label}`} disabled={busy} onPress={() => { setMore(false); p.act(skipPart); }} />}
         {!over && <ListRow icon="flag-outline" title="End class" detail="Ends this part, skips the rest, and goes to your scores" disabled={busy}
           onPress={() => { setMore(false); p.act(endClass); }} />}
         <ListRow icon="trash-outline" title="Discard this session" destructive disabled={busy} onPress={() => { setMore(false); p.discard(); }} />

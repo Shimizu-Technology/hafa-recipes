@@ -731,6 +731,10 @@ export function createTrainingStore(
           clearTimers(d);
           return s;
         }
+        // In a class, undo reaches only this part's sets, or the set that just ended this part.
+        const last = d?.undo.at(-1);
+        if (d?.class_run && last && JSON.stringify(d.class_run) !== last.class_after &&
+          d.actuals.at(-1)?.block_id !== currentPart(d.class_run, d.workout, clock()).block.id) throw Error("There is no set to undo in this part.");
         const prior = d?.undo.pop();
         if (!d || !prior) throw Error("There is no set to undo.");
         d.actuals = prior.actuals;
@@ -788,8 +792,8 @@ export function createTrainingStore(
         syncClass(s, now);
         d.class_run = change(d.class_run, d.workout, now);
         if (environment) s.run_environment = environment;
-        // Set rest from the part just left doesn't carry into the next part.
-        if (currentPart(d.class_run, d.workout, now).index !== before) clearTimers(d);
+        // Set rest and set undo from the part just left don't carry into the next part.
+        if (currentPart(d.class_run, d.workout, now).index !== before) { clearTimers(d); d.undo = []; }
         syncClass(s, now);
         return s;
       });
@@ -971,7 +975,7 @@ export function createTrainingStore(
           if (!d.class_run.parts.some((p) => p.started_at != null && p.started_at <= now))
             throw Error("Start a part, or discard the session.");
           if (status === "completed" && (!classOver(d.class_run, d.workout, now) || d.class_run.parts.some((p) => p.skipped) ||
-            d.cursor !== d.steps.length || d.actuals.some((a) => !a.completed)))
+            !d.steps.every(logged(d)) || d.actuals.some((a) => !a.completed)))
             throw Error("Some parts or sets were skipped or not finished. Save this as a partial session.");
         } else if (status === "completed") {
           // Death by ends at the first missed interval, so only that final interval may be unfinished.

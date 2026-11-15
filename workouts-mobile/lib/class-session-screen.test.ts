@@ -135,4 +135,16 @@ describe("class runner (Nov 17)", () => {
     control("Save class")!.props.onPress();
     expect(actions.finish).toHaveBeenCalledWith("partial", []);
   });
+  it("offers Buy-in done on a for-time part with a buy-in, then counts its rounds", async () => {
+    const forTime = { ...w, blocks: [{ ...w.blocks[0], rounds: 3, execution: { mode: "for_time" as const, time_cap_seconds: 1200 } }] };
+    s = store(); await s.load();
+    await s.start(forTime, { workout_id: w.id, workout_revision: 1 }, "ft", 0);
+    await s.classAct(startPart, 0);
+    await render(min);
+    expect(control("Buy-in done")).toBeDefined();
+    await s.classAct(buyInDone, 5 * min);
+    await render(6 * min);
+    expect(control("+1 round")).toBeDefined();
+    expect(control("Done · stop the clock")).toBeDefined();
+  });
 });
