@@ -418,6 +418,13 @@ async def test_unsigned_ceiling_is_checked_before_shared_budget(monkeypatch):
     assert len(limiter._quota_events[('global', 'recipe-page-ceiling')]) == 120
     await read_budget(request(token, '2001:db8:abcd:1235::1'))
     limiter.reset()
+    for _ in range(120):
+        await read_budget(request(token, '::ffff:203.0.113.7'))
+    # A different IPv4-mapped visitor has its own budget, not the ::/64 one.
+    await read_budget(request(token, '::ffff:203.0.113.8'))
+    with pytest.raises(HTTPException):
+        await read_budget(request(token, '203.0.113.7'))
+    limiter.reset()
 
 
 @pytest.mark.asyncio

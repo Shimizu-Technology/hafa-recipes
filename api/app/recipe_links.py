@@ -100,7 +100,10 @@ async def read_budget(request: Request):
         await budget('unsigned', 'recipe-page', 600)
     if client_ip:
         address = ipaddress.ip_address(client_ip)
-        visitor = str(ipaddress.ip_network(f'{address}/64', strict=False)) if address.version == 6 else client_ip
+        # An IPv4-mapped IPv6 address is one IPv4 visitor, not part of ::/64.
+        if address.version == 6 and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        visitor = str(ipaddress.ip_network(f'{address}/64', strict=False)) if address.version == 6 else str(address)
         await budget(f'visitor:{visitor}', 'recipe-page', 120)
     elif not signing_enabled:
         peer = request.client.host if request.client else 'unknown'
