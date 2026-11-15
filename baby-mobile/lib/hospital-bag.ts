@@ -67,10 +67,16 @@ export function sectionOf(id: string): BagSection | "other" {
 export const isBag = (record: BabyRecord) => record.kind === "routine" && record.data.routine_type === "checklist" &&
   ((record.data.items ?? []).some((item) => item.id.startsWith("bag:")) || record.title === bagTitle);
 
-/** The newest bag she can see. Two phones starting one at once each make one; the newer is the one shown. */
-export function findBag(records: BabyRecord[]) {
-  return records.filter(isBag).sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""))[0];
+const fromStarter = (record: BabyRecord) => (record.data.items ?? []).some((item) => item.id.startsWith("bag:"));
+/**
+ * Every bag-like list, the one to show first first: one started from the starter list, newest first, then any list she
+ * made herself and called "Hospital bag". Two phones starting one at once each make one. None is ever hidden.
+ */
+export function findBags(records: BabyRecord[]) {
+  return records.filter(isBag).sort((a, b) => Number(fromStarter(b)) - Number(fromStarter(a)) || (b.updated_at ?? "").localeCompare(a.updated_at ?? ""));
 }
+/** The bag the screen is built around. The rest are shown under it. */
+export const findBag = (records: BabyRecord[]) => findBags(records)[0];
 export function starterItems(): NonNullable<RecordData["items"]> {
   return bagSections.flatMap((section) => starterBag[section.id].map(([key, label]) => ({ id: bagItemId(section.id, key), label, done: false })));
 }

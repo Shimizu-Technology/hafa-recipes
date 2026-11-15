@@ -1,4 +1,4 @@
-import { aiUnavailableMessage, dailyAiLimitMessage, importFinished, sourceRefusalMessages } from "./import-status";
+import { aiUnavailableMessage, dailyAiLimitMessage, importFinished, neverReadable, sourceRefusalMessages } from "./import-status";
 import { addMutation, withoutRefusedRetry } from "./outbox";
 import type { BabyRecord, DeviceState, ImportJob, Mutation } from "./models";
 
@@ -41,17 +41,23 @@ const importFor = (state: Pick<DeviceState, "outbox" | "imports">, id: string) =
   state.outbox.some((m) => m.type === "import" && m.record_id === id && !m.error) ||
   state.imports.some((job) => job.record_id === id && !importFinished(job.status));
 
-/** Saved but never organized (automatic organizing was off), or a read that failed. Anything already on its way isn't. */
-export function waitingSource(record: BabyRecord, state: Pick<DeviceState, "outbox" | "imports">) {
+type Seen = Pick<DeviceState, "outbox" | "imports" | "unreadableSources">;
+/** A post this phone has seen can never be read as it is: remembered, since the import that said so is pruned later. */
+export const unreadable = (state: Seen, id: string) => (state.unreadableSources ?? []).includes(id) ||
+  state.imports.some((job) => job.record_id === id && importFinished(job.status) && neverReadable(job.error));
+const remembered = (state: Seen, ids: string[]) => [...new Set([...(state.unreadableSources ?? []), ...ids])].slice(-500);
+
+/** Saved but never organized (automatic organizing was off), or a read that failed but could work. Anything already on its way isn't. */
+export function waitingSource(record: BabyRecord, state: Seen) {
   const data = record.data;
   if (record.kind !== "source" || record.cache_partial || !waitingStatuses.includes(data.status ?? "")) return false;
   const material = !!(data.url || data.attachment_ids?.length || record.body.trim() || data.source_text?.trim());
-  return material && !importFor(state, record.id);
+  return material && !importFor(state, record.id) && !unreadable(state, record.id);
 }
 
 /** Every saved post, a page at a time, up to 500. */
 export async function findWaiting(list: (offset: number) => Promise<{ items: BabyRecord[]; has_more: boolean }>,
-  state: Pick<DeviceState, "outbox" | "imports">) {
+  state: Seen) {
   const rows: BabyRecord[] = [];
   for (let offset = 0, page = 0; page < 5; page++, offset += 100) {
     const result = await list(offset);
@@ -83,7 +89,7 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
   const run = state.organizeRun;
   if (!run || run.finished_at) return state;
   let next = state, changed = false;
-  const active: OrganizeRun["active"] = [], back: OrganizeItem[] = [], attention = [...run.attention];
+  const active: OrganizeRun["active"] = [], back: OrganizeItem[] = [], attention = [...run.attention], never: string[] = [];
   let organized = run.organized, total = run.total, stopped = run.stopped, paused_until = run.paused_until;
   const itemFor = (id: string): OrganizeItem => {
     const row = state.records.find((r) => r.id === id);
@@ -100,7 +106,10 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
       else if (queued.error === sourceRefusalMessages.source_already_processing) organized++; // Another phone has it.
       else if (queued.error === sourceRefusalMessages.source_queue_full) {
         paused_until = new Date(now.getTime() + pauseMs).toISOString(); back.push(itemFor(item.record_id));
-      } else attention.push(item.record_id);
+      } else {
+        attention.push(item.record_id);
+        if (neverReadable(queued.error)) never.push(item.record_id);
+      }
       continue;
     }
     const job: ImportJob | undefined = next.imports.find((one) => one.id === item.import_id);
@@ -111,8 +120,13 @@ export function advanceOrganize(state: DeviceState, uuid: () => string, now = ne
       stopped = job.error === dailyAiLimitMessage ? "limit" : "ai_off"; back.push(itemFor(item.record_id));
     }
     else if (["ready", "complete", "completed"].includes(job.status) || (job.status === "incomplete" && !job.error)) organized++;
-    else attention.push(item.record_id);
+    else {
+      attention.push(item.record_id);
+      if (neverReadable(job.error)) never.push(item.record_id);
+    }
   }
+  // Private, gone or out of tries: never offered by "Organize all" again.
+  if (never.length) next = { ...next, unreadableSources: remembered(next, never) };
   let waiting = [...back, ...run.waiting];
   if (paused_until && new Date(paused_until) <= now) { paused_until = undefined; changed = true; }
   // AI switched off, or the service down, since she started: nothing more goes until she starts again.
