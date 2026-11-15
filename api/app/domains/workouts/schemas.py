@@ -1,6 +1,7 @@
 """Versioned prescriptions are independent from immutable recorded actuals."""
 
 from datetime import date
+from datetime import date as CalendarDate
 from typing import Annotated, Literal, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -31,7 +32,47 @@ class Evidence(DomainModel):
     location: str | None = Field(default=None, max_length=500)
 
 
+class LoadOption(DomainModel):
+    load: float = Field(ge=0, le=2000)
+    load_unit: Literal["kg", "lb"]
+    load_convention: Literal["total", "per_hand", "added", "assistance"] = "total"
+    label: str | None = Field(default=None, max_length=40, exclude_if=lambda v: v is None)
+
+
+class RelativeLoad(DomainModel):
+    basis: Literal["bodyweight", "one_rep_max"]
+    percent: float = Field(gt=0, le=300)
+
+
+class Benchmark(DomainModel):
+    key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,59}$")
+    name: str = Field(min_length=1, max_length=80)
+    stage: int | None = Field(default=None, ge=1, le=20)
+    stages: int | None = Field(default=None, ge=1, le=20)
+    block_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def valid_stage(self):
+        if self.stage is not None and self.stages is not None and self.stage > self.stages:
+            raise ValueError("Benchmark stage cannot exceed stages")
+        return self
+
+
+class Programming(DomainModel):
+    source_kind: Literal["gym", "coach", "self"]
+    app_name: str | None = Field(default=None, max_length=60)
+    gym_name: str | None = Field(default=None, max_length=120)
+    track: str | None = Field(default=None, max_length=120)
+    track_variant: str | None = Field(default=None, max_length=60)
+    date: CalendarDate | None = None
+
+
 class ExercisePrescription(DomainModel):
+    segment: Literal["buy_in", "cash_out"] | None = Field(default=None, exclude_if=lambda v: v is None)
+    distance_meters_min: float | None = Field(default=None, gt=0, le=1000000, exclude_if=lambda v: v is None)
+    duration_seconds_max: int | None = Field(default=None, ge=1, le=86400, exclude_if=lambda v: v is None)
+    load_options: list[LoadOption] | None = Field(default=None, min_length=2, max_length=4, exclude_if=lambda v: v is None)
+    relative_load: RelativeLoad | None = Field(default=None, exclude_if=lambda v: v is None)
     exercise_id: str | None = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     provenance: Provenance = "user"
@@ -59,6 +100,16 @@ class ExercisePrescription(DomainModel):
 
     @model_validator(mode="after")
     def validate_ranges(self):
+        if self.distance_meters_min is not None and (
+            self.distance_meters is None or self.distance_meters_min > self.distance_meters
+        ):
+            raise ValueError("Distance range requires a maximum at least equal to its minimum")
+        if self.duration_seconds_max is not None and (
+            self.duration_seconds is None or self.duration_seconds > self.duration_seconds_max
+        ):
+            raise ValueError("Duration range requires a minimum no greater than its maximum")
+        if sum(value is not None for value in (self.load, self.load_options, self.relative_load)) > 1:
+            raise ValueError("Choose one of load, load_options or relative_load")
         if self.reps_min is not None and self.reps_max is not None:
             if self.reps_min > self.reps_max:
                 raise ValueError("reps_min cannot exceed reps_max")
@@ -116,6 +167,10 @@ WorkoutExecution = Annotated[
 
 
 class WorkoutBlock(DomainModel):
+    role: Literal["warm_up", "main", "accessory", "cool_down"] | None = Field(default=None, exclude_if=lambda v: v is None)
+    rest_after_seconds: int | None = Field(default=None, ge=0, le=3600, exclude_if=lambda v: v is None)
+    score_kind: Literal["auto", "rounds_reps", "time", "load", "reps", "none"] | None = Field(default=None, exclude_if=lambda v: v is None)
+    instructions: list[Annotated[str, Field(min_length=1, max_length=2000)]] | None = Field(default=None, max_length=20, exclude_if=lambda v: v is None)
     id: str = Field(min_length=1, max_length=100)
     label: str = Field(min_length=1, max_length=200)
     grouping: Literal["sequential", "circuit", "superset", "interval"] = "sequential"
@@ -124,6 +179,19 @@ class WorkoutBlock(DomainModel):
     rest_between_rounds_seconds: int | None = Field(default=None, ge=0, le=7200)
     exercises: list[ExercisePrescription] = Field(default_factory=list, max_length=100)
     evidence: list[Evidence] = Field(default_factory=list, max_length=100)
+
+
+    @model_validator(mode="after")
+    def valid_segments(self):
+        phase = 0
+        for exercise in self.exercises:
+            if exercise.segment and (self.execution is None or self.execution.mode not in {"amrap", "for_time"}):
+                raise ValueError("Buy-ins and cash-outs require AMRAP or for-time execution")
+            current = {"buy_in": 0, None: 1, "cash_out": 2}[exercise.segment]
+            if current < phase:
+                raise ValueError("Buy-ins must precede repeating moves and cash-outs must follow them")
+            phase = current
+        return self
 
 
 class SourceTextPart(DomainModel):
@@ -144,6 +212,8 @@ class SourceContext(DomainModel):
 
 
 class WorkoutContent(DomainModel):
+    benchmark: Benchmark | None = Field(default=None, exclude_if=lambda v: v is None)
+    programming: Programming | None = Field(default=None, exclude_if=lambda v: v is None)
     id: str | None = Field(default=None, max_length=100)
     version: int = Field(default=1, ge=1)
     parent_version_id: str | None = Field(default=None, max_length=100)
@@ -165,6 +235,15 @@ class WorkoutContent(DomainModel):
     instructions: list[str] = Field(default_factory=list, max_length=100)
     notes: list[str] = Field(default_factory=list, max_length=100)
     extraction_warnings: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def valid_class_parts(self):
+        if self.blocks and self.blocks[-1].rest_after_seconds is not None:
+            raise ValueError("The last part cannot have rest_after_seconds")
+        ids = [block.id for block in self.blocks]
+        if self.benchmark and not set(self.benchmark.block_ids) <= set(ids):
+            raise ValueError("Benchmark block_ids must reference existing parts")
+        return self
 
     @model_serializer(mode="wrap")
     def serialize_instructions(self, handler):

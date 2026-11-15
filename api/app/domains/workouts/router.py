@@ -531,6 +531,11 @@ async def update_workout(
     return result
 
 
+def preserve_gym_privacy(previous, content):
+    if (previous.get("programming") or {}).get("source_kind") == "gym":
+        content["programming"] = {**(content.get("programming") or previous["programming"]), "source_kind": "gym"}
+
+
 async def append_workout_version(db, row, content):
     """Caller holds the owner write lock and checked the live revision."""
     prior = await db.scalar(
@@ -541,6 +546,8 @@ async def append_workout_version(db, row, content):
     from app.domains.workouts.source_media import normalize_cover_origin
 
     content = dict(content)
+    # A legacy edit/restore may drop new fields, but cannot remove gym privacy.
+    preserve_gym_privacy(row.content, content)
     await normalize_cover_origin(db, row.app_user_id, row.generation, content)
     # Size the complete stored candidate before any retention, export or write.
     # Preserve trusted JSON; do not coerce an existing snapshot through a DTO.
@@ -628,6 +635,7 @@ async def restore_workout_version(
     # This is a trusted immutable server snapshot, not a client-authored payload.
     # Preserve source/generated provenance, private notes and newer JSON fields.
     content = deepcopy(version.content)
+    preserve_gym_privacy(row.content, content)
     from app.domains.workouts.source_media import normalize_cover_origin
 
     await normalize_cover_origin(db, user.id, generation, content)
