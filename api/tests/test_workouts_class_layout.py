@@ -180,3 +180,32 @@ def test_plain_text_without_a_class_layout_is_unchanged():
     workout, _, _ = ground(page, raw)
     assert [block.label for block in workout.blocks] == ["Main"]
     assert workout.instructions == ["Warm up well."]
+
+
+def test_notes_need_more_than_one_shared_word_to_move_to_the_next_part():
+    page = """D. ACCESSORIES
+10 Degree Dumbbell Incline Row (3010 tempo)
+3 sets of 8 reps
+- Horizontal pull strength endurance
+- Build load across sets
+
+- Keep your hips level on the plank pull through
+- Y-raise with thumbs up
+3 alternating sets of:
+E1. Plank Pull-Throughs for 12 seconds
+E2. 8-10 Chest Supported Y Raises"""
+    d, e = read_outline(page).parts
+    assert d.notes == ["Horizontal pull strength endurance", "Build load across sets"]
+    assert e.notes == ["Keep your hips level on the plank pull through", "Y-raise with thumbs up"]
+
+
+def test_a_skipped_rounds_for_time_part_keeps_its_rounds_and_cap():
+    page = """D. 3 Rounds for Time:
+3 Rope Climbs
+12 Reverse Lunges
+Time Cap: 10 minutes"""
+    workout, warnings, _ = ground(page, {"title": "Class", "kind": "session", "blocks": []})
+    block = workout.blocks[0]
+    assert block.execution.model_dump(exclude_none=True) == {"mode": "for_time", "time_cap_seconds": 600}
+    assert (block.rounds, [item.name for item in block.exercises]) == (3, ["Rope Climbs", "Reverse Lunges"])
+    assert any("read from the page layout" in warning for warning in warnings)

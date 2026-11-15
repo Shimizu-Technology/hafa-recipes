@@ -14,6 +14,7 @@ from app.domains.workouts.schemas import (
     Benchmark,
     EmomExecution,
     ExercisePrescription,
+    ForTimeExecution,
     WorkoutBlock,
 )
 
@@ -138,10 +139,13 @@ def _assign_trailing_notes(parts):
         last = part.items[-1] if part.items else part
         following = parts[index + 1]
         own, other = words(part.text()), words(following.text())
+        heading = words(f"{following.section or ''} {following.heading}")
         for start, run in enumerate(last.runs):
             said = words(" ".join(run))
-            mine, theirs = bool(said & own), bool(said & other)
-            if (theirs and not mine) or (not mine and not theirs and part.had_leading):
+            mine, shared = said & own, said & other
+            # One shared word ("pull") is too weak; two, or the next heading's name, is not.
+            theirs = (len(shared) >= 2 or bool(shared & heading)) and len(shared) > len(mine)
+            if theirs or (not mine and not shared and part.had_leading):
                 moved, last.runs = last.runs[start:], last.runs[:start]
                 following.runs = moved + following.runs
                 following.had_leading = True
@@ -194,7 +198,7 @@ def _part_for(block, parts):
 
 
 FORMAT_ROW = re.compile(r"^(?:every\b|emom\b|amrap\b|as many rounds|for time\b|minutes?\s+\d|within\s+\d|set\s+\d|\d+\s+sets\s+of|"
-                        r"rest\b|buy[ -]?in\b|then\s+amrap|cash[ -]?out\b|-+\s*rest\b|no rest\b)", re.I)
+                        r"rest\b|buy[ -]?in\b|then\s+amrap|cash[ -]?out\b|-+\s*rest\b|no rest\b|time\s*cap\b)", re.I)
 
 
 def _movement_name(row):
@@ -240,6 +244,13 @@ def _part_from_rows(part, text_location):
     group = re.match(r"^(\d+)\s+alternating sets", part.heading, re.I)
     if group:
         block.rounds = int(group[1])
+    timed = re.search(r"\b(\d+)\s+rounds?\s+for\s+time\b", part.heading, re.I)
+    cap = next((re.search(r"time\s*cap\s*:?\s*(\d+)\s*(?:minutes?|mins?)", line, re.I) for line in part.rows
+                if re.search(r"time\s*cap\s*:?\s*\d", line, re.I)), None)
+    if timed and exercises:
+        block.execution = ForTimeExecution(mode="for_time", time_cap_seconds=int(cap[1]) * 60 if cap else None)
+        block.rounds, block.grouping = int(timed[1]), "circuit"
+        block.evidence = [Evidence(field="execution.mode", wording=part.heading[3:], location=text_location)]
     format_line = next((line for line in [part.heading, *part.rows] if re.search(r"\bevery\b", line, re.I)), None)
     if format_line and exercises:
         facts, conflict = read_format("emom", [re.sub(r"^[A-Z]\.\s+", "", format_line)], part.rows, len(exercises))
