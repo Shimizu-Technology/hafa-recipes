@@ -13,10 +13,12 @@ type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & 
    * (two at accessibility text sizes), and the icon, text and chevron are centered in the row.
    */
   stacked?: boolean;
+  /** Last row in its group: the card's own edge closes it, so no separator is drawn under it. */
+  last?: boolean;
 };
 
 /** Shared anatomy for every row in recipe detail's More group. */
-export function RecipeDetailRow({ icon, title, value, accessory, stacked, onPress, ...props }: RecipeDetailRowProps) {
+export function RecipeDetailRow({ icon, title, value, accessory, stacked, last, onPress, ...props }: RecipeDetailRowProps) {
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
   const textScale = useContext(TextScaleContext);
@@ -35,9 +37,10 @@ export function RecipeDetailRow({ icon, title, value, accessory, stacked, onPres
       </View>
     )}
     <View style={styles.accessory}>{accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}</View>
-    <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />
+    {last ? null : <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />}
   </>;
-  const style = [styles.row, { gap: fontScale >= 2 ? 4 : 12 }];
+  // Stacked rows share one height, so a row without detail ("Copy link") matches the rows that have it.
+  const style = [styles.row, stacked && styles.stackedRow, { gap: fontScale >= 2 ? 4 : 12 }];
   return onPress
     ? <TouchableOpacity accessibilityLabel={title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
     : <View style={style}>{content}</View>;
@@ -76,6 +79,7 @@ const styles = StyleSheet.create({
   copy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4 },
   title: { fontSize: 17, lineHeight: 22, flexGrow: 1, flexShrink: 1 },
   value: { fontSize: 15, lineHeight: 20, flexShrink: 1, textAlign: 'right', marginLeft: 'auto' },
+  stackedRow: { minHeight: 68 },
   // No flexGrow on the title here: in a column it would stretch and push the value down.
   stackedCopy: { flex: 1, justifyContent: 'center', gap: 2 },
   stackedTitle: { fontSize: 17, lineHeight: 22 },

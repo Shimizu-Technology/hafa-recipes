@@ -160,6 +160,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
 
   const confirmCopy = confirm ? CONFIRM_COPY[confirm.kind] : null;
   const linkChecking = mode === 'private' && link.isLoading;
+  const hasSendText = model.primary === 'send-link';
   const primaryButton = model.primary === 'send-link'
     ? <Button title={linkChecking ? 'Checking link…' : 'Send link'} onPress={() => void requestLink('send')} loading={linkChecking} />
     : <Button title="Send as text" onPress={() => void sendText()} />;
@@ -221,11 +222,11 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
                 ) : null}
                 {!large && primaryButton}
                 <RNView style={[styles.group, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
-                  {model.showCopyLink && <RecipeDetailRow icon="link-outline" title="Copy link" stacked
+                  {model.showCopyLink && <RecipeDetailRow icon="link-outline" title="Copy link" stacked last={!hasSendText && !source}
                     disabled={linkChecking} onPress={() => void requestLink('copy')} />}
-                  {model.primary === 'send-link' && <RecipeDetailRow icon="document-text-outline" title="Send as text"
-                    value="Ingredients and steps" stacked onPress={() => void sendText()} />}
-                  {source && <RecipeDetailRow icon="play-circle-outline" title="Original" value={source.label} stacked
+                  {hasSendText && <RecipeDetailRow icon="document-text-outline" title="Send as text"
+                    value="Ingredients and steps" stacked last={!source} onPress={() => void sendText()} />}
+                  {source && <RecipeDetailRow icon="play-circle-outline" title="Original" value={source.label} stacked last
                     accessibilityLabel={`Send the original: ${source.label}`} onPress={() => void sendOriginal()} />}
                 </RNView>
                 {link.isError && mode === 'private' ? (

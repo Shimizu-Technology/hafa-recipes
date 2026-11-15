@@ -42,6 +42,20 @@ describe('stacked action rows', () => {
     m.fontScale = 1;
   });
 
+  it('gives a row without detail the same minimum height as a row with detail', async () => {
+    const plain = await render({ title: 'Copy link' });
+    const detailed = await render({ value: 'TikTok video by @thecoreyb' });
+    const height = (root: any) => root.container.queryAll((n: any) => n.type === 'TouchableOpacity')[0].props.style[1].minHeight;
+    expect(height(plain)).toBe(68);
+    expect(height(detailed)).toBe(height(plain));
+  });
+
+  it('draws no separator under the last row of a group', async () => {
+    const separators = (root: any) => root.container.queryAll((n: any) => n.type === 'View' && n.props.pointerEvents === 'none');
+    expect(separators(await render({ value: 'x' }))).toHaveLength(1);
+    expect(separators(await render({ value: 'x', last: true }))).toHaveLength(0);
+  });
+
   it('keeps the same anatomy for a row without detail', async () => {
     const root = await render({ title: 'Copy link' });
     expect(root.container.queryAll((n: any) => n.type === 'Text')).toHaveLength(1);
