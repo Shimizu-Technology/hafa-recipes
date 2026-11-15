@@ -415,6 +415,7 @@ async def test_unsigned_ceiling_is_checked_before_shared_budget(monkeypatch):
         await read_budget(request(token, '2001:db8:abcd:1234::1'))
     with pytest.raises(HTTPException):
         await read_budget(request(token, '2001:db8:abcd:1234::2'))
+    assert len(limiter._quota_events[('global', 'recipe-page-ceiling')]) == 120
     await read_budget(request(token, '2001:db8:abcd:1235::1'))
     limiter.reset()
 

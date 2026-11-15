@@ -98,7 +98,6 @@ async def read_budget(request: Request):
     signing_enabled = bool(os.getenv('RECIPE_PROXY_SECRET', '').strip())
     if signing_enabled and not client_ip:
         await budget('unsigned', 'recipe-page', 600)
-    await budget('global', 'recipe-page-ceiling', 12000)
     if client_ip:
         address = ipaddress.ip_address(client_ip)
         visitor = str(ipaddress.ip_network(f'{address}/64', strict=False)) if address.version == 6 else client_ip
@@ -106,3 +105,4 @@ async def read_budget(request: Request):
     elif not signing_enabled:
         peer = request.client.host if request.client else 'unknown'
         await budget(f'peer:{peer}', 'recipe-page', 12000)
+    await budget('global', 'recipe-page-ceiling', 12000)
