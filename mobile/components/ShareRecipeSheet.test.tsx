@@ -19,6 +19,7 @@ vi.mock('@/components/Themed', () => ({ Text: 'Text', Button: 'Button', useColor
 vi.mock('@/components/RecipeDetailRow', () => ({ RecipeDetailRow: 'Row' }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: 'Thumbnail' }));
 vi.mock('@/lib/toast', () => ({ showToast: m.toast }));
+vi.mock('@/components/Toast', () => ({ ToastHost: 'ToastHost' }));
 vi.mock('@/utils/haptics', () => ({ haptics: { success: vi.fn() } }));
 vi.mock('@/hooks/useRecipeShareLink', () => ({ useRecipeShareLink: () => m.link }));
 
@@ -62,6 +63,15 @@ beforeEach(() => {
 });
 
 describe('share recipe sheet', () => {
+  it('shows its toasts above the sheet, without a second announcement', async () => {
+    link();
+    const root = await open(recipe(true));
+    const modal = root.container.queryAll((n: any) => n.type === 'Modal')[0];
+    const hosts = modal.queryAll((n: any) => n.type === 'ToastHost');
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].props.announce).toBe(false);
+  });
+
   it('sends a public recipe’s own link as a lone URL and closes once sent', async () => {
     const root = await open(recipe(true));
     expect(texts(root)).toContain('Public in Discover. Anyone with the link can open it.');

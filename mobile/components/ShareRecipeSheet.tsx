@@ -7,6 +7,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button, Text, useColors } from '@/components/Themed';
 import { RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
+import { ToastHost } from '@/components/Toast';
 import { fontFamily, radius, spacing } from '@/constants/Colors';
 import { useRecipeShareLink } from '@/hooks/useRecipeShareLink';
 import {
@@ -238,6 +239,8 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
           </ScrollView>
         </Pressable>
       </Pressable>
+      {/* The Modal draws above the app's toast host, so "Link copied" and errors need one here. */}
+      <ToastHost announce={false} />
     </Modal>
   );
 }
