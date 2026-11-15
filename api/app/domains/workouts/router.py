@@ -543,7 +543,7 @@ async def append_workout_version(db, row, content):
     content = dict(content)
     # A legacy edit/restore may drop new fields, but cannot remove gym privacy.
     if (row.content.get("programming") or {}).get("source_kind") == "gym":
-        content["programming"] = row.content["programming"]
+        content["programming"] = {**(content.get("programming") or row.content["programming"]), "source_kind": "gym"}
     await normalize_cover_origin(db, row.app_user_id, row.generation, content)
     # Size the complete stored candidate before any retention, export or write.
     # Preserve trusted JSON; do not coerce an existing snapshot through a DTO.

@@ -97,3 +97,6 @@ async def test_class_save_edit_and_gym_publish_guard(discover_api):  # noqa: F81
     assert edited.status_code == 200, edited.text
     assert edited.json()["content"]["programming"] == saved["content"]["programming"]
     assert (await api.client.post(path + "/publish", headers=GENERATION)).status_code == 422
+    legacy["programming"] = {"source_kind": "self", "date": "2026-11-18"}
+    changed = await api.client.put(path, json=legacy, headers=GENERATION, params={"expected_revision": edited.json()["revision"]})
+    assert changed.json()["content"]["programming"]["date"] == "2026-11-18" and changed.json()["content"]["programming"]["source_kind"] == "gym"
