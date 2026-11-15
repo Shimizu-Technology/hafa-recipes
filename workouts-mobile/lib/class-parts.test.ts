@@ -8,7 +8,7 @@ import { authoredWorkout } from "./api";
 import { benchmarkLine, instructionsTitle, partTags, programmingLine, relativeLoadSuggestion, restAfterText, segmentLabel } from "./class-parts";
 import type { ExercisePrescription, Workout } from "./models";
 import { timedCircuit } from "./timed-circuit";
-import { onceOnlyMovesProblem, timedFormat } from "./timed-execution";
+import { onceOnlyMovesProblem, timedFormat, timedStartHint } from "./timed-execution";
 import { createTrainingStore, trackingPrescriptionWarning } from "./training";
 
 vi.mock("@/components/ui", () => ({ Copy: "Copy", ListGroup: "ListGroup", ListRow: "ListRow" }));
@@ -101,6 +101,7 @@ describe("the single-part timer and once-only moves (Nov 17 part A)", () => {
   it("doesn't time a part whose buy-in would repeat every round, and says why", () => {
     expect(timedCircuit(partA)).toBeNull();
     expect(trackingPrescriptionWarning(partA)).toBe(onceOnlyMovesProblem);
+    expect(timedStartHint(partA)).toBe("This part has a once-only buy-in or cash-out, so it runs without the timer — you’ll choose how to track it.");
     const forTime: Workout = { ...partA, blocks: [{ ...partA.blocks[0], execution: { mode: "for_time", time_cap_seconds: 900 }, rounds: 3 }] };
     expect(timedFormat(forTime)).toBeNull();
     expect(trackingPrescriptionWarning(forTime)).toBe(onceOnlyMovesProblem);
@@ -116,5 +117,25 @@ describe("the single-part timer and once-only moves (Nov 17 part A)", () => {
     const d = store.snapshot().active!;
     expect(d.timed_circuit).toBeUndefined();
     expect(d.steps.filter((step) => step.exercise_index === 0)).toHaveLength(1);
+    // Adding rounds repeats only the AMRAP moves.
+    await store.addRound();
+    await store.addRound();
+    const after = store.snapshot().active!.steps.map((step) => `${step.exercise_index}r${step.round_index}`);
+    expect(after).toEqual(["0r1", "1r1", "2r1", "3r1", "1r2", "2r2", "3r2", "1r3", "2r3", "3r3"]);
+  });
+  it("chosen rounds do the buy-in once first and a cash-out once last", async () => {
+    const store = createTrainingStore(device(), "owner", partA.generation, () => 1_000);
+    await store.load();
+    await store.start(partA, { workout_id: partA.id, workout_revision: 1 }, "s1", 1_000, { rounds: 2 });
+    expect(store.snapshot().active!.steps.map((step) => `${step.exercise_index}r${step.round_index}`))
+      .toEqual(["0r1", "1r1", "2r1", "3r1", "1r2", "2r2", "3r2"]);
+    const cashOut: Workout = { ...partA, blocks: [{ ...partA.blocks[0], exercises: [...partA.blocks[0].exercises.slice(1),
+      { name: "Row", distance_meters: 500, segment: "cash_out" }] }] };
+    const other = createTrainingStore(device(), "owner", partA.generation, () => 1_000);
+    await other.load();
+    await other.start(cashOut, { workout_id: partA.id, workout_revision: 1 }, "s2", 1_000, { log_as_you_go: true });
+    await other.addRound();
+    expect(other.snapshot().active!.steps.map((step) => `${step.exercise_index}r${step.round_index}`))
+      .toEqual(["0r1", "1r1", "2r1", "0r2", "1r2", "2r2", "3r1"]);
   });
 });

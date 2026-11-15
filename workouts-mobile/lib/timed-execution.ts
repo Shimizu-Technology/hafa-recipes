@@ -171,6 +171,7 @@ export function timedStartHint(workout: Pick<Workout, "blocks">) {
     return timed.length > 1 ? `${timed.length} timed parts — you’ll choose how to track it.`
       : `A timed part and ${others} other ${others === 1 ? "part" : "parts"} — you’ll choose how to track it.`;
   }
+  if (timed.some(hasOnceOnlyMoves)) return "This part has a once-only buy-in or cash-out, so it runs without the timer — you’ll choose how to track it.";
   return "The timer needs one more detail — you’ll choose how to track it.";
 }
 
