@@ -241,6 +241,37 @@ async def test_who_is_expecting_is_her_creator_until_the_family_says_otherwise(f
     assert (await say("owner", {"sex": "girl"})).status_code == 200
 
 
+async def test_who_is_expecting_survives_other_saves_refuses_a_departed_parent_and_clears_with_null(family):
+    child = await add_child(family, family.space, due_date=(now() + timedelta(days=20)).date().isoformat())
+
+    async def patch(actor, details):
+        current = (await family.client.get(API + "/bootstrap", headers=records.headers(family.space, actor, 1))).json()
+        revision = next(kid["revision"] for kid in current["children"] if kid["id"] == child["id"])
+        return await family.client.patch(f"{API}/children/{child['id']}", headers=records.headers(family.space, actor, 1),
+                                         json={"revision": revision, "details": details})
+
+    assert (await patch("other", {"expecting_member": "owner", "expecting_confirmed": True})).status_code == 200
+    # An unrelated save (an older phone that knows nothing of it) leaves it as it was.
+    saved = await patch("owner", {"sex": "girl"})
+    assert saved.status_code == 200, saved.text
+    assert {key: saved.json()["details"][key] for key in ("sex", "expecting_member", "expecting_confirmed")} == {
+        "sex": "girl", "expecting_member": "owner", "expecting_confirmed": True}
+    # A caregiver can't say who's expecting, and can't clear it either.
+    assert (await patch("sitter", {"expecting_member": "owner"})).status_code == 403
+    assert (await patch("sitter", {"expecting_member": None})).status_code == 403
+    # Naming a parent who has left is refused.
+    async with family.sessions() as db:
+        await db.execute(update(BabySpaceMember).where(BabySpaceMember.app_user_id == "other",
+                                                       BabySpaceMember.space_id == family.space).values(status="left"))
+        await db.commit()
+    assert (await patch("owner", {"expecting_member": "other", "expecting_confirmed": True})).status_code == 422
+    # An explicit null clears both keys, so the family is asked again.
+    cleared = await patch("owner", {"expecting_member": None, "expecting_confirmed": None})
+    assert cleared.status_code == 200, cleared.text
+    assert "expecting_member" not in cleared.json()["details"] and "expecting_confirmed" not in cleared.json()["details"]
+    assert cleared.json()["details"]["sex"] == "girl"
+
+
 async def test_in_her_personal_space_only_she_can_be_expecting(family):
     own = await add_child(family, family.owner_personal, due_date=(now() + timedelta(days=20)).date().isoformat())
     assert own["details"]["expecting_member"] == "owner"
