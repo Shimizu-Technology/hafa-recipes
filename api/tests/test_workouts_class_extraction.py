@@ -1,5 +1,7 @@
 """Class text, several screenshots and Safari PDFs use one mocked AI pipeline."""
 
+import base64
+import io
 import json
 import re
 from copy import deepcopy
@@ -175,3 +177,61 @@ async def test_accept_edited_class_cannot_drop_gym_privacy(data_api, marker):  #
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["content"]["programming"]["source_kind"] == "gym"
     assert (await data_api.client.post(path, json={"workout": edited}, headers=GENERATION)).json() == accepted.json()
+
+
+@pytest.mark.parametrize("kind", ["text", "document"])
+async def test_class_privacy_trims_members_before_provider_and_drops_context(kind, monkeypatch):
+    private = "PRIVATE_MEMBER_A 12:43\nPRIVATE_MEMBER_B 4 rounds"
+    page = "PRIVATE_NAV_NAME\nWorkout\nCoach notes\n" + TEXT + "\nLog Result\nLeaderboard\n" + private + "\nComments\nPRIVATE_COMMENT"
+    raw = response()
+    if kind == "document":
+        for block in raw["blocks"]:
+            for entry in block["evidence"] + [e for item in block["exercises"] for e in item["evidence"]]:
+                entry["location"] = "document_page:1"
+    provider = FakeProvider(raw)
+    if kind == "document":
+        async def pdf(data):
+            # A leaderboard spanning pages must stay suppressed on the next page.
+            return [SourcePart("document_page:1", page), SourcePart("document_page:2", private)]
+        monkeypatch.setattr(extraction, "_pdf_parts", pdf)
+        payload = {"document_base64": text_pdf(TEXT), "document_mime": "application/pdf"}
+    else:
+        payload = {"text": page}
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(kind=kind, class_parts=True, ai_consent=True, **payload))
+    assert len(provider.calls) == 1
+    sent = "\n".join(part.text for part in provider.calls[0].parts)
+    assert "PRIVATE_" not in sent and "Deadlifts unbroken" in sent
+    assert result.workout is not None and result.workout.source_context is None
+    assert "PRIVATE_" not in result.model_dump_json()
+    assert result.workout.blocks[0].exercises[0].segment == "buy_in"
+
+
+def test_class_privacy_resumes_at_next_part_after_member_results():
+    from app.domains.workouts.class_extraction import class_text
+
+    assert class_text("A. AMRAP 15 min\n15 Squat\nLeaderboard\nAlice 3 rounds\nComments\nBob: hi\nB. For time\nRun 400m") == "A. AMRAP 15 min\n15 Squat\nB. For time\nRun 400m"
+
+
+async def test_class_failure_does_not_retain_source_context():
+    result = await WorkoutExtractor(FakeProvider({})).extract(ExtractionRequest(
+        kind="text", text=TEXT + "\nComments\nPRIVATE_MEMBER", class_parts=True, ai_consent=True))
+    assert result.workout is not None and result.workout.source_context is None
+    assert "PRIVATE_MEMBER" not in result.model_dump_json()
+
+
+async def test_large_class_pdf_is_parsed_and_remains_bounded():
+    from pypdf import PdfReader, PdfWriter
+
+    writer = PdfWriter(PdfReader(io.BytesIO(base64.b64decode(text_pdf(TEXT)))))
+    writer.add_metadata({"/CapturePadding": "x" * (2 * 1024 * 1024)})
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    data = buffer.getvalue()
+    assert 2 * 1024 * 1024 < len(data) < 10 * 1024 * 1024
+    # Exercise the actual isolated PDF subprocess, not a parser mock.
+    result = await WorkoutExtractor(FakeProvider(response())).extract(ExtractionRequest(
+        kind="document", document_base64=base64.b64encode(data).decode(), document_mime="application/pdf", class_parts=True, ai_consent=True))
+    assert result.error_code is None and result.workout.blocks, result
+    too_large = ExtractionRequest(kind="document", document_base64=base64.b64encode(b"x" * (10 * 1024 * 1024 + 1)).decode(), document_mime="application/pdf", class_parts=True, ai_consent=True)
+    rejected = await WorkoutExtractor(FakeProvider(response())).extract(too_large)
+    assert rejected.error_code == "document_size_limit"

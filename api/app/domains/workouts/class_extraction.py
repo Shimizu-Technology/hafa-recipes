@@ -21,6 +21,8 @@ paragraphs before the first heading go in workout instructions, notes below a
 heading in that part's instructions. A benchmark requires an explicit source
 quote naming it; preserve progression 2/3 as stage/stages. Supply evidence for
 each class field, including segment, ranges, load options, rest, role and notes.
+Ignore leaderboards, athlete names/results and comments in images; extract only
+the programming and coach instructions. Never copy other members into output.
 """
 
 
@@ -120,3 +122,35 @@ def ground_class(workout, raw, source, warnings):
                 item.segment = None
             warnings.append(f"Buy-in/cash-out structure for {block.label} needs review; source quotes were retained.")
     workout.programming = None  # Only explicit request hints can supply this private metadata.
+
+
+# Conservative section boundaries for visible WodUp/page text. Never use an AI
+# call to identify the private rows we are trying to keep out of that call.
+CLASS_SECTION = re.compile(r"^(?:part\s+)?[a-z](?:[.)]|\s*:)\s+|^(?:workout(?:\s+of\s+the\s+day)?|wod|coach(?:'s)? notes?|warm[- ]?up|cool[- ]?down|accessories)\s*[:—-]?$", re.I)
+PRIVATE_SECTION = re.compile(r"^(?:log (?:a )?result|leaderboard|(?:view |show |all )?(?:results?|comments?|athletes?|members?))(?:\b|$)", re.I)
+
+
+def class_text(text):
+    return trim_class_parts([("text", text)])[0][1]
+
+
+def trim_class_parts(parts):
+    """Keep programming; private sections stay suppressed across PDF pages."""
+    lines = [(location, text.splitlines()) for location, text in parts]
+    has_heading = any(re.fullmatch(r"(?:workout(?: of the day)?|wod|coach(?:'s)? notes?)\s*[:—-]?", line.strip(), re.I)
+                      for _, page in lines for line in page)
+    started, suppressed = not has_heading, False
+    result = []
+    for location, page in lines:
+        clean = []
+        for line in page:
+            value = line.strip()
+            if CLASS_SECTION.search(value):
+                started, suppressed = True, False
+            elif PRIVATE_SECTION.search(value):
+                suppressed = True
+                continue
+            if started and not suppressed:
+                clean.append(line)
+        result.append((location, "\n".join(clean)))
+    return result

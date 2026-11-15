@@ -197,9 +197,9 @@ async def test_errors_release_and_leave_normal_import_usable(fixture, error):
     elif error == "invalid_json":
         assert status(await call(fixture.app, receiver(b"{"))) == 422
     elif error == "content_length":
-        assert status(await call(fixture.app, unread, [(b"content-length", b"3145729")])) == 413
+        assert status(await call(fixture.app, unread, [(b"content-length", str(security.WorkoutsImportRoute.max_body_bytes + 1).encode())])) == 413
     else:
-        chunks = iter([b"x" * (3 * 1024 * 1024), b"x"])
+        chunks = iter([b"x" * security.WorkoutsImportRoute.max_body_bytes, b"x"])
 
         async def chunked():
             data = next(chunks)

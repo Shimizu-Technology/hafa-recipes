@@ -68,6 +68,7 @@ MAX_WEB_BYTES = 2 * 1024 * 1024
 MAX_ACQUISITION_SECONDS = 90
 MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
+MAX_CLASS_DOCUMENT_BYTES = 10 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v9"
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
@@ -99,7 +100,7 @@ class ExtractionRequest(DomainModel):
     text: str | None = Field(default=None, max_length=MAX_TEXT_CHARS)
     source_url: str | None = Field(default=None, max_length=2000)
     images: list[ExtractionImage] = Field(default_factory=list, max_length=MAX_IMAGES)
-    document_base64: str | None = Field(default=None, max_length=3 * 1024 * 1024)
+    document_base64: str | None = Field(default=None, max_length=14 * 1024 * 1024)
     document_mime: str | None = Field(default=None, max_length=100)
     ai_consent: bool = False
     # Builds that run EMOM, for-time and work/rest formats opt in. Older builds
@@ -122,6 +123,10 @@ class ExtractionRequest(DomainModel):
             raise ValueError("Programming hints require class_parts")
         if self.kind == "url" and not self.source_url:
             raise ValueError("A URL import requires source_url")
+        if self.class_parts and self.text:
+            from app.domains.workouts.class_extraction import class_text
+
+            self.text = class_text(self.text)
         if self.kind == "text" and not self.text:
             raise ValueError("A text import requires text")
         if self.kind == "images" and not self.images:
@@ -2078,6 +2083,11 @@ class WorkoutExtractor:
             if (len(source.images) > (MAX_PHOTO_IMAGES if source.photo_slides is not None else MAX_IMAGES) or sum(image.payload_bytes
                                                        for image in source.images) > MAX_TOTAL_IMAGE_BYTES):
                 raise ExtractionFailure("source_image_limit")
+            if request.class_parts:
+                from app.domains.workouts.class_extraction import trim_class_parts
+
+                source.parts = [SourcePart(location, text) for location, text in trim_class_parts(
+                    [(part.location, part.text) for part in source.parts])]
             await source.report("extracting_workout")
             remaining = max(0, deadline - asyncio.get_running_loop().time())
             return await asyncio.wait_for(self.provider.extract(source), timeout=min(130, remaining))
@@ -2145,7 +2155,7 @@ class WorkoutExtractor:
             elif request.kind == "document":
                 await source.report("reading_document")
                 data = base64.b64decode(request.document_base64, validate=True)
-                if len(data) > MAX_DOCUMENT_BYTES:
+                if len(data) > (MAX_CLASS_DOCUMENT_BYTES if request.class_parts else MAX_DOCUMENT_BYTES):
                     raise ExtractionFailure("document_size_limit")
                 if request.document_mime == "application/pdf":
                     source.parts = await _pdf_parts(data)
