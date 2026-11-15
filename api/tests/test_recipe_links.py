@@ -288,6 +288,24 @@ def test_legacy_projection_attribution_and_estimates():
     assert user().model_copy(update={'email': 'private.handle@example.com'}).display_name == 'A chef'
 
 
+def test_default_image_draws_brand_name_and_singular_count():
+    from PIL import ImageDraw, ImageFont
+
+    from app.recipe_pages import BRAND_FONT
+    font = ImageFont.truetype(str(BRAND_FONT), 80)
+
+    def glyph(char):
+        canvas = Image.new('L', (120, 120))
+        ImageDraw.Draw(canvas).text((10, 0), char, font=font, fill=255)
+        return canvas.tobytes()
+    # A missing glyph renders as the font's .notdef box, like Pillow's default font did for "å".
+    assert glyph('å') != glyph('\U0010fffd')
+    assert Image.open(io.BytesIO(jpeg(None))).size == (1200, 630)
+    one = {'id': str(uuid4()), 'title': 'Rice', 'creator': 'A Håfa cook', 'servings': None, 'time': None, 'notes': None,
+           'source_url': None, 'components': [{'name': 'Main', 'ingredients': [{'name': 'rice'}], 'steps': [], 'notes': None}]}
+    assert '1 ingredient · on Håfa Recipes' in render_page(one, one['id'])
+
+
 @pytest.mark.asyncio
 async def test_image_releases_connection_bounds_wait_and_retries(monkeypatch):
     import asyncio

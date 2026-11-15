@@ -6,6 +6,7 @@ import re
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from html import escape
+from pathlib import Path
 from time import monotonic
 from uuid import UUID
 
@@ -97,7 +98,8 @@ def render_page(data, key, has_photo=True):
     except ValueError:
         is_public_link = False
     url = f'{SITE}/r/{key}'
-    description = ' · '.join(filter(None, [f"Serves {data['servings']}" if data['servings'] else '', str(data['time'] or ''), f"{sum(len(c['ingredients']) for c in data['components'])} ingredients", 'on Håfa Recipes']))
+    count = sum(len(c['ingredients']) for c in data['components'])
+    description = ' · '.join(filter(None, [f"Serves {data['servings']}" if data['servings'] else '', str(data['time'] or ''), f"{count} ingredient{'' if count == 1 else 's'}", 'on Håfa Recipes']))
     sections = ''
     for c in data['components']:
         def ingredient(i):
@@ -147,10 +149,14 @@ MAX_IMAGE_JOBS = 4
 IMAGE_WAIT_SECONDS = 2
 
 
+# Pillow's bundled font has no "å"; the app's title face does (SIL OFL, see Fraunces-OFL.txt).
+BRAND_FONT = Path(__file__).parent / 'assets' / 'fonts' / 'Fraunces_500Medium.ttf'
+
+
 def jpeg(data):
     image = ImageOps.fit(Image.open(io.BytesIO(data)).convert('RGB'), (1200, 630)) if data else Image.new('RGB', (1200, 630), '#145E52')
     if not data:
-        ImageDraw.Draw(image).text((70, 270), 'Håfa Recipes', font=ImageFont.load_default(size=72), fill='white')
+        ImageDraw.Draw(image).text((70, 260), 'Håfa Recipes', font=ImageFont.truetype(str(BRAND_FONT), 80), fill='white')
     out = io.BytesIO()
     image.save(out, 'JPEG', quality=86)
     return out.getvalue()
