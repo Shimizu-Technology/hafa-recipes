@@ -15,6 +15,7 @@ import { healthOwnerScope } from "@/lib/health-client";
 import {
   createReminders,
   defaultReminderSettings,
+  leadInSeconds,
   type RemindersController,
   type LocalNotifications,
 } from "@/lib/reminders";
@@ -77,6 +78,10 @@ export function RemindersProvider({ children }: PropsWithChildren) {
       void controller.cleanupOwned().catch(() => undefined);
     };
   }, [controller]);
+  // The countdown choice lives with these device settings; new timed starts read it from the store.
+  const saved = useSyncExternalStore(controller?.subscribe ?? (() => () => {}), controller?.snapshot ?? (() => empty), () => empty);
+  const leadIn = leadInSeconds(saved.settings);
+  useEffect(() => { offline.store?.setLeadIn(leadIn); }, [offline.store, leadIn]);
   useEffect(() => {
     if (controller && offline.ready)
       void controller

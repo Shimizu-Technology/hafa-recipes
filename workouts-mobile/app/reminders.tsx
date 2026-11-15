@@ -1,9 +1,9 @@
 import { router } from "expo-router";
 import { useTraining } from "@/lib/context";
 import { useEffect, useState } from "react";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, Notice, Screen, Segmented } from "@/components/ui";
 import { useReminders } from "@/components/reminders-provider";
-import { reminderErrors, type ReminderSettings } from "@/lib/reminders";
+import { leadInChoices, leadInSeconds, reminderErrors, type ReminderSettings } from "@/lib/reminders";
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 export default function Reminders() {
   const { controller, state } = useReminders();
@@ -96,6 +96,18 @@ export default function Reminders() {
                 </Copy>
               </>
             )}
+            <Copy kind="label">Countdown before a timed start</Copy>
+            <Segmented<string>
+              label="Countdown before a timed start"
+              value={String(leadInSeconds(draft))}
+              onChange={(value) => {
+                if (!busy) setDraft({ ...draft, lead_in_seconds: Number(value) });
+              }}
+              options={leadInChoices.map((seconds) => ({ value: String(seconds), label: seconds ? `${seconds} s` : "Off" }))}
+            />
+            <Copy kind="small" tone="muted">
+              A 3-2-1 before an AMRAP, EMOM or for-time clock, so you can set the phone down first.
+            </Copy>
             <Button
               title="Save reminder choices"
               busy={busy}

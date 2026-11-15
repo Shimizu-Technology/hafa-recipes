@@ -5,7 +5,11 @@ export interface ReminderSettings {
   days: number[];
   hour: number;
   minute: number;
+  /** Countdown before a timed clock starts. Missing in older saved choices, which get the default. */
+  lead_in_seconds?: number;
 }
+export const leadInChoices = [0, 3, 5, 10] as const;
+export const leadInSeconds = (settings: ReminderSettings) => settings.lead_in_seconds ?? 3;
 export interface TimerCheckpoint {
   session_id: string;
   until: number;
@@ -58,6 +62,8 @@ export function reminderErrors(settings: ReminderSettings) {
     settings.days.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
   )
     errors.push("Choose valid reminder days.");
+  if (settings.lead_in_seconds != null && !(leadInChoices as readonly number[]).includes(settings.lead_in_seconds))
+    errors.push("Choose a countdown of off, 3, 5 or 10 seconds.");
   if (settings.weekly_enabled && !settings.days.length) errors.push("Choose at least one day for weekly reminders.");
   return errors;
 }

@@ -539,7 +539,7 @@ it("logs nine exercises as repeatable rounds, preserves sides, undoes without du
   await expect(store.addSet()).rejects.toThrow("repeats whole rounds");
   await expect(store.finish("completed")).rejects.toThrow("Reach the source time cap");
 });
-it("pauses background time, restores at the durable checkpoint, and resumes the remaining cap", async () => {
+it("an explicit pause stops the wall clock; a relaunch keeps it running until the person says where they stopped", async () => {
   const { store, storage, setTime, time } = await timedStore();
   setTime(12000); await store.log(next(store));
   setTime(15000); await store.pause(true);
@@ -549,6 +549,9 @@ it("pauses background time, restores at the durable checkpoint, and resumes the 
   setTime(90000); await store.checkpoint();
   setTime(180000);
   const restored = createTrainingStore(storage, "owner", 1, time); await restored.load();
+  expect(restored.snapshot().active).toMatchObject({ paused: false, clock_kept_running: { left_at: 90000 } });
+  expect(circuitRemaining(restored.snapshot().active!, time())).toBe(1085);
+  await restored.confirmKeptClock(90000);
   expect(restored.snapshot().active!.paused).toBe(true);
   expect(circuitRemaining(restored.snapshot().active!, time())).toBe(1175);
   await restored.pause(false);
