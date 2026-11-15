@@ -148,7 +148,8 @@ export function ClassSession(p: ClassSessionProps) {
       {p.activityPicker}
     </>;
     footer = <>
-      {unready && <Copy kind="small" tone="muted" align="center">Choose Rx or Scaled for each score to save.</Copy>}
+      {/* Capped so the footer leaves room to scroll the score cards at the largest text size. */}
+      {unready && <Copy kind="small" tone="muted" align="center" maxScale={1.5}>Choose Rx or Scaled for each score to save.</Copy>}
       <Button title="Save class" icon="checkmark-done" size="lg" busy={busy} disabled={unready} onPress={save} />
     </>;
   } else if (status === "resting_after") {

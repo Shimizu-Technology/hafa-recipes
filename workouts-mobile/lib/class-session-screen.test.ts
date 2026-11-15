@@ -119,6 +119,9 @@ describe("class runner (Nov 17)", () => {
     expect(renderer!.root.findAll((n) => (n.type as unknown) === "SectionHeader").map((n) => n.props.title)).toContain("Your scores");
     const save = () => control("Save class")!;
     expect(save().props.disabled).toBe(true);
+    // The hint stays small enough at the largest text size to leave the score cards room to scroll.
+    const hint = elements(screen().footer).find((n) => n.props.children === "Choose Rx or Scaled for each score to save.")!;
+    expect(hint.props.maxScale).toBe(1.5);
     const editor = renderer!.root.findAll((n) => n.props?.block?.id === "a" && typeof n.props.onChange === "function")[0];
     expect(editor.props.result).toMatchObject({ kind: "rounds_reps", rounds: 2, reps: 0, buy_in_done: true, buy_in_seconds: 360 });
     await act(async () => editor.props.onChange({ ...editor.props.result, reps: 12, scaling: "rx" }));
