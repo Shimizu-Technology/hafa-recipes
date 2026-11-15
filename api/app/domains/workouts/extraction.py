@@ -69,7 +69,11 @@ MAX_ACQUISITION_SECONDS = 90
 MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_CLASS_DOCUMENT_BYTES = 10 * 1024 * 1024
-PROMPT_VERSION = "workout-extraction-evidence-v9"
+PROMPT_VERSION = "workout-extraction-evidence-v10"
+# A five-part class with evidence quotes needs more room than one reel; the
+# smaller limit truncated real classes and paid for a second model.
+OUTPUT_TOKENS = 6000
+CLASS_OUTPUT_TOKENS = 16000
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
 
@@ -521,6 +525,7 @@ class ProductionExtractionProvider:
         settings = get_settings()
         primary = settings.workout_extraction_model
         fallback = settings.workout_extraction_fallback_model
+        tokens = CLASS_OUTPUT_TOKENS if source.class_parts else OUTPUT_TOKENS
         last_error = "provider_failed"
         best = None
         for index, model in enumerate((primary, fallback)):
@@ -541,7 +546,7 @@ class ProductionExtractionProvider:
                         model=invocation.model,
                         envelope=ProviderEnvelope(
                             endpoint="chat_completions",
-                            max_output_tokens=6000,
+                            max_output_tokens=tokens,
                             includes_images=bool(source.images),
                             service_tier="default",
                             sdk_max_retries=0,
@@ -557,7 +562,7 @@ class ProductionExtractionProvider:
                                     "model": invocation.model,
                                     "messages": provider_messages(source),
                                     "response_format": workout_response_format(),
-                                    "max_completion_tokens": 6000,
+                                    "max_completion_tokens": tokens,
                                     "store": False,
                                     "service_tier": "default",
                                     "reasoning_effort": settings.openai_reasoning_effort,
@@ -579,8 +584,13 @@ class ProductionExtractionProvider:
                             quality > best[0] and _prescription_preserves(grounded, best[3])
                         )):
                             best = (quality, parsed, warnings, grounded)
-                        if (not quality[0] or (grounded.kind != "exercise" and quality[0] != quality[1])
+                        # A class lists "Max" efforts and undosed accessories on purpose, and
+                        # its page layout restores omitted parts; a second model adds cost, not facts.
+                        modelled = any(block.get("exercises") for block in parsed.get("blocks") or [])
+                        if not quality[0] or not modelled or not source.class_parts and (
+                                (grounded.kind != "exercise" and quality[0] != quality[1])
                                 or _missing_source_movements(grounded, source)):
+
                             raise ExtractionFailure("provider_insufficient_prescription")
                         paid.complete(outcome="success")
                         invocation.succeed(data)
