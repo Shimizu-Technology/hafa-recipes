@@ -534,6 +534,31 @@ class ApiClient {
     return response.json();
   }
 
+  /**
+   * Save a recipe opened from a Håfa link as a private copy in this account's library. Idempotent:
+   * saving again returns the same copy. Uses fetch for the same reason as getSharedRecipe.
+   */
+  async saveSharedRecipe(key: string, requestGuard?: RequestGuard): Promise<{ recipe_id: string }> {
+    const token = await this.getAuthTokenWithRetry('/public/r/save', (this as any).ownerSignal, requestGuard);
+    if (!token) throw Object.assign(new Error('Sign in to save this recipe.'), { status: 401 });
+    requestGuard?.();
+    const response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/save`, {
+      method: 'POST',
+      signal: (this as any).ownerSignal,
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    });
+    requestGuard?.();
+    const body = await response.json().catch(() => null);
+    if (!response.ok || typeof body?.recipe_id !== 'string') {
+      const retryAfter = Number(response.headers.get('Retry-After'));
+      throw Object.assign(new Error('The recipe wasn’t saved.'), {
+        status: response.ok ? 500 : response.status,
+        ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}),
+      });
+    }
+    return { recipe_id: body.recipe_id };
+  }
+
   async getPublishingDisclosure(): Promise<PublishingDisclosureStatus> {
     const { data } = await this.client.get('/api/users/me/publishing-disclosure', { timeout: 10_000 });
     return data;

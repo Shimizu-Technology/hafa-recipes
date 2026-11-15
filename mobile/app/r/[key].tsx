@@ -1,23 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View as RNView } from 'react-native';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useAuth } from '@clerk/expo';
 
 import { Button, Text, useColors } from '@/components/Themed';
 import { RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { fontFamily, layout, radius, spacing } from '@/constants/Colors';
 import { useRecipeQuery as useQuery } from '@/hooks/useRecipeQuery';
+import { sharedSaveProblem, useSaveSharedRecipe, type SharedSaveProblem } from '@/hooks/useSaveSharedRecipe';
 import { api, API_BASE_URL } from '@/lib/api';
 import { openRecipeSource } from '@/lib/openRecipeSource';
 import { classifyRecipeLinkKey } from '@/lib/recipeLinkRoute';
 import { formatShareIngredient, getSourceCredit } from '@/lib/recipeShare';
 import { getCookingNotes } from '@/lib/recipeTrust';
+import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
+import { showToast } from '@/lib/toast';
 
 /**
  * hafa-recipes.com/r/<key> opened in the app. A recipe ID goes to the full recipe screen; an unlisted
- * key shows a read-only copy (the API can't save an unlisted recipe to another library yet).
+ * key shows the shared recipe with Save, which copies it privately into the viewer's library.
  */
 export default function SharedRecipeScreen() {
   const { key } = useLocalSearchParams<{ key: string }>();
@@ -31,12 +35,44 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [photoFailed, setPhotoFailed] = useState(false);
+  const { userId, sessionId } = useAuth();
+  const save = useSaveSharedRecipe(linkKey);
+  const [problem, setProblem] = useState<SharedSaveProblem | null>(null);
   const { data: recipe, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['sharedRecipe', linkKey],
     queryFn: ({ signal }) => api.getSharedRecipe(linkKey!, signal),
     enabled: !!linkKey,
     retry: (count: number, failure: unknown) => count < 1 && (failure as { status?: number })?.status !== 404,
   });
+  const runSave = async (guard?: () => void) => {
+    setProblem(null);
+    try {
+      const { recipe_id } = await save.mutateAsync(undefined);
+      guard?.();
+      showToast({ message: 'Saved to your library', tone: 'success' });
+      router.replace({ pathname: '/recipe/[id]', params: { id: recipe_id } });
+    } catch (failure) {
+      setProblem(sharedSaveProblem(failure));
+    }
+  };
+  const handleSave = () => {
+    if (!linkKey || save.isPending) return;
+    if (!userId) {
+      // The key stays in memory; after sign-in AuthProtection brings the viewer back here to finish.
+      guestRecipeIntent.start(linkKey, 'shared-save');
+      router.push('/(auth)/sign-in');
+      return;
+    }
+    void runSave();
+  };
+  // Finish a save that began before sign-in, once, for this session only.
+  const loaded = !!recipe;
+  useEffect(() => {
+    if (!linkKey || !userId || !sessionId || !loaded) return;
+    const intent = guestRecipeIntent.take(linkKey, sessionId);
+    if (intent?.action === 'shared-save') void runSave(intent.guard);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkKey, userId, sessionId, loaded]);
   const header = <Stack.Screen options={{ title: 'Shared recipe', headerBackTitle: 'Back' }} />;
 
   if (linkKey && isLoading) {
@@ -81,6 +117,14 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
       <RNView style={[styles.notice, { backgroundColor: colors.surface2 }]}>
         <Ionicons name="lock-closed-outline" size={16} color={colors.textSecondary} />
         <Text style={[styles.noticeText, { color: colors.textSecondary }]}>Shared with a private link. Only people with the link can open it.</Text>
+      </RNView>
+      <RNView testID="shared-save" style={styles.save}>
+        {problem?.kind === 'own'
+          ? <Button title="Open your recipe" variant="secondary" onPress={() => router.replace({ pathname: '/recipe/[id]', params: { id: recipe.id } })} />
+          : problem?.kind !== 'unavailable' && <Button title={userId ? 'Save to my library' : 'Sign in to save'} onPress={handleSave} loading={save.isPending} />}
+        <Text accessibilityLiveRegion="polite" style={[styles.meta, { color: problem && problem.kind !== 'own' ? colors.error : colors.textSecondary }]}>
+          {problem ? problem.message : 'Saves a private copy you can scale, plan and cook from.'}
+        </Text>
       </RNView>
       {source && (
         <RNView style={[styles.group, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
@@ -129,6 +173,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 30, lineHeight: 36, fontFamily: fontFamily.recipeTitle },
   credit: { fontSize: 16, lineHeight: 21, fontFamily: fontFamily.semibold },
   meta: { fontSize: 14, lineHeight: 20 },
+  save: { gap: spacing.sm, marginBottom: spacing.sm },
   notice: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', padding: 12, borderRadius: radius.md, marginVertical: spacing.sm },
   noticeText: { flex: 1, fontSize: 14, lineHeight: 20 },
   group: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
