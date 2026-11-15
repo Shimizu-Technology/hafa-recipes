@@ -221,7 +221,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
                 ) : null}
                 {!large && primaryButton}
                 <RNView style={[styles.group, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
-                  {model.showCopyLink && <RecipeDetailRow icon="link-outline" title="Copy link" accessory={<></>}
+                  {model.showCopyLink && <RecipeDetailRow icon="link-outline" title="Copy link" stacked
                     disabled={linkChecking} onPress={() => void requestLink('copy')} />}
                   {model.primary === 'send-link' && <RecipeDetailRow icon="document-text-outline" title="Send as text"
                     value="Ingredients and steps" stacked onPress={() => void sendText()} />}

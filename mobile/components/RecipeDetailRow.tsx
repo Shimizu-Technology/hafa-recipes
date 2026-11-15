@@ -8,7 +8,10 @@ type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & 
   title: string;
   value?: string;
   accessory?: ReactNode;
-  /** Put the value on its own line under the title (two lines at most) instead of beside it. */
+  /**
+   * Action-list layout: the value is a left-aligned line directly under the title, truncated to one line
+   * (two at accessibility text sizes), and the icon, text and chevron are centered in the row.
+   */
   stacked?: boolean;
 };
 
@@ -16,12 +19,21 @@ type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & 
 export function RecipeDetailRow({ icon, title, value, accessory, stacked, onPress, ...props }: RecipeDetailRowProps) {
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
+  const textScale = useContext(TextScaleContext);
+  const valueLines = fontScale * textScale >= 1.6 ? 2 : 1;
   const content = <>
     <View style={styles.icon}><Ionicons name={icon} size={20} color={colors.textSecondary} /></View>
-    <View style={stacked ? styles.stackedCopy : styles.copy}>
-      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-      {value ? <Text numberOfLines={stacked ? 2 : undefined} style={[stacked ? styles.stackedValue : styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
-    </View>
+    {stacked ? (
+      <View style={styles.stackedCopy}>
+        <Text style={[styles.stackedTitle, { color: colors.text }]}>{title}</Text>
+        {value ? <Text numberOfLines={valueLines} ellipsizeMode="tail" style={[styles.stackedValue, { color: colors.textSecondary }]}>{value}</Text> : null}
+      </View>
+    ) : (
+      <View style={styles.copy}>
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        {value ? <Text style={[styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
+      </View>
+    )}
     <View style={styles.accessory}>{accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}</View>
     <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />
   </>;
@@ -64,6 +76,8 @@ const styles = StyleSheet.create({
   copy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4 },
   title: { fontSize: 17, lineHeight: 22, flexGrow: 1, flexShrink: 1 },
   value: { fontSize: 15, lineHeight: 20, flexShrink: 1, textAlign: 'right', marginLeft: 'auto' },
-  stackedCopy: { flex: 1, gap: 2 },
-  stackedValue: { fontSize: 15, lineHeight: 20 },
+  // No flexGrow on the title here: in a column it would stretch and push the value down.
+  stackedCopy: { flex: 1, justifyContent: 'center', gap: 2 },
+  stackedTitle: { fontSize: 17, lineHeight: 22 },
+  stackedValue: { fontSize: 15, lineHeight: 20, textAlign: 'left' },
 });
