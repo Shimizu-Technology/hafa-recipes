@@ -152,18 +152,23 @@ def child_details(stored, sent):
 
 
 async def check_expecting(db, sent, space_id, user_id, personal_space_id):
-    """Only someone who could be expecting: a parent in this baby's family, or her own personal space's owner.
-    Checked only when it's sent, so a parent leaving later doesn't stop anyone saving the rest of the profile."""
-    who = (sent or {}).get("expecting_member") if isinstance(sent, dict) else None
-    if not isinstance(who, str):
+    """Who's expecting is said by a parent of the baby's own space, about a parent there (or, in her personal
+    space, by and about its owner). Checked only when it's sent, so a parent leaving later doesn't stop anyone
+    saving the rest of the profile."""
+    if not isinstance(sent, dict) or not {"expecting_member", "expecting_confirmed"} & sent.keys():
         return
-    if space_id == personal_space_id:
-        allowed = who == user_id
-    else:
-        allowed = await db.scalar(select(BabySpaceMember.role).where(
-            BabySpaceMember.space_id == space_id, BabySpaceMember.app_user_id == who,
+
+    async def parent(person):
+        if space_id == personal_space_id:
+            return person == user_id
+        return await db.scalar(select(BabySpaceMember.role).where(
+            BabySpaceMember.space_id == space_id, BabySpaceMember.app_user_id == person,
             BabySpaceMember.status == "active")) == "parent"
-    if not allowed:
+
+    if not await parent(user_id):
+        raise HTTPException(403, "Only a parent in this baby's family can say who's expecting")
+    who = sent.get("expecting_member")
+    if isinstance(who, str) and not await parent(who):
         raise HTTPException(422, CHILD_DETAIL_ERRORS["expecting_member"])
 
 
