@@ -1,8 +1,11 @@
 """Ground opt-in class structure without exposing new shapes to older imports."""
 
+import logging
 import re
 from copy import deepcopy
 
+logger = logging.getLogger(__name__)
+LAYOUT_WARNING = "The page layout could not be read; review every part against the source."
 WORKOUT_KEYS = ("benchmark", "programming")
 BLOCK_KEYS = ("role", "rest_after_seconds", "score_kind", "instructions")
 EXERCISE_KEYS = ("segment", "distance_meters_min", "duration_seconds_max", "load_options", "relative_load")
@@ -24,6 +27,23 @@ each class field, including segment, ranges, load options, rest, role and notes.
 Ignore leaderboards, athlete names/results and comments in images; extract only
 the programming and coach instructions. Never copy other members into output.
 """
+
+
+def apply_layout(workout, text, warnings):
+    """Read the page layout on a copy; a layout the reader cannot follow keeps the model's parts."""
+    from app.domains.workouts.class_outline import apply_outline, stale_warnings
+
+    draft, notes = workout.model_copy(deep=True), []
+    try:
+        apply_outline(draft, text, notes)
+    except Exception:  # noqa: BLE001 - a heuristic reader must never fail the import
+        logger.exception("workouts_class_layout_failed")
+        warnings.append(LAYOUT_WARNING)
+        return
+    for name in type(workout).model_fields:
+        setattr(workout, name, getattr(draft, name))
+    placed = any(block.instructions for block in workout.blocks) or bool(workout.instructions)
+    warnings[:] = stale_warnings(workout, warnings, placed) + notes
 
 
 def load_pairs(wording):
@@ -141,6 +161,8 @@ def ground_class(workout, raw, source, warnings):
                 item.segment = None
             warnings.append(f"Buy-in/cash-out structure for {block.label} needs review; source quotes were retained.")
     workout.programming = None  # Only explicit request hints can supply this private metadata.
+    if text.strip():
+        apply_layout(workout, text, warnings)
 
 
 # Resume at programming, not at athlete initials inside a leaderboard.
