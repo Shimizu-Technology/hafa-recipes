@@ -127,7 +127,14 @@ def ground_class(workout, raw, source, warnings):
 # Resume at the next part, not at athlete initials inside a leaderboard.
 PART_HEADING = re.compile(r"^(?:part\s+)?([a-z])(\d{1,2})?(?:[.):]\s*|\s+|$)", re.I)
 CLASS_SECTION = re.compile(r"^(?:workout(?:\s+of\s+the\s+day)?|wod|coach(?:'s)? notes?|warm[- ]?up|cool[- ]?down|accessories)\s*[:—-]?$", re.I)
-PRIVATE_SECTION = re.compile(r"^(?:log (?:a )?result|leaderboard|(?:view |show |all )?(?:results?|comments?(?:\s*\(\d+\))?|athletes|members))\s*:?$", re.I)
+BUTTON_LABEL = re.compile(r"^(?:log (?:a )?result|view(?:\s+.*)?|show (?:more|less))\s*:?$", re.I)
+PRIVATE_SECTION = re.compile(r"^(?:leaderboard|results?|comments?(?:\s*\(\d+\))?|athletes?|members?)\s*:?$", re.I)
+MEMBER_NAME = r"[^\W\d][\w.'’\-]*(?:[ \t]+[^\W\d][\w.'’\-]*){0,5}"
+MEMBER_SCORE = re.compile(
+    rf"^{MEMBER_NAME}[ \t]+(?:\d+\s*\+\s*\d+|\d{{1,3}}:\d{{2}}(?::\d{{2}})?|"
+    r"\d+(?:\.\d+)?(?:\s*(?:rounds?|reps?|kg|lbs?|calories|meters?|m|seconds?|s|minutes?|min))?)"
+    r"(?:\s+(?:rx|scaled|custom))?$", re.I)
+MEMBER_COMMENT = re.compile(rf"^{MEMBER_NAME}:\s*\S.*$")
 TRIM_WARNING = "Navigation, results or member sections were removed. Review all workout parts against the source."
 MISSING_CLASS_TEXT = "No workout section was found. Paste the workout section or add cropped screenshots."
 
@@ -141,7 +148,7 @@ def class_text(text):
 
 
 def trim_class_parts(parts, warnings=None):
-    """Keep expected ordered parts; suppress private sections across PDF pages."""
+    """Remove member rows, preserving programming below WodUp header buttons."""
     lines = [(location, text.splitlines()) for location, text in parts]
     has_heading = any(re.fullmatch(r"(?:workout(?: of the day)?|wod|coach(?:'s)? notes?)\s*[:—-]?", line.strip(), re.I)
                       for _, page in lines for line in page)
@@ -153,15 +160,26 @@ def trim_class_parts(parts, warnings=None):
             value = line.strip()
             part = PART_HEADING.match(value)
             expected = chr(ord(current) + 1) if current else "a"
-            if part and (part[1].lower() == expected or (current is None and not suppressed)
-                         or (part[1].lower() == current and part[2])):
+            next_part = part and (part[1].lower() == expected or (current is None and not suppressed)
+                                  or (part[1].lower() == current and part[2]))
+            if BUTTON_LABEL.fullmatch(value):
+                removed = True
+                continue
+            if PRIVATE_SECTION.fullmatch(value):
+                suppressed, removed = True, True
+                continue
+            if suppressed:
+                # Only the expected part can resume; old initials cannot move
+                # D back to C. "B. AMRAP 15 min" is a part, not a scored athlete.
+                if not next_part and (not value or MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)):
+                    removed = True
+                    continue
+                suppressed = False  # The first non-member line is programming again.
+            if next_part:
                 current = part[1].lower()
                 started, suppressed = True, False
             elif CLASS_SECTION.fullmatch(value) and not suppressed:
                 started = True
-            elif PRIVATE_SECTION.fullmatch(value):
-                suppressed, removed = True, True
-                continue
             if started and not suppressed:
                 clean.append(line)
             else:

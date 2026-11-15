@@ -182,7 +182,7 @@ async def test_accept_edited_class_cannot_drop_gym_privacy(data_api, marker):  #
 @pytest.mark.parametrize("kind", ["text", "document"])
 async def test_class_privacy_trims_members_before_provider_and_drops_context(kind, monkeypatch):
     private = "PRIVATE_MEMBER_A 12:43\nPRIVATE_MEMBER_B 4 rounds"
-    page = "PRIVATE_NAV_NAME\nWorkout\nCoach notes\n" + TEXT + "\nLog Result\nLeaderboard\n" + private + "\nComments\nPRIVATE_COMMENT"
+    page = "PRIVATE_NAV_NAME\nWorkout\nCoach notes\n" + TEXT + "\nLog Result\nLeaderboard\n" + private + "\nComments\nPRIVATE_COMMENT: PRIVATE_MESSAGE"
     raw = response()
     if kind == "document":
         for block in raw["blocks"]:
@@ -240,7 +240,7 @@ async def test_large_class_pdf_is_parsed_and_remains_bounded():
 async def test_all_nov17_parts_survive_private_sections_between_parts():
     from app.domains.workouts.class_extraction import TRIM_WARNING, class_text
 
-    page = re.sub(r"(?m)^([BCD]\.)", lambda match: "Log Result\nLeaderboard\nPRIVATE_MEMBER 12:43\nComments (2):\nPRIVATE_COMMENT\n" + match[1], TEXT)
+    page = re.sub(r"(?m)^([BCD]\.)", lambda match: "Log Result\nLeaderboard\nPRIVATE_MEMBER 12:43\nComments (2):\nPRIVATE_COMMENT: PRIVATE_MESSAGE\n" + match[1], TEXT)
     page += "\nLog a Result:\nLeaderboard\nPRIVATE_LAST_MEMBER 4 rounds"
     cleaned = class_text(page)
     assert all(line in cleaned for line in TEXT.splitlines())
@@ -263,7 +263,7 @@ def test_coach_sentences_are_not_private_section_headings():
 def test_nav_members_and_arbitrary_part_titles_and_numbered_parts():
     from app.domains.workouts.class_extraction import class_text
 
-    text = "Athletes\nPRIVATE_NAV_MEMBER\nA. Metcon\n10 Squat\nLog Result\nLeaderboard\nA. PRIVATE_INITIAL 12:43\nB. Technique\n5 Press\nLog Result\nC. Mobility\nHold 30s\nLog Result\nD1 Pallof hold\nD2 Cuban press\nD3 Powell raise"
+    text = "Athletes\nPRIVATE_NAV_MEMBER 12:43\nA. Metcon\n10 Squat\nLog Result\nLeaderboard\nA. PRIVATE_INITIAL 12:43\nB. Technique\n5 Press\nLog Result\nC. Mobility\nHold 30s\nLog Result\nD1 Pallof hold\nD2 Cuban press\nD3 Powell raise"
     cleaned = class_text(text)
     assert "PRIVATE_" not in cleaned
     assert all(heading in cleaned for heading in ["A. Metcon", "B. Technique", "C. Mobility", "D1 Pallof", "D2 Cuban", "D3 Powell"])
@@ -289,3 +289,45 @@ def test_non_class_document_encoded_admission_limit(class_parts):
     else:
         with pytest.raises(ValidationError, match="Non-class documents"):
             ExtractionRequest(kind="document", document_base64=encoded)
+
+
+async def test_realistic_wodup_header_keeps_all_coach_notes_and_parts():
+    from app.domains.workouts.class_extraction import TRIM_WARNING, trim_class_parts
+
+    page = (Path(__file__).parent / "fixtures/wodup_nov17_page.txt").read_text()
+    warnings = []
+    cleaned = trim_class_parts([("provided_text", page)], warnings)[0][1]
+    required = [line for line in page.split("\nShow less\n")[0].splitlines() if line.startswith((
+        "Phase 5,", "Workout Specific Movement Prep", "- This is progression",
+        "- The goal today", "- Perform your deadlift", "- The final tester",
+        "- Your initial", "A.", "B.", "C.", "D1.", "D2.", "D3."))]
+    assert len(required) == 13
+    assert all(line in cleaned for line in required)
+    assert all(name not in cleaned for name in ("Jane Doe", "C. Smith", "Bob Lee", "Mike R", "great one today"))
+    assert "View Workout Specific Movement Prep" not in cleaned
+    assert "Log Result" not in cleaned and "Leaderboard" not in cleaned
+    assert warnings == [TRIM_WARNING]
+    provider = FakeProvider({})
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="text", text=page, class_parts=True, ai_consent=True))
+    assert len(provider.calls) == 1
+    assert provider.calls[0].parts[0].text == cleaned
+    assert TRIM_WARNING in result.warnings
+
+
+@pytest.mark.parametrize("button", ["Log Result", "Log a result", "View Leaderboard", "View Workout Specific Movement Prep"])
+def test_header_button_never_suppresses_following_programming(button):
+    from app.domains.workouts.class_extraction import class_text
+
+    assert class_text(button + "\nPhase 5, Week 4, Tue\n- Hold a pace\nA. Metcon") == "Phase 5, Week 4, Tue\n- Hold a pace\nA. Metcon"
+
+
+def test_member_rows_end_at_first_nonmember_line_across_pages():
+    from app.domains.workouts.class_extraction import trim_class_parts
+
+    parts = trim_class_parts([
+        ("document_page:1", "D3. Powell raises\nLeaderboard\nJane Doe 6+12"),
+        ("document_page:2", "C. Smith 05:30\nBob Lee 5+2\nComments (2)\nMike R: great one today\nPhase 5, Week 4, Tue\n- Hold a pace"),
+    ])
+    assert parts == [("document_page:1", "D3. Powell raises"),
+                     ("document_page:2", "Phase 5, Week 4, Tue\n- Hold a pace")]
