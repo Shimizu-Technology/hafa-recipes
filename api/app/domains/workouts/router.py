@@ -51,6 +51,7 @@ from app.domains.workouts.schemas import (
 )
 from app.domains.workouts.security import WorkoutsRoute, require_workouts_user
 from app.domains.workouts.session_results import (
+    CLOCK_SKEW,
     HEALTH_SUMMARY_SCOPE,
     HealthSummaryChoice,
     HeartRateSummary,
@@ -58,6 +59,7 @@ from app.domains.workouts.session_results import (
     Segment,
     health_summary_enabled,
     health_summary_ready,
+    inside_interval,
     require_summary_permission,
     validate_intervals,
     validate_snapshot,
@@ -988,21 +990,28 @@ class SessionRequest(DomainModel):
             self.active_seconds is not None
             and self.active_seconds > (self.finished_at - self.started_at).total_seconds()
         ):
-            raise ValueError("Recorded active time cannot exceed the session interval")
+            elapsed = (self.finished_at - self.started_at).total_seconds()
+            if self.active_seconds - elapsed > CLOCK_SKEW.total_seconds():
+                raise ValueError("Recorded active time cannot exceed the session interval")
+            self.active_seconds = int(elapsed)
         if self.active_intervals:
             if self.active_seconds is None:
                 raise ValueError("Active intervals require a recorded active duration")
             previous_end = self.started_at
             duration = 0
             for interval in self.active_intervals:
-                if interval.started_at < previous_end or interval.ended_at > self.finished_at:
+                if not inside_interval(interval, self.started_at, self.finished_at) or interval.started_at < previous_end - CLOCK_SKEW:
                     raise ValueError(
                         "Active intervals must be ordered, non-overlapping and inside the session"
                     )
+                interval.started_at = max(previous_end, interval.started_at)
+                interval.ended_at = max(interval.started_at, interval.ended_at)
                 duration += (interval.ended_at - interval.started_at).total_seconds()
                 previous_end = interval.ended_at
-            if abs(duration - self.active_seconds) > 1:
+            if abs(duration - self.active_seconds) > CLOCK_SKEW.total_seconds():
                 raise ValueError("Active intervals must match the recorded active duration")
+            if abs(duration - self.active_seconds) > 1:
+                self.active_seconds = round(duration)
         if bool(self.workout_id) == bool(self.program_id):
             raise ValueError("Select exactly one owned workout or program session")
         if self.workout_id and (
