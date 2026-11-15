@@ -397,7 +397,9 @@ export default function Training() {
           for (const score of scores) await store.classScore(score.block_id, score);
           await finish(status);
         }); }}
-        runDistance={(blockId, index, meters) => { void run(() => store.classRunDistance(blockId, index, meters)); }}
+        // Each keystroke is a write; the store applies them in order, so typing fast can't drop one the way `run` drops a double tap.
+        runDistance={(blockId, index, meters) => { void store.classRunDistance(blockId, index, meters)
+          .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save on this device."); }); }}
         discard={discard} />
     );
   if (d.timed_format)

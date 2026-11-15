@@ -668,3 +668,19 @@ it("stacks set fields when large text changes and preserves both fields", async 
   expect(fields[0].props.label).toBe("Reps");
   expect(fields[1].props.label).toBe("Weight · kg");
 });
+
+it("keeps every keystroke of a treadmill distance typed quickly into the class scores", async () => {
+  const { nov17Class } = await import("./fixtures/nov17-class");
+  const { setRun, startPart } = await import("./class-session");
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(nov17Class, { workout_id: nov17Class.id, workout_revision: 1 }, "class-client");
+    await fixture.store!.classAct(startPart);
+    await fixture.store!.classAct((r, w, at) => setRun(r, w, 0, "treadmill", undefined, at), undefined, "treadmill");
+  }); await settle();
+  const runner = renderer!.root.findByType("ClassSession" as never);
+  // "9", "95", "950" arrive before the first write finishes.
+  await act(async () => { for (const meters of [9, 95, 950]) runner.props.runDistance("a", 0, meters); }); await settle();
+  expect(fixture.store!.snapshot().active!.class_run!.parts[0].runs![0]).toEqual({ environment: "treadmill", distance_meters: 950 });
+  expect(renderer!.root.findByType("ClassSession" as never).props.error).toBe("");
+});
