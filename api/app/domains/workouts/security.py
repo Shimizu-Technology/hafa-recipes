@@ -67,7 +67,7 @@ async def require_workouts_user(
 class WorkoutsImportRoute(WorkoutsRoute):
     # Native capture resizes images before transmission. Other private endpoints
     # retain their smaller account/content cap; imports admit bounded image/PDF data.
-    max_body_bytes = 18 * 1024 * 1024
+    max_body_bytes = 3 * 1024 * 1024
 
     async def handle(self, scope, receive, send):
         if (
@@ -113,3 +113,8 @@ class WorkoutsImportRoute(WorkoutsRoute):
                 )(scope, receive, send)
         finally:
             _import_ingress.release()
+
+
+class WorkoutsClassImportRoute(WorkoutsImportRoute):
+    """Only POST /imports accepts the larger class-document body."""
+    max_body_bytes = 18 * 1024 * 1024

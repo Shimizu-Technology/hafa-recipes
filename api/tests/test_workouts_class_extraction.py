@@ -235,3 +235,57 @@ async def test_large_class_pdf_is_parsed_and_remains_bounded():
     too_large = ExtractionRequest(kind="document", document_base64=base64.b64encode(b"x" * (10 * 1024 * 1024 + 1)).decode(), document_mime="application/pdf", class_parts=True, ai_consent=True)
     rejected = await WorkoutExtractor(FakeProvider(response())).extract(too_large)
     assert rejected.error_code == "document_size_limit"
+
+
+async def test_all_nov17_parts_survive_private_sections_between_parts():
+    from app.domains.workouts.class_extraction import TRIM_WARNING, class_text
+
+    page = re.sub(r"(?m)^([BCD]\.)", lambda match: "Log Result\nLeaderboard\nPRIVATE_MEMBER 12:43\nComments (2):\nPRIVATE_COMMENT\n" + match[1], TEXT)
+    page += "\nLog a Result:\nLeaderboard\nPRIVATE_LAST_MEMBER 4 rounds"
+    cleaned = class_text(page)
+    assert all(line in cleaned for line in TEXT.splitlines())
+    assert "PRIVATE_" not in cleaned
+    provider = FakeProvider(response())
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="text", text=page, class_parts=True, ai_consent=True))
+    assert [block.label for block in result.workout.blocks] == ["A", "B", "C", "D"]
+    assert TRIM_WARNING in result.warnings
+    assert all("PRIVATE_" not in part.text for part in provider.calls[0].parts)
+
+
+def test_coach_sentences_are_not_private_section_headings():
+    from app.domains.workouts.class_extraction import class_text
+
+    text = "A. Metcon\nAthletes should aim for 4+ rounds.\nResults improve with practice.\n10 Squat\nB. Technique\n5 Press"
+    assert class_text(text) == text
+
+
+def test_nav_members_and_arbitrary_part_titles_and_numbered_parts():
+    from app.domains.workouts.class_extraction import class_text
+
+    text = "Athletes\nPRIVATE_NAV_MEMBER\nA. Metcon\n10 Squat\nLog Result\nLeaderboard\nA. PRIVATE_INITIAL 12:43\nB. Technique\n5 Press\nLog Result\nC. Mobility\nHold 30s\nLog Result\nD1 Pallof hold\nD2 Cuban press\nD3 Powell raise"
+    cleaned = class_text(text)
+    assert "PRIVATE_" not in cleaned
+    assert all(heading in cleaned for heading in ["A. Metcon", "B. Technique", "C. Mobility", "D1 Pallof", "D2 Cuban", "D3 Powell"])
+
+
+async def test_no_workout_section_gives_clear_recovery_without_provider_call():
+    from app.domains.workouts.class_extraction import ClassTextUnavailable, class_text
+
+    with pytest.raises(ClassTextUnavailable, match="Paste the workout section"):
+        class_text("Athletes\nPRIVATE_MEMBER 12:43")
+    provider = FakeProvider({})
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="text", text="Athletes\nPRIVATE_MEMBER 12:43", class_parts=True, ai_consent=True))
+    assert result.error_code == "class_workout_section_missing" and not provider.calls
+    assert any("Paste the workout section" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("class_parts", [False, True])
+def test_non_class_document_encoded_admission_limit(class_parts):
+    encoded = "A" * (4 * ((extraction.MAX_DOCUMENT_BYTES + 2) // 3) + 4)
+    if class_parts:
+        assert ExtractionRequest(kind="document", document_base64=encoded, class_parts=True)
+    else:
+        with pytest.raises(ValidationError, match="Non-class documents"):
+            ExtractionRequest(kind="document", document_base64=encoded)

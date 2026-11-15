@@ -123,10 +123,8 @@ class ExtractionRequest(DomainModel):
             raise ValueError("Programming hints require class_parts")
         if self.kind == "url" and not self.source_url:
             raise ValueError("A URL import requires source_url")
-        if self.class_parts and self.text:
-            from app.domains.workouts.class_extraction import class_text
-
-            self.text = class_text(self.text)
+        if self.document_base64 and not self.class_parts and len(self.document_base64) > 4 * ((MAX_DOCUMENT_BYTES + 2) // 3):
+            raise ValueError("Non-class documents must fit the 2 MiB document limit")
         if self.kind == "text" and not self.text:
             raise ValueError("A text import requires text")
         if self.kind == "images" and not self.images:
@@ -2084,10 +2082,16 @@ class WorkoutExtractor:
                                                        for image in source.images) > MAX_TOTAL_IMAGE_BYTES):
                 raise ExtractionFailure("source_image_limit")
             if request.class_parts:
-                from app.domains.workouts.class_extraction import trim_class_parts
+                from app.domains.workouts.class_extraction import (
+                    ClassTextUnavailable,
+                    trim_class_parts,
+                )
 
-                source.parts = [SourcePart(location, text) for location, text in trim_class_parts(
-                    [(part.location, part.text) for part in source.parts])]
+                try:
+                    source.parts = [SourcePart(location, text) for location, text in trim_class_parts(
+                        [(part.location, part.text) for part in source.parts], source.warnings)]
+                except ClassTextUnavailable:
+                    raise ExtractionFailure("class_workout_section_missing") from None
             await source.report("extracting_workout")
             remaining = max(0, deadline - asyncio.get_running_loop().time())
             return await asyncio.wait_for(self.provider.extract(source), timeout=min(130, remaining))
@@ -2263,6 +2267,10 @@ class WorkoutExtractor:
                     warnings=["The source URL is unsupported."],
                     source=SourceMetadata(platform=request.kind),
                 )
+            if exc.code == "class_workout_section_missing":
+                from app.domains.workouts.class_extraction import MISSING_CLASS_TEXT
+
+                return draft(source, exc.code, MISSING_CLASS_TEXT)
             return draft(
                 source,
                 exc.code,

@@ -60,7 +60,11 @@ from app.domains.workouts.schemas import (
     TrainingProfile,
     WorkoutContent,
 )
-from app.domains.workouts.security import WorkoutsImportRoute, WorkoutsRoute
+from app.domains.workouts.security import (
+    WorkoutsClassImportRoute,
+    WorkoutsImportRoute,
+    WorkoutsRoute,
+)
 from app.domains.workouts.source_planning import (
     compose_library_program,
     convert_program_source,
@@ -194,7 +198,6 @@ def import_response(row):
     return response
 
 
-@imports_router.post("/imports", status_code=202, response_model=ImportResponse)
 async def import_source(request: ImportRequest, user: User, db: Database, generation: Generation):
     configured = get_settings()
     if (
@@ -218,6 +221,10 @@ async def import_source(request: ImportRequest, user: User, db: Database, genera
     )
     workout_import_worker.notify()
     return import_response(row)
+
+
+imports_router.add_api_route("/imports", import_source, methods=["POST"], status_code=202,
+                             response_model=ImportResponse, route_class_override=WorkoutsClassImportRoute)
 
 
 @router.get("/imports", response_model=list[ImportResponse])

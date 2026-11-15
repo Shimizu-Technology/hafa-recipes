@@ -27,7 +27,7 @@ def fixture(monkeypatch):
     monkeypatch.setattr(security, "get_settings", lambda: configured)
     monkeypatch.setattr(security, "_import_ingress", gate)
     calls = []
-    router = APIRouter(route_class=security.WorkoutsImportRoute)
+    router = APIRouter(route_class=security.WorkoutsClassImportRoute)
 
     async def auth():
         calls.append("auth/db")
@@ -87,13 +87,16 @@ def receiver(body=b'{"text":"fixture"}'):
     return receive
 
 
-async def call(app, receive=None, headers=(), send=None):
+async def call(app, receive=None, headers=(), send=None, path=PATH):
     messages = []
 
     async def record(message):
         messages.append(message)
 
-    await app(scope(headers), receive or receiver(), send or record)
+    request_scope = scope(headers)
+    request_scope["path"] = path
+    request_scope["raw_path"] = path.encode()
+    await app(request_scope, receive or receiver(), send or record)
     return messages
 
 
@@ -197,9 +200,9 @@ async def test_errors_release_and_leave_normal_import_usable(fixture, error):
     elif error == "invalid_json":
         assert status(await call(fixture.app, receiver(b"{"))) == 422
     elif error == "content_length":
-        assert status(await call(fixture.app, unread, [(b"content-length", str(security.WorkoutsImportRoute.max_body_bytes + 1).encode())])) == 413
+        assert status(await call(fixture.app, unread, [(b"content-length", str(security.WorkoutsClassImportRoute.max_body_bytes + 1).encode())])) == 413
     else:
-        chunks = iter([b"x" * security.WorkoutsImportRoute.max_body_bytes, b"x"])
+        chunks = iter([b"x" * security.WorkoutsClassImportRoute.max_body_bytes, b"x"])
 
         async def chunked():
             data = next(chunks)
@@ -325,3 +328,18 @@ async def test_real_socket_expect_continue_busy_and_disconnect_recovery(fixture)
             if not serving.done():
                 serving.cancel()
             listener.close()
+
+
+async def test_only_import_submission_has_large_body_cap(monkeypatch):
+    from app.domains.workouts import automation_router
+
+    routes = {route.path: route for route in automation_router.imports_router.routes}
+    assert routes[PATH].max_body_bytes == 18 * 1024 * 1024
+    cover = routes["/api/v1/workouts/library/{workout_id}/cover"]
+    assert cover.max_body_bytes == 3 * 1024 * 1024
+    monkeypatch.setattr(security, "get_settings", lambda: SimpleNamespace(workouts_api_enabled=True))
+    app = FastAPI()
+    app.include_router(automation_router.imports_router)
+    response = await call(app, unread, [(b"content-length", str(cover.max_body_bytes + 1).encode())],
+                          path="/api/v1/workouts/library/11111111-1111-4111-8111-111111111111/cover")
+    assert status(response) == 413

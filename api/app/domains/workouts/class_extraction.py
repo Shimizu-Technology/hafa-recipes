@@ -124,33 +124,51 @@ def ground_class(workout, raw, source, warnings):
     workout.programming = None  # Only explicit request hints can supply this private metadata.
 
 
-# Conservative section boundaries for visible WodUp/page text. Never use an AI
-# call to identify the private rows we are trying to keep out of that call.
-CLASS_SECTION = re.compile(r"^(?:part\s+)?[a-z](?:[.)]|\s*:)(?:\s*(?:amrap|emom|for time|warm[- ]?up|cool[- ]?down|active recovery|accessories|strength|conditioning|\d+\s+(?:sets|rounds))\b.*|\s*)$|^(?:workout(?:\s+of\s+the\s+day)?|wod|coach(?:'s)? notes?|warm[- ]?up|cool[- ]?down|accessories)\s*[:—-]?$", re.I)
-PRIVATE_SECTION = re.compile(r"^(?:log (?:a )?result|leaderboard|(?:view |show |all )?(?:results?|comments?|athletes?|members?))(?:\b|$)", re.I)
+# Resume at the next part, not at athlete initials inside a leaderboard.
+PART_HEADING = re.compile(r"^(?:part\s+)?([a-z])(\d{1,2})?(?:[.):]\s*|\s+|$)", re.I)
+CLASS_SECTION = re.compile(r"^(?:workout(?:\s+of\s+the\s+day)?|wod|coach(?:'s)? notes?|warm[- ]?up|cool[- ]?down|accessories)\s*[:—-]?$", re.I)
+PRIVATE_SECTION = re.compile(r"^(?:log (?:a )?result|leaderboard|(?:view |show |all )?(?:results?|comments?(?:\s*\(\d+\))?|athletes|members))\s*:?$", re.I)
+TRIM_WARNING = "Navigation, results or member sections were removed. Review all workout parts against the source."
+MISSING_CLASS_TEXT = "No workout section was found. Paste the workout section or add cropped screenshots."
+
+
+class ClassTextUnavailable(ValueError):
+    pass
 
 
 def class_text(text):
     return trim_class_parts([("text", text)])[0][1]
 
 
-def trim_class_parts(parts):
-    """Keep programming; private sections stay suppressed across PDF pages."""
+def trim_class_parts(parts, warnings=None):
+    """Keep expected ordered parts; suppress private sections across PDF pages."""
     lines = [(location, text.splitlines()) for location, text in parts]
     has_heading = any(re.fullmatch(r"(?:workout(?: of the day)?|wod|coach(?:'s)? notes?)\s*[:—-]?", line.strip(), re.I)
                       for _, page in lines for line in page)
-    started, suppressed = not has_heading, False
+    started, suppressed, current, removed = not has_heading, False, None, False
     result = []
     for location, page in lines:
         clean = []
         for line in page:
             value = line.strip()
-            if CLASS_SECTION.search(value):
+            part = PART_HEADING.match(value)
+            expected = chr(ord(current) + 1) if current else "a"
+            if part and (part[1].lower() == expected or (current is None and not suppressed)
+                         or (part[1].lower() == current and part[2])):
+                current = part[1].lower()
                 started, suppressed = True, False
-            elif PRIVATE_SECTION.search(value):
-                suppressed = True
+            elif CLASS_SECTION.fullmatch(value) and not suppressed:
+                started = True
+            elif PRIVATE_SECTION.fullmatch(value):
+                suppressed, removed = True, True
                 continue
             if started and not suppressed:
                 clean.append(line)
+            else:
+                removed = True
         result.append((location, "\n".join(clean)))
+    if removed and warnings is not None and TRIM_WARNING not in warnings:
+        warnings.append(TRIM_WARNING)
+    if any(text.strip() for _, text in parts) and not any(text.strip() for _, text in result):
+        raise ClassTextUnavailable(MISSING_CLASS_TEXT)
     return result
