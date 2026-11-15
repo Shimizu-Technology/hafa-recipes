@@ -1032,6 +1032,7 @@ class SessionRequest(DomainModel):
 
 
 class SessionResponse(DomainModel):
+    results_summary: list[dict] = Field(default_factory=list, exclude_if=lambda v: not v)
     id: UUID
     generation: int
     client_session_id: UUID
@@ -1044,6 +1045,7 @@ def session_response(row):
         id=row.id,
         generation=row.generation,
         client_session_id=row.client_session_id,
+        results_summary=row.content.get("results_summary", []),
         content=row.content,
         created_at=row.created_at,
     )
@@ -1186,6 +1188,9 @@ async def record_session(
         content=bounded_content(content),
     )
     db.add(row)
+    from app.domains.workouts.part_results import write_part_results
+
+    await write_part_results(db, row)
     await db.commit()
     return session_response(row)
 
@@ -1525,6 +1530,16 @@ async def build_export_page(
             }
             for row in records
         ]
+    if await table_exists("workouts_part_results"):
+        from app.domains.workouts.part_result_models import PartResultRow
+
+        name = "part_results"
+        totals[name] = (source_context.totals[name] if source_context is not None else
+                        await db.scalar(select(func.count()).select_from(PartResultRow).where(
+                            PartResultRow.app_user_id == user.id, PartResultRow.generation == generation)))
+        rows = (await list_owned(db, PartResultRow, user.id, generation, limit, offset)
+                if source_context is None or source_context.should_fetch(name, offset) else [])
+        datasets[name] = [{c.name: getattr(row, c.name) for c in PartResultRow.__table__.columns} for row in rows]
     from app.domains.workouts.automation_export import export_automation_page
 
     automation_data, automation_totals = await export_automation_page(
@@ -1693,3 +1708,23 @@ async def build_export_page(
 # The compatibility export uses the same response lifetime admission as the new
 # snapshot reader. Its User dependency and existing method/path remain intact.
 router.include_router(legacy_exports)
+
+
+@router.get("/results")
+async def get_results(user: User, db: Database, workout_id: UUID | None = None,
+                      benchmark_key: Annotated[str | None, Query(max_length=60)] = None,
+                      comparison_key: Annotated[str | None, Query(max_length=200)] = None,
+                      scaling: Literal["rx", "scaled", "custom"] | None = None, limit: Limit = 20, offset: Offset = 0):
+    from app.domains.workouts.part_results import query_results
+
+    membership = await membership_for(db, user.id)
+    return await query_results(db, user.id, membership.generation, workout_id=workout_id, benchmark_key=benchmark_key,
+                               comparison_key=comparison_key, scaling=scaling, limit=limit, offset=offset)
+
+
+@router.get("/benchmarks")
+async def get_benchmarks(user: User, db: Database):
+    from app.domains.workouts.part_results import benchmark_results
+
+    membership = await membership_for(db, user.id)
+    return await benchmark_results(db, user.id, membership.generation)
