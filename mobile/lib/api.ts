@@ -43,6 +43,7 @@ import {
   WeekPlan,
   RecipeShareLinkStatus,
   RecipeShareLinkSummary,
+  SharedRecipe,
 } from '../types/recipe';
 import type {
   AppealCreatePayload,
@@ -517,6 +518,20 @@ class ApiClient {
 
   async revokeRecipeShareLink(id: string): Promise<void> {
     await this.client.delete(`/api/recipes/${id}/share-link`, { timeout: 15_000 });
+  }
+
+  /**
+   * Read a recipe opened from an unlisted link. Uses fetch rather than the Axios client so the
+   * key never reaches the request breadcrumbs or error tags; Sentry's own breadcrumbs are redacted.
+   */
+  async getSharedRecipe(key: string, signal?: AbortSignal): Promise<SharedRecipe> {
+    const token = await this.getAuthTokenWithRetry('/public/r/data', signal);
+    const response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/data`, {
+      signal,
+      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!response.ok) throw Object.assign(new Error('This recipe isn’t available.'), { status: response.status });
+    return response.json();
   }
 
   async getPublishingDisclosure(): Promise<PublishingDisclosureStatus> {

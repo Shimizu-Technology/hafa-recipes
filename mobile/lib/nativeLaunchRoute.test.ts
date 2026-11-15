@@ -43,3 +43,17 @@ describe.each([true, false])('legacy trailing slashes (initial=%s)', initial => 
     }
   });
 });
+
+describe('Håfa recipe links', () => {
+  const id = '3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b';
+  const key = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde';
+  it.each([true, false])('opens hafa-recipes.com/r links in the app (initial=%s)', initial => {
+    expect(redirectSystemPath({ path: `https://hafa-recipes.com/r/${id}`, initial })).toBe(`/recipe/${id}`);
+    expect(redirectSystemPath({ path: `/r/${id}`, initial })).toBe(`/recipe/${id}`);
+    expect(redirectSystemPath({ path: `https://hafa-recipes.com/r/${key}`, initial })).toBe(`/r/${key}`);
+  });
+  it('leaves shared website captures to the import flow', () => {
+    const capture = `/?sharedUrl=${encodeURIComponent(`https://hafa-recipes.com/r/${id}`)}`;
+    expect(redirectSystemPath({ path: capture, initial: true })).toBe(capture);
+  });
+});

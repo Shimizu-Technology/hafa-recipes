@@ -169,6 +169,23 @@ export interface RecipeShareLinkSummary {
   created_at: string;
 }
 
+/** The allowlisted recipe a Håfa link opens (GET /public/r/{key}/data). */
+export interface SharedRecipe {
+  id: string;
+  title: string;
+  creator: string;
+  servings: number | null;
+  time: string | null;
+  components: {
+    name: string;
+    ingredients: Pick<Ingredient, 'name' | 'quantity' | 'unit' | 'notes' | 'quantityEstimate'>[];
+    steps: string[];
+    notes?: string | null;
+  }[];
+  notes: string | null;
+  source_url: string | null;
+}
+
 export interface PaginatedRecipes {
   items: RecipeListItem[];
   total: number;

@@ -17,7 +17,7 @@ vi.mock('expo-constants', () => ({
   default: { expoConfig: { version: '1.0.0' } },
 }));
 
-import { setSentryUser } from './sentry';
+import { redactBreadcrumb, setSentryUser } from './sentry';
 
 describe('Sentry user context', () => {
   beforeEach(() => mocks.setUser.mockReset());
@@ -32,5 +32,14 @@ describe('Sentry user context', () => {
     setSentryUser(null);
 
     expect(mocks.setUser).toHaveBeenCalledWith(null);
+  });
+});
+
+describe('recipe link breadcrumbs', () => {
+  it('drops unlisted link keys from request and navigation breadcrumbs', () => {
+    const key = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde';
+    const crumb = redactBreadcrumb({ message: `GET /public/r/${key}/data`, data: { url: `https://api.test/public/r/${key}/og.jpg`, status_code: 404, to: `/r/${key}` } });
+    expect(JSON.stringify(crumb)).not.toContain(key);
+    expect(crumb).toEqual({ message: 'GET /public/r/[redacted]/data', data: { url: 'https://api.test/public/r/[redacted]/og.jpg', status_code: 404, to: '/r/[redacted]' } });
   });
 });

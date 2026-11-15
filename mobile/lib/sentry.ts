@@ -7,10 +7,18 @@
 
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
+import { redactRecipeLinks } from './recipeLinkRoute';
 
 // Get DSN from environment or Expo config
 // Set this in your .env file: EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || '';
+
+/** Remove recipe-link keys from a breadcrumb's message and string data (URLs, routes). */
+export function redactBreadcrumb<T extends { message?: string; data?: Record<string, unknown> }>(breadcrumb: T): T {
+  const data = breadcrumb.data && Object.fromEntries(Object.entries(breadcrumb.data)
+    .map(([key, value]) => [key, typeof value === 'string' ? redactRecipeLinks(value) : value]));
+  return { ...breadcrumb, ...(breadcrumb.message ? { message: redactRecipeLinks(breadcrumb.message) } : {}), ...(data ? { data } : {}) };
+}
 
 /**
  * Initialize Sentry SDK.
@@ -61,6 +69,9 @@ export function initSentry() {
       'The user canceled the sign-in',
     ],
     
+    // Unlisted recipe links work like passwords: drop their keys from request and navigation breadcrumbs.
+    beforeBreadcrumb: redactBreadcrumb,
+
     // Before sending, enrich with extra context
     beforeSend(event, hint) {
       // Add extra debugging info
