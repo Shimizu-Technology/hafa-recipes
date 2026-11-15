@@ -442,6 +442,10 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
         await localDraft.finish(); await privateRecipeDrafts.remove(privateRecipeDrafts.lease(capture.ownerId), capture.recipe.source_type === 'text' ? 'paste' : 'scan'); guard(); router.replace(`/recipe/${updatedRecipe.id}`);
         showToast({ message: 'Recipe saved', tone: 'success' }); return;
       }
+      // Retire reads started before the save, then replace every current-owner
+      // detail variant before navigating. A reopened editor pins this snapshot.
+      await queryClient.cancelQueries({ queryKey: ['recipe', id] });
+      queryClient.setQueriesData<Recipe>({ queryKey: ['recipe', id] }, updatedRecipe);
       // Invalidate recipe queries to refresh
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
