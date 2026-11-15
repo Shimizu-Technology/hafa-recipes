@@ -5,12 +5,12 @@ import { createElement, isValidElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTrainingStore } from "./training";
-import { buyInDone, skipPart, startPart, tapRound, type ClassRun } from "./class-session";
+import { buyInDone, endPart, skipPart, startPart, tapRound, type ClassRun } from "./class-session";
 import { nov17Class as w } from "./fixtures/nov17-class";
 import type { ActualSet } from "./models";
 
-const fixture = vi.hoisted(() => ({ alert: vi.fn(), warning: vi.fn(), announce: vi.fn() }));
-vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: 1 }), View: "View", Pressable: "Pressable", Modal: "Modal",
+const fixture = vi.hoisted(() => ({ alert: vi.fn(), warning: vi.fn(), announce: vi.fn(), fontScale: 1 }));
+vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: fixture.fontScale }), View: "View", Pressable: "Pressable", Modal: "Modal",
   Alert: { alert: fixture.alert } }));
 vi.mock("expo-keep-awake", () => ({ activateKeepAwakeAsync: async () => {}, deactivateKeepAwake: async () => {} }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
@@ -54,7 +54,7 @@ const apply = async () => { const [change, environment] = actions.act.mock.calls
 
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  Object.values(actions).forEach((f) => f.mockReset()); fixture.announce.mockReset();
+  Object.values(actions).forEach((f) => f.mockReset()); fixture.announce.mockReset(); fixture.fontScale = 1;
   now = 0; s = store(); await s.load(); s.setLeadIn(0);
   await s.start(w, { workout_id: w.id, workout_revision: 1 }, "class", 0);
 });
@@ -126,5 +126,26 @@ describe("class runner (Nov 17)", () => {
     await render(6 * min);
     expect(control("+1 round")).toBeDefined();
     expect(control("Done · stop the clock")).toBeDefined();
+  });
+  it("pins the clock above the body at the largest text and keeps Pause and Undo whole words", async () => {
+    fixture.fontScale = 3.1;
+    await s.classAct(startPart, 0);
+    await s.classAct(buyInDone, min);
+    await s.classAct(tapRound, 4 * min);
+    await render(5 * min);
+    const clock = renderer!.root.findByType("Screen" as never).props.pinned;
+    expect(clock.props).toMatchObject({ compact: true, text: "10:00" });
+    for (const title of ["Pause", "Undo"]) {
+      const button = control(title)!.props;
+      expect(button.icon).toBeUndefined();
+      expect(button.maxScale).toBeGreaterThanOrEqual(1);
+      expect(button.maxScale).toBeLessThan(3.1);
+    }
+    await s.classAct(endPart, 6 * min);
+    await render(6 * min);
+    expect(renderer!.root.findByType("Screen" as never).props.pinned.props).toMatchObject({ compact: true, text: "3:00" });
+    fixture.fontScale = 1;
+    await render(6 * min);
+    expect(renderer!.root.findByType("Screen" as never).props.pinned).toBeUndefined();
   });
 });
