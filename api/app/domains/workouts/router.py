@@ -50,6 +50,20 @@ from app.domains.workouts.schemas import (
     WorkoutContent,
 )
 from app.domains.workouts.security import WorkoutsRoute, require_workouts_user
+from app.domains.workouts.session_results import (
+    CLOCK_SKEW,
+    HEALTH_SUMMARY_SCOPE,
+    HealthSummaryChoice,
+    HeartRateSummary,
+    PartResult,
+    Segment,
+    health_summary_enabled,
+    health_summary_ready,
+    inside_interval,
+    require_summary_permission,
+    validate_intervals,
+    validate_snapshot,
+)
 
 router = APIRouter(prefix="/api/v1/workouts", tags=["workouts"], route_class=WorkoutsRoute)
 User = Annotated[ClerkUser, Depends(require_workouts_user)]
@@ -67,6 +81,7 @@ GrantScope = Literal[
     "health_activity_write",
     "health_body_measurements_read",
     "ai_health_context",
+    "health_workout_summary_store",
 ]
 
 
@@ -86,6 +101,7 @@ class EnrollmentRequest(DomainModel):
 
 
 class EnrollmentResponse(DomainModel):
+    features: list[str] = Field(default_factory=lambda: ["session_results_v1"])
     enrolled: bool
     generation: int | None
     disclosure_version: int = DISCLOSURE_VERSION
@@ -302,7 +318,10 @@ async def replay_creation(db, model, user_id, generation, key, digest):
 
 @router.get("/enrollment", response_model=EnrollmentResponse)
 async def get_enrollment(user: User, db: Database):
-    return enrollment_response(await db.get(WorkoutsMembership, user.id))
+    result = enrollment_response(await db.get(WorkoutsMembership, user.id))
+    if await health_summary_ready(db):
+        result.features.append("health_workout_summary_v1")
+    return result
 
 
 @router.post("/enrollment", response_model=EnrollmentResponse)
@@ -531,6 +550,11 @@ async def update_workout(
     return result
 
 
+def preserve_gym_privacy(previous, content):
+    if (previous.get("programming") or {}).get("source_kind") == "gym":
+        content["programming"] = {**(content.get("programming") or previous["programming"]), "source_kind": "gym"}
+
+
 async def append_workout_version(db, row, content):
     """Caller holds the owner write lock and checked the live revision."""
     prior = await db.scalar(
@@ -541,6 +565,8 @@ async def append_workout_version(db, row, content):
     from app.domains.workouts.source_media import normalize_cover_origin
 
     content = dict(content)
+    # A legacy edit/restore may drop new fields, but cannot remove gym privacy.
+    preserve_gym_privacy(row.content, content)
     await normalize_cover_origin(db, row.app_user_id, row.generation, content)
     # Size the complete stored candidate before any retention, export or write.
     # Preserve trusted JSON; do not coerce an existing snapshot through a DTO.
@@ -628,6 +654,7 @@ async def restore_workout_version(
     # This is a trusted immutable server snapshot, not a client-authored payload.
     # Preserve source/generated provenance, private notes and newer JSON fields.
     content = deepcopy(version.content)
+    preserve_gym_privacy(row.content, content)
     from app.domains.workouts.source_media import normalize_cover_origin
 
     await normalize_cover_origin(db, user.id, generation, content)
@@ -931,6 +958,11 @@ class ActiveInterval(DomainModel):
 
 
 class SessionRequest(DomainModel):
+    heart_rate: HeartRateSummary | None = Field(default=None, exclude_if=lambda v: v is None)
+    results: list[PartResult] = Field(default_factory=list, max_length=100, exclude_if=lambda v: not v)
+    segments: list[Segment] = Field(default_factory=list, max_length=500, exclude_if=lambda v: not v)
+    recorded_on: Literal["phone", "watch"] | None = Field(default=None, exclude_if=lambda v: v is None)
+    apple_workout_uuid: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     client_session_id: UUID
     workout_id: UUID | None = None
     workout_revision: int | None = Field(default=None, strict=True, ge=1)
@@ -943,7 +975,8 @@ class SessionRequest(DomainModel):
     active_seconds: int | None = Field(default=None, strict=True, ge=0, le=86400)
     active_intervals: list[ActiveInterval] = Field(default_factory=list, max_length=100)
     activity_type: (
-        Literal["strength_training", "running", "walking", "basketball", "general_fitness"] | None
+        Literal["strength_training", "running", "walking", "basketball", "general_fitness",
+                "cross_training", "hiit", "functional_strength"] | None
     ) = None
     actuals: list[ActualSet] = Field(default_factory=list, max_length=1000)
     notes: str | None = Field(default=None, max_length=4000)
@@ -957,21 +990,28 @@ class SessionRequest(DomainModel):
             self.active_seconds is not None
             and self.active_seconds > (self.finished_at - self.started_at).total_seconds()
         ):
-            raise ValueError("Recorded active time cannot exceed the session interval")
+            elapsed = (self.finished_at - self.started_at).total_seconds()
+            if self.active_seconds - elapsed > CLOCK_SKEW.total_seconds():
+                raise ValueError("Recorded active time cannot exceed the session interval")
+            self.active_seconds = int(elapsed)
         if self.active_intervals:
             if self.active_seconds is None:
                 raise ValueError("Active intervals require a recorded active duration")
             previous_end = self.started_at
             duration = 0
             for interval in self.active_intervals:
-                if interval.started_at < previous_end or interval.ended_at > self.finished_at:
+                if not inside_interval(interval, self.started_at, self.finished_at) or interval.started_at < previous_end - CLOCK_SKEW:
                     raise ValueError(
                         "Active intervals must be ordered, non-overlapping and inside the session"
                     )
+                interval.started_at = max(previous_end, interval.started_at)
+                interval.ended_at = max(interval.started_at, interval.ended_at)
                 duration += (interval.ended_at - interval.started_at).total_seconds()
                 previous_end = interval.ended_at
-            if abs(duration - self.active_seconds) > 1:
+            if abs(duration - self.active_seconds) > CLOCK_SKEW.total_seconds():
                 raise ValueError("Active intervals must match the recorded active duration")
+            if abs(duration - self.active_seconds) > 1:
+                self.active_seconds = round(duration)
         if bool(self.workout_id) == bool(self.program_id):
             raise ValueError("Select exactly one owned workout or program session")
         if self.workout_id and (
@@ -988,10 +1028,11 @@ class SessionRequest(DomainModel):
         ]
         if len(set(keys)) != len(keys):
             raise ValueError("Actual set identities must be unique")
-        return self
+        return validate_intervals(self)
 
 
 class SessionResponse(DomainModel):
+    results_summary: list[dict] = Field(default_factory=list, exclude_if=lambda v: not v)
     id: UUID
     generation: int
     client_session_id: UUID
@@ -1004,6 +1045,7 @@ def session_response(row):
         id=row.id,
         generation=row.generation,
         client_session_id=row.client_session_id,
+        results_summary=row.content.get("results_summary", []),
         content=row.content,
         created_at=row.created_at,
     )
@@ -1123,6 +1165,10 @@ async def record_session(
         )
     if snapshot is None:
         raise HTTPException(409, "The selected prescription version does not exist")
+    await require_summary_permission(db, user.id, generation, request)
+    validate_snapshot(request, snapshot)
+    if request.segments:
+        content["segments"] = [segment.model_dump(mode="json") for segment in request.segments]
     blocks = {block["id"]: block for block in snapshot["blocks"]}
     for actual in request.actuals:
         block = blocks.get(actual.block_id)
@@ -1142,6 +1188,9 @@ async def record_session(
         content=bounded_content(content),
     )
     db.add(row)
+    from app.domains.workouts.part_results import write_part_results
+
+    await write_part_results(db, row)
     await db.commit()
     return session_response(row)
 
@@ -1205,7 +1254,7 @@ async def update_ai_consent(
 
 
 class GrantRequest(DomainModel):
-    scopes: list[GrantScope] = Field(default_factory=list, max_length=6)
+    scopes: list[GrantScope] = Field(default_factory=list, max_length=7)
 
     @model_validator(mode="after")
     def unique_scopes(self):
@@ -1251,6 +1300,8 @@ async def replace_grants(request: GrantRequest, user: User, db: Database, genera
         ).all()
     )
     wanted = set(request.scopes)
+    if HEALTH_SUMMARY_SCOPE in wanted and not await health_summary_ready(db):
+        raise HTTPException(503, "Heart-rate summary storage is being set up")
     if wanted == previous:
         return await grants_for(db, user.id, generation)
     if await optional_table_exists(db, "workouts_recipe_grant_epochs"):
@@ -1268,6 +1319,60 @@ async def replace_grants(request: GrantRequest, user: User, db: Database, genera
         db.add(WorkoutsGrant(app_user_id=user.id, generation=generation, scope=scope))
     await db.commit()
     return await grants_for(db, user.id, generation)
+
+
+@router.delete("/health-summary-consent")
+async def delete_summary_choice(user: User, db: Database, generation: Generation):
+    """Turn off and delete saved heart-rate summaries, including corrections."""
+    await membership_for(db, user.id, generation=generation, write=True)
+    await db.execute(delete(WorkoutsGrant).where(
+        WorkoutsGrant.app_user_id == user.id, WorkoutsGrant.generation == generation,
+        WorkoutsGrant.scope == HEALTH_SUMMARY_SCOPE))
+    from app.domains.workouts.heart_rate_erasure import heart_rate_erasure_ready
+
+    removed_count = 0
+    if await heart_rate_erasure_ready(db):
+        removed = await db.execute(text("""
+            UPDATE workouts_sessions SET content = public.workouts_without_heart_rate(content)
+            WHERE app_user_id=:owner AND generation=:generation
+                AND content IS DISTINCT FROM public.workouts_without_heart_rate(content)
+        """), {"owner": user.id, "generation": generation})
+        removed_count = removed.rowcount
+    elif await db.scalar(text("""SELECT EXISTS(SELECT 1 FROM workouts_sessions
+        WHERE app_user_id=:owner AND generation=:generation AND (content ? 'heart_rate'
+        OR jsonb_path_exists(content, '$.segments[*].avg_hr') OR jsonb_path_exists(content, '$.segments[*].max_hr')))"""),
+        {"owner": user.id, "generation": generation}):
+        raise HTTPException(503, "Heart-rate summary deletion is being set up")
+    from app.domains.workouts.export_service import invalidate_export_snapshots
+
+    await invalidate_export_snapshots(db, user.id, generation)
+    await db.commit()
+    return {"enabled": False, "deleted_sessions": removed_count}
+
+
+@router.get("/health-summary-consent")
+async def get_summary_choice(user: User, db: Database):
+    membership = await membership_for(db, user.id)
+    return {"available": await health_summary_ready(db),
+            "enabled": await health_summary_enabled(db, user.id, membership.generation)}
+
+
+@router.put("/health-summary-consent")
+async def put_summary_choice(request: HealthSummaryChoice, user: User, db: Database, generation: Generation):
+    await membership_for(db, user.id, generation=generation, write=True)
+    available = await health_summary_ready(db)
+    if request.enabled and not available:
+        raise HTTPException(503, "Heart-rate summary storage is being set up")
+    enabled = await health_summary_enabled(db, user.id, generation)
+    if enabled != request.enabled:
+        if request.enabled:
+            db.add(WorkoutsGrant(app_user_id=user.id, generation=generation, scope=HEALTH_SUMMARY_SCOPE))
+        else:
+            await db.execute(delete(WorkoutsGrant).where(
+                WorkoutsGrant.app_user_id == user.id, WorkoutsGrant.generation == generation,
+                WorkoutsGrant.scope == HEALTH_SUMMARY_SCOPE))
+        await db.commit()
+    return {"available": available, "enabled": request.enabled}
 
 
 class ActivityResponse(DomainModel):
@@ -1425,6 +1530,16 @@ async def build_export_page(
             }
             for row in records
         ]
+    if await table_exists("workouts_part_results"):
+        from app.domains.workouts.part_result_models import PartResultRow
+
+        name = "part_results"
+        totals[name] = (source_context.totals[name] if source_context is not None else
+                        await db.scalar(select(func.count()).select_from(PartResultRow).where(
+                            PartResultRow.app_user_id == user.id, PartResultRow.generation == generation)))
+        rows = (await list_owned(db, PartResultRow, user.id, generation, limit, offset)
+                if source_context is None or source_context.should_fetch(name, offset) else [])
+        datasets[name] = [{c.name: getattr(row, c.name) for c in PartResultRow.__table__.columns} for row in rows]
     from app.domains.workouts.automation_export import export_automation_page
 
     automation_data, automation_totals = await export_automation_page(
@@ -1593,3 +1708,23 @@ async def build_export_page(
 # The compatibility export uses the same response lifetime admission as the new
 # snapshot reader. Its User dependency and existing method/path remain intact.
 router.include_router(legacy_exports)
+
+
+@router.get("/results")
+async def get_results(user: User, db: Database, workout_id: UUID | None = None,
+                      benchmark_key: Annotated[str | None, Query(max_length=60)] = None,
+                      comparison_key: Annotated[str | None, Query(max_length=200)] = None,
+                      scaling: Literal["rx", "scaled", "custom"] | None = None, limit: Limit = 20, offset: Offset = 0):
+    from app.domains.workouts.part_results import query_results
+
+    membership = await membership_for(db, user.id)
+    return await query_results(db, user.id, membership.generation, workout_id=workout_id, benchmark_key=benchmark_key,
+                               comparison_key=comparison_key, scaling=scaling, limit=limit, offset=offset)
+
+
+@router.get("/benchmarks")
+async def get_benchmarks(user: User, db: Database):
+    from app.domains.workouts.part_results import benchmark_results
+
+    membership = await membership_for(db, user.id)
+    return await benchmark_results(db, user.id, membership.generation)

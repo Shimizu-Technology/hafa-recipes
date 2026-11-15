@@ -29,7 +29,10 @@ import { trackerOn, trackersFor } from "../../../lib/trackers";
 import { BabyAgeCard, PregnancyHero, TipSection, WeekDetails } from "@/components/tips";
 import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
-import { dueLine, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
+import { dueLine, pregnancyProgress, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
+import { findBag, isBag, packedLine } from "../../../lib/hospital-bag";
+import { hiddenOnToday, weekPlan } from "../../../lib/this-week";
+import { DayOfLife, ThisWeek } from "../../../components/this-week";
 import { useTimingTips } from "@/lib/use-timing-tips";
 import { journalHome } from "../../../lib/use-open-journal";
 
@@ -51,7 +54,9 @@ export default function Today() {
     records = b.records.filter((r) => !r.child_id || r.child_id === child?.id),
     latestCare = useTodayCare(),
     glance = careGlance(latestCare.all, child?.id ?? null, now, b.state.bootstrap!.profile.timezone),
-    routines = records.filter((r) => routineToday(r, now)),
+    // The bag has its own row, so the Lists row never takes its name.
+    routines = records.filter((r) => routineToday(r, now) && !isBag(r)),
+    bag = findBag(b.records),
     stage = todayStage(child, today),
     pregnant = stage === "pregnancy",
     expecting = pregnant || stage === "needs_birth",
@@ -114,9 +119,16 @@ export default function Today() {
       {pregnant && parentHere && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
         hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
+      {pregnant && <ThisWeek child={child} today={today} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
-      <Grouped>{keptRows}</Grouped>
+      <Grouped>
+        {/* From the third trimester, where she'd look for it, when This week (which leads with it) is hidden or has ended. It's also in Lists & routines. */}
+        {pregnant && (pregnancyProgress(child.due_date!, today)?.week ?? 0) >= 28 && (hiddenOnToday(b.state.hiddenToday, "this_week")
+          || !weekPlan(pregnancyProgress(child.due_date!, today)?.week ?? 0)) && <Row key="bag" numericDetail title="Hospital bag"
+          detail={bag ? packedLine(bag) : "A starter list to pack from"} icon="bag-handle-outline" onPress={() => router.push("/hospital-bag")} />}
+        {keptRows}
+      </Grouped>
     </Screen>
   );
   const feedsShow = showing("breast", "bottle"),
@@ -150,6 +162,7 @@ export default function Today() {
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />
       </View>}
+      {stage === "baby" && child && <DayOfLife child={child} today={today} />}
       {stage === "baby" && child && <BabyAgeCard child={child} now={today} tips={tipsNow.rows} />}
       <Grouped>
         {showCare && showing("sleep") && <Row title={sleepTitle} detail={sleepDetail} numericDetail icon={kindIcon.sleep}
