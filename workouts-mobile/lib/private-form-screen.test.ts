@@ -3323,3 +3323,14 @@ it("Safari WodUp visible text becomes a private class draft rather than a URL im
     source_url: "https://wodup.com/gym", text: fixture.intent.text, programming: { source_kind: "gym", app_name: "WodUp" } });
   expect(fixture.startImport).not.toHaveBeenCalled();
 });
+it("leaving class mode clears its source instead of making gym programming publishable", async () => {
+  fixture.params = { class: "1" };
+  await mount(Capture);
+  await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("Private gym class"));
+  await click("Start a different import");
+  await click("Start a separate source and discard this draft");
+  const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  expect(captured).toMatchObject({ kind: "url", text: "", source_url: "", files: [] });
+  expect(captured.class_parts).toBeUndefined();
+  expect(captured.programming).toBeUndefined();
+});

@@ -614,7 +614,7 @@ export default function Capture() {
       <Card>
         {!draft.class_parts && <Button title="Today’s class" secondary disabled={locked} onPress={() => { void chooseClass(); }} />}
         {draft.class_parts && <>
-          <Button title="Use regular import" size="sm" variant="ghost" disabled={locked} onPress={() => update({ class_parts: false, programming: undefined })} />
+          <Button title="Start a different import" size="sm" variant="ghost" disabled={locked} onPress={() => setAbandon(true)} />
           <Notice>Gym programming stays private. Crop screenshots to leave out the leaderboard and comments.</Notice>
           <Field label="Gym" optional disabled={locked} value={draft.programming?.gym_name ?? ""} onChange={gym_name => update({ programming: { ...draft.programming, source_kind: "gym", gym_name } })} />
           <Field label="Track" optional disabled={locked} value={draft.programming?.track ?? ""} onChange={track => update({ programming: { ...draft.programming, source_kind: "gym", track } })} />
@@ -748,7 +748,7 @@ export default function Capture() {
         <Copy>If an import can’t finish, open it from In progress to retry or add the caption.</Copy>
       </Sheet>
       <Sheet visible={abandon} onClose={() => setAbandon(false)} title="Start a separate source?">
-        <Copy>This source may still be processing. Starting over discards this draft and may create a second import.</Copy>
+        <Copy>{draft.pending_import ? "This source may still be processing. Starting over discards this draft and may create a second import." : "Starting over discards this class draft and opens a regular import."}</Copy>
         <Button title="Keep this source" secondary disabled={busy} onPress={() => setAbandon(false)} />
         <Button
           title="Start a separate source and discard this draft"
