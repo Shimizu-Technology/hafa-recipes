@@ -2,6 +2,7 @@
 import importlib
 import io
 import os
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -281,7 +282,7 @@ def test_legacy_projection_attribution_and_estimates():
     assert project(recipe)['components'][0]['ingredients'] == []
     recipe.extracted = {'components': [None, 'bad', {'ingredients': [None, {'name': 'salt', 'quantityEstimate': {'quantity': '1', 'unit': 'tsp', 'secret': 'private'}}], 'steps': None}]}
     html = render_page(project(recipe), str(recipe.id).upper())
-    assert '≈ estimated' in html and 'private' not in html
+    assert '≈ 1 tsp salt (estimated)' in html and 'private' not in html
     assert f'content="https://hafa-recipes.com/r/{recipe.id}"' in html
     unlisted = render_page(project(recipe), 'x' * 43)
     assert 'Open in Håfa Recipes' not in unlisted and 'apple-itunes-app' not in unlisted
@@ -303,7 +304,12 @@ def test_default_image_draws_brand_name_and_singular_count():
     assert Image.open(io.BytesIO(jpeg(None))).size == (1200, 630)
     one = {'id': str(uuid4()), 'title': 'Rice', 'creator': 'A Håfa cook', 'servings': None, 'time': None, 'notes': None,
            'source_url': None, 'components': [{'name': 'Main', 'ingredients': [{'name': 'rice'}], 'steps': [], 'notes': None}]}
-    assert '1 ingredient · on Håfa Recipes' in render_page(one, one['id'])
+    html = render_page(one, one['id'])
+    assert '1 ingredient · on Håfa Recipes' in html
+    assert '<h2>Main</h2>' not in html
+    one['components'].append({'name': 'Sauce', 'ingredients': [], 'steps': [], 'notes': None})
+    assert '<h2>Main</h2>' in render_page(one, one['id'])
+    assert '<h2>Sauce</h2>' in render_page(one, one['id'])
 
 
 @pytest.mark.asyncio
@@ -541,3 +547,66 @@ async def test_external_image_deadline_cancels_download_but_not_owned_thread(mon
     monkeypatch.setattr(storage, '_download_owned_thumbnail', owned)
     result = await storage.fetch_thumbnail_source('https://example.com/photo', str(uuid4()), external_timeout_seconds=.001)
     assert result.data == image
+
+
+@pytest.mark.parametrize('title', ['Chicken Kelaguen', 'Båñuelos 🍲', '味噌ラーメン', 'Σούπα', '👨‍👩‍👧‍👦 rice'])
+def test_no_photo_title_card_unicode_and_photo_preservation(title):
+    from app.recipe_pages import BRAND_FONT, title_runs
+    runs = title_runs(title)
+    assert ''.join(cluster for cluster, _ in runs) == title
+    if title == 'Båñuelos 🍲':
+        assert all(Path(font.path).name == BRAND_FONT.name for char, font in runs if char in 'åñ')
+        assert Path(runs[-1][1].path).name == 'NotoEmoji-Regular.ttf'
+    card = jpeg(None, title)
+    assert Image.open(io.BytesIO(card)).size == (1200, 630)
+    assert card != jpeg(None, 'Another dish')
+    photo = io.BytesIO()
+    Image.new('RGB', (40, 40), 'red').save(photo, 'PNG')
+    assert jpeg(photo.getvalue(), title) == jpeg(photo.getvalue(), 'Another dish')
+
+
+@pytest.mark.parametrize('title', ['Long recipe title ' * 1000, '超' * 1000, 'Båñuelos' * 1000, '🍲' * 1000])
+def test_title_wraps_and_ellipsizes_within_card(title):
+    from app.recipe_pages import title_lines
+    lines = title_lines(title)
+    assert 1 <= len(lines) <= 4
+    assert lines[-1][-1][0] == '…'
+    assert all(sum(font.getlength(cluster) for cluster, font in line) <= 1060 for line in lines)
+    assert Image.open(io.BytesIO(jpeg(None, title))).size == (1200, 630)
+
+
+@pytest.mark.asyncio
+async def test_photo_less_og_uses_current_recipe_title_without_fetching(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import app.recipe_pages as pages
+    recipe = SimpleNamespace(id=uuid4(), thumbnail_url=None, extracted={'title': 'Båñuelos 🍲'},
+                             extractor_display_name=None, source_url=None)
+    db = SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr(pages, 'resolve', AsyncMock(return_value=recipe))
+    fetch = AsyncMock(side_effect=AssertionError('No photo to fetch'))
+    monkeypatch.setattr(pages.storage_service, 'fetch_thumbnail_source', fetch)
+    first = await pages.og_image(str(recipe.id), db, None)
+    assert first.body == jpeg(None, 'Båñuelos 🍲')
+    recipe.extracted = {'title': '味噌ラーメン'}
+    second = await pages.og_image(str(recipe.id), db, None)
+    assert second.body == jpeg(None, '味噌ラーメン') and second.body != first.body
+    fetch.assert_not_called()
+    assert db.close.await_count == 2
+    _images.clear()
+
+
+@pytest.mark.asyncio
+async def test_photo_less_preview_retries_when_render_capacity_is_full(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import app.recipe_pages as pages
+    recipe = SimpleNamespace(id=uuid4(), thumbnail_url=None, extracted={'title': 'Rice'},
+                             extractor_display_name=None, source_url=None)
+    monkeypatch.setattr(pages, 'resolve', AsyncMock(return_value=recipe))
+    monkeypatch.setattr(pages, 'MAX_IMAGE_JOBS', 0)
+    response = await pages.og_image(str(recipe.id), SimpleNamespace(close=AsyncMock()), None)
+    assert response.status_code == 503 and response.headers['retry-after'] == '2'
+    assert response.headers['cache-control'] == 'private, no-store'

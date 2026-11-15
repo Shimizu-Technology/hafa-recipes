@@ -470,3 +470,13 @@ drains and the mobile phase provides easy-to-reach revocation. Restrict provider
 log access and retention. Do not export capability URLs to third-party sinks.
 No provider logging setting was changed by these PRs. Link recipients and
 messaging services can retain previews.
+
+Photo-less recipe previews use Fraunces 500 titles and static Noto Sans 500,
+Noto Sans JP 500 and Noto Emoji 400 fallbacks, with their SIL OFL licenses in
+`app/assets/fonts/`. Sources: [Noto Sans](https://github.com/google/fonts/tree/main/ofl/notosans),
+[Noto Sans JP](https://github.com/google/fonts/tree/main/ofl/notosansjp), and
+[Noto Emoji](https://github.com/google/fonts/tree/main/ofl/notoemoji).
+Titles wrap to four lines, keeping grapheme clusters together. Unknown glyphs
+use a visible replacement while HTML/OG metadata retain the complete title.
+Title-only cards share the bounded image workers/cache; busy or failed renders
+return retryable 503s rather than a successful generic brand card.

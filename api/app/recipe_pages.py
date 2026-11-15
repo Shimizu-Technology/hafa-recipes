@@ -5,11 +5,15 @@ import io
 import re
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from html import escape
+from itertools import islice
 from pathlib import Path
 from time import monotonic
+from unicodedata import normalize
 from uuid import UUID
 
+import regex
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -106,11 +110,17 @@ def render_page(data, key, has_photo=True):
             estimate = i.get('quantityEstimate') or {}
             amount = ' '.join(str(i.get(k) or '') for k in ('quantity', 'unit')).strip()
             if not i.get('quantity') and estimate.get('quantity'):
-                amount = ' '.join(str(estimate.get(k) or '') for k in ('quantity', 'unit')).strip() + ' ≈ estimated'
-            return '<li>' + e(' '.join(str(v or '') for v in (amount, i.get('name'), i.get('notes'))).strip()) + '</li>'
+                amount = '≈ ' + ' '.join(str(estimate.get(k) or '') for k in ('quantity', 'unit')).strip()
+                label = ' '.join(str(v or '') for v in (amount, i.get('name'), '(estimated)', i.get('notes'))).strip()
+            else:
+                label = ' '.join(str(v or '') for v in (amount, i.get('name'), i.get('notes'))).strip()
+            # The spoken label retains the explicit estimate even when ≈ is silent.
+            return '<li>' + e(label) + '</li>'
         ingredients = ''.join(ingredient(i) for i in c['ingredients'])
         steps = ''.join(f'<li>{e(step)}</li>' for step in c['steps'])
-        sections += f"<section><h2>{e(c['name'])}</h2><h3>Ingredients</h3><ul>{ingredients}</ul><h3>Method</h3><ol>{steps}</ol><p>{e(c['notes'])}</p></section>"
+        heading = '' if len(data['components']) == 1 else f"<h2>{e(c['name'])}</h2>"
+        level = 'h2' if len(data['components']) == 1 else 'h3'
+        sections += f"<section>{heading}<{level}>Ingredients</{level}><ul>{ingredients}</ul><{level}>Method</{level}><ol>{steps}</ol><p>{e(c['notes'])}</p></section>"
     source = f'<a href="{e(data["source_url"])}" rel="noreferrer nofollow">Original source ↗</a>' if data['source_url'] else ''
     photo = f'<img class="hero" src="/r/{e(key)}/og.jpg" alt="{e(data["title"])}">' if has_photo else ''
     open_app = f'<a class="button" href="hafarecipes://recipe/{e(data["id"])}">Open in Håfa Recipes</a>' if is_public_link else ''
@@ -132,7 +142,7 @@ async def page(key: str, db: AsyncSession = Depends(get_db), viewer: ClerkUser |
             raise
         return HTMLResponse(f'<!doctype html><html lang="en"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style><main><h1>{UNAVAILABLE}</h1><a href="{APP_STORE}">Get Håfa Recipes</a></main></html>', status_code=404, headers=HTML_HEADERS)
     data = project(recipe)
-    cache_key = (str(recipe.id), recipe.thumbnail_url)
+    cache_key = image_key(recipe)
     await db.close()
     # Start early, without delaying HTML or holding a pooled DB connection.
     start_image(cache_key)
@@ -153,13 +163,76 @@ IMAGE_WAIT_SECONDS = 2
 BRAND_FONT = Path(__file__).parent / 'assets' / 'fonts' / 'Fraunces_500Medium.ttf'
 
 
-def jpeg(data):
+@lru_cache(maxsize=8)
+def title_fonts(size):
+    return tuple(ImageFont.truetype(str(BRAND_FONT.parent / name), size) for name in (
+        BRAND_FONT.name, 'NotoSans-Medium.ttf', 'NotoSansJP-Medium.ttf', 'NotoEmoji-Regular.ttf'))
+
+
+def title_runs(title, size=80):
+    fonts = title_fonts(size)
+    missing = [font.getmask('\U0010fffd') for font in fonts]
+    runs = []
+    # Bound work and keep combining marks, flags and joined emoji together.
+    clusters = list(islice(regex.finditer(r'\X', normalize('NFC', ' '.join(str(title).split()))), 401))
+    for match in clusters[:400]:
+        cluster = match.group()
+        selected = next((font for font, box in zip(fonts, missing)
+                         if all(bytes(font.getmask(char)) != bytes(box) for char in cluster
+                                if char not in '\u200d\ufe0e\ufe0f')), None)
+        # Unknown scripts still have a visible replacement, never an encoding error.
+        runs.append((cluster, selected) if selected else ('�', fonts[1]))
+    if len(clusters) > 400:
+        runs.append(('…', fonts[0]))
+    return runs
+
+
+def title_lines(title, width=1060, max_lines=4):
+    lines, line, length = [], [], 0
+    for cluster, font in title_runs(title):
+        advance = font.getlength(cluster)
+        if length + advance > width and line:
+            # Prefer a word boundary, but break long words and CJK safely too.
+            boundary = next((i for i in range(len(line) - 1, 0, -1) if line[i][0] == ' '), len(line))
+            lines.append(line[:boundary])
+            line = line[boundary + 1:] if boundary < len(line) else []
+            length = sum(f.getlength(c) for c, f in line)
+        line.append((cluster, font))
+        length += advance
+    if line:
+        lines.append(line)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        ellipsis_font = title_fonts(80)[0]
+        while last and sum(f.getlength(c) for c, f in last) + ellipsis_font.getlength('…') > width:
+            last.pop()
+        last.append(('…', ellipsis_font))
+    return lines
+
+
+def jpeg(data, title='Håfa Recipes'):
     image = ImageOps.fit(Image.open(io.BytesIO(data)).convert('RGB'), (1200, 630)) if data else Image.new('RGB', (1200, 630), '#145E52')
     if not data:
-        ImageDraw.Draw(image).text((70, 260), 'Håfa Recipes', font=ImageFont.truetype(str(BRAND_FONT), 80), fill='white')
+        draw = ImageDraw.Draw(image)
+        draw.text((70, 58), 'Håfa Recipes', font=title_fonts(32)[0], fill='white', anchor='lt')
+        lines = title_lines(title)
+        y = 180 + (4 - len(lines)) * 44
+        for line in lines:
+            x = 70
+            for cluster, font in line:
+                draw.text((x, y + 70), cluster, font=font, fill='white', anchor='ls')
+                x += font.getlength(cluster)
+            y += 92
     out = io.BytesIO()
     image.save(out, 'JPEG', quality=86)
     return out.getvalue()
+
+
+def image_key(recipe):
+    base = (str(recipe.id), recipe.thumbnail_url)
+    # A changed title must not reuse a photo-less recipe's cached card.
+    return base if recipe.thumbnail_url else (*base, project(recipe)['title'])
 
 
 _default_image = jpeg(None)
@@ -167,11 +240,11 @@ _default_image = jpeg(None)
 
 async def build_image(cache_key):
     try:
-        recipe_id, thumbnail_url = cache_key
+        recipe_id, thumbnail_url, *title = cache_key
         # Keep admission until the underlying I/O actually finishes: cancelling
         # an S3 to_thread call cannot stop its socket or free its worker.
-        raw = await storage_service.fetch_thumbnail_source(thumbnail_url, recipe_id, external_timeout_seconds=10)
-        payload = await asyncio.get_running_loop().run_in_executor(_image_executor, jpeg, raw.data)
+        raw = await storage_service.fetch_thumbnail_source(thumbnail_url, recipe_id, external_timeout_seconds=10) if thumbnail_url else None
+        payload = await asyncio.get_running_loop().run_in_executor(_image_executor, jpeg, raw.data if raw else None, title[0] if title else 'Håfa Recipes')
         _images[cache_key] = (monotonic() + 300, payload)
         _images.move_to_end(cache_key)
         while len(_images) > 32:
@@ -179,14 +252,14 @@ async def build_image(cache_key):
         return payload
     except Exception:
         # A transient fetch/decode failure is never cached as a successful photo.
-        return _default_image
+        return _default_image if thumbnail_url else None
     finally:
         _image_jobs.pop(cache_key, None)
 
 
 def start_image(cache_key):
     cached = _images.get(cache_key)
-    if not cache_key[1] or cached and cached[0] > monotonic():
+    if cached and cached[0] > monotonic():
         return None
     job = _image_jobs.get(cache_key)
     if job is None and len(_image_jobs) < MAX_IMAGE_JOBS:
@@ -198,19 +271,22 @@ def start_image(cache_key):
 @router.get('/{key}/og.jpg')
 async def og_image(key: str, db: AsyncSession = Depends(get_db), viewer: ClerkUser | None = Depends(get_optional_user)):
     recipe = await resolve(db, key, viewer)
-    cache_key = (str(recipe.id), recipe.thumbnail_url)
+    cache_key = image_key(recipe)
     # Return the connection to the shared pool before cache waits, fetch or Pillow.
     await db.close()
-    payload = _default_image
+    payload = _default_image if cache_key[1] else None
     cached = _images.get(cache_key)
     if cached and cached[0] > monotonic():
         _images.move_to_end(cache_key)
         payload = cached[1]
-    elif cache_key[1]:
+    else:
         job = start_image(cache_key)
         if job is not None:
             try:
                 payload = await asyncio.wait_for(asyncio.shield(job), timeout=IMAGE_WAIT_SECONDS)
             except TimeoutError:
                 pass
+    if payload is None:
+        # Busy renderers must not send a successful, dish-less preview.
+        return Response(status_code=503, headers=PRIVATE_HEADERS | {'Retry-After': '2'})
     return Response(payload, media_type='image/jpeg', headers=PRIVATE_HEADERS)
