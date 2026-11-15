@@ -139,7 +139,7 @@ def ground_class(workout, raw, source, warnings):
     workout.programming = None  # Only explicit request hints can supply this private metadata.
 
 
-# Resume at the next part, not at athlete initials inside a leaderboard.
+# Resume at programming, not at athlete initials inside a leaderboard.
 PART_HEADING = re.compile(r"^(?:part\s+)?([a-z])(\d{1,2})?(?:[.):]\s*|\s+|$)", re.I)
 CLASS_SECTION = re.compile(r"^(?:workout(?:\s+of\s+the\s+day)?|wod|coach(?:'s)? notes?|warm[- ]?up|cool[- ]?down|accessories)\s*[:—-]?$", re.I)
 BUTTON_LABEL = re.compile(r"^(?:log (?:a )?result|view(?:\s+.*)?|show (?:more|less))\s*:?$", re.I)
@@ -150,17 +150,21 @@ MEMBER_SCORE = re.compile(
     r"\d+(?:\.\d+)?(?:\s*(?:rounds?|reps?|kg|lbs?|calories|meters?|m|seconds?|s|minutes?|min))?)"
     r"(?:\s+(?:rx|scaled|custom))?$", re.I)
 MEMBER_COMMENT = re.compile(rf"^{MEMBER_NAME}:\s*\S.*$")
-PART_FORMAT = re.compile(r"\b(?:amrap|emom|e\d+mom|for time|rounds?|\d+\s*(?:minutes?|mins?)|sets of|every|interval|tabata|strength|metcon|conditioning|accessories|buy[- ]in|cash[- ]out|rest)\b", re.I)
+CAPS_FORMAT = re.compile(r"\b(?:AMRAP|EMOM|E\d+MOM)\b")
+FORMAT_PHRASE = re.compile(r"\b(?:for time|as many rounds|every minute|rest between)\b", re.I)
+PART_SECTION = re.compile(r"(?:accessories|warm[- ]up|cool[- ]down|strength|conditioning)", re.I)
+BARE_MEMBER_SCORE = re.compile(r"(?:\d{1,2}:\d{2}(?:\.\d+)?|\d+\s*\+\s*\d+|\d+\s*(?:reps|rounds|cal|m)?|rx|scaled|dnf)", re.I)
 PREAMBLE_BOUNDARY = re.compile(r"^(?:phase\s+\d|week\s+\d|workout specific|coach(?:'s)? notes?)\b", re.I)
 
 
-def workout_part(value, part):
+def workout_part(value, part, following):
     body = value[part.end():] if part else ""
-    if re.match(r"^\d", body):
-        return True
-    if (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)) and not PART_FORMAT.match(body):
+    if BARE_MEMBER_SCORE.fullmatch(following):
         return False
-    return bool(PART_FORMAT.search(body))
+    prefix_signal = re.match(r"^\d", body) or CAPS_FORMAT.match(body) or FORMAT_PHRASE.match(body) or PART_SECTION.fullmatch(body)
+    if (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)) and not prefix_signal:
+        return False
+    return bool(re.search(r"\d", body) or CAPS_FORMAT.search(body) or FORMAT_PHRASE.search(body) or PART_SECTION.fullmatch(body))
 
 
 TRIM_WARNING = "Navigation, results or member sections were removed. Review all workout parts against the source."
@@ -178,6 +182,14 @@ def class_text(text):
 def trim_class_parts(parts, warnings=None):
     """Remove member rows, preserving programming below WodUp header buttons."""
     lines = [(location, text.splitlines()) for location, text in parts]
+    # Look ahead across page boundaries without letting blank lines hide scores.
+    following_lines, following = [], ""
+    for _, page in reversed(lines):
+        for line in reversed(page):
+            following_lines.append(following)
+            if line.strip():
+                following = line.strip()
+    following_lines = iter(reversed(following_lines))
     has_heading = any(re.fullmatch(r"(?:workout(?: of the day)?|wod|coach(?:'s)? notes?)\s*[:—-]?", line.strip(), re.I)
                       for _, page in lines for line in page)
     started, suppressed, current, removed = not has_heading, False, None, False
@@ -186,6 +198,7 @@ def trim_class_parts(parts, warnings=None):
         clean = []
         for index, line in enumerate(page):
             value = line.strip()
+            following = next(following_lines)
             part = PART_HEADING.match(value)
             expected = chr(ord(current) + 1) if current else "a"
             next_part = part and (part[1].lower() == expected or (current is None and not suppressed)
@@ -202,7 +215,9 @@ def trim_class_parts(parts, warnings=None):
                 suppressed, removed = not header_navigation, True
                 continue
             if suppressed:
-                boundary = (next_part and workout_part(value, part)) or CLASS_SECTION.fullmatch(value)
+                later_part = part and (current is None or part[1].lower() > current)
+                next_part = (next_part or later_part) and workout_part(value, part, following)
+                boundary = next_part or CLASS_SECTION.fullmatch(value)
                 if not boundary:
                     removed = True
                     continue

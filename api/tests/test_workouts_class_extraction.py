@@ -267,10 +267,10 @@ def test_coach_sentences_are_not_private_section_headings():
 def test_nav_members_and_arbitrary_part_titles_and_numbered_parts():
     from app.domains.workouts.class_extraction import class_text
 
-    text = "Athletes\nPRIVATE_NAV_MEMBER 12:43\nA. Metcon\n10 Squat\nLog Result\nLeaderboard\nA. PRIVATE_INITIAL 12:43\nB. Strength\n5 Press\nLog Result\nC. Mobility\nHold 30s\nLog Result\nD1 Pallof hold\nD2 Cuban press\nD3 Powell raise"
+    text = "Athletes\nPRIVATE_NAV_MEMBER 12:43\nA. AMRAP 15 min\n10 Squat\nLog Result\nLeaderboard\nA. PRIVATE_INITIAL 12:43\nB. Strength\n5 Press\nLog Result\nC. Mobility\nHold 30s\nLog Result\nD1 Pallof hold\nD2 Cuban press\nD3 Powell raise"
     cleaned = class_text(text)
     assert "PRIVATE_" not in cleaned
-    assert all(heading in cleaned for heading in ["A. Metcon", "B. Strength", "C. Mobility", "D1 Pallof", "D2 Cuban", "D3 Powell"])
+    assert all(heading in cleaned for heading in ["A. AMRAP", "B. Strength", "C. Mobility", "D1 Pallof", "D2 Cuban", "D3 Powell"])
 
 
 async def test_no_workout_section_gives_clear_recovery_without_provider_call():
@@ -337,7 +337,7 @@ def test_private_sections_only_end_at_class_heading_across_pages():
                      ("document_page:2", "Coach notes\n- Hold a pace")]
 
 
-@pytest.mark.parametrize("row", ["B. MEMBER_NAME 12:43", "B. MEMBER_NAME 4 rounds", "B. MEMBER_NAME: PRIVATE_COMMENT", "B. Jane Doe\n12:43", "Jane Doe\n12:43", "B. Jane Powell\n12:43", "B. Deadlift Dan\n5:01"])
+@pytest.mark.parametrize("row", ["B. MEMBER_NAME 12:43", "B. MEMBER_NAME 4 rounds", "B. MEMBER_NAME: PRIVATE_COMMENT", "B. Jane Doe\n12:43", "Jane Doe\n12:43", "B. Jane Powell\n12:43", "B. Deadlift Dan\n5:01", "B. Jane Rounds\n12:43", "B. Amrap Smith\n5+3", "B. Sam For\n4:10"])
 async def test_expected_athlete_initial_does_not_reopen_member_section(row):
     from app.domains.workouts.class_extraction import class_text
 
@@ -355,11 +355,19 @@ async def test_split_member_rows_stay_private_until_real_workout_boundary():
     assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat\nB. For time\n10 Press"]
 
 
+@pytest.mark.parametrize("heading", ["C. For time", "D1. EMOM"])
+async def test_private_sections_resume_at_later_format_part_after_skipped_letter(heading):
+    provider = FakeProvider({})
+    page = "A. Metcon\n10 Squat\nResults\nB. Deadlift Dan\n5:01\n" + heading + "\n400m run"
+    await WorkoutExtractor(provider).extract(ExtractionRequest(kind="text", text=page, class_parts=True, ai_consent=True))
+    assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat\n" + heading + "\n400m run"]
+
+
 @pytest.mark.parametrize("heading", [
-    "B. AMRAP", "B. EMOM", "B. E3MOM", "B. For time", "B. Five rounds", "B. Training (15 minutes)",
-    "B. Training (15 min)", "B. Training (15 mins)", "B. Four sets of squats", "B. Every minute",
-    "B. Interval", "B. Tabata", "B. Strength", "B. Metcon", "B. Conditioning", "B. Accessories",
-    "B. Buy-in", "B. Buy in", "B. Cash-out", "B. Cash out", "B. Rest", "B. 15:00", "B. 3x10", "B: 21-15-9",
+    "B. AMRAP", "B. EMOM", "B. E3MOM", "B. For time", "B. As many rounds", "B. Rest between",
+    "B. Training (15 minutes)", "B. Training (15 min)", "B. Training (15 mins)", "B. 2 alternating sets",
+    "B. Every minute", "B. Strength", "B. Conditioning", "B. Accessories", "B. Warm-up", "B. Cool-down",
+    "B. AMRAP 12", "B. 15:00", "B. 3x10", "B: 21-15-9",
     "Workout", "WOD", "Coach notes", "Warm-up", "Cool-down", "Accessories",
 ])
 async def test_private_sections_resume_only_at_explicit_programming_boundaries(heading):
@@ -369,13 +377,31 @@ async def test_private_sections_resume_only_at_explicit_programming_boundaries(h
     assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat\n" + heading + "\n10 Press"]
 
 
-@pytest.mark.parametrize("heading", ["B. Powell Raises", "B. Deadlift", "B. Squat", "B. Technique", "B. Mobility"])
+@pytest.mark.parametrize("heading", ["B. Powell Raises", "B. Deadlift", "B. Squat", "B. Technique", "B. Mobility", "B. Rounds", "B. Amrap Smith"])
 def test_movement_only_headings_cannot_end_private_sections(heading):
     from app.domains.workouts.class_extraction import class_text
 
     programming = "A. Metcon\n10 Squat"
-    assert class_text(programming + "\nLeaderboard\n" + heading + "\n5:01") == programming
+    assert class_text(programming + "\nLeaderboard\n" + heading + "\n10 Press") == programming
     assert class_text(programming + "\n" + heading + "\n10 Press") == programming + "\n" + heading + "\n10 Press"
+
+
+@pytest.mark.parametrize("score", ["12:43", "12:43.5", "5+3", "5", "5 reps", "5 rounds", "5 cal", "5m", "Rx", "Scaled", "DNF"])
+async def test_even_structural_part_heading_cannot_reopen_before_bare_member_score(score):
+    provider = FakeProvider({})
+    page = "A. Metcon\n10 Squat\nLeaderboard\nB. AMRAP Smith\n\n" + score + "\nC. For time\n400m run"
+    await WorkoutExtractor(provider).extract(ExtractionRequest(kind="text", text=page, class_parts=True, ai_consent=True))
+    assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat\nC. For time\n400m run"]
+
+
+def test_bare_member_score_lookahead_crosses_page_boundary():
+    from app.domains.workouts.class_extraction import trim_class_parts
+
+    parts = trim_class_parts([
+        ("document_page:1", "A. Metcon\n10 Squat\nLeaderboard\nB. AMRAP Smith\n"),
+        ("document_page:2", "\n12:43\nC. For time\n400m run"),
+    ])
+    assert parts == [("document_page:1", "A. Metcon\n10 Squat"), ("document_page:2", "C. For time\n400m run")]
 
 
 @pytest.mark.parametrize("units,options,accepted", [
