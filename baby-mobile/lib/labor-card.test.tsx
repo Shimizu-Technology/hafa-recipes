@@ -37,10 +37,25 @@ it("tells Leon in one tap, with Undo, and only Leon", async () => {
   await mount();
   await act(async () => { await button("Tell Leon")!.props.onPress(); });
   expect(m.baby.state.pendingNews).toMatchObject([{ news: "labor", child_id: "c", to: ["leon"] }]);
+  // Held while Undo is on screen, so Undo really takes it back.
+  expect(new Date(m.baby.state.pendingNews[0].hold_until).getTime()).toBeGreaterThan(Date.now());
   expect(m.toast.mock.calls[0][0]).toBe("Leon will get a notification.");
   expect(button("Told Leon. Tell again")).toBeTruthy();
   await act(async () => { m.toast.mock.calls[0][1].onPress(); });
   expect(m.baby.state.pendingNews).toEqual([]);
+});
+it("with no signal, still tells her partner once she's back online", async () => {
+  m.baby.api.familyMembers = vi.fn(async () => { throw new Error("offline"); });
+  await mount();
+  await act(async () => { await button("Tell your partner")!.props.onPress(); });
+  expect(m.baby.state.pendingNews).toMatchObject([{ news: "labor", to: [], parents: true }]);
+  expect(m.toast.mock.calls[0][0]).toBe("Your partner will get a notification once you’re back online.");
+});
+it("doesn't offer it to a caregiver in this family who's a parent somewhere else", async () => {
+  setup();
+  m.baby.state.bootstrap.spaces = [{ id: "fam", kind: "family", role: "caregiver", generation: 1 }, { id: "other", kind: "family", role: "parent", generation: 1 }];
+  await mount();
+  expect(all("Button")).toHaveLength(0);
 });
 it("adds Grandma when she chooses to", async () => {
   await mount();

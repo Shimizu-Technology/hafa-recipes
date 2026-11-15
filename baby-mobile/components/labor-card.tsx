@@ -10,6 +10,7 @@ import type { FamilyMember } from "../lib/family";
 import { familySpaces, isCaregiver } from "../lib/spaces";
 import { findBag, packedLine } from "../lib/hospital-bag";
 import { whenToCall } from "../lib/labor";
+import { undoWindow } from "../lib/running-feed";
 import { CallContact } from "@/components/call-contact";
 import { MedicalSource } from "./medical-source";
 import { Button, Choice, Copy, QuietRow, Row, Section, tap, useToast } from "./ui";
@@ -21,30 +22,35 @@ import { Button, Choice, Copy, QuietRow, Row, Section, tap, useToast } from "./u
 export function LaborCard({ child, today, running, week }: { child: Child | null; today: Date; running: boolean; week?: number }) {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap, bag = findBag(b.records),
     family = child ? familySpaces(bootstrap).find((space) => space.id === child.space_id) : undefined,
-    canTell = !!child && !!family && newsAvailable(bootstrap) && !child.birth_date;
+    canTell = !!child && !!family && newsAvailable(bootstrap, family.id) && !child.birth_date;
   const [members, setMembers] = useState<FamilyMember[] | null>(null), [choosing, setChoosing] = useState(false),
-    [picked, setPicked] = useState<string[]>([]), [told, setTold] = useState(""), sending = useRef(false);
+    [picked, setPicked] = useState<string[]>([]), [told, setTold] = useState(""), [unread, setUnread] = useState(false), sending = useRef(false);
   useEffect(() => {
     if (!canTell) return;
     let alive = true;
-    b.api.familyMembers(family!.id).then(({ items }) => { if (alive) setMembers(tellable(items, b.owner)); }).catch(() => undefined);
+    b.api.familyMembers(family!.id).then(({ items }) => { if (alive) setMembers(tellable(items, b.owner)); }).catch(() => { if (alive) setUnread(true); });
     return () => { alive = false; };
   }, [canTell, family?.id]);
   const partners = members ? defaultRecipients(members, null) : [], others = (members ?? []).filter((member) => !partners.includes(member.app_user_id));
-  async function tell(to: string[]) {
+  /** No list means no signal: "the other parents" are looked up as it goes. It waits out Undo first, so Undo really takes it back. */
+  async function tell(to: string[] | "parents") {
     if (!child || !to.length || sending.current) return;
     sending.current = true;
-    const id = Crypto.randomUUID(), who = recipientWords(members ?? [], to);
+    const id = Crypto.randomUUID(), who = to === "parents" ? "Your partner" : recipientWords(members ?? [], to);
     try {
-      await b.commit((s) => queueNews(s, { id, news: "labor", child_id: child.id, to, queued_at: new Date().toISOString() }));
+      await b.commit((s) => queueNews(s, { id, news: "labor", child_id: child.id, to: to === "parents" ? [] : to, ...(to === "parents" ? { parents: true } : {}),
+        queued_at: new Date().toISOString(), hold_until: new Date(Date.now() + undoWindow(false)).toISOString() }));
       tap("success");
       setTold(who); setChoosing(false); setPicked([]);
-      toast(`${who} will get a notification.`, { label: "Undo", onPress: () => void b.commit((s) => withoutNews(s, id)).then(() => setTold("")) });
+      toast(`${who} will get a notification${to === "parents" ? " once you’re back online" : ""}.`, { label: "Undo", onPress: () => void b.commit((s) => withoutNews(s, id)).then(() => setTold("")) });
     } catch { toast("That couldn’t be kept on this phone. Try again."); }
     finally { sending.current = false; }
   }
   const lines = callLines(bootstrap, today).filter((line) => line.key === "delivery" || line.key === "doctor");
   return <Section title="When it’s time">
+    {canTell && !members && unread && <Button title={told ? "Told your partner. Tell again" : "Tell your partner"} icon="notifications-outline"
+      onPress={() => void tell("parents")} />}
+    {canTell && !members && unread && <Copy kind="small" tone="muted">No signal right now. They’ll be told once you’re back online.</Copy>}
     {canTell && members && (partners.length ? <Button title={told ? `Told ${told}. Tell again` : `Tell ${recipientWords(members, partners)}`} icon="notifications-outline"
       onPress={() => void tell(partners)} /> : !others.length ? null : !choosing && <Button secondary title="Tell your family" icon="notifications-outline" onPress={() => setChoosing(true)} />)}
     {canTell && members && others.length > 0 && (choosing ? <View style={{ gap: 4 }}>
