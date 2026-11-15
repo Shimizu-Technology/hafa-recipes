@@ -590,7 +590,6 @@ class ProductionExtractionProvider:
                         if not quality[0] or not modelled or not source.class_parts and (
                                 (grounded.kind != "exercise" and quality[0] != quality[1])
                                 or _missing_source_movements(grounded, source)):
-
                             raise ExtractionFailure("provider_insufficient_prescription")
                         paid.complete(outcome="success")
                         invocation.succeed(data)
