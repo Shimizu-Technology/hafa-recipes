@@ -136,3 +136,35 @@ async def test_optional_rollout_rebuild_results_and_erasure(data_api, monkeypatc
     assert erased.status_code == 200, erased.text
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(PartResultRow)) == 0
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("apply", [False, True])
+async def test_rebuild_releases_each_owner_and_bounds_lock_and_statement_waits(data_api, monkeypatch, apply):  # noqa: F811
+    from app.domains.workouts import rebuild_part_results as worker
+    from app.domains.workouts.lifecycle import lock_owner
+
+    api = data_api
+    for name in importlib.import_module("migrations.run").OPTIONAL_MIGRATIONS[1:]:
+        await importlib.import_module(name).run_migration(configured=settings(), migration_engine=api.engine)
+    async with api.sessions.begin() as db:
+        for owner in ["other", "owner"]:
+            source = session()
+            db.add(WorkoutsSession(id=source.id, app_user_id=owner, generation=1, client_session_id=uuid4(), request_hash="a" * 64, content=source.content))
+    visited = []
+    async def checked(db, owner):
+        assert await db.scalar(text("SHOW lock_timeout")) == "5s"
+        assert await db.scalar(text("SHOW statement_timeout")) == "1min"
+        if visited:
+            async with api.sessions.begin() as probe:
+                await probe.execute(text("SELECT id FROM app_users WHERE id=:owner FOR UPDATE NOWAIT"), {"owner": visited[-1]})
+                assert await probe.scalar(select(func.count()).select_from(PartResultRow)) == (1 if apply else 0)
+        visited.append(owner)
+        await lock_owner(db, owner)
+    monkeypatch.setattr(worker, "lock_owner", checked)
+    async with api.sessions() as db:
+        result = await rebuild(db, apply=apply)
+    assert visited == ["other", "owner"]
+    assert result["sessions"] == 2
+    async with api.sessions.begin() as db:
+        assert await db.scalar(select(func.count()).select_from(PartResultRow)) == (2 if apply else 0)

@@ -8,6 +8,7 @@ from uuid import uuid4, uuid5
 from fastapi import HTTPException
 from sqlalchemy import case, func, select, text, update
 
+from app.domains.workouts.heart_rate_erasure import heart_rate_erasure_ready
 from app.domains.workouts.models import WorkoutsSession
 from app.domains.workouts.part_result_models import PartResultRow as R
 
@@ -66,9 +67,9 @@ async def schema_complete(db):
     if not {"FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE CASCADE", "FOREIGN KEY (session_id) REFERENCES workouts_sessions(id) ON DELETE CASCADE"} <= foreign_keys:
         return False
     constraints = await db.scalar(text("SELECT count(*) FROM pg_constraint WHERE conrelid='public.workouts_part_results'::regclass AND convalidated AND ((contype='f' AND confdeltype='c') OR conname IN ('uq_workouts_part_result','ck_workouts_part_result'))"))
-    indexes = set((await db.execute(text("SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename IN ('workouts_part_results','workouts_sessions')"))).scalars())
+    indexes = set((await db.execute(text("SELECT i.relname FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid JOIN pg_class t ON t.oid=x.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='public' AND t.relname IN ('workouts_part_results','workouts_sessions') AND x.indisvalid AND x.indisready"))).scalars())
     grant = await db.scalar(text("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.workouts_grants'::regclass AND conname='ck_workouts_grant_scope' AND convalidated"))
-    return constraints == 4 and {"ix_workouts_result_comparison", "ix_workouts_result_workout", "ix_workouts_session_source"} <= indexes and "health_workout_summary_store" in (grant or "")
+    return await heart_rate_erasure_ready(db) and constraints == 4 and {"ix_workouts_result_comparison", "ix_workouts_result_workout", "ix_workouts_session_source"} <= indexes and "health_workout_summary_store" in (grant or "")
 
 
 async def verify_part_results_schema(engine, settings):
