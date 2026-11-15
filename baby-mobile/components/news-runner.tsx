@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBaby } from "@/lib/context";
 import { useToast } from "@/components/ui";
 import { clockIn } from "../lib/tracker";
-import { defaultRecipients, deliveredWords, memberName, newsAbout, newsAvailable, nextHold, sendPending, skippedWords, type FamilyNow } from "../lib/family-news";
+import { deliveredWords, memberName, newsAvailable, nextHold, partnersFor, sendPending, skippedWords, type FamilyNow } from "../lib/family-news";
 
 /**
  * Sends labor and birth news she chose to send, once there's signal and (for a birth) the date has landed. Once it's
@@ -26,8 +26,7 @@ export function NewsRunner() {
       const { items } = await now.api.familyMembers(space);
       for (const member of items) names[member.app_user_id] = memberName(member);
       return { active: items.filter((member) => member.status === "active").map((member) => member.app_user_id),
-        // "Tell your partner" came from her: if the family hasn't said who's expecting, she has.
-        parents: defaultRecipients(items, now.owner, newsAbout(child, now.owner) ?? now.owner ?? null), names: { ...names } };
+        parents: partnersFor(items, now.owner, child), names: { ...names } };
     };
     void sendPending(now.state, now.api.familyNews, now.commit, family)
       .then(({ sent, dropped }) => {
