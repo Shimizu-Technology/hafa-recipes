@@ -106,7 +106,7 @@ function RunningCard({ feed, timeZone, onSwitch, onDone }: { feed: RunningFeed; 
       {switchSide}
       <Option label="Done — ended now" detail={`${length} feed`} strong={recent} height={quickTarget} hint="Records that this feed ended just now" onPress={onDone} />
     </View>
-    <FeedEnded record={feed.record} timeZone={timeZone} strong={!recent} />
+    <FeedEnded key={feed.record.id} record={feed.record} timeZone={timeZone} strong={!recent} />
   </View>;
   return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
     {/* Read as one line, and not again every second. */}

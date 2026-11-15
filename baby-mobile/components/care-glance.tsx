@@ -66,7 +66,9 @@ export function CareGlance({ child, rows, now, running, timeZone, sides = true }
     </View>}
   </Card>;
   const spoken = `${side ? `${overdue ? "Still feeding?" : "Feeding now,"} ${side} side, started ${friendlyTime(running!.started_at, now, timeZone)}${overdue ? `, ${runningFor} ago` : ""}.` : feed ? `Last fed ${timeAgo(feed.occurred_at, now)}. ${detail}.` : "No feed logged yet."}${next ? ` Next side ${next}.` : ""}`;
-  return feed ? <PressTarget accessibilityRole="button" accessibilityLabel={spoken} accessibilityHint="Opens this feeding entry"
-    onPress={() => router.push({ pathname: "/record/[id]", params: { id: feed.id } })}>{content}</PressTarget>
+  // The card names the running feed when there is one, which may not be the newest record (a bottle top-up can be newer).
+  const opens = side ? running!.record.id : feed?.id;
+  return opens ? <PressTarget accessibilityRole="button" accessibilityLabel={spoken} accessibilityHint="Opens this feeding entry"
+    onPress={() => router.push({ pathname: "/record/[id]", params: { id: opens } })}>{content}</PressTarget>
     : <View accessible accessibilityLabel={spoken}>{content}</View>;
 }

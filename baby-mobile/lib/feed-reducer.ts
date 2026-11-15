@@ -150,10 +150,12 @@ export function touchedRecently(record: BabyRecord, now = new Date()) {
  * so no segment is lost.
  */
 export function suggestedFeedEnd(record: BabyRecord, now = new Date()) {
-  if (touchedRecently(record, now)) return now.toISOString();
-  const times = (record.data.actions ?? []).map((action) => new Date(action.at).getTime()).filter(Number.isFinite);
+  const actions = record.data.actions ?? [], times = actions.map((action) => new Date(action.at).getTime()).filter(Number.isFinite);
   const start = new Date(record.occurred_at).getTime();
-  return new Date(Math.min(now.getTime(), Math.max(start + 20 * 60_000, ...times))).toISOString();
+  const end = touchedRecently(record, now) ? now.getTime() : Math.min(now.getTime(), Math.max(start + 20 * 60_000, ...times));
+  // A side tapped in this very millisecond keeps its own text: the API's microseconds are what `validFeedEnd` compares.
+  const tapped = actions.filter((action) => new Date(action.at).getTime() === end).sort((a, b) => instant(b.at) - instant(a.at))[0];
+  return tapped ? tapped.at : new Date(end).toISOString();
 }
 /** How long the feed is if it ended at `at`, in minutes, the way it would be saved. */
 export function feedLengthAt(record: BabyRecord, at: string) {

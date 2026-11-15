@@ -403,6 +403,35 @@ it("shows the running side on the hero while feeding, and no next side until not
   await act(async () => renderer!.update(<CareGlance child={child} rows={pendingRecords(b.state)} now={new Date()} />));
   expect(texts()).toEqual(expect.arrayContaining(["Next side", "Right"]));
 });
+it("opens the breastfeed the card names when a newer bottle top-up came after it", async () => {
+  setup();
+  vi.mocked(router.push).mockClear();
+  const began = new Date(start.getTime() - 3 * 60 * 60_000).toISOString(), bottleAt = new Date(start.getTime() - 60 * 60_000).toISOString(),
+    nursing = { ...breast("nursing", "left", began), data: { method: "breast", side: "left", state: "running", actions: [{ id: "nursing-start", action: "start", at: began, side: "left" }] } } as BabyRecord,
+    bottle = { ...breast("bottle", "left", bottleAt), data: { method: "bottle", amount: 4, unit: "oz" } } as BabyRecord,
+    rows = [nursing, bottle], running = runningFeed(rows, "baby", new Date())!;
+  expect(running.record.id).toBe("nursing");
+  await act(async () => { renderer = create(<CareGlance child={child} rows={rows} now={new Date()} running={running} />); });
+  expect(texts()).toContain("Still feeding?");
+  await act(async () => targets()[0].props.onPress());
+  expect(router.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "nursing" } });
+});
+it("resets the end-time editor when the selected baby changes to another with an overdue feed", async () => {
+  const b = setup(), sister = { id: "sister", name: "Ivy", revision: 1, birth_date: "2026-11-01" };
+  b.state = { ...b.state, bootstrap: { ...b.state.bootstrap!, children: [child, sister] } };
+  const began = new Date(start.getTime() - 3 * 60 * 60_000).toISOString(),
+    overdue = (id: string, childId: string) => ({ ...breast(id, "left", began), child_id: childId, data: { method: "breast", side: "left", state: "running", actions: [{ id: `${id}-start`, action: "start", at: began, side: "left" }] } }) as BabyRecord,
+    rows = [overdue("mia-feed", "baby"), overdue("ivy-feed", "sister")],
+    show = (who: typeof child) => <QuickLog child={who} rows={rows} now={new Date()} />,
+    button = (title: string) => renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === title)[0];
+  await act(async () => { renderer = create(show(child)); });
+  await act(async () => button("It ended at…").props.onPress());
+  expect(renderer!.root.findAll((n) => String(n.type) === "DateField")).toHaveLength(1);
+  await act(async () => renderer!.update(show(sister)));
+  expect(renderer!.root.findAll((n) => String(n.type) === "DateField")).toHaveLength(0);
+  expect(button("It ended at…")).toBeDefined();
+  expect(button("Save end time")).toBeUndefined();
+});
 it("says Just now rather than 0m ago", async () => {
   setup();
   await act(async () => { renderer = create(<CareGlance child={child} rows={[breast("now", "left", start.toISOString())]} now={new Date()} />); });

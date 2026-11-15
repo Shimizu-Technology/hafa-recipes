@@ -199,6 +199,18 @@ it("suggests an end without losing switches and validates corrections", () => {
   expect(validFeedEnd(record, at(30), new Date(at(60)))).toBe(true);
 });
 
+it("keeps a side tap's microseconds in the suggested end, so the default suggestion validates", () => {
+  const micro = "2026-11-04T12:25:00.123456Z",
+    record = optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null,
+      occurred_at: at(0), data: { method: "breast", actions: [start(0), { id: "switch-micro", action: "switch", at: micro, side: "right" }] } });
+  const now = new Date(at(60));
+  expect(suggestedFeedEnd(record, now)).toBe(micro);
+  expect(validFeedEnd(record, suggestedFeedEnd(record, now), now)).toBe(true);
+  // Clamped to now in the same millisecond: still the tap's own text.
+  const justNow = new Date("2026-11-04T12:25:00.123Z");
+  expect(validFeedEnd(record, suggestedFeedEnd(record, justNow), justNow)).toBe(true);
+});
+
 it("suggests now after a side tap in the last 15 minutes, and says how long a chosen end makes the feed", () => {
   const record = optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null,
     occurred_at: at(0), data: { method: "breast", actions: [start(0), swap(50, "right")] } });
