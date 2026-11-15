@@ -79,6 +79,8 @@ export interface Child {
   /** Where it lives, once the API lists spaces. Until then everything is personal. */
   space_id?: string;
   generation?: number;
+  /** Who added it: for a pregnancy, the person expecting. Only in a family, from an API that sends it. */
+  created_by?: string | null;
 }
 /** One of this account's spaces: its own personal one, and a family it's in. */
 export interface BabySpace {
@@ -643,6 +645,8 @@ export interface DeviceState {
   feedNotices?: string[];
   /** Ask has shown its reminder about sources on this device. */
   askNoticeSeen?: boolean;
+  /** She's answered "so Kami can tell you the moment labor starts", either way: it's only asked once. */
+  newsAskSeen?: boolean;
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];

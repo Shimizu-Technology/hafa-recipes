@@ -37,14 +37,16 @@ function Line({ title, detail, on, onChange }: { title: string; detail?: string;
 
 /** Per person, on every phone they use. Nothing here asks the phone for anything until she turns something on. */
 export default function Reminders() {
-  const b = useBaby(), bootstrap = b.state.bootstrap!, prefs = shownPrefs(b.state), [denied, setDenied] = useState(false),
+  const b = useBaby(), bootstrap = b.state.bootstrap!, prefs = shownPrefs(b.state), [denied, setDenied] = useState(false), [askable, setAskable] = useState(false),
     [choosingHours, setChoosingHours] = useState(false), [opening, setOpening] = useState(""),
     zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const live = remindersOn(bootstrap);
   useEffect(() => { if (live) void b.refreshPrefs(); }, [live]);
   useEffect(() => {
     if (!live) return;
-    const look = () => { if (Platform.OS !== "web") void Notifications.getPermissionsAsync().then((now) => setDenied(!now.granted && !now.canAskAgain)).catch(() => undefined); };
+    const look = () => {
+      if (Platform.OS !== "web") void Notifications.getPermissionsAsync().then((now) => { setDenied(!now.granted && !now.canAskAgain); setAskable(!now.granted && now.canAskAgain); }).catch(() => undefined);
+    };
     look();
     const app = AppState.addEventListener("change", (status) => { if (status === "active") look(); });
     return () => app.remove();
@@ -56,6 +58,11 @@ export default function Reminders() {
     if (answer === "denied") setDenied(true);
   };
   const off = (kind: ReminderKind) => savePrefs(b, { kinds: { [kind]: { enabled: false } } });
+  // Family news is on before she's ever been asked, so this is where "Not now" on Today comes back to.
+  const newsWaiting = askable && kinds.includes("family_news") && !!prefs.kinds.family_news?.enabled;
+  const allowNews = async () => {
+    if (await askToNotify("family_news") === "granted") { setAskable(false); void b.registerPush(); }
+  };
   const feed = prefs.kinds.feed_interval, showHours = kinds.includes("feed_interval") && (choosingHours || !!feed?.enabled);
   return <Screen title="Reminders" back>
     <Copy tone="muted">Just for you, on every phone you use. They also show on Today until you dismiss them.</Copy>
@@ -66,6 +73,8 @@ export default function Reminders() {
       <Row title="Open notification settings" icon="notifications-outline" onPress={() => void Linking.openSettings().catch(() => setOpening("Open your phone’s Settings to change notification permissions."))} />
       {!!opening && <Copy kind="small" tone="muted">{opening}</Copy>}
     </View>}
+    {newsWaiting && <Grouped><Row title="Turn on notifications" detail="Family news is on, but this phone hasn’t allowed notifications yet, so it only shows in the app"
+      icon="notifications-outline" onPress={() => void allowNews()} /></Grouped>}
     <Grouped separatorInset={16}>
       {kinds.map((kind) => <Line key={kind} title={words[kind]!.title} detail={words[kind]!.detail} on={kind === "feed_interval" ? !!feed?.enabled || choosingHours : !!prefs.kinds[kind]?.enabled}
         onChange={(value) => {

@@ -2,13 +2,14 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const f = vi.hoisted(() => ({ push: vi.fn(), ask: vi.fn(async () => undefined), baby: null as any, alerts: [] as { title: string; message?: string; buttons: { text: string; style?: string; onPress?: () => void }[] }[], share: vi.fn(async () => ({})), copy: vi.fn(async () => true), paste: vi.fn(async () => ""), toast: vi.fn(), exportFile: vi.fn(), back: vi.fn() }));
+const f = vi.hoisted(() => ({ push: vi.fn(), ask: vi.fn(async () => undefined), baby: null as any, alerts: [] as { title: string; message?: string; buttons: { text: string; style?: string; onPress?: () => void }[] }[], share: vi.fn(async () => ({})), copy: vi.fn(async () => true), paste: vi.fn(async () => ""), toast: vi.fn(), exportFile: vi.fn(), back: vi.fn(), notify: vi.fn(async () => "granted") }));
 vi.mock("react-native", () => ({ Alert: { alert: (title: string, message: string, buttons: any[]) => f.alerts.push({ title, message, buttons }) }, Share: { share: f.share }, View: "View", Platform: { OS: "ios" } }));
 vi.mock("expo-clipboard", () => ({ setStringAsync: f.copy, getStringAsync: f.paste }));
 vi.mock("@/lib/context", () => ({ useBaby: () => f.baby }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("expo-router", () => ({ router: { back: f.back, push: f.push } }));
 vi.mock("@/lib/share-session-state", () => ({ askForShareSession: f.ask }));
+vi.mock("@/lib/reminder-permission", () => ({ askToNotify: f.notify }));
 vi.mock("@/lib/files", () => ({ exportFile: f.exportFile }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, installationId: async () => "this-phone" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Empty: "Empty", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Screen: "Screen", Section: "Section", useToast: () => f.toast }));
@@ -339,6 +340,23 @@ describe("joining with a code", () => {
     await press("Join this family");
     expect(b.api.acceptInvite).toHaveBeenCalledWith(code, 1);
     expect(b.refresh).toHaveBeenCalled();
+    // Family news isn't on at this API, so nothing asks for notifications.
+    expect(f.notify).not.toHaveBeenCalled();
+  });
+  it("joining as a parent asks once, with the reason, so labor news can reach this phone", async () => {
+    const b = setup();
+    b.state.bootstrap.reminders = { push: true, family_news: true };
+    b.registerPush = vi.fn(async () => true);
+    let state = b.state;
+    b.commit = vi.fn(async (change: (s: typeof state) => typeof state) => { state = change(state); });
+    f.paste.mockResolvedValue(code);
+    await open();
+    await press("I have a code");
+    await press("Paste");
+    await press("Join this family");
+    expect(f.notify).toHaveBeenCalledWith("family_news");
+    expect(state.newsAskSeen).toBe(true);
+    expect(b.registerPush).toHaveBeenCalled();
   });
   it("says something that isn't a code isn't one, without asking the API", async () => {
     const b = setup();

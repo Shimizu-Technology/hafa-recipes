@@ -195,6 +195,7 @@ export function Copy({
   lines,
   numeric = false,
   limit = 0,
+  fit = false,
 }: {
   children: React.ReactNode;
   kind?: "body" | "small" | "heading" | "title" | "label";
@@ -204,13 +205,17 @@ export function Copy({
   numeric?: boolean;
   /** How far it grows with text size. By default as far as she's set it. */
   limit?: number;
+  /** One line that shrinks to the width rather than breaking mid-word, for a single long word. */
+  fit?: boolean;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     style = type[kind];
   return (
     <Text
       key={`${kind}:${fontScale}`}
-      numberOfLines={lines}
+      numberOfLines={fit ? 1 : lines}
+      adjustsFontSizeToFit={fit}
+      minimumFontScale={fit ? 0.4 : undefined}
       maxFontSizeMultiplier={limit}
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
