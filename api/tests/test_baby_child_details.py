@@ -122,10 +122,18 @@ async def test_the_tracker_limit_holds_on_the_merged_map(baby_api):
     assert result.status_code == 200 and len(result.json()["details"]["tracking"]) == 40
 
 
-async def test_birth_time_is_no_longer_kept(baby_api):
+async def test_birth_time_is_kept_again_and_checked(baby_api):
+    """Leon's Nov 15 decision: the time of birth is recorded with the date, and it's optional."""
     identifier = await born_with_details(baby_api, shared.GEN, {"sex": "boy", "birth_time": "03:15"})
     async with baby_api.sessions() as db:
-        assert (await db.get(BabyChild, UUID(identifier))).details == {"sex": "boy"}
+        assert (await db.get(BabyChild, UUID(identifier))).details == {"sex": "boy", "birth_time": "03:15"}
+    refused = await baby_api.client.patch(f"{CHILDREN}/{identifier}", headers=shared.GEN,
+                                          json={"revision": 1, "details": {"birth_time": "3:15 AM"}})
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "Enter the time of birth as hours and minutes, or leave it blank"
+    cleared = await baby_api.client.patch(f"{CHILDREN}/{identifier}", headers=shared.GEN,
+                                          json={"revision": 1, "details": {"birth_time": None}})
+    assert cleared.status_code == 200 and cleared.json()["details"] == {"sex": "boy"}
 
 
 async def test_length_keeps_one_decimal_and_a_whole_number_is_fine(baby_api):

@@ -112,7 +112,9 @@ def child_response(row, access=None):
         "revision": row.revision,
     }
     if getattr(access, "enabled", False) and access.client == "3":
-        result.update(space_id=str(row.space_id), generation=row.generation)
+        # Who added it, which for a pregnancy is the person expecting: news of her labor is never offered back to her.
+        # Kept when the baby moves into a family. Members already see each other's names, so this adds nothing new.
+        result.update(space_id=str(row.space_id), generation=row.generation, created_by=row.app_user_id)
     return result
 
 
@@ -124,6 +126,7 @@ CHILD_DETAIL_ERRORS = {
     "feeding": "Choose nursing, bottle or both, or leave it blank",
     "tracking": "A tracker setting could not be read",
     "doctor": "Check the doctor's name and number. A number needs digits, such as 671-555-0100",
+    "birth_time": "Enter the time of birth as hours and minutes, or leave it blank",
 }
 
 
@@ -411,7 +414,7 @@ async def bootstrap_state(user, db, *, create, request):
         # Only with the flag on, so a phone reads nothing else about it and asks nothing of it until then.
         from app.domains.baby.push import device_routines_ready
 
-        result["reminders"] = {"push": True, **({"routines": True} if await device_routines_ready(db) else {})}
+        result["reminders"] = {"push": True, "family_news": True, **({"routines": True} if await device_routines_ready(db) else {})}
     if access and access.client == "3":
         families = [g.id for g in access.spaces if g.space.status == "active" and g.space.kind == "family"]
         # Everyone who has been in this account's families, since what someone logged stays after they leave.
@@ -1434,6 +1437,7 @@ async def delete_data(
 # All routes are registered under one integration entry point.
 
 from app.domains.baby.changes import router as changes_router  # noqa: E402
+from app.domains.baby.family_news import router as family_news_router  # noqa: E402
 from app.domains.baby.family_router import router as family_router  # noqa: E402
 from app.domains.baby.invites import router as invites_router  # noqa: E402
 from app.domains.baby.push import router as push_router  # noqa: E402
@@ -1448,3 +1452,4 @@ router.include_router(imports_router)
 router.include_router(suggestions_router)
 router.include_router(events_router)
 router.include_router(push_router)
+router.include_router(family_news_router)

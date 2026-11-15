@@ -4,7 +4,8 @@ import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord, type RecordData } from "../lib/models";
 import { familySpaces } from "../lib/spaces";
-import { added, bagTitle, findBag, grouped, packedLine, removed, starterItems, toggled, type BagSection } from "../lib/hospital-bag";
+import { router } from "expo-router";
+import { added, bagTitle, findBags, grouped, packedLine, removed, starterItems, toggled, type BagSection } from "../lib/hospital-bag";
 import { Button, Card, Choice, Copy, Field, HeaderAction, Icon, Notice, PressTarget, Screen, Section, tap, useColors, useToast } from "@/components/ui";
 import { SyncStatus } from "@/components/sync-status";
 
@@ -13,7 +14,7 @@ import { SyncStatus } from "@/components/sync-status";
  * underneath, so it's shared with the family like any list and Leon can tick things off from his phone.
  */
 export default function HospitalBag() {
-  const b = useBaby(), c = useColors(), toast = useToast(), bag = findBag(b.records),
+  const b = useBaby(), c = useColors(), toast = useToast(), [bag, ...also] = findBags(b.records),
     [editing, setEditing] = useState(false), [error, setError] = useState(""), [starting, setStarting] = useState(false),
     [drafts, setDrafts] = useState<Partial<Record<BagSection, string>>>({});
   const shared = familySpaces(b.state.bootstrap).length > 0, latest = useRef(b);
@@ -82,6 +83,12 @@ export default function HospitalBag() {
           onSubmit={() => add(bag, section.id as BagSection)} />
         <Button secondary title="Add" disabled={!drafts[section.id as BagSection]?.trim()} onPress={() => add(bag, section.id as BagSection)} />
       </>}
+    </Section>)}
+    {/* A list she made herself, or a second phone's bag: shown as it is, never hidden behind the newest. */}
+    {also.map((other) => <Section key={other.id} title={other.title || "Another list"}>
+      <Copy kind="small" tone="muted">{`Another list for the bag · ${packedLine(other)}`}</Copy>
+      {(other.data.items ?? []).map((item) => <Choice key={item.id} label={item.label} selected={item.done} onPress={() => void save(other, toggled(other, item.id))} />)}
+      <Button variant="ghost" title="Open this list" onPress={() => router.push({ pathname: "/record/[id]", params: { id: other.id } })} />
     </Section>)}
     {bag && !editing && <Copy kind="small" tone="muted">{shared
       ? "Everyone in your family sees this list and can tick things off."
