@@ -67,8 +67,6 @@ class ClerkUser(BaseModel):
             return self.last_name
         if self.attribution_name:
             return self.attribution_name
-        if self.email:
-            return self.email.split("@")[0]
         return "A chef"
 
 

@@ -149,6 +149,8 @@ def redact_workouts_event(event, hint=None):
     domain we deliberately discard exception values, breadcrumbs and contexts;
     source/provider errors can otherwise contain imported or health text.
     """
+    if _recipe_link_event(event):
+        return {'message': 'Recipe link request failed', 'level': event.get('level', 'error')}
     if _monitor_event(event):
         tags = event.get("tags") or {}
         platform = tags.get("platform")
@@ -179,11 +181,17 @@ def redact_workouts_event(event, hint=None):
 
 def redact_workouts_transaction(event, hint=None):
     """Do not capture traces whose spans can include health/source metadata."""
-    if _monitor_event(event):
+    if _recipe_link_event(event) or _monitor_event(event):
         return None
     if _private_product(event):
         return None
     return event
+
+
+def _recipe_link_event(event):
+    return any(isinstance(value, str) and '/public/r/' in value for value in (
+        (event.get('request') or {}).get('url'), event.get('transaction'), current_ai_context().route,
+    ))
 
 
 class WorkoutsAccessLogFilter:
@@ -192,5 +200,5 @@ class WorkoutsAccessLogFilter:
     def filter(self, record):
         values = record.args if isinstance(record.args, tuple) else (record.args,)
         return not any(isinstance(value, str) and any(
-            path in value for path in ("/api/v1/workouts", "/api/v1/baby", "/internal/import-health")
-        ) for value in values)
+            path in value for path in ("/api/v1/workouts", "/api/v1/baby", "/internal/import-health", "/public/r/")
+        ) for value in (*values, record.msg))

@@ -1,10 +1,13 @@
 """Revocable, unlisted recipe grants; no grant changes Discover visibility."""
 import hashlib
+import ipaddress
+import os
 import secrets
 from uuid import UUID
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import Column, ForeignKey, String, delete, select, text
+from sqlalchemy import Column, DateTime, ForeignKey, String, delete, func, select, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +26,7 @@ class RecipeLink(Base):
     __tablename__ = 'recipe_share_links'
     recipe_id = Column(PGUUID(as_uuid=True), ForeignKey('recipes.id', ondelete='CASCADE'), primary_key=True)
     token_hash = Column(String(64), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 async def budget(key, capability, limit):
@@ -66,6 +70,30 @@ async def revoke_link(recipe_id: UUID, user: ClerkUser = Depends(get_current_use
     return Response(status_code=204, headers=PRIVATE_HEADERS)
 
 
+@router.get('/api/recipes/{recipe_id}/share-link')
+async def link_status(recipe_id: UUID, response: Response, user: ClerkUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await owner(db, recipe_id, user)
+    link = await db.get(RecipeLink, recipe_id)
+    response.headers.update(PRIVATE_HEADERS)
+    return {'active': link is not None, 'created_at': link.created_at if link else None}
+
+
+def verified_client_ip(request: Request):
+    secret = os.getenv('RECIPE_PROXY_SECRET', '').strip()
+    if not secret:
+        return None
+    try:
+        jwt.decode(request.headers.get('x-nf-sign', ''), secret, algorithms=['HS256'],
+                   issuer='netlify', options={'require': ['exp', 'iss']})
+        return str(ipaddress.ip_address(request.headers.get('x-nf-client-connection-ip', '')))
+    except (jwt.InvalidTokenError, ValueError):
+        return None
+
+
 async def read_budget(request: Request):
-    # Ignore caller-controlled forwarding headers. Add an edge budget if API replicas grow.
-    await budget(request.client.host if request.client else 'unknown', 'recipe-page', 120)
+    # Unsigned proxy traffic shares a peer; never apply the small visitor quota
+    # to that peer. X-Forwarded-For is never an authority.
+    await budget('global', 'recipe-page-ceiling', 12000)
+    client_ip = verified_client_ip(request)
+    peer = request.client.host if request.client else 'unknown'
+    await budget(f'visitor:{client_ip}' if client_ip else f'peer:{peer}', 'recipe-page', 120 if client_ip else 12000)

@@ -175,8 +175,11 @@ async def test_migration_is_additive_replayable(fixture):
 
 
 @pytest.mark.asyncio
-async def test_http_contract_and_public_budget(fixture):
+async def test_http_contract_and_public_budget(fixture, monkeypatch):
+    import time
+
     import httpx
+    import jwt
     from fastapi import FastAPI
 
     from app.auth import get_current_user, get_optional_user
@@ -184,17 +187,21 @@ async def test_http_contract_and_public_budget(fixture):
     from app.recipe_links import router as links
     from app.recipe_pages import router as pages
     db, recipe = fixture
+    secret = 'test-secret-with-at-least-32-bytes'
+    monkeypatch.setenv('RECIPE_PROXY_SECRET', secret)
     app = FastAPI()
     app.include_router(links)
     app.include_router(pages)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: user()
     app.dependency_overrides[get_optional_user] = lambda: None
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://local.invalid') as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://local.invalid', headers={'x-nf-sign': jwt.encode({'iss': 'netlify', 'exp': time.time() + 60}, secret, algorithm='HS256'), 'x-nf-client-connection-ip': '203.0.113.9'}) as client:
         created = await client.post(f'/api/recipes/{recipe.id}/share-link')
         assert created.status_code == 200
         path = '/public/r/' + created.json()['token']
-        assert (await client.get(path)).status_code == 200
+        html_response = await client.get(path)
+        assert html_response.status_code == 200
+        assert "default-src 'none'" in html_response.headers['content-security-policy']
         assert (await client.get(path + '/data')).json()['title'] == recipe.extracted['title']
         assert (await client.get(path + '/og.jpg')).headers['content-type'] == 'image/jpeg'
         assert (await client.delete(f'/api/recipes/{recipe.id}/share-link')).status_code == 204
@@ -203,3 +210,140 @@ async def test_http_contract_and_public_budget(fixture):
         for _ in range(120):
             response = await client.get('/public/r/unknown')
         assert response.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_owner_link_status_and_created_at_upgrade(fixture):
+    from app.recipe_links import link_status
+    db, recipe = fixture
+    assert await link_status(recipe.id, Response(), user(), db) == {'active': False, 'created_at': None}
+    await create_link(recipe.id, Response(), user(), db)
+    status = await link_status(recipe.id, Response(), user(), db)
+    assert status['active'] and status['created_at'].tzinfo
+    assert set(status) == {'active', 'created_at'}
+    with pytest.raises(HTTPException) as exc:
+        await link_status(recipe.id, Response(), user('other'), db)
+    assert exc.value.status_code == 404
+    await db.execute(text('ALTER TABLE recipe_share_links DROP COLUMN created_at'))
+    await db.execute(text('CREATE TABLE schema_migrations (version integer primary key, name text)'))
+    await db.commit()
+    await importlib.import_module('migrations.062_add_recipe_share_links').run_migration(migration_engine=db.bind)
+    assert await db.scalar(text('SELECT created_at IS NOT NULL FROM recipe_share_links'))
+    await revoke_link(recipe.id, user(), db)
+    assert not (await link_status(recipe.id, Response(), user(), db))['active']
+
+
+@pytest.mark.asyncio
+async def test_signed_proxy_budgets(monkeypatch):
+    import time
+
+    import jwt
+    from starlette.requests import Request
+
+    from app.recipe_links import read_budget, verified_client_ip
+    secret = 'test-only-secret-with-at-least-32-bytes'
+    monkeypatch.setenv('RECIPE_PROXY_SECRET', secret)
+    def request(token='', ip='203.0.113.7', peer='10.0.0.1'):
+        return Request({'type': 'http', 'client': (peer, 80), 'headers': [
+            (b'x-nf-sign', token.encode()), (b'x-nf-client-connection-ip', ip.encode()),
+            (b'x-forwarded-for', b'198.51.100.5')]})
+    claims = {'iss': 'netlify', 'exp': time.time() + 60}
+    token = jwt.encode(claims, secret, algorithm='HS256')
+    assert verified_client_ip(request(token)) == '203.0.113.7'
+    for forged in ('', jwt.encode(claims, 'wrong-secret-with-at-least-32-bytes', algorithm='HS256'),
+                   jwt.encode(claims | {'exp': 1}, secret, algorithm='HS256'),
+                   jwt.encode(claims | {'iss': 'other'}, secret, algorithm='HS256'),
+                   jwt.encode({'iss': 'netlify'}, secret, algorithm='HS256')):
+        assert verified_client_ip(request(forged)) is None
+    assert verified_client_ip(request(token, 'invalid')) is None
+    limiter.reset()
+    for _ in range(120):
+        await read_budget(request(token))
+    with pytest.raises(HTTPException) as exc:
+        await read_budget(request(token))
+    assert exc.value.status_code == 429
+    await read_budget(request(token, '203.0.113.8'))
+    monkeypatch.delenv('RECIPE_PROXY_SECRET')
+    assert verified_client_ip(request(token)) is None
+    for _ in range(200):
+        await read_budget(request(token))  # No shared 60-view choke without setup.
+    limiter.reset()
+
+
+def test_legacy_projection_attribution_and_estimates():
+    from types import SimpleNamespace
+    recipe = SimpleNamespace(id=uuid4(), extracted={'times': '20 min', 'ingredients': None},
+                             extractor_display_name=' A chef ', source_url='javascript:bad')
+    assert project(recipe)['creator'] == 'A Håfa cook'
+    assert project(recipe)['time'] is None
+    assert project(recipe)['components'][0]['ingredients'] == []
+    recipe.extracted = {'components': [None, 'bad', {'ingredients': [None, {'name': 'salt', 'quantityEstimate': {'quantity': '1', 'unit': 'tsp', 'secret': 'private'}}], 'steps': None}]}
+    html = render_page(project(recipe), str(recipe.id).upper())
+    assert '≈ estimated' in html and 'private' not in html
+    assert f'content="https://hafa-recipes.com/r/{recipe.id}"' in html
+    unlisted = render_page(project(recipe), 'x' * 43)
+    assert 'Open in Håfa Recipes' not in unlisted and 'apple-itunes-app' not in unlisted
+    assert user().model_copy(update={'email': 'private.handle@example.com'}).display_name == 'A chef'
+
+
+@pytest.mark.asyncio
+async def test_image_releases_connection_bounds_wait_and_retries(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import app.recipe_pages as pages
+    recipe = SimpleNamespace(id=uuid4(), thumbnail_url='https://example.com/photo')
+    db = SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr(pages, 'resolve', AsyncMock(return_value=recipe))
+    gate = asyncio.Event()
+    calls = 0
+    async def fetch(*args):
+        nonlocal calls
+        assert db.close.await_count > 0
+        calls += 1
+        await gate.wait()
+        raise ValueError('unavailable')
+    monkeypatch.setattr(pages.storage_service, 'fetch_thumbnail_source', fetch)
+    monkeypatch.setattr(pages, 'IMAGE_WAIT_SECONDS', .01)
+    _images.clear()
+    try:
+        results = await asyncio.gather(*(pages.og_image(str(recipe.id), db, None) for _ in range(15)))
+        assert all(result.body == pages._default_image for result in results)
+        assert calls == 1 and len(pages._image_jobs) == 1
+        for _ in range(10):
+            recipe.id = uuid4()
+            await pages.og_image(str(recipe.id), db, None)
+        assert len(pages._image_jobs) == pages.MAX_IMAGE_JOBS
+        gate.set()
+        await asyncio.gather(*list(pages._image_jobs.values()))
+        assert not _images and not pages._image_jobs
+        await pages.og_image(str(recipe.id), db, None)
+        assert calls == pages.MAX_IMAGE_JOBS + 1
+        raw = SimpleNamespace(data=jpeg(None))
+        monkeypatch.setattr(pages.storage_service, 'fetch_thumbnail_source', AsyncMock(return_value=raw))
+        monkeypatch.setattr(pages, 'IMAGE_WAIT_SECONDS', 2)
+        await pages.og_image(str(recipe.id), db, None)
+        await pages.og_image(str(recipe.id), db, None)
+        assert pages.storage_service.fetch_thumbnail_source.await_count == 1
+    finally:
+        gate.set()
+        await asyncio.gather(*list(pages._image_jobs.values()))
+        _images.clear()
+
+
+def test_recipe_capabilities_not_logged_or_traced():
+    import logging
+
+    from app.domains.workouts.privacy import (
+        WorkoutsAccessLogFilter,
+        redact_workouts_event,
+        redact_workouts_transaction,
+    )
+    path = '/public/r/' + 'x' * 43 + '/og.jpg?secret=1'
+    record = logging.LogRecord('uvicorn.access', 20, '', 0, '%s - "%s %s HTTP/%s" %d',
+                               ('peer', 'GET', path, '1.1', 200), None)
+    assert not WorkoutsAccessLogFilter().filter(record)
+    event = {'request': {'url': 'https://api.invalid' + path}, 'breadcrumbs': [{'message': path}]}
+    assert path not in str(redact_workouts_event(event))
+    assert redact_workouts_transaction(event) is None
