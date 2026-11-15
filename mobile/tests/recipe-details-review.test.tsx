@@ -10,15 +10,19 @@ vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'st
 vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), leave: vi.fn(async () => undefined), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
+import * as disclosureHook from '@/hooks/usePublishingDisclosure';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Recipe } from '@/types/recipe';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
-  captureSave: vi.fn(async (_input: unknown) => ({ id: 'saved-capture' })), replace: vi.fn(), editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), setQueriesData: vi.fn(), cancelQueries: vi.fn(async () => undefined), invalidateQueries: vi.fn(),
+  captureSave: vi.fn(async (_input: unknown) => ({ id: 'saved-capture' })), replace: vi.fn(), editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), invalidateQueries: vi.fn(),
   mutationOptions: [] as Array<{ onSuccess?: (recipe: Recipe) => void }>,
-  requestPublishing: vi.fn(async () => true), editorRecipe: null as Recipe | null, editorSubmit: vi.fn(), owner: 'owner-a', routeId: 'r1',
+  editorRecipe: null as Recipe | null, editorSubmit: vi.fn(), owner: 'owner-a', routeId: 'r1',
+}));
+const cacheMocks = vi.hoisted(() => ({
+  setQueriesData: vi.fn(), cancelQueries: vi.fn(async () => undefined),
 }));
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -34,7 +38,7 @@ vi.mock('react-native', async () => {
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ setQueryData: mocks.setQueryData, setQueriesData: mocks.setQueriesData, cancelQueries: mocks.cancelQueries, invalidateQueries: mocks.invalidateQueries }),
+  useQueryClient: () => ({ setQueryData: mocks.setQueryData, setQueriesData: cacheMocks.setQueriesData, cancelQueries: cacheMocks.cancelQueries, invalidateQueries: mocks.invalidateQueries }),
   useQuery: (options: { queryKey: string[] }) => options.queryKey[0] === 'recipe'
     ? { data: mocks.editorRecipe, isLoading: !mocks.editorRecipe }
     : { data: { has_original: false } },
@@ -50,7 +54,7 @@ vi.mock('expo-router', async () => {
 });
 vi.mock('expo-image-picker', () => ({}));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
-vi.mock('@/hooks/usePublishingDisclosure', () => ({ usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, isCheckingDisclosure: false }) }));
+vi.mock('@/hooks/usePublishingDisclosure', () => ({ usePublishingDisclosure: () => ({ requestPublishing: vi.fn(), isCheckingDisclosure: false }) }));
 vi.mock('@/lib/api', () => ({ api: { editRecipe: mocks.editRecipe, saveCapturedRecipe: mocks.captureSave } }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
@@ -127,6 +131,9 @@ describe('recipe editor draft preservation', () => {
     expect(mocks.alert).not.toHaveBeenCalled(); expect(mocks.close).not.toHaveBeenCalled();
   });
   it.each([true, false])('reopens the saved visibility and revision before a refetch finishes (public=%s)', async isPublic => {
+    const confirmation = vi.spyOn(disclosureHook, 'usePublishingDisclosure').mockReturnValue({
+      requestPublishing: vi.fn(async () => true), isCheckingDisclosure: false,
+    } as any);
     mocks.editorRecipe = { ...recipe, is_public: !isPublic };
     let tree!: ReactTestRenderer;
     await act(async () => { tree = create(<EditRecipeScreen />); });
@@ -134,10 +141,10 @@ describe('recipe editor draft preservation', () => {
     await act(async () => tree.unmount());
     const saved = { ...recipe, content_revision: 6, is_public: isPublic };
     // Model the query cache while its invalidation/refetch is still pending.
-    mocks.setQueriesData.mockImplementation((_filter, data) => { mocks.editorRecipe = data; });
+    cacheMocks.setQueriesData.mockImplementation((_filter, data) => { mocks.editorRecipe = data; });
     try {
       await act(async () => { await save.onSuccess?.(saved); });
-      expect(mocks.cancelQueries).toHaveBeenCalledWith({ queryKey: ['recipe', 'r1'] });
+      expect(cacheMocks.cancelQueries).toHaveBeenCalledWith({ queryKey: ['recipe', 'r1'] });
       await act(async () => { tree = create(<EditRecipeScreen />); });
       const visibility = host(tree, 'TouchableOpacity', props => props.accessibilityLabel?.includes('Tap to'))[0];
       expect(visibility.props.accessibilityLabel).toBe(isPublic
@@ -150,7 +157,8 @@ describe('recipe editor draft preservation', () => {
         is_public: isPublic, review_content_revision: 6,
       }) }));
     } finally {
-      mocks.setQueriesData.mockReset();
+      cacheMocks.setQueriesData.mockReset();
+      confirmation.mockRestore();
       await act(async () => tree.unmount());
     }
   });
