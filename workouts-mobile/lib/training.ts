@@ -141,7 +141,7 @@ export function withChosenRounds(workout: Workout, rounds: number): Workout {
     if (block.rounds != null || !block.exercises.some((item) => item.sets == null)) continue;
     if (block.grouping === "sequential") {
       // Straight sets: "3 rounds" means three sets of each exercise that has no count.
-      for (const item of block.exercises) if (item.sets == null) item.sets = rounds;
+      for (const item of block.exercises) if (item.sets == null && !item.segment) item.sets = rounds;
     } else {
       block.rounds = rounds;
       delete block.execution;
@@ -190,15 +190,18 @@ export function stepsFor(workout: Workout): TrainingStep[] {
         });
       }
     };
+    // A buy-in is done once before the first round and a cash-out once after the last.
+    const once = (exercise: ExercisePrescription, round: number) =>
+      exercise.segment === "buy_in" ? round === 1 : exercise.segment === "cash_out" ? round === (block.rounds ?? 1) : true;
     for (let round = 1; round <= (block.rounds ?? 1); round++) {
       if (grouped) {
         for (let set = 1; set <= Math.max(1, ...block.exercises.map((e) => e.sets ?? 1)); set++)
           block.exercises.forEach((exercise, index) => {
-            if (set <= (exercise.sets ?? 1)) append(exercise, index, round, set);
+            if (set <= (exercise.sets ?? 1) && once(exercise, round)) append(exercise, index, round, set);
           });
       } else
         block.exercises.forEach((exercise, index) => {
-          for (let set = 1; set <= (exercise.sets ?? 1); set++) append(exercise, index, round, set);
+          if (once(exercise, round)) for (let set = 1; set <= (exercise.sets ?? 1); set++) append(exercise, index, round, set);
         });
     }
   }
@@ -743,7 +746,7 @@ export function createTrainingStore(
         const block = d.steps.filter((x) => x.block_id === current.block_id);
         const latest = Math.max(...block.map((x) => x.round_index));
         const round = latest + 1;
-        const template = block.filter((x) => x.round_index === latest && (x.grouping !== "sequential" || x.set_index === 1));
+        const template = block.filter((x) => x.round_index === latest && !x.exercise.segment && (x.grouping !== "sequential" || x.set_index === 1));
         if (round > 100 || d.steps.length + template.length > 1000) throw Error("This session has reached its round limit.");
         const added = template.map((first): TrainingStep => {
           const step = { ...clone(first), round_index: round };
@@ -752,6 +755,8 @@ export function createTrainingStore(
         // The cursor is inside or just past this block, so the new round never lands before it.
         let insertion = d.steps.length;
         while (insertion > 0 && d.steps[insertion - 1].block_id !== current.block_id) insertion--;
+        // A cash-out comes after the last round, so the new round goes in before it.
+        while (insertion > d.cursor && d.steps[insertion - 1].exercise.segment === "cash_out") insertion--;
         d.steps.splice(insertion, 0, ...added);
         return s;
       });
