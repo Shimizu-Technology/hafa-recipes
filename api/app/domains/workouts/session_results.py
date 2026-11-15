@@ -75,6 +75,10 @@ class Segment(DomainModel):
 
     @model_validator(mode="after")
     def valid_interval(self):
+        if self.kind == "run" and self.run_environment is None:
+            raise ValueError("Run segments require Outdoor or Treadmill")
+        if self.run_environment is not None and self.distance_meters is not None and self.distance_source is None:
+            raise ValueError("Run distance requires GPS, prescribed or edited provenance")
         if self.distance_source is not None and (self.run_environment is None or self.distance_meters is None):
             raise ValueError("A distance source requires run environment and distance")
         if self.run_environment == "treadmill" and self.distance_source == "gps":

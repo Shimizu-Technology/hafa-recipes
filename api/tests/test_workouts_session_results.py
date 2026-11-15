@@ -117,12 +117,22 @@ async def test_scores_retry_correction_and_legacy_client(data_api):  # noqa: F81
     assert (await api.client.post("/api/v1/workouts/sessions", json=invalid, headers=GENERATION)).status_code == 422
     legacy = await api.client.post("/api/v1/workouts/sessions", json=session_payload(saved), headers=GENERATION)
     assert legacy.status_code == 201 and "results" not in legacy.json()["content"]
+    from app.domains.workouts.models import WorkoutRecord
+    from app.domains.workouts.router import append_workout_version
+    async with api.sessions.begin() as db:
+        row = await db.get(WorkoutRecord, saved["id"])
+        await append_workout_version(db, row, {**row.content, "programming": {"source_kind": "gym"}})
+        saved["revision"] = row.revision
+    default = await api.client.post("/api/v1/workouts/sessions", json=session_payload(saved), headers=GENERATION)
+    assert default.status_code == 201 and default.json()["content"]["activity_type"] == "cross_training"
+
 
 
 @pytest.mark.parametrize("environment,source,ok", [
     ("outdoor", "gps", True), ("treadmill", "prescribed", True),
     ("treadmill", "edited", True), ("outdoor", "edited", True),
     ("treadmill", "gps", False), (None, "gps", False),
+    ("outdoor", None, False), (None, None, False),
 ])
 def test_run_distance_provenance(environment, source, ok):
     segment = dict(block_id="a", kind="run", index=1, started_at=BASE["started_at"],

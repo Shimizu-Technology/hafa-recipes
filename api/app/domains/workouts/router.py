@@ -1148,7 +1148,10 @@ async def record_session(
         raise HTTPException(409, "The selected prescription version does not exist")
     await require_summary_permission(db, user.id, generation, request)
     validate_snapshot(request, snapshot)
-    if request.activity_type is None and snapshot.get("programming") is not None:
+    is_class = snapshot.get("programming") is not None or any(
+        block.get("role") is not None or block.get("rest_after_seconds") is not None
+        or any(ex.get("segment") for ex in block.get("exercises", [])) for block in snapshot["blocks"])
+    if request.activity_type is None and is_class:
         content["activity_type"] = "cross_training"
     blocks = {block["id"]: block for block in snapshot["blocks"]}
     for actual in request.actuals:
