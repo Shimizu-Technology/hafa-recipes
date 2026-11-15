@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.db.database import engine
 from app.domains.workouts.heart_rate_erasure import install_heart_rate_erasure
 from app.domains.workouts.part_result_models import PartResultRow
-from app.domains.workouts.part_results import schema_complete
+from app.domains.workouts.part_results import rebuild_marker_available, schema_complete
 
 
 def restore_point(configured):
@@ -29,6 +29,9 @@ async def run_migration(*, configured=None, migration_engine=None):
         await db.execute(text("SELECT pg_advisory_xact_lock(7340034)"))
         if not await db.scalar(text("SELECT to_regclass('public.workouts_schema_migrations') IS NOT NULL")) or not await db.scalar(text("SELECT EXISTS(SELECT 1 FROM workouts_schema_migrations WHERE version=49)")):
             raise RuntimeError("Workouts migration049 must precede063")
+        if not await rebuild_marker_available(db):
+            restore_point(configured)
+            await db.execute(text("ALTER TABLE workouts_schema_migrations ADD COLUMN part_results_rebuilt_at timestamptz"))
         if await db.scalar(text("SELECT EXISTS(SELECT 1 FROM workouts_schema_migrations WHERE version=63)")):
             if not await db.scalar(text("SELECT to_regprocedure('public.workouts_without_heart_rate(jsonb)') IS NOT NULL AND to_regprocedure('public.prevent_workouts_snapshot_update()') IS NOT NULL")):
                 restore_point(configured)  # Repairing an old ledger is still a production schema write.

@@ -52,8 +52,17 @@ def derived_rows(session):
                    performed_at=datetime.fromisoformat(score.get("ended_at") or session.content["finished_at"]), superseded=False)
 
 
-async def results_ready(db):
+async def results_schema_ready(db):
     return bool(await db.scalar(text("SELECT EXISTS(SELECT 1 FROM workouts_schema_migrations WHERE version=63)")))
+
+
+async def rebuild_marker_available(db):
+    return bool(await db.scalar(text("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='workouts_schema_migrations' AND column_name='part_results_rebuilt_at' AND udt_name='timestamptz' AND is_nullable='YES')")))
+
+
+async def results_ready(db):
+    return bool(await results_schema_ready(db) and await rebuild_marker_available(db) and
+                await db.scalar(text("SELECT part_results_rebuilt_at IS NOT NULL FROM workouts_schema_migrations WHERE version=63")))
 
 
 async def schema_complete(db):
@@ -75,7 +84,7 @@ async def schema_complete(db):
 async def verify_part_results_schema(engine, settings):
     if settings.workouts_api_enabled:
         async with engine.connect() as db:
-            if await results_ready(db) and not await schema_complete(db):
+            if await results_schema_ready(db) and not await schema_complete(db):
                 raise RuntimeError("Workouts results migration063 is incomplete")
 
 
@@ -84,16 +93,20 @@ def owner_filter(owner, generation):
 
 
 async def write_part_results(db, session):
-    if not await results_ready(db):
+    if not await results_schema_ready(db):
         return []
     if session.id is None:
         session.id = uuid4()
     pending = []
+    history_ready = await results_ready(db)
     with db.no_autoflush:
         if session.supersedes_session_id:
             await db.execute(update(R).where(R.session_id == session.supersedes_session_id, R.app_user_id == session.app_user_id, R.generation == session.generation).values(superseded=True))
         summaries = []
         for values in derived_rows(session):
+            pending.append(R(**values))
+            if not history_ready:
+                continue
             previous = select(R).where(*owner_filter(session.app_user_id, session.generation),
                 R.comparison_key == values["comparison_key"], R.kind == values["kind"], R.scaling == values["scaling"])
             order = R.sort_value.asc() if values["better"] == "lower" else R.sort_value.desc()
@@ -102,7 +115,6 @@ async def write_part_results(db, session):
             summaries.append(dict(block_id=values["block_id"], is_best=best is None or
                 (values["sort_value"] < best.sort_value if values["better"] == "lower" else values["sort_value"] > best.sort_value),
                 previous_best=best.sort_value if best else None, last=last.sort_value if last else None))
-            pending.append(R(**values))
         if summaries:
             from app.domains.workouts.router import bounded_content
 
