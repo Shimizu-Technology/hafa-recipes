@@ -26,6 +26,19 @@ the programming and coach instructions. Never copy other members into output.
 """
 
 
+def load_pairs(wording):
+    pairs = set()
+    number = r"\d+(?:\.\d+)?"
+    unit = r"kg|lbs?"
+    chain = rf"(?<![\d.])(?:{number}\s*(?:{unit})?\s*/\s*(?:[♀♂]\s*)?){{1,3}}{number}\s*(?:{unit})\b"
+    for match in re.finditer(chain, wording, re.I):
+        trailing = None
+        for value, own_unit in reversed(re.findall(rf"({number})\s*({unit})?", match[0], re.I)):
+            trailing = (own_unit or trailing).lower().rstrip("s")
+            pairs.add((float(value), trailing))
+    return pairs
+
+
 def legacy_shape(raw):
     raw = deepcopy(raw)
     for key in WORKOUT_KEYS:
@@ -89,9 +102,11 @@ def ground_class(workout, raw, source, warnings):
                     for a, b, suffix in re.findall(r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(km|meters?|metres?|m|seconds?|secs?|s|minutes?|mins?)\b", q, re.I):
                         suffix = suffix.lower()
                         units = {"km", "m", "meter", "meters", "metre", "metres"} if unit == "distance" else {"s", "sec", "secs", "second", "seconds", "m", "min", "mins", "minute", "minutes"}
+                        if suffix not in units:
+                            continue
                         factor = 1000 if suffix == "km" else 60 if unit == "duration" and suffix in {"m", "min", "mins", "minute", "minutes"} else 1
                         expected = (old[field], old[base]) if unit == "distance" else (old[base], old[field])
-                        valid |= (float(a) * factor, float(b) * factor) == expected and suffix in units
+                        valid |= (float(a) * factor, float(b) * factor) == expected
                 if valid:
                     setattr(item, base, old[base])
                     warnings[:] = [w for w in warnings if w != f"Unsupported {base} removed from {item.name}."]
@@ -109,7 +124,7 @@ def ground_class(workout, raw, source, warnings):
                     warnings.append(f"Unsupported relative load removed from {item.name}.")
             if item.load_options:
                 q = "\n".join(quotes(item, "load_options"))
-                if not re.search(r"\d\s*(?:kg|lb)?\s*/\s*(?:[♀♂]\s*)?\d", q, re.I) or not all(re.search(rf"(?<![\d.]){o.load:g}(?![\d.])", q) and re.search(rf"\b{o.load_unit}\b", q, re.I) for o in item.load_options):
+                if not all((option.load, option.load_unit) in load_pairs(q) for option in item.load_options):
                     item.load_options = None
                     warnings.append(f"Unsupported load options removed from {item.name}.")
                 else:
@@ -135,6 +150,18 @@ MEMBER_SCORE = re.compile(
     r"\d+(?:\.\d+)?(?:\s*(?:rounds?|reps?|kg|lbs?|calories|meters?|m|seconds?|s|minutes?|min))?)"
     r"(?:\s+(?:rx|scaled|custom))?$", re.I)
 MEMBER_COMMENT = re.compile(rf"^{MEMBER_NAME}:\s*\S.*$")
+WORKOUT_BOUNDARY = re.compile(r"\b(?:amrap|emom|as many|for time|work[ /-]?rest|metcon|technique|mobility|conditioning|accessor\w*|warm[ -]?up|cool[ -]?down|active recovery|sets?|rounds?|run|squat\w*|deadlift\w*|press\w*|burpee\w*|pallof|cuban|powell|bike|row|wall ball|hold)\b", re.I)
+PREAMBLE_BOUNDARY = re.compile(r"^(?:phase\s+\d|week\s+\d|workout specific|coach(?:'s)? notes?)\b", re.I)
+
+
+def workout_part(value, part):
+    body = value[part.end():] if part else ""
+    dose = re.match(r"^\d+(?:[-–]\d+)?\s*(?:min(?:utes?)?|sec(?:onds?)?|sets?|rounds?)\b", body, re.I)
+    if (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)) and not (WORKOUT_BOUNDARY.match(body) or dose):
+        return False
+    return bool(WORKOUT_BOUNDARY.search(body) or dose)
+
+
 TRIM_WARNING = "Navigation, results or member sections were removed. Review all workout parts against the source."
 MISSING_CLASS_TEXT = "No workout section was found. Paste the workout section or add cropped screenshots."
 
@@ -152,7 +179,7 @@ def trim_class_parts(parts, warnings=None):
     lines = [(location, text.splitlines()) for location, text in parts]
     has_heading = any(re.fullmatch(r"(?:workout(?: of the day)?|wod|coach(?:'s)? notes?)\s*[:—-]?", line.strip(), re.I)
                       for _, page in lines for line in page)
-    started, suppressed, current, removed = not has_heading, False, None, False
+    started, suppressed, member_rows, current, removed = not has_heading, False, False, None, False
     result = []
     for location, page in lines:
         clean = []
@@ -169,12 +196,16 @@ def trim_class_parts(parts, warnings=None):
                 suppressed, removed = True, True
                 continue
             if suppressed:
-                # Only the expected part can resume; old initials cannot move
-                # D back to C. "B. AMRAP 15 min" is a part, not a scored athlete.
-                if not next_part and (not value or MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)):
+                boundary = (next_part and workout_part(value, part)) or CLASS_SECTION.fullmatch(value) or PREAMBLE_BOUNDARY.search(value)
+                if not boundary and (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)):
+                    member_rows, removed = True, True
+                    continue
+                if not value or (member_rows and not boundary):
                     removed = True
                     continue
-                suppressed = False  # The first non-member line is programming again.
+                # Header buttons can precede coach prose; after real member rows,
+                # only recognizable programming can reopen the source.
+                suppressed, member_rows = False, False
             if next_part:
                 current = part[1].lower()
                 started, suppressed = True, False

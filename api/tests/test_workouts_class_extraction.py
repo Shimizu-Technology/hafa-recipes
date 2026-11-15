@@ -49,6 +49,15 @@ Cable Cuban press 10-12 reps tempo 3010 RIR 2-3 rest 30 seconds
 Incline side-lying DB Powell raise 10-12 reps rest 30 seconds'''
 
 
+def fixture_subset(expected, value):
+    if isinstance(expected, dict):
+        return {key: fixture_subset(item, value[key]) for key, item in expected.items()}
+    if isinstance(expected, list):
+        assert len(expected) == len(value)
+        return [fixture_subset(a, b) for a, b in zip(expected, value)]
+    return value
+
+
 def response():
     raw = deepcopy(SAMPLE)
     lines = TEXT.splitlines()
@@ -90,15 +99,8 @@ async def test_class_capture_uses_provider_without_fetching_wodup(kind, monkeypa
     assert result.workout.source_url == "https://wodup.com/program"
     # Strip acquisition/evidence/server defaults; the design fixture remains exact.
     actual = result.workout.model_dump(mode="json")
-    def subset(expected, value):
-        if isinstance(expected, dict):
-            return {k: subset(v, value[k]) for k, v in expected.items()}
-        if isinstance(expected, list):
-            assert len(expected) == len(value)
-            return [subset(a, b) for a, b in zip(expected, value)]
-        return value
     expected = {**SAMPLE, "capture_kind": kind}
-    assert subset(expected, actual) == expected
+    assert fixture_subset(expected, actual) == expected
 
 
 async def test_old_import_shape_and_invented_benchmark():
@@ -134,6 +136,7 @@ def test_grounding_keeps_a_serializable_class(change):
     assert warnings
     if change == "duration_unit":
         assert workout.blocks[3].exercises[0].duration_seconds_max is None
+        assert workout.blocks[3].exercises[0].duration_seconds is None
 
 
 def test_better_fallback_cannot_erase_class_fields():
@@ -331,3 +334,62 @@ def test_member_rows_end_at_first_nonmember_line_across_pages():
     ])
     assert parts == [("document_page:1", "D3. Powell raises"),
                      ("document_page:2", "Phase 5, Week 4, Tue\n- Hold a pace")]
+
+
+@pytest.mark.parametrize("row", ["B. MEMBER_NAME 12:43", "B. MEMBER_NAME 4 rounds", "B. MEMBER_NAME: PRIVATE_COMMENT"])
+async def test_expected_athlete_initial_does_not_reopen_member_section(row):
+    from app.domains.workouts.class_extraction import class_text
+
+    page = "A. Metcon\n10 Squat\nLeaderboard\n" + row + "\nPRIVATE_RESULT"
+    assert class_text(page) == "A. Metcon\n10 Squat"
+    provider = FakeProvider({})
+    await WorkoutExtractor(provider).extract(ExtractionRequest(kind="text", text=page, class_parts=True, ai_consent=True))
+    assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat"]
+
+
+@pytest.mark.parametrize("units,options,accepted", [
+    ("20 kg/14 lb", [(20, "kg"), (14, "kg")], False),
+    ("20 kg/14 lb", [(20, "kg"), (14, "lb")], True),
+    ("20/14 lb", [(20, "lb"), (14, "lb")], True),
+    ("20/14/10 lb", [(20, "lb"), (14, "lb"), (10, "lb")], True),
+])
+def test_load_option_value_unit_pairs(units, options, accepted):
+    raw = response()
+    item = raw["blocks"][1]["exercises"][1]
+    old = "30 Wall Ball 20/14 lb"
+    source_line = "30 Wall Ball " + units
+    for entry in item["evidence"]:
+        if entry["wording"] == old:
+            entry["wording"] = source_line
+    item["load_options"] = [{"load": load, "load_unit": unit} for load, unit in options]
+    source = extraction.SourceBundle(extraction.SourceMetadata(), [SourcePart("provided_text", TEXT.replace(old, source_line))])
+    workout, _, _ = extraction.ground_workout(raw, source, class_parts=True)
+    result = workout.blocks[1].exercises[1].load_options
+    assert (result is not None) is accepted
+    if accepted:
+        assert [(option.load, option.load_unit) for option in result] == options
+
+
+def test_unsupported_clock_clears_buy_in_and_preserves_source_evidence():
+    raw = response()
+    raw["blocks"][0]["evidence"] = []
+    source = extraction.SourceBundle(extraction.SourceMetadata(), [SourcePart("provided_text", TEXT)])
+    workout, warnings, _ = extraction.ground_workout(raw, source, class_parts=True)
+    assert workout.blocks[0].execution is None
+    assert all(item.segment is None for item in workout.blocks[0].exercises)
+    assert any("buy-in" in entry.wording.lower() for item in workout.blocks[0].exercises for entry in item.evidence)
+    assert any("Buy-in/cash-out structure" in warning for warning in warnings)
+    WorkoutContent.model_validate_json(workout.model_dump_json())
+
+
+@pytest.mark.parametrize("extra", ["block", "exercise"])
+def test_exact_fixture_comparison_rejects_extra_list_items(extra):
+    actual = deepcopy(SAMPLE)
+    actual["server_field"] = "allowed"
+    assert fixture_subset(SAMPLE, actual) == SAMPLE
+    if extra == "block":
+        actual["blocks"].append(deepcopy(actual["blocks"][-1]))
+    else:
+        actual["blocks"][0]["exercises"].append(deepcopy(actual["blocks"][0]["exercises"][-1]))
+    with pytest.raises(AssertionError):
+        fixture_subset(SAMPLE, actual)
