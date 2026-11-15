@@ -512,6 +512,7 @@ export function Button({
   icon,
   size,
   numeric = false,
+  maxFontSizeMultiplier = 0,
 }: {
   title: string;
   accessibilityLabel?: string;
@@ -524,6 +525,8 @@ export function Button({
   icon?: IconName;
   size?: "lg";
   numeric?: boolean;
+  /** Caps how far the label grows with the text size, for a lesser action beside a big one. Unlimited by default. */
+  maxFontSizeMultiplier?: number;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     plain = variant === "ghost" || variant === "destructive",
@@ -554,7 +557,7 @@ export function Button({
       {busy ? <ActivityIndicator color={ink} /> : icon && <Icon name={icon} size={19} color={ink} />}
       <Text
         key={fontScale}
-        maxFontSizeMultiplier={0}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         style={{ fontFamily: fonts.semibold, fontVariant: numeric ? ["tabular-nums"] : [], fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
       >
         {title}

@@ -3,7 +3,7 @@ import { ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { careSummary, summaryHoldsTitle } from "@/lib/care-format";
 import { kindName, type BabyRecord } from "@/lib/models";
-import { feedProgress } from "@/lib/feed-reducer";
+import { feedOverdue, feedProgress } from "@/lib/feed-reducer";
 import { addDays, clockIn, keyDate, recordDay, weekOf } from "@/lib/tracker";
 import { Icon, PressTarget, fonts, radii, typeScale, useColors } from "./ui";
 import { contractionDetail } from "@/lib/contractions";
@@ -58,7 +58,7 @@ export function timelineDetail(record: BabyRecord, { rows = [record], day, timeZ
   if (record.kind === "sleep" && record.data.end_at) return [carried, `${timeOf(record.occurred_at, timeZone)} to ${timeOf(record.data.end_at, timeZone)}`].filter(Boolean).join(" · ");
   if (carried) return carried;
   const progress = record.kind === "feeding" ? feedProgress(record, rows, now) : undefined;
-  if (progress === "running") return "Feeding now";
+  if (progress === "running") return feedOverdue(record, now) ? "Still feeding? Add when it ended" : "Feeding now";
   if (progress === "no_end") return "No end time";
   if (record.kind === "contraction") return contractionDetail(record, now);
   if (record.kind === "kick_session") return kickDetail(record, now);

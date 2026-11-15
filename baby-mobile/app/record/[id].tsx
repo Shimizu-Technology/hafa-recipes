@@ -1,3 +1,4 @@
+import { FeedEnded } from "../../components/feed-ended";
 import { sourceTitle } from "@/lib/source-title";
 import { writtenTitle } from "../../lib/journal-title";
 import { useEffect, useState } from "react";
@@ -7,7 +8,7 @@ import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime, isCare, summaryHoldsTitle } from "@/lib/care-format";
-import { feedProgress } from "@/lib/feed-reducer";
+import { feedOverdue, feedProgress } from "@/lib/feed-reducer";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { moreKinds } from "../../lib/more-logs";
 import { datedOnly } from "../../lib/well-visits";
@@ -137,8 +138,9 @@ export default function RecordDetail() {
       {record.kind === "feeding" && (
         <Card tone="hero">
           <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
-          {feedProgress(record, b.records) === "running" && <Copy tone="muted">Feeding now</Copy>}
+          {feedProgress(record, b.records) === "running" && <Copy tone="muted">{feedOverdue(record) ? "Still feeding? Say when it ended." : "Feeding now"}</Copy>}
           {feedProgress(record, b.records) === "no_end" && <Copy tone="muted">No end time</Copy>}
+          {["running", "no_end"].includes(feedProgress(record, b.records) ?? "") && <FeedEnded record={record} timeZone={clock} strong={feedOverdue(record)} />}
         </Card>
       )}
       {record.kind === "sleep" && (
