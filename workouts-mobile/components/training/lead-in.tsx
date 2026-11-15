@@ -39,7 +39,10 @@ export function LeadIn({ until, label, onSkip, onDone }: { until: number; label:
         <Copy kind="numeric" tone="accent" align="center" allowFontScaling={false}
           accessibilityLabel={second === 0 ? "Go" : `Starting in ${second}`}
           style={{ fontSize: 160, lineHeight: 176 }}>{second === 0 ? "GO" : second}</Copy>
-        <Button title="Start now" variant="ghost" icon="play-skip-forward" onPress={onSkip} />
+        {/* A real target for a sweaty thumb; the label stays on one line so the icon stays beside it. */}
+        <View style={{ alignSelf: "stretch" }}>
+          <Button title="Start now" variant="secondary" size="lg" icon="play-skip-forward" maxScale={1.3} onPress={onSkip} />
+        </View>
       </View>
     </Modal>
   );
