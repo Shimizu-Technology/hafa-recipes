@@ -471,7 +471,7 @@ log access and retention. Do not export capability URLs to third-party sinks.
 No provider logging setting was changed by these PRs. Link recipients and
 messaging services can retain previews.
 
-Photo-less recipe previews use Fraunces 500 titles and static Noto Sans 500,
+Photo-less recipe previews use a Figtree 600 wordmark, Fraunces 500 titles and static Noto Sans 500,
 Noto Sans JP 500 and Noto Emoji 400 fallbacks, with their SIL OFL licenses in
 `app/assets/fonts/`. Sources: [Noto Sans](https://github.com/google/fonts/tree/main/ofl/notosans),
 [Noto Sans JP](https://github.com/google/fonts/tree/main/ofl/notosansjp), and
@@ -480,3 +480,9 @@ Titles wrap to four lines, keeping grapheme clusters together. Unknown glyphs
 use a visible replacement while HTML/OG metadata retain the complete title.
 Title-only cards share the bounded image workers/cache; busy or failed renders
 return retryable 503s rather than a successful generic brand card.
+
+The page omits the hero when no real photo exists; the title card remains in OG previews.
+Public pages pair the primary app-opening button with an outlined App Store button;
+unlisted pages offer only the primary App Store button. The button group wraps whole
+buttons on narrow screens. Figtree comes from the app’s pinned
+`@expo-google-fonts/figtree` 0.4.1 package; its SIL OFL license is vendored alongside it.

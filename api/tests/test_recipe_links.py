@@ -622,3 +622,54 @@ def test_title_fonts_are_reused_only_within_the_same_worker():
         other_fonts = worker.submit(title_fonts, 80).result()
         assert worker.submit(title_fonts, 80).result() is other_fonts
     assert all(main is not other for main, other in zip(fonts, other_fonts))
+
+
+def test_small_wordmark_renders_nfc_hafa_with_figtree_semibold(monkeypatch):
+    from unicodedata import is_normalized
+
+    from PIL import ImageDraw
+
+    from app.recipe_pages import WORDMARK_TEXT
+    calls = []
+    draw_text = ImageDraw.ImageDraw.text
+
+    def record(self, xy, text, *args, **kwargs):
+        calls.append((text, kwargs.get('font')))
+        return draw_text(self, xy, text, *args, **kwargs)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, 'text', record)
+    image = Image.open(io.BytesIO(jpeg(None, 'Håfa')))
+    text, font = calls[0]
+    assert text == WORDMARK_TEXT == 'Håfa Recipes'
+    assert is_normalized('NFC', text) and 'ǻ' not in text
+    assert Path(font.path).name == 'Figtree_600SemiBold.ttf'
+    assert font.getname() == ('Figtree', 'SemiBold')
+    assert bytes(font.getmask('å')) != bytes(font.getmask('\U0010fffd'))
+    assert image.size == (1200, 630)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('has_photo', [False, True])
+@pytest.mark.parametrize('public_link', [False, True])
+async def test_page_hero_and_ctas_follow_photo_and_link_type(monkeypatch, has_photo, public_link):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from bs4 import BeautifulSoup
+
+    import app.recipe_pages as pages
+    recipe = SimpleNamespace(id=uuid4(), thumbnail_url='https://example.com/photo' if has_photo else None,
+                             extracted={'title': 'Coconut Shrimp Kelaguen'},
+                             extractor_display_name='Tasi Cruz', source_url=None)
+    monkeypatch.setattr(pages, 'resolve', AsyncMock(return_value=recipe))
+    monkeypatch.setattr(pages, 'start_image', lambda key: None)
+    key = str(recipe.id) if public_link else 'x' * 43
+    response = await pages.page(key, SimpleNamespace(close=AsyncMock()), None)
+    html = BeautifulSoup(response.body, 'html.parser')
+    assert bool(html.select('img.hero')) is has_photo
+    assert [heading.text for heading in html.select('h1')] == ['Coconut Shrimp Kelaguen']
+    assert html.select_one('meta[property="og:image"]')['content'].endswith('/og.jpg')
+    buttons = html.select('.cta-actions .button')
+    assert [button.text for button in buttons] == (['Open in Håfa Recipes'] if public_link else []) + ['Get it on the App Store']
+    assert ('button--secondary' in buttons[-1]['class']) is public_link
+    assert buttons[-1]['href'] == pages.APP_STORE
