@@ -182,18 +182,21 @@ async def test_each_child_has_its_own_clock_and_moving_a_feed_updates_both(push)
     assert [row.payload["child_id"] for row in await live(push)] == [two["id"]]
 
 
-async def test_a_running_feed_has_no_reminder_until_it_finishes(push):
+async def test_a_running_feed_reminds_from_start_and_finishing_keeps_its_identity(push):
     await feed_reminder(push)
     started = now() - timedelta(minutes=20)
     await log(push, at=now() - timedelta(hours=2))
     assert len(await live(push)) == 1
     feed = await log(push, at=started, data=running_feed(started))
-    assert await live(push) == []
+    before = (await live(push, "feed_interval"))[0]
+    assert before.due_at == started + timedelta(hours=3)
     finished = await push.client.post(f"{RECORDS}/{feed['id']}/feed-action", headers=WRITE, json={
         "action_id": str(uuid4()), "action": "finish", "at": now().isoformat(),
     })
     assert finished.status_code == 200, finished.text
-    assert [row.due_at for row in await live(push)] == [started + timedelta(hours=3)]
+    after = (await live(push, "feed_interval"))[0]
+    assert after.due_at == started + timedelta(hours=3)
+    assert after.id == before.id
 
 
 async def test_a_feed_dated_ahead_does_not_move_the_clock(push):
@@ -619,3 +622,28 @@ async def test_clearing_quiet_hours_leaves_a_provider_backoff_alone(push):
     await push.worker.tick()
     assert len(push.expo.sent) == 1
     assert (await live(push))[0].lease_until == held
+
+
+async def test_forgotten_feed_sends_both_kinds_once_and_finish_does_not_resend(push):
+    await set_prefs(push, feed_interval={"enabled": True, "hours": 3}, running_timer={"enabled": True})
+    started = now() - timedelta(hours=3, minutes=5)
+    feed = await log(push, at=started, data=running_feed(started))
+    rows = await live(push)
+    assert {row.kind: row.due_at for row in rows} == {
+        "feed_interval": started + timedelta(hours=3),
+        "running_timer": started + timedelta(minutes=60),
+    }
+    await push.worker.tick()
+    await push.worker.tick()
+    assert len(push.expo.messages) == 2
+    assert {message["body"] for message in push.expo.messages} == {
+        LOCK_SCREEN["feed_interval"], LOCK_SCREEN["running_timer"],
+    }
+    finished = await push.client.post(f"{RECORDS}/{feed['id']}/feed-action", headers=WRITE, json={
+        "action_id": str(uuid4()), "action": "finish", "at": (started + timedelta(minutes=20)).isoformat(),
+    })
+    assert finished.status_code == 200, finished.text
+    await push.worker.tick()
+    assert len(push.expo.messages) == 2
+    assert len(await live(push, "feed_interval")) == 1
+    assert await live(push, "running_timer") == []

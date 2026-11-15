@@ -10,7 +10,7 @@ vi.mock("@/lib/waiting-shares", () => ({ confirmSignOut: (signOut: () => void) =
 vi.mock("@/lib/share-session-state", () => ({ revokeShareSession: vi.fn() }));
 vi.mock("@/lib/account-deletion", () => ({ confirmAccountDeletion: vi.fn() }));
 vi.mock("react-native", () => ({
-  RefreshControl: "RefreshControl", View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
+  RefreshControl: "RefreshControl", View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput", Modal: "Modal", Share: { share: vi.fn(async () => ({})) },
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
   Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn(), addListener: (event: string, fn: () => void) => { mock.keyboard[event] = fn; return { remove() { mock.removed.push(event); } }; } }, Alert: { alert: vi.fn() },
   useColorScheme: () => "light", useWindowDimensions: () => ({ fontScale: mock.fontScale, height: 844 }),
@@ -97,6 +97,7 @@ import AskEntry from "../app/ask-entry";
 import { ApiError } from "./api";
 import { emptyState, optimisticRecord } from "./models";
 import { getDockedFooterHeight } from "./bottom-overlay";
+import { recordMenuTitle } from "../components/record-menu";
 let renderer: ReactTestRenderer | undefined;
 const row = (id: string, kind: "journal" | "feeding" | "question" | "source" | "sleep") => optimisticRecord({
   id, kind, title: id, body: `Observation ${id}`, child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z",
@@ -207,8 +208,9 @@ describe("a caregiver and Ask", () => {
     caregiver();
     mock.params = { id: "Saved source" };
     await mount(<RecordDetail />);
-    expect(said()).not.toContain("Ask about this entry");
-    expect(said()).toContain("Edit this entry");
+    expect(said()).not.toContain("Ask about this");
+    expect(renderer!.root.findByType(Screen).props.floating).toBeFalsy();
+    expect(said()).toContain("Edit");
   });
   it("gets a plain explanation if a link lands on it, without opening a chat", async () => {
     caregiver();
@@ -233,12 +235,132 @@ it("pushes focused Ask from a saved entry and its real Back control returns to t
   mock.params = { id: "Saved source" };
   mock.stack = [{ pathname: "/(tabs)/library" }, { pathname: "/record/[id]", params: mock.params }];
   await mount(<RecordDetail />);
-  await press("Ask about this entry");
+  await press("Ask about this");
   expect(mock.stack.at(-1)).toEqual({ pathname: "/ask-entry", params: { record_id: "Saved source" } });
   await act(async () => renderer!.update(<AskEntry />));
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(n => n.props.children === "Ask about this")).toBe(true);
   await press("Go back");
   expect(mock.stack.at(-1)).toEqual({ pathname: "/record/[id]", params: { id: "Saved source" } });
+});
+
+describe("an entry's ⋯ menu", () => {
+  const sheet = () => renderer!.root.findAllByType("Modal" as React.ElementType)[0]!;
+  const choices = () => sheet().findAllByType("AnimatedPressable" as React.ElementType).map((n) => n.props.accessibilityLabel).filter((l) => l !== "Close menu" && l !== "Cancel");
+  const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)); });
+  it("holds a saved post's actions at the top right, organizing first, and nothing waits at the bottom", async () => {
+    const post = mock.baby.records.find((r: any) => r.id === "Saved source");
+    post.data = { url: "https://www.tiktok.com/@nurse/video/1" };
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    expect(sheet().props.visible).toBe(false);
+    await press("More actions");
+    expect(sheet().props.visible).toBe(true);
+    expect(choices()).toEqual(["Add to a category", "Edit", "Share link", "Delete"]);
+    const below = renderer!.root.findAll((n) => typeof n.props.title === "string").map((n) => n.props.title);
+    expect(below).not.toContain("Edit this entry");
+    expect(below).not.toContain("Delete this entry");
+  });
+  it("names a saved post by its own title, and says Saved post when it has none", async () => {
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    await press("More actions");
+    const heading = sheet().findAllByType("Text" as React.ElementType).find((n) => n.props.accessibilityRole === "header")!;
+    expect(heading.props.children).toBe("Observation Saved source");
+    const bare = optimisticRecord({ id: "bare", kind: "source", title: "Saved source", body: "", child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z" });
+    expect(recordMenuTitle(bare, "Saved post")).toBe("Saved post");
+    expect(recordMenuTitle(row("Journal observation", "journal"), "Journal entry")).toBe("Journal entry");
+  });
+  it("offers only edit and delete on a journal entry or a care log", async () => {
+    for (const id of ["Journal observation", "Bottle observation"]) {
+      mock.params = { id };
+      await mount(<RecordDetail />);
+      await press("More actions");
+      expect(choices()).toEqual(["Edit", "Delete"]);
+      await act(async () => renderer!.unmount()); renderer = undefined;
+    }
+  });
+  it("never offers to share a saved link that isn't a web address, or organize a partial offline copy", async () => {
+    const post = mock.baby.records.find((r: any) => r.id === "Saved source");
+    post.data = { url: "javascript:alert(1)" }; post.cache_partial = true; mock.baby.api.record = vi.fn(async () => post);
+    mock.params = { id: "Saved source" };
+    await mount(<RecordDetail />);
+    await press("More actions");
+    expect(choices()).toEqual(["Edit", "Delete"]);
+  });
+  it("opens the editor once the sheet has gone", async () => {
+    mock.params = { id: "Journal observation" };
+    mock.stack = [{ pathname: "/record/[id]", params: mock.params }];
+    await mount(<RecordDetail />);
+    await press("More actions");
+    await press("Edit");
+    expect(sheet().props.visible).toBe(false);
+    await settle();
+    expect(mock.stack.at(-1)).toEqual({ pathname: "/edit", params: { id: "Journal observation", kind: "journal" } });
+  });
+  it("asks before deleting, and deletes only on the destructive choice", async () => {
+    const { Alert } = await import("react-native");
+    const queue = vi.fn(async () => undefined);
+    mock.baby.queue = queue;
+    mock.params = { id: "Journal observation" };
+    mock.stack = [{ pathname: "/journal" }, { pathname: "/record/[id]", params: mock.params }];
+    await mount(<RecordDetail />);
+    await press("More actions");
+    await press("Delete");
+    await settle();
+    const [title, , buttons] = vi.mocked(Alert.alert).mock.calls.at(-1)! as [string, string, { text: string; onPress?: () => void }[]];
+    expect(title).toBe("Delete this entry?");
+    expect(queue).not.toHaveBeenCalled();
+    await act(async () => buttons.find((b) => b.text === "Delete entry")!.onPress!());
+    expect(queue).toHaveBeenCalledWith(expect.objectContaining({ type: "delete" }));
+    expect(mock.stack.at(-1)).toEqual({ pathname: "/journal" });
+  });
+  it("floats Ask at the bottom right for a parent, and leaves room under the page for it", async () => {
+    mock.params = { id: "Journal observation" };
+    await mount(<RecordDetail />);
+    expect(renderer!.root.findByType(Screen).props.floating).toBeTruthy();
+    expect(getDockedFooterHeight()).toBeGreaterThan(52);
+  });
+});
+describe("Ask opened on an entry", () => {
+  const radios = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).filter((n) => n.props.accessibilityRole === "radio");
+  const home = { scope: "all", record_id: "Saved source", child_id: null };
+  it("switches between this post and everything in one tap, and says which", async () => {
+    const switchFocus = vi.fn();
+    mock.ask = { context: home, focusContext: home, onFocus: true, switchFocus };
+    await mount(<AskEntry />);
+    expect(radios().map((n) => [n.props.accessibilityLabel, n.props.accessibilityState.selected])).toEqual([["This post", true], ["Everything", false]]);
+    await press("Everything");
+    expect(switchFocus).toHaveBeenCalledWith("all");
+    await act(async () => renderer!.unmount());
+    mock.ask = { context: { scope: "all", record_id: null, child_id: null }, focusContext: home, onFocus: false, switchFocus };
+    await mount(<AskEntry />);
+    expect(radios().map((n) => n.props.accessibilityState.selected)).toEqual([false, true]);
+    const said = renderer!.root.findAllByType("Text" as React.ElementType).map((t) => [t.props.children].flat().join("")).join(" | ");
+    expect(said).toContain("Asking about everything");
+    await press("This post");
+    expect(switchFocus).toHaveBeenLastCalledWith("entry");
+  });
+  it("keeps the switch compact at the largest text, and names the post the same way everywhere", async () => {
+    mock.fontScale = 3.1;
+    mock.ask = { context: home, focusContext: home, onFocus: true };
+    await mount(<AskEntry />);
+    const labels = radios().map((n) => n.findAllByType("Text" as React.ElementType)[0]);
+    expect(labels.map((t) => t.props.maxFontSizeMultiplier)).toEqual([1.5, 1.5]);
+    await act(async () => renderer!.unmount());
+    mock.fontScale = 1;
+    await mount(<AskEntry />);
+    const input = renderer!.root.findAllByType("TextInput" as React.ElementType)[0];
+    expect(input.props.placeholder).toBe("Ask about this post…");
+    expect(input.props.accessibilityLabel).toBe("Ask about this post");
+    const said = renderer!.root.findAllByType("Text" as React.ElementType).map((t) => [t.props.children].flat().join("")).join(" | ");
+    expect(said).toContain("Ask about this post.");
+  });
+  it("starts with questions about the post itself", async () => {
+    mock.ask = { context: home, focusContext: home, onFocus: true, setQuestion: vi.fn() };
+    await mount(<AskEntry />);
+    await press("Use question: Summarize this post.");
+    expect(mock.ask.setQuestion).toHaveBeenCalledWith("Summarize this post.");
+  });
 });
 
 it("keeps compact Journal filters horizontal and writing-only", async () => {
@@ -309,7 +431,7 @@ it("keeps the focused entry notice at the top while its context is resolving", a
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t =>
     t.props.children === "Questions use this saved entry and its own child profile, including general entries.")).toBe(true);
 });
-it("has no scope chips, and keeps New chat beside History in every state", async () => {
+it("has no general scope chips on Ask, and keeps New chat beside History in every state", async () => {
   const startNew = vi.fn();
   for (const ask of [{}, { messages: [{ role: "user", content: "Earlier" }] }, { showHistory: true }, { context: { scope: "all", record_id: "entry", child_id: null } }]) {
     mock.ask = { startNew, ...ask };

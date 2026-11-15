@@ -23,7 +23,7 @@ vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/running-feed", () => ({ finishTimer: vi.fn() }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: pendingRecords(scope.account.state), rows: [], loading: false, error: scope.careError ?? "", refresh: vi.fn() }) }));
 const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", QuietRow: "QuietRow", Row: "Row", Screen: "Screen", Section: "Section",
-  fonts: {}, radii: {}, tap: () => undefined, typeScale: {}, useColors: () => ({}), useToast: () => scope.toast }));
+  fonts: {}, radii: {}, tap: () => undefined, typeScale: {}, useColors: () => ({ addFill: "clay", onAdd: "white", action: "cocoa" }), useToast: () => scope.toast }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
@@ -252,6 +252,20 @@ it("leaves being offline to the one calm line, and still says when something els
   scope.careError = "";
 });
 
+
+it("makes Start the most prominent control, with Help secondary and capped at the same 1.5× text", async () => {
+  setup();
+  await mount();
+  const start = target("Start")!, help = button("Open Help")[0];
+  expect(start.props.style.backgroundColor).toBe("clay");
+  const label = start.findAll((n) => String(n.type) === "Text")[0];
+  expect(label.props.maxFontSizeMultiplier).toBe(1.5);
+  expect(label.props.style.fontSize).toBeGreaterThan(40);
+  expect(help.props.secondary).toBe(true);
+  expect(help.props.maxFontSizeMultiplier).toBe(1.5);
+  const tree = JSON.stringify(renderer!.toJSON());
+  expect(tree.indexOf("Start")).toBeLessThan(tree.indexOf("Open Help"));
+});
 
 it("ships every preterm sign and do-not-wait route", async () => {
   await mount();

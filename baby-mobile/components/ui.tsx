@@ -101,6 +101,8 @@ const type = {
   title: typeScale.largeTitle, heading: typeScale.title3, body: typeScale.body,
   label: typeScale.headline, small: typeScale.footnote,
 };
+/** The floating button's height (components/detail-chrome's Ask pill), for the space Screen leaves under the content. */
+export const FLOATING_HEIGHT = 52;
 /** Tab roots supply their title and controls through a native stack. */
 export const NativeHeaderContext = createContext(false);
 /** Tab roots end at the top of the JS tab bar, so the home indicator inset is the bar's, not theirs. */
@@ -316,6 +318,7 @@ export function Screen({
   scroll = true,
   brand = false,
   footer,
+  floating,
   followEnd = false,
   onRefresh,
   scrollRef,
@@ -334,6 +337,8 @@ export function Screen({
   brand?: boolean;
   /** Docked below the scrolling content and above the keyboard, for example a message composer. */
   footer?: React.ReactNode;
+  /** A floating button at the bottom right (a detail page's Ask). The content ends above it, and toasts rise over it. */
+  floating?: React.ReactNode;
   /** Keep the newest content in view as it grows (a conversation). */
   followEnd?: boolean;
   /** Pull to refresh. */
@@ -360,18 +365,21 @@ export function Screen({
   const hasFooter = !!footer;
   const focused = useScreenFocused();
   // Toasts float above the docked footer while this screen shows it; above the keyboard it is out of their way.
-  const dockedFooter = hasFooter && focused && !keyboardVisible ? footerHeight : 0;
+  const floatBottom = Math.max(16, insets.bottom + 4),
+    dockedFooter = Math.max(hasFooter && focused && !keyboardVisible ? footerHeight : 0, floating && focused && !keyboardVisible ? floatBottom + FLOATING_HEIGHT : 0);
   useEffect(() => {
     const owner = {};
     reportDockedFooter(owner, dockedFooter);
     return () => reportDockedFooter(owner, 0);
   }, [dockedFooter]);
+  // A floating button steps aside for the keyboard, so it never sits on a field being typed in.
+  const watchKeyboard = hasFooter || !!floating;
   useEffect(() => {
-    if (!hasFooter) return;
+    if (!watchKeyboard) return;
     const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardVisible(true));
     const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardVisible(false));
     return () => { show.remove(); hide.remove(); };
-  }, [hasFooter]);
+  }, [watchKeyboard]);
   async function pull() {
     setRefreshing(true);
     try {
@@ -386,7 +394,7 @@ export function Screen({
       style={{
         paddingHorizontal: 16,
         paddingTop: back || close ? 2 : 14,
-        paddingBottom: footer || nativeHeader ? 24 : Math.max(24, insets.bottom),
+        paddingBottom: (footer || nativeHeader ? 24 : Math.max(24, insets.bottom)) + (floating ? FLOATING_HEIGHT + 16 : 0),
         gap: 26,
         width: "100%",
         maxWidth: 720,
@@ -460,6 +468,7 @@ export function Screen({
             {footer}
           </View>
         )}
+        {!!floating && !keyboardVisible && <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom: floatBottom }}>{floating}</View>}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -503,6 +512,7 @@ export function Button({
   icon,
   size,
   numeric = false,
+  maxFontSizeMultiplier = 0,
 }: {
   title: string;
   accessibilityLabel?: string;
@@ -515,6 +525,8 @@ export function Button({
   icon?: IconName;
   size?: "lg";
   numeric?: boolean;
+  /** Caps how far the label grows with the text size, for a lesser action beside a big one. Unlimited by default. */
+  maxFontSizeMultiplier?: number;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     plain = variant === "ghost" || variant === "destructive",
@@ -545,7 +557,7 @@ export function Button({
       {busy ? <ActivityIndicator color={ink} /> : icon && <Icon name={icon} size={19} color={ink} />}
       <Text
         key={fontScale}
-        maxFontSizeMultiplier={0}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         style={{ fontFamily: fonts.semibold, fontVariant: numeric ? ["tabular-nums"] : [], fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
       >
         {title}
@@ -818,9 +830,11 @@ export interface FilterChip { label: string; value: string; icon?: IconName; dot
  * The sub-navigation chip row at the top of a list: 34pt pills that scroll edge to edge and fade
  * at the trailing edge instead of clipping a word. Selected is filled cocoa; the rest are sand.
  */
-export function FilterChips({ options, value, onChange, label, wrap = false }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string;
+export function FilterChips({ options, value, onChange, label, wrap = false, maxFontSizeMultiplier = 0 }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string;
   /** Every choice in sight, on as many lines as it takes, for a choice she mustn't have to go looking for. */
-  wrap?: boolean }) {
+  wrap?: boolean;
+  /** Caps how far the labels grow with the text size, for a switch that must stay compact. Unlimited by default. */
+  maxFontSizeMultiplier?: number }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), scroller = useRef<ScrollView>(null),
     frames = useRef<Record<string, { x: number; width: number }>>({}), view = useRef({ x: 0, width: 0 });
   // Bring a chip chosen elsewhere (Today's "See all", a category row) into view; leave visible ones still.
@@ -844,7 +858,7 @@ export function FilterChips({ options, value, onChange, label, wrap = false }: {
         backgroundColor: on ? c.action : c.surface }}>
         {option.icon && <Icon name={option.icon} size={16} color={ink} />}
         {!!option.dot && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }} />}
-        <Text key={fontScale} maxFontSizeMultiplier={0}
+        <Text key={fontScale} maxFontSizeMultiplier={maxFontSizeMultiplier}
           style={{ ...typeScale.subhead, fontFamily: on ? fonts.semibold : fonts.medium, color: ink }}>{option.label}</Text>
       </View>
     </PressTarget>;

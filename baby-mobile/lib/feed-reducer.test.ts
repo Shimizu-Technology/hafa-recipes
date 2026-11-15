@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { suggestedFeedEnd, validFeedEnd, feedProgress, instant, newestFirst, orderActions, reduceFeed, retimedActions, roundMinutes, runningFeed, runningLimit, withFeedAction, withRecordAction } from "./feed-reducer";
+import { feedLengthAt, feedOverdue, suggestedFeedEnd, touchedRecently, validFeedEnd, feedProgress, instant, newestFirst, orderActions, reduceFeed, retimedActions, roundMinutes, runningFeed, runningLimit, withFeedAction, withRecordAction } from "./feed-reducer";
 import { optimisticRecord, type BabyRecord, type FeedAction } from "./models";
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 10, 4, 12, minutes)).toISOString();
@@ -20,11 +20,22 @@ describe("the reducer gives one result whatever the arrival order", () => {
     for (const order of permutations([start(0), finish(9), swap(10, "right"), finish(12)]))
       expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "left", end_at: at(9), duration_minutes: 9 });
   });
-  it("breaking timestamp ties by action id", () => {
-    const first = finish(5, "a-finish"), second = swap(5, "right", "b-switch");
-    for (const order of permutations([start(0), first, second])) expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "left", end_at: at(5) });
-    const earlier = swap(5, "right", "a-switch"), later = finish(5, "b-finish");
-    for (const order of permutations([start(0), earlier, later])) expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "both", duration_minutes: 5 });
+  it("puts a finish after a side action at the same instant, whichever id sorts first", () => {
+    for (const [finishId, switchId] of [["a-finish", "b-switch"], ["b-finish", "a-switch"]]) {
+      const tied = finish(5, finishId), side = swap(5, "right", switchId);
+      for (const order of permutations([start(0), tied, side])) {
+        expect(orderActions(order).map((a) => a.action)).toEqual(["start", "switch", "finish"]);
+        expect(reduceFeed(order)).toMatchObject({ state: "finished", side: "both", end_at: at(5), duration_minutes: 5 });
+      }
+      // Saving the end at the switch's own instant keeps the switch in the saved side and segments.
+      const saved = withFeedAction({ method: "breast", side: "left", state: "running", actions: [start(0), side] }, tied);
+      expect(saved).toMatchObject({ state: "finished", side: "both", end_at: at(5), duration_minutes: 5 });
+      expect(reduceFeed(saved.actions)?.segments.map((s) => s.side)).toEqual(["left", "right"]);
+    }
+  });
+  it("still breaks ties among side actions by action id", () => {
+    const earlier = swap(5, "right", "a-switch"), later = swap(5, "left", "b-switch");
+    expect(orderActions([later, earlier, finish(5, "0-finish")]).map((a) => a.id)).toEqual(["a-switch", "b-switch", "0-finish"]);
   });
   it("orders by real time, not by the text of a timestamp", () => {
     const zoned: FeedAction = { id: "z", action: "start", at: "2026-11-04T22:00:00+10:00", side: "left" }, utc: FeedAction = { id: "u", action: "finish", at: "2026-11-04T12:30:00Z" };
@@ -147,7 +158,7 @@ describe("matching the API exactly", () => {
     expect(orderActions([second, first]).map((a) => a.id)).toEqual(["z", "a"]);
   });
   it("orders ids as lowercase text, as stored", () => {
-    const upper: FeedAction = { id: "B", action: "switch", at: at(1), side: "right" }, lower: FeedAction = { id: "a", action: "finish", at: at(1) };
+    const upper: FeedAction = { id: "B", action: "switch", at: at(1), side: "right" }, lower: FeedAction = { id: "a", action: "switch", at: at(1), side: "left" };
     expect(orderActions([upper, lower]).map((a) => a.id)).toEqual(["a", "B"]);
   });
   it("gives a feed finished before its start the start's side, not the side stored before", () => {
@@ -197,4 +208,29 @@ it("suggests an end without losing switches and validates corrections", () => {
   expect(validFeedEnd(record, at(20), new Date(at(60)))).toBe(false);
   expect(validFeedEnd(record, at(61), new Date(at(60)))).toBe(false);
   expect(validFeedEnd(record, at(30), new Date(at(60)))).toBe(true);
+});
+
+it("keeps a side tap's microseconds in the suggested end, so the default suggestion validates", () => {
+  const micro = "2026-11-04T12:25:00.123456Z",
+    record = optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null,
+      occurred_at: at(0), data: { method: "breast", actions: [start(0), { id: "switch-micro", action: "switch", at: micro, side: "right" }] } });
+  const now = new Date(at(60));
+  expect(suggestedFeedEnd(record, now)).toBe(micro);
+  expect(validFeedEnd(record, suggestedFeedEnd(record, now), now)).toBe(true);
+  // Clamped to now in the same millisecond: still the tap's own text.
+  const justNow = new Date("2026-11-04T12:25:00.123Z");
+  expect(validFeedEnd(record, suggestedFeedEnd(record, justNow), justNow)).toBe(true);
+});
+
+it("suggests now after a side tap in the last 15 minutes, and says how long a chosen end makes the feed", () => {
+  const record = optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null,
+    occurred_at: at(0), data: { method: "breast", actions: [start(0), swap(50, "right")] } });
+  expect(touchedRecently(record, new Date(at(65)))).toBe(true);
+  expect(suggestedFeedEnd(record, new Date(at(65)))).toBe(at(65));
+  // Sixteen minutes on, it falls back to the last tap (or a typical twenty minutes).
+  expect(touchedRecently(record, new Date(at(66)))).toBe(false);
+  expect(suggestedFeedEnd(record, new Date(at(66)))).toBe(at(50));
+  expect(feedLengthAt(record, at(50))).toBe(50);
+  expect(feedOverdue(record, new Date(at(59)))).toBe(false);
+  expect(feedOverdue(record, new Date(at(60)))).toBe(true);
 });
