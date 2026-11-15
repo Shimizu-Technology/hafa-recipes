@@ -204,6 +204,15 @@ export function createReminders(deps: {
         await reconcile(settings.rest_enabled || settings.weekly_enabled);
       });
     },
+    /** The countdown saves as soon as it's picked. It schedules nothing, so alerts aren't touched. */
+    setLeadIn(seconds: number) {
+      return ordered(async () => {
+        const settings = { ...state.settings, lead_in_seconds: seconds };
+        const errors = reminderErrors(settings);
+        if (errors.length) throw Error(errors.join(" "));
+        await persist(settings);
+      });
+    },
     timer(timer: TimerCheckpoint | null) {
       return ordered(async () => {
         await persist(state.settings, timer);

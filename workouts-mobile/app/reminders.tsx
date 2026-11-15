@@ -26,7 +26,8 @@ export default function Reminders() {
       setError("Choose a time in HH:MM format, such as 18:30.");
       return;
     }
-    const settings = { ...draft, hour: Number(match[1]), minute: Number(match[2]) };
+    // The countdown saves on its own; keep the saved choice rather than the one this form loaded with.
+    const settings = { ...draft, hour: Number(match[1]), minute: Number(match[2]), lead_in_seconds: state.settings.lead_in_seconds };
     const errors = reminderErrors(settings);
     if (errors.length) {
       setError(errors.join(" "));
@@ -96,18 +97,6 @@ export default function Reminders() {
                 </Copy>
               </>
             )}
-            <Copy kind="label">Countdown before a timed start</Copy>
-            <Segmented<string>
-              label="Countdown before a timed start"
-              value={String(leadInSeconds(draft))}
-              onChange={(value) => {
-                if (!busy) setDraft({ ...draft, lead_in_seconds: Number(value) });
-              }}
-              options={leadInChoices.map((seconds) => ({ value: String(seconds), label: seconds ? `${seconds} s` : "Off" }))}
-            />
-            <Copy kind="small" tone="muted">
-              A 3-2-1 before an AMRAP, EMOM or for-time clock, so you can set the phone down first.
-            </Copy>
             <Button
               title="Save reminder choices"
               busy={busy}
@@ -117,6 +106,22 @@ export default function Reminders() {
             />
           </Card>
           {saved && <Notice>Reminder choices saved on this device.</Notice>}
+          <Card>
+            <Copy kind="label">Countdown before a timed start</Copy>
+            <Segmented<string>
+              label="Countdown before a timed start"
+              value={String(leadInSeconds(state.settings))}
+              onChange={(value) => {
+                setError("");
+                void controller?.setLeadIn(Number(value)).catch((e) => setError((e as Error).message));
+              }}
+              options={leadInChoices.map((seconds) => ({ value: String(seconds), label: seconds ? `${seconds} s` : "Off" }))}
+            />
+            <Copy kind="small" tone="muted">
+              A 3-2-1 before an AMRAP, EMOM or for-time clock, so you can set the phone down first. Saved as soon as you
+              pick it.
+            </Copy>
+          </Card>
           <Notice>
             {state.permission === "granted"
               ? "Device notifications are allowed."
