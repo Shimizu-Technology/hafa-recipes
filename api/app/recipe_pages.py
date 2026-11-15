@@ -5,10 +5,10 @@ import io
 import re
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 from html import escape
 from itertools import islice
 from pathlib import Path
+from threading import local
 from time import monotonic
 from unicodedata import normalize
 from uuid import UUID
@@ -163,10 +163,17 @@ IMAGE_WAIT_SECONDS = 2
 BRAND_FONT = Path(__file__).parent / 'assets' / 'fonts' / 'Fraunces_500Medium.ttf'
 
 
-@lru_cache(maxsize=8)
+# FreeType faces have mutable glyph state; each Pillow worker owns its fonts.
+_font_cache = local()
+
+
 def title_fonts(size):
-    return tuple(ImageFont.truetype(str(BRAND_FONT.parent / name), size) for name in (
-        BRAND_FONT.name, 'NotoSans-Medium.ttf', 'NotoSansJP-Medium.ttf', 'NotoEmoji-Regular.ttf'))
+    if not hasattr(_font_cache, 'fonts'):
+        _font_cache.fonts = {}
+    if size not in _font_cache.fonts:
+        _font_cache.fonts[size] = tuple(ImageFont.truetype(str(BRAND_FONT.parent / name), size) for name in (
+            BRAND_FONT.name, 'NotoSans-Medium.ttf', 'NotoSansJP-Medium.ttf', 'NotoEmoji-Regular.ttf'))
+    return _font_cache.fonts[size]
 
 
 def title_runs(title, size=80):

@@ -610,3 +610,15 @@ async def test_photo_less_preview_retries_when_render_capacity_is_full(monkeypat
     response = await pages.og_image(str(recipe.id), SimpleNamespace(close=AsyncMock()), None)
     assert response.status_code == 503 and response.headers['retry-after'] == '2'
     assert response.headers['cache-control'] == 'private, no-store'
+
+
+def test_title_fonts_are_reused_only_within_the_same_worker():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.recipe_pages import title_fonts
+    fonts = title_fonts(80)
+    assert title_fonts(80) is fonts
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        other_fonts = worker.submit(title_fonts, 80).result()
+        assert worker.submit(title_fonts, 80).result() is other_fonts
+    assert all(main is not other for main, other in zip(fonts, other_fonts))
