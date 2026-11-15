@@ -179,7 +179,7 @@ def trim_class_parts(parts, warnings=None):
     lines = [(location, text.splitlines()) for location, text in parts]
     has_heading = any(re.fullmatch(r"(?:workout(?: of the day)?|wod|coach(?:'s)? notes?)\s*[:—-]?", line.strip(), re.I)
                       for _, page in lines for line in page)
-    started, suppressed, member_rows, current, removed = not has_heading, False, False, None, False
+    started, suppressed, current, removed = not has_heading, False, None, False
     result = []
     for location, page in lines:
         clean = []
@@ -197,15 +197,12 @@ def trim_class_parts(parts, warnings=None):
                 continue
             if suppressed:
                 boundary = (next_part and workout_part(value, part)) or CLASS_SECTION.fullmatch(value) or PREAMBLE_BOUNDARY.search(value)
-                if not boundary and (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)):
-                    member_rows, removed = True, True
-                    continue
-                if not value or (member_rows and not boundary):
+                if not boundary:
                     removed = True
                     continue
-                # Header buttons can precede coach prose; after real member rows,
-                # only recognizable programming can reopen the source.
-                suppressed, member_rows = False, False
+                # Member names and scores may occupy separate lines. Only a
+                # recognized programming boundary can end a private section.
+                suppressed = False
             if next_part:
                 current = part[1].lower()
                 started, suppressed = True, False

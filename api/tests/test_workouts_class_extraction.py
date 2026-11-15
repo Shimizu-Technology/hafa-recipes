@@ -336,7 +336,7 @@ def test_member_rows_end_at_first_nonmember_line_across_pages():
                      ("document_page:2", "Phase 5, Week 4, Tue\n- Hold a pace")]
 
 
-@pytest.mark.parametrize("row", ["B. MEMBER_NAME 12:43", "B. MEMBER_NAME 4 rounds", "B. MEMBER_NAME: PRIVATE_COMMENT"])
+@pytest.mark.parametrize("row", ["B. MEMBER_NAME 12:43", "B. MEMBER_NAME 4 rounds", "B. MEMBER_NAME: PRIVATE_COMMENT", "B. Jane Doe\n12:43", "Jane Doe\n12:43"])
 async def test_expected_athlete_initial_does_not_reopen_member_section(row):
     from app.domains.workouts.class_extraction import class_text
 
@@ -345,6 +345,13 @@ async def test_expected_athlete_initial_does_not_reopen_member_section(row):
     provider = FakeProvider({})
     await WorkoutExtractor(provider).extract(ExtractionRequest(kind="text", text=page, class_parts=True, ai_consent=True))
     assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat"]
+
+
+async def test_split_member_rows_stay_private_until_real_workout_boundary():
+    page = "A. Metcon\n10 Squat\nLeaderboard\nB. Jane Doe\n12:43\nB. For time\n10 Press"
+    provider = FakeProvider({})
+    await WorkoutExtractor(provider).extract(ExtractionRequest(kind="text", text=page, class_parts=True, ai_consent=True))
+    assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat\nB. For time\n10 Press"]
 
 
 @pytest.mark.parametrize("units,options,accepted", [
