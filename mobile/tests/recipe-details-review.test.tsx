@@ -64,6 +64,7 @@ vi.mock('@/components/Themed', async () => {
     useColors: () => ({ tint: '#37745B', text: '#222', textSecondary: '#555', background: '#fff', backgroundSecondary: '#eee', border: '#ccc' }),
   };
 });
+import * as publishing from '@/lib/recipePublishing';
 import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
 import EditRecipeScreen, { EditRecipeForm } from '../app/edit-recipe/[id]';
 
@@ -404,4 +405,20 @@ it.each([true, false])('confirms an unsaved public capture and saves the chosen 
     expect(snapshot.data.is_public).toBe(approved);
     expect(snapshot.captureRequest.is_public).toBe(approved);
   } finally { await act(async () => tree.unmount()); }
+});
+
+it('does not reuse a stale Keep private choice when the edit has no publishing preview', async () => {
+  const preview = vi.spyOn(publishing, 'formatPublishDisclosure').mockReturnValue('');
+  const captured = { ...structuredClone(recipe), is_public: true, extraction_evidence: undefined };
+  let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(<EditRecipeForm owner="subject-a" capture={{ id: 'capture-id', ownerId: 'stable-a', recipe: captured, guard: vi.fn() }} />); });
+  try {
+    const save = tree.root.findAllByType('TouchableOpacity' as any).find(node => node.findAllByType('Text' as any).some(text => text.props.children === 'Save'))!;
+    await act(async () => save.props.onPress());
+    expect(mocks.requestPublishing).not.toHaveBeenCalled();
+    expect(mocks.editorSubmit).not.toHaveBeenCalled();
+  } finally {
+    preview.mockRestore();
+    await act(async () => tree.unmount());
+  }
 });

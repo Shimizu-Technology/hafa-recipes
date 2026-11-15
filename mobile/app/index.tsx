@@ -233,17 +233,16 @@ function ExtractScreenContent() {
       await extraction.retryPendingStart();
       return;
     }
-    if (entry.capture.kind === 'url' && entry.request?.is_public) {
+    let request = entry.request;
+    let publicConfirmed = false;
+    if (entry.capture.kind === 'url' && request?.is_public) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
-      if (!allowed) {
-        if (didChoosePrivate()) await importInbox.patch(entry.id, { request: { ...entry.request, is_public: false },
-          preferences: { isPublic: false, location: entry.request.location || 'Guam' }, state: 'waiting',
-          error: 'Set to private. Tap Finish to import.' });
-        return;
-      }
+      if (!allowed && !didChoosePrivate()) return;
+      publicConfirmed = allowed;
+      request = { ...request, is_public: allowed };
     }
-    await importInbox.claim(entry.id, owner, entry.request);
+    await importInbox.claim(entry.id, owner, request, { publicConfirmed, expected: entry });
     if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
     if (entry.capture.kind === 'url') return;
     if (entry.capture.kind === 'text') {

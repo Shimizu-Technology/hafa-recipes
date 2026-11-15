@@ -56,3 +56,18 @@ describe('screen-local publishing confirmation', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+it('does not let an older consumer cancel the current consumer prompt', async () => {
+  let other!: ReturnType<typeof usePublishingConfirmation>;
+  function Other() { other = usePublishingConfirmation(); return null; }
+  await act(async () => tree.update(<PublishingConfirmationProvider><Harness /><Other /></PublishingConfirmationProvider>));
+  let old!: Promise<string>;
+  let current!: Promise<boolean>;
+  await act(async () => { old = confirm({ message: 'old', label: 'Make public' }).then(String, error => error.message); });
+  await act(async () => { current = other({ message: 'current', label: 'Make public' }); });
+  expect(await old).toContain('replaced');
+  await act(async () => confirm.cancel?.());
+  expect(tree.root.findAll(node => node.type === ('View' as any) && node.props.testID === 'publishing-confirmation')).toHaveLength(1);
+  await act(async () => tree.root.findAllByType('Pressable' as any)[0].props.onPress());
+  expect(await current).toBe(true);
+});

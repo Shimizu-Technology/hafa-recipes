@@ -106,3 +106,8 @@ assert(HafaShareStore.acceptedImport(data: acceptedBody,
 assert(HafaShareStore.acceptedImport(data: acceptedBody,
   response: HTTPURLResponse(url: responseURL, statusCode: 202, httpVersion: nil, headerFields: nil), captureID: "another-capture") == nil)
 print("Denied public captures (403) never become submitted receipts")
+
+assert(HafaShareStore.canSubmitInBackground(["requestedIsPublic": false]))
+assert(!HafaShareStore.canSubmitInBackground(["requestedIsPublic": true]))
+assert(!HafaShareStore.canSubmitInBackground([:]))
+print("Public and legacy-unknown captures stay local for foreground confirmation")

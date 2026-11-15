@@ -1,11 +1,18 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 
 type Prompt = { message: string; label: string };
 type Confirm = ((prompt: Prompt) => Promise<boolean>) & { cancel?: () => void };
-const Context = createContext<Confirm>(async () => false);
-export const usePublishingConfirmation = () => useContext(Context);
+type Controller = { confirm: (prompt: Prompt, consumer: symbol) => Promise<boolean>; cancel: (consumer: symbol) => void };
+const Context = createContext<Controller>({ confirm: async () => false, cancel: () => {} });
+export function usePublishingConfirmation(): Confirm {
+  const controller = useContext(Context);
+  const consumer = useRef(Symbol('publishing consumer'));
+  return useMemo(() => Object.assign((prompt: Prompt) => controller.confirm(prompt, consumer.current), {
+    cancel: () => controller.cancel(consumer.current),
+  }), [controller]);
+}
 export const CONFIRMATION_TIMEOUT_MS = 120_000;
 
 /** Mount inside the route: a root RN Modal can be covered by a native modal screen. */
@@ -13,7 +20,7 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
   const { colorScheme } = useTheme();
   const dark = colorScheme === 'dark';
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const pending = useRef<{ resolve: (answer: boolean) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const pending = useRef<{ consumer: symbol; resolve: (answer: boolean) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | null>(null);
   const finish = useCallback((answer: boolean) => {
     if (pending.current) {
       clearTimeout(pending.current.timer);
@@ -22,7 +29,8 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
     }
     setPrompt(null);
   }, []);
-  const cancel = useCallback(() => {
+  const cancel = useCallback((consumer: symbol) => {
+    if (pending.current?.consumer !== consumer) return;
     if (pending.current) {
       clearTimeout(pending.current.timer);
       pending.current.reject(new Error('Publishing screen closed.'));
@@ -30,7 +38,7 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
     }
     setPrompt(null);
   }, []);
-  const confirm = useCallback((next: Prompt) => new Promise<boolean>((resolve, reject) => {
+  const confirm = useCallback((next: Prompt, consumer: symbol) => new Promise<boolean>((resolve, reject) => {
     if (pending.current) {
       clearTimeout(pending.current.timer);
       pending.current.reject(new Error('Publishing confirmation replaced.'));
@@ -39,9 +47,9 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
     const timer = setTimeout(() => {
       pending.current = null;
       setPrompt(null);
-      reject(new Error('Publishing confirmation timed out. Please try again.'));
+      reject(Object.assign(new Error('Publishing confirmation timed out. Please try again.'), { name: 'TimeoutError' }));
     }, CONFIRMATION_TIMEOUT_MS);
-    pending.current = { resolve, reject, timer };
+    pending.current = { consumer, resolve, reject, timer };
     setPrompt(next);
   }), []);
   useEffect(() => {
@@ -56,7 +64,8 @@ export function PublishingConfirmationProvider({ children }: { children: React.R
       pending.current = null;
     }
   }, []);
-  return <Context.Provider value={Object.assign(confirm, { cancel })}>
+  const controller = useMemo(() => ({ confirm, cancel }), [confirm, cancel]);
+  return <Context.Provider value={controller}>
     <View style={{ flex: 1 }}>
       <View style={{ flex: 1 }} accessibilityElementsHidden={!!prompt} importantForAccessibility={prompt ? 'no-hide-descendants' : 'auto'}>{children}</View>
       {prompt && <View testID="publishing-confirmation" accessibilityViewIsModal style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000, justifyContent: 'flex-end', backgroundColor: '#0008' }}>

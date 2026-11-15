@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   uuid: vi.fn(),
   setParams: vi.fn(),
   inboxEntries: [] as any[],
+  realInbox: false, inboxStorage: null as string | null,
   removeWaiting: vi.fn(async () => undefined),
   jobs: [] as any[],
   addInbox: vi.fn(async (_entry: any) => undefined),
@@ -40,6 +41,7 @@ const mocks = vi.hoisted(() => ({
     currentStep: '',
     elapsedTime: 0,
     error: null as string | null,
+    isReady: true,
     isComplete: false,
     isExtracting: false,
     isFailed: false,
@@ -181,6 +183,7 @@ vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, sectio
 }));
 vi.mock('@/hooks/useImportPreferences', () => ({ useImportPreferences: () => mocks.preferences }));
 vi.mock('@/hooks/useRecipes', () => ({
+  useCurrentUserIdentity: () => ({ data: { id: mocks.ownerId } }),
   useRecipe: () => ({ data: undefined }),
   useSaveCapturedRecipe: () => ({ mutateAsync: mocks.save }),
   useCheckDuplicate: () => ({ mutateAsync: mocks.checkDuplicate }),
@@ -200,8 +203,25 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => mocks.pendingCapture, stagePendingShareCapture: (capture: any) => { mocks.pendingCapture = capture; return 'token'; } }));
-vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null }) }));
-vi.mock('@/lib/importInbox', () => ({ importInbox: { hydrate: async () => undefined, snapshot: () => mocks.inboxEntries, add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn(), removeWaiting: mocks.removeWaiting } }));
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: {
+  getItem: async () => mocks.inboxStorage,
+  setItem: async (_key: string, value: string) => { mocks.inboxStorage = value; },
+} }));
+vi.mock('@/hooks/useImportInbox', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useImportInbox')>();
+  return { ...actual, useImportInbox: () => mocks.realInbox ? actual.useImportInbox()
+    : { ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null } };
+});
+vi.mock('@/lib/importInbox', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/importInbox')>();
+  return { ...actual, importInbox: new Proxy(actual.importInbox, {
+    get(target, property: keyof typeof actual.importInbox) {
+      if (mocks.realInbox) return target[property];
+      return ({ hydrate: async () => undefined, snapshot: () => mocks.inboxEntries, add: mocks.addInbox,
+        claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn(), removeWaiting: mocks.removeWaiting } as any)[property];
+    },
+  }) };
+});
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({
     requestPublishing: mocks.requestPublishing, didChoosePrivate: () => true,
@@ -214,6 +234,9 @@ vi.mock('@/lib/imageImportClassification', async () => (
 
 import { legacyShareReceipts } from '@/lib/legacyShareReceipts';
 import ExtractScreen from '../app/index';
+import { importInbox } from '@/lib/importInbox';
+import { useImportInboxProcessor } from '@/hooks/useImportInbox';
+function InboxProcessor() { useImportInboxProcessor(); return null; }
 
 /** Find a screen action by its visible themed-text label. */
 function touchableWithText(renderer: ReactTestRenderer, text: string) {
@@ -226,6 +249,7 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
+    mocks.realInbox = false;
     mocks.draftsReady = true; mocks.scanAvailable = null; mocks.platform = 'ios';
     mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.entry = undefined; mocks.params.captureToken = undefined; mocks.inboxEntries = [];
     mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
@@ -267,6 +291,28 @@ describe('classified image recovery', () => {
     mocks.extraction.reset.mockResolvedValue(undefined);
     mocks.extraction.startExtraction.mockReset();
     mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
+  });
+
+  it.each([true, false])('Finish → public approval %s starts exactly one import with that visibility', async (approved) => {
+    mocks.realInbox = true;
+    await importInbox.hydrate();
+    for (const entry of importInbox.snapshot()) await importInbox.remove(entry.id);
+    await importInbox.add({ id: 'public-url', ownerId: 'owner-a', createdAt: 1, state: 'waiting',
+      capture: { kind: 'url', url: 'https://example.com/public' },
+      request: { url: 'https://example.com/public', is_public: true } });
+    mocks.requestPublishing.mockResolvedValue(approved);
+    mocks.extraction.startExtraction.mockResolvedValue({ jobId: 'job-public' });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<><ExtractScreen /><InboxProcessor /></>); });
+    expect(mocks.extraction.startExtraction).not.toHaveBeenCalled();
+    await act(async () => touchableWithText(renderer, 'Finish')!.props.onPress());
+    await act(async () => renderer.update(<><ExtractScreen /><InboxProcessor /></>));
+    expect(mocks.requestPublishing).toHaveBeenCalledOnce();
+    expect(mocks.extraction.startExtraction).toHaveBeenCalledExactlyOnceWith(
+      { url: 'https://example.com/public', is_public: approved }, 'share:public-url');
+    expect(importInbox.snapshot()[0]).toMatchObject({ state: 'accepted', jobId: 'job-public' });
+    expect(importInbox.snapshot()[0].publicConfirmed).toBeUndefined();
+    await act(async () => renderer.unmount());
   });
 
   it.each(['failed', 'expired', 'processing'] as const)('confirms cancellation for selected %s imports and retains the composer', async (status) => {

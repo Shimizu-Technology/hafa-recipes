@@ -17,7 +17,7 @@ async function bounded<T>(operation: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([operation, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Publishing request timed out.')), DISCLOSURE_TIMEOUT_MS);
+      timer = setTimeout(() => reject(Object.assign(new Error('Publishing request timed out.'), { name: 'TimeoutError' })), DISCLOSURE_TIMEOUT_MS);
     })]);
   } finally { clearTimeout(timer!); }
 }
@@ -50,8 +50,8 @@ export function usePublishingDisclosure() {
   }, []));
 
   const requestPublishing = useCallback(async (recipePreview?: string): Promise<boolean> => {
-    if (inFlight.current) return false;
     chosePrivate.current = false;
+    if (inFlight.current) return false;
     inFlight.current = true;
     setIsCheckingDisclosure(true);
 
@@ -76,11 +76,13 @@ export function usePublishingDisclosure() {
         queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, accepted);
       }
       return isScreenActive.current;
-    } catch {
+    } catch (error) {
       if (isScreenActive.current) {
         Alert.alert(
           'Couldn’t check publishing preference',
-          'Please check your connection and try again.',
+          error instanceof Error && error.name === 'TimeoutError'
+            ? 'Publishing confirmation timed out. Your recipe has not been published. Please try again.'
+            : 'Please check your connection and try again.',
         );
       }
       return false;

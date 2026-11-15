@@ -515,7 +515,8 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
     }
 
     if (snapshot.data.is_public && (capture || !recipe?.is_public) && !publishingConfirmed.current) {
-      if (!snapshot.publishingPreview || !(await requestPublishing(snapshot.publishingPreview))) {
+      if (!snapshot.publishingPreview) return;
+      if (!(await requestPublishing(snapshot.publishingPreview))) {
         if (!didChoosePrivate()) return;
         setIsPublic(false);
         snapshot = { ...snapshot, data: { ...snapshot.data, is_public: false },

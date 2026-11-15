@@ -58,3 +58,23 @@ it.each(['status', 'accept'] as const)('clears checking state when %s never resp
     expect(hook.didChoosePrivate()).toBe(false);
   } finally { vi.useRealTimers(); }
 });
+
+it('reports a prompt timeout without suggesting a connection failure or choosing private', async () => {
+  mocks.confirm.mockRejectedValueOnce(Object.assign(new Error('Prompt timed out'), { name: 'TimeoutError' }));
+  await act(async () => { expect(await hook.requestPublishing()).toBe(false); });
+  expect(mocks.alert).toHaveBeenLastCalledWith(expect.any(String), expect.stringContaining('Publishing confirmation timed out'));
+  expect(hook.didChoosePrivate()).toBe(false);
+});
+
+it('clears the prior private choice even when a concurrent request is refused', async () => {
+  mocks.confirm.mockResolvedValueOnce(false);
+  await act(async () => { await hook.requestPublishing(); });
+  expect(hook.didChoosePrivate()).toBe(true);
+  let finish!: (value: boolean) => void;
+  mocks.confirm.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+  let pending!: Promise<boolean>;
+  await act(async () => { pending = hook.requestPublishing(); });
+  await act(async () => { expect(await hook.requestPublishing()).toBe(false); });
+  expect(hook.didChoosePrivate()).toBe(false);
+  await act(async () => { finish(true); await pending; });
+});

@@ -151,6 +151,11 @@ enum HafaShareStore {
     return result
   }
 
+  static func canSubmitInBackground(_ metadata: [String: Any]) -> Bool {
+    // Public and legacy-unknown captures need an in-app per-recipe choice.
+    metadata["requestedIsPublic"] as? Bool == false
+  }
+
   static func enqueueLink(captureKey key: String, url: String, completion: @escaping (Bool) -> Void) {
     // Snapshot under the same lock used by configure/clear. If signed out,
     // retain the original capture locally and do not submit under any account.
@@ -161,7 +166,8 @@ enum HafaShareStore {
       return (session, token, metadata)
     }) ?? nil, let base = state.0["apiBaseURL"] as? String,
       let baseURL = validBaseURL(base),
-      let captureID = state.2["captureId"] as? String else {
+      let captureID = state.2["captureId"] as? String,
+      canSubmitInBackground(state.2) else {
       completion(false); return
     }
     let endpoint = baseURL.appendingPathComponent("api/share/imports")

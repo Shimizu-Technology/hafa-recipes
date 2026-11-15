@@ -61,7 +61,7 @@ export function useImportInboxProcessor() {
       let persistedOutcome = false;
       let claimedForSubmission = false;
       try {
-        if (entry.request?.is_public) {
+        if (entry.request?.is_public && !entry.publicConfirmed) {
           await importInbox.patch(entry.id, { state: 'waiting', error: 'Review public sharing to finish this import.' });
           persistedOutcome = true;
           return;
