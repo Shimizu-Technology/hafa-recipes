@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import { AccessibilityInfo, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
@@ -8,22 +8,24 @@ import { messageFor } from "../lib/models";
 import { familySpaces } from "../lib/spaces";
 import { birthParts, birthWrite, gramsFrom, welcome } from "../lib/birth";
 import { defaultRecipients, memberName, newsAbout, newsAvailable, queueNews, recipientWords, tellable, withoutNews } from "../lib/family-news";
-import { undoWindow } from "../lib/running-feed";
+import { undoShown } from "../lib/running-feed";
 import type { FamilyMember } from "../lib/family";
 import { DateField } from "@/components/date-field";
-import { Button, Chips, Choice, Copy, Field, Notice, Screen, Section, tap, useToast } from "@/components/ui";
+import { TimeField } from "@/components/time-field";
+import { Button, Choice, Copy, Field, Notice, Screen, Section, tap, useToast } from "@/components/ui";
 
 /**
- * "Baby is here": one calm screen, everything but the date optional. Saving keeps it all on this phone first, turns
- * on newborn care at once, and tells the family members she leaves ticked: her partner by default.
+ * "Baby is here": one calm screen, everything but the date optional. The time starts empty: a time of birth is only
+ * ever one she chose. Saving keeps it all on this phone first, turns on newborn care at once, and tells the family
+ * members she leaves ticked: her partner by default.
  */
 export default function Birth() {
   const b = useBaby(), toast = useToast(), { id } = useLocalSearchParams<{ id?: string }>(),
     bootstrap = b.state.bootstrap!, timezone = bootstrap.profile.timezone,
     child = bootstrap.children.find((one) => one.id === id) ?? bootstrap.children.find((one) => !one.birth_date && one.due_date);
-  const [name, setName] = useState(child?.name ?? ""), [born, setBorn] = useState(() => new Date().toISOString()),
+  const [name, setName] = useState(child?.name ?? ""),
     [day, setDay] = useState(() => birthParts(new Date().toISOString(), timezone, false).birth_date),
-    [timeKnown, setTimeKnown] = useState(true), [lb, setLb] = useState(""), [oz, setOz] = useState(""),
+    [time, setTime] = useState<string | null>(null), [lb, setLb] = useState(""), [oz, setOz] = useState(""),
     [members, setMembers] = useState<FamilyMember[] | null>(null), [to, setTo] = useState<string[]>([]),
     [loadError, setLoadError] = useState(false), [tellParents, setTellParents] = useState(true), [error, setError] = useState(""), [saving, setSaving] = useState(false), saved = useRef(false);
   const family = familySpaces(bootstrap).find((space) => space.id === child?.space_id), canTell = !!family && newsAvailable(bootstrap, family.id),
@@ -34,8 +36,9 @@ export default function Birth() {
     let alive = true;
     b.api.familyMembers(family!.id).then(({ items }) => {
       if (!alive) return;
-      // Whoever's phone this is, never the person who gave birth: she knows.
-      setMembers(tellable(items, b.owner, newsAbout(child)));
+      // Whoever's phone this is, the person who gave birth is listed but not ticked: she knows. If someone else added
+      // the profile, nobody is hidden; it's one tick.
+      setMembers(tellable(items, b.owner));
       setTo(defaultRecipients(items, b.owner, newsAbout(child)));
     }).catch(() => { if (alive) setLoadError(true); });
     return () => { alive = false; };
@@ -45,8 +48,12 @@ export default function Birth() {
   async function save() {
     if (saved.current || !child) return;
     if (grams === "invalid") return setError("Check the weight: pounds, and ounces under 16. Or leave it blank.");
+    const today = birthParts(new Date().toISOString(), timezone, true);
+    if (time && day === today.birth_date && time > today.birth_time!) return setError("That time hasn’t come yet today. Check the time of birth, or remove it.");
     saved.current = true; setSaving(true); setError("");
-    const parts = birthParts(born, timezone, timeKnown), birth_date = timeKnown ? parts.birth_date : day, birth_time = parts.birth_time, extras = birthWrite(child, name, birth_time, grams),
+    // Sent only after Undo has gone from the screen, however long that is for her: VoiceOver keeps it up longer.
+    const shown = undoShown(await AccessibilityInfo.isScreenReaderEnabled().catch(() => false));
+    const birth_date = day, birth_time = time, extras = birthWrite(child, name, birth_time, grams),
       birth = Crypto.randomUUID(), news = Crypto.randomUUID(), previous = child.birth_date ?? null, generation = bootstrap.generation,
       before = Object.fromEntries(Object.keys(extras.details ?? {}).map((key) => [key, child.details?.[key as "birth_time"] ?? null])),
       undoFields = { ...(extras.name ? { previous_name: child.name } : {}), ...(extras.details ? { previous_details: before } : {}) };
@@ -54,11 +61,11 @@ export default function Birth() {
       await b.commit((s) => queueNews(addMutation(s, { id: birth, generation, type: "child_birth", child_id: child.id, birth_date, previous, ...extras, ...undoFields }),
         { id: news, news: "birth", child_id: child.id, to: canTell && !unread ? to : [], ...(unread && tellParents ? { parents: true } : {}),
           names: Object.fromEntries((members ?? []).map((member) => [member.app_user_id, memberName(member)])),
-          queued_at: new Date().toISOString(), hold_until: new Date(Date.now() + undoWindow(false)).toISOString() }));
+          queued_at: new Date().toISOString(), hold_until: new Date(Date.now() + shown + 500).toISOString() }));
       void b.sync();
       tap("success");
       const told = unread ? (tellParents ? "your partner" : "") : canTell && members ? recipientWords(members, to) : "";
-      toast(`${welcome(extras.name ?? child.name)}${told ? ` Telling ${told}.` : ""}`, { label: "Undo", onPress: async () => {
+      toast(`${welcome(extras.name ?? child.name)}${told ? ` Telling ${told}.` : ""}`, { label: "Undo", until: Date.now() + shown, onPress: async () => {
         try {
           await b.commit((s) => {
             const queued = s.outbox.find((m) => m.id === birth), unsent = withoutNews(s, news);
@@ -85,14 +92,9 @@ export default function Birth() {
     {!!error && <Notice error>{error}</Notice>}
     <Field label="Baby’s name (optional)" value={name} onChange={setName} maxLength={120} capitalize="words" />
     <Section title="Born">
-      <Chips label="Time of birth" value={timeKnown ? "time" : "day"} onChange={(value) => {
-        // Moving between the two keeps the same day.
-        if (value === "day") setDay(birthParts(born, timezone, false).birth_date);
-        setTimeKnown(value === "time");
-      }}
-        options={[{ label: "With the time", value: "time" }, { label: "Just the day", value: "day" }]} />
-      {timeKnown ? <DateField label="Day and time" value={born} timeZone={timezone} maximumDate={new Date()} onChange={(value) => value && setBorn(value)} />
-        : <DateField label="Day" value={day} dateOnly maximumDate={new Date()} onChange={(value) => value && setDay(value)} />}
+      <DateField label="Day" value={day} dateOnly maximumDate={new Date()} onChange={(value) => value && setDay(value)} />
+      <TimeField label="Time of birth (optional)" value={time} placeholder="Add the time of birth" onChange={setTime} />
+      {!!time && <Button variant="ghost" title="Remove the time" onPress={() => setTime(null)} />}
     </Section>
     <Section title="Weight (optional)">
       <View style={{ flexDirection: "row", gap: 12 }}>
