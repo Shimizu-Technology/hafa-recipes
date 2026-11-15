@@ -71,7 +71,7 @@ def test_invalid_class_rules(change):
 def test_public_projection_preserves_class_structure_without_private_tags():
     projected, incomplete = public_workout(SAMPLE)
     assert not incomplete
-    assert "programming" not in projected and "benchmark" not in projected
+    assert projected["programming"] == {"source_kind": "gym"} and "benchmark" not in projected
     first = projected["blocks"][0]
     assert first["rest_after_seconds"] == 180 and first["role"] == "main"
     assert first["exercises"][0]["segment"] == "buy_in"
@@ -100,3 +100,18 @@ async def test_class_save_edit_and_gym_publish_guard(discover_api):  # noqa: F81
     legacy["programming"] = {"source_kind": "self", "date": "2026-11-18"}
     changed = await api.client.put(path, json=legacy, headers=GENERATION, params={"expected_revision": edited.json()["revision"]})
     assert changed.json()["content"]["programming"]["date"] == "2026-11-18" and changed.json()["content"]["programming"]["source_kind"] == "gym"
+
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+async def test_restore_cannot_remove_gym_privacy(discover_api):  # noqa: F811
+    api = discover_api
+    legacy = {"title": "Before classification", "blocks": SAMPLE["blocks"]}
+    created = (await api.client.post("/api/v1/workouts/library", json=legacy, headers=GENERATION)).json()
+    path = f'/api/v1/workouts/library/{created["id"]}'
+    version = (await api.client.get(path + "/versions")).json()[0]
+    edited = await api.client.put(path, json=SAMPLE, headers=GENERATION, params={"expected_revision": 1})
+    assert edited.status_code == 200, edited.text
+    restored = await api.client.post(path + f'/versions/{version["id"]}/restore', headers=GENERATION, params={"expected_revision": 2})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["content"]["programming"]["source_kind"] == "gym"
+    assert (await api.client.post(path + "/publish", headers=GENERATION)).status_code == 422

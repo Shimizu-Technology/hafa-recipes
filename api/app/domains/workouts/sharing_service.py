@@ -165,6 +165,9 @@ def project_workout(raw, *, include_source_url=False):
         source_url=safe_source_url(source.source_url) if include_source_url else None,
         blocks=[],
     )
+    # Keep only the privacy classification so recipient copies cannot publish it.
+    if (source_data.get("programming") or {}).get("source_kind") == "gym":
+        projected["programming"] = {"source_kind": "gym"}
     if include_source_url:
         from app.domains.workouts.source_media import asset_id
 
