@@ -36,6 +36,8 @@ export default function EventDetail() {
   if (!row) return <Screen title={missing ? "Event unavailable" : "Opening this event"} back>{error ? <Notice error>{error}</Notice> : <Loading />}</Screen>;
   const shown = occurrenceAt(row, at), when = eventWhen(shown, today, timezone), original = shown.original_start, repeating = !!row.data.recurrence,
     date = dayName(recordDay(shown.occurrence_start, shown.all_day ? shown.timezone : timezone), today),
+    // Mid-sentence, "Today" reads as "today": "Changes today only."
+    inSentence = /^(Today|Tomorrow|Yesterday)\b/.test(date) ? date[0].toLowerCase() + date.slice(1) : date,
     child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordIds(m).includes(row.id) && m.type !== "import");
   const family = familySpaces(b.state.bootstrap)[0], inFamily = !!family && !!row.space_id, justMe = inFamily && row.space_id !== family.id;
   const pregnancy = pregnancyForVisit(row, children, row.space_id ?? b.state.bootstrap!.personal_space_id);
@@ -57,13 +59,13 @@ export default function EventDetail() {
   const deleteAll = () => b.queue({ id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "delete", record: row });
   /** A repeating event asks which dates a change reaches, as a second sheet straight after the menu. */
   const scopes: MenuAction[] = [
-    { title: "Just this one", icon: "calendar-number-outline", detail: `${asking === "edit" ? "Changes" : "Removes"} ${date} only. The other dates stay as they are.`,
-      onPress: () => asking === "edit" ? edit("one") : void remove(() => save(withoutDate(row, original)), `Removed ${date}.`) },
-    { title: "All future", icon: "calendar-outline", detail: `${asking === "edit" ? "Changes" : "Removes"} ${date} and every date after it. Earlier dates stay as they are.`,
+    { title: "Just this one", icon: "calendar-number-outline", detail: `${asking === "edit" ? "Changes" : "Removes"} ${inSentence} only. The other dates stay as they are.`,
+      onPress: () => asking === "edit" ? edit("one") : void remove(() => save(withoutDate(row, original)), `Removed ${inSentence}.`) },
+    { title: "All future", icon: "calendar-outline", detail: `${asking === "edit" ? "Changes" : "Removes"} ${inSentence} and every date after it. Earlier dates stay as they are.`,
       destructive: asking === "delete", onPress: () => {
         if (asking === "edit") return edit("future");
         const ended = withoutFuture(row, original);
-        void remove(() => ended ? save(ended) : deleteAll(), ended ? `Removed ${date} and later dates.` : "Event removed.");
+        void remove(() => ended ? save(ended) : deleteAll(), ended ? `Removed ${inSentence} and later dates.` : "Event removed.");
       } },
   ];
   const removeEvent = () => repeating ? setAsking("delete") : Alert.alert("Delete this event?", appointment || visitQuestions(b.records, row.id).length + visitNotes(b.records, row.id).length > 0 ? "This removes it from your calendar. Its questions and notes stay in your Journal." : "This removes it from your calendar.", [

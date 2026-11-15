@@ -80,6 +80,14 @@ it("asks which dates an edit to a repeating event reaches, in plain words, befor
   await pick("All future");
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" } });
 });
+it("writes today in lower case mid-sentence", async () => {
+  setup([{ ...event(), occurred_at: "2026-11-01T00:00:00.000Z" }]);
+  mock.params = { id: "class", at: "2026-11-08T00:00:00.000Z" };
+  await mount(EventDetail);
+  await menu("Edit event");
+  expect(sheetItem("Just this one").props.accessibilityLabel).toBe("Just this one. Changes today only. The other dates stay as they are.");
+  expect(sheetItem("All future").props.accessibilityLabel).toBe("All future. Changes today and every date after it. Earlier dates stay as they are.");
+});
 it("goes straight to the editor for an event that doesn't repeat", async () => {
   setup([event({ recurrence: null })]);
   mock.params = { id: "class" };
