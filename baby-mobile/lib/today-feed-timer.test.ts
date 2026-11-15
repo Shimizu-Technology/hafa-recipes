@@ -74,6 +74,7 @@ vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => undefined }));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: false }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
+vi.mock("../components/this-week", () => ({ ThisWeek: "ThisWeek", DayOfLife: "DayOfLife" }));
 vi.mock("@/components/tips", () => ({ BabyAgeCard: "BabyAgeCard", PregnancyHero: "PregnancyHero", TipSection: "TipSection", WeekDetails: "WeekDetails" }));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/components/event-row", () => ({ NextEvent: "NextEvent" }));
@@ -246,7 +247,9 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   // Add has these now: nothing here says it twice.
   for (const label of ["Save a link", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(0);
   // Under the tiles, above everything else, so she needn't scroll for it in labour.
-  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Hospital bag", "Lists & routines", "Journal"]);
+  // This week leads with the bag, so the bag's own row is only for when that card is hidden.
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Lists & routines", "Journal"]);
+  expect(find("ThisWeek", () => true)).toHaveLength(1);
   scope.push.mockClear();
   await act(async () => (find("Row", p => p.title === "Journal")[0].props.onPress as () => void)());
   expect(scope.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/journal", params: expect.objectContaining({ filter: "all" }) }));
