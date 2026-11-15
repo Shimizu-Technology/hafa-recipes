@@ -142,6 +142,8 @@ class ImportRequest(DomainModel):
 
     @model_validator(mode="after")
     def require_private_review(self):
+        if self.source.class_parts:
+            self.is_public = False
         if self.replace_target and (self.auto_save or self.is_public):
             raise ValueError("Updating an existing workout requires private review before saving")
         return self
@@ -382,6 +384,12 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
+    original_programming = row.result["workout"].get("programming") or (row.payload or {}).get("programming") or {}
+    if (row.payload or {}).get("class_parts") or original_programming.get("source_kind") == "gym":
+        content["programming"] = {**(content.get("programming") or original_programming), "source_kind": "gym"}
+        if request.is_public:
+            raise HTTPException(422, "Gym programming stays private.")
+        row.result = {**row.result, "workout": {**row.result["workout"], "programming": {**original_programming, "source_kind": "gym"}}}
     from app.domains.workouts.source_media import normalize_cover_origin
 
     await normalize_cover_origin(db, user.id, generation, content)
