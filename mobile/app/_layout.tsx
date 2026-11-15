@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { TextScaleContext } from '@/components/Themed';
 import { useTextSize } from '@/hooks/useTextSize';
 import { Button, Text, useColors } from '@/components/Themed';
@@ -294,7 +295,7 @@ function RootLayoutNav() {
     <TextScaleContext.Provider value={scale}>
     <QueryClientProvider client={queryClient}>
       <NavigationThemeProvider value={navigationTheme}>
-        <TimerProvider>
+        <PublishingConfirmationProvider><TimerProvider>
           <AuthTokenSync>
             <AccountAccessGate>
               <GroceryWidgetCoordinator />
@@ -352,7 +353,7 @@ function RootLayoutNav() {
               </ExtractionProvider>
             </AccountAccessGate>
           </AuthTokenSync>
-        </TimerProvider>
+        </TimerProvider></PublishingConfirmationProvider>
       </NavigationThemeProvider>
     </QueryClientProvider>
     </TextScaleContext.Provider>

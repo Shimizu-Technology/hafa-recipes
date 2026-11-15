@@ -10,9 +10,12 @@ import {
   type PublishingDisclosureStatus,
 } from '@/lib/recipePublishing';
 
+import { usePublishingConfirmation } from '@/contexts/PublishingConfirmation';
+
 const publishingDisclosureKey = ['publishingDisclosure'] as const;
 
 export function usePublishingDisclosure() {
+  const confirm = usePublishingConfirmation();
   const creationScope = recipeScope();
   const queryClient = ownerQueryClient(useQueryClient(), creationScope);
   const inFlight = useRef(false);
@@ -46,42 +49,19 @@ export function usePublishingDisclosure() {
       assertRecipeScope(creationScope);
       queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, status);
       if (!isScreenActive.current) return false;
-      if (!status.requires_acceptance) return true;
-
-      return await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          'Before you publish recipes',
-          recipePreview
-            ? `${PUBLISHING_DISCLOSURE_MESSAGE}\n\nFor this recipe: ${recipePreview}`
-            : PUBLISHING_DISCLOSURE_MESSAGE,
-          [
-            { text: 'Keep private', style: 'cancel', onPress: () => { chosePrivate.current = true; resolve(false); } },
-            {
-              text: 'Agree and publish',
-              onPress: async () => {
-                try {
-                  assertRecipeScope(creationScope);
-                  const accepted = await api.acceptPublishingDisclosure(status.current_version);
-                  queryClient.setQueryData<PublishingDisclosureStatus>(
-                    publishingDisclosureKey,
-                    accepted,
-                  );
-                  resolve(isScreenActive.current);
-                } catch {
-                  if (isScreenActive.current) {
-                    Alert.alert(
-                      'Couldn’t update publishing preference',
-                      'Please check your connection and try again.',
-                    );
-                  }
-                  resolve(false);
-                }
-              },
-            },
-          ],
-          { cancelable: true, onDismiss: () => resolve(false) },
-        );
+      const approved = await confirm({
+        message: [status.requires_acceptance ? PUBLISHING_DISCLOSURE_MESSAGE : '', recipePreview || ''].filter(Boolean).join('\n\n'),
+        label: status.requires_acceptance ? 'Agree and make public' : 'Make public',
       });
+      assertRecipeScope(creationScope);
+      if (!approved) { chosePrivate.current = true; return false; }
+      if (!isScreenActive.current) return false;
+      if (status.requires_acceptance) {
+        const accepted = await api.acceptPublishingDisclosure(status.current_version);
+        assertRecipeScope(creationScope);
+        queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, accepted);
+      }
+      return isScreenActive.current;
     } catch {
       if (isScreenActive.current) {
         Alert.alert(
@@ -94,7 +74,7 @@ export function usePublishingDisclosure() {
       inFlight.current = false;
       if (isMounted.current) setIsCheckingDisclosure(false);
     }
-  }, [queryClient]);
+  }, [queryClient, confirm]);
 
   return { requestPublishing, isCheckingDisclosure, didChoosePrivate: () => chosePrivate.current };
 }
