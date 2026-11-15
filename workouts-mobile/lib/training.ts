@@ -333,6 +333,10 @@ export function capRemainingSeconds(d: SessionDraft, now = Date.now()) {
   const cap = capSeconds(d);
   return cap == null ? null : Math.max(0, Math.ceil(cap - sessionElapsedMilliseconds(d, now) / 1000));
 }
+/** The clock as its screen shows it: an AMRAP counts down to its cap; other timed clocks show time elapsed. */
+export function displayedClockSeconds(d: SessionDraft, now = Date.now()) {
+  return d.timed_circuit ? capRemainingSeconds(d, now)! : Math.floor(sessionElapsedMilliseconds(d, now) / 1000);
+}
 /**
  * Rest after `step`: between rounds, or after a superset/circuit pass (A1 then A2, then rest),
  * the block's rest applies; otherwise the exercise's own rest.

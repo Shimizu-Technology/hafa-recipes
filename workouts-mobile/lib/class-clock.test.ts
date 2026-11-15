@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createTrainingStore, leadInRemaining, sessionElapsedMilliseconds, restRemainingSeconds, type SessionDraft } from "./training";
+import { createTrainingStore, displayedClockSeconds, leadInRemaining, sessionElapsedMilliseconds, restRemainingSeconds, type SessionDraft } from "./training";
 import { leadInSeconds, reminderErrors, defaultReminderSettings } from "./reminders";
 import type { ActualSet, Workout } from "./models";
 
@@ -102,6 +102,13 @@ describe("relaunch", () => {
       const next = await again.relaunch(); await next.confirmKeptClock(asked);
       expect(next.snapshot().active!.active_milliseconds).toBe(expected);
     }
+  });
+  it("the relaunch sheet reads the clock the way its screen does: an AMRAP counts down, an EMOM counts up", async () => {
+    const amrap = await session();
+    // 610 s into a 15-minute AMRAP, the screen shows 4:50 left; stopping there must say 4:50, not 10:10.
+    expect(displayedClockSeconds(amrap.d(), 620_000)).toBe(290);
+    const interval = await session(emom);
+    expect(displayedClockSeconds(interval.d(), 300_000)).toBe(290);
   });
   it("a stop time before the cap trims a clock the cap already froze", async () => {
     const { store, at, relaunch } = await session();

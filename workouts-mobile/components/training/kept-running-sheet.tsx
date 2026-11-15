@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Button, Copy, Row, Sheet, formatClock } from "@/components/ui";
-import { sessionElapsedMilliseconds, type SessionDraft } from "@/lib/training";
+import { displayedClockSeconds, sessionElapsedMilliseconds, type SessionDraft } from "@/lib/training";
 
 const minute = 60_000;
 const timeOfDay = (at: number) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-/** Session clock text if it had stopped at `at`. */
+/** Clock text, as the screen shows it, if it had stopped at `at`. */
 export function clockAt(d: SessionDraft, at: number) {
-  return formatClock(Math.floor(sessionElapsedMilliseconds(d, at) / 1000));
+  return formatClock(displayedClockSeconds(d, at));
 }
 
 /**
@@ -29,7 +29,7 @@ export function KeptRunningSheet({ d, now, busy, cap, onKeep, onStoppedAt }: {
     <Sheet visible onClose={onKeep} title="Your clock kept running">
       <Copy kind="numeric" align="center" style={{ fontSize: 48, lineHeight: 56 }}>{clock}</Copy>
       <Copy tone="muted" align="center">
-        {capped ? `It reached the ${formatClock(cap!)} cap.` : cap != null ? `On the clock, of ${formatClock(cap)}.` : "On the clock."}{" "}
+        {capped ? `It reached the ${formatClock(cap!)} cap.` : cap != null ? `${d.timed_circuit ? "Left" : "On the clock"}, of ${formatClock(cap)}.` : "On the clock."}{" "}
         You left Håfa at {timeOfDay(left)}.
       </Copy>
       {choosing ? (
