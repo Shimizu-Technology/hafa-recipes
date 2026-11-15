@@ -30,9 +30,14 @@ export const whenToCall = (week: number | undefined, name?: string) => {
   return week !== undefined && week >= 37 ? shown : [shown[0], shown[2]];
 };
 
-/** On someone else's phone in the family: the person expecting, by id and name. Null on her own phone, or when it isn't known. */
-export function supporting(child: { created_by?: string | null } | null | undefined, owner: string | null | undefined, people?: Record<string, string>) {
+/**
+ * On someone else's phone in the family: the person expecting, by id and name. Only when whoever added the pregnancy
+ * is clearly the other parent, an active parent in this family who isn't this phone's owner; otherwise null, and the
+ * screen keeps its everyday words. Null too until the family has been read.
+ */
+export function supporting(child: { created_by?: string | null } | null | undefined, owner: string | null | undefined,
+  people: Record<string, string> | undefined, members: readonly { app_user_id: string; role: string; status: string }[] | null) {
   const id = child?.created_by;
-  if (!id || id === owner) return null;
+  if (!id || id === owner || !members?.some((member) => member.app_user_id === id && member.role === "parent" && member.status === "active")) return null;
   return { id, name: people?.[id]?.trim() || "" };
 }

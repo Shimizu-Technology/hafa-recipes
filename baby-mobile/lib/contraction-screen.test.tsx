@@ -274,15 +274,27 @@ it("ships every preterm sign and do-not-wait route", async () => {
   for (const phrase of ["Before 37 weeks", "don’t wait", "cramps with or without diarrhea", "watery, bloody or mucus discharge", "more discharge", "pelvic or lower belly pressure", "constant low, dull backache", "water breaking with a gush or trickle", "right away or go to the hospital"])
     expect(text).toContain(phrase);
 });
-it("reads as Kami's contractions on her partner's phone, and plain Contractions on hers", async () => {
+it("reads as Kami's contractions on her partner's phone, and plain Contractions on hers or when it isn't clear", async () => {
   const b = setup(), title = () => renderer!.root.findAll((n) => String(n.type) === "Screen")[0].props.title;
-  b.state.bootstrap!.children[0].created_by = "kami";
-  b.state.bootstrap!.people = { kami: "Kami", leon: "Leon" };
-  Object.assign(b, { owner: "leon" });
+  const people = (kamiRole: string) => ({ items: [{ app_user_id: "kami", role: kamiRole, status: "active", access_version: 1, display_name: "Kami" },
+    { app_user_id: "leon", role: "parent", status: "active", access_version: 1, display_name: "Leon" }] });
+  Object.assign(b.state.bootstrap!, { people: { kami: "Kami", leon: "Leon" }, reminders: { push: true, family_news: true },
+    spaces: [{ id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }] });
+  Object.assign(b.state.bootstrap!.children[0], { created_by: "kami", space_id: "fam" });
+  Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people("parent")) } });
   await mount();
   expect(title()).toBe("Kami’s contractions");
   await act(async () => renderer!.unmount());
   Object.assign(b, { owner: "kami" });
+  await mount();
+  expect(title()).toBe("Contractions");
+  await act(async () => renderer!.unmount());
+  // Kami isn't a parent here (or the family can't be read): no guessing.
+  Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people("caregiver")) } });
+  await mount();
+  expect(title()).toBe("Contractions");
+  await act(async () => renderer!.unmount());
+  Object.assign(b, { api: { ...b.api, familyMembers: vi.fn(async () => { throw new Error("offline"); }) } });
   await mount();
   expect(title()).toBe("Contractions");
 });

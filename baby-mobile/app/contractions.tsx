@@ -13,8 +13,7 @@ import { useTodayCare } from "@/lib/today-care";
 import { Button, Card, Copy, Empty, Grouped, Notice, PressTarget, Row, Screen, Section, fonts, radii, tap, typeScale, useColors, useToast } from "@/components/ui";
 import { useSecondClock } from "@/components/feed-timer";
 import { useMinuteClock } from "@/components/care-glance";
-import { LaborCard } from "../components/labor-card";
-import { supporting } from "../lib/labor";
+import { LaborCard, useLaborFamily } from "../components/labor-card";
 import { DoctorNote } from "@/components/doctor-note";
 import { MedicalSource } from "@/components/medical-source";
 import { SyncStatus } from "@/components/sync-status";
@@ -34,8 +33,8 @@ export default function Contractions() {
     writing = useRef(false),
     week = child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined,
     guidance = contractionGuidance(week),
-    // On her partner's phone, timing for her: "Kami's contractions".
-    support = supporting(child, b.owner, b.state.bootstrap!.people);
+    // On her partner's phone, timing for her: "Kami's contractions". Only when that's clearly who it is.
+    family = useLaborFamily(child), support = family.support;
   async function save(action: () => Promise<() => Promise<unknown>>, message: string) {
     if (writing.current) return;
     writing.current = true;
@@ -71,7 +70,7 @@ export default function Contractions() {
     </Card>)}
     <Copy numeric kind="label">{hourLine(lastHour(rows, now))}</Copy>
     {/* Tell her partner, when to call, the numbers she saved and the bag, in one place under the timer. */}
-    <LaborCard child={child} today={today} running={!!running} week={week} />
+    <LaborCard child={child} today={today} running={!!running} week={week} family={family} />
 
     {/* Being offline already has its one calm line, up top. */}
     {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}
