@@ -70,8 +70,8 @@
         return
       }
       controller.captureDurable = true; controller.capturePayload = nil; controller.captureIsPublic = controller.captureClassPage ? false : isPublic
-      controller.captureDoneTitle = "Import workout"
-      controller.showConfirmation(title: "Save this workout", detail: "Choose where this workout goes. Incomplete imports always stay private.", finished: false)
+      controller.captureDoneTitle = controller.captureClassPage ? "Keep class source" : "Import workout"
+      controller.showConfirmation(title: controller.captureClassPage ? "Review your class in Håfa Workouts" : "Save this workout", detail: controller.captureClassPage ? "This class stays private. Open Håfa Workouts to confirm its date and review the parts before importing." : "Choose where this workout goes. Incomplete imports always stay private.", finished: false)
     }
   }
   @objc private func visibilityChanged(_ sender: UIButton) {
@@ -97,6 +97,7 @@
         controller.captureDetail?.text = "Couldn’t save the choice. Try again. Your source and last saved choice are safe."
         return
       }
+      if controller.captureClassPage { controller.completeConfirmation(accepted: false); return }
       controller.captureImporting = true
       controller.showConfirmation(title: "Saving your workout", detail: "Adding the source to Håfa Workouts.", finished: false)
       controller.enqueueCapture(key)
@@ -113,8 +114,8 @@
   private func completeConfirmation(accepted: Bool) {
     guard !captureConfirmationFinished else { return }
     captureConfirmationFinished = true
-    showConfirmation(title: accepted ? "Import started" : "Saved for later",
-      detail: accepted ? "Your workout will be saved in your library. You can keep browsing."
+    showConfirmation(title: captureClassPage ? "Class ready to review" : accepted ? "Import started" : "Saved for later",
+      detail: captureClassPage ? "Open Håfa Workouts to confirm the class date and review its parts. Nothing is imported until you confirm." : accepted ? "Your workout will be saved in your library. You can keep browsing."
         : "Your source is saved on this device. Open Håfa Workouts to finish importing it.", finished: true)
   }
   private func showConfirmation(title: String, detail: String, finished: Bool) {

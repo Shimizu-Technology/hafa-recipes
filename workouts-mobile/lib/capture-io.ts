@@ -239,7 +239,7 @@ export async function normalizeDocument(file: { uri: string; mimeType: string; n
     throw Error("Share a PDF or text document, or choose clear screenshots instead.");
   const info = await FileSystem.getInfoAsync(file.uri); guard();
   if (!info.exists || info.isDirectory || info.size > (classParts ? 10 * 1024 * 1024 : 128 * 1024))
-    throw Error("Use an available document under 128 KB, paste its text, or share screenshots.");
+    throw Error(classParts ? "Use an available class PDF under 10 MiB, paste its text, or share screenshots." : "Use an available document under 128 KB, paste its text, or share screenshots.");
   const lease = await journal.begin(owner, Crypto.randomUUID());
   try {
     const uri = await ownFile(file.uri, file.mimeType === "application/pdf" ? "pdf" : "txt", guard, lease);

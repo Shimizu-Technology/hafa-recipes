@@ -9,12 +9,13 @@ import { archiveCapturedImport, sharedWorkoutURL, updateImportReferences, type C
 import { createPrivateDraftSlot } from "@/lib/private-form";
 import { normalizeImages, normalizeDocument, cleanupCaptureFiles } from "@/lib/capture-io";
 import * as NativeShare from "@/modules/hafa-workouts-share/src";
-import { isClassPage } from "@/lib/class-import";
+import * as FileSystem from "expo-file-system/legacy";
+import { isClassPage, classText, classDate } from "@/lib/class-import";
 import { useNativeShareSession } from "./native-share-session";
 export function ShareCapture() {
   const stock = useShareIntentContext();
   const cache = useQueryClient();
-  const { owner, enrollment, storage, localDrafts, isCurrentAccount } = useTraining();
+  const { api, owner, enrollment, storage, localDrafts, isCurrentAccount } = useTraining();
   const [native, setNative] = useState<NativeShare.NativeCapture | null>(null);
   const [queueVersion, setQueueVersion] = useState(0);
   useNativeShareSession();
@@ -91,14 +92,16 @@ export function ShareCapture() {
         created_at: new Date().toISOString(),
         kind: classPage ? "text" : sourceURL ? "url" : "text",
         source_url: classPage ? (() => { const url = new URL(sourceURL!); url.search = ""; url.hash = ""; return url.href; })() : sourceURL ?? "",
-        text: shareIntent.text ?? "",
+        text: classPage ? classText(shareIntent.text ?? "") : shareIntent.text ?? "",
         files: [],
         ...(native ? { is_public: native.isPublic } : {}),
-        ...(classPage ? { class_parts: true, is_public: false, auto_save: false, programming: { source_kind: "gym" as const, app_name: "WodUp", date: new Date().toLocaleDateString("en-CA") } } : {})
+        ...(classPage ? { class_parts: true, is_public: false, auto_save: false, programming: { source_kind: "gym" as const, app_name: "WodUp" } } : {})
       };
-      if (classPage) {
+      async function prepareClass() {
+        const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 }); guard();
+        if (!profile) throw Error("Set up your training profile timezone before importing a class.");
         const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`); guard();
-        draft.programming = { ...draft.programming, source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK" };
+        draft = { ...draft, class_parts: true, is_public: false, auto_save: false, programming: { ...draft.programming, date: classDate(profile.timezone), source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK" } };
       }
       async function preserveNativeSource(saved: Awaited<ReturnType<typeof slot.load>>) {
         const prior = saved.value;
@@ -137,6 +140,7 @@ export function ShareCapture() {
         return true;
       }
       try {
+        if (classPage) await prepareClass();
         if (native?.jobId) {
           guard();
           await localDrafts.save(owner, `import-source-visibility:${generation}:${native.jobId}`, native.isPublic); guard();
@@ -154,7 +158,18 @@ export function ShareCapture() {
           if (shareIntent.files.some((f) => !f.mimeType.startsWith("image/"))) {
             if (shareIntent.files.length !== 1) throw Error("Share one PDF or text document, or up to four images together.");
             const file = shareIntent.files[0];
-            draft = { ...draft, kind: "document", files: await normalizeDocument({ uri: file.path, mimeType: file.mimeType, name: file.fileName }, guard, owner) };
+            if (file.mimeType === "application/pdf" && !draft.class_parts) {
+              const info = await FileSystem.getInfoAsync(file.path); guard();
+              if (info.exists && !info.isDirectory && info.size > 128 * 1024) {
+                const confirmed = await new Promise<boolean>(resolve => Alert.alert("Is this a class?",
+                  "Class PDFs can be up to 10 MiB and stay private. You’ll confirm the date and review the parts before saving.",
+                  [{ text: "Cancel", style: "cancel", onPress: () => resolve(false) }, { text: "Yes, a class", onPress: () => resolve(true) }],
+                  { cancelable: true, onDismiss: () => resolve(false) }));
+                guard(); if (!confirmed) { if (native) setNative(null); else stock.resetShareIntent(); return; }
+                await prepareClass();
+              }
+            }
+            draft = { ...draft, kind: "document", files: await normalizeDocument({ uri: file.path, mimeType: file.mimeType, name: file.fileName }, guard, owner, draft.class_parts) };
           } else {
           draft = {
             ...draft,
@@ -216,7 +231,7 @@ export function ShareCapture() {
         if (native && !(await NativeShare.acknowledge(native.captureKey))) throw Error("Your source is saved. Reopen Workouts to reconnect this share.");
         guard();
         resetShareIntent();
-        if (mounted) router.push({ pathname: "/capture", params: { shared: "1", request_id: draft.request_id } });
+        if (mounted) router.push({ pathname: "/capture", params: { shared: "1", request_id: draft.request_id, ...(draft.class_parts ? { class: "1" } : {}) } });
       } catch (e) {
         if ((e as { captureRegistrationUncertain?: boolean }).captureRegistrationUncertain) registered = true;
         let current = true;

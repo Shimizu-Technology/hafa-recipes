@@ -6,7 +6,7 @@ const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share
 function transformController(source, confirmation, store, loader) {
   if (!source.includes('let sharedKey: String = "<SCHEME>ShareKey"') && !source.includes('let sharedKey: String = "hafaworkoutsShareKey"'))
     throw Error("Workouts share capture requires the verified expo-share-intent 8.0.1 template.");
-  source = source.replace(/let sharedKey: String = "[^"\n]+"/, 'let sharedKey: String = "hafaworkoutsShareKey.\\(UUID().uuidString)"');
+  source = source.replace(/let sharedKey: String = "[^"\n]+"/, String.raw`let sharedKey: String = "hafaworkoutsShareKey.\(UUID().uuidString)"`);
   const loadingStart = source.indexOf("  private func handleViewLoad() {");
   const loadingEnd = source.indexOf("  private func dismissWithError", loadingStart);
   if (loadingStart < 0 || loadingEnd < 0 || !loader)

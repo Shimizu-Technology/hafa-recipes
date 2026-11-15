@@ -9,12 +9,13 @@ import { dateInTimezone } from "@/lib/training";
 export function TodaysClass() {
   const { api, owner, enrollment } = useTraining();
   const enabled = !!enrollment?.enrolled;
-  const library = useQuery({ queryKey: [owner, "library", enrollment?.generation], queryFn: api.library, enabled });
+  const library = useQuery({ queryKey: [owner, "library", "search", enrollment?.generation], queryFn: api.library, enabled });
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled });
   useFocusRefresh([library, profile], { enabled });
-  const today = dateInTimezone(new Date(), profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const today = profile.data ? dateInTimezone(new Date(), profile.data.timezone) : null;
   const classes = library.data?.filter(w => w.programming?.source_kind === "gym" && w.programming.date === today) ?? [];
   return <ListGroup>
+    {(profile.error || profile.data === null) && <><Notice error>Could not load your training timezone. Retry before choosing today’s class.</Notice><Button title="Retry timezone" secondary onPress={() => { void profile.refetch(); }} /></>}
     {library.error && <><Notice error>Could not load today’s classes.</Notice><Button title="Retry classes" secondary onPress={() => { void library.refetch(); }} /></>}
     {classes.map(w => <ListRow key={w.id} icon="barbell-outline" title={w.title} detail="Today’s class · Ready to train"
       onPress={() => router.push({ pathname: "/workout/[id]", params: { id: w.id } })} />)}

@@ -29,13 +29,16 @@ export function importSourceLabel(label: string) {
 }
 
 /** Retry exact source material; never infer exercises or overwrite a saved workout. */
-export function recoverySource(source: ExtractionRequest | null, sourceURL: string | undefined | null, caption: string): ExtractionRequest {
+export function recoverySource(source: ExtractionRequest | null, sourceURL: string | undefined | null, caption: string, programming?: ExtractionRequest["programming"]): ExtractionRequest {
   const classPage = isClassPage(sourceURL);
   const safeURL = classPage ? (() => { const url = new URL(sourceURL!); url.search = ""; url.hash = ""; return url.href; })() : sourceURL;
-  const fallback: ExtractionRequest | null = sourceURL && /^https?:\/\//i.test(sourceURL) ? { kind: classPage ? "text" : "url", source_url: safeURL!, ai_consent: true, ...(classPage ? { class_parts: true, programming: { source_kind: "gym" as const, app_name: "WodUp" } } : {}) } : null;
+  const fallback: ExtractionRequest | null = classPage || programming?.source_kind === "gym"
+    ? { kind: "text", source_url: safeURL ?? undefined, ai_consent: true, class_parts: true, programming: programming ?? { source_kind: "gym", app_name: "WodUp" } }
+    : sourceURL && /^https?:\/\//i.test(sourceURL) ? { kind: "url", source_url: sourceURL, ai_consent: true } : null;
   const original = source ?? fallback;
   if (!original && !caption.trim()) throw Error("This source is no longer available. Paste its caption or choose another source.");
   const text = [original?.text?.trim(), caption.trim()].filter(Boolean).join("\n\n");
+  if ((classPage || original?.class_parts) && original?.kind === "text" && !text) throw Error("This class source expired. Paste the class instructions to retry; WodUp links cannot be fetched.");
   if (text.length > 30000) throw Error("Use up to 30,000 characters of source instructions.");
   // The retained server payload can include internal saving metadata. Forward
   // source fields only, so an earlier public choice cannot leak into the retry.

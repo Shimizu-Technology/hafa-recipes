@@ -18,7 +18,7 @@ describe("Workouts native share generation", () => {
     const stock = require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
       .getShareExtensionViewControllerContent("hafaworkouts", "group.com.shimizutechnology.hafaworkouts", true);
     const source = transform(stock);
-    expect(source).toContain('"hafaworkoutsShareKey.\\(UUID().uuidString)"');
+    expect(source).toContain(String.raw`"hafaworkoutsShareKey.\(UUID().uuidString)"`);
     expect(source).toContain("private func handleText");
     expect(source).toContain("private func handleImages");
     expect(source).not.toContain("application.open(url)");
@@ -425,5 +425,17 @@ print("Bounded off-main capture contention and ordered retry passed")
     execFileSync("xcrun", ["swiftc", new URL("../modules/hafa-workouts-share/ios/HafaWorkoutsShareStore.swift", import.meta.url).pathname,
       join(directory, "main.swift"), "-o", binary], { timeout: 60000 });
     expect(execFileSync(binary, { encoding: "utf8", timeout: 10000 })).toContain("Bounded off-main capture contention and ordered retry passed");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 90000);
+it.skipIf(process.platform !== "darwin")("generated native captures receive distinct interpolated UUID keys", () => {
+  const stock = require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
+    .getShareExtensionViewControllerContent("hafaworkouts", "group.com.shimizutechnology.hafaworkouts", true);
+  const declaration = transform(stock).split("\n").find((line: string) => line.includes("let sharedKey:"));
+  const directory = mkdtempSync(join(tmpdir(), "hafa-share-keys-"));
+  try {
+    const main = join(directory, "main.swift"), binary = join(directory, "test");
+    writeFileSync(main, `import Foundation\nstruct Capture { ${declaration} }\nlet a = Capture(), b = Capture()\nassert(a.sharedKey != b.sharedKey)\nprint("Distinct capture keys passed")`);
+    execFileSync("xcrun", ["swiftc", main, "-o", binary], { timeout: 60000 });
+    expect(execFileSync(binary, { encoding: "utf8" })).toContain("Distinct capture keys passed");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90000);

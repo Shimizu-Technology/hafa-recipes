@@ -41,3 +41,12 @@ it("retains class mode and programming on retry and never falls back to fetching
   expect(recoverySource(null, "https://wodup.com/gym?token=private#scores", "A. Squats"))
     .toMatchObject({ kind: "text", class_parts: true, source_url: "https://wodup.com/gym" });
 });
+it("asks for class instructions before transport when an expired WodUp source has no text", () => {
+  expect(() => recoverySource(null, "https://wodup.com/gym?session=secret", "")).toThrow("Paste the class instructions");
+  expect(() => recoverySource({ kind: "text", class_parts: true, ai_consent: true }, null, "")).toThrow("Paste the class instructions");
+});
+it("keeps the parsed gym, track and date when the temporary upload is unavailable", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", track: "BUILD | BRIK", date: "2026-11-18" };
+  expect(recoverySource(null, "https://wodup.com/gym", "A. 10 squats", programming))
+    .toMatchObject({ kind: "text", class_parts: true, programming });
+});

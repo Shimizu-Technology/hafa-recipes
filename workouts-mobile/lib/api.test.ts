@@ -403,3 +403,20 @@ it("surfaces the expired source cover instruction when scheduling and keeps othe
   await expect(api.scheduleOnce({} as never, 1)).rejects.toMatchObject({ message: "Source cover expired; save the workout without its cover", status: 422 });
   await expect(api.scheduleOnce({} as never, 1)).rejects.toMatchObject({ message: "Some details could not be saved. Review your entries and try again.", status: 422 });
 });
+it("allows two minutes for authenticated class image/PDF uploads while ordinary imports keep their deadline", async () => {
+  const timer = vi.spyOn(globalThis, "setTimeout");
+  const transport = vi.fn().mockImplementation(async () => new Response("{}", { status: 202 }));
+  const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport, {
+    owner: "owner", binding: "bound", currentBinding: () => "bound",
+  });
+  try {
+    for (const kind of ["document", "images"] as const) {
+      timer.mockClear();
+      await api.startImport("class", { kind, class_parts: true, ai_consent: true }, 1, { auto_save: false, is_public: false });
+      expect(timer).toHaveBeenCalledWith(expect.any(Function), 120000);
+    }
+    timer.mockClear();
+    await api.startImport("ordinary", { kind: "text", text: "Squats", ai_consent: true }, 1);
+    expect(timer).toHaveBeenCalledWith(expect.any(Function), 20000);
+  } finally { timer.mockRestore(); }
+});

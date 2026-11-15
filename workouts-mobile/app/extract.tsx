@@ -8,7 +8,8 @@ import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { usePreventRemove } from "expo-router/react-navigation";
-import { useQuery } from "@tanstack/react-query";
+import { classDate, classText } from "@/lib/class-import";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccountButton, Button, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, useColors, useReducedMotion } from "@/components/ui";
 import { RecentImports } from "@/components/recent-imports";
 import { importSettingsSummary, linkLooksComplete } from "@/lib/add-composer";
@@ -24,6 +25,13 @@ export default function Capture() {
   const { shared, request_id: sharedRequest, class: classRoute } = useLocalSearchParams<{ shared?: string; request_id?: string; class?: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const navigation = useNavigation();
+  const cache = useQueryClient();
+  async function classDefaults() {
+    const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 });
+    currentScope();
+    if (!profile) throw Error("Set up your training profile timezone before importing a class.");
+    return classDate(profile.timezone);
+  }
   const [leaving, setLeaving] = useState(false);
   const afterSave = useRef<(() => void) | null>(null);
   const leavingBusy = useRef(false);
@@ -207,7 +215,7 @@ export default function Capture() {
           if (!active) return;
           next = { ...next, kind: "text", class_parts: true, is_public: false,
             programming: { source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK",
-              date: new Date().toLocaleDateString("en-CA") } };
+              date: await classDefaults() } };
         }
         draftRef.current = next;
         setDraft(next);
@@ -381,7 +389,7 @@ export default function Capture() {
       const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`); current();
       await persist({ ...draftRef.current, request_id: Crypto.randomUUID(), class_parts: true,
         kind: draftRef.current.kind === "url" ? "text" : draftRef.current.kind, source_url: "", is_public: false,
-        programming: { source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK", date: new Date().toLocaleDateString("en-CA") } });
+        programming: { source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK", date: await classDefaults() } });
     } catch (e) { if (mounted.current) setError((e as Error).message); }
     finally { guard.current = false; if (mounted.current) setBusy(false); }
   }
@@ -554,21 +562,27 @@ export default function Capture() {
     }
   }
   useEffect(() => {
-    if (shared !== "1" || !sharedRequest || automatic.current === sharedRequest || !ready || stale ||
+    if (draft.class_parts || shared !== "1" || !sharedRequest || automatic.current === sharedRequest || !ready || stale ||
       draft.request_id !== sharedRequest || draft.pending_import || draft.job_id || !capabilities.data?.imports ||
       !aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1) return;
     automatic.current = sharedRequest;
     void submit(true);
-  }, [shared, sharedRequest, ready, stale, draft.request_id, draft.pending_import, draft.job_id,
+  }, [draft.class_parts, shared, sharedRequest, ready, stale, draft.request_id, draft.pending_import, draft.job_id,
     capabilities.data?.imports, aiConsent.data]);
   const locked = busy || stale || !ready || !!draft.pending_import;
   async function paste() {
-    if (locked || guard.current || draftRef.current.kind !== "url") return;
+    if (locked || guard.current || (!draftRef.current.class_parts && draftRef.current.kind !== "url")) return;
     const before = draftRef.current;
     setPasteNote("");
     try {
       const text = await Clipboard.getStringAsync();
       if (!mounted.current || draftRef.current !== before) return;
+      if (draftRef.current.class_parts) {
+        const instructions = classText(text);
+        update({ text: instructions });
+        if (!instructions) setPasteNote("Paste the class instructions, not just its WodUp link.");
+        return;
+      }
       const link = sharedWorkoutURL(null, text);
       if (link) update({ source_url: link });
       else setPasteNote(text.trim() ? "No link found on your clipboard. To import text, choose Paste workout text below." : "Nothing to paste. Copy a workout link first, and allow pasting if your phone asks.");
@@ -612,10 +626,17 @@ export default function Capture() {
         <Notice>Automatic importing is not on for this build. You can still write a workout yourself.</Notice>
       )}
       <Card>
+        {classRoute === "1" && !draft.class_parts && <Notice>Your other source draft is still here. Switch it to Today’s class, or finish that import first.</Notice>}
         {!draft.class_parts && <Button title="Today’s class" secondary disabled={locked} onPress={() => { void chooseClass(); }} />}
         {draft.class_parts && <>
           <Button title="Start a different import" size="sm" variant="ghost" disabled={locked} onPress={() => setAbandon(true)} />
           <Notice>Gym programming stays private. Crop screenshots to leave out the leaderboard and comments.</Notice>
+          <Row gap={8} wrap>
+            <Button title="Paste" secondary inline disabled={locked} onPress={() => { void choose("text").then(() => paste()); }} />
+            <Button title="Screenshots" secondary inline disabled={locked} onPress={() => { void pick("images"); }} />
+            <Button title="PDF" secondary inline disabled={locked} onPress={() => { void pick("document"); }} />
+          </Row>
+          {!!pasteNote && <Copy kind="small" tone="warning">{pasteNote}</Copy>}
           <Field label="Gym" optional disabled={locked} value={draft.programming?.gym_name ?? ""} onChange={gym_name => update({ programming: { ...draft.programming, source_kind: "gym", gym_name } })} />
           <Field label="Track" optional disabled={locked} value={draft.programming?.track ?? ""} onChange={track => update({ programming: { ...draft.programming, source_kind: "gym", track } })} />
           <Field label="Class date (YYYY-MM-DD)" optional disabled={locked} value={draft.programming?.date ?? ""} onChange={date => update({ programming: { ...draft.programming, source_kind: "gym", date: date || null } })} />

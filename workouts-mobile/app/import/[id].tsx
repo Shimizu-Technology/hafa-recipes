@@ -10,6 +10,7 @@ import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
+import { isISODate } from "@/lib/sharing";
 import { partTags, restAfterText, segmentLabel } from "@/lib/class-parts";
 import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
 import { recoverySource } from "@/lib/import-recovery";
@@ -184,6 +185,7 @@ export default function ImportReview() {
     const errors = content.blocks.some(block => block.exercises.length)
       ? workoutErrors(content, q.data.status === "incomplete" && !sharing)
       : ["Add at least one exercise before saving this workout."];
+    if (content.programming?.date && !isISODate(content.programming.date)) errors.push("Use a class date like 2026-11-17.");
     if (errors.length) {
       setError(errors.join(" "));
       return;
@@ -270,9 +272,10 @@ export default function ImportReview() {
           if (originalSource) retained = await sourceFor(originalSource, current);
         }
         current();
+        const recovered = recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption, q.data.result?.workout?.programming);
         command = { request_id: Crypto.randomUUID(),
-          source: recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption),
-          auto_save: retained?.class_parts || isClass || q.data.replace_target ? false : capabilities.data.server_auto_save === true,
+          source: recovered,
+          auto_save: recovered.class_parts || isClass || q.data.replace_target ? false : capabilities.data.server_auto_save === true,
           ...(q.data.replace_target ? { replace_target: q.data.replace_target } : {}) };
         await localDrafts.save(owner, `import-retry:${generation}:${id}`, command); current();
         setRetryCommand(command);
@@ -433,6 +436,9 @@ export default function ImportReview() {
         {result && (
           <>
             {!hasExercises && reviewMessage && <Notice tone="warning">{reviewMessage}</Notice>}
+            {isClass && workout && !savedId && <Field label="Class date (YYYY-MM-DD)" optional
+              disabled={busy || !routeReady || !restored} value={workout.programming?.date ?? ""}
+              onChange={date => update({ ...workout, programming: { ...workout.programming, source_kind: "gym", date: date || null } })} />}
             {workout && (
               <>
                 {routeReady && editing && !savedId ? (

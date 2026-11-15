@@ -25,6 +25,8 @@ it("shows a saved gym class on its profile-local day and opens the shared workou
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
     const rows = tree!.root.findAllByType("ListRow" as any);
     expect(rows).toHaveLength(2);
+    expect(cache.getQueryData(["owner", "library", "search", 1])).toHaveLength(3);
+    expect(f.library).toHaveBeenCalledOnce();
     expect(rows[0].props.detail).toBe("Today’s class · Ready to train");
     await act(async () => rows[0].props.onPress());
     expect(f.push).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "today-class" } });
@@ -33,5 +35,25 @@ it("shows a saved gym class on its profile-local day and opens the shared workou
   } finally {
     if (tree) await act(async () => tree!.unmount());
     cache.clear(); vi.useRealTimers();
+  }
+});
+it("keeps classes hidden when the profile timezone fails and offers a retry", async () => {
+  f.profile.mockReset(); f.library.mockReset(); f.push.mockClear();
+  f.profile.mockRejectedValueOnce(Error("Offline"));
+  f.library.mockResolvedValue([{ ...nov17Class, id: "class" }]);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  let tree: ReturnType<typeof create> | undefined;
+  try {
+    await act(async () => { tree = create(createElement(QueryClientProvider, { client: cache }, createElement(TodaysClass))); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(tree!.root.findAllByType("ListRow" as any)).toHaveLength(1);
+    expect(tree!.root.findAllByType("Notice" as any)).toHaveLength(1);
+    f.profile.mockResolvedValue({ timezone: "Pacific/Guam" });
+    const retry = tree!.root.findAllByType("Button" as any).find(n => n.props.title === "Retry timezone")!;
+    await act(async () => retry.props.onPress());
+    expect(f.profile).toHaveBeenCalledTimes(2);
+  } finally {
+    if (tree) await act(async () => tree!.unmount());
+    cache.clear();
   }
 });

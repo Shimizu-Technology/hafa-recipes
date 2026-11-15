@@ -3334,3 +3334,98 @@ it("leaving class mode clears its source instead of making gym programming publi
   expect(captured.class_parts).toBeUndefined();
   expect(captured.programming).toBeUndefined();
 });
+it("a Safari class waits on the form, uses profile-local today, removes copied WodUp URLs and sends an edited date only after confirmation", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
+  try {
+    fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+    const incoming = { request_id: "safari-class", generation: 1, class_parts: true, kind: "text", source_url: "https://wodup.com/gym", text: "A. Squats", files: [], created_at: new Date().toISOString() };
+    fixture.params = { shared: "1", request_id: incoming.request_id, class: "1" };
+    fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ ...incoming, programming: { source_kind: "gym", date: "2026-11-17" } }));
+    fixture.capabilities.mockResolvedValue(serverCaps);
+    fixture.startImport.mockResolvedValue({ id: "confirmed-class" });
+    await mount(Capture);
+    expect(fixture.startImport).not.toHaveBeenCalled();
+    await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-11-18"));
+    await click("Import workout");
+    expect(fixture.sourceFor.mock.calls[0][0].programming.date).toBe("2026-11-18");
+  } finally { vi.useRealTimers(); }
+});
+it("a URL-only Safari share opens an empty class form with profile-local today", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
+  try {
+    fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+    fixture.share = true;
+    fixture.intent = { webUrl: "https://wodup.com/gym?secret=1#scores", text: "https://wodup.com/gym?secret=1#scores", files: [] };
+    await mount(ShareCapture);
+    const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+    expect(captured).toMatchObject({ kind: "text", class_parts: true, text: "", source_url: "https://wodup.com/gym", programming: { date: "2026-11-17" } });
+    fixture.params = { shared: "1", request_id: captured.request_id, class: "1" };
+    await unmount(); await mount(Capture);
+    expect(fixture.startImport).not.toHaveBeenCalled();
+    expect(button("Import workout").props.disabled).toBe(true);
+  } finally { vi.useRealTimers(); }
+});
+it("shared WodUp PDFs use class limits; unknown large PDFs require class confirmation", async () => {
+  const file = { path: "file:///shared/class.pdf", mimeType: "application/pdf", fileName: "Class.pdf" };
+  fixture.share = true;
+  fixture.intent = { webUrl: "https://wodup.com/gym", text: "", files: [file] };
+  fixture.normalizeDocument.mockResolvedValue([{ uri: "file:///cache/class.pdf", mime_type: "application/pdf", owned: true, name: "Class.pdf" }]);
+  await mount(ShareCapture);
+  expect(fixture.normalizeDocument).toHaveBeenCalledWith(expect.anything(), expect.any(Function), fixture.owner, true);
+  await unmount(); fixture.map.clear(); fixture.normalizeDocument.mockClear(); fixture.resetIntent.mockClear();
+  fixture.photoInfo.mockResolvedValue({ exists: true, isDirectory: false, size: 1024 * 1024 });
+  fixture.intent = { webUrl: "", text: "", files: [file] };
+  await mount(ShareCapture);
+  expect(fixture.alert.mock.calls.at(-1)![0]).toBe("Is this a class?");
+  expect(fixture.normalizeDocument).not.toHaveBeenCalled();
+  await act(async () => fixture.alert.mock.calls.at(-1)![2][1].onPress());
+  expect(fixture.normalizeDocument).toHaveBeenCalledWith(expect.anything(), expect.any(Function), fixture.owner, true);
+});
+it("class route offers to switch an existing source, keeps its content and uses profile-local today", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
+  try {
+    fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+    fixture.params = { class: "1" };
+    fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ request_id: "other", generation: 1, kind: "text", text: "10 squats", source_url: "", files: [] }));
+    await mount(Capture);
+    expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
+    await click("Today’s class");
+    expect(nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.value).toBe("2026-11-17");
+    expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
+    expect(button("Paste")).toBeTruthy(); expect(button("Screenshots")).toBeTruthy(); expect(button("PDF")).toBeTruthy();
+  } finally { vi.useRealTimers(); }
+});
+it("the parsed class review accepts an edited date and rejects invalid dates without saving", async () => {
+  fixture.params = { id: "class-review" };
+  fixture.importJob.mockResolvedValue({ id: "class-review", generation: 1, status: "ready", result: { workout: nov17Class, warnings: [], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] } } });
+  fixture.importSource.mockResolvedValue({ kind: "text", class_parts: true });
+  fixture.acceptImport.mockResolvedValue({ ...nov17Class, id: "saved" });
+  await mount(ImportReview);
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-02-30"));
+  await click("Save workout"); expect(fixture.acceptImport).not.toHaveBeenCalled();
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-11-18"));
+  await click("Save workout");
+  expect(fixture.acceptImport.mock.calls[0][1].programming.date).toBe("2026-11-18");
+});
+it("expired WodUp retries never auto-save, even when no workout or local source remains", async () => {
+  fixture.params = { id: "expired-class" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "expired-class", generation: 1, status: "expired", result: { workout: null, warnings: [], evidence: [], source: { url: "https://wodup.com/gym", platform: "text", channels: [], coverage_notes: [] } } });
+  fixture.importSource.mockRejectedValue(new ApiError("Expired", 410));
+  fixture.startImport.mockResolvedValue({ id: "retried", generation: 1 });
+  await mount(ImportReview);
+  await click("Retry this source");
+  expect(fixture.startImport).not.toHaveBeenCalled();
+  await act(async () => nodes("Field").find(n => n.props.label === "Caption or source instructions")!.props.onChange("A. 10 squats"));
+  await click("Retry with this caption");
+  expect(fixture.startImport.mock.calls[0][1]).toMatchObject({ kind: "text", class_parts: true });
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: false, is_public: false });
+});
+it("native class preference read failures show recovery and retain the capture", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true; fixture.readFailure = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "class-key", captureId: "class-id", ownerId: fixture.owner,
+    generation: 1, url: "https://wodup.com/gym", text: "A. 10 squats", files: [], isPublic: false }]);
+  await mount(ShareCapture);
+  expect(fixture.alert.mock.calls.at(-1)![0]).toBe("Could not save shared source");
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { execFileSync } from "node:child_process";
@@ -40,7 +41,13 @@ assert(WorkoutsShareStore.classPage(source, text: nil) == nil)
 assert(WorkoutsShareStore.classPage(URL(string: "https://user:secret@wodup.com")!, text: "A") == nil)
 assert(WorkoutsShareStore.classPage(URL(string: "https://wodup.com.evil.test")!, text: "A") == nil)
 print("Safari bridge passed")`);
-    execFileSync("xcrun", ["swiftc", new URL("../modules/hafa-workouts-share/ios/HafaWorkoutsShareStore.swift", import.meta.url).pathname, main, "-o", binary], { timeout: 60000 });
+    execFileSync("xcrun", ["swiftc", fileURLToPath(new URL("../modules/hafa-workouts-share/ios/HafaWorkoutsShareStore.swift", import.meta.url)), main, "-o", binary], { timeout: 60000 });
     expect(execFileSync(binary, { encoding: "utf8" })).toContain("Safari bridge passed");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90000);
+it("removes WodUp URL-only text and tracking parameters without changing instructions or other source links", async () => {
+  const { classText, classDate } = await import("./class-import");
+  expect(classText("https://wodup.com/gym?token=secret#scores")).toBe("");
+  expect(classText("A. 10 squats\nhttps://wodup.com/gym?token=secret#scores\nhttps://youtube.com/watch?v=abc")).toBe("A. 10 squats\n\nhttps://youtube.com/watch?v=abc");
+  expect(classDate("Pacific/Guam")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+});
