@@ -32,6 +32,7 @@ import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
 import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput, capRemainingSeconds, restAfter, isWallClock, leadInRemaining } from "@/lib/training";
 import { FormatSession } from "@/components/training/format-session";
+import { ClassSession } from "@/components/training/class-session";
 import { LeadIn } from "@/components/training/lead-in";
 import { KeptRunningSheet } from "@/components/training/kept-running-sheet";
 import { useKeepAwakeWhile } from "@/components/training/keep-awake";
@@ -130,7 +131,7 @@ export default function Training() {
         backgroundPausePending.current = true;
         void store!.pause(true).catch(() => { if (sameSession()) setError("Could not pause the circuit on this device. Review its saved timer before resuming."); })
           .finally(() => { if (sameSession()) backgroundPausePending.current = false; });
-      } else if (sameSession() && status !== "active" && (active?.timed_format || active?.timed_circuit) && !active.paused) {
+      } else if (sameSession() && status !== "active" && (active?.timed_format || active?.timed_circuit || active?.class_run) && !active.paused) {
         // Timed clocks keep running in the background like a wall clock. Save the moment we left, so a
         // relaunch after the app is closed can say how long it ran on.
         void store!.checkpoint().catch(() => undefined);
@@ -382,6 +383,17 @@ export default function Training() {
         onStoppedAt={(at) => { void run(() => store.confirmKeptClock(at)); }} />
     )}
   </>;
+  if (d.class_run)
+    return (
+      <ClassSession d={{ ...d, class_run: d.class_run }} now={now} busy={busy} error={error} runEnvironment={state.run_environment ?? "outdoor"}
+        activityPicker={<ActivityPicker value={activity} onChange={chooseActivity} />}
+        act={(change, environment) => { void run(() => store.classAct(change, undefined, environment)); }}
+        log={(actual) => { void run(async () => { await store.log(actual); if (actual.completed) haptics.light(); }); }}
+        undo={() => { void run(() => store.undo()); }}
+        timer={(kind, seconds) => { void run(() => store.timer(kind, seconds)); }}
+        finish={(status) => { void run(() => finish(status)); }}
+        discard={discard} />
+    );
   if (d.timed_format)
     return (<>
       <FormatSession d={{ ...d, timed_format: d.timed_format }} now={now} busy={busy} error={error}

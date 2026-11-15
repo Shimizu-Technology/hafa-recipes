@@ -29,6 +29,7 @@ import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, formatSeconds
 import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
 import { timedStartHint } from "@/lib/timed-execution";
+import { isClassWorkout } from "@/lib/class-training";
 import { WorkoutStartSheet } from "@/components/workout-start-sheet";
 import { WorkoutExerciseList } from "@/components/workout-exercise-list";
 import { benchmarkLine, instructionsTitle, programmingLine } from "@/lib/class-parts";
@@ -200,6 +201,7 @@ export default function WorkoutDetail() {
   const hint = !workout || offline.state.active ? null
     : workout.kind === "program" ? "This program runs over several days. Pick your days to train it."
       : exercises === 0 ? "No exercises yet."
+        : isClassWorkout(workout) ? "Runs part by part: each part’s clock, then the rest before the next."
         : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   const headline = <Stack gap={6}>

@@ -452,13 +452,15 @@ describe("source circuits with open-ended rounds", () => {
       [["finisher", 0, 2, 1], ["finisher", 1, 2, 1]]);
     expect(new Set(d2.steps.map((x) => x.key)).size).toBe(d2.steps.length);
   });
-  it("lets a multi-block timed workout start untimed only by explicit choice, and never adds rounds to a timed circuit", async () => {
+  it("runs a multi-block timed workout as a class, or untimed by explicit choice, and never adds rounds to a timed circuit", async () => {
     const workout = amrap(2);
     workout.blocks.push({ ...workout.blocks[0], id: "second" });
-    expect(trackingPrescriptionWarning(workout)).toMatch(/one timed part per session/);
+    expect(trackingPrescriptionWarning(workout)).toBeNull();
     const store = createTrainingStore(memory(), "multi-qa", 1);
     await store.load();
-    await expect(store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "blocked")).rejects.toThrow(/one timed part per session/);
+    await store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "class");
+    expect(store.snapshot().active!.class_run?.parts.map((p) => p.kind)).toEqual(["amrap", "amrap"]);
+    await store.discard();
     await store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "open", 1000, { log_as_you_go: true });
     expect(store.snapshot().active!.timed_circuit).toBeUndefined();
     await store.discard();
