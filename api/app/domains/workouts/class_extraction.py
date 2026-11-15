@@ -153,13 +153,25 @@ MEMBER_COMMENT = re.compile(rf"^{MEMBER_NAME}:\s*\S.*$")
 CAPS_FORMAT = re.compile(r"\b(?:AMRAP|EMOM|E\d+MOM)\b")
 FORMAT_PHRASE = re.compile(r"\b(?:for time|as many rounds|every minute|rest between)\b", re.I)
 PART_SECTION = re.compile(r"(?:accessories|warm[- ]up|cool[- ]down|strength|conditioning)", re.I)
-BARE_MEMBER_SCORE = re.compile(r"(?:\d{1,2}:\d{2}(?:\.\d+)?|\d+\s*\+\s*\d+|\d+\s*(?:reps|rounds|cal|m)?|rx|scaled|dnf)", re.I)
+RESULT_SCORE_TOKEN = re.compile(r"(?:\d+:\d{2}(?::\d{2})?(?:\.\d+)?|\d+\+\d+|\d+(?:\.\d+)?(?:reps|rounds|cal|lbs?|kg|m)?)", re.I)
+RESULT_VOCABULARY = {"rx", "rx+", "rx'd", "scaled", "sc", "fitness", "foundations", "masters", "pr", "cap", "dnf", "tc",
+                     "reps", "rounds", "cal", "lb", "lbs", "kg", "m", "*", "★", "✓"}
 PREAMBLE_BOUNDARY = re.compile(r"^(?:phase\s+\d|week\s+\d|workout specific|coach(?:'s)? notes?)\b", re.I)
+
+
+def member_score_line(value):
+    # Keep notes together and require every other token to be result vocabulary
+    # or a score component. This also handles TC prefixes and rounds + reps.
+    tokens = re.findall(r"\([^()\r\n]*\)|\S+", value.replace("’", "'"))
+    return bool(tokens) and any(token != "+" for token in tokens) and all(
+        RESULT_SCORE_TOKEN.fullmatch(token) or token.casefold() in RESULT_VOCABULARY
+        or token == "+" or re.fullmatch(r"\([^()\r\n]*\)", token)
+        for token in tokens)
 
 
 def workout_part(value, part, following):
     body = value[part.end():] if part else ""
-    if BARE_MEMBER_SCORE.fullmatch(following):
+    if member_score_line(following):
         return False
     prefix_signal = re.match(r"^\d", body) or CAPS_FORMAT.match(body) or FORMAT_PHRASE.match(body) or PART_SECTION.fullmatch(body)
     if (MEMBER_SCORE.fullmatch(value) or MEMBER_COMMENT.fullmatch(value)) and not prefix_signal:

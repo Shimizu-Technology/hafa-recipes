@@ -386,22 +386,36 @@ def test_movement_only_headings_cannot_end_private_sections(heading):
     assert class_text(programming + "\n" + heading + "\n10 Press") == programming + "\n" + heading + "\n10 Press"
 
 
-@pytest.mark.parametrize("score", ["12:43", "12:43.5", "5+3", "5", "5 reps", "5 rounds", "5 cal", "5m", "Rx", "Scaled", "DNF"])
-async def test_even_structural_part_heading_cannot_reopen_before_bare_member_score(score):
+@pytest.mark.parametrize("score", [
+    "12:43", "12:43.5", "5+3", "5", "5 reps", "5 rounds", "5 cal", "5m", "Rx", "Scaled", "DNF",
+    "12:43 Rx", "5+3 Scaled", "21:10 (65 lb)", "7 rounds + 4 RX+", "TC 18:00",
+    "1:12:43 PR", "12:43.5 Rx'd", "12:43 Rx’d", "12:43 Sc", "12:43 Fitness", "12:43 Foundations",
+    "12:43 Masters", "12:43 CAP", "12:43 * ★ ✓", "12:43 (scaled)", "65 lb", "65 lbs", "30 kg",
+    "Rx PR", "RX+", "Rx'd", "Sc", "Fitness", "Foundations", "Masters", "PR", "CAP", "TC", "*", "★", "✓", "(65 lb)",
+])
+async def test_even_structural_part_heading_cannot_reopen_before_member_score(score):
     provider = FakeProvider({})
-    page = "A. Metcon\n10 Squat\nLeaderboard\nB. AMRAP Smith\n\n" + score + "\nC. For time\n400m run"
+    page = "A. Metcon\n10 Squat\nLeaderboard\nB. AMRAP Smith\n\n" + score + "\nPRIVATE_RESULT\nC. For time\n400m run"
     await WorkoutExtractor(provider).extract(ExtractionRequest(kind="text", text=page, class_parts=True, ai_consent=True))
     assert [part.text for part in provider.calls[0].parts] == ["A. Metcon\n10 Squat\nC. For time\n400m run"]
 
 
-def test_bare_member_score_lookahead_crosses_page_boundary():
+@pytest.mark.parametrize("score", ["12:43", "12:43 Rx", "TC 18:00"])
+def test_member_score_lookahead_crosses_page_boundary(score):
     from app.domains.workouts.class_extraction import trim_class_parts
 
     parts = trim_class_parts([
         ("document_page:1", "A. Metcon\n10 Squat\nLeaderboard\nB. AMRAP Smith\n"),
-        ("document_page:2", "\n12:43\nC. For time\n400m run"),
+        ("document_page:2", "\n" + score + "\nC. For time\n400m run"),
     ])
     assert parts == [("document_page:1", "A. Metcon\n10 Squat"), ("document_page:2", "C. For time\n400m run")]
+
+
+@pytest.mark.parametrize("line", ["10 Press", "400m run", "7 rounds of squats", "TC 18:00 then run", "21:10 (65 lb) Deadlift", "", "+"])
+def test_result_vocabulary_does_not_match_workout_instructions(line):
+    from app.domains.workouts.class_extraction import member_score_line
+
+    assert not member_score_line(line)
 
 
 @pytest.mark.parametrize("units,options,accepted", [
