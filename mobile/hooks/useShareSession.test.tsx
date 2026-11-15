@@ -27,7 +27,7 @@ import { SHARE_SESSION_KEY, useShareSession } from './useShareSession';
 function Harness() { useShareSession(); return null; }
 let renderer: ReactTestRenderer | undefined;
 const expiry = () => new Date(Date.now() + 30 * 86400000).toISOString();
-const credential = (scope: string) => ({ token: `token-${scope}`, account_scope_id: scope, expires_at: expiry(), location: 'Guam', is_public: true });
+const credential = (scope: string) => ({ token: `token-${scope}`, account_scope_id: scope, expires_at: expiry(), location: 'Guam', is_public: false });
 beforeEach(() => {
   vi.clearAllMocks(); mocks.storage.clear(); mocks.owner = 'owner-a'; mocks.subject = 'subject-a'; mocks.signedIn = true;
   mocks.settings = { ready: true, isPublic: true, location: 'Guam' }; mocks.disclosure.mockResolvedValue({ requires_acceptance: false });
@@ -37,21 +37,21 @@ beforeEach(() => {
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
 describe('native sharing session ownership', () => {
   it('preserves a valid same-account capability through offline foregrounds', async () => {
-    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-a', subject: 'subject-a', accountScopeId: 'scope-a', expiresAt: expiry(), policyVersion: 2, location: 'Guam', isPublic: true }));
+    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-a', subject: 'subject-a', accountScopeId: 'scope-a', expiresAt: expiry(), policyVersion: 3, location: 'Guam', isPublic: false }));
     mocks.provision.mockRejectedValue(new Error('Offline'));
     await act(async () => { renderer = create(<Harness />); });
     await act(async () => { mocks.foreground!('active'); });
     expect(mocks.clear).not.toHaveBeenCalled(); expect(mocks.provision).not.toHaveBeenCalled();
     expect(mocks.storage.has(SHARE_SESSION_KEY)).toBe(true);
   });
-  it('upgrades a healthy legacy private session instead of caching the bug for 30 days', async () => {
+  it('rotates a legacy session to a private capability', async () => {
     mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-a', subject: 'subject-a', accountScopeId: 'scope-a', expiresAt: expiry() }));
     await act(async () => { renderer = create(<Harness />); });
-    expect(mocks.provision).toHaveBeenCalledWith(expect.objectContaining({ is_public: true }), expect.any(Function));
+    expect(mocks.provision).toHaveBeenCalledWith(expect.objectContaining({ is_public: false }), expect.any(Function));
     expect(mocks.preferences).toHaveBeenCalledWith('scope-a', 'Guam', true);
-    expect(JSON.parse(mocks.storage.get(SHARE_SESSION_KEY)!)).toMatchObject({ policyVersion: 2, isPublic: true });
+    expect(JSON.parse(mocks.storage.get(SHARE_SESSION_KEY)!)).toMatchObject({ policyVersion: 3, isPublic: false });
   });
-  it('keeps a public capture queued for consent using a private capability until disclosure is accepted', async () => {
+  it('keeps public captures queued even after disclosure acceptance', async () => {
     mocks.disclosure.mockResolvedValue({ requires_acceptance: true });
     mocks.provision.mockResolvedValue({ ...credential('scope-a'), is_public: false });
     await act(async () => { renderer = create(<Harness />); });
@@ -68,7 +68,7 @@ describe('native sharing session ownership', () => {
     expect(mocks.configure).not.toHaveBeenCalled();
   });
   it('applies explicit private intent before an offline credential refresh', async () => {
-    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-a', subject: 'subject-a', accountScopeId: 'scope-a', expiresAt: expiry(), policyVersion: 2, location: 'Guam', isPublic: true }));
+    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-a', subject: 'subject-a', accountScopeId: 'scope-a', expiresAt: expiry(), policyVersion: 3, location: 'Guam', isPublic: true }));
     mocks.settings.isPublic = false;
     mocks.provision.mockRejectedValue(new Error('Offline'));
     await act(async () => { renderer = create(<Harness />); });
@@ -98,14 +98,14 @@ describe('native sharing session ownership', () => {
     expect(JSON.parse(mocks.storage.get(SHARE_SESSION_KEY)!)).toMatchObject({ ownerId: 'owner-b', subject: 'subject-b', accountScopeId: 'scope-b' });
   });
   it('clears A during a subject transition before B identity is available', async () => {
-    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-a', subject: 'subject-a', accountScopeId: 'scope-a', expiresAt: expiry(), policyVersion: 2, location: 'Guam', isPublic: true }));
+    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-a', subject: 'subject-a', accountScopeId: 'scope-a', expiresAt: expiry(), policyVersion: 3, location: 'Guam', isPublic: false }));
     await act(async () => { renderer = create(<Harness />); });
     mocks.owner = undefined; mocks.subject = 'subject-b';
     await act(async () => renderer!.update(<Harness />));
     expect(mocks.clear).toHaveBeenCalledOnce(); expect(mocks.provision).not.toHaveBeenCalled();
   });
   it('waits for a delayed old-account clear before configuring the next account', async () => {
-    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-old', subject: 'subject-old', accountScopeId: 'scope-old', expiresAt: expiry(), policyVersion: 2, location: 'Guam', isPublic: true }));
+    mocks.storage.set(SHARE_SESSION_KEY, JSON.stringify({ ownerId: 'owner-old', subject: 'subject-old', accountScopeId: 'scope-old', expiresAt: expiry(), policyVersion: 3, location: 'Guam', isPublic: false }));
     let finishClear!: () => void;
     mocks.clear.mockImplementationOnce(() => new Promise<void>((resolve) => { finishClear = resolve; }));
     await act(async () => { renderer = create(<Harness />); });

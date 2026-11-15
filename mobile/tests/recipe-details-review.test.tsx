@@ -1,3 +1,4 @@
+vi.mock('@/contexts/PublishingConfirmation', () => ({ PublishingConfirmationProvider: ({ children }: { children: React.ReactNode }) => children }));
 // This fixture tests immutable editor snapshots through its existing query/mutation stubs.
 vi.mock('@/hooks/useRecipeQuery', async () => {
   const query = await import('@tanstack/react-query');
@@ -16,6 +17,7 @@ import type { Recipe } from '@/types/recipe';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
+  requestPublishing: vi.fn(),
   captureSave: vi.fn(async (_input: unknown) => ({ id: 'saved-capture' })), replace: vi.fn(), editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), invalidateQueries: vi.fn(),
   mutationOptions: [] as Array<{ onSuccess?: (recipe: Recipe) => void }>,
   editorRecipe: null as Recipe | null, editorSubmit: vi.fn(), owner: 'owner-a', routeId: 'r1',
@@ -50,7 +52,7 @@ vi.mock('expo-router', async () => {
 });
 vi.mock('expo-image-picker', () => ({}));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
-vi.mock('@/hooks/usePublishingDisclosure', () => ({ usePublishingDisclosure: () => ({ requestPublishing: vi.fn(), isCheckingDisclosure: false }) }));
+vi.mock('@/hooks/usePublishingDisclosure', () => ({ usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, didChoosePrivate: () => true, isCheckingDisclosure: false }) }));
 vi.mock('@/lib/api', () => ({ api: { editRecipe: mocks.editRecipe, saveCapturedRecipe: mocks.captureSave } }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
@@ -66,6 +68,27 @@ import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
 import EditRecipeScreen, { EditRecipeForm } from '../app/edit-recipe/[id]';
 
 describe('recipe editor draft preservation', () => {
+  it('saves an already-public recipe without asking to publish again', async () => {
+    mocks.editorRecipe = { ...recipe, is_public: true };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    try {
+      await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+      expect(mocks.requestPublishing).not.toHaveBeenCalled();
+      expect(mocks.editorSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ is_public: true }) }));
+    } finally { await act(async () => tree.unmount()); }
+  });
+  it('carries toggle confirmation through Save', async () => {
+    mocks.editorRecipe = { ...recipe, is_public: false };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    try {
+      await act(async () => host(tree, 'TouchableOpacity', p => p.accessibilityLabel === 'Private recipe. Tap to publish.')[0].props.onPress());
+      await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+      expect(mocks.requestPublishing).toHaveBeenCalledTimes(1);
+      expect(mocks.editorSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ is_public: true }) }));
+    } finally { await act(async () => tree.unmount()); }
+  });
   it('keeps unsaved scalar, ingredient, and step edits when a foreground refetch replaces the recipe object', async () => {
     mocks.editorRecipe = { ...recipe, is_public: false };
     let tree!: ReactTestRenderer;
@@ -164,7 +187,7 @@ function host(tree: ReactTestRenderer, type: string, predicate: (props: any) => 
 }
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.mutationOptions = []; mocks.editRecipe.mockResolvedValue({ ...recipe, review_state: 'ready' });
+  vi.clearAllMocks(); mocks.requestPublishing.mockResolvedValue(true); mocks.mutationOptions = []; mocks.editRecipe.mockResolvedValue({ ...recipe, review_state: 'ready' });
   mocks.editorRecipe = structuredClone(recipe); mocks.owner = 'owner-a'; mocks.routeId = 'r1';
 });
 
@@ -311,7 +334,7 @@ it('keeps the exact Private capture request through a failed save and relaunched
   let tree!: ReactTestRenderer;
   await act(async () => { tree = create(<EditRecipeForm owner="subject-a" capture={{ id: 'capture-id', ownerId: 'stable-a', recipe: captured, guard: vi.fn() }} />); });
   try {
-    await act(async () => host(tree, 'TouchableOpacity', props => props.accessibilityLabel === 'Shared to library. Tap to make private.')[0].props.onPress());
+    await act(async () => host(tree, 'TouchableOpacity', props => props.accessibilityLabel === 'Public in Discover. Tap to make private.')[0].props.onPress());
     await act(async () => mocks.alert.mock.calls.at(-1)![2].find((button: any) => button.text === 'Make private').onPress());
     const save = tree.root.findAllByType('TouchableOpacity' as any).find(node => node.findAllByType('Text' as any).some(text => text.props.children === 'Save'));
     await act(async () => save!.props.onPress());

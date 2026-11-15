@@ -12,6 +12,16 @@ import {
 
 import { usePublishingConfirmation } from '@/contexts/PublishingConfirmation';
 
+export const DISCLOSURE_TIMEOUT_MS = 15_000;
+async function bounded<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([operation, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Publishing request timed out.')), DISCLOSURE_TIMEOUT_MS);
+    })]);
+  } finally { clearTimeout(timer!); }
+}
+
 const publishingDisclosureKey = ['publishingDisclosure'] as const;
 
 export function usePublishingDisclosure() {
@@ -45,7 +55,7 @@ export function usePublishingDisclosure() {
       // Always ask the server. A cached acceptance must never outlive a newer
       // disclosure version introduced while the app is still running.
       assertRecipeScope(creationScope);
-      const status = await api.getPublishingDisclosure();
+      const status = await bounded(api.getPublishingDisclosure());
       assertRecipeScope(creationScope);
       queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, status);
       if (!isScreenActive.current) return false;
@@ -57,7 +67,7 @@ export function usePublishingDisclosure() {
       if (!approved) { chosePrivate.current = true; return false; }
       if (!isScreenActive.current) return false;
       if (status.requires_acceptance) {
-        const accepted = await api.acceptPublishingDisclosure(status.current_version);
+        const accepted = await bounded(api.acceptPublishingDisclosure(status.current_version));
         assertRecipeScope(creationScope);
         queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, accepted);
       }

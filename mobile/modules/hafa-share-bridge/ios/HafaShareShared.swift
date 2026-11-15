@@ -143,6 +143,14 @@ enum HafaShareStore {
     return payload
   }
 
+  static func acceptedImport(data: Data?, response: URLResponse?, captureID: String) -> [String: Any]? {
+    guard let response = response as? HTTPURLResponse, response.statusCode == 202,
+      let data, let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      result["capture_id"] as? String == captureID,
+      (result["job_id"] as? String != nil || result["recipe_id"] as? String != nil) else { return nil }
+    return result
+  }
+
   static func enqueueLink(captureKey key: String, url: String, completion: @escaping (Bool) -> Void) {
     // Snapshot under the same lock used by configure/clear. If signed out,
     // retain the original capture locally and do not submit under any account.
@@ -166,10 +174,7 @@ enum HafaShareStore {
     let session = networkSession()
     session.dataTask(with: request) { data, response, _ in
       defer { session.finishTasksAndInvalidate() }
-      guard let response = response as? HTTPURLResponse, response.statusCode == 202,
-        let data, let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        result["capture_id"] as? String == captureID,
-        (result["job_id"] as? String != nil || result["recipe_id"] as? String != nil) else {
+      guard let result = acceptedImport(data: data, response: response, captureID: captureID) else {
         completion(false); return
       }
       // Keep the queue entry until main-app durable intake. If a main-app

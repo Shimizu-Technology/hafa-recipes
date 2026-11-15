@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { importInbox } from '@/lib/importInbox';
@@ -34,7 +35,7 @@ import { formatPublishDisclosure } from '@/lib/recipePublishing';
 import { getOcrPublishDisclosure } from '@/lib/ocrReview';
 import { CaptureAccountChangedError, captureSaveFailure } from '@/lib/captureSave';
 
-export default function OCRReviewScreen() {
+function OCRReviewScreenContent() {
   const generation = useRecipeOwnerGeneration();
   const params = useLocalSearchParams<{ captureId?: string; recipe?: string; captureOwnerId?: string }>();
   const { ownerId } = useImportInbox();
@@ -102,19 +103,22 @@ function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
   const canRetry = failure?.kind !== 'invalid' && failure?.kind !== 'conflict' && failure?.kind !== 'pages';
   
   const saveCapturedRecipe = useSaveCapturedRecipe();
-  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure, didChoosePrivate } = usePublishingDisclosure();
+
+  const publishingConfirmed = useRef(false);
 
   const publishPreview = () => formatPublishDisclosure(getOcrPublishDisclosure(recipe || {}));
 
   const handleVisibilityChange = async (visibility: RecipeVisibility) => {
     if (!canEdit || saveInFlight.current) return;
     if (visibility === 'private') {
+      publishingConfirmed.current = false;
       setIsPublic(false);
       return;
     }
     if (isPublic) return;
     if (!recipe) return;
-    if (await requestPublishing(publishPreview())) setIsPublic(true);
+    if (await requestPublishing(publishPreview())) { publishingConfirmed.current = true; setIsPublic(true); }
   };
 
   useEffect(() => {
@@ -122,6 +126,7 @@ function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
       try {
         const parsed = JSON.parse(recipeParam);
         setRecipe(parsed);
+        publishingConfirmed.current = false;
         setIsPublic(isPublicParam !== 'false');
         setCaptureId(captureIdParam ?? randomUUID());
         attemptedSave.current = saveFailed === 'true';
@@ -142,13 +147,14 @@ function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
     try { guardOwner(); } catch (error) { Alert.alert('Account Changed', (error as Error).message); return; }
     saveInFlight.current = true;
 
-    if (isPublic) {
+    let publish = isPublic;
+    if (publish && !publishingConfirmed.current) {
       const allowed = await requestPublishing(publishPreview());
       if (!allowed) {
-        saveInFlight.current = false;
+        if (!didChoosePrivate()) { saveInFlight.current = false; return; }
+        publish = false;
         setIsPublic(false);
-        return;
-      }
+      } else publishingConfirmed.current = true;
     }
 
     setIsSaving(true);
@@ -158,7 +164,7 @@ function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
       const result = await saveCapturedRecipe.mutateAsync({
         extracted: recipe,
         source_type: sourceType,
-        is_public: isPublic,
+        is_public: publish,
         capture_id: captureId,
         original_pages: originalPages ? JSON.parse(originalPages) : undefined,
         expected_owner_id: boundOwner.current!, requestGuard: guardOwner,
@@ -602,3 +608,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+export default function OCRReviewScreen() {
+  return <PublishingConfirmationProvider><OCRReviewScreenContent /></PublishingConfirmationProvider>;
+}

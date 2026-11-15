@@ -15,7 +15,6 @@ from app.grocery_sync import grocery_account_scope_id
 from app.models.identity import AppUser
 from app.models.recipe import ExtractionJob
 from app.models.share_import import ShareImportCredential, ShareImportReceipt
-from app.publishing import require_current_publishing_disclosure
 from app.routers.extract import ExtractRequest, start_extraction_job
 from app.share_credentials import SCOPE, TTL, get_share_credential, installation_hash, issue_token
 from app.widget_credentials import utc_now
@@ -73,8 +72,6 @@ async def provision(
 ):
     if await db.scalar(select(AppUser.id).where(AppUser.id == user.id).with_for_update()) is None:
         raise HTTPException(404, "Account not found")
-    if request.is_public:
-        await require_current_publishing_disclosure(db, user.id)
     now = utc_now()
     await db.execute(
         delete(ShareImportCredential).where(
@@ -108,7 +105,8 @@ async def provision(
     token, credential.token_hash = issue_token(credential.id)
     credential.scope = SCOPE
     credential.location = request.location
-    credential.is_public = request.is_public
+    # Every public capture requires the foreground recipe confirmation.
+    credential.is_public = False
     credential.display_name = user.display_name[:200]
     credential.issued_at = now
     credential.expires_at = now + TTL
@@ -152,10 +150,10 @@ async def submit(
             "replayed": True,
         }
     is_public = credential.is_public if request.is_public is None else request.is_public
-    if is_public and not credential.is_public:
-        raise HTTPException(403, "Open Håfa to enable public recipe sharing")
     if is_public:
-        await require_current_publishing_disclosure(db, credential.app_user_id)
+        # Narrow already-issued legacy credentials too; disclosure acceptance
+        # alone never authorizes publishing a different captured recipe.
+        raise HTTPException(403, "Open Håfa to confirm making this recipe public")
     # Enqueue commits the job before its receipt. Count both durable records,
     # deduplicated by capture, while the account lock still serializes intake.
     # A crash in that gap must neither free budget nor block replay recovery.

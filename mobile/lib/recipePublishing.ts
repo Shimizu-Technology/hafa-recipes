@@ -42,5 +42,5 @@ export function formatPublishDisclosure(disclosure: PublishDisclosure): string {
     `attribution to ${disclosure.contributorName}`,
   ].filter(Boolean);
 
-  return `People in the shared library will see ${visible.join(', ')}. Recipe notes are public; your personal notes and extraction details stay private.`;
+  return `People in Discover will see ${visible.join(', ')}. Recipe notes are public; your personal notes and extraction details stay private.`;
 }

@@ -7,10 +7,9 @@ import { api, API_BASE_URL } from '@/lib/api';
 import { useCurrentUserIdentity } from './useRecipes';
 import { saveShareScopeOwner } from '@/lib/importInbox';
 import { useImportPreferences } from './useImportPreferences';
-import { useQuery } from '@tanstack/react-query';
 
 export const SHARE_SESSION_KEY = '@hafa/share-session-owner/v1';
-const SESSION_POLICY_VERSION = 2;
+const SESSION_POLICY_VERSION = 3;
 type SessionOwner = { ownerId: string; subject: string; accountScopeId: string; expiresAt: string;
   policyVersion?: number; location?: string; isPublic?: boolean };
 // Native writes must serialize across effect generations, including an account
@@ -37,11 +36,6 @@ export function useShareSession() {
   const identity = useCurrentUserIdentity(Boolean(isSignedIn));
   const ownerId = isSignedIn ? identity.data?.id : null;
   const preferences = useImportPreferences(ownerId ?? null);
-  // Subscribe to disclosure cache updates without fetching here. Foreground
-  // acceptance upgrades the native capability immediately; sync still verifies
-  // the current disclosure directly with the server before provisioning.
-  const disclosureQuery = useQuery({ queryKey: ['publishingDisclosure'],
-    queryFn: () => api.getPublishingDisclosure(), enabled: false });
   const active = useRef({ ownerId, subject: userId, signedIn: Boolean(isSignedIn) });
   active.current = { ownerId, subject: userId, signedIn: Boolean(isSignedIn) };
   useEffect(() => {
@@ -82,11 +76,9 @@ export function useShareSession() {
         if (!provision || !current() || !ownerId || !userId) return;
         const installationId = await ShareBridge.getInstallationId();
         if (!current()) return;
-        // A public preference is not consent to a disclosure the user has never
-        // seen. Queue those captures for the foreground publishing flow.
-        const disclosure = preferences.isPublic ? await api.getPublishingDisclosure() : null;
-        if (!current()) return;
-        const isPublic = preferences.isPublic && disclosure?.requires_acceptance === false;
+        // Background captures cannot confirm a particular recipe. A public
+        // preference queues a foreground review, never a publishing capability.
+        const isPublic = false;
         const saved = await readOwner();
         if (!current()) return;
         if (saved?.ownerId === ownerId && saved.subject === userId &&
@@ -131,6 +123,5 @@ export function useShareSession() {
       if (state === 'active') void sync();
     });
     return () => { cancelled = true; subscription.remove(); };
-  }, [isLoaded, isSignedIn, ownerId, userId, preferences.ready, preferences.isPublic, preferences.location,
-    disclosureQuery.data?.accepted_version, disclosureQuery.data?.current_version]);
+  }, [isLoaded, isSignedIn, ownerId, userId, preferences.ready, preferences.isPublic, preferences.location]);
 }

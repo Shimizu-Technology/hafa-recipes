@@ -92,3 +92,17 @@ let serialStart = ProcessInfo.processInfo.systemUptime
 while serial.count < 2 && ProcessInfo.processInfo.systemUptime - serialStart < 2 { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01)) }
 assert(serial == [1, 2])
 print("Bounded capture lock: main responsive, timeout preserved bytes, same capture retry and serial completions passed")
+
+// A denied public import leaves the capture queued: only a validated 202 receipt
+// can reach the submitted=true write in enqueueLink.
+let responseURL = URL(string: "https://example.com/api/share/imports")!
+let acceptedBody = try JSONSerialization.data(withJSONObject: ["capture_id": "capture-a", "job_id": "job-a"])
+for status in [200, 400, 401, 403, 409, 429, 500] {
+  assert(HafaShareStore.acceptedImport(data: acceptedBody,
+    response: HTTPURLResponse(url: responseURL, statusCode: status, httpVersion: nil, headerFields: nil), captureID: "capture-a") == nil)
+}
+assert(HafaShareStore.acceptedImport(data: acceptedBody,
+  response: HTTPURLResponse(url: responseURL, statusCode: 202, httpVersion: nil, headerFields: nil), captureID: "capture-a")?["job_id"] as? String == "job-a")
+assert(HafaShareStore.acceptedImport(data: acceptedBody,
+  response: HTTPURLResponse(url: responseURL, statusCode: 202, httpVersion: nil, headerFields: nil), captureID: "another-capture") == nil)
+print("Denied public captures (403) never become submitted receipts")

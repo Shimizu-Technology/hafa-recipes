@@ -44,3 +44,17 @@ describe('publishing choice vs temporary failure', () => {
     await act(async () => { expect(await hook.requestPublishing()).toBe(false); });
   });
 });
+
+it.each(['status', 'accept'] as const)('clears checking state when %s never responds', async (boundary) => {
+  vi.useFakeTimers();
+  try {
+    mocks.confirm.mockResolvedValue(true);
+    mocks[boundary].mockImplementationOnce(() => new Promise(() => {}));
+    let result!: Promise<boolean>;
+    await act(async () => { result = hook.requestPublishing(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(await result).toBe(false);
+    expect(hook.isCheckingDisclosure).toBe(false);
+    expect(hook.didChoosePrivate()).toBe(false);
+  } finally { vi.useRealTimers(); }
+});

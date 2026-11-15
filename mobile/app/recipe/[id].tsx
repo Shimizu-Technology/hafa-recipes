@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { RecipeIngredientGroup } from '@/components/RecipeIngredientGroup';
 import { RecipeDetailAction, RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
@@ -140,7 +141,7 @@ function SimilarRecipeCard({
 }
 
 /** Render a complete recipe and its connected cooking actions. */
-export default function RecipeDetailScreen() {
+function RecipeDetailScreenRoute() {
   const generation = useRecipeOwnerGeneration();
   return <RecipeDetailScreenContent key={generation} />;
 }
@@ -625,7 +626,7 @@ function RecipeDetailScreenContent() {
     if (recipe.is_public) {
       Alert.alert(
         'Review public recipe',
-        `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private means people who saved it will no longer be able to open it. Public links you’ve sent will stop opening. Any unlisted link remains active until you revoke it. Previews already in chats may still show the title and photo.`,
+        `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private means people who saved it will no longer be able to open it. Public links you’ve sent will stop opening. Previews already in chats may still show the title and photo.`,
         [
           { text: 'Keep public', style: 'cancel' },
           { text: 'Make private', style: 'destructive', onPress: updateSharing },
@@ -2004,3 +2005,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 });
+
+export default function RecipeDetailScreen() {
+  return <PublishingConfirmationProvider><RecipeDetailScreenRoute /></PublishingConfirmationProvider>;
+}

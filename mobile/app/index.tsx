@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
 import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
@@ -50,7 +51,7 @@ import {
   getImageImportFailurePresentation,
 } from '@/lib/imageImportClassification';
 
-export default function ExtractScreen() {
+function ExtractScreenRoute() {
   const generation = useRecipeOwnerGeneration();
   return <ExtractScreenContent key={generation} />;
 }
@@ -1194,3 +1195,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
 });
+
+export default function ExtractScreen() {
+  return <PublishingConfirmationProvider><ExtractScreenRoute /></PublishingConfirmationProvider>;
+}
