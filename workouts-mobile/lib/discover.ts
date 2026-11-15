@@ -3,7 +3,9 @@
  * the screens share. Contract: docs/hafa-workouts/DISCOVER.md.
  */
 import type { AuthoredWorkout, ExercisePrescription, Workout } from "./models";
-import { formatLabel, repPattern, type FormatBlock } from "./timed-execution";
+import { formatLabel, formatSeconds, repPattern, type FormatBlock } from "./timed-execution";
+// Kept here for existing importers; it lives in timed-execution so that module needs nothing from this one.
+export { formatSeconds };
 
 export interface Publication {
   is_public: boolean;
@@ -234,7 +236,39 @@ export const PUBLISHING_DISCLOSURE_POINTS = [
   "This is the same sharing agreement as Håfa Recipes, so it also covers recipes you choose to make public.",
 ];
 
+/** "800–1000 m", or the single distance. */
+export function distanceText(e: Pick<ExercisePrescription, "distance_meters" | "distance_meters_min">) {
+  if (e.distance_meters == null) return null;
+  return e.distance_meters_min != null && e.distance_meters_min !== e.distance_meters
+    ? `${e.distance_meters_min}–${e.distance_meters} m` : `${e.distance_meters} m`;
+}
+/** "30–40s", "1m–1m 30s", or the single duration. */
+export function durationText(e: Pick<ExercisePrescription, "duration_seconds" | "duration_seconds_max">) {
+  const low = e.duration_seconds, high = e.duration_seconds_max;
+  if (low == null) return null;
+  if (high == null || high === low) return formatSeconds(low);
+  return high < 60 ? `${low}–${high}s` : `${formatSeconds(low)}–${formatSeconds(high)}`;
+}
+const conventionText = { total: "total", per_hand: "per hand", added: "added", assistance: "assistance" } as const;
+/**
+ * "20 / 14 lb", or "24 / 16 kg per hand" when the options share a unit and a convention and have no labels.
+ * Otherwise each option in full, so "20 kg per hand / 20 kg total" never reads as "20 / 20 kg". A missing
+ * convention is the API default, total.
+ */
+export function loadOptionsText(options: NonNullable<ExercisePrescription["load_options"]>) {
+  const unit = options[0]?.load_unit;
+  const convention = (o: (typeof options)[number]) => o.load_convention ?? "total";
+  const shared = convention(options[0]);
+  if (options.every((o) => o.load_unit === unit && convention(o) === shared && !o.label))
+    return `${options.map((o) => o.load).join(" / ")} ${unit}${shared === "total" ? "" : ` ${conventionText[shared]}`}`;
+  const mixed = options.some((o) => convention(o) !== shared);
+  return options.map((o) => [o.label, `${o.load} ${o.load_unit}`,
+    mixed || convention(o) !== "total" ? conventionText[convention(o)] : null].filter(Boolean).join(" ")).join(" / ");
+}
 /** "3 × 10–12 reps · 45s rest" style summary for one exercise. */
+export function relativeLoadText(load: NonNullable<ExercisePrescription["relative_load"]>) {
+  return `${load.percent}% ${load.basis === "bodyweight" ? "bodyweight" : "1RM"}`;
+}
 export function prescriptionLine(e: ExercisePrescription) {
   const parts: string[] = [];
   const reps =
@@ -247,8 +281,8 @@ export function prescriptionLine(e: ExercisePrescription) {
         : null;
   const targets = [
     reps ?? repPattern(e),
-    e.duration_seconds != null ? formatSeconds(e.duration_seconds) : null,
-    e.distance_meters != null ? `${e.distance_meters} m` : null,
+    durationText(e),
+    distanceText(e),
   ].filter((target): target is string => target != null);
   if (e.sets != null && targets.length) parts.push(`${e.sets} × ${targets[0]}`);
   else if (e.sets != null) parts.push(`${e.sets} sets`);
@@ -260,13 +294,11 @@ export function prescriptionLine(e: ExercisePrescription) {
     const convention = { total: "total", per_hand: "per hand", added: "added", assistance: "assistance" };
     parts.push(`${e.provenance === "source" ? "Source load" : "Load"}: ${e.load} ${e.load_unit ?? "unit unspecified"}${e.load_convention ? ` ${convention[e.load_convention]}` : " · convention unspecified"}`);
   }
+  if (e.load_options?.length) parts.push(loadOptionsText(e.load_options));
+  if (e.relative_load) parts.push(relativeLoadText(e.relative_load));
   if (e.tempo) parts.push(`Tempo ${e.tempo}`);
   if (e.effort) parts.push(e.effort);
   return parts.join(" · ") || "Details not specified";
-}
-export function formatSeconds(seconds: number) {
-  if (seconds < 60 || seconds % 60) return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
-  return `${seconds / 60} min`;
 }
 
 /** Library's short format name, or null so an older response keeps its minutes. */
