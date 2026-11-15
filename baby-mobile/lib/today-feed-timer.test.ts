@@ -388,6 +388,20 @@ it("keeps child B's routine out of child A's Today summary when Everything is se
   expect(find("Screen", () => true)[0].props.title).toBe("Noah");
   expect(find("Row", p => p.title === "Noah's checklist")).toHaveLength(1);
 });
+it("never names the Lists row after the hospital bag, which has its own row", async () => {
+  const account = setup();
+  const checklist = (id: string, title: string) => optimisticRecord({
+    id, kind: "routine", title, body: "", child_id: null, occurred_at: start.toISOString(),
+    data: { routine_type: "checklist", items: [{ id: id === "bag" ? "bag:mom:robe" : "pack", label: "Robe", done: false }] },
+  });
+  account.records = [checklist("bag", "Hospital bag")];
+  await render();
+  expect(find("Row", p => p.title === "Lists & routines")).toHaveLength(1);
+  expect(find("Row", p => p.detail === "Your next checklist · Lists & routines")).toHaveLength(0);
+  account.records = [checklist("bag", "Hospital bag"), checklist("nursery", "Nursery")];
+  await render();
+  expect(find("Row", p => p.title === "Nursery")).toHaveLength(1);
+});
 it("asks for the birth date instead of a late pregnancy week once the due date is past 44 weeks 6 days", async () => {
   const account = setup();
   account.state.bootstrap!.children[0].due_date = "2026-09-01"; // 329 days on Oct 20 in Guam

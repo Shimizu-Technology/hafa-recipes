@@ -30,7 +30,7 @@ import { BabyAgeCard, PregnancyHero, TipSection, WeekDetails } from "@/component
 import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
 import { dueLine, pregnancyProgress, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
-import { findBag, packedLine } from "../../../lib/hospital-bag";
+import { findBag, isBag, packedLine } from "../../../lib/hospital-bag";
 import { useTimingTips } from "@/lib/use-timing-tips";
 import { journalHome } from "../../../lib/use-open-journal";
 
@@ -52,7 +52,8 @@ export default function Today() {
     records = b.records.filter((r) => !r.child_id || r.child_id === child?.id),
     latestCare = useTodayCare(),
     glance = careGlance(latestCare.all, child?.id ?? null, now, b.state.bootstrap!.profile.timezone),
-    routines = records.filter((r) => routineToday(r, now)),
+    // The bag has its own row, so the Lists row never takes its name.
+    routines = records.filter((r) => routineToday(r, now) && !isBag(r)),
     bag = findBag(b.records),
     stage = todayStage(child, today),
     pregnant = stage === "pregnancy",

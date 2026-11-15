@@ -85,6 +85,9 @@ describe("the screen", () => {
     const saved = m.baby.queue.mock.calls[0][0].record;
     expect(saved).toMatchObject({ id: "bag", revision: 2 });
     expect(saved.data.items[0]).toMatchObject({ id: "bag:mom:robe", done: true });
+    // The sync line comes and goes as she ticks; under the list it never moves the next row from under her thumb.
+    const order = renderer!.root.findAll((node) => ["Choice", "SyncStatus"].includes(String(node.type))).map((node) => String(node.type));
+    expect(order.at(-1)).toBe("SyncStatus");
   });
   it("in Edit, adds to a section and removes with Undo", async () => {
     setup([bag()]);
