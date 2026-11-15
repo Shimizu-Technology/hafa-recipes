@@ -58,6 +58,7 @@ vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/waiting-shares", () => ({ WaitingShares: "WaitingShares" }));
 vi.mock("@/components/due-reminders", () => ({ DueReminders: "DueReminders" }));
+vi.mock("@/components/news-ask", () => ({ NewsAsk: "NewsAsk" }));
 vi.mock("@/components/stage-options", () => ({ BabySetupCard: "BabySetupCard" }));
 vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
@@ -74,6 +75,7 @@ vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => undefined }));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: false }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
+vi.mock("../components/this-week", () => ({ ThisWeek: "ThisWeek", DayOfLife: "DayOfLife" }));
 vi.mock("@/components/tips", () => ({ BabyAgeCard: "BabyAgeCard", PregnancyHero: "PregnancyHero", TipSection: "TipSection", WeekDetails: "WeekDetails" }));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/components/event-row", () => ({ NextEvent: "NextEvent" }));
@@ -246,7 +248,9 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   // Add has these now: nothing here says it twice.
   for (const label of ["Save a link", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(0);
   // Under the tiles, above everything else, so she needn't scroll for it in labour.
+  // This week leads with the bag, so the bag's own row is only for when that card is hidden.
   expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Baby’s here?", "Lists & routines", "Journal"]);
+  expect(find("ThisWeek", () => true)).toHaveLength(1);
   scope.push.mockClear();
   await act(async () => (find("Row", p => p.title === "Journal")[0].props.onPress as () => void)());
   expect(scope.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/journal", params: expect.objectContaining({ filter: "all" }) }));
@@ -313,50 +317,14 @@ describe("Baby's here?", () => {
     return account;
   };
   const here = () => find("Row", (p) => p.title === "Baby’s here?")[0];
-  it("keeps today's date on this phone in one tap and turns on care at once, with nothing lost and an Undo", async () => {
+  it("opens the one short birth screen for this baby, right under the tiles", async () => {
     const account = due();
     await render();
+    expect(here().props.detail).toBe("Add the day and time, and tell your family. Starts feeding, sleep and diaper logs");
     await act(async () => { (here().props.onPress as () => void)(); });
-    expect(account.state.outbox).toEqual([expect.objectContaining({ type: "child_birth", child_id: "baby", birth_date: "2026-10-20", previous: null, generation: 2 })]);
-    await render();
-    expect(account.state.bootstrap!.children[0]).toMatchObject({ birth_date: "2026-10-20", due_date: "2026-11-20", revision: 1 });
-    expect(find("Pressable", (p) => p.accessibilityLabel === "Breastfeed")).toHaveLength(1);
-    expect(find("CareGlance", () => true)).toHaveLength(1);
-    expect(account.state.records.map((row) => row.id)).toEqual(["c"]);
-    const [message, action] = scope.toast.mock.lastCall as [string, { label: string; onPress: () => Promise<void> }];
-    expect(message).toContain("Birth date set to today");
-    expect(action.label).toBe("Undo");
-    await act(async () => { await action.onPress(); });
+    expect(scope.push).toHaveBeenCalledWith({ pathname: "/birth", params: { id: "baby" } });
+    // Nothing is saved until she saves it there.
     expect(account.state.outbox).toEqual([]);
-    await render();
-    expect(find("Row", (p) => p.title === "Baby’s here?")).toHaveLength(1);
-  });
-  it("undoes by going back the same way once the request has begun, because the API may have it", async () => {
-    const account = due();
-    await render();
-    await act(async () => { (here().props.onPress as () => void)(); });
-    const first = account.state.outbox[0];
-    account.state = { ...account.state, outbox: [{ ...first, sent: true } as Mutation] };
-    const [, action] = scope.toast.mock.lastCall as [string, { onPress: () => Promise<void> }];
-    await act(async () => { await action.onPress(); });
-    expect(account.state.outbox.map((m) => (m.type === "child_birth" ? [m.birth_date, m.previous] : []))).toEqual([["2026-10-20", null], [null, "2026-10-20"]]);
-    expect(account.state.bootstrap!.children[0].birth_date).toBeNull();
-  });
-  it("uses the family's day, not the phone's", async () => {
-    const account = due();
-    account.state.bootstrap!.profile.timezone = "Pacific/Kiritimati";
-    vi.setSystemTime(new Date("2026-10-20T11:00:00.000Z"));
-    await render();
-    await act(async () => { (here().props.onPress as () => void)(); });
-    expect(account.state.outbox[0]).toMatchObject({ birth_date: "2026-10-21" });
-  });
-  it("says why when this phone can't keep it, and leaves her where she was", async () => {
-    const account = due();
-    account.queue = vi.fn(async () => { throw Error("Restore your private device data before saving."); });
-    await render();
-    await act(async () => { (here().props.onPress as () => void)(); });
-    expect(scope.toast).toHaveBeenCalledWith("Restore your private device data before saving.");
-    expect(account.state.bootstrap!.children[0].birth_date).toBeUndefined();
   });
   it("reaches both tools from Today in one tap", async () => {
     due();
@@ -387,6 +355,20 @@ it("keeps child B's routine out of child A's Today summary when Everything is se
   await render();
   expect(find("Screen", () => true)[0].props.title).toBe("Noah");
   expect(find("Row", p => p.title === "Noah's checklist")).toHaveLength(1);
+});
+it("never names the Lists row after the hospital bag, which has its own row", async () => {
+  const account = setup();
+  const checklist = (id: string, title: string) => optimisticRecord({
+    id, kind: "routine", title, body: "", child_id: null, occurred_at: start.toISOString(),
+    data: { routine_type: "checklist", items: [{ id: id === "bag" ? "bag:mom:robe" : "pack", label: "Robe", done: false }] },
+  });
+  account.records = [checklist("bag", "Hospital bag")];
+  await render();
+  expect(find("Row", p => p.title === "Lists & routines")).toHaveLength(1);
+  expect(find("Row", p => p.detail === "Your next checklist · Lists & routines")).toHaveLength(0);
+  account.records = [checklist("bag", "Hospital bag"), checklist("nursery", "Nursery")];
+  await render();
+  expect(find("Row", p => p.title === "Nursery")).toHaveLength(1);
 });
 it("asks for the birth date instead of a late pregnancy week once the due date is past 44 weeks 6 days", async () => {
   const account = setup();

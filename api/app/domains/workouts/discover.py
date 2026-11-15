@@ -187,6 +187,8 @@ async def set_publication(db, row, user: ClerkUser, publish: bool):
     if not publish:
         values = dict(is_public=False, published_at=None, source_canonical_key=None)
     else:
+        if (row.content.get("programming") or {}).get("source_kind") == "gym":
+            raise HTTPException(422, "Gym programming stays private.")
         workout, incomplete = public_workout(row.content)
         if incomplete:
             raise HTTPException(
@@ -215,7 +217,7 @@ async def refresh_publication_after_edit(db, row):
         workout, incomplete = public_workout(row.content)
     except HTTPException:
         workout, incomplete = None, True
-    if incomplete:
+    if incomplete or (row.content.get("programming") or {}).get("source_kind") == "gym":
         values = dict(is_public=False, published_at=None, source_canonical_key=None)
     else:
         key, platform = source_identity(workout["source_url"])

@@ -2,13 +2,14 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const f = vi.hoisted(() => ({ push: vi.fn(), ask: vi.fn(async () => undefined), baby: null as any, alerts: [] as { title: string; message?: string; buttons: { text: string; style?: string; onPress?: () => void }[] }[], share: vi.fn(async () => ({})), copy: vi.fn(async () => true), paste: vi.fn(async () => ""), toast: vi.fn(), exportFile: vi.fn(), back: vi.fn() }));
+const f = vi.hoisted(() => ({ push: vi.fn(), ask: vi.fn(async () => undefined), baby: null as any, alerts: [] as { title: string; message?: string; buttons: { text: string; style?: string; onPress?: () => void }[] }[], share: vi.fn(async () => ({})), copy: vi.fn(async () => true), paste: vi.fn(async () => ""), toast: vi.fn(), exportFile: vi.fn(), back: vi.fn(), notify: vi.fn(async () => "granted") }));
 vi.mock("react-native", () => ({ Alert: { alert: (title: string, message: string, buttons: any[]) => f.alerts.push({ title, message, buttons }) }, Share: { share: f.share }, View: "View", Platform: { OS: "ios" } }));
 vi.mock("expo-clipboard", () => ({ setStringAsync: f.copy, getStringAsync: f.paste }));
 vi.mock("@/lib/context", () => ({ useBaby: () => f.baby }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("expo-router", () => ({ router: { back: f.back, push: f.push } }));
 vi.mock("@/lib/share-session-state", () => ({ askForShareSession: f.ask }));
+vi.mock("@/lib/reminder-permission", () => ({ askToNotify: f.notify }));
 vi.mock("@/lib/files", () => ({ exportFile: f.exportFile }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, installationId: async () => "this-phone" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Empty: "Empty", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Screen: "Screen", Section: "Section", useToast: () => f.toast }));
@@ -38,6 +39,8 @@ const all = (type: string) => view!.root.findAll((n) => String(n.type) === type)
 const button = (title: string) => all("Button").find((n) => n.props.title === title);
 const press = async (title: string) => { const found = button(title); expect(found, title).toBeDefined(); await act(async () => { await found!.props.onPress(); }); await act(async () => {}); };
 const text = () => JSON.stringify(view!.toJSON());
+/** Nothing is picked for her, so every invite starts with a choice. */
+const pick = async (label: "Parent" | "Caregiver") => { await act(async () => all("Choice").find((n) => n.props.label === label)!.props.onPress()); };
 beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.stubGlobal("React", React); vi.spyOn(console, "error").mockImplementation(() => {}); f.alerts = []; vi.clearAllMocks(); forgetInvite(); });
 afterEach(async () => { await act(async () => view?.unmount()); view = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -130,8 +133,9 @@ describe("before there's a family", () => {
     const b = setup();
     await open();
     await press("Invite someone");
+    await pick("Caregiver");
     await press("Share and get a code");
-    expect(b.api.createInvite).toHaveBeenCalledWith("parent", true, 1);
+    expect(b.api.createInvite).toHaveBeenCalledWith("caregiver", true, 1);
     expect(text()).toContain(code);
     expect(b.refresh).toHaveBeenCalled();
     await press("Share invitation");
@@ -145,6 +149,7 @@ describe("before there's a family", () => {
     const b = setup();
     await open();
     await press("Invite someone");
+    await pick("Caregiver");
     await press("Share and get a code");
     await act(async () => view!.unmount());
     b.state.bootstrap.spaces = [own, shared];
@@ -168,6 +173,7 @@ describe("before there's a family", () => {
     await press("Invite someone");
     const choice = all("Choice").find((n) => n.props.label === "Private tip");
     await act(async () => choice!.props.onPress());
+    await pick("Parent");
     await press("Share and get a code");
     expect(order).toEqual(["save", "create"]);
     expect(b.api.save.mock.calls[0][0]).toMatchObject({ id: "Private tip", data: { just_me: true } });
@@ -266,6 +272,7 @@ describe("the update gate", () => {
     setup([own], { createInvite: vi.fn(async () => { throw new PhonesNotReady(behind as never); }) });
     await open();
     await press("Invite someone");
+    await pick("Caregiver");
     await press("Share and get a code");
     expect(text()).toMatch(/needs the update/i);
     expect(button("Share and get a code")).toBeUndefined();
@@ -333,6 +340,36 @@ describe("joining with a code", () => {
     await press("Join this family");
     expect(b.api.acceptInvite).toHaveBeenCalledWith(code, 1);
     expect(b.refresh).toHaveBeenCalled();
+    // Family news isn't on at this API, so nothing asks for notifications.
+    expect(f.notify).not.toHaveBeenCalled();
+  });
+  it("joining as a parent asks once, with the reason, so labor news can reach this phone", async () => {
+    const b = setup();
+    b.state.bootstrap.reminders = { push: true, family_news: true };
+    b.registerPush = vi.fn(async () => true);
+    let state = b.state;
+    b.commit = vi.fn(async (change: (s: typeof state) => typeof state) => { state = change(state); });
+    f.paste.mockResolvedValue(code);
+    await open();
+    await press("I have a code");
+    await press("Paste");
+    await press("Join this family");
+    expect(f.notify).toHaveBeenCalledWith("family_news");
+    expect(state.newsAskSeen).toBe(true);
+    expect(b.registerPush).toHaveBeenCalled();
+  });
+  it("doesn't ask again on joining if she's already answered on this phone", async () => {
+    const b = setup();
+    b.state.bootstrap.reminders = { push: true, family_news: true };
+    b.state.newsAskSeen = true;
+    b.registerPush = vi.fn(async () => true);
+    f.paste.mockResolvedValue(code);
+    await open();
+    await press("I have a code");
+    await press("Paste");
+    await press("Join this family");
+    expect(b.api.acceptInvite).toHaveBeenCalled();
+    expect(f.notify).not.toHaveBeenCalled();
   });
   it("says something that isn't a code isn't one, without asking the API", async () => {
     const b = setup();
@@ -709,22 +746,35 @@ describe("joining with an older phone on the account", () => {
   });
 });
 describe("choosing who they'll be", () => {
-  it("invites a parent unless she says caregiver, and says what a caregiver can't do", async () => {
+  it("picks nothing for her, keeps sending off until she chooses, and says what each one can do", async () => {
     const b = setup();
     await open();
     await press("Invite someone");
-    const caregiver = all("Choice").find((n) => n.props.label === "Caregiver");
-    expect(caregiver!.props.detail).toMatch(/can’t see/i);
-    expect(caregiver!.props.detail).toMatch(/can’t use Ask/i);
-    await act(async () => caregiver!.props.onPress());
+    const choices = () => all("Choice").filter((n) => ["Parent", "Caregiver"].includes(n.props.label));
+    expect(choices().map((n) => n.props.selected)).toEqual([false, false]);
+    expect(choices()[0].props.detail).toMatch(/^Full access/);
+    expect(choices()[0].props.detail).toMatch(/saved posts/);
+    expect(choices()[0].props.detail).toMatch(/Ask/);
+    expect(choices()[1].props.detail).toMatch(/^Logs care only/);
+    expect(choices()[1].props.detail).toMatch(/can’t use Ask/i);
+    expect(text()).toContain("Choose one to continue.");
+    expect(button("Share and get a code")!.props.disabled).toBe(true);
+    await press("Share and get a code");
+    expect(b.api.createInvite).not.toHaveBeenCalled();
+    await pick("Caregiver");
+    expect(button("Share and get a code")!.props.disabled).toBe(false);
+    expect(text()).not.toContain("Choose one to continue.");
     await press("Share and get a code");
     expect(b.api.createInvite).toHaveBeenCalledWith("caregiver", true, 1);
   });
-  it("offers the same for a later invite", async () => {
+  it("asks the same for a later invite, and asks again for the next one", async () => {
     const b = setup([own, shared]);
     await open();
-    await act(async () => all("Choice").find((n) => n.props.label === "Caregiver")!.props.onPress());
+    expect(button("Invite someone")!.props.disabled).toBe(true);
+    await pick("Parent");
     await press("Invite someone");
-    expect(b.api.createInvite).toHaveBeenCalledWith("caregiver", false, { generation: 1, space_id: family });
+    expect(b.api.createInvite).toHaveBeenCalledWith("parent", false, { generation: 1, space_id: family });
+    await press("Done");
+    expect(button("Invite someone")!.props.disabled).toBe(true);
   });
 });

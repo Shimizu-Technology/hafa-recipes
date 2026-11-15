@@ -10,13 +10,20 @@ const asDate = (clock: string) => {
 };
 const asClock = (date: Date) => `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 
-/** A clock time with no date, as "22:30". Like DateField's time half, and shown as this phone shows times. */
-export function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (clock: string) => void }) {
-  const [open, setOpen] = useState(false), [draft, setDraft] = useState(() => asDate(value)), c = useColors(), scheme = useColorScheme();
+/**
+ * A clock time with no date, as "22:30". Like DateField's time half, and shown as this phone shows times. With no
+ * value it says `placeholder` and sets nothing until a time is chosen: the picker starts at now, but only "Use this
+ * time" keeps it.
+ */
+export function TimeField({ label, value, onChange, placeholder }: { label: string; value: string | null; onChange: (clock: string) => void; placeholder?: string }) {
+  const start = () => value ? asDate(value) : new Date();
+  const [open, setOpen] = useState(false), [draft, setDraft] = useState(start), c = useColors(), scheme = useColorScheme();
   return <View style={{ gap: 8 }}>
     <Copy kind="small">{label}</Copy>
-    <Button secondary numeric title={asDate(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} accessibilityLabel={`${label} ${value}`}
-      onPress={() => { setDraft(asDate(value)); setOpen(true); }} />
+    <Button secondary numeric={!!value} icon={value ? undefined : "time-outline"}
+      title={value ? asDate(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : placeholder ?? "Choose a time"}
+      accessibilityLabel={value ? `${label} ${value}` : `${label}. ${placeholder ?? "Choose a time"}`}
+      onPress={() => { setDraft(start()); setOpen(true); }} />
     {open && Platform.OS === "android" && <DateTimePicker value={draft} mode="time" onChange={(event, date) => { setOpen(false); if (event.type === "set" && date) onChange(asClock(date)); }} />}
     {open && Platform.OS !== "android" && <Modal transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={{ flex: 1, backgroundColor: c.scrim, justifyContent: "flex-end", padding: 18, paddingBottom: 36 }}>

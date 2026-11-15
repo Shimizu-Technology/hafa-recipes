@@ -60,7 +60,11 @@ from app.domains.workouts.schemas import (
     TrainingProfile,
     WorkoutContent,
 )
-from app.domains.workouts.security import WorkoutsImportRoute, WorkoutsRoute
+from app.domains.workouts.security import (
+    WorkoutsClassImportRoute,
+    WorkoutsImportRoute,
+    WorkoutsRoute,
+)
 from app.domains.workouts.source_planning import (
     compose_library_program,
     convert_program_source,
@@ -142,6 +146,8 @@ class ImportRequest(DomainModel):
 
     @model_validator(mode="after")
     def require_private_review(self):
+        if self.source.class_parts:
+            self.is_public = False
         if self.replace_target and (self.auto_save or self.is_public):
             raise ValueError("Updating an existing workout requires private review before saving")
         return self
@@ -192,7 +198,6 @@ def import_response(row):
     return response
 
 
-@imports_router.post("/imports", status_code=202, response_model=ImportResponse)
 async def import_source(request: ImportRequest, user: User, db: Database, generation: Generation):
     configured = get_settings()
     if (
@@ -216,6 +221,10 @@ async def import_source(request: ImportRequest, user: User, db: Database, genera
     )
     workout_import_worker.notify()
     return import_response(row)
+
+
+imports_router.add_api_route("/imports", import_source, methods=["POST"], status_code=202,
+                             response_model=ImportResponse, route_class_override=WorkoutsClassImportRoute)
 
 
 @router.get("/imports", response_model=list[ImportResponse])
@@ -382,6 +391,12 @@ async def accept_import(
     ):
         raise HTTPException(422, "An import cannot claim generated coaching provenance")
     content = validated_workout(workout, authored=False)
+    original_programming = row.result["workout"].get("programming") or (row.payload or {}).get("programming") or {}
+    if (row.payload or {}).get("class_parts") or original_programming.get("source_kind") == "gym":
+        content["programming"] = {**(content.get("programming") or original_programming), "source_kind": "gym"}
+        if request.is_public:
+            raise HTTPException(422, "Gym programming stays private.")
+        row.result = {**row.result, "workout": {**row.result["workout"], "programming": {**original_programming, "source_kind": "gym"}}}
     from app.domains.workouts.source_media import normalize_cover_origin
 
     await normalize_cover_origin(db, user.id, generation, content)
