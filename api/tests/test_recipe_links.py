@@ -172,3 +172,34 @@ async def test_migration_is_additive_replayable(fixture):
     await migration.run_migration(migration_engine=engine)
     await migration.run_migration(migration_engine=engine)
     assert await db.get(Recipe, recipe.id)
+
+
+@pytest.mark.asyncio
+async def test_http_contract_and_public_budget(fixture):
+    import httpx
+    from fastapi import FastAPI
+
+    from app.auth import get_current_user, get_optional_user
+    from app.db.database import get_db
+    from app.recipe_links import router as links
+    from app.recipe_pages import router as pages
+    db, recipe = fixture
+    app = FastAPI()
+    app.include_router(links)
+    app.include_router(pages)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: user()
+    app.dependency_overrides[get_optional_user] = lambda: None
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://local.invalid') as client:
+        created = await client.post(f'/api/recipes/{recipe.id}/share-link')
+        assert created.status_code == 200
+        path = '/public/r/' + created.json()['token']
+        assert (await client.get(path)).status_code == 200
+        assert (await client.get(path + '/data')).json()['title'] == recipe.extracted['title']
+        assert (await client.get(path + '/og.jpg')).headers['content-type'] == 'image/jpeg'
+        assert (await client.delete(f'/api/recipes/{recipe.id}/share-link')).status_code == 204
+        assert (await client.get(path)).status_code == 404
+        assert (await client.get(path + '/og.jpg')).status_code == 404
+        for _ in range(120):
+            response = await client.get('/public/r/unknown')
+        assert response.status_code == 429

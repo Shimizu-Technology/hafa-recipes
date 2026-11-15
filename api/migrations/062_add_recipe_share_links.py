@@ -16,6 +16,16 @@ async def run_migration(*, migration_engine=None):
         if get_settings().environment == 'production' and not os.getenv('MIGRATION_062_RESTORE_POINT', '').strip():
             raise RuntimeError('MIGRATION_062_RESTORE_POINT must name a verified restore point')
         await db.run_sync(lambda sync: RecipeLink.__table__.create(sync, checkfirst=True))
+        columns = (await db.execute(text("""
+            SELECT column_name,data_type,is_nullable FROM information_schema.columns
+            WHERE table_schema='public' AND table_name='recipe_share_links' ORDER BY column_name
+        """))).all()
+        constraints = await db.scalar(text("""
+            SELECT count(*) FROM pg_constraint WHERE conrelid='recipe_share_links'::regclass
+            AND (contype IN ('p','u') OR (contype='f' AND confrelid='recipes'::regclass AND confdeltype='c'))
+        """))
+        if [tuple(row) for row in columns] != [('recipe_id', 'uuid', 'NO'), ('token_hash', 'character varying', 'NO')] or constraints != 3:
+            raise RuntimeError('Migration062 schema drift: unexpected recipe link schema')
         await db.execute(text("INSERT INTO schema_migrations(version,name) VALUES(62,'unlisted recipe links') ON CONFLICT(version) DO NOTHING"))
 
 
