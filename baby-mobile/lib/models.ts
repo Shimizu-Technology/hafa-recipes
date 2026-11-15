@@ -651,6 +651,8 @@ export interface DeviceState {
   organizeRun?: import("./organize-waiting").OrganizeRun;
   /** After a run met the daily limit: "Organize all" isn't offered again until then. */
   organizeHeldUntil?: string;
+  /** Saved posts a read showed can never be read as they are (private, gone, out of tries). "Organize all" leaves them out. */
+  unreadableSources?: string[];
   selectedChild: string | null;
   /** Her own babies she's chosen to keep alongside a family's, so she's only asked once. */
   personalBabiesKept?: string[];
