@@ -22,6 +22,8 @@ export interface PendingNews {
   hold_until?: string;
   /** Names as she saw them, for saying who'll be notified once it's gone. */
   names?: Record<string, string>;
+  /** People she picked who'd left the family by the time it went: kept here, so a retry still tells her who wasn't told. */
+  skipped?: string[];
 }
 
 /** The API says it can send news, and she's a parent in this baby's family (any family, without a space). */
@@ -123,9 +125,10 @@ export async function sendPending(state: DeviceState, send: Sender, commit: (cha
  * Before the first send, the people it's going to are kept on the item: a retry after a lost answer then goes to the
  * same people under the same id, so the API sees the same news rather than a change (and refuses it).
  */
-const settleRecipients = (commit: (change: (s: DeviceState) => DeviceState) => Promise<void>, id: string, to: string[], names: Record<string, string>) =>
+const settleRecipients = (commit: (change: (s: DeviceState) => DeviceState) => Promise<void>, id: string, to: string[], names: Record<string, string>,
+  skipped: string[] = []) =>
   commit((s) => ({ ...s, pendingNews: (s.pendingNews ?? []).map((one) => one.id !== id ? one
-    : { ...one, to, parents: undefined, names: { ...names, ...one.names } }) }));
+    : { ...one, to, parents: undefined, names: { ...names, ...one.names }, ...(skipped.length ? { skipped: [...new Set([...(one.skipped ?? []), ...skipped])] } : {}) }) }));
 async function sendEach(state: DeviceState, send: Sender, commit: (change: (s: DeviceState) => DeviceState) => Promise<void>,
   family: (childId: string) => Promise<FamilyNow>, now: number, sent: SentNews[], dropped: DroppedNews[]) {
   for (const item of state.pendingNews ?? []) {
@@ -141,7 +144,8 @@ async function sendEach(state: DeviceState, send: Sender, commit: (change: (s: D
     if (!readyToSend(state, item, now)) continue;
     let seen: Record<string, string> = {};
     try {
-      let to = item.to, skipped: string[] = [];
+      // Anyone a first try already left out, kept from then, so the result can still name them.
+      let to = item.to, skipped: string[] = [...(item.skipped ?? [])];
       if (item.parents) {
         const current = await family(item.child_id);
         seen = current.names;
@@ -161,15 +165,17 @@ async function sendEach(state: DeviceState, send: Sender, commit: (change: (s: D
         if (!(failure instanceof ApiError) || failure.local || failure.status !== 422) throw failure;
         const current = await family(item.child_id);
         seen = { ...seen, ...current.names };
-        skipped = to.filter((id) => !current.active.includes(id));
+        const left = to.filter((id) => !current.active.includes(id));
         to = to.filter((id) => current.active.includes(id));
-        if (!skipped.length) throw failure;
+        if (!left.length) throw failure;
+        skipped = [...skipped, ...left];
         if (to.length) {
-          await settleRecipients(commit, item.id, to, seen);
+          // The smaller set and who was left out are kept together: if this send's answer is lost, the retry says both.
+          await settleRecipients(commit, item.id, to, seen, left);
           answer = await send({ id: item.id, news: item.news, child_id: item.child_id, to });
         }
       }
-      skipped = [...skipped, ...(answer?.skipped ?? [])];
+      skipped = [...new Set([...skipped, ...(answer?.skipped ?? [])])];
       to = answer?.sent_to ?? to.filter((id) => !skipped.includes(id));
       await commit((s) => withoutNews(s, item.id));
       if (to.length) sent.push({ item, to, skipped, push: answer?.push, push_after: answer?.push_after });

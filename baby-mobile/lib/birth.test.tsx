@@ -145,6 +145,27 @@ describe("family news", () => {
     await sendPending(state, again, commit, async () => family);
     expect(again).toHaveBeenCalledWith({ id: "n", news: "labor", child_id: "c", to: ["leon"] });
   });
+  it("someone left out on a try whose answer is lost is still named when a retry gets through", async () => {
+    let state = queueNews(emptyState(), { id: "n", news: "labor", child_id: "c", to: ["leon", "nana"], queued_at: new Date().toISOString(),
+      names: { leon: "Leon", nana: "Grandma" } });
+    const commit = async (change: (s: DeviceState) => DeviceState) => { state = change(state); };
+    const family = async (): Promise<FamilyNow> => ({ active: ["kami", "leon"], parents: ["leon"], names: { leon: "Leon" } });
+    // Grandma has left: today's API refuses the whole message, it's read again, and the send to Leon alone loses its answer.
+    const first = vi.fn(async (body: { to: string[] }) => {
+      throw body.to.includes("nana") ? new ApiError("Choose people in this family", 422) : new ApiError("offline", 0, true);
+    });
+    const lost = await sendPending(state, first, commit, family);
+    expect([lost.sent, lost.dropped]).toEqual([[], []]);
+    // Kept on the phone together: the smaller set, and who was left out.
+    expect(state.pendingNews).toMatchObject([{ id: "n", to: ["leon"], skipped: ["nana"], names: { nana: "Grandma" } }]);
+    // The retry gets through, to Leon, and still says Grandma wasn't told.
+    const retry = vi.fn(async () => ({ sent_to: ["leon"], push: { leon: true } }));
+    const { sent } = await sendPending(state, retry, commit, family);
+    expect(retry).toHaveBeenCalledWith({ id: "n", news: "labor", child_id: "c", to: ["leon"] });
+    expect(sent).toMatchObject([{ to: ["leon"], skipped: ["nana"] }]);
+    expect(skippedWords(sent[0].skipped, (id) => sent[0].item.names?.[id] ?? id)).toBe("Grandma is no longer in your family, so the news didn’t go to them.");
+    expect(state.pendingNews).toEqual([]);
+  });
   it("a write that fails partway still says what already happened", async () => {
     const old = "2026-11-01T00:00:00.000Z";
     let state = queueNews(queueNews(emptyState(), { id: "a", news: "labor", child_id: "c", to: ["leon"], queued_at: old, names: { leon: "Leon" } }),
