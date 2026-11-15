@@ -1,7 +1,7 @@
 import { sourceTitle } from "@/lib/source-title";
 import { writtenTitle } from "../../lib/journal-title";
 import { useEffect, useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
 import { Image } from "expo-image";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
@@ -29,13 +29,14 @@ import { SourceRecovery } from "@/components/source-recovery";
 import { babyLabel, isCaregiver } from "../../lib/spaces";
 import { ApiError } from "../../lib/api";
 import { useOpenJournal } from "../../lib/use-open-journal";
+import { RecordMenu } from "../../components/record-menu";
+import { AskButton } from "../../components/detail-chrome";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
     toast = useToast(),
     openJournal = useOpenJournal(),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [missing, setMissing] = useState(false),
     [editingTiming, setEditingTiming] = useState(false),
     record = b.records.find((r) => r.id === id),
@@ -111,7 +112,12 @@ export default function RecordDetail() {
       numericSubtitle
       subtitle={(dateOnly ? keyDate(recordDay(record.occurred_at, b.state.bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
         : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + babyLabel(child, b.state.bootstrap) : "")}
+      floating={!isCaregiver(b.state.bootstrap) && <AskButton
+        hint={record.kind === "collection" ? "Opens Ask about the posts in this category, with a switch to everything" : "Opens Ask about this entry, with a switch to everything"}
+        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })} />}
     >
+      {/* Edit, organize, share and delete live in the ⋯ menu at the top right; Ask floats at the bottom right. */}
+      <RecordMenu record={record} title={data.label ?? kindName[record.kind]} onError={setError} />
       {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
         : !!title && !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
@@ -124,6 +130,10 @@ export default function RecordDetail() {
       {pending && <Notice>Saved on this device. Your latest changes will sync when a connection is available.</Notice>}
       <SourceRecovery record={record} onError={setError} />
       {record.kind === "source" && <SourceContent data={data} onError={setError} />}
+      {/* When a tip shows up on Today belongs with the post, not under the page's other controls. */}
+      {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
+        onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
+      {record.kind === "source" && !record.cache_partial && !editingTiming && <Grouped><TimingRow relevance={data.relevance} onPress={() => setEditingTiming(true)} /></Grouped>}
       {record.kind === "feeding" && (
         <Card tone="hero">
           <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
@@ -242,52 +252,6 @@ export default function RecordDetail() {
       {/* Above who can see it, so it's on screen after saving something short. */}
       {(record.kind === "journal" || record.kind === "question") && <Grouped><Row title="Your journal" detail="Your entries and doctor questions" icon="book-outline" onPress={() => openJournal(record.kind)} /></Grouped>}
       <ShareToggle record={record} />
-      {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
-        onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
-      <Grouped>
-      {record.kind === "source" && !record.cache_partial && !editingTiming && <TimingRow relevance={data.relevance} onPress={() => setEditingTiming(true)} />}
-      <Row
-        title="Edit this entry"
-        icon="pencil-outline"
-        onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: record.kind } })}
-      />
-      {!isCaregiver(b.state.bootstrap) && <Row
-        title={record.kind === "collection" ? "Ask about this category" : "Ask about this entry"}
-        icon="sparkles-outline"
-        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
-      />}
-      </Grouped>
-      <Button
-        variant="destructive"
-        title="Delete this entry"
-        onPress={() =>
-          Alert.alert(
-            "Delete this entry?",
-            "This removes the saved entry from your Baby history. This action cannot be undone after syncing.",
-            [
-              { text: "Keep entry", style: "cancel" },
-              {
-                text: "Delete entry",
-                style: "destructive",
-                onPress: () => {
-                  void b
-                    .queue({
-                      id: Crypto.randomUUID(),
-                      generation: b.state.bootstrap!.generation,
-                      type: "delete",
-                      record,
-                    })
-                    .then(() => {
-                      toast("Entry removed.");
-                      router.back();
-                    })
-                    .catch((e) => setError(messageFor(e)));
-                },
-              },
-            ]
-          )
-        }
-      />
       <View style={{ height: 20 }} />
     </Screen>
   );
