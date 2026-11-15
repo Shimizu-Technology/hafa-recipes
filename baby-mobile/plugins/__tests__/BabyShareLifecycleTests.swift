@@ -7,6 +7,24 @@ private enum BabyShareSheetState: Equatable {
   case saving, stillWorking, failed
   static let stillWorkingAfter: TimeInterval = 0.05, giveUpAfter: TimeInterval = 0.12
 }
+// Advance deadlines explicitly: a busy host must not turn an 80ms wait into
+// the 120ms give-up deadline before the synthetic provider can publish.
+private enum TestScheduler {
+  static var now: TimeInterval = 0
+  static var pending: [(deadline: TimeInterval, action: () -> Void)] = []
+  static func schedule(after delay: TimeInterval, execute: @escaping () -> Void) {
+    pending.append((now + delay, execute))
+  }
+  static func advance(by seconds: TimeInterval) {
+    let end = now + seconds
+    while let first = pending.indices.min(by: { pending[$0].deadline < pending[$1].deadline }), pending[first].deadline <= end {
+      let next = pending.remove(at: first)
+      now = next.deadline
+      next.action()
+    }
+    now = end
+  }
+}
 private final class TestContext {
   var completed = 0
   func completeRequest(returningItems: [Any], completionHandler: ((Bool) -> Void)?) { completed += 1 }
@@ -93,7 +111,7 @@ private struct BabyShareLifecycleTests {
       try check(failed.storeRequests == 1 && failed.errors == 1, "failed load preparation is never retried late")
       try check(failed.babyProducer == nil && failed.providerStarts == 0, "failed early preparation cannot process")
     }
-    func turn(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+    func turn(_ seconds: TimeInterval) { TestScheduler.advance(by: seconds) }
     do {
       // A provider that never answers. The clocks here are the short ones at the top of this file.
       let suite = "hafa.lifecycle." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
