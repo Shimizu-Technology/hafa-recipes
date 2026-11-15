@@ -100,7 +100,7 @@ describe("Reminders", () => {
     await render();
     await rerender();
     const row = () => view.root.findAll((n) => String(n.type) === "Row").find((n) => n.props.title === "Turn on notifications");
-    expect(row()!.props.detail).toMatch(/Family news is on/);
+    expect(row()!.props.detail).toBe("So family news reaches this phone, not just the app");
     await act(async () => { row()!.props.onPress(); });
     expect(scope.alerts[0][1]).toMatch(/moment labor starts/);
     await act(async () => { await scope.alerts[0][2][1].onPress(); });

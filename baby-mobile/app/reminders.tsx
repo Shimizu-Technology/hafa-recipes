@@ -73,7 +73,7 @@ export default function Reminders() {
       <Row title="Open notification settings" icon="notifications-outline" onPress={() => void Linking.openSettings().catch(() => setOpening("Open your phone’s Settings to change notification permissions."))} />
       {!!opening && <Copy kind="small" tone="muted">{opening}</Copy>}
     </View>}
-    {newsWaiting && <Grouped><Row title="Turn on notifications" detail="Family news is on, but this phone hasn’t allowed notifications yet, so it only shows in the app"
+    {newsWaiting && <Grouped><Row title="Turn on notifications" detail="So family news reaches this phone, not just the app"
       icon="notifications-outline" onPress={() => void allowNews()} /></Grouped>}
     <Grouped separatorInset={16}>
       {kinds.map((kind) => <Line key={kind} title={words[kind]!.title} detail={words[kind]!.detail} on={kind === "feed_interval" ? !!feed?.enabled || choosingHours : !!prefs.kinds[kind]?.enabled}
