@@ -47,8 +47,8 @@ export default function HospitalBag() {
     const before = record.data;
     void save(record, removed(record, id));
     toast(`Removed ${label}`, { label: "Undo", onPress: () => {
-      // The list as it is now, with that one line back where it was.
-      const now = findBag(latest.current.records) ?? record;
+      // That same list as it is now (not whichever is newest), with that one line back where it was.
+      const now = latest.current.records.find((row) => row.id === record.id) ?? record;
       if (now.data.items?.some((item) => item.id === id)) return;
       const at = before.items?.findIndex((item) => item.id === id) ?? -1, item = before.items?.[at];
       if (!item) return;

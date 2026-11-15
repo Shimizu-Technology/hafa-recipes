@@ -517,6 +517,9 @@ export type Mutation = {
       /** From the birth flow: her name for the baby and the birth answers, sent with the date. */
       name?: string;
       details?: Pick<ChildDetails, "birth_time" | "weight_at_birth_g">;
+      /** What those were before, for Undo: null was nothing. */
+      previous_name?: string;
+      previous_details?: Pick<ChildDetails, "birth_time" | "weight_at_birth_g">;
       hold_until?: string;
       sent?: boolean;
       attempts?: number;
@@ -579,7 +582,7 @@ export interface FeedTimer {
   /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
   record_id?: string;
 }
-export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit";
+export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit" | "family_news";
 export interface KindPref {
   enabled: boolean;
   /** Comes through quiet hours, as time-sensitive. */
