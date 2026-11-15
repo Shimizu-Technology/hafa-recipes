@@ -582,7 +582,7 @@ export interface FeedTimer {
   /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
   record_id?: string;
 }
-export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit";
+export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit" | "family_news";
 export interface KindPref {
   enabled: boolean;
   /** Comes through quiet hours, as time-sensitive. */

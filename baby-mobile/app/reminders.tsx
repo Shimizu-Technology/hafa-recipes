@@ -17,6 +17,7 @@ const words: Partial<Record<ReminderKind, { title: string; detail: string }>> = 
   pregnancy_week: { title: "New week", detail: "The morning a new pregnancy week starts" },
   visit_prep: { title: "Visit questions", detail: "The evening before a visit you’ve saved questions for" },
   import: { title: "Saved posts", detail: "When a post you saved has finished" },
+  family_news: { title: "Family news", detail: "When someone in your family tells you labor has started or the baby is here. On unless you turn it off, and it comes through quiet hours" },
 };
 const hourChoices = ["1", "1.5", "2", "2.5", "3", "3.5", "4", "5", "6"];
 const hourLabel = (hours: string) => (hours === "1" ? "1 hour" : `${hours} hours`);

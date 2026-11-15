@@ -77,6 +77,12 @@ describe("what a person is offered", () => {
     expect(kindsFor(spaces("caregiver"), pregnant)).toEqual(["event", "running_timer"]);
     expect(kindsFor(spaces("parent"), pregnant)).toContain("feed_interval");
   });
+  it("lists family news, on until turned off, only where the API sends it and there's a family", () => {
+    expect(kindsFor(spaces("parent"), pregnant)).not.toContain("family_news");
+    expect(kindsFor({ ...spaces("parent"), reminders: { push: true, family_news: true } } as any, pregnant).at(-1)).toBe("family_news");
+    expect(kindsFor({ ...spaces("caregiver"), reminders: { push: true, family_news: true } } as any, pregnant)).toEqual(["event", "running_timer", "family_news"]);
+    expect(kindsFor({ spaces: [], reminders: { push: true, family_news: true } } as any, pregnant)).not.toContain("family_news");
+  });
 });
 
 describe("turning something on", () => {
