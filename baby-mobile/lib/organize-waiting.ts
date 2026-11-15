@@ -149,21 +149,40 @@ export function stopOrganize(state: DeviceState, now = new Date()): DeviceState 
   if (!run || run.finished_at) return state;
   return { ...state, organizeRun: { ...run, stopped: "cancelled", ...(run.active.length ? {} : { finished_at: now.toISOString() }) } };
 }
+/**
+ * After a daily limit, when it can start again. The API counts the last 24 hours, so a day after the limit is the
+ * latest that could be: one of the reads that filled it has passed by then.
+ */
+export const organizeAgainAt = (run: OrganizeRun | undefined) =>
+  run?.stopped === "limit" && run.finished_at ? new Date(new Date(run.finished_at).getTime() + 24 * 3600_000).toISOString() : undefined;
+/** Dismissed. After a limit, "Organize all" waits until it could work rather than offering a tap that's refused. */
 export function clearOrganize(state: DeviceState): DeviceState {
-  const { organizeRun: _, ...rest } = state;
-  return rest;
+  const { organizeRun: run, ...rest } = state, again = organizeAgainAt(run);
+  return again ? { ...rest, organizeHeldUntil: again } : rest;
 }
+/** Whether "Organize all" is held back for the daily limit at this moment. */
+export const organizeHeld = (state: Pick<DeviceState, "organizeHeldUntil">, now = new Date()) =>
+  !!state.organizeHeldUntil && new Date(state.organizeHeldUntil) > now;
 
 const posts = (n: number) => `${n} saved post${n === 1 ? "" : "s"}`;
-/** The words on the card, for each moment of a run. */
-export function organizeWords(run: OrganizeRun | undefined, waitingCount: number) {
+/**
+ * The words on the card, for each moment of a run. `again` is when a daily limit lets it start again, in words
+ * ("1:35 PM tomorrow"); `held` says that moment hasn't come yet.
+ */
+export function organizeWords(run: OrganizeRun | undefined, waitingCount: number, { again, held = false }: { again?: string; held?: boolean } = {}) {
   if (!run) return {
     heading: waitingCount === 1 ? "1 saved post is waiting to be organized" : `${waitingCount} saved posts are waiting to be organized`,
-    body: "Håfa can read each one and add a summary, topics and a suggested category. It goes a few at a time, within your daily allowance.",
+    body: held ? `Today’s processing allowance is used. You can organize ${waitingCount === 1 ? "it" : "them"}${again ? ` after ${again}` : " tomorrow"}.`
+      : "Håfa can read each one and add a summary, topics and a suggested category. It goes a few at a time, within your daily allowance.",
   };
   const settled = run.organized + run.attention.length, left = run.waiting.length + run.active.length;
+  if (!run.finished_at && run.stopped === "cancelled") return {
+    heading: "Stopping after the ones being read",
+    body: `${settled} of ${run.total} done. ${run.active.length === 1 ? "1 is" : `${run.active.length} are`} still being read${run.waiting.length
+      ? `, and the other ${run.waiting.length === 1 ? "1 stays" : `${run.waiting.length} stay`} saved as ${run.waiting.length === 1 ? "it is" : "they are"}` : ""}.`,
+  };
   if (!run.finished_at) return {
-    heading: run.stopped === "cancelled" ? "Finishing the posts already reading…" : `Organizing ${posts(run.total)}`,
+    heading: `Organizing ${posts(run.total)}`,
     body: run.paused_until ? "Other posts are being read right now. This continues in a couple of minutes."
       : `${settled} of ${run.total} done. A few go at a time, and it keeps going while the app is open.`,
   };
@@ -171,7 +190,7 @@ export function organizeWords(run: OrganizeRun | undefined, waitingCount: number
     : `Organized ${run.organized} of ${posts(run.total)}.`;
   const attention = run.attention.length
     ? ` ${run.attention.length === 1 ? "1 couldn’t be read" : `${run.attention.length} couldn’t be read`} this time. Their originals are kept, and each one’s page has Try again.` : "";
-  const rest = run.stopped === "limit" && left ? ` ${left === 1 ? "1 is" : `${left} are`} still waiting: today’s processing allowance is used. You can organize the rest tomorrow.`
+  const rest = run.stopped === "limit" && left ? ` ${left === 1 ? "1 is" : `${left} are`} still waiting: today’s processing allowance is used. You can organize the rest ${again ? `after ${again}` : "tomorrow"}.`
     : run.stopped === "ai_off" && left ? ` ${left === 1 ? "1 is" : `${left} are`} still waiting: AI processing is off or unavailable right now. You can organize the rest later.`
     : run.stopped === "cancelled" && left ? ` ${left === 1 ? "1 is" : `${left} are`} still saved as ${left === 1 ? "it was" : "they were"}.` : "";
   return { heading: run.attention.length || (run.stopped && left) ? "Done for now" : "All organized",

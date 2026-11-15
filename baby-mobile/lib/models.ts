@@ -647,6 +647,8 @@ export interface DeviceState {
   imports: ImportJob[];
   /** "Organize everything waiting", while it runs and until she dismisses what it did. */
   organizeRun?: import("./organize-waiting").OrganizeRun;
+  /** After a run met the daily limit: "Organize all" isn't offered again until then. */
+  organizeHeldUntil?: string;
   selectedChild: string | null;
   /** Her own babies she's chosen to keep alongside a family's, so she's only asked once. */
   personalBabiesKept?: string[];

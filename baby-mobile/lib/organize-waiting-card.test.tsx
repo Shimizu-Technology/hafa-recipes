@@ -61,6 +61,42 @@ it("isn't there with nothing waiting, without AI, or for a caregiver", async () 
   expect(renderer!.toJSON()).toBeNull();
   expect(w.baby.api.records).not.toHaveBeenCalled();
 });
+it("after the daily limit, says when instead of offering a tap the API would refuse", async () => {
+  w.baby = baby({ profile: { ai_consent: true, timezone: "Pacific/Guam" } } as any);
+  const until = new Date(Date.now() + 20 * 3600_000).toISOString();
+  await w.baby.commit((s: DeviceState) => ({ ...s, organizeHeldUntil: until }));
+  await mount();
+  expect(text()).toContain("2 saved posts are waiting to be organized");
+  expect(text()).toContain("Today’s processing allowance is used. You can organize them after");
+  expect(button("Organize all 2")).toBeUndefined();
+  await act(async () => renderer!.unmount());
+  // Once it's passed, it's offered again.
+  await w.baby.commit((s: DeviceState) => ({ ...s, organizeHeldUntil: new Date(Date.now() - 1000).toISOString() }));
+  await mount();
+  expect(button("Organize all 2")).toBeTruthy();
+});
+it("looks again when a waiting post reaches this phone after the first look", async () => {
+  w.pages = [{ items: [], has_more: false }];
+  w.baby.records = [];
+  await mount();
+  expect(renderer!.toJSON()).toBeNull();
+  // A share syncs: it's on the phone now, and on the API.
+  w.pages = [{ items: [post("a")], has_more: false }];
+  w.baby.records = [post("a")];
+  await act(async () => { renderer!.update(<OrganizeWaiting />); });
+  expect(text()).toContain("1 saved post is waiting to be organized");
+});
+it("tries again after a look that failed, instead of waiting for a pull to refresh", async () => {
+  vi.useFakeTimers();
+  let fail = true;
+  w.baby.api.records = vi.fn(async () => { if (fail) throw new Error("offline"); return { items: [post("a")], has_more: false }; });
+  await mount();
+  expect(renderer!.toJSON()).toBeNull();
+  fail = false;
+  await act(async () => { await vi.advanceTimersByTimeAsync(3_100); });
+  expect(text()).toContain("1 saved post is waiting to be organized");
+  vi.useRealTimers();
+});
 it("carries a run on from the app root when an import finishes", async () => {
   const { OrganizeRunner } = await import("../components/organize-waiting");
   await mount();

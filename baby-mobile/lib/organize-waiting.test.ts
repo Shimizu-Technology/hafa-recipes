@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aiUnavailableMessage, dailyAiLimitMessage, sourceRefusalMessages } from "./import-status";
-import { advanceOrganize, clearOrganize, findWaiting, organizeAtOnce, organizeWords, startOrganize, stopOrganize, waitingSource } from "./organize-waiting";
+import { advanceOrganize, clearOrganize, findWaiting, organizeAgainAt, organizeAtOnce, organizeHeld, organizeWords, startOrganize, stopOrganize, waitingSource } from "./organize-waiting";
 import { emptyState, type BabyRecord, type DeviceState } from "./models";
 
 const source = (id: string, over: Partial<BabyRecord["data"]> = {}, at = `2026-11-0${id.length}T10:00:00.000Z`): BabyRecord => ({
@@ -82,6 +82,14 @@ describe("a run", () => {
     expect(state.organizeRun!.finished_at).toBeTruthy();
     expect(organizeWords(state.organizeRun, 0)).toMatchObject({ heading: "Done for now" });
     expect(organizeWords(state.organizeRun, 0).body).toContain("3 are still waiting: today’s processing allowance is used.");
+    expect(organizeWords(state.organizeRun, 0, { again: "1:35 PM tomorrow" }).body).toContain("You can organize the rest after 1:35 PM tomorrow.");
+    // Dismissed: "Organize all" isn't offered again until a day after the limit, when the API's window has moved on.
+    const cleared = clearOrganize(state);
+    expect(cleared.organizeHeldUntil).toBe(organizeAgainAt(state.organizeRun));
+    expect(new Date(cleared.organizeHeldUntil!).getTime() - new Date(state.organizeRun!.finished_at!).getTime()).toBe(24 * 3600_000);
+    expect(organizeHeld(cleared, new Date(new Date(state.organizeRun!.finished_at!).getTime() + 3600_000))).toBe(true);
+    expect(organizeHeld(cleared, new Date(new Date(state.organizeRun!.finished_at!).getTime() + 25 * 3600_000))).toBe(false);
+    expect(organizeWords(undefined, 3, { held: true, again: "1:35 PM tomorrow" }).body).toBe("Today’s processing allowance is used. You can organize them after 1:35 PM tomorrow.");
   });
 
   it("stops when the AI spending limit is reached while reading", () => {
@@ -128,12 +136,16 @@ describe("a run", () => {
   it("can stop after the ones already reading, and be dismissed", () => {
     let state = stopOrganize(started(), now);
     expect(state.organizeRun!.finished_at).toBeUndefined();
+    expect(organizeWords(state.organizeRun, 0)).toEqual({ heading: "Stopping after the ones being read",
+      body: "0 of 5 done. 3 are still being read, and the other 2 stay saved as they are." });
     state = { ...state, outbox: [], imports: state.organizeRun!.active.map((a) => ({ id: a.import_id, status: "ready", record_id: a.record_id })) };
     state = advanceOrganize(state, uuid, now);
     expect(state.outbox).toHaveLength(0);
     expect(state.organizeRun!.finished_at).toBeTruthy();
     expect(organizeWords(state.organizeRun, 0).body).toBe("Organized 3 of 5 saved posts. 2 are still saved as they were. Suggested categories are in Uncategorized.");
     expect(clearOrganize(state).organizeRun).toBeUndefined();
+    // Stopped by her, not a limit: it can be offered again at once.
+    expect(clearOrganize(state).organizeHeldUntil).toBeUndefined();
   });
 
   it("doesn't start twice", () => {
