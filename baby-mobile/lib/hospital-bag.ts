@@ -63,8 +63,9 @@ export function sectionOf(id: string): BagSection | "other" {
   const [prefix, section] = id.split(":");
   return prefix === "bag" && bagSections.some((one) => one.id === section) ? section as BagSection : "other";
 }
+/** Its own items say so, or (once she's removed every one of them) its title still does, so the bag never vanishes. */
 export const isBag = (record: BabyRecord) => record.kind === "routine" && record.data.routine_type === "checklist" &&
-  (record.data.items ?? []).some((item) => item.id.startsWith("bag:"));
+  ((record.data.items ?? []).some((item) => item.id.startsWith("bag:")) || record.title === bagTitle);
 
 /** The newest bag she can see. Two phones starting one at once each make one; the newer is the one shown. */
 export function findBag(records: BabyRecord[]) {
