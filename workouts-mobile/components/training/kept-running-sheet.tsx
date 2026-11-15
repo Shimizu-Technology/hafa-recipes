@@ -29,7 +29,7 @@ export function KeptRunningSheet({ d, now, busy, cap, onKeep, onStoppedAt }: {
     <Sheet visible onClose={onKeep} title="Your clock kept running">
       <Copy kind="numeric" align="center" fit maxScale={1.6} style={{ fontSize: 48, lineHeight: 56 }}>{clock}</Copy>
       <Copy tone="muted" align="center">
-        {capped ? `It reached the ${formatClock(cap!)} cap.` : cap != null ? `${d.timed_circuit ? "Left" : "On the clock"}, of ${formatClock(cap)}.` : "On the clock."}{" "}
+        {capped ? `It reached the ${formatClock(cap!)} cap.` : cap != null ? `${d.timed_circuit ? "Time left" : "On the clock"}, of ${formatClock(cap)}.` : "On the clock."}{" "}
         You left Håfa at {timeOfDay(left)}.
       </Copy>
       {choosing ? (
