@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { suggestedFeedEnd, validFeedEnd, feedProgress, instant, newestFirst, orderActions, reduceFeed, retimedActions, roundMinutes, runningFeed, runningLimit, withFeedAction, withRecordAction } from "./feed-reducer";
+import { feedLengthAt, feedOverdue, suggestedFeedEnd, touchedRecently, validFeedEnd, feedProgress, instant, newestFirst, orderActions, reduceFeed, retimedActions, roundMinutes, runningFeed, runningLimit, withFeedAction, withRecordAction } from "./feed-reducer";
 import { optimisticRecord, type BabyRecord, type FeedAction } from "./models";
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 10, 4, 12, minutes)).toISOString();
@@ -197,4 +197,17 @@ it("suggests an end without losing switches and validates corrections", () => {
   expect(validFeedEnd(record, at(20), new Date(at(60)))).toBe(false);
   expect(validFeedEnd(record, at(61), new Date(at(60)))).toBe(false);
   expect(validFeedEnd(record, at(30), new Date(at(60)))).toBe(true);
+});
+
+it("suggests now after a side tap in the last 15 minutes, and says how long a chosen end makes the feed", () => {
+  const record = optimisticRecord({ id: "feed", kind: "feeding", title: "", body: "", child_id: null,
+    occurred_at: at(0), data: { method: "breast", actions: [start(0), swap(50, "right")] } });
+  expect(touchedRecently(record, new Date(at(65)))).toBe(true);
+  expect(suggestedFeedEnd(record, new Date(at(65)))).toBe(at(65));
+  // Sixteen minutes on, it falls back to the last tap (or a typical twenty minutes).
+  expect(touchedRecently(record, new Date(at(66)))).toBe(false);
+  expect(suggestedFeedEnd(record, new Date(at(66)))).toBe(at(50));
+  expect(feedLengthAt(record, at(50))).toBe(50);
+  expect(feedOverdue(record, new Date(at(59)))).toBe(false);
+  expect(feedOverdue(record, new Date(at(60)))).toBe(true);
 });

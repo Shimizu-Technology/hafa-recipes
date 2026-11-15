@@ -95,7 +95,9 @@ it("saves a left feed in two taps: inline sides with next highlighted, no system
   expect(scope.taps.at(-1)).toBe("success");
   expect(target("Left")).toBeUndefined();
   expect(target("Undo Left")).toBeDefined();
-  expect(texts()).toContain("You can put the phone down. It stays saved.");
+  // Compact: the reassurance is spoken with the card rather than taking a line of the page.
+  expect(target("Feeding")?.props.accessibilityLabel).toMatch(/stays saved/);
+  expect(texts()).not.toContain("You can put the phone down. It stays saved.");
   expect(b.state.feedTimer).toBeUndefined();
 });
 
@@ -131,7 +133,7 @@ it("switches and finishes through durable actions behind the record: both sides,
   await press("Switch to Right");
   expect(feedActions().map((m) => m.action.action)).toEqual(["switch"]);
   expect(feedActions()[0]).toMatchObject({ record_id: id, action: { side: "right", at: new Date(start.getTime() + 5 * 60_000).toISOString() } });
-  expect(texts().some((t) => t.startsWith("Left 05:00"))).toBe(true);
+  expect(texts().some((t) => t.startsWith("Feeding · Left 05:00"))).toBe(true);
   vi.setSystemTime(start.getTime() + 8 * 60_000);
   await press("Done");
   expect(pendingRecords(b.state)).toHaveLength(1);
@@ -222,6 +224,49 @@ it("keeps a forgotten feed visible and asks before saving its end", async () => 
   expect(b.state.outbox.filter((m) => m.type === "feed_action")).toMatchObject([
     { action: { action: "finish", at: new Date(start.getTime() + 20 * 60_000).toISOString() } },
   ]);
+});
+
+it("past the hour asks whether the feed ended, offers ending it now with its length, and shows what a chosen time makes", async () => {
+  const b = setup();
+  await mount();
+  await press("Breastfeed");
+  await press("Left");
+  vi.setSystemTime(start.getTime() + 3 * 60 * 60_000);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  await refresh();
+  expect(texts()).toContain("Still feeding?");
+  // No ticking clock hours on: a start time, and how long it has run.
+  expect(texts().some((t) => /^Left · started /.test(t))).toBe(true);
+  expect(texts().some((t) => t.startsWith("Running 3 h"))).toBe(true);
+  // Nobody touched it for hours, so "It ended at…" leads and the one tap doesn't.
+  const now = target("Done — ended now")!, button = (title: string) => renderer!.root.findAll((node) => String(node.type) === "Button" && node.props.title === title)[0];
+  expect(now.props.accessibilityLabel).toBe("Done — ended now, 3 h feed");
+  expect(button("It ended at…").props.secondary).toBe(false);
+  await act(async () => button("It ended at…").props.onPress());
+  const copy = () => renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => [n.props.children].flat().join(""));
+  expect(copy()).toContain("That makes a 20 min feed.");
+  await act(async () => renderer!.root.findAll((node) => String(node.type) === "DateField")[0].props.onChange(new Date(start.getTime() + 45 * 60_000).toISOString()));
+  expect(copy()).toContain("That makes a 45 min feed.");
+  await act(async () => button("Still feeding / Cancel").props.onPress());
+  await press("Done — ended now");
+  expect(feedActions()).toMatchObject([{ action: { action: "finish", at: new Date(Date.now()).toISOString() } }]);
+  expect(b.state.outbox.filter((m) => m.type === "feed_action")).toHaveLength(1);
+});
+
+it("suggests now when a side was tapped in the last 15 minutes, and makes the one-tap end the main one", async () => {
+  setup();
+  await mount();
+  await press("Breastfeed");
+  await press("Left");
+  vi.setSystemTime(start.getTime() + 55 * 60_000);
+  await press("Switch to Right");
+  vi.setSystemTime(start.getTime() + 65 * 60_000);
+  await act(async () => { await vi.advanceTimersByTimeAsync(7000); });
+  await refresh();
+  const button = (title: string) => renderer!.root.findAll((node) => String(node.type) === "Button" && node.props.title === title)[0];
+  expect(button("It ended at…").props.secondary).toBe(true);
+  await act(async () => button("It ended at…").props.onPress());
+  expect(renderer!.root.findAll((node) => String(node.type) === "DateField")[0].props.value).toBe(new Date(Date.now()).toISOString());
 });
 
 it("shows a feed the other phone started, and finishes it from here", async () => {

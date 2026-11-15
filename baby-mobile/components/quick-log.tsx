@@ -5,10 +5,10 @@ import { AccessibilityInfo, Animated, Text, TextInput, View, useWindowDimensions
 import { useBaby } from "@/lib/context";
 import { pendingRecords } from "../lib/outbox";
 import { messageFor, type BabyRecord, type Child } from "@/lib/models";
-import { retimedActions, runningFeed, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
+import { retimedActions, runningFeed, runningLimit, touchedRecently, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
 import { careGlance, nextSide } from "@/lib/care-glance";
 import { amendCare, bottleStart, careWrite, changeUnit, lastAmountUnit, logCare, stepAmount, updateCare, type AmountChoice, type BottleChoice } from "@/lib/quick-care";
-import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
+import { careSummary, contentWords, duration, friendlyTime } from "@/lib/care-format";
 import { activeTimer, clockText, type FeedSide } from "@/lib/feed-timer";
 import { feedWrite, finishFeed, startFeed, switchFeed, undoShown } from "@/lib/running-feed";
 import { router } from "expo-router";
@@ -46,11 +46,13 @@ const diaperChoices = [{ label: "Pee", type: "wet" }, { label: "Poo", type: "dir
 type DiaperType = (typeof diaperChoices)[number]["type"];
 
 /** One big choice inside a panel or running card. `strong` marks the suggested one. */
-export function Option({ label, detail, hint, strong, height = 76, wraps, onPress }: { label: string; detail?: string; hint?: string; strong?: boolean; height?: number;
+export function Option({ label, detail, spoken, hint, strong, height = 76, wraps, onPress }: { label: string; detail?: string;
+  /** What VoiceOver reads, when label and detail together don't read as one phrase. */
+  spoken?: string; hint?: string; strong?: boolean; height?: number;
   /** One of too many for a row, so it wraps rather than splitting a word. */
   wraps?: boolean; onPress: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
-  return <PressTarget accessibilityRole="button" accessibilityLabel={detail ? `${label}, ${detail}` : label} accessibilityHint={hint} onPress={onPress}
+  return <PressTarget accessibilityRole="button" accessibilityLabel={spoken ?? (detail ? `${label}, ${detail}` : label)} accessibilityHint={hint} onPress={onPress}
     style={{ flexGrow: 1, flexBasis: fontScale >= 1.5 ? "100%" : wraps ? "30%" : 0, minWidth: 0, minHeight: Math.max(quickTarget, height), borderRadius: 20, paddingVertical: 8, paddingHorizontal: 6,
       alignItems: "center", justifyContent: "center", backgroundColor: strong ? c.action : c.tile }}>
     <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 18, lineHeight: 23, textAlign: "center", color: strong ? c.onAction : c.text }}>{label}</Text>
@@ -74,31 +76,47 @@ function Tile({ icon, label, hint, primary, open, many, onPress }: { icon: IconN
   </PressTarget>;
 }
 
-/** The running feed: side and elapsed time, Switch and Done. Ignoring it is fine; the feed is already saved. */
+/**
+ * The running feed, kept compact so the page under it stays usable: side and elapsed time, Switch and Done.
+ * Ignoring it is fine; the feed is already saved. Past the hour it asks whether the feed ended, and when.
+ */
 function RunningCard({ feed, timeZone, onSwitch, onDone }: { feed: RunningFeed; timeZone?: string | null; onSwitch: () => void; onDone: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), now = useSecondClock(true),
     open = feed.segments[feed.segments.length - 1], side = open.side,
     earlier = feed.segments.slice(0, -1)
       .map((s) => `${word[s.side]} ${clockText(new Date(s.ended_at!).getTime() - new Date(s.started_at).getTime())}`).join(", "),
     spent = clockText(now.getTime() - new Date(open.started_at).getTime()),
-    stacked = fontScale >= 1.3;
-  return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
-    <View style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "flex-end", justifyContent: "space-between", gap: 10, paddingHorizontal: 4 }}>
-      {/* Read as one line, and not again every second. */}
-      <PressTarget accessibilityRole="button" accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(feed.started_at, now, timeZone)}`} accessibilityHint="Opens this feed"
-        onPress={() => router.push({ pathname: "/record/[id]", params: { id: feed.record.id } })} style={{ flexShrink: 0, minHeight: 56 }}>
-        <Text key={`e:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Feeding</Text>
-        <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} numberOfLines={1} style={{ fontFamily: fonts.semibold, fontSize: 34, lineHeight: 40, color: c.text, fontVariant: ["tabular-nums"] }}>{`${word[side]} · ${spent}`}</Text>
-      </PressTarget>
-      <Text key={`c:${fontScale}`} maxFontSizeMultiplier={0} style={{ flexShrink: 1, ...typeScale.caption, color: c.muted, textAlign: stacked ? "left" : "right" }}>
-        {earlier || "You can put the phone down. It stays saved."}
-      </Text>
-    </View>
+    // Past the hour a ticking clock means nothing; it asks instead. The one-tap end says how long it would make the feed.
+    overdue = now.getTime() - new Date(feed.started_at).getTime() >= runningLimit,
+    recent = touchedRecently(feed.record, now),
+    length = duration((now.getTime() - new Date(feed.started_at).getTime()) / 60_000),
+    opens = { accessibilityRole: "button" as const, accessibilityHint: "Opens this feed", onPress: () => router.push({ pathname: "/record/[id]", params: { id: feed.record.id } }) },
+    eyebrow = (text: string) => <Text key={`e:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>{text}</Text>,
+    switchSide = <Option label="Switch" detail={`to ${word[other(side)]}`} spoken={`Switch to ${word[other(side)]}`} height={quickTarget} onPress={onSwitch} />;
+  if (overdue) return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10, borderWidth: 2, borderColor: c.accent }}>
+    <PressTarget {...opens} accessibilityLabel={`Still feeding? ${word[side]} side, started ${friendlyTime(feed.started_at, now, timeZone)}, ${length} ago`}
+      style={{ paddingHorizontal: 4, gap: 2 }}>
+      {eyebrow("Still feeding?")}
+      <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 22, lineHeight: 28, color: c.text }}>{`${word[side]} · started ${friendlyTime(feed.started_at, now, timeZone)}`}</Text>
+      <Text key={`c:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ ...typeScale.footnote, color: c.muted }}>{`Running ${length}. Say when it ended so the log is right.`}</Text>
+    </PressTarget>
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      <Option label={`Switch to ${word[other(side)]}`} height={64} onPress={onSwitch} />
-      {now.getTime() - new Date(feed.started_at).getTime() < 60 * 60_000 && <Option label="Done" strong height={64} hint="Records how long this feed took" onPress={onDone} />}
+      {switchSide}
+      <Option label="Done — ended now" detail={`${length} feed`} strong={recent} height={quickTarget} hint="Records that this feed ended just now" onPress={onDone} />
     </View>
-    {now.getTime() - new Date(feed.started_at).getTime() >= 60 * 60_000 && <FeedEnded record={feed.record} timeZone={timeZone} />}
+    <FeedEnded record={feed.record} timeZone={timeZone} strong={!recent} />
+  </View>;
+  return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+    {/* Read as one line, and not again every second. */}
+    <PressTarget {...opens} accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(feed.started_at, now, timeZone)}. You can put the phone down; it stays saved.`}
+      style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? "100%" : "auto", minHeight: quickTarget, justifyContent: "center", paddingHorizontal: 4 }}>
+      {eyebrow(earlier ? `Feeding · ${earlier}` : "Feeding")}
+      <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} numberOfLines={1} style={{ fontFamily: fonts.semibold, fontSize: 26, lineHeight: 32, color: c.text, fontVariant: ["tabular-nums"] }}>{`${word[side]} · ${spent}`}</Text>
+    </PressTarget>
+    <View style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? "100%" : 168, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {switchSide}
+      <Option label="Done" strong height={quickTarget} hint="Records how long this feed took" onPress={onDone} />
+    </View>
   </View>;
 }
 

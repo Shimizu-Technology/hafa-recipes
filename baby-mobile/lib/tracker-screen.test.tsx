@@ -592,7 +592,7 @@ it("moves the quick log into the page at the largest text sizes", async () => {
 it("describes a timeline row with what the title doesn't say", () => {
   const started = "2026-11-04T02:45:00.000Z", actions = [{ id: "s", action: "start" as const, at: started, side: "left" as const }];
   expect(timelineDetail(row("x", "feeding", started, { method: "breast", actions }), { now })).toBe("Feeding now");
-  expect(timelineDetail(row("x", "feeding", "2026-11-03T02:45:00.000Z", { method: "breast", actions: [{ ...actions[0], at: "2026-11-03T02:45:00.000Z" }] }), { now })).toBe("Feeding now");
+  expect(timelineDetail(row("x", "feeding", "2026-11-03T02:45:00.000Z", { method: "breast", actions: [{ ...actions[0], at: "2026-11-03T02:45:00.000Z" }] }), { now })).toBe("Still feeding? Add when it ended");
   expect(timelineDetail(row("x", "diaper", started, { type: "dirty" }, "First black one\nsecond line"), { now })).toBe("First black one");
   expect(timelineDetail(row("x", "sleep", started, { end_at: "2026-11-04T03:45:00.000Z" }), { now })).toMatch(/to/);
 });

@@ -133,11 +133,31 @@ export function feedProgress(record: BabyRecord, rows: readonly BabyRecord[], no
   return runningFeed(rows, record.child_id, now)?.record.id === record.id ? "running" : "no_end";
 }
 
-/** Suggest twenty minutes, bounded by now and the latest side tap so no segment is lost. */
+/** A feed still running past `runningLimit`: screens ask when it ended instead of calling it "Feeding now". */
+export function feedOverdue(record: BabyRecord, now = new Date()) {
+  const started = reduceFeed(record.data.actions)?.started_at;
+  return !!started && now.getTime() - new Date(started).getTime() >= runningLimit;
+}
+/** A side tapped this recently means she's probably still there, so the feed ended about now. */
+export const recentFeedTouch = 15 * 60_000;
+/** Whether a side was started or switched within `recentFeedTouch` of now. */
+export function touchedRecently(record: BabyRecord, now = new Date()) {
+  const times = (record.data.actions ?? []).map((action) => new Date(action.at).getTime()).filter(Number.isFinite);
+  return !!times.length && now.getTime() - Math.max(...times) <= recentFeedTouch;
+}
+/**
+ * Now, after a recent side tap. Otherwise a typical twenty minutes, bounded by now and the latest side tap
+ * so no segment is lost.
+ */
 export function suggestedFeedEnd(record: BabyRecord, now = new Date()) {
+  if (touchedRecently(record, now)) return now.toISOString();
   const times = (record.data.actions ?? []).map((action) => new Date(action.at).getTime()).filter(Number.isFinite);
   const start = new Date(record.occurred_at).getTime();
   return new Date(Math.min(now.getTime(), Math.max(start + 20 * 60_000, ...times))).toISOString();
+}
+/** How long the feed is if it ended at `at`, in minutes, the way it would be saved. */
+export function feedLengthAt(record: BabyRecord, at: string) {
+  return withFeedAction(record.data, { id: "preview", action: "finish", at }).duration_minutes;
 }
 export function validFeedEnd(record: BabyRecord, at: string, now = new Date()) {
   const end = new Date(at).getTime();
