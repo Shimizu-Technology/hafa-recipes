@@ -56,6 +56,23 @@ it("gives immediate preterm routing below 37 weeks and when the week is unknown"
   for (const week of [37, 41]) expect(contractionGuidance(week)).toContain("Go to the hospital");
   for (const week of [undefined, 36, 37]) expect(contractionGuidance(week)).not.toMatch(/5-1-1|okay|normal|wait an hour/);
 });
+it("says the same guidance to whoever's reading: her, her partner by her name, or anyone while it isn't settled", () => {
+  // Her own words are unchanged.
+  expect(contractionGuidance(38)).toBe("If you think you’re in labor or aren’t sure, call your care team. Go to the hospital if your water breaks without contractions, you bleed heavily, have constant severe pain, or your baby moves less.");
+  const kami = { name: "Kami" };
+  expect(contractionGuidance(38, kami)).toBe("If labor might have started and you aren’t sure, call Kami’s care team. Go to the hospital if Kami’s water breaks without contractions, there’s heavy bleeding or constant severe pain, or the baby moves less.");
+  expect(contractionGuidance(34, kami)).toContain("don’t wait if Kami has any signs of preterm labor. Call Kami’s care team right away");
+  expect(contractionGuidance(34, kami)).toContain("or Kami’s water breaking with a gush or trickle.");
+  for (const week of [34, 38]) {
+    // The same advice: every sign and every reason to go in, only the person addressed changes.
+    for (const voice of [kami, "neutral" as const]) {
+      expect(contractionGuidance(week, voice)).not.toMatch(/\byour\b|\byou have\b|you bleed/);
+      expect(contractionGuidance(week, voice).length).toBeGreaterThan(contractionGuidance(week).length * 0.8);
+    }
+    expect(contractionGuidance(week, "neutral")).toContain("the care team");
+  }
+  expect(contractionGuidance(34, "neutral")).toContain("a constant low, dull backache; or the water breaking with a gush or trickle.");
+});
 
 it("finds her note by its label, the newest copy, and nothing else", () => {
   const note = (id: string, when: string, provenance: "clinician_instruction" | "caregiver_observation" = "clinician_instruction", title = "What my doctor told me") =>

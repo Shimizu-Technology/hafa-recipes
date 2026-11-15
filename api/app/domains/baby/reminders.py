@@ -28,7 +28,7 @@ CLEARED = "cleared"  # In a delivered row's payload: off Today because its reaso
 QUIET_HELD = "quiet_hours"  # What ``lease_until`` means on a waiting row, unlike a provider's backoff.
 # A caregiver hears only about what they help with. Everything else is for parents, so a babysitter
 # is not woken for a feed, and a question for the doctor stays with the people who can read it.
-CAREGIVER_HEARS = frozenset({"event", "running_timer"})
+CAREGIVER_HEARS = frozenset({"event", "running_timer", "family_news"})  # News comes only when a parent picked them.
 
 
 @dataclass(frozen=True)

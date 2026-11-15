@@ -13,6 +13,7 @@ vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/components/call-contact", () => ({ CallContact: "CallContact" }));
+vi.mock("../components/expecting-ask", () => ({ ExpectingAsk: "ExpectingAsk" }));
 vi.mock("@/lib/contractions", () => import("./contractions"));
 vi.mock("@/lib/medical-wording", () => import("./medical-wording"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
@@ -23,7 +24,7 @@ vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/running-feed", () => ({ finishTimer: vi.fn() }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: pendingRecords(scope.account.state), rows: [], loading: false, error: scope.careError ?? "", refresh: vi.fn() }) }));
 const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", QuietRow: "QuietRow", Row: "Row", Screen: "Screen", Section: "Section",
-  fonts: {}, radii: {}, tap: () => undefined, typeScale: {}, useColors: () => ({}), useToast: () => scope.toast }));
+  fonts: {}, radii: {}, tap: () => undefined, typeScale: {}, useColors: () => ({ addFill: "clay", onAdd: "white", action: "cocoa" }), useToast: () => scope.toast }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
@@ -70,7 +71,8 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("offers where she plans to deliver as a call, a quiet line, or nothing, and never during a contraction", async () => {
-  const b = setup(), calls = () => renderer!.root.findAll((n) => String(n.type) === "CallContact"), quiet = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow");
+  const b = setup(), calls = () => renderer!.root.findAll((n) => String(n.type) === "CallContact"),
+    quiet = () => renderer!.root.findAll((n) => String(n.type) === "QuietRow" && n.props.title === "Add where you plan to deliver");
   await mount();
   expect(calls().length + quiet().length).toBe(0);
   b.state = { ...b.state, bootstrap: { ...b.state.bootstrap!, contacts: {} } };
@@ -252,10 +254,63 @@ it("leaves being offline to the one calm line, and still says when something els
 });
 
 
+it("makes Start the most prominent control, with Help secondary and capped at the same 1.5× text", async () => {
+  setup();
+  await mount();
+  const start = target("Start")!, help = button("Open Help")[0];
+  expect(start.props.style.backgroundColor).toBe("clay");
+  const label = start.findAll((n) => String(n.type) === "Text")[0];
+  expect(label.props.maxFontSizeMultiplier).toBe(1.5);
+  expect(label.props.style.fontSize).toBeGreaterThan(40);
+  expect(help.props.secondary).toBe(true);
+  expect(help.props.maxFontSizeMultiplier).toBe(1.5);
+  const tree = JSON.stringify(renderer!.toJSON());
+  expect(tree.indexOf("Start")).toBeLessThan(tree.indexOf("Open Help"));
+});
+
 it("ships every preterm sign and do-not-wait route", async () => {
   await mount();
   const text = JSON.stringify(renderer!.toJSON());
   expect(text.indexOf("Open Help")).toBeLessThan(text.indexOf("Before 37 weeks"));
   for (const phrase of ["Before 37 weeks", "don’t wait", "cramps with or without diarrhea", "watery, bloody or mucus discharge", "more discharge", "pelvic or lower belly pressure", "constant low, dull backache", "water breaking with a gush or trickle", "right away or go to the hospital"])
     expect(text).toContain(phrase);
+});
+it("reads as Kami's contractions on her partner's phone, and plain Contractions on hers or when it isn't clear", async () => {
+  const b = setup(), title = () => renderer!.root.findAll((n) => String(n.type) === "Screen")[0].props.title;
+  const people = (kamiRole: string) => ({ items: [{ app_user_id: "kami", role: kamiRole, status: "active", access_version: 1, display_name: "Kami" },
+    { app_user_id: "leon", role: "parent", status: "active", access_version: 1, display_name: "Leon" }] });
+  Object.assign(b.state.bootstrap!, { people: { kami: "Kami", leon: "Leon" }, reminders: { push: true, family_news: true },
+    spaces: [{ id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }] });
+  Object.assign(b.state.bootstrap!.children[0], { details: { expecting_member: "kami", expecting_confirmed: true }, space_id: "fam" });
+  Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people("parent")) } });
+  await mount();
+  expect(title()).toBe("Kami’s contractions");
+  // The week's guidance under her name is about her too, not "you".
+  expect(words()).toContain("don’t wait if Kami has any signs of preterm labor");
+  await act(async () => renderer!.unmount());
+  Object.assign(b, { owner: "kami" });
+  await mount();
+  expect(title()).toBe("Contractions");
+  await act(async () => renderer!.unmount());
+  // Kami isn't a parent here: the answer doesn't hold, so no guessing.
+  Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people("caregiver")) } });
+  await mount();
+  expect(title()).toBe("Contractions");
+  await act(async () => renderer!.unmount());
+  // With no signal, the family's answer on this phone still stands.
+  Object.assign(b, { api: { ...b.api, familyMembers: vi.fn(async () => { throw new Error("offline"); }) } });
+  await mount();
+  expect(title()).toBe("Kami’s contractions");
+  await act(async () => renderer!.unmount());
+  // Nobody has said, and a guess settles nothing: everyday words, on his phone and on hers.
+  b.state.bootstrap!.children[0].details = { expecting_member: "leon", expecting_confirmed: false };
+  Object.assign(b, { api: { ...b.api, familyMembers: vi.fn(async () => people("parent")) } });
+  await mount();
+  expect(title()).toBe("Contractions");
+  expect(words()).toContain("don’t wait if there are any signs of preterm labor");
+  await act(async () => renderer!.unmount());
+  Object.assign(b, { owner: "kami" });
+  await mount();
+  expect(title()).toBe("Contractions");
+  expect(words()).not.toContain("Leon’s");
 });
