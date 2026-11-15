@@ -14,8 +14,25 @@ const lines: Sourced[] = [
     source: { name: "MedlinePlus, Am I in labor?", url: "https://medlineplus.gov/ency/patientinstructions/000508.htm" } },
 ];
 
+/** The same guidance on her partner's phone, by her name: the person reading isn't the one in labor. */
+const about = (name: string): Sourced[] => [
+  { text: `${name}’s provider’s instructions come first. If labor might have started and you aren’t sure, call them or the hospital.`, source: lines[0].source },
+  lines[1],
+  { text: `Call ${name}’s doctor or midwife right away if fluid is leaking, there’s bleeding beyond light spotting, or the baby is moving less.`, source: lines[2].source },
+];
+
 /**
  * Before 37 weeks there's no pattern to wait for: the preterm notice says don't wait, so "5-1-1" isn't shown, and nor
- * is it when the week isn't known.
+ * is it when the week isn't known. `name` is whose labor it is, on someone else's phone.
  */
-export const whenToCall = (week: number | undefined) => week !== undefined && week >= 37 ? lines : [lines[0], lines[2]];
+export const whenToCall = (week: number | undefined, name?: string) => {
+  const shown = name ? about(name) : lines;
+  return week !== undefined && week >= 37 ? shown : [shown[0], shown[2]];
+};
+
+/** On someone else's phone in the family: the person expecting, by id and name. Null on her own phone, or when it isn't known. */
+export function supporting(child: { created_by?: string | null } | null | undefined, owner: string | null | undefined, people?: Record<string, string>) {
+  const id = child?.created_by;
+  if (!id || id === owner) return null;
+  return { id, name: people?.[id]?.trim() || "" };
+}

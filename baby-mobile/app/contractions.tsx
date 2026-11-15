@@ -14,6 +14,7 @@ import { Button, Card, Copy, Empty, Grouped, Notice, PressTarget, Row, Screen, S
 import { useSecondClock } from "@/components/feed-timer";
 import { useMinuteClock } from "@/components/care-glance";
 import { LaborCard } from "../components/labor-card";
+import { supporting } from "../lib/labor";
 import { DoctorNote } from "@/components/doctor-note";
 import { MedicalSource } from "@/components/medical-source";
 import { SyncStatus } from "@/components/sync-status";
@@ -32,7 +33,9 @@ export default function Contractions() {
     [running, ...others] = runningContractions(rows, childId, now),
     writing = useRef(false),
     week = child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined,
-    guidance = contractionGuidance(week);
+    guidance = contractionGuidance(week),
+    // On her partner's phone, timing for her: "Kami's contractions".
+    support = supporting(child, b.owner, b.state.bootstrap!.people);
   async function save(action: () => Promise<() => Promise<unknown>>, message: string) {
     if (writing.current) return;
     writing.current = true;
@@ -50,7 +53,7 @@ export default function Contractions() {
   }, "Stopped");
   const toggle = () => running ? stop(running) : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
   const elapsed = running ? secondsWords((now.getTime() - new Date(running.occurred_at).getTime()) / 1000) : "";
-  return <Screen title="Contractions" back>
+  return <Screen title={support?.name ? `${support.name}’s contractions` : "Contractions"} back>
     <PressTarget accessibilityRole="button" accessibilityLabel={running ? `Stop. Timing, started ${friendlyTime(running.occurred_at, minute, timeZone)}` : "Start"} accessibilityHint="Saves straight away" onPress={() => void toggle()}
       style={{ minHeight: 172, borderRadius: radii.card, alignItems: "center", justifyContent: "center", gap: 4, padding: 16, backgroundColor: c.addFill }}>
       <Text key={fontScale} maxFontSizeMultiplier={1.5} style={{ fontFamily: fonts.display, fontSize: 48, lineHeight: 56, color: c.onAdd }}>{running ? "Stop" : "Start"}</Text>

@@ -274,3 +274,15 @@ it("ships every preterm sign and do-not-wait route", async () => {
   for (const phrase of ["Before 37 weeks", "don’t wait", "cramps with or without diarrhea", "watery, bloody or mucus discharge", "more discharge", "pelvic or lower belly pressure", "constant low, dull backache", "water breaking with a gush or trickle", "right away or go to the hospital"])
     expect(text).toContain(phrase);
 });
+it("reads as Kami's contractions on her partner's phone, and plain Contractions on hers", async () => {
+  const b = setup(), title = () => renderer!.root.findAll((n) => String(n.type) === "Screen")[0].props.title;
+  b.state.bootstrap!.children[0].created_by = "kami";
+  b.state.bootstrap!.people = { kami: "Kami", leon: "Leon" };
+  Object.assign(b, { owner: "leon" });
+  await mount();
+  expect(title()).toBe("Kami’s contractions");
+  await act(async () => renderer!.unmount());
+  Object.assign(b, { owner: "kami" });
+  await mount();
+  expect(title()).toBe("Contractions");
+});

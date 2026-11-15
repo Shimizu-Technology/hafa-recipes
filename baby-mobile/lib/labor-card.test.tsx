@@ -1,6 +1,6 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type Child, type DeviceState } from "./models";
 import type { FamilyMember } from "./family";
 
@@ -39,7 +39,9 @@ it("tells Leon in one tap, with Undo, and only Leon", async () => {
   expect(m.baby.state.pendingNews).toMatchObject([{ news: "labor", child_id: "c", to: ["leon"] }]);
   // Held while Undo is on screen, so Undo really takes it back.
   expect(new Date(m.baby.state.pendingNews[0].hold_until).getTime()).toBeGreaterThan(Date.now());
-  expect(m.toast.mock.calls[0][0]).toBe("Leon will get a notification.");
+  // Nothing promised yet: whether Leon's phone shows it is the API's answer, said once it's gone.
+  expect(m.toast.mock.calls[0][0]).toBe("Telling Leon.");
+  expect(m.baby.state.pendingNews[0].names).toMatchObject({ leon: "Leon", nana: "Grandma" });
   expect(button("Told Leon. Tell again")).toBeTruthy();
   await act(async () => { m.toast.mock.calls[0][1].onPress(); });
   expect(m.baby.state.pendingNews).toEqual([]);
@@ -49,7 +51,7 @@ it("with no signal, still tells her partner once she's back online", async () =>
   await mount();
   await act(async () => { await button("Tell your partner")!.props.onPress(); });
   expect(m.baby.state.pendingNews).toMatchObject([{ news: "labor", to: [], parents: true }]);
-  expect(m.toast.mock.calls[0][0]).toBe("Your partner will get a notification once you’re back online.");
+  expect(m.toast.mock.calls[0][0]).toBe("Your partner will be told once you’re back online.");
 });
 it("doesn't offer it to a caregiver in this family who's a parent somewhere else", async () => {
   setup();
@@ -94,6 +96,36 @@ it("has the delivery number and the bag one tap away", async () => {
   expect(all("CallContact").map((node) => node.props.line.key)).toEqual(["doctor", "delivery"]);
   await act(async () => { all("Row")[0].props.onPress(); });
   expect(m.push).toHaveBeenCalledWith("/hospital-bag");
+});
+describe("on Leon's phone, where Kami is the one in labor", () => {
+  const hers = { ...expecting, created_by: "kami" } as Child;
+  beforeEach(() => { m.baby.owner = "leon"; m.baby.state.bootstrap.people = { kami: "Kami", leon: "Leon", nana: "Grandma" }; });
+  it("never offers to tell Kami, and lists only the rest of the family", async () => {
+    await mount(hers);
+    expect(all("Button").map((node) => node.props.title)).toEqual(["Tell your family"]);
+    await act(async () => { button("Tell your family")!.props.onPress(); });
+    expect(all("Choice").map((node) => node.props.label)).toEqual(["Grandma"]);
+    await act(async () => { all("Choice")[0].props.onPress(); });
+    await act(async () => { await button("Tell Grandma")!.props.onPress(); });
+    expect(m.baby.state.pendingNews[0].to).toEqual(["nana"]);
+  });
+  it("with just the two of them, there's no one to tell and nothing says there is", async () => {
+    m.baby.api.familyMembers = vi.fn(async () => ({ items: [member("kami", "parent", "Kami"), member("leon", "parent", "Leon")] }));
+    await mount(hers);
+    expect(all("Button")).toHaveLength(0);
+    expect(words()).not.toContain("Nothing is sent outside your family");
+  });
+  it("reads when to call about Kami, by name", async () => {
+    await mount(hers, 38);
+    expect(words()).toContain("Kami’s provider’s instructions come first.");
+    expect(words()).toContain("Call Kami’s doctor or midwife right away");
+    expect(words()).not.toContain("you’re in labor");
+  });
+  it("with no signal, doesn't offer \"Tell your partner\", which would mean Kami", async () => {
+    m.baby.api.familyMembers = vi.fn(async () => { throw new Error("offline"); });
+    await mount(hers);
+    expect(button("Tell your partner")).toBeUndefined();
+  });
 });
 it("says nothing about telling anyone once the baby is born", async () => {
   await mount({ ...expecting, birth_date: "2026-12-08" } as Child);
