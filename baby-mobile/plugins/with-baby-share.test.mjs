@@ -385,7 +385,7 @@ describe("generated Safari preprocessing", () => {
           lifecycleTest,
           readFileSync(new URL("./__tests__/BabyShareLifecycleTests.swift", import.meta.url), "utf8")
             .replace("/* GENERATED_PREPARATION */", preparation)
-            .replace("/* GENERATED_LIFECYCLE */", lifecycle.replaceAll("  private ", "  "))
+            .replace("/* GENERATED_LIFECYCLE */", lifecycle.replaceAll("  private ", "  ").replaceAll("DispatchQueue.main.asyncAfter(deadline: .now() + ", "TestScheduler.schedule(after: "))
         );
         execFileSync(
           "swiftc",
