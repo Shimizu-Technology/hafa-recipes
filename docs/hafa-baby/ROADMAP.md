@@ -333,6 +333,10 @@ A running feed stores its actions, and everything else is derived by one pure re
 - `POST /events/{id}/split` changes a repeat from one date on: it ends the series and creates its replacement in one transaction, under a client-chosen ID, so a retry gets the same answer. `recurrence.anchor` keeps the date the count started on, so a Jan 31 series split at Feb 28 still gives Mar 31.
 - A question or note can only link to its own child's event or a whole-family one; general ones fit any. Giving an event to another child lets go of the links that no longer fit. `GET /records?event_id=` reads one event's records.
 
+### Birth flow and family news
+
+"Baby's here?" on Today opens `/birth`: name (optional), the day with or without the time (`details.birth_time`, "HH:MM" on the profile clock, Leon's Nov 15 decision; an older API ignores it), and weight in lb/oz (optional). Saving is one durable `child_birth` change carrying the date plus any name and details, so a delivery room with no signal loses nothing and newborn care turns on at once; Undo works as before. "Tell your family" lists the family's active members with the other parents ticked and caregivers one tap away. Their news is kept in `pendingNews` on the phone and sent by `POST /family/news` once there's signal and, for a birth, once the date has landed. The API (`family_news.py`) checks every recipient is in that family, makes one ordinary reminder row each (kind `family_news`, fixed lock-screen text, no names), and rechecks at every read: labor news ends at the birth, birth news needs the birth date, and the sender must still be a parent there; either leaves Today after 12 or 24 hours. Unlike other kinds, `family_news` is on (and through quiet hours) for a recipient until they turn it off, because it only ever comes when family chose to tell them. Bootstrap's `reminders.family_news` advertises it; without push nothing changes.
+
 ### 10 Push delivery
 
 - Worker: in-process task started and stopped in `main.py` lifespan, like the import worker, with its own advisory lock and short claim transactions. Rechecks membership and prefs right before sending.

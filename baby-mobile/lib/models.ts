@@ -28,6 +28,8 @@ export interface ChildDetails {
   weeks_at_birth?: number | null;
   feeding?: "nursing" | "bottle" | "both" | null;
   tracking?: Record<string, boolean> | null;
+  /** "HH:MM", 24 hours, on the birth date's own clock. An older API drops it, and the date still stands. */
+  birth_time?: string | null;
 }
 /**
  * The setup screen's values. `grams` and `cm` are the exact value once there is one, kept through any change of unit;
@@ -103,7 +105,8 @@ export interface Bootstrap {
   /** Names of everyone who has been in this account's families. */
   people?: Record<string, string>;
   /** Only with the API's push flag on. Until it says so this phone asks for nothing and offers nothing. */
-  reminders?: { push?: boolean; routines?: boolean };
+  /** `family_news`: the API can push "contractions started" and "baby is here" to the family members she picks. */
+  reminders?: { push?: boolean; routines?: boolean; family_news?: boolean };
   /** Set only while the new Ask is on: the disclosure version to show and acknowledge. */
   ask_consent_version?: number | null;
   /** Always there from an API that keeps these. An older one doesn't send it, and the app hides them. */
@@ -511,6 +514,9 @@ export type Mutation = {
       child_id: string;
       birth_date: string | null;
       previous: string | null;
+      /** From the birth flow: her name for the baby and the birth answers, sent with the date. */
+      name?: string;
+      details?: Pick<ChildDetails, "birth_time" | "weight_at_birth_g">;
       hold_until?: string;
       sent?: boolean;
       attempts?: number;
@@ -626,6 +632,8 @@ export interface DeviceState {
   dueReminders?: DueReminder[];
   /** Dismissed here and not heard yet. */
   dismissing?: string[];
+  /** Labor and birth news she chose to send, kept here until the API has it. */
+  pendingNews?: import("./family-news").PendingNews[];
   /** The API's copy of this person's settings. Only with its push flag on. */
   reminderPrefs?: ReminderPrefs;
   /** Taps the API couldn't apply, kept until she has seen why. */

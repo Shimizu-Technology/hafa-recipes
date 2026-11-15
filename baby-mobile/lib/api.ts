@@ -428,6 +428,9 @@ export function createBabyApi(
     dueReminders: () => request<{ items: DueReminder[] }>("/reminders/due"),
     upcomingReminders: () => request<{ items: UpcomingReminder[] }>("/reminders/upcoming"),
     dismissReminder: (id: string) => request<void>(`/reminders/${encodeURIComponent(id)}/dismiss`, "POST", {}),
+    /** Labor or birth news, pushed to the family members named. The same id is the same news. */
+    familyNews: (body: { id: string; news: "labor" | "birth"; child_id: string; to: string[] }) =>
+      request<{ id: string; sent_to: string[] }>("/family/news", "POST", body),
     tappedReminder: (id: string) => request<TappedReminder>(`/reminders/${encodeURIComponent(id)}/tap`),
     pushPrefs: () => request<ReminderPrefs>("/push/prefs"),
     savePushPrefs: (patch: PrefsPatch, g: Fence) => request<ReminderPrefs>("/push/prefs", "PATCH", patch, g),

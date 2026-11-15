@@ -10,9 +10,7 @@ import { runningFeed } from "@/lib/feed-reducer";
 import { dayKey, summaryLine } from "@/lib/tracker";
 import { dayOverlay } from "@/lib/care-summary";
 import { useCareSummary } from "@/lib/use-care-summary";
-import { babyArrived } from "@/lib/quick-care";
-import { messageFor } from "@/lib/models";
-import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, tap, typeScale, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -39,7 +37,6 @@ const dockBelow = 1.5;
 export default function Today() {
   const scroller = useRef<ScrollView>(null);
   const b = useBaby(), c = useColors(),
-    toast = useToast(),
     now = useMinuteClock(),
     // Here, because a baby who's due and one who's born each get their own layout, and a half-typed question outlasts both.
     visitDrafts = useVisitDrafts(),
@@ -84,17 +81,6 @@ export default function Today() {
     ];
   const titleText = child?.name.trim() || "Today";
   const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id, stage: "here" } });
-  /** One tap, since it may be the only hand free. Settings changes the date if it was another day. */
-  async function arrived() {
-    if (!child) return;
-    try {
-      const undo = await babyArrived(b, child, dayKey(today));
-      tap("success");
-      toast("Birth date set to today. You can change it in Settings.", { label: "Undo", onPress: async () => {
-        try { await undo(); toast("Undone."); } catch (e) { toast(messageFor(e)); }
-      } });
-    } catch (e) { toast(messageFor(e)); }
-  }
   if (expecting && child) return (
     <Screen scrollRef={scroller} title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
@@ -111,8 +97,8 @@ export default function Today() {
       </Card>}
       {tiles.length ? <MoreLogs child={child} now={now} shown={tiles} title="" big onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} /> : whatShows}
       {/* Right under the tiles, so in labour she needn't scroll for it. */}
-      {pregnant && parentHere && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
-        hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
+      {pregnant && parentHere && <Row title="Baby’s here?" detail="Add the day and time, and tell your family. Starts feeding, sleep and diaper logs" icon="heart-outline"
+        hint="Opens one short screen" onPress={() => router.push({ pathname: "/birth", params: { id: child.id } })} />}
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
