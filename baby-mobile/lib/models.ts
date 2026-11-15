@@ -632,6 +632,8 @@ export interface DeviceState {
   feedNotices?: string[];
   /** Ask has shown its reminder about sources on this device. */
   askNoticeSeen?: boolean;
+  /** Today's cards she chose to hide on this phone: "this_week", "day_of_life". */
+  hiddenToday?: string[];
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];
