@@ -4,7 +4,14 @@
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "22.12.0"
+  NODE_VERSION = "22.22.2"
+
+# Preview builds serve a local 404 instead of sending recipe URLs to production.
+[context.deploy-preview]
+  command = "npm run build && cp preview-redirects dist/_redirects"
+
+[context.branch-deploy]
+  command = "npm run build && cp preview-redirects dist/_redirects"
 
 [[headers]]
   for = "/*"
@@ -34,6 +41,7 @@
   to = "https://recipe-api-x5na.onrender.com/public/r/:splat"
   status = 200
   force = true
+  signed = "RECIPE_PROXY_SECRET"
 
 [[redirects]]
   from = "/*"
