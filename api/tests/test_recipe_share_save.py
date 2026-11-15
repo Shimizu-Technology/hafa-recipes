@@ -74,21 +74,25 @@ async def test_save_private_copy_credit_and_redaction(fixture, public):
     assert result.headers['cache-control'] == 'private, no-store'
     copy = await db.get(Recipe, saved['recipe_id'])
     assert copy.id != recipe.id and copy.user_id == 'other' and not copy.is_public
-    assert copy.extractor_display_name == user('other').recipe_display_name
+    # The original cook is credited through sharedCopy and the source URL; the copy's own
+    # attribution column names nobody, so contributor/profile queries never see another name.
+    assert copy.extractor_display_name is None
+    assert copy.extracted['sharedCopy'] == {'sharedBy': 'Test Cook'}
     assert copy.source_url == recipe.source_url == copy.extracted['sourceUrl']
     assert copy.thumbnail_url == recipe.thumbnail_url
-    assert copy.extracted['notes'] == 'Shared by Test Cook\n\nPublic cooking note'
+    assert copy.extracted['notes'] == 'Public cooking note'
     assert copy.extracted['components'][0]['steps'] == ['Cook']
     assert copy.raw_text is copy.original_extracted is copy.extraction_evidence is None
     assert await db.scalar(select(func.count()).select_from(RecipeNote).where(RecipeNote.recipe_id == copy.id)) == 0
     assert await db.scalar(select(func.count()).select_from(SavedRecipe)) == 0
     serialized = json.dumps(copy.extracted) + str(saved)
-    for private in ('SECRET', 'do not show', 'PRIVATE NOTE', 'user_id', 'token_hash', grant['token']):
+    for private in ('SECRET', 'do not show', 'PRIVATE NOTE', 'user_id', 'token_hash', grant['token'], 'owner', user('other').recipe_display_name):
         assert private not in serialized
     # The copy can be opened through the ordinary private-library detail path.
     from app.routers.recipes import recipe_to_detail_response
     detail = recipe_to_detail_response(copy, 'other')
-    assert detail.is_owner and 'Shared by Test Cook' in detail.extracted.notes
+    assert detail.is_owner and detail.extracted.sharedCopy.sharedBy == 'Test Cook'
+    assert detail.extractor_display_name is None and detail.source_url == recipe.source_url
     assert detail.extracted.components[0].steps == ['Cook']
 
 
@@ -267,7 +271,8 @@ async def test_http_auth_route_order_bounds_and_rate_limits(fixture):
             detail = await client.get('/api/recipes/' + saved.json()['recipe_id'])
             assert detail.status_code == 200 and detail.json()['is_owner']
             assert not detail.json()['is_public']
-            assert detail.json()['extracted']['notes'] == 'Shared by Test Cook'
+            assert detail.json()['extracted']['sharedCopy'] == {'sharedBy': 'Test Cook'}
+            assert detail.json()['extractor_display_name'] is None
             denied = await client.post(f'/public/r/{key}/save')
             assert denied.status_code == 429 and int(denied.headers['retry-after']) > 0
             limiter.reset()
@@ -279,3 +284,28 @@ async def test_http_auth_route_order_bounds_and_rate_limits(fixture):
             assert (await client.post(f'/public/r/{key}/save')).status_code == 429
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('name', ['A Håfa cook', '@lanicooks', '', None])
+async def test_copy_names_no_sharer_for_placeholder_names(fixture, name):
+    db, recipe = fixture
+    recipe.is_public = True
+    recipe.extractor_display_name = name
+    await db.commit()
+    saved = payload(await save_shared_recipe(str(recipe.id), db, user('other')))
+    copy = await db.get(Recipe, saved['recipe_id'])
+    assert copy.extracted['sharedCopy'] == {'sharedBy': None}
+    assert copy.extractor_display_name is None
+
+
+def test_edits_keep_the_shared_copy_credit():
+    from app.routers.recipes import RecipeEdit, _build_edited_extracted
+    original = {
+        'title': 'Rice', 'sourceUrl': 'https://www.instagram.com/@lanicooks/reel/1/', 'servings': 4,
+        'components': [{'name': 'Rice', 'ingredients': [{'name': 'rice', 'quantity': '1', 'unit': 'cup'}], 'steps': ['Cook rice']}],
+        'nutrition': {'perServing': {}, 'total': {}}, 'sharedCopy': {'sharedBy': 'Lani'},
+    }
+    edit = RecipeEdit(title='Red rice', servings=4, ingredients=original['components'][0]['ingredients'], steps=['Cook rice'])
+    assert _build_edited_extracted(original, edit)['sharedCopy'] == {'sharedBy': 'Lani'}
+    assert 'sharedCopy' not in _build_edited_extracted({k: v for k, v in original.items() if k != 'sharedCopy'}, edit)

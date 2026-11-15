@@ -46,6 +46,12 @@ def safe_source(value):
         return None
 
 
+def public_name(recipe):
+    """The owner's display name when it is a real public name; '' for placeholders and handles."""
+    name = (recipe.extractor_display_name or '').strip()
+    return name if name.lower() not in PLACEHOLDER_NAMES and '@' not in name else ''
+
+
 def project(recipe):
     def mapping(value):
         return value if isinstance(value, dict) else {}
@@ -55,8 +61,7 @@ def project(recipe):
 
     data = mapping(recipe.extracted)
     components = items(data.get('components')) or [{'name': 'Recipe', 'ingredients': data.get('ingredients'), 'steps': data.get('steps')}]
-    name = (recipe.extractor_display_name or '').strip()
-    creator = name if name.lower() not in PLACEHOLDER_NAMES and '@' not in name else ''
+    creator = public_name(recipe)
     return {
         'id': str(recipe.id), 'title': str(data.get('title') or 'Recipe'),
         'creator': creator or 'A Håfa cook',
@@ -118,17 +123,18 @@ async def save_shared_recipe(key: str, db: AsyncSession = Depends(get_db), viewe
     extracted = {
         'title': data['title'], 'sourceUrl': data['source_url'] or '',
         'servings': data['servings'], 'times': {'total': data['time']},
-        'components': data['components'],
-        'notes': f"Shared by {data['creator']}" + (f"\n\n{data['notes']}" if data['notes'] else ''),
+        'components': data['components'], 'notes': data['notes'],
         'media': {'thumbnail': recipe.thumbnail_url},
+        # The app shows the original creator (from sourceUrl) and "Shared by" this name. Never an ID.
+        'sharedCopy': {'sharedBy': public_name(recipe) or None},
     }
     await db.execute(insert(Recipe).values(
         id=copy_id, user_id=viewer.id, is_public=False,
         source_url=data['source_url'] or '', source_type=recipe.source_type,
         extracted=extracted, thumbnail_url=recipe.thumbnail_url,
-        # This field identifies the library owner in contributor/profile queries;
-        # retain the original cook's credit in the visible cooking notes instead.
-        extractor_display_name=viewer.recipe_display_name, extraction_method='manual',
+        # This column is the library owner's own name in contributor and profile queries, so a copy
+        # carries neither the viewer's name nor the sharer's; credit lives in sharedCopy and sourceUrl.
+        extractor_display_name=None, extraction_method='manual',
     ).on_conflict_do_nothing(index_elements=[Recipe.id]))
     await db.commit()
     return JSONResponse({'saved': True, 'recipe_id': str(copy_id)}, headers=PRIVATE_HEADERS)
