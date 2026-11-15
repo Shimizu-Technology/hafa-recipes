@@ -31,7 +31,7 @@ import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
 import { dueLine, pregnancyProgress, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { findBag, packedLine } from "../../../lib/hospital-bag";
-import { hiddenOnToday } from "../../../lib/this-week";
+import { hiddenOnToday, weekPlan } from "../../../lib/this-week";
 import { DayOfLife, ThisWeek } from "../../../components/this-week";
 import { useTimingTips } from "@/lib/use-timing-tips";
 import { journalHome } from "../../../lib/use-open-journal";
@@ -122,8 +122,9 @@ export default function Today() {
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
       <Grouped>
-        {/* From the third trimester, where she'd look for it, when This week (which leads with it) is hidden. It's also in Lists & routines. */}
-        {pregnant && (pregnancyProgress(child.due_date!, today)?.week ?? 0) >= 28 && hiddenOnToday(b.state.hiddenToday, "this_week") && <Row key="bag" numericDetail title="Hospital bag"
+        {/* From the third trimester, where she'd look for it, when This week (which leads with it) is hidden or has ended. It's also in Lists & routines. */}
+        {pregnant && (pregnancyProgress(child.due_date!, today)?.week ?? 0) >= 28 && (hiddenOnToday(b.state.hiddenToday, "this_week")
+          || !weekPlan(pregnancyProgress(child.due_date!, today)?.week ?? 0)) && <Row key="bag" numericDetail title="Hospital bag"
           detail={bag ? packedLine(bag) : "A starter list to pack from"} icon="bag-handle-outline" onPress={() => router.push("/hospital-bag")} />}
         {keptRows}
       </Grouped>
