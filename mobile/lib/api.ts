@@ -503,14 +503,13 @@ class ApiClient {
   }
 
   /** Owner only: creates the unlisted link, replacing (and turning off) any earlier one. */
-  async createRecipeShareLink(id: string): Promise<{ url: string; created_at: string | null; responded_at: string | null }> {
-    const { data, headers } = await this.client.post(`/api/recipes/${id}/share-link`, undefined, { timeout: 15_000 });
+  async createRecipeShareLink(id: string): Promise<{ url: string; created_at: string | null }> {
+    const { data } = await this.client.post(`/api/recipes/${id}/share-link`, undefined, { timeout: 15_000 });
     if (typeof data?.url !== 'string' || !data.url.startsWith('https://')) throw new Error('The link wasn’t created. Please try again.');
-    // Older APIs don't return created_at; the caller then asks the status endpoint and uses the server's
-    // own response time (not this phone's clock) to tell whether that status describes this link.
-    const date = typeof headers?.date === 'string' ? headers.date : null;
-    return { url: data.url, created_at: typeof data.created_at === 'string' ? data.created_at : null, responded_at: date };
+    // created_at (#690) ties this URL to the server's current link; without it the caller won't keep the URL.
+    return { url: data.url, created_at: typeof data.created_at === 'string' ? data.created_at : null };
   }
+
 
   /** Owner only: one page of recipes with an active unlisted link, newest first. */
   async listRecipeShareLinks(limit = 100, offset = 0): Promise<RecipeShareLinkSummary[]> {

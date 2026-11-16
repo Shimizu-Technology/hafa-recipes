@@ -248,12 +248,13 @@ describe('share recipe sheet', () => {
     expect(m.toast).not.toHaveBeenCalled();
   });
 
-  it('says the link changed on another device instead of sending a dead link', async () => {
-    m.create.mockRejectedValue(Object.assign(new Error('replaced'), { code: 'LINK_REPLACED_ELSEWHERE' }));
+  it('neither keeps nor sends a link the API couldn’t confirm, and says to try again in a moment', async () => {
+    m.create.mockRejectedValue(Object.assign(new Error('unverified'), { code: 'LINK_UNVERIFIED' }));
     const root = await open(recipe(false));
     await act(async () => button(root, 'Send link').props.onPress());
     await act(async () => button(root, 'Create link').props.onPress());
     expect(m.share).not.toHaveBeenCalled();
-    expect(m.toast).toHaveBeenCalledWith({ message: 'This link was just changed on another device. Try again.', tone: 'error' });
+    expect(m.copy).not.toHaveBeenCalled();
+    expect(m.toast).toHaveBeenCalledWith({ message: 'A link may have been created. Try again in a moment.', tone: 'error' });
   });
 });

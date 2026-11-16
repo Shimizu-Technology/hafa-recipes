@@ -163,8 +163,8 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
       else showToast({ message: 'New link ready', tone: 'success' });
     } catch (error) {
       showToast({
-        message: (error as { code?: string })?.code === 'LINK_REPLACED_ELSEWHERE'
-          ? 'This link was just changed on another device. Try again.'
+        message: (error as { code?: string })?.code === 'LINK_UNVERIFIED'
+          ? 'A link may have been created. Try again in a moment.'
           : confirm.kind === 'revoke' ? 'Couldn’t turn off the link. Try again.' : 'Couldn’t create the link. Try again.',
         tone: 'error',
       });
