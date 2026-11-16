@@ -1050,3 +1050,10 @@ it("class image bounds allow eight and reject invalid dates and oversized indivi
   expect(captureErrors({ ...draft, kind: "text", text: "A", class_parts: true, programming: { source_kind: "gym", date: "2026-02-30" } })).not.toEqual([]);
   expect(() => boundedSource({ kind: "images", ai_consent: true, class_parts: true, images: [{ base64_data: "A".repeat(6 * 1024 * 1024), mime_type: "image/jpeg" }] })).toThrow("4 MiB");
 });
+it("class dates require an ISO calendar date rather than a locale shorthand", () => {
+  const source = { ...draft, kind: "text" as const, text: "10 squats", class_parts: true };
+  for (const date of ["11/17", "17/11/2026", "2026-02-30"])
+    expect(captureErrors({ ...source, programming: { source_kind: "gym", date } })).toContain("Use a class date like 2026-11-17.");
+  for (const date of ["2026-11-17", "", null])
+    expect(captureErrors({ ...source, programming: { source_kind: "gym", date } })).toEqual([]);
+});

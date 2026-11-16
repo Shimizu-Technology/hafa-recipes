@@ -50,3 +50,11 @@ it("keeps the parsed gym, track and date when the temporary upload is unavailabl
   expect(recoverySource(null, "https://wodup.com/gym", "A. 10 squats", programming))
     .toMatchObject({ kind: "text", class_parts: true, programming });
 });
+it("gym attribution alone does not turn an ordinary expired source into a class", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", date: "2026-11-17" };
+  const ordinary = recoverySource(null, "https://example.test/workout", "10 squats", programming);
+  expect(ordinary).toMatchObject({ kind: "url", source_url: "https://example.test/workout" });
+  expect(ordinary.class_parts).toBeUndefined(); expect(ordinary.programming).toBeUndefined();
+  const caption = recoverySource(null, null, "10 squats", programming);
+  expect(caption).toMatchObject({ kind: "text", text: "10 squats" }); expect(caption.class_parts).toBeUndefined();
+});

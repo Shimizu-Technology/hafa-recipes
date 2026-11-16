@@ -32,7 +32,7 @@ export function importSourceLabel(label: string) {
 export function recoverySource(source: ExtractionRequest | null, sourceURL: string | undefined | null, caption: string, programming?: ExtractionRequest["programming"]): ExtractionRequest {
   const classPage = isClassPage(sourceURL);
   const safeURL = classPage ? (() => { const url = new URL(sourceURL!); url.search = ""; url.hash = ""; return url.href; })() : sourceURL;
-  const fallback: ExtractionRequest | null = classPage || programming?.source_kind === "gym"
+  const fallback: ExtractionRequest | null = classPage || source?.class_parts
     ? { kind: "text", source_url: safeURL ?? undefined, ai_consent: true, class_parts: true, programming: programming ?? { source_kind: "gym", app_name: "WodUp" } }
     : sourceURL && /^https?:\/\//i.test(sourceURL) ? { kind: "url", source_url: sourceURL, ai_consent: true } : null;
   const original = source ?? fallback;

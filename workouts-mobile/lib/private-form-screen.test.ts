@@ -3429,3 +3429,82 @@ it("native class preference read failures show recovery and retain the capture",
   expect(fixture.alert.mock.calls.at(-1)![0]).toBe("Could not save shared source");
   expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
 });
+it.each(["ios", "android"])("Not a class on %s reports the ordinary PDF limit instead of silently cancelling", async os => {
+  fixture.photoInfo.mockResolvedValue({ exists: true, isDirectory: false, size: 1024 * 1024 });
+  const file = { path: "file:///shared/ordinary.pdf", mimeType: "application/pdf", fileName: "Ordinary.pdf" };
+  fixture.os = os;
+  if (os === "ios") {
+    fixture.nativeSharing = true;
+    fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "pdf-key", captureId: "pdf-id", ownerId: fixture.owner, generation: 1, text: "", files: [file], isPublic: false }]);
+  } else {
+    fixture.share = true; fixture.intent = { webUrl: "", text: "", files: [file] };
+  }
+  await mount(ShareCapture);
+  const prompt = fixture.alert.mock.calls.at(-1)!;
+  expect(prompt[0]).toBe("Is this a class?"); expect(prompt[2][0].text).toBe("Not a class");
+  await act(async () => prompt[2][0].onPress());
+  const error = fixture.alert.mock.calls.at(-1)!;
+  expect(error[0]).toBe("Could not save shared source"); expect(error[1]).toContain("under 128 KB");
+  expect(fixture.normalizeDocument).not.toHaveBeenCalled();
+  if (os === "ios") {
+    expect(error[2].map((b: any) => b.text)).toEqual(["Later", "Discard shared source"]);
+    expect(fixture.nativeAck).not.toHaveBeenCalled();
+    await act(async () => error[2][1].onPress()); await settle();
+    expect(fixture.nativeAck).toHaveBeenCalledWith("pdf-key");
+    await act(async () => { for (const listener of fixture.foreground) listener("active"); }); await settle();
+    expect(fixture.alert.mock.calls.filter(call => call[0] === "Is this a class?")).toHaveLength(1);
+  }
+});
+it.each(["", "https://wodup.com/gym?secret=1", "denied"])("class Paste preserves existing instructions when clipboard is %s", async clipboard => {
+  fixture.params = { class: "1" };
+  await mount(Capture);
+  const textField = () => nodes("Field").find(n => n.props.label === "Workout text")!;
+  await act(async () => textField().props.onChange("Keep these class instructions"));
+  if (clipboard === "denied") fixture.clipboard.mockRejectedValue(Error("Permission denied"));
+  else fixture.clipboard.mockResolvedValue(clipboard);
+  await click("Paste");
+  expect(textField().props.value).toBe("Keep these class instructions");
+  const copy = JSON.stringify(nodes("Copy").map(n => n.props.children));
+  expect(copy).toContain(clipboard === "" ? "Your clipboard is empty" : clipboard === "denied" ? "Could not read your clipboard" : "not just its WodUp link");
+});
+it("class Paste asks before replacing screenshots and preserves them on cancellation or an empty clipboard", async () => {
+  fixture.params = { class: "1" };
+  const file = { uri: "file:///cache/screenshots.jpg", name: "Class", mime_type: "image/jpeg", owned: true };
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ request_id: "images", generation: 1, class_parts: true, kind: "images", text: "Class caption", source_url: "", files: [file] }));
+  await mount(Capture);
+  fixture.clipboard.mockResolvedValue(""); await click("Paste");
+  expect(fixture.alert).not.toHaveBeenCalled(); expect(nodes("SourceImage")).toHaveLength(1);
+  fixture.clipboard.mockResolvedValue("A. 10 squats");
+  await click("Paste");
+  expect(fixture.alert.mock.calls.at(-1)![0]).toBe("Replace your selected files?");
+  await act(async () => fixture.alert.mock.calls.at(-1)![2][0].onPress());
+  expect(nodes("SourceImage")).toHaveLength(1); expect(fixture.cleanup).not.toHaveBeenCalled();
+  await click("Paste");
+  await act(async () => fixture.alert.mock.calls.at(-1)![2][1].onPress());
+  expect(nodes("SourceImage")).toHaveLength(0);
+  expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("A. 10 squats");
+  expect(fixture.cleanup).toHaveBeenCalledWith([file], true);
+});
+it("class route profile failure is recoverable by loading the saved source with class defaults", async () => {
+  fixture.params = { class: "1" };
+  fixture.profile.mockRejectedValueOnce(Error("Offline"));
+  await mount(Capture);
+  expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).toContain("Could not load your training profile timezone");
+  expect(fixture.startImport).not.toHaveBeenCalled();
+  fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+  await click("Load saved source");
+  expect(nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")).toBeTruthy();
+  expect(nodes("Field").find(n => n.props.label === "Workout text")).toBeTruthy();
+  expect(nodes("Field").find(n => n.props.label === "Gym")!.props.value).toBe("Unified");
+  expect(button("Import workout").props.disabled).toBe(true);
+  expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).not.toContain("Your other source draft");
+});
+it("an ambiguous class date is blocked locally before transport", async () => {
+  fixture.params = { class: "1" };
+  await mount(Capture);
+  await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("A. Squats"));
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("11/17"));
+  expect(button("Import workout").props.disabled).toBe(true);
+  await click("Import workout"); expect(fixture.startImport).not.toHaveBeenCalled();
+  expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).toContain("Use a class date like");
+});

@@ -163,9 +163,9 @@ export function ShareCapture() {
               if (info.exists && !info.isDirectory && info.size > 128 * 1024) {
                 const confirmed = await new Promise<boolean>(resolve => Alert.alert("Is this a class?",
                   "Class PDFs can be up to 10 MiB and stay private. You’ll confirm the date and review the parts before saving.",
-                  [{ text: "Cancel", style: "cancel", onPress: () => resolve(false) }, { text: "Yes, a class", onPress: () => resolve(true) }],
+                  [{ text: "Not a class", style: "cancel", onPress: () => resolve(false) }, { text: "Yes, a class", onPress: () => resolve(true) }],
                   { cancelable: true, onDismiss: () => resolve(false) }));
-                guard(); if (!confirmed) { if (native) setNative(null); else stock.resetShareIntent(); return; }
+                guard(); if (!confirmed) throw Error("Use an available document under 128 KB, paste its text, or share screenshots.");
                 await prepareClass();
               }
             }

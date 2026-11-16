@@ -2,7 +2,7 @@ import { ImportList } from "@/components/import-list";
 import { updateNativeSharingConsent } from "@/lib/native-share-session";
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { View, type ScrollView } from "react-native";
+import { Alert, View, type ScrollView } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
@@ -27,10 +27,19 @@ export default function Capture() {
   const navigation = useNavigation();
   const cache = useQueryClient();
   async function classDefaults() {
-    const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 });
+    const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 })
+      .catch(() => { throw Object.assign(Error("Could not load your training profile timezone. Retry loading the class form."), { classProfileError: true }); });
     currentScope();
-    if (!profile) throw Error("Set up your training profile timezone before importing a class.");
+    if (!profile) throw Object.assign(Error("Set up your training profile timezone before importing a class."), { classProfileError: true });
     return classDate(profile.timezone);
+  }
+  async function applyClassDefaults(value: CaptureDraft, hasSavedSource: boolean) {
+    if (classRoute !== "1" || hasSavedSource) return value;
+    const date = await classDefaults();
+    const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`);
+    currentScope();
+    return { ...value, kind: "text" as const, class_parts: true, is_public: false,
+      programming: { source_kind: "gym" as const, gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK", date } };
   }
   const [leaving, setLeaving] = useState(false);
   const afterSave = useRef<(() => void) | null>(null);
@@ -209,22 +218,16 @@ export default function Capture() {
                 files: [],
                 created_at: new Date().toISOString()
               };
-        if (!value.value && classRoute === "1") {
-          const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`);
-          currentScope();
-          if (!active) return;
-          next = { ...next, kind: "text", class_parts: true, is_public: false,
-            programming: { source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK",
-              date: await classDefaults() } };
-        }
+        next = await applyClassDefaults(next, !!value.value);
+        if (!active) return;
         draftRef.current = next;
         setDraft(next);
         readyRef.current = true;
         setReady(true);
         if (next.job_id) void startAnother().catch(() => undefined);
       })
-      .catch(() => {
-        if (active) setError("Could not restore your source. Retry loading it before editing.");
+      .catch((e) => {
+        if (active) setError(e.classProfileError ? e.message : "Could not restore your source. Retry loading it before editing.");
       });
     return () => {
       active = false;
@@ -331,7 +334,7 @@ export default function Capture() {
       const next = await slot.load(currentScope);
       saved.current = next;
       current();
-      const value = next.value ?? {
+      const value = await applyClassDefaults(next.value ?? {
         request_id: Crypto.randomUUID(),
         generation,
         kind: "url" as const,
@@ -339,7 +342,7 @@ export default function Capture() {
         source_url: "",
         files: [],
         created_at: new Date().toISOString()
-      };
+      }, !!next.value);
       view.current++;
       draftRef.current = value;
       setDraft(value);
@@ -394,15 +397,26 @@ export default function Capture() {
     finally { guard.current = false; if (mounted.current) setBusy(false); }
   }
   async function choose(kind: CaptureKind) {
-    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import || kind === draft.kind) return;
+    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import) return false;
+    if (kind === draftRef.current.kind) return true;
     guard.current = true;
     setBusy(true);
     setError("");
     setPasteNote("");
     try {
+      if (kind === "text" && draftRef.current.files.length) {
+        const confirmed = await new Promise<boolean>(resolve => Alert.alert("Replace your selected files?",
+          "Switching to pasted text removes the selected screenshots or document from this draft.",
+          [{ text: "Keep selected files", style: "cancel", onPress: () => resolve(false) },
+            { text: "Use pasted text", onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) }));
+        if (!confirmed) return false;
+        current();
+      }
       await replace({ ...draftRef.current, request_id: Crypto.randomUUID(), kind, files: [], job_id: undefined });
+      return true;
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
+      return false;
     } finally {
       guard.current = false;
       if (mounted.current) setBusy(false);
@@ -579,15 +593,18 @@ export default function Capture() {
       if (!mounted.current || draftRef.current !== before) return;
       if (draftRef.current.class_parts) {
         const instructions = classText(text);
-        update({ text: instructions });
-        if (!instructions) setPasteNote("Paste the class instructions, not just its WodUp link.");
+        if (!instructions) {
+          setPasteNote(text.trim() ? "Paste the class instructions, not just its WodUp link." : "Your clipboard is empty. Copy the class instructions first.");
+          return;
+        }
+        if (await choose("text")) update({ text: instructions });
         return;
       }
       const link = sharedWorkoutURL(null, text);
       if (link) update({ source_url: link });
       else setPasteNote(text.trim() ? "No link found on your clipboard. To import text, choose Paste workout text below." : "Nothing to paste. Copy a workout link first, and allow pasting if your phone asks.");
     } catch {
-      if (mounted.current) setPasteNote("Could not read your clipboard. Try pasting into the link field.");
+      if (mounted.current) setPasteNote(draftRef.current.class_parts ? "Could not read your clipboard. Try pasting into the workout text field." : "Could not read your clipboard. Try pasting into the link field.");
     }
   }
   async function visibility(value: boolean) {
@@ -626,13 +643,13 @@ export default function Capture() {
         <Notice>Automatic importing is not on for this build. You can still write a workout yourself.</Notice>
       )}
       <Card>
-        {classRoute === "1" && !draft.class_parts && <Notice>Your other source draft is still here. Switch it to Today’s class, or finish that import first.</Notice>}
+        {ready && classRoute === "1" && !draft.class_parts && <Notice>Your other source draft is still here. Switch it to Today’s class, or finish that import first.</Notice>}
         {!draft.class_parts && <Button title="Today’s class" secondary disabled={locked} onPress={() => { void chooseClass(); }} />}
         {draft.class_parts && <>
           <Button title="Start a different import" size="sm" variant="ghost" disabled={locked} onPress={() => setAbandon(true)} />
           <Notice>Gym programming stays private. Crop screenshots to leave out the leaderboard and comments.</Notice>
           <Row gap={8} wrap>
-            <Button title="Paste" secondary inline disabled={locked} onPress={() => { void choose("text").then(() => paste()); }} />
+            <Button title="Paste" secondary inline disabled={locked} onPress={() => { void paste(); }} />
             <Button title="Screenshots" secondary inline disabled={locked} onPress={() => { void pick("images"); }} />
             <Button title="PDF" secondary inline disabled={locked} onPress={() => { void pick("document"); }} />
           </Row>
