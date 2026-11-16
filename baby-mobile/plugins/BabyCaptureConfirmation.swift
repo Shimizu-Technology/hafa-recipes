@@ -33,12 +33,16 @@
   private func saveBabyShare() {
     guard let producer = babyProducer, !captureConfirmationFinished, !babySheetClosed else { return }
     let card = babyCard()
-    guard publishBabyCapture(collection: babyCategoryTitle == nil ? nil : babyCategory, then: { [weak self] result in
+    guard card.canSave, !card.isBusy, card.saveState == .ready || card.saveState == .failed else { return }
+    // Keep the id and words from this tap together until the receipt (or timeout) arrives.
+    let categoryTitle = babyCategoryTitle
+    let category = categoryTitle == nil ? nil : babyCategory
+    guard publishBabyCapture(collection: category, then: { [weak self] result in
       guard let self, !self.babySheetClosed else { return }
       switch result {
       case .kept:
         self.setBabySaveState(.saved)
-        self.submitBabyShare(producer)
+        self.submitBabyShare(producer, categoryTitle: categoryTitle)
       case .failed, .notKept:
         // Nothing here deletes it. The card stays, Save becomes Try again, ✕ keeps it, and Discard share is the one way to delete it.
         self.setBabySaveState(.failed)
@@ -57,6 +61,7 @@
       }
     }) else { return }
     card.outcome = nil
+    card.canSave = false
     setBabySaveState(.saving)
   }
   private func babyAlreadySaved() {
@@ -77,21 +82,21 @@
     }
   }
   // It's safely on the phone now, so closing is safe too: what this doesn't deliver, the app will.
-  private func submitBabyShare(_ producer: (storage: BabyShareStore, capture: BabyShareStore.Capture)) {
+  private func submitBabyShare(_ producer: (storage: BabyShareStore, capture: BabyShareStore.Capture), categoryTitle: String?) {
     babySaved = true
-    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.completeConfirmation(status: nil, filed: false) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.completeConfirmation(status: nil, filed: false, categoryTitle: categoryTitle) }
     DispatchQueue.global(qos: .utility).async { [weak self] in
       BabyShareSession.enqueue(producer.capture.id, storage: producer.storage) { status, filed in
-        DispatchQueue.main.async { [weak self] in self?.completeConfirmation(status: status, filed: filed) }
+        DispatchQueue.main.async { [weak self] in self?.completeConfirmation(status: status, filed: filed, categoryTitle: categoryTitle) }
       }
     }
   }
   private var captureConfirmationFinished = false
-  private func completeConfirmation(status: String?, filed: Bool) {
+  private func completeConfirmation(status: String?, filed: Bool, categoryTitle: String?) {
     guard !captureConfirmationFinished, !babySheetClosed, let producer = babyProducer else { return }
     captureConfirmationFinished = true
     let state = BabyShareSheetState.after(scope: producer.capture.scope, signedIn: producer.capture.signedIn, status: status)
-    guard let outcome = state.outcome(category: babyCategoryTitle, filed: filed) else { return }
+    guard let outcome = state.outcome(category: categoryTitle, filed: filed) else { return }
     babyCard().finish(outcome)
   }
   private var babyCardModel: HafaShareModel?

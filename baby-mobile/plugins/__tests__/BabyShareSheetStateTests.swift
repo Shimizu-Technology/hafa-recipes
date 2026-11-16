@@ -1,5 +1,44 @@
 import Foundation
 
+// Inject production methods into the existing native target; hold publication and receipt independently.
+private final class PreviewProbe {
+  var cancellations = 0
+  func cancelPreview() { cancellations += 1 }
+  /* GENERATED_NETWORK_PREVIEW */
+}
+private final class ConfirmationCard {
+  var isBusy = false, canSave = true
+  var saveState = HafaShareSaveState.ready
+  var outcome: HafaShareOutcome?
+  var action = "Save", note: String?
+  var choices: [HafaShareChoice] = []
+  var onSelect: (String, String) -> Void = { _, _ in }
+  /* GENERATED_SELECT */
+  func finish(_ value: HafaShareOutcome) { outcome = value }
+}
+private final class ConfirmationProbe {
+  let card = ConfirmationCard()
+  var babySheetClosed = false, captureConfirmationFinished = false
+  var babyCategory = "sleep"
+  var babyCategoryTitle: String? { babyCategory == "sleep" ? "Sleep" : "Feeding" }
+  struct Capture { let scope: String? = "owner:1:personal", signedIn = true }
+  let babyProducer: (storage: Int, capture: Capture)? = (0, Capture())
+  var submitted: [String?] = []
+  var publication: ((BabyShareSheetState.Publication) -> Void)?
+  var receipt: ((String?, Bool) -> Void)?
+  func babyCard() -> ConfirmationCard { card }
+  func setBabySaveState(_ state: HafaShareSaveState) { card.saveState = state }
+  func publishBabyCapture(collection: String?, then done: @escaping (BabyShareSheetState.Publication) -> Void) -> Bool {
+    submitted.append(collection); publication = done; return true
+  }
+  func submitBabyShare(_ producer: (storage: Int, capture: Capture), categoryTitle: String?) {
+    receipt = { status, filed in self.completeConfirmation(status: status, filed: filed, categoryTitle: categoryTitle) }
+  }
+  /* GENERATED_SAVE */
+  /* GENERATED_CONFIRMATION */
+}
+/* GENERATED_SAVE_STATE */
+
 @main
 struct BabyShareSheetStateTests {
   static func main() throws {
@@ -116,8 +155,35 @@ struct BabyShareSheetStateTests {
     try check(BabyShareWords.notice(scope: nil, signedIn: false)?.text.contains("not signed in") == true, "signed out is said before Save")
     try check(BabyShareWords.notice(scope: nil, signedIn: true)?.text.contains("not signed in") == false, "a sign-in still connecting isn't told it's signed out")
 
-    // The phone only asks an ordinary public page for its title and picture. The same list as Recipes' policy suite (#693),
-    // and the bearer links and private hosts the #696 review named.
+    let confirmation = ConfirmationProbe()
+    confirmation.card.choices = [HafaShareChoice(id: "category", label: "Category", style: .chips,
+      options: [.init(id: "sleep", title: "Sleep"), .init(id: "feeding", title: "Feeding")], selected: "sleep")]
+    confirmation.card.onSelect = { _, id in confirmation.babyCategory = id }
+    confirmation.saveBabyShare()
+    try check(confirmation.submitted == ["sleep"] && !confirmation.card.canSave, "Save fixes the submitted category")
+    confirmation.publication?(.kept)
+    try check(confirmation.card.saveState == .saved, "durable save permits Close while enqueue waits")
+    confirmation.card.select("category", "feeding")
+    confirmation.saveBabyShare()
+    try check(confirmation.babyCategory == "sleep" && confirmation.submitted.count == 1, "no category change or second Save while confirming")
+    // Even a mutation outside the chip action cannot rewrite the receipt's words.
+    confirmation.babyCategory = "feeding"
+    confirmation.receipt?("saved", true)
+    try check(confirmation.card.outcome?.title == "Added to Sleep", "receipt names the submitted category")
+    confirmation.receipt?(nil, false)
+    try check(confirmation.card.outcome?.title == "Added to Sleep", "first confirmation wins")
+
+    // Even a public host can resolve privately, redirect locally, or embed a local image. Fetch nothing.
+    let preview = PreviewProbe()
+    var described = false
+    for link in ["https://example.com/public", "https://public-name.example/resolves-to-private",
+      "https://example.com/redirect?to=http://192.168.1.4", "https://example.com/page-with-private-image",
+      "http://nursery.home.arpa/", "http://192.168.1.4/", "http://0x7f.1/", "http://[fc00::1]/"] {
+      preview.loadPreview(URL(string: link)!) { _ in described = true; return ("Fetched", nil) }
+    }
+    try check(preview.cancellations == 8 && !described, "preview entry point keeps sender content for every URL")
+
+    // The lexical filter stays compatible; it alone does not authorize networking.
     let fetch = { (link: String) in HafaSharePreviewPolicy.allows(URL(string: link)!) }
     let key = String(repeating: "a", count: 43)
     for link in ["https://www.instagram.com/reel/abc/?igsh=xyz", "https://www.tiktok.com/@a/video/1", "http://example.com/a?page=2",
