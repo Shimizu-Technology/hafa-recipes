@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import ImageIO
 
@@ -115,5 +116,48 @@ enum HafaShareThumbnail {
       kCGImageSourceCreateThumbnailWithTransform: true,
       kCGImageSourceShouldCacheImmediately: true,
     ] as CFDictionary)
+  }
+}
+
+// A preview is optional network activity before Save. Sensitive shares keep only
+// the metadata supplied by the sender; they never enter LinkPresentation.
+enum HafaSharePreviewPolicy {
+  static func allows(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+      url.user == nil, url.password == nil,
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      var host = components.host?.lowercased(), !host.isEmpty else { return false }
+    if !(url.fragment ?? "").isEmpty { return false }
+    let secrets: Set<String> = ["token", "key", "sig", "auth", "authorization", "accesstoken", "code", "apikey", "jwt", "password", "credential"]
+    for item in components.queryItems ?? [] {
+      let name = item.name.lowercased().filter { $0.isLetter || $0.isNumber }
+      if secrets.contains(name) || ["token", "signature", "secret", "credential"].contains(where: name.contains) { return false }
+    }
+    let path = url.pathComponents
+    for index in path.indices where path[index] == "r" && index + 1 < path.count {
+      // Unlisted keys are bearer credentials, even on a custom Håfa domain.
+      if path[index + 1].range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil { return false }
+    }
+    host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]."))
+    if host == "localhost" || [".localhost", ".local", ".internal", ".home", ".lan"].contains(where: host.hasSuffix) { return false }
+    var v4 = in_addr()
+    // inet_aton also catches shortened, decimal, octal and hex IPv4 spellings.
+    if inet_aton(host, &v4) == 1 {
+      let ip = UInt32(bigEndian: v4.s_addr)
+      let a = ip >> 24, b = ip >> 16 & 255
+      return !(a == 0 || a == 10 || a == 127 || a == 169 && b == 254 ||
+        a == 172 && (16...31).contains(b) || a == 192 && b == 168 ||
+        a == 100 && (64...127).contains(b) || a >= 224)
+    }
+    if host.contains(":") {
+      var v6 = in6_addr()
+      guard inet_pton(AF_INET6, host, &v6) == 1 else { return false }
+      let bytes = withUnsafeBytes(of: v6) { Array($0) }
+      // Only global unicast; excludes loopback, unspecified, link-local, ULA,
+      // multicast, scoped addresses and IPv4-mapped/translated local literals.
+      return bytes[0] & 0xe0 == 0x20 && !(bytes[0] == 0x20 && bytes[1] == 0x02)
+    }
+    // No single-label intranet hosts or invalid numeric address spellings.
+    return host.contains(".") && host.last?.isNumber == false
   }
 }

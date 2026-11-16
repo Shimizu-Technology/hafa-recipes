@@ -225,7 +225,7 @@ index e52b6d0..2a1d56c 100644
 +}
 +// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..ed45edf 100644
+index f1f4b72..3d4f943 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -428,7 +428,7 @@ index f1f4b72..ed45edf 100644
              self.redirectToHostApp(type: .media)
            }
  
-@@ -466,50 +407,242 @@ class ShareViewController: UIViewController {
+@@ -466,50 +407,245 @@ class ShareViewController: UIViewController {
      }
  
      if index == (content.attachments?.count)! - 1 {
@@ -508,10 +508,11 @@ index f1f4b72..ed45edf 100644
 +      let url = link.flatMap(URL.init(string:))
 +      // Safari hands over the page's own tags; apps hand over only the link.
 +      let tags = (sharedWebUrl.first?.meta.data(using: .utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-+      let pageTitle = tags?["og:title"] as? String ?? tags?["title"] as? String
++      let suppliedTitle = (extensionContext?.inputItems.first as? NSExtensionItem)?.attributedTitle?.string
++      let pageTitle = tags?["og:title"] as? String ?? tags?["title"] as? String ?? suppliedTitle
 +      let described = HafaSharePreviewText.describe(url: url, pageTitle: pageTitle, fallback: RecipeShareWords.fallbackTitle)
 +      card.preview = HafaSharePreview(title: described.title, subtitle: described.subtitle, symbol: "link")
-+      if let url, ["http", "https"].contains(url.scheme ?? "") {
++      if let url, HafaSharePreviewPolicy.allows(url) {
 +        card.loadPreview(url) { title in
 +          // A page title only replaces what the share already said when it says more.
 +          guard pageTitle == nil, let title else { return nil }
@@ -664,12 +665,14 @@ index f1f4b72..ed45edf 100644
 +
 +  // Leaving before Save takes the share back out of the queue. Once saved, Håfa keeps it.
 +  private func cancelCapture() {
++    card?.cancelPreview()
 +    guard !captureSubmitted, let key = confirmationCaptureKey ?? pendingCapture?.key else { return closeCapture() }
 +    captureClosed = true; captureWriteID = nil
 +    HafaShareStore.performCaptureWrite({ HafaShareStore.acknowledge(key) }) { [weak self] _ in self?.closeCapture() }
 +  }
 +
 +  private func closeCapture() {
++    card?.cancelPreview()
 +    captureClosed = true; captureWriteID = nil
 +    guard let card else { return extensionContext?.completeRequest(returningItems: [], completionHandler: nil) ?? () }
 +    card.dismiss { [weak self] in self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }

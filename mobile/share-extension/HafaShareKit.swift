@@ -49,6 +49,9 @@ final class HafaShareModel: ObservableObject {
   var onCancel: () -> Void = {}
   private var touched = false
   private var linkProvider: LPMetadataProvider?
+  private var previewImageProgress: Progress?
+  private var previewTimeout: DispatchWorkItem?
+  private var previewGeneration = UUID()
 
   init(preview: HafaSharePreview, action: String) {
     self.preview = preview
@@ -61,6 +64,7 @@ final class HafaShareModel: ObservableObject {
   }
 
   func finish(_ outcome: HafaShareOutcome) {
+    cancelPreview()
     isBusy = false
     self.outcome = outcome
     UIAccessibility.post(notification: .announcement, argument: [outcome.title, outcome.detail].compactMap { $0 }.joined(separator: ". "))
@@ -79,43 +83,65 @@ final class HafaShareModel: ObservableObject {
 
   // Slides the card away, then hands back to the extension so it can complete the request.
   func dismiss(then done: @escaping () -> Void) {
+    cancelPreview()
     isShown = false
     DispatchQueue.main.asyncAfter(deadline: .now() + (UIAccessibility.isReduceMotionEnabled ? 0.12 : 0.26), execute: done)
   }
 
-  // A best-effort look at the link: the page's own title and picture, fetched on this phone only.
-  // Anything slow or missing leaves the site name showing.
+  func cancelPreview() {
+    previewGeneration = UUID()
+    linkProvider?.cancel(); linkProvider = nil
+    previewImageProgress?.cancel(); previewImageProgress = nil
+    previewTimeout?.cancel(); previewTimeout = nil
+  }
+
   func loadPreview(_ url: URL, describe: @escaping (String?) -> (title: String, subtitle: String?)?) {
+    cancelPreview()
+    guard HafaSharePreviewPolicy.allows(url) else { return }
+    let generation = previewGeneration
     let provider = LPMetadataProvider()
+    provider.shouldFetchSubresources = false
     provider.timeout = 5
     linkProvider = provider
+    let timeout = DispatchWorkItem { [weak self] in
+      guard let self, self.previewGeneration == generation else { return }
+      self.cancelPreview()
+    }
+    previewTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
     provider.startFetchingMetadata(for: url) { [weak self] metadata, _ in
-      guard let metadata else { return }
       DispatchQueue.main.async {
-        guard let self, let described = describe(metadata.title) else { return }
-        self.preview.title = described.title
-        self.preview.subtitle = described.subtitle ?? self.preview.subtitle
-      }
-      (metadata.imageProvider ?? metadata.iconProvider)?.loadObject(ofClass: UIImage.self) { image, _ in
-        guard let image = (image as? UIImage).flatMap(Self.thumbnail) else { return }
-        DispatchQueue.main.async { self?.preview.image = image }
+        guard let self, self.previewGeneration == generation, let metadata else { return }
+        if let described = describe(metadata.title) {
+          self.preview.title = described.title
+          self.preview.subtitle = described.subtitle ?? self.preview.subtitle
+        }
+        // Subresource fetching stays disabled. If LP already has an image, use
+        // its file representation rather than requesting a full decoded UIImage.
+        guard let imageProvider = metadata.imageProvider ?? metadata.iconProvider,
+          let type = imageProvider.registeredTypeIdentifiers.first else { return }
+        self.previewImageProgress = imageProvider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
+          let image = url.flatMap(HafaShareThumbnail.image)
+          DispatchQueue.main.async {
+            guard let self, self.previewGeneration == generation, let image else { return }
+            self.preview.image = UIImage(cgImage: image)
+          }
+        }
       }
     }
   }
 
   func loadThumbnail(_ url: URL) {
+    let generation = previewGeneration
     DispatchQueue.global(qos: .utility).async { [weak self] in
-      let image = HafaShareThumbnail.image(at: url).map { UIImage(cgImage: $0) }
-      DispatchQueue.main.async { self?.preview.image = image }
+      let image = HafaShareThumbnail.image(at: url)
+      DispatchQueue.main.async {
+        guard let self, self.previewGeneration == generation, let image else { return }
+        self.preview.image = UIImage(cgImage: image)
+      }
     }
   }
 
-  // Share extensions get little memory; keep previews small.
-  static func thumbnail(_ image: UIImage) -> UIImage? {
-    let side: CGFloat = 180, scale = min(1, side / max(image.size.width, image.size.height, 1))
-    let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-    return UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-  }
 }
 
 final class HafaShareHostingController: UIHostingController<HafaShareSheet> {

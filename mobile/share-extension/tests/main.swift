@@ -78,3 +78,22 @@ try Data("not an image".utf8).write(to: photo)
 check(HafaShareThumbnail.image(at: photo) == nil, "malformed photo has no preview")
 check(HafaShareThumbnail.image(at: URL(string: "https://example.com/image.jpg")!) == nil, "thumbnail cannot fetch a URL")
 print("Photo downsampling: large file, orientation, malformed and remote checks passed")
+
+let key = String(repeating: "a", count: 43)
+let blockedPreviews = [
+  "https://user:pass@example.com/recipe", "https://user@example.com/recipe", "https://example.com/?TOKEN=secret",
+  "https://example.com/?key=s", "https://example.com/?sig=s", "https://example.com/?auth=s",
+  "https://example.com/?access_token=s", "https://example.com/?code=s", "https://example.com/?%74oken=s",
+  "https://example.com/?X-Amz-Signature=s", "https://example.com/#access_token=secret",
+  "https://hafarecipes.com/r/\(key)", "https://custom.example/r/\(key)",
+  "http://localhost/a", "http://localhost./a", "http://foo.local/a", "http://foo.local./a", "http://intranet/a",
+  "http://127.0.0.1/a", "http://127.1/a", "http://2130706433/a", "http://0x7f000001/a", "http://0177.0.0.1/a",
+  "http://10.0.0.1/a", "http://172.16.0.1/a", "http://172.31.255.255/a", "http://192.168.1.1/a",
+  "http://169.254.169.254/a", "http://0.0.0.0/a", "http://[::1]/a", "http://[::]/a",
+  "http://[fc00::1]/a", "http://[fe80::1]/a", "http://[::ffff:127.0.0.1]/a", "file:///tmp/recipe",
+]
+for value in blockedPreviews { check(!HafaSharePreviewPolicy.allows(URL(string: value)!), "blocked preview: \(value)") }
+for value in ["https://www.instagram.com/reel/abc/?igsh=xyz", "https://www.tiktok.com/@cook/video/123", "https://example.com/recipe?servings=4", "https://8.8.8.8/recipe", "https://[2606:4700:4700::1111]/recipe"] {
+  check(HafaSharePreviewPolicy.allows(URL(string: value)!), "public preview: \(value)")
+}
+print("Preview privacy: sensitive URLs, local hosts and public controls passed")
