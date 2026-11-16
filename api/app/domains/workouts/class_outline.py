@@ -279,8 +279,15 @@ def apply_outline(workout, text, warnings):
         part = _part_for(block, outline.parts)
         if not block.exercises:
             continue  # "Workout Specific Movement Prep" is a link, never a part.
+        printed = words("\n".join(p.text() for p in outline.parts))
+        if part is None and not any(words(item.name) & printed for item in block.exercises):
+            warnings.append(f"{block.label[:60]} is not a part of the page; it was removed.")
+            continue  # e.g. "Zone 2 Aerobic Conditioning" made from a coach note
+        if part is not None and id(part) in matched:
+            matched[id(part)].exercises += block.exercises  # One printed part is one block (E1 and E2 split apart).
+            continue
         kept.append(block)
-        if part is not None and id(part) not in matched:
+        if part is not None:
             matched[id(part)] = block
     location = next(iter({entry.location for block in kept for item in block.exercises for entry in item.evidence
                           if entry.location and not entry.location.startswith("image:")}), "provided_text")
@@ -301,8 +308,13 @@ def apply_outline(workout, text, warnings):
             continue
         if not re.match(rf"\s*{part.key}(?:\d|\b)", block.label) or re.search(r"movement prep", block.label, re.I):
             block.label = part.label([item.name for item in block.exercises])
-        if re.search(r"accessor", f"{part.section or ''} {part.heading}", re.I) and block.role in {None, "main"}:
+        if re.search(r"active recovery|cool[- ]?down", "\n".join([part.heading, *part.rows]), re.I):
+            block.role, block.score_kind = "cool_down", "none"  # "Active Recovery Bike Erg", even under ACCESSORIES
+        elif re.search(r"accessor", f"{part.section or ''} {part.heading}", re.I) and block.role in {None, "main"}:
             block.role = "accessory"
+        group = re.match(r"^(\d+)\s+alternating sets\b", part.heading, re.I)
+        if group and len(block.exercises) > 1 and block.execution is None:
+            block.grouping, block.rounds = "superset", int(group[1])  # The page prints the round count.
         if outline_notes:
             block.instructions = _merge_notes(part.notes, block.instructions, outline_notes)
         for item in block.exercises:

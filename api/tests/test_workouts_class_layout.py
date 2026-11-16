@@ -209,3 +209,46 @@ Time Cap: 10 minutes"""
     assert block.execution.model_dump(exclude_none=True) == {"mode": "for_time", "time_cap_seconds": 600}
     assert (block.rounds, [item.name for item in block.exercises]) == (3, ["Rope Climbs", "Reverse Lunges"])
     assert any("read from the page layout" in warning for warning in warnings)
+
+
+def test_a_printed_group_sets_its_rounds_and_active_recovery_is_not_scored():
+    page = """A1. 8 Woodchops
+A2. 6-8 Side Plank Rotations
+C. ACCESSORIES
+Active Recovery Bike Erg for 10 minutes
+- Easy pace"""
+    page = "3 alternating sets of:\n" + page
+    raw = {"title": "Class", "kind": "session", "blocks": [
+        {"id": "a", "label": "A. Core", "grouping": "sequential", "evidence": [],
+         "exercises": [move("Woodchops", "8 Woodchops", reps_min=8, reps_max=8),
+                       move("Side Plank Rotations", "6-8 Side Plank Rotations", reps_min=6, reps_max=8)]},
+        {"id": "c", "label": "C. ACCESSORIES", "evidence": [], "exercises": [move("Bike Erg", "Active Recovery Bike Erg")]}]}
+    workout, _, _ = ground(page, raw)
+    a, c = workout.blocks
+    assert (a.grouping, a.rounds) == ("superset", 3)
+    assert (c.role, c.score_kind) == ("cool_down", "none")
+
+
+def test_a_group_the_model_split_into_two_blocks_is_one_part_again():
+    page = """2 alternating sets of:
+E1. 10-15 Lateral Raises
+Rest 1 minute
+E2. Copenhagen Plank for 30-40 seconds
+Rest 1 minute"""
+    raw = {"title": "Class", "kind": "session", "blocks": [
+        {"id": "e1", "label": "D. E1. Lateral Raises", "evidence": [], "exercises": [move("Lateral Raises", "10-15 Lateral Raises")]},
+        {"id": "e2", "label": "D. E2. Copenhagen Plank", "evidence": [], "exercises": [move("Copenhagen Plank", "Copenhagen Plank")]}]}
+    workout, _, _ = ground(page, raw)
+    assert len(workout.blocks) == 1
+    block = workout.blocks[0]
+    assert block.label.startswith("E.") and (block.grouping, block.rounds) == ("superset", 2)
+    assert [item.name for item in block.exercises] == ["Lateral Raises", "Copenhagen Plank"]
+
+
+def test_a_part_made_from_a_coach_note_is_removed():
+    raw = model_output()
+    raw["blocks"].append({"id": "z", "label": "Zone 2 Aerobic Conditioning", "evidence": [],
+                          "exercises": [move("Aerobic conditioning", "Aerobic conditioning")]})
+    workout, warnings, _ = ground(PAGE + "\n- Zone 2 aerobic conditioning builds your base", raw)
+    assert all(block.label != "Zone 2 Aerobic Conditioning" for block in workout.blocks)
+    assert "Zone 2 Aerobic Conditioning is not a part of the page; it was removed." in warnings
