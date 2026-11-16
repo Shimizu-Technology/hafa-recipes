@@ -1,8 +1,8 @@
 """A pasted class page's own layout decides its parts, notes and prep link.
 
-The page below is synthetic. It copies the layout of a WodUp class (lettered
-parts, an "N alternating sets of:" group, "- " coach notes, a movement-prep
-link), not any real gym's programming.
+Every page here is synthetic: invented movements, numbers and coach notes in
+the layout WodUp prints (lettered parts, "N alternating sets of:" groups, "- "
+coach notes and its movement-prep link).
 """
 
 from app.domains.workouts import class_extraction
@@ -77,6 +77,10 @@ def ground(page=PAGE, raw=None):
     return ground_workout(raw or model_output(), source, class_parts=True)
 
 
+def dump(workout, warnings):
+    return workout.model_dump_json() + "\n".join(warnings)
+
+
 def test_layout_reads_parts_groups_prep_and_notes_in_source_order():
     outline = read_outline(PAGE)
     assert outline.prep is True
@@ -96,7 +100,7 @@ def test_a_part_introduced_by_notes_passes_later_notes_to_the_next_part():
 A1. 6 Woodchops
 A2. 8 Dead Bugs
 - Mixed conditioning today; the rower can be swapped for the echo bike
-B. Every minute for 10 minutes (5 rounds):
+B. Every minute for 8 minutes (4 rounds):
 Minute 1
 Row 12 calories
 Minute 2
@@ -104,8 +108,8 @@ Echo Bike 10 calories
 - Build an aerobic base
 ACCESSORIES
 2 alternating sets of:
-C1. SkiErg for 4 minutes
-C2. BikeErg for 4 minutes"""
+C1. SkiErg for 3 minutes
+C2. Rower for 3 minutes"""
     a, b, c = read_outline(page).parts
     assert a.notes == [] and b.notes[0].startswith("Mixed conditioning")
     assert c.notes == ["Build an aerobic base"]
@@ -123,7 +127,7 @@ def test_page_layout_fixes_labels_notes_and_restores_a_skipped_part():
     assert c.role == "accessory" and c.grouping == "superset" and c.rounds == 2
     assert [item.name for item in c.exercises] == ["Cable Face Pulls", "Side Plank"]
     assert c.exercises[0].instructions == "Rear delt work"
-    assert any("C. ACCESSORIES was read from the page layout" in warning for warning in warnings)
+    assert "Part C was read from the page layout because the import left it out; review it." in warnings
     assert (workout.benchmark.name, workout.benchmark.stage, workout.benchmark.stages) == ("Summit", 1, 4)
 
 
@@ -138,20 +142,80 @@ def test_a_movement_listed_only_in_another_part_moves_there():
     assert any("was read from the page layout" in warning for warning in warnings)
 
 
+def test_member_rows_from_a_selection_without_its_leaderboard_never_become_parts():
+    # The selection ends inside the results: no "Leaderboard" heading, so the trim keeps these rows.
+    page = """A. 12 Kettlebell Swings
+B. Every minute for 6 minutes:
+10 Wall Balls
+C. Smith 225 lb
+J. Smith 225 lb
+Jane Doe 12:43 Rx
+K. Jones: nice work today"""
+    raw = {"title": "Class", "kind": "session", "blocks": [
+        {"id": "a", "label": "A. Swings", "evidence": [], "exercises": [move("Kettlebell Swings", "12 Kettlebell Swings")]}]}
+    workout, warnings, _ = ground(page, raw)
+    assert [block.label[:2] for block in workout.blocks] == ["A.", "B."]
+    text = dump(workout, warnings)
+    assert not any(name in text for name in ("Smith", "Jane Doe", "Jones", "nice work", "225"))
+    assert [part.key for part in read_outline(page).parts] == ["A", "B"]
+
+
+def test_a_heading_alone_is_never_rebuilt():
+    page = "A. 12 Kettlebell Swings\nB. Strength focus\n- Move well today"
+    raw = {"title": "Class", "kind": "session", "blocks": [
+        {"id": "a", "label": "A", "evidence": [], "exercises": [move("Kettlebell Swings", "12 Kettlebell Swings")]}]}
+    workout, warnings, _ = ground(page, raw)
+    assert [block.label for block in workout.blocks] == ["A"]
+    assert "Part B from the source was not imported; review the source." in warnings
+
+
+def test_an_unlettered_warm_up_keeps_its_place_and_a_rebuilt_part_sits_by_its_neighbours():
+    page = """Warm-up
+2 rounds of 15 Jumping Jacks
+A. 12 Kettlebell Swings
+B. 3 Rounds for Time:
+10 Burpees
+200m Row
+C. 8 Push-Ups"""
+    raw = {"title": "Class", "kind": "session", "blocks": [
+        {"id": "w", "label": "Warm-up", "evidence": [], "exercises": [move("Jumping Jacks", "15 Jumping Jacks")]},
+        {"id": "a", "label": "A", "evidence": [], "exercises": [move("Kettlebell Swings", "12 Kettlebell Swings")]},
+        {"id": "c", "label": "C", "evidence": [], "exercises": [move("Push-Ups", "8 Push-Ups")]}]}
+    workout, _, _ = ground(page, raw)
+    assert [block.label[:2] for block in workout.blocks] == ["Wa", "A", "B.", "C"]
+
+
+def test_dash_style_movements_are_rows_not_coach_notes():
+    page = "A. For Time:\n- 10 Burpees\n- 15 Air Squats\n- 8 Minutes cap, move steadily"
+    raw = {"title": "Class", "kind": "session", "blocks": [{"id": "a", "label": "A", "evidence": [], "exercises": [
+        move("Burpees", "10 Burpees"), move("Air Squats", "15 Air Squats")]}]}
+    workout, _, _ = ground(page, raw)
+    assert workout.blocks[0].instructions == ["8 Minutes cap, move steadily"]
+    assert [part.rows for part in read_outline(page).parts] == [["10 Burpees", "15 Air Squats"]]
+
+
+def test_a_renamed_part_keeps_its_review_warnings_under_the_new_label():
+    raw = model_output()
+    raw["blocks"][2]["role"] = "warm_up"  # no source support: grounding warns about "Anaerobic intervals"
+    workout, warnings, _ = ground(raw=raw)
+    assert "Unsupported role for B. Every 3 minutes for 9 minutes (3 rounds) removed." in warnings
+    assert not any("Anaerobic intervals" in warning for warning in warnings)
+
+
 def test_minutes_holding_two_movements_never_rotate_one_per_minute():
-    page = """C. Every minute for 10 minutes (5 rounds):
+    page = """C. Every minute for 8 minutes (4 rounds):
 Minute 1
-10 Dumbbell Cleans
-Max Push-Ups
+8 Dumbbell Snatches
+Max Sit-Ups
 Minute 2
 Rest for 1 minute"""
     raw = {"title": "EMOM", "kind": "session", "blocks": [{
         "id": "c", "label": "C. EMOM", "grouping": "interval",
-        "execution": {"mode": "emom", "interval_seconds": 60, "intervals": 10, "rotation": "alternating"},
-        "evidence": [ev("execution.mode", "Every minute for 10 minutes (5 rounds):"),
-                     ev("execution.intervals", "Every minute for 10 minutes (5 rounds):")],
-        "exercises": [move("Dumbbell Cleans", "10 Dumbbell Cleans", reps_min=10, reps_max=10),
-                      move("Push-Ups", "Max Push-Ups")]}]}
+        "execution": {"mode": "emom", "interval_seconds": 60, "intervals": 8, "rotation": "alternating"},
+        "evidence": [ev("execution.mode", "Every minute for 8 minutes (4 rounds):"),
+                     ev("execution.intervals", "Every minute for 8 minutes (4 rounds):")],
+        "exercises": [move("Dumbbell Snatches", "8 Dumbbell Snatches", reps_min=8, reps_max=8),
+                      move("Sit-Ups", "Max Sit-Ups")]}]}
     workout, warnings, _ = ground(page, raw)
     assert workout.blocks[0].execution.rotation is None
     assert any("each minute lists a different group" in warning for warning in warnings)
@@ -184,45 +248,45 @@ def test_plain_text_without_a_class_layout_is_unchanged():
 
 def test_notes_need_more_than_one_shared_word_to_move_to_the_next_part():
     page = """D. ACCESSORIES
-10 Degree Dumbbell Incline Row (3010 tempo)
-3 sets of 8 reps
-- Horizontal pull strength endurance
-- Build load across sets
+Single Arm Cable Row (2011 tempo)
+3 sets of 10 reps
+- Upper back pull volume
+- Add a little load each week
 
-- Keep your hips level on the plank pull through
-- Y-raise with thumbs up
+- Keep your ribs down on the bear crawl pull
+- Lift with thumbs pointed up
 3 alternating sets of:
-E1. Plank Pull-Throughs for 12 seconds
-E2. 8-10 Chest Supported Y Raises"""
+E1. Bear Crawl Pull-Throughs for 15 seconds
+E2. 10-12 Incline Thumbs-Up Raises"""
     d, e = read_outline(page).parts
-    assert d.notes == ["Horizontal pull strength endurance", "Build load across sets"]
-    assert e.notes == ["Keep your hips level on the plank pull through", "Y-raise with thumbs up"]
+    assert d.notes == ["Upper back pull volume", "Add a little load each week"]
+    assert e.notes == ["Keep your ribs down on the bear crawl pull", "Lift with thumbs pointed up"]
 
 
 def test_a_skipped_rounds_for_time_part_keeps_its_rounds_and_cap():
-    page = """D. 3 Rounds for Time:
-3 Rope Climbs
-12 Reverse Lunges
-Time Cap: 10 minutes"""
+    page = """D. 4 Rounds for Time:
+5 Wall Climbs
+16 Walking Lunges
+Time Cap: 12 minutes"""
     workout, warnings, _ = ground(page, {"title": "Class", "kind": "session", "blocks": []})
     block = workout.blocks[0]
-    assert block.execution.model_dump(exclude_none=True) == {"mode": "for_time", "time_cap_seconds": 600}
-    assert (block.rounds, [item.name for item in block.exercises]) == (3, ["Rope Climbs", "Reverse Lunges"])
+    assert block.execution.model_dump(exclude_none=True) == {"mode": "for_time", "time_cap_seconds": 720}
+    assert (block.rounds, [item.name for item in block.exercises]) == (4, ["Wall Climbs", "Walking Lunges"])
     assert any("read from the page layout" in warning for warning in warnings)
 
 
 def test_a_printed_group_sets_its_rounds_and_active_recovery_is_not_scored():
-    page = """A1. 8 Woodchops
+    page = """3 alternating sets of:
+A1. 8 Woodchops
 A2. 6-8 Side Plank Rotations
 C. ACCESSORIES
-Active Recovery Bike Erg for 10 minutes
+Active Recovery Rower for 8 minutes
 - Easy pace"""
-    page = "3 alternating sets of:\n" + page
     raw = {"title": "Class", "kind": "session", "blocks": [
         {"id": "a", "label": "A. Core", "grouping": "sequential", "evidence": [],
          "exercises": [move("Woodchops", "8 Woodchops", reps_min=8, reps_max=8),
                        move("Side Plank Rotations", "6-8 Side Plank Rotations", reps_min=6, reps_max=8)]},
-        {"id": "c", "label": "C. ACCESSORIES", "evidence": [], "exercises": [move("Bike Erg", "Active Recovery Bike Erg")]}]}
+        {"id": "c", "label": "C. ACCESSORIES", "evidence": [], "exercises": [move("Rower", "Active Recovery Rower")]}]}
     workout, _, _ = ground(page, raw)
     a, c = workout.blocks
     assert (a.grouping, a.rounds) == ("superset", 3)
@@ -231,18 +295,18 @@ Active Recovery Bike Erg for 10 minutes
 
 def test_a_group_the_model_split_into_two_blocks_is_one_part_again():
     page = """2 alternating sets of:
-E1. 10-15 Lateral Raises
-Rest 1 minute
-E2. Copenhagen Plank for 30-40 seconds
-Rest 1 minute"""
+E1. 12-15 Banded Lateral Raises
+Rest 45 seconds
+E2. Hollow Rock for 20-30 seconds
+Rest 45 seconds"""
     raw = {"title": "Class", "kind": "session", "blocks": [
-        {"id": "e1", "label": "D. E1. Lateral Raises", "evidence": [], "exercises": [move("Lateral Raises", "10-15 Lateral Raises")]},
-        {"id": "e2", "label": "D. E2. Copenhagen Plank", "evidence": [], "exercises": [move("Copenhagen Plank", "Copenhagen Plank")]}]}
+        {"id": "e1", "label": "D. E1. Banded Lateral Raises", "evidence": [], "exercises": [move("Banded Lateral Raises", "12-15 Banded Lateral Raises")]},
+        {"id": "e2", "label": "D. E2. Hollow Rock", "evidence": [], "exercises": [move("Hollow Rock", "Hollow Rock")]}]}
     workout, _, _ = ground(page, raw)
     assert len(workout.blocks) == 1
     block = workout.blocks[0]
     assert block.label.startswith("E.") and (block.grouping, block.rounds) == ("superset", 2)
-    assert [item.name for item in block.exercises] == ["Lateral Raises", "Copenhagen Plank"]
+    assert [item.name for item in block.exercises] == ["Banded Lateral Raises", "Hollow Rock"]
 
 
 def test_a_part_made_from_a_coach_note_is_removed():
@@ -251,4 +315,4 @@ def test_a_part_made_from_a_coach_note_is_removed():
                           "exercises": [move("Aerobic conditioning", "Aerobic conditioning")]})
     workout, warnings, _ = ground(PAGE + "\n- Zone 2 aerobic conditioning builds your base", raw)
     assert all(block.label != "Zone 2 Aerobic Conditioning" for block in workout.blocks)
-    assert "Zone 2 Aerobic Conditioning is not a part of the page; it was removed." in warnings
+    assert "A part that is not on the page was removed." in warnings

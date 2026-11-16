@@ -33,15 +33,19 @@ def apply_layout(workout, text, warnings):
     """Read the page layout on a copy; a layout the reader cannot follow keeps the model's parts."""
     from app.domains.workouts.class_outline import apply_outline, stale_warnings
 
-    draft, notes = workout.model_copy(deep=True), []
+    draft, notes, renames = workout.model_copy(deep=True), [], {}
     try:
-        apply_outline(draft, text, notes)
+        apply_outline(draft, text, notes, renames)
     except Exception:  # noqa: BLE001 - a heuristic reader must never fail the import
         logger.exception("workouts_class_layout_failed")
         warnings.append(LAYOUT_WARNING)
         return
     for name in type(workout).model_fields:
         setattr(workout, name, getattr(draft, name))
+    for old_label, new_label in renames.items():
+        # "Unsupported rounds removed from Intervals." follows its part's printed label.
+        pattern = rf"\b(from|for) {re.escape(old_label)}(?=[ .:]| removed)"
+        warnings[:] = [re.sub(pattern, lambda match: f"{match[1]} {new_label}", warning) for warning in warnings]
     placed = any(block.instructions for block in workout.blocks) or bool(workout.instructions)
     warnings[:] = stale_warnings(workout, warnings, placed) + notes
 
@@ -86,7 +90,7 @@ def ground_class(workout, raw, source, warnings):
     benchmark = workout.benchmark
     if benchmark:
         evidence_text = text + "\n" + "\n".join(q for b in workout.blocks for q in quotes(b, "benchmark"))
-        # 'benchmark "Everest"' or WodUp's 'benchmark workout, "Everest"'.
+        # 'benchmark "Summit"' or WodUp's 'benchmark workout, "Summit"'.
         named = rf"\bbenchmark(?:\s+(?:workout|wod|test))?(?:\s*[,:–—-]\s*|\s+)['\"‘’“”]?{re.escape(benchmark.name)}(?:['\"‘’“”]|\b)"
         if not re.search(named, evidence_text, re.I):
             workout.benchmark = None

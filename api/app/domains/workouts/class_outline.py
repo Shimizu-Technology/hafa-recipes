@@ -24,6 +24,9 @@ GROUP = re.compile(r"^\d+\s+alternating sets\b.*:$", re.I)
 SECTION = re.compile(r"^(accessor(?:y|ies)|warm[- ]?up|cool[- ]?down)\s*:?$", re.I)
 PREP = re.compile(r"^workout specific movement prep$", re.I)
 NOTE = re.compile(r"^-\s+\S")
+# "- 10 Burpees" (SugarWOD/Wodify style) is a movement row, "- 8 Minutes" a note.
+DASH_ROW = re.compile(r"^-\s+\d+(?:\s*[-–]\s*\d+)?\s+(?!(?:minutes?|mins?|seconds?|secs?|weeks?|days?|sets?|rounds?|"
+                      r"reps?|times?|x)\b)[A-Za-z]", re.I)
 REST_ROW = re.compile(r"^-*\s*rest\b", re.I)
 # Training words every part shares; they cannot tie a note to one part.
 COMMON = set("""every minute minutes min mins for with sets set reps rep rounds round rest seconds secs the and
@@ -66,6 +69,7 @@ class Outline:
     intro: list[str] = field(default_factory=list)
     parts: list[Part] = field(default_factory=list)
     prep: bool = False
+    loose: list[str] = field(default_factory=list)  # rows outside any lettered part (an unlettered warm-up)
 
 
 def words(text):
@@ -76,6 +80,42 @@ def words(text):
 
 def note_text(line):
     return re.sub(r"^-\s+", "", line.strip())
+
+
+# "Jane Doe 12:34 Rx", "Bob Lee 5+2", "Jane Doe 225 lb": a member's result, never a programming row.
+MEMBER_RESULT = re.compile(r"^[^\W\d][\w.'’\-]*(?:[ \t]+[^\W\d][\w.'’\-]*){0,4}[ \t]+(?:\d+:\d{2}(?::\d{2})?|\d+\s*\+\s*\d+)"
+                           r"(?:\s+(?:rx|scaled|custom))?$|^[A-Z][a-z.'’\-]+(?:[ \t]+[A-Z][a-z.'’\-]+){1,3}[ \t]+\d+(?:\.\d+)?\s*(?:lbs?|kg)$", re.I)
+
+
+def member_line(line, heading=False):
+    """A result or comment row that a selection without its Leaderboard heading
+    carried past the trim. Lettered lines ("J. Smith 225 lb") get the full check."""
+    from app.domains.workouts.class_extraction import (
+        CAPS_FORMAT,
+        FORMAT_PHRASE,
+        MEMBER_COMMENT,
+        MEMBER_SCORE,
+        member_score_line,
+    )
+
+    if member_score_line(line) or MEMBER_RESULT.fullmatch(line):
+        return True
+    if not heading:
+        return False
+    body = re.sub(r"^[A-Z]\d{0,2}\.\s+", "", line)
+    if MEMBER_COMMENT.fullmatch(line) or member_score_line(body):
+        return True
+    # "SkiErg for 4 minutes" and "10 Burpees" are programming; a result never says "for N" or starts with a count.
+    programming = CAPS_FORMAT.search(body) or FORMAT_PHRASE.search(body) or re.search(r"\bfor\s+\d|^\d", body, re.I)
+    return bool(MEMBER_SCORE.fullmatch(line)) and not programming
+
+
+def in_sequence(key, part):
+    """Parts run A, B, C...: the next letter (one may be skipped) or the current
+    part's own A1/A2 items. A selection may start a few parts in."""
+    if part is None:
+        return key <= "F"
+    return 0 <= ord(key) - ord(part.key) <= 2
 
 
 def read_outline(text: str) -> Outline:
@@ -93,6 +133,12 @@ def read_outline(text: str) -> Outline:
             outline.prep = True
             continue
         item, heading = ITEM.match(line), PART.match(line)
+        if member_line(line, heading=bool(item or heading)):
+            continue  # A member row is never a part, a row or a note.
+        if (item or heading) and not in_sequence((item or heading)[1], part):
+            item = heading = None
+        if DASH_ROW.match(line):
+            line = note_text(line)
         if GROUP.match(line):
             group, in_notes = line, False
             continue
@@ -127,6 +173,8 @@ def read_outline(text: str) -> Outline:
             continue
         if target is not None:
             target.rows.append(line)
+        else:
+            outline.loose.append(line)
         in_notes = new_run = False
     _assign_trailing_notes(outline.parts)
     return outline
@@ -223,6 +271,12 @@ def _mixed_minutes(part):
     return any(count > 1 for count in counts)
 
 
+# A movement row carries a dose: "10 Burpees", "Row 750 meters", "for 30 seconds", "@ 24/16 kg", "Max ...".
+DOSED_ROW = re.compile(r"^\d+(?:\s*[-–]\s*\d+)?\s+[A-Za-z]|\bfor\s+\d|\bmax\b|@\s*\d|\d+\s*/\s*\d+|"
+                       r"\d+\s*(?:cal|calories|meters?|m|inches|seconds?|secs?|minutes?|mins?)\b", re.I)
+SETS_LISTED = re.compile(r"^(?:set\s+\d|\d+\s+sets\s+of)", re.I)
+
+
 def _part_from_rows(part, text_location):
     """A part the import left out, read from its own source rows."""
     from app.domains.workouts.formats import read_format
@@ -230,6 +284,8 @@ def _part_from_rows(part, text_location):
 
     rows = [re.sub(r"^[A-Z]\d*\.\s+", "", unit.heading) for unit in part.items] if part.items else [
         line for line in ([part.heading[3:]] if PART.match(part.heading) else []) + part.rows]
+    if not (part.items or any(DOSED_ROW.search(row) for row in rows) or any(SETS_LISTED.match(row) for row in part.rows)):
+        return None  # A heading alone is never rebuilt into a part.
     exercises = []
     for row in rows:
         if FORMAT_ROW.match(row) or SECTION.match(row) or not re.search(r"[A-Za-z]{3}", row):
@@ -268,21 +324,22 @@ def _unit_for(item, part):
     return next((unit for unit in part.items if name and name <= words(unit.heading)), None)
 
 
-def apply_outline(workout, text, warnings):
+def apply_outline(workout, text, warnings, renames=None):
     """Use the page layout for part boundaries, labels, notes and listed rows."""
     outline = read_outline(text)
     if not outline.parts:
         return
     outline_notes = outline.intro + [n for p in outline.parts for u in [p, *p.items] for n in u.notes]
     kept, matched = [], {}
+    printed = words("\n".join([*(p.text() for p in outline.parts), *outline.loose]))
     for block in workout.blocks:
         part = _part_for(block, outline.parts)
         if not block.exercises:
             continue  # "Workout Specific Movement Prep" is a link, never a part.
-        printed = words("\n".join(p.text() for p in outline.parts))
         if part is None and not any(words(item.name) & printed for item in block.exercises):
-            warnings.append(f"{block.label[:60]} is not a part of the page; it was removed.")
-            continue  # e.g. "Zone 2 Aerobic Conditioning" made from a coach note
+            # e.g. "Zone 2 Aerobic Conditioning" made from a coach note; its label is not repeated.
+            warnings.append("A part that is not on the page was removed.")
+            continue
         if part is not None and id(part) in matched:
             matched[id(part)].exercises += block.exercises  # One printed part is one block (E1 and E2 split apart).
             continue
@@ -291,23 +348,34 @@ def apply_outline(workout, text, warnings):
             matched[id(part)] = block
     location = next(iter({entry.location for block in kept for item in block.exercises for entry in item.evidence
                           if entry.location and not entry.location.startswith("image:")}), "provided_text")
+    index = {id(part): number for number, part in enumerate(outline.parts)}
+    part_of = {id(block): number for number, part in enumerate(outline.parts)
+               if id(part) in matched for block in [matched[id(part)]]}
+    if len(part_of) == len(kept):
+        kept.sort(key=lambda block: part_of[id(block)])  # Every block is a printed part: page order.
     for part in outline.parts:
-        if id(part) not in matched:
-            rebuilt = _part_from_rows(part, location)
-            if rebuilt.exercises:
-                matched[id(part)] = rebuilt
-                kept.append(rebuilt)
-                warnings.append(f"Part {rebuilt.label[:60]} was read from the page layout because the import left it out; review it.")
-    order = {id(block): index for index, block in enumerate(kept)}
-    position = {id(matched[id(p)]): i for i, p in enumerate(outline.parts) if id(p) in matched}
-    kept.sort(key=lambda block: (position.get(id(block), len(outline.parts)), order[id(block)]))
+        if id(part) in matched:
+            continue
+        rebuilt = _part_from_rows(part, location)
+        if rebuilt is None or not rebuilt.exercises:
+            warnings.append(f"Part {part.key} from the source was not imported; review the source.")
+            continue
+        matched[id(part)] = rebuilt
+        # Next to its printed neighbours; blocks the page does not letter keep their place.
+        after = [position for position, block in enumerate(kept) if part_of.get(id(block), -1) < index[id(part)]
+                 and id(block) in part_of]
+        kept.insert(after[-1] + 1 if after else 0, rebuilt)
+        part_of[id(rebuilt)] = index[id(part)]
+        warnings.append(f"Part {part.key} was read from the page layout because the import left it out; review it.")
     for part in outline.parts:
         block = matched.get(id(part))
         if block is None:
-            warnings.append(f"Part {part.label()[:60]} from the source was not imported; review the source.")
             continue
         if not re.match(rf"\s*{part.key}(?:\d|\b)", block.label) or re.search(r"movement prep", block.label, re.I):
-            block.label = part.label([item.name for item in block.exercises])
+            renamed = part.label([item.name for item in block.exercises])
+            if renames is not None:
+                renames[block.label] = renamed
+            block.label = renamed
         if re.search(r"active recovery|cool[- ]?down", "\n".join([part.heading, *part.rows]), re.I):
             block.role, block.score_kind = "cool_down", "none"  # "Active Recovery Bike Erg", even under ACCESSORIES
         elif re.search(r"accessor", f"{part.section or ''} {part.heading}", re.I) and block.role in {None, "main"}:
@@ -342,7 +410,7 @@ BENCHMARK_NOTE = re.compile(r"\bprogression\s+(\d+)\s*/\s*(\d+)\s+for\s+(?:our|t
 
 
 def _benchmark(workout, outline):
-    """'This is progression 2/3 for our benchmark workout, "Everest"' names the benchmark."""
+    """'This is progression 1/4 for our benchmark workout, "Summit"' names the benchmark."""
     if workout.benchmark is not None:
         return
     for note in outline.intro + [n for p in outline.parts for n in p.notes]:
