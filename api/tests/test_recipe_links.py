@@ -358,7 +358,8 @@ async def test_image_releases_connection_bounds_wait_and_retries(monkeypatch):
         _images.clear()
 
 
-def test_recipe_capabilities_not_logged_or_traced():
+@pytest.mark.parametrize('method,suffix', [('GET', '/og.jpg?secret=1'), ('POST', '/save')])
+def test_recipe_capabilities_not_logged_or_traced(method, suffix):
     import logging
 
     from app.domains.workouts.privacy import (
@@ -366,9 +367,9 @@ def test_recipe_capabilities_not_logged_or_traced():
         redact_workouts_event,
         redact_workouts_transaction,
     )
-    path = '/public/r/' + 'x' * 43 + '/og.jpg?secret=1'
+    path = '/public/r/' + 'x' * 43 + suffix
     record = logging.LogRecord('uvicorn.access', 20, '', 0, '%s - "%s %s HTTP/%s" %d',
-                               ('peer', 'GET', path, '1.1', 200), None)
+                               ('peer', method, path, '1.1', 200), None)
     assert not WorkoutsAccessLogFilter().filter(record)
     event = {'request': {'url': 'https://api.invalid' + path}, 'breadcrumbs': [{'message': path}]}
     assert path not in str(redact_workouts_event(event))
