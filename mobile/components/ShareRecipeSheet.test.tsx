@@ -40,7 +40,7 @@ const recipe = (is_public: boolean, moderation_status: 'active' | 'hidden' = 'ac
   ] },
 }) as any;
 
-function link(state: Partial<{ active: boolean; url: string | null; createdAt: string | null; isLoading: boolean; isUnavailable: boolean }> = {}) {
+function link(state: Partial<{ active: boolean; url: string | null; createdAt: string | null; isLoading: boolean; isUnavailable: boolean; isError: boolean }> = {}) {
   m.link = {
     isLoading: false, isUnavailable: false, isError: false, active: false, url: null, createdAt: null, isRevoking: false,
     refetch: vi.fn(), create: { mutateAsync: m.create }, revoke: m.revoke, ...state,
@@ -133,6 +133,20 @@ describe('share recipe sheet', () => {
     expect(m.create).toHaveBeenCalledTimes(1);
     expect(m.share).not.toHaveBeenCalled();
     expect(m.toast).toHaveBeenCalledWith({ message: 'New link ready', tone: 'success' });
+  });
+
+  it('keeps Send and Copy off when the link status check failed, offering Try again instead', async () => {
+    link({ isError: true });
+    const root = await open(recipe(false));
+    expect(button(root, 'Send link').props.disabled).toBe(true);
+    expect(row(root, 'Copy link').props.disabled).toBe(true);
+    await act(async () => button(root, 'Send link').props.onPress());
+    await act(async () => row(root, 'Copy link').props.onPress());
+    expect(texts(root)).not.toContain('Send a private link?');
+    expect(m.create).not.toHaveBeenCalled();
+    expect(m.share).not.toHaveBeenCalled();
+    await pressText(root, 'Try again');
+    expect((m.link as any).refetch).toHaveBeenCalled();
   });
 
   it('explains a replacement when the active link isn’t on this phone', async () => {

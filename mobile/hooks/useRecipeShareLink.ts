@@ -17,16 +17,22 @@ function httpStatus(error: unknown): number | undefined {
   return (error as { response?: { status?: number } } | null)?.response?.status;
 }
 
-/** The stored link is only usable while it is the server's current link. */
+/**
+ * The stored link is only usable while it is the server's current link. A link stored without a date
+ * (an older API, and the follow-up status check failed) is adopted as the current one rather than
+ * thrown away: discarding it would make the next Send replace a link people already have.
+ */
 export function usableStoredLink(status: RecipeShareLinkStatus | undefined, stored: StoredRecipeLink | null | undefined): string | null {
   if (!status?.active || !stored) return null;
-  return stored.createdAt === status.created_at ? stored.url : null;
+  return stored.createdAt === null || stored.createdAt === status.created_at ? stored.url : null;
 }
 
 /** Owner-only unlisted link for a private recipe: status, the link kept on this phone, create, replace and turn off. */
 export function useRecipeShareLink(recipeId: string, enabled: boolean) {
   const queryClient = useQueryClient();
   const owner = api.getAuthScope().userId;
+  const statusKey = recipeShareLinkKeys.status(recipeId);
+  const deviceKey = recipeShareLinkKeys.device(recipeId);
   const status = useQuery({
     queryKey: recipeShareLinkKeys.status(recipeId),
     queryFn: () => api.getRecipeShareLink(recipeId),
@@ -35,30 +41,42 @@ export function useRecipeShareLink(recipeId: string, enabled: boolean) {
   });
   const device = useQuery({
     queryKey: recipeShareLinkKeys.device(recipeId),
-    queryFn: () => (owner ? readStoredRecipeLink(owner, recipeId) : null),
+    queryFn: () => readStoredRecipeLink(recipeId),
     enabled: enabled && !!owner,
     staleTime: Infinity,
   });
   const url = usableStoredLink(status.data, device.data);
 
-  // Drop a link that was turned off or replaced elsewhere, so it can never be sent by mistake.
   useEffect(() => {
-    if (!owner || !status.data || !device.data || url) return;
-    void forgetRecipeLink(owner, recipeId);
-    queryClient.setQueryData(recipeShareLinkKeys.device(recipeId), null);
-  }, [owner, recipeId, status.data, device.data, url, queryClient]);
+    if (!status.data || !device.data) return;
+    if (!url) {
+      // Turned off or replaced elsewhere: drop it so it can never be sent by mistake.
+      void forgetRecipeLink(recipeId);
+      queryClient.setQueryData(deviceKey, null);
+    } else if (device.data.createdAt === null && status.data.created_at) {
+      // Record the server's date for a link kept without one, so later checks match exactly.
+      const dated = { url, createdAt: status.data.created_at };
+      void storeRecipeLink(recipeId, dated);
+      queryClient.setQueryData(deviceKey, dated);
+    }
+  }, [recipeId, status.data, device.data, url, queryClient, deviceKey]);
 
   const create = useMutation({
     mutationFn: async () => {
-      const { url: created } = await api.createRecipeShareLink(recipeId);
-      const fresh = await api.getRecipeShareLink(recipeId).catch(() => ({ active: true, created_at: null }));
-      const stored = { url: created, createdAt: fresh.created_at };
-      if (owner) await storeRecipeLink(owner, recipeId, stored);
+      const created = await api.createRecipeShareLink(recipeId);
+      // Newer APIs date the link in the create response; older ones need the status check.
+      const fresh: RecipeShareLinkStatus = created.created_at
+        ? { active: true, created_at: created.created_at }
+        : await api.getRecipeShareLink(recipeId).catch(() => ({ active: true, created_at: null }));
+      const stored = { url: created.url, createdAt: fresh.created_at };
+      await storeRecipeLink(recipeId, stored);
       return { fresh, stored };
     },
-    onSuccess: ({ fresh, stored }: { fresh: RecipeShareLinkStatus; stored: StoredRecipeLink }) => {
-      queryClient.setQueryData(recipeShareLinkKeys.device(recipeId), stored);
-      queryClient.setQueryData(recipeShareLinkKeys.status(recipeId), fresh);
+    onSuccess: async ({ fresh, stored }: { fresh: RecipeShareLinkStatus; stored: StoredRecipeLink }) => {
+      // An in-flight status fetch from before the create must not overwrite the new link's status.
+      await queryClient.cancelQueries({ queryKey: statusKey });
+      queryClient.setQueryData(deviceKey, stored);
+      queryClient.setQueryData(statusKey, fresh);
       void queryClient.invalidateQueries({ queryKey: recipeShareLinkKeys.active() });
     },
   });
@@ -69,7 +87,8 @@ export function useRecipeShareLink(recipeId: string, enabled: boolean) {
     isLoading: status.isLoading || device.isLoading,
     /** Older API or a missing table: unlisted links can't be made yet. */
     isUnavailable: httpStatus(status.error) === 503,
-    isError: !!status.error && httpStatus(status.error) !== 503,
+    /** No status yet because the check failed: the sheet keeps Send and Copy off until it's known. */
+    isError: !!status.error && !status.data && httpStatus(status.error) !== 503,
     refetch: status.refetch,
     active: status.data?.active === true,
     createdAt: status.data?.created_at ?? null,
@@ -109,13 +128,13 @@ export function useActiveRecipeLinks(enabled: boolean) {
 /** Turn off a link from Settings, forgetting the copy kept on this phone. */
 export function useRevokeRecipeLink() {
   const queryClient = useQueryClient();
-  const owner = api.getAuthScope().userId;
   return useMutation({
     mutationFn: async (recipeId: string) => {
       await api.revokeRecipeShareLink(recipeId);
-      if (owner) await forgetRecipeLink(owner, recipeId);
+      await forgetRecipeLink(recipeId);
     },
-    onSuccess: (_: unknown, recipeId: string) => {
+    onSuccess: async (_: unknown, recipeId: string) => {
+      await queryClient.cancelQueries({ queryKey: recipeShareLinkKeys.status(recipeId) });
       queryClient.setQueryData(recipeShareLinkKeys.device(recipeId), null);
       queryClient.setQueryData(recipeShareLinkKeys.status(recipeId), { active: false, created_at: null });
       queryClient.setQueryData(recipeShareLinkKeys.active(), (links: ActiveRecipeLink[] | undefined) =>

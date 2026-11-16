@@ -155,7 +155,8 @@ export function formatLinkCreated(createdAt: string | null | undefined, now = ne
   return `Link active · created ${label}`;
 }
 
-export type RecipeLinkState = { loading: boolean; unavailable: boolean; active: boolean; url: string | null };
+/** `error`: the status check failed, so whether a link exists is unknown (never read it as "no link"). */
+export type RecipeLinkState = { loading: boolean; unavailable: boolean; error?: boolean; active: boolean; url: string | null };
 
 /** What the sheet offers: one primary action, then the rows that make sense for this recipe. */
 export function getShareSheetModel(mode: RecipeShareMode, link: RecipeLinkState) {
@@ -172,10 +173,12 @@ export function getShareSheetModel(mode: RecipeShareMode, link: RecipeLinkState)
  * link, or confirm a replacement when the current link isn't on this phone (the API never shows it twice).
  */
 export function resolveLinkRequest(mode: RecipeShareMode, recipeId: string, link: RecipeLinkState):
-  { kind: 'ready'; url: string } | { kind: 'confirm-create' } | { kind: 'confirm-replace' } | { kind: 'wait' } | { kind: 'none' } {
+  { kind: 'ready'; url: string } | { kind: 'confirm-create' } | { kind: 'confirm-replace' } | { kind: 'wait' } | { kind: 'error' } | { kind: 'none' } {
   if (mode === 'public') return { kind: 'ready', url: publicRecipeLink(recipeId) };
   if (mode !== 'private' || link.unavailable) return { kind: 'none' };
   if (link.loading) return { kind: 'wait' };
+  // Creating a link here would replace one the family may already have; wait for a known status.
+  if (link.error) return { kind: 'error' };
   if (link.active && link.url) return { kind: 'ready', url: link.url };
   return link.active ? { kind: 'confirm-replace' } : { kind: 'confirm-create' };
 }

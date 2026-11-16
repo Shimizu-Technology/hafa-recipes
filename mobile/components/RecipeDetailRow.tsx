@@ -44,7 +44,7 @@ export function RecipeDetailRow({ icon, title, value, accessory, stacked, last, 
   // the separator's inset assumes it too.
   const style = [styles.row, stacked && styles.stackedRow, { gap: stacked || fontScale < 2 ? 12 : 4 }];
   return onPress
-    ? <TouchableOpacity accessibilityLabel={title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
+    ? <TouchableOpacity accessibilityLabel={stacked && value ? `${title}, ${value}` : title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
     : <View style={style}>{content}</View>;
 }
 

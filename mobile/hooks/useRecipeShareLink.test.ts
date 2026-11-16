@@ -30,6 +30,12 @@ describe('link kept on this phone', () => {
     expect(usableStoredLink(undefined, stored)).toBeNull();
     expect(usableStoredLink({ active: true, created_at: '2026-11-16T03:00:00Z' }, null)).toBeNull();
   });
+
+  it('adopts the server date for a link kept without one instead of throwing it away', () => {
+    const undated = { url: 'https://hafa-recipes.com/r/key', createdAt: null };
+    expect(usableStoredLink({ active: true, created_at: '2026-11-16T03:00:00Z' }, undated)).toBe(undated.url);
+    expect(usableStoredLink({ active: false, created_at: null }, undated)).toBeNull();
+  });
 });
 
 describe('Settings › Sharing links', () => {
