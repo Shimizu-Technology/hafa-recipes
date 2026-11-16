@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   owner: 'owner-a' as string | undefined, subject: 'subject-a', signedIn: true,
   storage: new Map<string, string>(), foreground: null as ((state: string) => void) | null,
   clear: vi.fn(), configure: vi.fn(), preferences: vi.fn(), provision: vi.fn(), scopeOwner: vi.fn(), disclosure: vi.fn(),
-  settings: { ready: true, isPublic: true, location: 'Guam' },
+  settings: { ready: true, hasExplicitVisibility: true, isPublic: true, location: 'Guam' },
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' }, AppState: { addEventListener: (_: string, listener: (state: string) => void) => {
   mocks.foreground = listener; return { remove: vi.fn() };
@@ -30,7 +30,7 @@ const expiry = () => new Date(Date.now() + 30 * 86400000).toISOString();
 const credential = (scope: string) => ({ token: `token-${scope}`, account_scope_id: scope, expires_at: expiry(), location: 'Guam', is_public: false });
 beforeEach(() => {
   vi.clearAllMocks(); mocks.storage.clear(); mocks.owner = 'owner-a'; mocks.subject = 'subject-a'; mocks.signedIn = true;
-  mocks.settings = { ready: true, isPublic: true, location: 'Guam' }; mocks.disclosure.mockResolvedValue({ requires_acceptance: false });
+  mocks.settings = { ready: true, hasExplicitVisibility: true, isPublic: true, location: 'Guam' }; mocks.disclosure.mockResolvedValue({ requires_acceptance: false });
   mocks.preferences.mockResolvedValue(undefined); mocks.clear.mockResolvedValue(true); mocks.configure.mockResolvedValue(undefined); mocks.scopeOwner.mockResolvedValue(undefined);
   mocks.provision.mockResolvedValue(credential('scope-a'));
 });
@@ -127,4 +127,14 @@ describe('native sharing session ownership', () => {
     await act(async () => finish(credential('scope-a')));
     expect(mocks.configure).not.toHaveBeenCalled(); expect(mocks.clear).toHaveBeenCalledOnce();
   });
+});
+
+it('sends Private before and after provisioning when visibility was never chosen', async () => {
+  mocks.settings.hasExplicitVisibility = false;
+  await act(async () => { renderer = create(<Harness />); });
+  expect(mocks.preferences.mock.calls.map((call) => call[2])).toEqual([false, false]);
+  expect(mocks.preferences.mock.calls.map((call) => call[0])).toEqual(['', 'scope-a']);
+  mocks.settings.hasExplicitVisibility = true;
+  await act(async () => renderer!.update(<Harness />));
+  expect(mocks.preferences).toHaveBeenLastCalledWith('scope-a', 'Guam', true);
 });

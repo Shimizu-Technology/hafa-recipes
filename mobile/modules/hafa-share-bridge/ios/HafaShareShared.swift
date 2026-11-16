@@ -134,7 +134,9 @@ enum HafaShareStore {
     }
     let source = preferences?["accountScopeId"] as? String == account ? preferences! : session
     return ["accountScopeId": account, "location": source["location"] as? String ?? "Guam",
-      "requestedIsPublic": source["isPublic"] as? Bool ?? false]
+      // A credential capability is not a saved user choice.
+      "requestedIsPublic": preferences?["accountScopeId"] as? String == account
+        ? preferences?["isPublic"] as? Bool ?? false : false]
   }
 
   static func importPayload(captureID: String, url: String, metadata: [String: Any]) -> [String: Any] {

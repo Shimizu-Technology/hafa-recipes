@@ -65,11 +65,11 @@ export function useShareSession() {
           // Apply captured intent before network access. In particular, choosing
           // private must immediately narrow an existing public capability offline.
           if (saved?.ownerId === ownerId && saved.subject === userId) {
-            await ShareBridge.configurePreferences(saved.accountScopeId, preferences.location, preferences.isPublic);
+            await ShareBridge.configurePreferences(saved.accountScopeId, preferences.location, preferences.hasExplicitVisibility && preferences.isPublic);
           } else {
             // No capability yet: preserve explicit privacy offline without
             // assigning a native capture to an unverified account scope.
-            await ShareBridge.configurePreferences('', preferences.location, preferences.isPublic);
+            await ShareBridge.configurePreferences('', preferences.location, preferences.hasExplicitVisibility && preferences.isPublic);
           }
           return true;
         });
@@ -101,7 +101,7 @@ export function useShareSession() {
           await ShareBridge.configureSession(credential.token, API_BASE_URL,
             credential.account_scope_id, credential.expires_at, credential.location, credential.is_public);
           if (current()) await ShareBridge.configurePreferences(credential.account_scope_id,
-            preferences.location, preferences.isPublic);
+            preferences.location, preferences.hasExplicitVisibility && preferences.isPublic);
           // An account transition can happen while the native call is pending.
           // Remove that stale configuration before any later account writes.
           if (active.current.ownerId !== ownerId || active.current.subject !== userId || !active.current.signedIn) {
@@ -123,5 +123,5 @@ export function useShareSession() {
       if (state === 'active') void sync();
     });
     return () => { cancelled = true; subscription.remove(); };
-  }, [isLoaded, isSignedIn, ownerId, userId, preferences.ready, preferences.isPublic, preferences.location]);
+  }, [isLoaded, isSignedIn, ownerId, userId, preferences.ready, preferences.hasExplicitVisibility, preferences.isPublic, preferences.location]);
 }

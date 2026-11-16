@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ImportPreferences = { isPublic: boolean; location: string };
-export type ImportPreferenceState = ImportPreferences & { ready: boolean; error: string | null };
-const INITIAL: ImportPreferenceState = { isPublic: true, location: 'Guam', ready: false, error: null };
+export type ImportPreferenceState = ImportPreferences & { ready: boolean; hasExplicitVisibility: boolean; error: string | null };
+const INITIAL: ImportPreferenceState = { isPublic: false, location: 'Guam', ready: false, hasExplicitVisibility: false, error: null };
 const GUEST: ImportPreferenceState = { ...INITIAL, ready: true };
 
 /** Preferences are scoped to the stable application owner, never a Clerk subject. */
@@ -21,10 +21,14 @@ export function createImportPreferences(storage: Pick<typeof AsyncStorage, 'getI
   const load = async (owner: string) => {
     if (snapshot(owner).ready) return;
     const raw = await storage.getItem(key(owner));
-    const value = raw ? JSON.parse(raw) as Partial<ImportPreferences> : INITIAL;
+    const value = raw ? JSON.parse(raw) as Partial<ImportPreferences> & { hasExplicitVisibility?: boolean } : INITIAL;
     if (typeof value.isPublic !== 'boolean' || typeof value.location !== 'string' ||
         !value.location.trim() || value.location.length > 100) throw new Error('Could not read import settings.');
-    states.set(owner, { isPublic: value.isPublic, location: value.location, ready: true, error: null });
+    // Old records with a saved boolean are explicit choices. New location-only
+    // records retain the unset state instead of manufacturing a visibility choice.
+    const hasExplicitVisibility = Boolean(raw) && value.hasExplicitVisibility !== false;
+    states.set(owner, { isPublic: hasExplicitVisibility ? value.isPublic : false,
+      location: value.location, hasExplicitVisibility, ready: true, error: null });
     emit();
   };
   return {
@@ -39,7 +43,8 @@ export function createImportPreferences(storage: Pick<typeof AsyncStorage, 'getI
     update: (owner: string, patch: Partial<ImportPreferences>) => transaction(async () => {
       await load(owner);
       const current = snapshot(owner);
-      const next = { isPublic: patch.isPublic ?? current.isPublic, location: patch.location ?? current.location };
+      const next = { isPublic: patch.isPublic ?? current.isPublic, location: patch.location ?? current.location,
+        hasExplicitVisibility: patch.isPublic !== undefined || current.hasExplicitVisibility };
       if (!next.location.trim() || next.location.length > 100) throw new Error('Choose a valid cost estimate location.');
       await storage.setItem(key(owner), JSON.stringify(next));
       states.set(owner, { ...next, ready: true, error: null });
