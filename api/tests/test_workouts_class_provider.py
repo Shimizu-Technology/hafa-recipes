@@ -1,4 +1,7 @@
-"""A class import calls one model with room for every part; undosed efforts are not a reason to pay twice."""
+"""A class import calls one model with room for every part; undosed efforts are not a reason to pay twice.
+
+The class rows are synthetic.
+"""
 
 import json
 from types import SimpleNamespace
@@ -8,7 +11,9 @@ import pytest
 
 from app.domains.workouts.extraction import (
     CLASS_OUTPUT_TOKENS,
+    CLASS_READ_TIMEOUT_SECONDS,
     OUTPUT_TOKENS,
+    READ_TIMEOUT_SECONDS,
     ProductionExtractionProvider,
     SourceBundle,
     SourceMetadata,
@@ -16,7 +21,7 @@ from app.domains.workouts.extraction import (
 )
 from tests.workouts_provider_fakes import FakeBudget
 
-PAGE = "B. Every minute for 10 minutes:\nMinute 1\nRow Max calories\nMinute 2\nMax Hollow Body Holds"
+PAGE = "B. Every minute for 8 minutes:\nMinute 1\nSkiErg Max calories\nMinute 2\nMax Plank Shoulder Taps"
 
 
 def ev(field, wording):
@@ -25,8 +30,8 @@ def ev(field, wording):
 
 def class_output(empty=False):
     exercises = [] if empty else [
-        {"name": "Row", "effort": "Max calories", "evidence": [ev("name", "Row"), ev("effort", "Max calories")]},
-        {"name": "Hollow Body Holds", "effort": "Max", "evidence": [ev("name", "Hollow Body Holds")]}]
+        {"name": "SkiErg", "effort": "Max calories", "evidence": [ev("name", "SkiErg"), ev("effort", "Max calories")]},
+        {"name": "Plank Shoulder Taps", "effort": "Max", "evidence": [ev("name", "Plank Shoulder Taps")]}]
     return {"title": "Class", "kind": "session", "blocks": [
         {"id": "b", "label": "B", "grouping": "interval", "evidence": [], "exercises": exercises}]}
 
@@ -71,8 +76,12 @@ def provider(monkeypatch):
             {"finish_reason": finish, "message": {"content": json.dumps(value)}}]})
 
     actual = httpx.AsyncClient
-    monkeypatch.setattr(module.httpx, "AsyncClient",
-                        lambda **kwargs: actual(**(kwargs | {"transport": httpx.MockTransport(respond)})))
+
+    def client(**kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return actual(**(kwargs | {"transport": httpx.MockTransport(respond)}))
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", client)
 
     async def run(class_parts, *replies):
         state.replies, state.payloads = list(replies), []
@@ -83,12 +92,16 @@ def provider(monkeypatch):
     return run
 
 
+timeouts = []
+
+
 @pytest.mark.asyncio
 async def test_a_class_with_max_efforts_is_accepted_from_the_first_model(provider):
     result, payloads = await provider(True, (class_output(), "stop"))
     assert [payload["model"] for payload in payloads] == ["primary-test"]
     assert payloads[0]["max_completion_tokens"] == CLASS_OUTPUT_TOKENS > OUTPUT_TOKENS
-    assert [item["name"] for item in result["blocks"][0]["exercises"]] == ["Row", "Hollow Body Holds"]
+    assert timeouts[-1] == CLASS_READ_TIMEOUT_SECONDS
+    assert [item["name"] for item in result["blocks"][0]["exercises"]] == ["SkiErg", "Plank Shoulder Taps"]
 
 
 @pytest.mark.asyncio
@@ -104,6 +117,7 @@ async def test_ordinary_imports_keep_their_budget_and_their_dose_check(provider)
     _, payloads = await provider(False, (class_output(), "stop"), (class_output(), "stop"))
     assert [payload["model"] for payload in payloads] == ["primary-test", "fallback-test"]
     assert payloads[0]["max_completion_tokens"] == OUTPUT_TOKENS
+    assert timeouts[-1] == READ_TIMEOUT_SECONDS
 
 
 def test_one_reversed_duration_or_distance_range_is_repaired_not_refetched():

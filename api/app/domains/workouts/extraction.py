@@ -74,6 +74,11 @@ PROMPT_VERSION = "workout-extraction-evidence-v10"
 # smaller limit truncated real classes and paid for a second model.
 OUTPUT_TOKENS = 6000
 CLASS_OUTPUT_TOKENS = 16000
+# Real class answers took 18 s (p50) to 25 s (max) for about 4000 tokens; a
+# full 16000-token answer needs about 90 s. Two attempts stay inside the
+# import's 240 s limit.
+READ_TIMEOUT_SECONDS = 60.0
+CLASS_READ_TIMEOUT_SECONDS = 100.0
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
 
@@ -574,7 +579,8 @@ class ProductionExtractionProvider:
                         ),
                     ) as paid:
                         async with httpx.AsyncClient(
-                            timeout=60.0, transport=httpx.AsyncHTTPTransport(retries=0)
+                            timeout=CLASS_READ_TIMEOUT_SECONDS if source.class_parts else READ_TIMEOUT_SECONDS,
+                            transport=httpx.AsyncHTTPTransport(retries=0)
                         ) as client:
                             response = await client.post(
                                 "https://api.openai.com/v1/chat/completions",
