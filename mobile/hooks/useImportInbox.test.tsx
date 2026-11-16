@@ -107,18 +107,15 @@ describe('import intake coordinator', () => {
     expect(importInbox.snapshot()).toMatchObject([{ id: 'next', state: 'accepted' }]);
   });
 
-  it('keeps the original owner capture when accounts switch during disclosure', async () => {
-    let finish!: (value: { requires_acceptance: boolean }) => void;
-    mocks.disclosure.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  it('keeps the public capture with its original owner when accounts switch', async () => {
     await importInbox.add({ id: 'a', ownerId: 'owner-a', createdAt: 1, state: 'ready',
       capture: { kind: 'url', url: 'https://example.com/a' }, request: { url: 'https://example.com/a', is_public: true } });
     mocks.extraction.isExtracting = false;
     await act(async () => { renderer = create(<Harness />); });
     mocks.owner = 'owner-b';
     await act(async () => renderer!.update(<Harness />));
-    await act(async () => finish({ requires_acceptance: false }));
     expect(mocks.start).not.toHaveBeenCalled();
-    expect(importInbox.snapshot()).toMatchObject([{ id: 'a', ownerId: 'owner-a', state: 'ready' }]);
+    expect(importInbox.snapshot()).toMatchObject([{ id: 'a', ownerId: 'owner-a', state: 'waiting' }]);
   });
 
   it('keeps B queued while A runs, then submits B once with its stable capture key', async () => {
@@ -142,11 +139,13 @@ describe('import intake coordinator', () => {
     expect(mocks.reset).not.toHaveBeenCalled();
     expect(importInbox.snapshot()[0]).toMatchObject({ state: 'waiting', request: { is_public: true } });
   });
-  it('starts an accepted public capture without silently making it private', async () => {
+  it('requires foreground confirmation for every public capture', async () => {
     await importInbox.add({ id: 'public', ownerId: 'owner-a', createdAt: 1, state: 'ready', capture: { kind: 'url', url: 'https://example.com/public' }, request: { url: 'https://example.com/public', is_public: true } });
     mocks.extraction.isExtracting = false;
     await act(async () => { renderer = create(<Harness />); });
-    expect(mocks.start).toHaveBeenCalledWith({ url: 'https://example.com/public', is_public: true }, 'share:public');
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.disclosure).not.toHaveBeenCalled();
+    expect(importInbox.snapshot()).toMatchObject([{ id: 'public', state: 'waiting', request: { is_public: true } }]);
   });
   it('does not auto-submit unassigned or another account captures', async () => {
     await importInbox.add({ id: 'signed-out', ownerId: null, createdAt: 1, state: 'waiting', capture: { kind: 'url', url: 'https://example.com/b' } });

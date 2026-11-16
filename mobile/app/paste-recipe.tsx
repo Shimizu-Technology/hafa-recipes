@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { TextInput } from '@/components/Themed';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
@@ -35,7 +36,7 @@ import { consumePendingShareCapture } from '@/lib/shareCapture';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 
-export default function PasteRecipeScreen() {
+function PasteRecipeScreenContent() {
   const generation = useRecipeOwnerGeneration();
   return <PasteRecipeForm key={generation} />;
 }
@@ -371,3 +372,7 @@ const styles = StyleSheet.create({
   },
   reviewPromiseText: { fontSize: fontSize.xs, textAlign: 'center', lineHeight: 18 },
 });
+
+export default function PasteRecipeScreen() {
+  return <PublishingConfirmationProvider><PasteRecipeScreenContent /></PublishingConfirmationProvider>;
+}

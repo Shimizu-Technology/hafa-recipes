@@ -20,6 +20,8 @@ export type ImportInboxEntry = {
   recipeId?: string;
   error?: string;
   submissionClaimed?: boolean;
+  /** One approval for this owner and unchanged request; consumed at submission. */
+  publicConfirmed?: boolean;
   preferences?: { isPublic: boolean; location: string };
 };
 
@@ -79,6 +81,8 @@ export function createImportInbox(storage: Storage) {
     )),
     patch: (id: string, patch: Partial<ImportInboxEntry>) => update((current) => (
       current.map((entry) => entry.id === id ? { ...entry, ...patch, id: entry.id,
+        ...(('ownerId' in patch || 'request' in patch || 'capture' in patch || patch.state === 'accepted')
+          ? { publicConfirmed: undefined } : {}),
         ...(patch.state === 'accepted' ? { capture: { kind: 'url' as const, url: '' }, request: undefined } : {}) } : entry)
     )),
     remove: (id: string) => update((current) => current.filter((entry) => entry.id !== id)),
@@ -96,9 +100,10 @@ export function createImportInbox(storage: Storage) {
       await load();
       const entry = entries.find((item) => item.id === id);
       if (!entry || entry !== expected || entry.ownerId !== ownerId || entry.state !== 'ready' ||
-          entry.submissionClaimed || entry.jobId || entry.capture.kind !== 'url') return null;
+          entry.submissionClaimed || entry.jobId || entry.capture.kind !== 'url' ||
+          (entry.request?.is_public && !entry.publicConfirmed)) return null;
       const claimed = { ...entry, request: importInboxRequest(entry),
-        state: 'submitting' as const, submissionClaimed: true, error: undefined };
+        state: 'submitting' as const, submissionClaimed: true, publicConfirmed: undefined, error: undefined };
       const next = entries.map((item) => item === entry ? claimed : item);
       await storage.setItem(STORAGE_KEY, JSON.stringify(next));
       entries = next;
@@ -106,10 +111,12 @@ export function createImportInbox(storage: Storage) {
       return claimed;
     }),
     /** Signed-out captures require an explicit choice before associating an account. */
-    claim: (id: string, ownerId: string, request?: ExtractRequest) => update((current) => (
-      current.map((entry) => entry.id === id && !entry.submissionClaimed && entry.state !== 'submitting' && entry.state !== 'accepted' &&
+    claim: (id: string, ownerId: string, request?: ExtractRequest,
+      approval?: { publicConfirmed: boolean; expected: ImportInboxEntry }) => update((current) => (
+      current.map((entry) => entry.id === id && (!approval || entry === approval.expected) && !entry.submissionClaimed && entry.state !== 'submitting' && entry.state !== 'accepted' &&
         (entry.ownerId === null && !entry.accountScopeId || entry.ownerId === ownerId)
         ? { ...entry, ownerId, request: request ?? entry.request,
+          publicConfirmed: Boolean(approval?.publicConfirmed && (request ?? entry.request)?.is_public),
           state: entry.capture.kind === 'url' ? 'ready' : 'waiting', error: undefined }
         : entry)
     )),

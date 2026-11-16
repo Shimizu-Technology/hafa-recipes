@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { TextInput } from '@/components/Themed';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useRecipeQueryClient as useQueryClient, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
@@ -84,7 +85,7 @@ function nutritionFingerprintFor(ingredients: Array<{ name: string; quantity: st
   return JSON.stringify({ ingredients: ingredients.map(({ name, quantity, unit, notes }) => ({ name: name.trim(), quantity: quantity.trim(), unit: unit.trim(), notes: notes.trim() })), servings });
 }
 
-export default function AddRecipeScreen() {
+function AddRecipeScreenContent() {
   const generation = useRecipeOwnerGeneration();
   const { ownerId } = useImportInbox();
   const params = useLocalSearchParams<{ captureOwnerId?: string; initialData?: string; initialImageUri?: string }>();
@@ -1117,3 +1118,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
 });
+
+export default function AddRecipeScreen() {
+  return <PublishingConfirmationProvider><AddRecipeScreenContent /></PublishingConfirmationProvider>;
+}

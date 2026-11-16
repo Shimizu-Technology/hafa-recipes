@@ -33,6 +33,14 @@ describe('recipe publishing disclosure', () => {
     expect(message).toContain('personal notes and extraction details stay private');
   });
 
+  it.each([null, '', '  ', ' A chef ', 'Anonymous Chef', 'A Håfa cook', 'private@example.com'])('uses the public-page placeholder for an unnamed cook (%s)', name => {
+    const disclosure = getPublishDisclosure({
+      extracted: { title: 'Family Soup', components: [] }, extractor_display_name: name,
+    } as any);
+    expect(disclosure.contributorName).toBe('A Håfa cook');
+    expect(formatPublishDisclosure(disclosure)).toContain('attribution to A Håfa cook');
+  });
+
   it('does not claim a manual-only source link will be public', () => {
     const disclosure = getPublishDisclosure({
       extracted: { title: 'Family Soup', components: [] },

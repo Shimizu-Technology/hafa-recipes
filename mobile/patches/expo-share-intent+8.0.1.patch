@@ -462,7 +462,7 @@ index f1f4b72..e930131 100644
 +  private func updateVisibilityChoices() {
 +    for button in visibilityChoices {
 +      let selected = (button.tag == 1) == captureVisibility
-+      button.setTitle((selected ? "● " : "○ ") + (button.tag == 1 ? "Share to Discover" : "Private"), for: .normal)
++      button.setTitle((selected ? "● " : "○ ") + (button.tag == 1 ? "Public in Discover" : "Private"), for: .normal)
 +      button.accessibilityTraits = selected ? [.button, .selected] : [.button]
 +      button.backgroundColor = selected ? UIColor(white: 0.88, alpha: 1) : .clear
 +    }
@@ -527,7 +527,7 @@ index f1f4b72..e930131 100644
 +      message.adjustsFontForContentSizeCategory = true
 +      message.numberOfLines = 0
 +      stack.addArrangedSubview(message)
-+      for (index, title) in ["Private", "Share to Discover"].enumerated() {
++      for (index, title) in ["Private", "Public in Discover"].enumerated() {
 +        let choice = UIButton(type: .system)
 +        choice.tag = index
 +        choice.setTitle(title, for: .normal)

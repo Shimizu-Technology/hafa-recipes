@@ -22,13 +22,15 @@ export interface PublishDisclosure {
 
 export function getPublishDisclosure(recipe: Recipe): PublishDisclosure {
   const components = recipe.extracted.components || [];
+  const name = recipe.extractor_display_name?.trim() || '';
+  const hasName = name && !['a chef', 'anonymous chef', 'a håfa cook'].includes(name.toLowerCase()) && !name.includes('@');
   return {
     title: recipe.extracted.title || 'Untitled recipe',
     ingredientCount: components.reduce((count, component) => count + component.ingredients.length, 0),
     instructionCount: components.reduce((count, component) => count + component.steps.length, 0),
     hasPhoto: Boolean(recipe.thumbnail_url),
     hasSourceLink: Boolean(recipe.source_url && !recipe.source_url.startsWith('manual://')),
-    contributorName: recipe.extractor_display_name || 'your contributor name',
+    contributorName: hasName ? name : 'A Håfa cook',
   };
 }
 
@@ -42,5 +44,5 @@ export function formatPublishDisclosure(disclosure: PublishDisclosure): string {
     `attribution to ${disclosure.contributorName}`,
   ].filter(Boolean);
 
-  return `People in the shared library will see ${visible.join(', ')}. Recipe notes are public; your personal notes and extraction details stay private.`;
+  return `People in Discover will see ${visible.join(', ')}. Recipe notes are public; your personal notes and extraction details stay private.`;
 }
