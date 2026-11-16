@@ -7,10 +7,57 @@
 
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
+import { redactRecipeLinks } from './recipeLinkRoute';
 
 // Get DSN from environment or Expo config
 // Set this in your .env file: EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || '';
+
+/** Remove recipe-link keys from a breadcrumb's message and string data (URLs, routes). */
+export function redactBreadcrumb<T extends { message?: string; data?: Record<string, unknown> }>(breadcrumb: T): T {
+  const data = breadcrumb.data && Object.fromEntries(Object.entries(breadcrumb.data)
+    .map(([key, value]) => [key, typeof value === 'string' ? redactRecipeLinks(value) : value]));
+  return { ...breadcrumb, ...(breadcrumb.message ? { message: redactRecipeLinks(breadcrumb.message) } : {}), ...(data ? { data } : {}) };
+}
+
+/**
+ * beforeBreadcrumb never sees breadcrumbs the native SDK records (its network layer, for one); they are
+ * merged into the event. Redact every breadcrumb and the request URL on the way out.
+ */
+export function redactEvent<T extends { breadcrumbs?: { message?: string; data?: Record<string, unknown> }[]; request?: { url?: string } }>(event: T): T {
+  return {
+    ...event,
+    ...(event.breadcrumbs ? { breadcrumbs: event.breadcrumbs.map(redactBreadcrumb) } : {}),
+    ...(event.request?.url ? { request: { ...event.request, url: redactRecipeLinks(event.request.url) } } : {}),
+  };
+}
+
+type SpanLike = { description?: string; data?: Record<string, unknown> };
+
+/** Performance events: redact the transaction name and every span's description and string data too. */
+export function redactTransaction<T extends Parameters<typeof redactEvent>[0] & { transaction?: string; spans?: SpanLike[] }>(event: T): T {
+  const redacted = redactEvent(event);
+  return {
+    ...redacted,
+    ...(event.transaction ? { transaction: redactRecipeLinks(event.transaction) } : {}),
+    ...(event.spans ? { spans: event.spans.map(span => ({
+      ...span,
+      ...(span.description ? { description: redactRecipeLinks(span.description) } : {}),
+      ...(span.data ? { data: Object.fromEntries(Object.entries(span.data)
+        .map(([key, value]) => [key, typeof value === 'string' ? redactRecipeLinks(value) : value])) } : {}),
+    })) } : {}),
+  };
+}
+
+/**
+ * Native options the JS hooks can't cover. The iOS SDK records URLSession requests (the app's
+ * fetches to /public/r/<key> and expo-image's og.jpg loads) as breadcrumbs and spans on its own,
+ * and native crash and app-hang reports never pass through beforeSend. Unlisted link keys are
+ * passwords, so the native layer records no network breadcrumbs or spans at all. @sentry/react-native
+ * 7.11 forwards these keys to sentry-cocoa 8.58's initWithDict (enableNetworkBreadcrumbs,
+ * enableNetworkTracking) even though its TypeScript options don't declare them.
+ */
+export const NATIVE_NETWORK_PRIVACY = { enableNetworkBreadcrumbs: false, enableNetworkTracking: false } as const;
 
 /**
  * Initialize Sentry SDK.
@@ -24,8 +71,18 @@ export function initSentry() {
     return;
   }
 
-  Sentry.init({
-    dsn: SENTRY_DSN,
+  Sentry.init(sentryOptions(SENTRY_DSN));
+
+  if (__DEV__) {
+    console.log('Sentry: Initialized (disabled in development)');
+  }
+}
+
+/** The options initSentry passes to Sentry.init (exported for tests). */
+export function sentryOptions(dsn: string): Parameters<typeof Sentry.init>[0] {
+  return {
+    dsn,
+    ...NATIVE_NETWORK_PRIVACY,
     
     // Only enable in production builds
     enabled: !__DEV__,
@@ -61,6 +118,9 @@ export function initSentry() {
       'The user canceled the sign-in',
     ],
     
+    // Unlisted recipe links work like passwords: drop their keys from request and navigation breadcrumbs.
+    beforeBreadcrumb: redactBreadcrumb,
+
     // Before sending, enrich with extra context
     beforeSend(event, hint) {
       // Add extra debugging info
@@ -70,13 +130,12 @@ export function initSentry() {
           return null;
         }
       }
-      return event;
+      return redactEvent(event);
     },
-  });
 
-  if (__DEV__) {
-    console.log('Sentry: Initialized (disabled in development)');
-  }
+    // Sampled performance traces carry request URLs in span descriptions and data.
+    beforeSendTransaction: event => redactTransaction(event),
+  };
 }
 
 /**

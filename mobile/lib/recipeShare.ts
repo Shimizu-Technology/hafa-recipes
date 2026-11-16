@@ -45,6 +45,28 @@ export function getSourceCredit(sourceUrl: string | null | undefined, sourceType
   return credit(`Recipe from ${host}`);
 }
 
+/** Saved from someone's Håfa link (#676): stays private; the API refuses to publish it (409). */
+export const SHARED_COPY_PUBLISH_NOTE = 'Saved from someone’s link. Only they can publish it.';
+
+export function isSharedCopy(recipe: { extracted?: { sharedCopy?: unknown } | null } | null | undefined): boolean {
+  return !!recipe?.extracted?.sharedCopy;
+}
+
+/**
+ * The credit line under a recipe title. A copy saved from a Håfa link credits the original creator
+ * ("Instagram post by @lanicooks") and who shared it; never the viewer's own name.
+ */
+export function recipeCreditLine(
+  recipe: Pick<Recipe, 'source_url' | 'source_type' | 'extractor_display_name'> & { extracted: Pick<Recipe['extracted'], 'sharedCopy'> },
+  sourceLabel: string,
+): string {
+  const copy = recipe.extracted.sharedCopy;
+  if (!copy) return [sourceLabel, recipe.extractor_display_name].filter(Boolean).join(' · ');
+  const original = getSourceCredit(recipe.source_url, recipe.source_type);
+  const sharedBy = copy.sharedBy?.trim();
+  return [original?.handle ? original.label : sourceLabel, sharedBy && `Shared by ${sharedBy}`].filter(Boolean).join(' · ');
+}
+
 const FLEXIBLE_AMOUNT = /^(?:to taste|as needed|as desired|for garnish|optional)$/;
 
 type ShareIngredient = Pick<Recipe['extracted']['components'][number]['ingredients'][number], 'name' | 'quantity' | 'unit' | 'notes' | 'quantityEstimate'>;

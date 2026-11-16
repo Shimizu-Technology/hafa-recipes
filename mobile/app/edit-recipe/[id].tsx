@@ -3,6 +3,7 @@ import { TextInput } from '@/components/Themed';
 import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { isSharedCopy, SHARED_COPY_PUBLISH_NOTE } from '@/lib/recipeShare';
 import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
@@ -791,6 +792,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
   };
 
   const handlePublicToggle = async () => {
+    if (isSharedCopy(recipe)) return;
     if (isPublic) {
       Alert.alert(
         'Review public recipe',
@@ -1266,7 +1268,19 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
               />
             </RNView>
 
-            {/* Public Toggle */}
+            {/* Public Toggle; a copy saved from someone's link stays private (only its cook can publish it). */}
+            {isSharedCopy(recipe) ? (
+              <RNView style={[styles.toggleRow, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+                accessible accessibilityLabel={`Private recipe. ${SHARED_COPY_PUBLISH_NOTE}`}>
+                <RNView style={styles.toggleInfo}>
+                  <Ionicons name="lock-closed-outline" size={24} color={colors.textMuted} />
+                  <RNView style={styles.toggleTextContainer}>
+                    <Text style={[styles.toggleTitle, { color: colors.text }]}>Private Recipe</Text>
+                    <Text style={[styles.toggleSubtitle, { color: colors.textMuted }]}>{SHARED_COPY_PUBLISH_NOTE}</Text>
+                  </RNView>
+                </RNView>
+              </RNView>
+            ) : (
             <TouchableOpacity
               style={[styles.toggleRow, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
               onPress={handlePublicToggle}
@@ -1294,6 +1308,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                 color={isPublic ? colors.actionText : colors.textMuted}
               />
             </TouchableOpacity>
+            )}
 
             {/* Restore Original Button (for extracted recipes that have been edited) */}
             {originalStatus?.has_original && (

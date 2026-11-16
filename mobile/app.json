@@ -16,6 +16,9 @@
     "ios": {
       "supportsTablet": true,
       "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:hafa-recipes.com"
+      ],
       "bundleIdentifier": "com.shimizutechnology.recipeextractor",
       "buildNumber": "88",
       "privacyManifests": {

@@ -205,6 +205,18 @@ describe('recipe editor draft preservation', () => {
       await act(async () => tree.unmount());
     }
   });
+  it('shows a saved copy as private with the reason, and never offers to publish it', async () => {
+    mocks.editorRecipe = { ...recipe, is_public: false, extracted: { ...recipe.extracted, sharedCopy: { sharedBy: 'Lani' } } } as Recipe;
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    try {
+      expect(host(tree, 'TouchableOpacity', props => props.accessibilityLabel?.includes('Tap to'))).toHaveLength(0);
+      expect(tree.root.findAll(node => node.props.accessibilityLabel === 'Private recipe. Saved from someone’s link. Only they can publish it.').length).toBeGreaterThan(0);
+      await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+      expect(mocks.requestPublishing).not.toHaveBeenCalled();
+      expect(mocks.editorSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ is_public: false }) }));
+    } finally { await act(async () => tree.unmount()); }
+  });
   it('starts a separate form when the recipe or account changes', async () => {
     mocks.editorRecipe = { ...recipe, is_public: false };
     let tree!: ReactTestRenderer;

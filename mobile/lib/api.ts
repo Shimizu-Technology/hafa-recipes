@@ -13,6 +13,7 @@ import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { appendRecipeImage } from './imageMultipart';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
 import { API_BASE_URL, SHOW_DEVELOPER_TOOLS } from './apiConfig';
+import { LINK_REQUEST_TIMEOUT_MS, timeoutSignal } from './requestTimeout';
 import {
   Recipe,
   RecipeListItem,
@@ -43,6 +44,7 @@ import {
   WeekPlan,
   RecipeShareLinkStatus,
   RecipeShareLinkSummary,
+  SharedRecipe,
 } from '../types/recipe';
 import type {
   AppealCreatePayload,
@@ -519,6 +521,62 @@ class ApiClient {
 
   async revokeRecipeShareLink(id: string): Promise<void> {
     await this.client.delete(`/api/recipes/${id}/share-link`, { timeout: 15_000 });
+  }
+
+  /**
+   * Read a recipe opened from an unlisted link. Uses fetch rather than the Axios client so the
+   * key never reaches the request breadcrumbs or error tags; Sentry's own breadcrumbs are redacted.
+   */
+  async getSharedRecipe(key: string, signal?: AbortSignal): Promise<SharedRecipe> {
+    const token = await this.getAuthTokenWithRetry('/public/r/data', signal);
+    const request = timeoutSignal(LINK_REQUEST_TIMEOUT_MS, signal, (this as any).ownerSignal);
+    try {
+      const response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/data`, {
+        signal: request.signal,
+        headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!response.ok) {
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        throw Object.assign(new Error('This recipe isn’t available.'), {
+          status: response.status, ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}),
+        });
+      }
+      return await response.json();
+    } finally {
+      request.done();
+    }
+  }
+
+  /**
+   * Save a recipe opened from a Håfa link as a private copy in this account's library. Idempotent:
+   * saving again returns the same copy. Uses fetch for the same reason as getSharedRecipe.
+   */
+  async saveSharedRecipe(key: string, requestGuard?: RequestGuard): Promise<{ recipe_id: string }> {
+    const token = await this.getAuthTokenWithRetry('/public/r/save', (this as any).ownerSignal, requestGuard);
+    if (!token) throw Object.assign(new Error('Sign in to save this recipe.'), { status: 401 });
+    requestGuard?.();
+    const request = timeoutSignal(LINK_REQUEST_TIMEOUT_MS, (this as any).ownerSignal);
+    let response: Response;
+    let body: any;
+    try {
+      response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/save`, {
+        method: 'POST',
+        signal: request.signal,
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      });
+      body = await response.json().catch(() => null);
+    } finally {
+      request.done();
+    }
+    requestGuard?.();
+    if (!response.ok || typeof body?.recipe_id !== 'string') {
+      const retryAfter = Number(response.headers.get('Retry-After'));
+      throw Object.assign(new Error('The recipe wasn’t saved.'), {
+        status: response.ok ? 500 : response.status,
+        ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}),
+      });
+    }
+    return { recipe_id: body.recipe_id };
   }
 
   async getPublishingDisclosure(): Promise<PublishingDisclosureStatus> {

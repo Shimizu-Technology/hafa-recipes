@@ -19,8 +19,10 @@ export function AuthProtection({ children }: { children: React.ReactNode }) {
     if (previousSegment.current === '(auth)' && firstSegment !== '(auth)' && !isSignedIn) guestRecipeIntent.clear();
     previousSegment.current = firstSegment;
     const pending = guestRecipeIntent.bind(isSignedIn ? sessionId ?? null : null);
-    if (isSignedIn && sessionId && pending && firstSegment !== 'recipe') {
-      router.replace(`/recipe/${pending.recipeId}`);
+    // A save started from a Håfa link returns to the shared view; everything else to the recipe.
+    const resumeSegment = pending?.action === 'shared-save' ? 'r' : 'recipe';
+    if (isSignedIn && sessionId && pending && firstSegment !== resumeSegment) {
+      router.replace(`/${resumeSegment}/${pending.recipeId}`);
       return;
     }
     const redirect = getAuthProtectionRedirect(isSignedIn, firstSegment, entry);
