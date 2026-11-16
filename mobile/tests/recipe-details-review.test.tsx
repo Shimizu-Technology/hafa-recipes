@@ -11,6 +11,7 @@ vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'st
 vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), leave: vi.fn(async () => undefined), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
+import * as disclosureHook from '@/hooks/usePublishingDisclosure';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Recipe } from '@/types/recipe';
@@ -21,6 +22,9 @@ const mocks = vi.hoisted(() => ({
   captureSave: vi.fn(async (_input: unknown) => ({ id: 'saved-capture' })), replace: vi.fn(), editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), invalidateQueries: vi.fn(),
   mutationOptions: [] as Array<{ onSuccess?: (recipe: Recipe) => void }>,
   editorRecipe: null as Recipe | null, editorSubmit: vi.fn(), owner: 'owner-a', routeId: 'r1',
+}));
+const cacheMocks = vi.hoisted(() => ({
+  setQueriesData: vi.fn(), cancelQueries: vi.fn(async () => undefined),
 }));
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -36,7 +40,7 @@ vi.mock('react-native', async () => {
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ setQueryData: mocks.setQueryData, invalidateQueries: mocks.invalidateQueries }),
+  useQueryClient: () => ({ setQueryData: mocks.setQueryData, setQueriesData: cacheMocks.setQueriesData, cancelQueries: cacheMocks.cancelQueries, invalidateQueries: mocks.invalidateQueries }),
   useQuery: (options: { queryKey: string[] }) => options.queryKey[0] === 'recipe'
     ? { data: mocks.editorRecipe, isLoading: !mocks.editorRecipe }
     : { data: { has_original: false } },
@@ -168,6 +172,38 @@ describe('recipe editor draft preservation', () => {
       expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey });
     }
     expect(mocks.alert).not.toHaveBeenCalled(); expect(mocks.close).not.toHaveBeenCalled();
+  });
+  it.each([true, false])('reopens the saved visibility and revision before a refetch finishes (public=%s)', async isPublic => {
+    const confirmation = vi.spyOn(disclosureHook, 'usePublishingDisclosure').mockReturnValue({
+      requestPublishing: vi.fn(async () => true), isCheckingDisclosure: false,
+    } as any);
+    mocks.editorRecipe = { ...recipe, is_public: !isPublic };
+    let tree!: ReactTestRenderer;
+    await act(async () => { tree = create(<EditRecipeScreen />); });
+    const save = mocks.mutationOptions.at(-2)!;
+    await act(async () => tree.unmount());
+    const saved = { ...recipe, content_revision: 6, is_public: isPublic };
+    // Model the query cache while its invalidation/refetch is still pending.
+    cacheMocks.setQueriesData.mockImplementation((_filter, data) => { mocks.editorRecipe = data; });
+    try {
+      await act(async () => { await save.onSuccess?.(saved); });
+      expect(cacheMocks.cancelQueries).toHaveBeenCalledWith({ queryKey: ['recipe', 'r1'] });
+      await act(async () => { tree = create(<EditRecipeScreen />); });
+      const visibility = host(tree, 'TouchableOpacity', props => props.accessibilityLabel?.includes('Tap to'))[0];
+      expect(visibility.props.accessibilityLabel).toBe(isPublic
+        ? 'Public in Discover. Tap to make private.' : 'Private recipe. Tap to publish.');
+      mocks.editorRecipe = structuredClone(saved); // Delayed GET now completes.
+      await act(async () => tree.update(<EditRecipeScreen />));
+      await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+      expect(mocks.alert).not.toHaveBeenCalledWith('Recipe changed', expect.any(String));
+      expect(mocks.editorSubmit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+        is_public: isPublic, review_content_revision: 6,
+      }) }));
+    } finally {
+      cacheMocks.setQueriesData.mockReset();
+      confirmation.mockRestore();
+      await act(async () => tree.unmount());
+    }
   });
   it('starts a separate form when the recipe or account changes', async () => {
     mocks.editorRecipe = { ...recipe, is_public: false };

@@ -1828,3 +1828,38 @@ async def test_normal_capabilities_do_not_require_beta_allocation(automation_api
     assert response.status_code == 200
     assert response.json()["imports"] is True
     assert response.json()["coach"] is True
+
+
+@pytest.mark.parametrize("host", ["wodup.com", "app.wodup.com", "WODUP.com."])
+async def test_native_share_wodup_url_returns_recoverable_422(native_share_api, host):
+    api = native_share_api
+    response = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers,
+        json={"capture_id": str(uuid4()), "url": f"https://{host}/program"})
+    assert response.status_code == 422, response.text
+    assert "Paste the class text or add screenshots" in response.text
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
+
+
+async def test_class_pdf_upload_exceeds_legacy_ingress_limit_without_413(automation_api):
+    import base64
+
+    api = automation_api
+    await consent(api)
+    response = await api.client.post("/api/v1/workouts/imports", headers=GENERATION,
+        json={"request_id": str(uuid4()), "source": {"kind": "document", "class_parts": True,
+              "document_mime": "application/pdf", "document_base64": base64.b64encode(b"x" * (3 * 1024 * 1024)).decode(), "ai_consent": True}})
+    assert response.status_code == 202, response.text
+
+
+async def test_oversized_nonclass_document_rejected_before_queue(automation_api):
+    from app.domains.workouts.extraction import MAX_DOCUMENT_BYTES
+
+    api = automation_api
+    await consent(api)
+    response = await api.client.post("/api/v1/workouts/imports", headers=GENERATION,
+        json={"request_id": str(uuid4()), "source": {"kind": "document", "document_mime": "application/pdf",
+        "document_base64": "A" * (4 * ((MAX_DOCUMENT_BYTES + 2) // 3) + 4), "ai_consent": True}})
+    assert response.status_code == 422, response.text
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0

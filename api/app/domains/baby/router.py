@@ -112,7 +112,9 @@ def child_response(row, access=None):
         "revision": row.revision,
     }
     if getattr(access, "enabled", False) and access.client == "3":
-        result.update(space_id=str(row.space_id), generation=row.generation)
+        # Who added it, which for a pregnancy is the person expecting: news of her labor is never offered back to her.
+        # Kept when the baby moves into a family. Members already see each other's names, so this adds nothing new.
+        result.update(space_id=str(row.space_id), generation=row.generation, created_by=row.app_user_id)
     return result
 
 
@@ -124,6 +126,9 @@ CHILD_DETAIL_ERRORS = {
     "feeding": "Choose nursing, bottle or both, or leave it blank",
     "tracking": "A tracker setting could not be read",
     "doctor": "Check the doctor's name and number. A number needs digits, such as 671-555-0100",
+    "birth_time": "Enter the time of birth as hours and minutes, or leave it blank",
+    "expecting_member": "Choose a parent in this baby's family",
+    "expecting_confirmed": "Say whether who's expecting is confirmed",
 }
 
 
@@ -144,6 +149,27 @@ def child_details(stored, sent):
     if len(result.get("tracking", {})) > MAX_TRACKERS:
         raise HTTPException(422, CHILD_DETAIL_ERRORS["tracking"])
     return result
+
+
+async def check_expecting(db, sent, space_id, user_id, personal_space_id):
+    """Who's expecting is said by a parent of the baby's own space, about a parent there (or, in her personal
+    space, by and about its owner). Checked only when it's sent, so a parent leaving later doesn't stop anyone
+    saving the rest of the profile."""
+    if not isinstance(sent, dict) or not {"expecting_member", "expecting_confirmed"} & sent.keys():
+        return
+
+    async def parent(person):
+        if space_id == personal_space_id:
+            return person == user_id
+        return await db.scalar(select(BabySpaceMember.role).where(
+            BabySpaceMember.space_id == space_id, BabySpaceMember.app_user_id == person,
+            BabySpaceMember.status == "active")) == "parent"
+
+    if not await parent(user_id):
+        raise HTTPException(403, "Only a parent in this baby's family can say who's expecting")
+    who = sent.get("expecting_member")
+    if isinstance(who, str) and not await parent(who):
+        raise HTTPException(422, CHILD_DETAIL_ERRORS["expecting_member"])
 
 
 def record_response(row, access=None, child_ids=None):
@@ -411,7 +437,7 @@ async def bootstrap_state(user, db, *, create, request):
         # Only with the flag on, so a phone reads nothing else about it and asks nothing of it until then.
         from app.domains.baby.push import device_routines_ready
 
-        result["reminders"] = {"push": True, **({"routines": True} if await device_routines_ready(db) else {})}
+        result["reminders"] = {"push": True, "family_news": True, **({"routines": True} if await device_routines_ready(db) else {})}
     if access and access.client == "3":
         families = [g.id for g in access.spaces if g.space.status == "active" and g.space.kind == "family"]
         # Everyone who has been in this account's families, since what someone logged stays after they leave.
@@ -632,11 +658,16 @@ async def create_child(body: ChildCreate, user: User, db: Database, generation: 
     )
     if count >= 30:
         raise HTTPException(422, "Child profile limit reached")
+    space_id = access.target.id if access.enabled else member.personal_space_id
+    await check_expecting(db, body.details, space_id, user.id, member.personal_space_id)
+    if body.due_date and not body.birth_date and "expecting_member" not in details:
+        # Whoever adds a pregnancy is probably her, but not certainly: the family is asked to confirm.
+        details = {**details, "expecting_member": user.id, "expecting_confirmed": False}
     row = BabyChild(
         **body.model_dump(exclude={"details"}),
         details=details,
         app_user_id=user.id,
-        space_id=access.target.id if access.enabled else member.personal_space_id,
+        space_id=space_id,
         generation=generation,
         revision=1,
         creation_hash=fingerprint,
@@ -658,6 +689,7 @@ async def patch_child(
     row = await owned(db, BabyChild, access, generation, identifier)
     revision_matches(row, body.revision)
     details = child_details(row.details, body.details)
+    await check_expecting(db, body.details, row.space_id, user.id, access.member.personal_space_id)
     values = {**child_response(row), **body.model_dump(exclude_unset=True, exclude={"revision", "details"})}
     values.pop("revision", None)
     values.pop("details", None)
@@ -1434,6 +1466,7 @@ async def delete_data(
 # All routes are registered under one integration entry point.
 
 from app.domains.baby.changes import router as changes_router  # noqa: E402
+from app.domains.baby.family_news import router as family_news_router  # noqa: E402
 from app.domains.baby.family_router import router as family_router  # noqa: E402
 from app.domains.baby.invites import router as invites_router  # noqa: E402
 from app.domains.baby.push import router as push_router  # noqa: E402
@@ -1448,3 +1481,4 @@ router.include_router(imports_router)
 router.include_router(suggestions_router)
 router.include_router(events_router)
 router.include_router(push_router)
+router.include_router(family_news_router)

@@ -128,3 +128,14 @@ it("does not overwrite malformed preferences when a timer update is attempted af
   await expect(f.controller.timer(null)).rejects.toThrow("load");
   expect([...f.saved.values()]).toEqual(["broken"]);
 });
+it("the countdown saves when it's picked, keeps the other choices and schedules nothing", async () => {
+  const f = fixture();
+  await f.controller.load();
+  await f.controller.save({ ...defaultReminderSettings(), rest_enabled: true });
+  await f.controller.setLeadIn(0);
+  expect(f.controller.snapshot().settings).toMatchObject({ rest_enabled: true, lead_in_seconds: 0 });
+  expect(JSON.parse([...f.saved.values()][0]).settings.lead_in_seconds).toBe(0);
+  expect(f.pending.size).toBe(0);
+  await expect(f.controller.setLeadIn(7)).rejects.toThrow("Choose a countdown of off, 3, 5 or 10 seconds.");
+  expect(f.controller.snapshot().settings.lead_in_seconds).toBe(0);
+});

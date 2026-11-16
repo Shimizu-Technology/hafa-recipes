@@ -1,7 +1,7 @@
 import { estimatedAge, pregnancyVisit, medicalVisit, pregnancyForVisit } from "../../lib/prenatal";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { Stack, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { dayName, eventKindName, eventWhen, occurrenceAt, reminderName, repeatName, withoutDate, withoutFuture } from "@/lib/events";
@@ -9,18 +9,21 @@ import { messageFor, type BabyRecord } from "@/lib/models";
 import { mutationRecordIds, replaceRecord } from "@/lib/outbox";
 import { dayKey, recordDay, zonedInstant } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
-import { Button, Card, Copy, Grouped, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
+import { Button, Card, Copy, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { CategoryTile, openEvent } from "@/components/event-row";
 import { EventNotes, VisitLinks, VisitSections } from "@/components/visit-sections";
 import { useUpcomingEvents } from "@/lib/use-events";
 import { visitAfter, visitNotes, visitQuestions } from "@/lib/visits";
-import { familySpaces } from "../../lib/spaces";
+import { familySpaces, isCaregiver } from "../../lib/spaces";
+import { askV2Active } from "../../lib/ask-sources";
+import { headerActions } from "../../components/tab-stack";
+import { ActionSheet, AskButton, MenuButton, type MenuAction } from "../../components/detail-chrome";
 import { addToPhoneCalendar, phoneCalendarAvailable, phoneEvent, phoneEventLine } from "@/lib/phone-calendar";
 
 /** One event, on the date she opened. A repeating event says which dates a change reaches before making it. */
 export default function EventDetail() {
   const { id, at } = useLocalSearchParams<{ id: string; at?: string }>(), b = useBaby(), toast = useToast(),
-    [error, setError] = useState(""), [missing, setMissing] = useState(false), [asking, setAsking] = useState<"edit" | "delete" | null>(null),
+    [error, setError] = useState(""), [missing, setMissing] = useState(false), [asking, setAsking] = useState<"edit" | "delete" | null>(null), [menu, setMenu] = useState(false),
     row = b.records.find((item) => item.id === id && item.kind === "event"), timezone = b.state.bootstrap!.profile.timezone,
     today = dayKey(profileToday(new Date(), timezone)), children = b.state.bootstrap!.children, upcoming = useUpcomingEvents(row?.child_id ?? null, today);
   useEffect(() => {
@@ -33,6 +36,8 @@ export default function EventDetail() {
   if (!row) return <Screen title={missing ? "Event unavailable" : "Opening this event"} back>{error ? <Notice error>{error}</Notice> : <Loading />}</Screen>;
   const shown = occurrenceAt(row, at), when = eventWhen(shown, today, timezone), original = shown.original_start, repeating = !!row.data.recurrence,
     date = dayName(recordDay(shown.occurrence_start, shown.all_day ? shown.timezone : timezone), today),
+    // Mid-sentence, "Today" reads as "today": "Changes today only."
+    inSentence = /^(Today|Tomorrow|Yesterday)\b/.test(date) ? date[0].toLowerCase() + date.slice(1) : date,
     child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordIds(m).includes(row.id) && m.type !== "import");
   const family = familySpaces(b.state.bootstrap)[0], inFamily = !!family && !!row.space_id, justMe = inFamily && row.space_id !== family.id;
   const pregnancy = pregnancyForVisit(row, children, row.space_id ?? b.state.bootstrap!.personal_space_id);
@@ -52,21 +57,42 @@ export default function EventDetail() {
     if (result === "unavailable") toast("Your phone’s calendar couldn’t open.");
   }
   const deleteAll = () => b.queue({ id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "delete", record: row });
-  const scopes = asking && <Card tone="soft" style={{ gap: 8 }}>
-    <Copy kind="label">{asking === "edit" ? "This event repeats. What should change?" : "This event repeats. What should go?"}</Copy>
-    <Grouped>
-      <Row title="Just this one" detail={`${asking === "edit" ? "Changes" : "Removes"} ${date} only. The other dates stay as they are.`} numericDetail
-        onPress={() => asking === "edit" ? edit("one") : void remove(() => save(withoutDate(row, original)), `Removed ${date}.`)} />
-      <Row title="All future" detail={`${asking === "edit" ? "Changes" : "Removes"} ${date} and every date after it. Earlier dates stay as they are.`} numericDetail
-        onPress={() => {
-          if (asking === "edit") return edit("future");
-          const ended = withoutFuture(row, original);
-          void remove(() => ended ? save(ended) : deleteAll(), ended ? `Removed ${date} and later dates.` : "Event removed.");
-        }} />
-    </Grouped>
-    <Button variant="ghost" title="Keep as it is" onPress={() => setAsking(null)} />
-  </Card>;
-  return <Screen title={eventKindName(shown) || "Event"} back>
+  /** A repeating event asks which dates a change reaches, as a second sheet straight after the menu. */
+  const scopes: MenuAction[] = [
+    { title: "Just this one", icon: "calendar-number-outline", detail: `${asking === "edit" ? "Changes" : "Removes"} ${inSentence} only. The other dates stay as they are.`,
+      onPress: () => asking === "edit" ? edit("one") : void remove(() => save(withoutDate(row, original)), `Removed ${inSentence}.`) },
+    { title: "All future", icon: "calendar-outline", detail: `${asking === "edit" ? "Changes" : "Removes"} ${inSentence} and every date after it. Earlier dates stay as they are.`,
+      destructive: asking === "delete", onPress: () => {
+        if (asking === "edit") return edit("future");
+        const ended = withoutFuture(row, original);
+        void remove(() => ended ? save(ended) : deleteAll(), ended ? `Removed ${inSentence} and later dates.` : "Event removed.");
+      } },
+  ];
+  const removeEvent = () => repeating ? setAsking("delete") : Alert.alert("Delete this event?", appointment || visitQuestions(b.records, row.id).length + visitNotes(b.records, row.id).length > 0 ? "This removes it from your calendar. Its questions and notes stay in your Journal." : "This removes it from your calendar.", [
+    { text: "Keep it", style: "cancel" },
+    { text: "Delete event", style: "destructive", onPress: () => void remove(deleteAll, "Event removed.") },
+  ]);
+  async function followUp() {
+    const id = Crypto.randomUUID(), slot = `follow-up:${id}`;
+    await b.commit((state) => ({ ...state, drafts: { ...state.drafts, [slot]: { id, kind: "event", title: "Follow up", body: row!.data.follow_up!, child_id: child?.space_id && child.space_id !== b.state.bootstrap!.personal_space_id ? null : row!.child_id, occurred_at: zonedInstant(today, 0, 0, timezone).toISOString(), files: [], shared: false,
+      data: { timezone, category: "reminder", all_day: true, reminder_minutes: [] } } } }));
+    router.push({ pathname: "/edit", params: { draft: slot, kind: "event" } });
+  }
+  // Everything that used to wait at the bottom of the page, in the ⋯ menu at the top right. Book next stays on the page.
+  const actions: MenuAction[] = [
+    { title: "Edit event", icon: "pencil-outline", onPress: () => repeating ? setAsking("edit") : edit() },
+    ...(phoneCalendarAvailable() ? [{ title: "Add to my phone’s calendar", icon: "phone-portrait-outline" as const, detail: phoneEventLine(row, shown, today), onPress: () => void addToPhone() }] : []),
+    ...(medical && row.data.follow_up ? [{ title: "Make a follow-up calendar item", icon: "arrow-redo-outline" as const, onPress: () => void followUp().catch((e) => setError(messageFor(e))) }] : []),
+    { title: "Delete event", icon: "trash-outline", destructive: true, onPress: removeEvent },
+  ];
+  const askable = !isCaregiver(b.state.bootstrap) && medical && askV2Active(b.state.bootstrap);
+  return <Screen title={eventKindName(shown) || "Event"} back
+    floating={askable && <AskButton hint="Opens Ask about this event, with a switch to everything"
+      onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: row.id } })} />}>
+    <Stack.Screen options={headerActions(<MenuButton label="More actions" onPress={() => setMenu(true)} />)} />
+    <ActionSheet visible={menu} title={shown.title} actions={actions} onClose={() => setMenu(false)} />
+    <ActionSheet visible={!!asking} title={asking === "edit" ? "This event repeats. What should change?" : "This event repeats. What should go?"}
+      actions={scopes} cancelTitle="Keep as it is" onClose={() => setAsking(null)} />
     {!!error && <Notice error>{error}</Notice>}
     {pending && <Notice>Saved on this phone. It will sync when a connection is available.</Notice>}
     <Card tone="hero" style={{ gap: 8 }}>
@@ -87,24 +113,9 @@ export default function EventDetail() {
       {(!medicalVisit(row.data) || medical) && !!row.body && <Copy>{row.body}</Copy>}
       {!!b.state.bootstrap!.reminders?.push && !!row.data.reminder_minutes?.length && <Copy kind="small" tone="muted">{`Reminder: ${row.data.reminder_minutes.map((minutes) => reminderName(minutes, shown.all_day)).join(", ")}`}</Copy>}
     </Card>
-    {medical && !!row.data.follow_up && <Button secondary title="Make a follow-up calendar item" onPress={() => void (async () => {
-      const id = Crypto.randomUUID(), slot = `follow-up:${id}`;
-      await b.commit((state) => ({ ...state, drafts: { ...state.drafts, [slot]: { id, kind: "event", title: "Follow up", body: row.data.follow_up!, child_id: child?.space_id && child.space_id !== b.state.bootstrap!.personal_space_id ? null : row.child_id, occurred_at: zonedInstant(today, 0, 0, timezone).toISOString(), files: [], shared: false,
-        data: { timezone, category: "reminder", all_day: true, reminder_minutes: [] } } } }));
-      router.push({ pathname: "/edit", params: { draft: slot, kind: "event" } });
-    })().catch((e) => setError(messageFor(e)))} />}
     {appointment && medical && <Button size="lg" icon="calendar-outline" title="Book next"
       onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
     {booked && <Row numericDetail title="Next visit" detail={eventWhen(booked, today, timezone)} icon="calendar-outline" onPress={() => openEvent(booked)} />}
     {medical && (appointment ? <VisitSections visit={{ ...row, occurred_at: shown.occurrence_start, data: { ...row.data, all_day: shown.all_day } }} /> : familySpaces(b.state.bootstrap).find((space) => space.id === row.space_id)?.role === "caregiver" ? <EventNotes event={row} /> : <VisitLinks visit={row} />)}
-    {phoneCalendarAvailable() && <View style={{ gap: 6 }}>
-      <Button secondary icon="calendar-outline" title="Add to my phone’s calendar" onPress={() => void addToPhone()} />
-      <Copy numeric kind="small" tone="muted">{phoneEventLine(row, shown, today)}</Copy>
-    </View>}
-    {asking === "edit" ? scopes : <Button secondary size="lg" icon="pencil-outline" title="Edit event" onPress={() => repeating ? setAsking("edit") : edit()} />}
-    {asking === "delete" ? scopes : <Button variant="destructive" title="Delete event" onPress={() => repeating ? setAsking("delete") : Alert.alert("Delete this event?", appointment || visitQuestions(b.records, row.id).length + visitNotes(b.records, row.id).length > 0 ? "This removes it from your calendar. Its questions and notes stay in your Journal." : "This removes it from your calendar.", [
-      { text: "Keep it", style: "cancel" },
-      { text: "Delete event", style: "destructive", onPress: () => void remove(deleteAll, "Event removed.") },
-    ])} />}
   </Screen>;
 }

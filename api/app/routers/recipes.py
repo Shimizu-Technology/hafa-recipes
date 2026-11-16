@@ -647,6 +647,9 @@ def _build_edited_extracted(
     if source_is_incomplete(old_extracted, extraction_method=extraction_method):
         estimate_basis["sourceIncomplete"] = True
     new_extracted = preserve_unchanged_estimates(estimate_basis, new_extracted)
+    if old_extracted.get("sharedCopy"):
+        # A saved copy keeps its "Shared by" credit through edits.
+        new_extracted["sharedCopy"] = old_extracted["sharedCopy"]
     return invalidate_changed_inputs(
         old_extracted,
         new_extracted,

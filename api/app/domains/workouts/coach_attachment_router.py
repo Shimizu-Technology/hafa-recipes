@@ -22,6 +22,9 @@ MAX_ENCODED_BYTES = 4 * ((images.MAX_BYTES + 2) // 3)
 
 
 class PrivateImageUploadRoute(WorkoutsImportRoute):
+    # Larger class PDFs do not change the private single-photo boundary.
+    max_body_bytes = 3 * 1024 * 1024
+
     def get_route_handler(self):
         original = super().get_route_handler()
 
