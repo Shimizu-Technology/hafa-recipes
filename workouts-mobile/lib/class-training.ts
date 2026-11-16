@@ -70,3 +70,26 @@ export function classActive(run: ClassRun, workout: Workout, now: number) {
   return { intervals: spans.map((s) => ({ started_at: new Date(s.started_at).toISOString(), ended_at: new Date(s.ended_at).toISOString() })),
     seconds: Math.floor(ms / 1000) };
 }
+
+/**
+ * "End class": the part on screen ends now (or is skipped if its clock hasn't started), any rest ends, and parts
+ * not started are skipped, never started, so they get no score and the class saves as partial.
+ */
+export function endClass(run: ClassRun, workout: Workout, now: number) {
+  const next = resolve(run, workout, now);
+  const part = next.parts[next.cursor];
+  const status = partStatus(part, workout.blocks.find((b) => b.id === part.block_id)!, now);
+  if (["pending", "lead_in", "running", "paused"].includes(status)) next.ended_early = true;
+  if (status === "pending" || status === "lead_in") {
+    Object.assign(part, { skipped: true, ended_at: now });
+    delete part.started_at; delete part.lead_in_ms;
+  } else if (status === "running" || status === "paused") {
+    const open = part.pauses.find((p) => p.until == null);
+    if (open) open.until = now;
+    part.ended_at = now;
+  }
+  if (!part.skipped) part.rest_ended_at ??= now;
+  for (const later of next.parts.slice(next.cursor + 1)) Object.assign(later, { skipped: true, ended_at: now });
+  next.cursor = next.parts.length - 1;
+  return next;
+}

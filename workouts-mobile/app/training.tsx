@@ -33,6 +33,7 @@ import { effectiveTrainingHistory } from "@/lib/progress-selection";
 import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput, capRemainingSeconds, restAfter, isWallClock, leadInRemaining } from "@/lib/training";
 import { FormatSession } from "@/components/training/format-session";
 import { ClassSession } from "@/components/training/class-session";
+import { formatPartScore } from "@/lib/class-session";
 import { LeadIn } from "@/components/training/lead-in";
 import { KeptRunningSheet } from "@/components/training/kept-running-sheet";
 import { useKeepAwakeWhile } from "@/components/training/keep-awake";
@@ -304,7 +305,8 @@ export default function Training() {
       // New scores change your results and best scores as well as your sessions.
       for (const key of ["sessions", "results", "benchmarks"]) void cache.invalidateQueries({ queryKey: [owner, key] });
     });
-    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request, saved.timed_format === true) });
+    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request, saved.timed_format === true) ??
+      (saved.request.results?.map((r) => `${saved.workout.blocks.find((b) => b.id === r.block_id)?.label ?? ""} ${formatPartScore(r)}`.trim()).join(" · ") || null) });
     else router.replace("/progress");
   }
   const recorded = d.actuals.filter((a) => a.completed).length;
@@ -395,7 +397,14 @@ export default function Training() {
         log={(actual) => { void run(async () => { await store.log(actual); if (actual.completed) haptics.light(); }); }}
         undo={() => { void run(() => store.undo()); }}
         timer={(kind, seconds) => { void run(() => store.timer(kind, seconds)); }}
-        finish={(status) => { void run(() => finish(status)); }}
+        finish={(status, scores = []) => { void run(async () => {
+          for (const score of scores) await store.classScore(score.block_id, score);
+          await finish(status);
+        }); }}
+        // Each keystroke is a write; the store applies them in order, so typing fast can't drop one the way `run` drops a double tap.
+        runDistance={(blockId, index, meters) => { void store.classRunDistance(blockId, index, meters)
+          .then(() => { if (sameSession()) setError(""); })
+          .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save on this device."); }); }}
         discard={discard} />
     );
   if (d.timed_format)

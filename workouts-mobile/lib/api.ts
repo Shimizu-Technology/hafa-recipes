@@ -1,3 +1,4 @@
+import { withoutResults } from "./class-scores";
 import type { BenchmarkGroup, ResultsPage } from "./results-history";
 import type { DayProposal } from "@/components/adjust-training";
 import type { ScheduleOnceCommand } from "./schedule-once";
@@ -1142,7 +1143,12 @@ export function createWorkoutsApi(
       return (await request<{ enabled: false; deleted_sessions: number }>("/health-summary-consent", "DELETE", undefined, { generation: currentGeneration() })).data;
     },
     async saveSession(body: SessionRequest, generation: number) {
-      return sessionRecord((await request<SessionEnvelope>("/sessions", "POST", body, { generation })).data);
+      // Scores and splits go only to a server that says it takes them; the session never depends on them.
+      const supported = membership?.features?.includes("session_results_v1");
+      const sendable = supported ? body : withoutResults(body);
+      const saved = sessionRecord((await request<SessionEnvelope>("/sessions", "POST", sendable, { generation })).data);
+      return { ...saved, ...(!supported && (body.results?.length || body.segments?.length)
+        ? { unsent_results: { results: body.results, segments: body.segments } } : {}) };
     },
   };
 }
