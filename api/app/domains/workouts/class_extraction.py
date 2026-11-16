@@ -53,10 +53,10 @@ def apply_layout(workout, text, warnings):
 def screenshot_notes_without_members(workout, warnings):
     """Screenshot notes have no text to check against, so drop any that read
     as a member's result or comment ("Jane Doe 12:43 Rx", "Mike R: great job")."""
-    from app.domains.workouts.class_outline import member_line
+    from app.domains.workouts.class_outline import member_comment, member_line
 
     def member(note):
-        return member_line(note) or (MEMBER_COMMENT.fullmatch(note) and not re.search(r"\d", note))
+        return member_line(note) or member_comment(note)
 
     removed = False
     for holder in [workout, *workout.blocks]:
@@ -92,7 +92,12 @@ def review_screenshot_rows(workout, warnings):
             if index >= len(listed) or item.distance_meters is None:
                 continue
             low, high = listed[index]
-            if low <= item.distance_meters <= high:
+            if item.distance_meters_min is not None:
+                # The row already has its own range: both ends must agree, or keep it and ask for review.
+                if (item.distance_meters_min, item.distance_meters) != (low, high):
+                    warnings.append(f"{item.name} reads {item.distance_meters_min:g}-{item.distance_meters:g} m but "
+                                    f"{block.label} lists {low:g}-{high:g} m; check the screenshot.")
+            elif low <= item.distance_meters <= high:
                 item.distance_meters, item.distance_meters_min = high, low
             else:
                 warnings.append(f"{item.name} reads {item.distance_meters:g} m but {block.label} lists "
