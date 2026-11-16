@@ -34,7 +34,7 @@
     guard let producer = babyProducer, !captureConfirmationFinished, !babySheetClosed else { return }
     let card = babyCard()
     guard publishBabyCapture(collection: babyCategoryTitle == nil ? nil : babyCategory, then: { [weak self] result in
-      guard let self else { return }
+      guard let self, !self.babySheetClosed else { return }
       switch result {
       case .kept:
         self.setBabySaveState(.saved)
@@ -47,14 +47,19 @@
         self.setBabySaveState(.failed)
         self.captureConfirmationFinished = true
         if let outcome = BabyShareSheetState.failed.outcome() { card.finish(outcome) }
-      case .slow:
+      case .slow, .slowUnmarked:
+        // Close keeps it either way; only a marked one is promised to the app.
         self.setBabySaveState(.slow)
-        self.captureConfirmationFinished = true
-        card.finish(BabyShareSheetState.saveSlow)
+        card.finish(result == .slow ? BabyShareSheetState.saveSlow : BabyShareSheetState.saveSlowUnmarked)
       }
     }) else { return }
     card.outcome = nil
     setBabySaveState(.saving)
+  }
+  private func babyAlreadySaved() {
+    setBabySaveState(.saved)
+    captureConfirmationFinished = true
+    babyCard().finish(BabyShareSheetState.alreadySaved)
   }
   // The same rule as Recipes: no way out of the card, and no swiping the sheet away, only while a save is under way.
   private func setBabySaveState(_ state: HafaShareSaveState) {

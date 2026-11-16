@@ -28,7 +28,8 @@ enum BabyShareSheetState: Equatable {
   static let discard = "Discard"
   // How Save ended. `failed` and `slow` happened after Save was marked on the phone, so the app can finish it. `notKept` is the
   // mark itself failing: nothing can be promised. `gone` is the account or its space cleared meanwhile, which takes the share.
-  enum Publication: Equatable { case kept, failed, notKept, gone, slow }
+  // `slowUnmarked` is slow before the mark is down: nothing is promised yet.
+  enum Publication: Equatable { case kept, failed, notKept, gone, slow, slowUnmarked }
 
   // Failed after Save was marked: closing keeps it, and the app finishes it. Discarding is its own button.
   static let saveFailed = HafaShareOutcome(symbol: "exclamationmark", isProblem: true, title: "Couldn’t finish saving",
@@ -36,7 +37,13 @@ enum BabyShareSheetState: Equatable {
   // Nothing at all could be written. No promise: try again, or discard it.
   static let saveNotKept = HafaShareOutcome(symbol: "exclamationmark", isProblem: true, title: "Couldn’t save this",
     detail: "Nothing could be kept on this phone. Try again, or discard it.", primary: tryAgain, secondary: discard)
-  // Slow: the write is still going. It's kept for the app whichever way it ends.
+  // Slow before Save is marked on the phone: honest that it might not be kept.
+  static let saveSlowUnmarked = HafaShareOutcome(symbol: "hourglass", title: "Still saving",
+    detail: "Keep this open a moment, or close and share it again.", primary: "Close")
+  // Discard found the app had already finished it.
+  static let alreadySaved = HafaShareOutcome(symbol: "checkmark", title: "Already saved to Håfa Baby",
+    detail: "Håfa Baby finished saving it, so there was nothing to discard.", primary: "Done")
+  // Slow once Save is marked: the write is still going, and the app finishes it whichever way it ends.
   static let saveSlow = HafaShareOutcome(symbol: "iphone", title: "Still saving",
     detail: "We’ll finish saving this when you open Håfa Baby.", primary: "Done", secondary: openApp, opens: .secondary)
 

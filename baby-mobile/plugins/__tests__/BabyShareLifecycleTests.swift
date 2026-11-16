@@ -6,7 +6,7 @@ import Foundation
 private enum BabyShareSheetState: Equatable {
   case saving, stillWorking, failed
   static let stillWorkingAfter: TimeInterval = 0.05, giveUpAfter: TimeInterval = 0.12, publishTimeout: TimeInterval = 0.2
-  enum Publication: Equatable { case kept, failed, notKept, gone, slow }
+  enum Publication: Equatable { case kept, failed, notKept, gone, slow, slowUnmarked }
 }
 // Advance deadlines explicitly: a busy host must not turn an 80ms wait into
 // the 120ms give-up deadline before the synthetic provider can publish.
@@ -62,10 +62,15 @@ private final class GeneratedController: TestViewController {
   // The generator test checks that staging never publishes; here it only needs to hold the payload.
   func stageBabyPayload(_ raw: Any) throws { babyPayload = raw }
   // Publication held until the test lets it run, as a slow disk or a busy lock would.
-  var heldPublication: (() -> Void)?
+  // Each step of Save's write is held until the test lets it run, as a slow disk or a busy lock would.
+  var held: [() -> Void] = []
   func babyPublishOffMain(_ work: @escaping () -> BabyShareSheetState.Publication, then done: @escaping (BabyShareSheetState.Publication) -> Void) {
-    heldPublication = { done(work()) }
+    held.append { done(work()) }
   }
+  func runStep() { if !held.isEmpty { held.removeFirst()() } }
+  func runAll() { while !held.isEmpty { held.removeFirst()() } }
+  var alreadySaved = 0
+  func babyAlreadySaved() { alreadySaved += 1 }
   func handleViewLoad() {
     guard prepareBabyShare() else { return }
     providerStarts += 1
@@ -192,11 +197,11 @@ private struct BabyShareLifecycleTests {
       saving.babyStaged = true
       var result: BabyShareSheetState.Publication?
       saving.publishBabyCapture(collection: nil) { result = $0 }
-      try check(saving.heldPublication != nil && result == nil, "publication is under way")
+      try check(!saving.held.isEmpty && result == nil, "publication is under way")
       saving.finishConfirmation()
       try check(saving.extensionContext!.completed == 0 && saving.cardClosed == 0, "Close waits while Save publishes")
       try check(FileManager.default.fileExists(atPath: savingCapture.directory.appendingPathComponent("photo.jpg").path), "and its staged files are untouched")
-      saving.heldPublication?()
+      saving.runAll()
       try check(result == .kept, "publication then completes")
       try check(try store.published(savingCapture.id) != nil, "and the capture is kept")
       saving.finishConfirmation()
@@ -213,15 +218,17 @@ private struct BabyShareLifecycleTests {
       slow2.babyStaged = true
       var answers: [BabyShareSheetState.Publication] = []
       try check(slow2.publishBabyCapture(collection: nil) { answers.append($0) }, "Save's write starts")
+      // The mark goes down at once, then the publish stalls: slow, and a promise.
+      slow2.runStep()
       turn(0.1)
       try check(answers.isEmpty, "still saving")
       turn(0.15)
-      try check(answers == [.slow], "after the timeout it's slow, said once")
+      try check(answers == [.slow], "after the timeout it's slow, said once, with the mark down")
       try check(!slow2.publishBabyCapture(collection: nil) { answers.append($0) }, "and there's no second write while the first may still land")
       slow2.finishConfirmation()
       try check(slow2.extensionContext!.completed == 1, "Close is allowed again")
       try check(FileManager.default.fileExists(atPath: slowCapture2.directory.appendingPathComponent("photo.jpg").path), "and keeps the capture")
-      slow2.heldPublication?()
+      slow2.runAll()
       try check(answers == [.slow], "the late answer isn't reported twice")
       try check(try store.published(slowCapture2.id) != nil, "what it wrote is the app's")
       try check(FileManager.default.fileExists(atPath: slowCapture2.directory.appendingPathComponent("photo.jpg").path), "and nothing was deleted")
@@ -240,12 +247,13 @@ private struct BabyShareLifecycleTests {
         failing.publishBabyCapture(collection: nil) { failed = $0 }
         // Nothing in the capture's folder can be written now, so neither the mark nor the manifest lands.
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: failingCapture.directory.path)
-        failing.heldPublication?()
+        failing.runAll()
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: failingCapture.directory.path)
         try check(failed == .notKept, "a mark that can't be written is reported as not kept")
         try check(FileManager.default.fileExists(atPath: photo.path), "and the staged photo is still there")
         if discards {
           failing.discardBabyShare()
+          try check(failing.alreadySaved == 0, "nothing was saved, so Discard really discards")
           try check(!FileManager.default.fileExists(atPath: failingCapture.directory.path), "Discard is the one choice that deletes it")
         } else {
           failing.finishConfirmation()
@@ -254,6 +262,62 @@ private struct BabyShareLifecycleTests {
         }
         try check(failing.extensionContext!.completed == 1, "and the card closes once")
       }
+
+      // The mark is held when the timer fires: nothing is promised. It lands later: now it is. The publish answers late: unsaid.
+      let unmarked = GeneratedController(hideView: true, storage: store)
+      unmarked.viewDidLoad(); unmarked.viewDidAppear(true)
+      try unmarked.stageBabyPayload(["held mark"])
+      unmarked.babyStaged = true
+      var said: [BabyShareSheetState.Publication] = []
+      unmarked.publishBabyCapture(collection: nil) { said.append($0) }
+      turn(0.25)
+      try check(said == [.slowUnmarked], "slow with no mark promises nothing")
+      unmarked.runStep()
+      try check(said == [.slowUnmarked, .slow], "the mark landing turns it into the promise")
+      unmarked.runStep()
+      try check(said == [.slowUnmarked, .slow], "and the publish answering late isn't reported")
+      _ = try store.acknowledge(try store.published(unmarked.babyProducer!.capture.id)!.token)
+
+      // The mark is held when the timer fires, then fails: slow is corrected to the honest failure, and Try again is open.
+      let lateFail = GeneratedController(hideView: true, storage: store)
+      lateFail.viewDidLoad(); lateFail.viewDidAppear(true)
+      let lateCapture = lateFail.babyProducer!.capture
+      try Data("staged photo".utf8).write(to: lateCapture.directory.appendingPathComponent("photo.jpg"))
+      try lateFail.stageBabyPayload(["mark fails late"])
+      lateFail.babyStaged = true
+      var lateSaid: [BabyShareSheetState.Publication] = []
+      lateFail.publishBabyCapture(collection: nil) { lateSaid.append($0) }
+      turn(0.25)
+      try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: lateCapture.directory.path)
+      lateFail.runStep()
+      try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: lateCapture.directory.path)
+      try check(lateSaid == [.slowUnmarked, .notKept], "a mark that fails after slow says so")
+      try check(lateFail.held.isEmpty, "and no publish follows a failed mark")
+      try check(lateFail.publishBabyCapture(collection: nil) { lateSaid.append($0) }, "Try again can start")
+      lateFail.runAll()
+      try check(lateSaid.last == .kept, "and saves it")
+      _ = try store.acknowledge(try store.published(lateCapture.id)!.token)
+
+      // Failed, then the app finished it before Discard: she's told it's already saved, and nothing is deleted.
+      let raced = GeneratedController(hideView: true, storage: store)
+      raced.viewDidLoad(); raced.viewDidAppear(true)
+      let racedCapture = raced.babyProducer!.capture
+      try Data("staged photo".utf8).write(to: racedCapture.directory.appendingPathComponent("photo.jpg"))
+      try raced.stageBabyPayload(["app wins"])
+      raced.babyStaged = true
+      var racedSaid: BabyShareSheetState.Publication?
+      raced.publishBabyCapture(collection: nil) { racedSaid = $0 }
+      raced.runStep()
+      // The publish fails: its manifest can't be read for the moment.
+      let racedManifest = racedCapture.directory.appendingPathComponent("manifest.json")
+      try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: racedManifest.path)
+      raced.runStep()
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: racedManifest.path)
+      try check(racedSaid == .failed, "the publish failed after the mark")
+      try check(try store.pending()?.token.hasPrefix(racedCapture.id) == true, "the app's intake finishes it")
+      raced.discardBabyShare()
+      try check(raced.alreadySaved == 1 && raced.extensionContext!.completed == 0, "Discard then says it's already saved, and doesn't just close")
+      try check(FileManager.default.fileExists(atPath: racedCapture.directory.appendingPathComponent("photo.jpg").path), "and deletes nothing")
     }
     print("\(checks) native generated lifecycle cases passed")
   }

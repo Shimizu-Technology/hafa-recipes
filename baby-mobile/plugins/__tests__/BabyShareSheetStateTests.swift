@@ -88,7 +88,10 @@ struct BabyShareSheetStateTests {
     try check(notKept.primary == "Try again" && notKept.secondary == "Discard" && notKept.detail?.contains("open Håfa Baby") == false, "an unmarked failure promises nothing")
     try check(slowSave.detail == "We’ll finish saving this when you open Håfa Baby." && !slowSave.isProblem && !slowSave.closesItself && slowSave.opens == .secondary, "slow says the app finishes it")
     try check(BabyShareSheetState.publishTimeout >= 10 && BabyShareSheetState.publishTimeout <= 15, "slow comes after 10–15 seconds")
-    for outcome in [failedSave, notKept, slowSave] {
+    let slowUnmarked = BabyShareSheetState.saveSlowUnmarked, alreadySaved = BabyShareSheetState.alreadySaved
+    try check(slowUnmarked.detail?.contains("open Håfa Baby") == false && slowUnmarked.detail?.contains("share it again") == true && slowUnmarked.secondary == nil, "slow before the mark promises nothing")
+    try check(alreadySaved.title == "Already saved to Håfa Baby" && alreadySaved.primary == "Done" && !alreadySaved.isProblem, "Discard after the app won says so")
+    for outcome in [failedSave, notKept, slowSave, slowUnmarked, alreadySaved] {
       for banned in ["source", "original", "import", "Error"] { try check(!(outcome.title + (outcome.detail ?? "")).contains(banned), "\(outcome.title) doesn't say \(banned)") }
     }
 

@@ -223,7 +223,9 @@ final class BabyShareStore {
   }
   private func commitLocked(_ id: String, payload: Data, text: Bool, collection: String?) throws {
     let original = try manifest(id), folder = try directory(id)
-    let value = Manifest(id: id, epoch: original.epoch, createdAt: original.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: original.automaticEpoch, heldSince: original.scope == nil ? original.createdAt : nil, collection: collection)
+    var value = Manifest(id: id, epoch: original.epoch, createdAt: original.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: original.automaticEpoch, heldSince: original.heldSince ?? (original.scope == nil ? original.createdAt : nil), collection: collection)
+    // One kept through a suspension keeps that window, as any other capture kept through it does.
+    value.lapsed = original.lapsed
     try write(value, to: folder.appendingPathComponent("manifest.json"))
     try? FileManager.default.removeItem(at: folder.appendingPathComponent(Self.intentFile))
   }
@@ -243,9 +245,11 @@ final class BabyShareStore {
       try write(Intent(payload: payload, text: text, collection: collection?.lowercased()), to: capture.directory.appendingPathComponent(Self.intentFile))
     }
   }
-  // The app's intake, under the store lock: a Save the extension didn't finish is finished here, at most once. One with no
-  // marker (cancelled, or the extension stopped before Save) is never delivered. One from another account or space, or from
-  // before a privacy clear, isn't either.
+  private func marked(_ folder: URL) -> Bool { (try? read(Intent.self, folder.appendingPathComponent(Self.intentFile))) != nil }
+  // The app's intake, under the store lock: a Save the extension didn't finish is finished here, at most once, under the tag it
+  // was marked with. The app then sends it where it was meant to go, or holds it as Not sent if she can't write there now; it is
+  // never moved somewhere else quietly. One with no marker (cancelled, or the extension stopped before Save) is never delivered.
+  // Neither is another account's, nor one from before a privacy clear. One marked under no account becomes a waiting share.
   private func recoverLocked() {
     // Read, never created: a store with no epoch yet has nothing marked, and the legacy migration must still see it as new.
     guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return }
@@ -254,7 +258,8 @@ final class BabyShareStore {
       let marker = folder.appendingPathComponent(Self.intentFile)
       guard FileManager.default.fileExists(atPath: marker.path), let value = try? manifest(folder.lastPathComponent) else { continue }
       if value.payload != nil { try? FileManager.default.removeItem(at: marker); continue }
-      guard let intent = try? read(Intent.self, marker), value.epoch == generation, value.scope == current else { continue }
+      guard let intent = try? read(Intent.self, marker), value.epoch == generation,
+        value.scope == nil || Self.sameOwner(value.scope, current) else { continue }
       try? commitLocked(value.id, payload: intent.payload, text: intent.text, collection: intent.collection)
     }
   }
@@ -265,6 +270,19 @@ final class BabyShareStore {
     let capture = try begin(id: id)
     do { try publish(raw, capture: capture) }
     catch { try? abort(capture); throw error }
+  }
+  enum Discarded: Equatable { case discarded, alreadySaved, gone }
+  // Her explicit Discard after a failed Save. Under the lock, so it can tell her if the app finished it first.
+  func discard(_ capture: Capture) throws -> Discarded {
+    try locked {
+      let cleared = capture.epoch != (try? read(UUID.self, root.appendingPathComponent("epoch.json")))
+      guard let value = try? manifest(capture.id) else { return cleared ? .gone : .alreadySaved }
+      if value.payload != nil { return .alreadySaved }
+      guard !cleared, capture.lease != nil else { return .gone }
+      try FileManager.default.removeItem(at: capture.directory)
+      capture.lease = nil
+      return .discarded
+    }
   }
   func abort(_ capture: Capture) throws {
     try locked {
@@ -383,6 +401,7 @@ final class BabyShareStore {
     return now().timeIntervalSince(held) >= Self.unassignedExpiry
   }
   private func unassignedLocked() throws -> [Manifest] {
+    recoverLocked()
     try sweepLocked()
     // Only reading. Starting an epoch here would stop `pending` and `clear` carrying over an older build's share.
     guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return [] }
@@ -398,7 +417,7 @@ final class BabyShareStore {
     try locked {
       let folders = try FileManager.default.fileExists(atPath: captures.path) ? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil) : []
       return folders.filter { folder in
-        if let value = try? manifest(folder.lastPathComponent) { return value.payload != nil }
+        if let value = try? manifest(folder.lastPathComponent) { return value.payload != nil || marked(folder) }
         // Unknown future manifests are retained, and explicit cleanup must warn about them too.
         return FileManager.default.fileExists(atPath: folder.appendingPathComponent("manifest.json").path)
       }.count
@@ -526,7 +545,8 @@ final class BabyShareStore {
       if let folders = try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil) {
         for folder in folders {
           if var value = try? manifest(folder.lastPathComponent) {
-            if preserveUnassigned, (value.scope == nil || preserveTagged || (recoverClaims && value.claimed == true)), value.payload != nil {
+            // A marked Save is hers as much as a published one: kept with its tags, and its producer retired with the new epoch.
+            if preserveUnassigned, (value.scope == nil || preserveTagged || (recoverClaims && value.claimed == true)), value.payload != nil || marked(folder) {
               if preserveTagged, value.scope != nil {
                 value.lapsed = true
                 value.heldSince = value.heldSince ?? value.createdAt

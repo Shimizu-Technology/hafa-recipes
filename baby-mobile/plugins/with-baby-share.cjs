@@ -90,46 +90,59 @@ const presentedLifecycle = `${lifecycleStart}
     closeBabyCard { [weak self] in self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
   }
   private var babySaveStarted = false
-  // Her explicit choice after a failed Save: the one way, other than Cancel, that deletes what was staged.
+  // Her explicit choice after a failed Save: the one way, other than Cancel, that deletes what was staged. Decided under the
+  // store lock, so if the app finished it first she's told so instead of the card closing as if it had gone.
   private func discardBabyShare() {
-    guard !babySheetClosed, !babyPublishing, !babyPublishInFlight else { return }
-    abortBabyShare()
+    guard !babySheetClosed, !babyPublishing, !babyPublishInFlight, let producer = babyProducer else { return }
+    if (try? producer.storage.discard(producer.capture)) == .alreadySaved { return babyAlreadySaved() }
     finishConfirmation()
   }
-  // Closing waits while true. False again once the write answers, or once it's been slow for too long.
+  // Closing waits while true. False again at the write's first answer, or once it's been slow for too long.
   private var babyPublishing = false
   // The write itself, until it really returns: there's never a second one while the first may still land.
   private var babyPublishInFlight = false
-  // Save's one write, off the main thread. \`done\` is called once, on the main thread: kept, failed, gone, or slow. An answer
-  // after slow is not reported; whatever it wrote stays for the app, and nothing here undoes it.
+  // Save is marked on the phone. Only then can anything promise the app will finish it.
+  private var babyIntentDurable = false
+  // Save in two steps, off the main thread: mark it, then publish it. \`report\` is called on the main thread with the first
+  // answer (kept, failed, notKept, gone, slow or slowUnmarked), and after a slow one again only to correct what it said: slow
+  // becomes a promise once the mark is down, and a mark that failed late says so. A late publish answer isn't reported.
   @discardableResult
-  private func publishBabyCapture(collection: String?, then done: @escaping (BabyShareSheetState.Publication) -> Void) -> Bool {
+  private func publishBabyCapture(collection: String?, then report: @escaping (BabyShareSheetState.Publication) -> Void) -> Bool {
     guard let producer = babyProducer, let payload = babyPayload, !babyPublishing, !babyPublishInFlight, !babySheetClosed else { return false }
     babySaveStarted = true
     babyPublishing = true
     babyPublishInFlight = true
+    babyIntentDurable = false
     var answered = false
+    let answer = { [weak self] (result: BabyShareSheetState.Publication) in
+      answered = true
+      self?.babyPublishing = false
+      report(result)
+    }
     DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.publishTimeout) { [weak self] in
       guard let self, !answered else { return }
-      answered = true
-      self.babyPublishing = false
-      done(.slow)
+      answer(self.babyIntentDurable ? .slow : .slowUnmarked)
     }
     babyPublishOffMain({
-      // Save is marked first, so whatever happens next the app can finish it. A mark that can't be written promises nothing.
-      do { try producer.storage.intendPublish(payload, capture: producer.capture, collection: collection) }
+      do { try producer.storage.intendPublish(payload, capture: producer.capture, collection: collection); return .kept }
       catch BabyShareStore.Failure.stale { return .gone }
       catch { return .notKept }
-      do { try producer.storage.publish(payload, capture: producer.capture, collection: collection); return .kept }
-      catch BabyShareStore.Failure.stale { return .gone }
-      catch { return .failed }
-    }) { [weak self] result in
+    }) { [weak self] marked in
       guard let self else { return }
-      self.babyPublishInFlight = false
-      guard !answered else { return }
-      answered = true
-      self.babyPublishing = false
-      done(result)
+      guard marked == .kept else {
+        self.babyPublishInFlight = false
+        return answered ? report(marked) : answer(marked)
+      }
+      self.babyIntentDurable = true
+      if answered { report(.slow) }
+      self.babyPublishOffMain({
+        do { try producer.storage.publish(payload, capture: producer.capture, collection: collection); return .kept }
+        catch BabyShareStore.Failure.stale { return .gone }
+        catch { return .failed }
+      }) { [weak self] result in
+        self?.babyPublishInFlight = false
+        if !answered { answer(result) }
+      }
     }
     return true
   }
