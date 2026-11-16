@@ -66,7 +66,7 @@ def ground_class(workout, raw, source, warnings):
     benchmark = workout.benchmark
     if benchmark:
         evidence_text = text + "\n" + "\n".join(q for b in workout.blocks for q in quotes(b, "benchmark"))
-        # 'benchmark "Everest"' or WodUp's 'benchmark workout, "Everest"'.
+        # 'benchmark "Summit"' or WodUp's 'benchmark workout, "Summit"'.
         named = rf"\bbenchmark(?:\s+(?:workout|wod|test))?(?:\s*[,:–—-]\s*|\s+)['\"‘’“”]?{re.escape(benchmark.name)}(?:['\"‘’“”]|\b)"
         if not re.search(named, evidence_text, re.I):
             workout.benchmark = None

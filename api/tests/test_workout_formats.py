@@ -217,8 +217,8 @@ def test_rounds_for_time_count_only_under_for_time():
 
 
 @pytest.mark.parametrize("quote", ["AMRAP 15", "15:00 AMRAP", "AMRAP 15'", "AMRAP 15 minutes",
-                                   "As Many Rounds and Reps as possible in 15 minutes",
-                                   "As many rounds + reps as possible in 15 minutes"])
+                                   "As Many Rounds and Reps as possible in 15 min",
+                                   "As many rounds + reps as possible in 15 mins"])
 def test_amrap_cap_accepts_bare_and_clock_minutes(quote):
     text = f"{quote}: 10 Burpees"
     data = raw({"mode": "amrap", "time_cap_seconds": 900},
