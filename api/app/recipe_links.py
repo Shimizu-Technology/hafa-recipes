@@ -7,7 +7,7 @@ from uuid import UUID
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import Column, DateTime, ForeignKey, String, delete, func, select, text
+from sqlalchemy import Column, DateTime, ForeignKey, String, delete, func, insert, select, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,10 +72,16 @@ async def create_link(recipe_id: UUID, response: Response, user: ClerkUser = Dep
     # Locking the parent serializes create/revoke, including the first creation.
     token = secrets.token_urlsafe(32)
     await db.execute(delete(RecipeLink).where(RecipeLink.recipe_id == recipe_id))
-    db.add(RecipeLink(recipe_id=recipe_id, token_hash=hashlib.sha256(token.encode()).hexdigest()))
+    # Read created_at back from this INSERT while the recipe lock is still held. Reading the row after
+    # commit could see a rotation another device made in between and pair this URL with its date.
+    created_at = await db.scalar(insert(RecipeLink).values(
+        recipe_id=recipe_id, token_hash=hashlib.sha256(token.encode()).hexdigest(),
+    ).returning(RecipeLink.created_at))
     await db.commit()
     response.headers.update(PRIVATE_HEADERS)
-    return {'url': f'{SITE}/r/{token}', 'token': token, 'recipe_id': str(recipe_id), 'visibility': 'unlisted'}
+    # created_at matches GET status, so the owner's phone can keep the link without a second request.
+    return {'url': f'{SITE}/r/{token}', 'token': token, 'recipe_id': str(recipe_id), 'visibility': 'unlisted',
+            'created_at': created_at}
 
 
 @router.delete('/api/recipes/{recipe_id}/share-link', status_code=204)
