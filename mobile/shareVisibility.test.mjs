@@ -83,20 +83,15 @@ it('persists photos before starting any preview and uses file downsampling off m
   expect(controller).not.toContain('UIImage.init(contentsOfFile:)');
 });
 
-it('guards preview networking, bounds its lifetime, and keeps supplied Safari titles', () => {
-  expect(section('private func describeCapture', 'private func showCard')).toContain('HafaSharePreviewPolicy.allows(url)');
+it('refuses network previews before DNS, redirects or subresources and keeps supplied titles', () => {
   expect(controller).toContain('tags?["og:title"]');
   expect(controller).toContain('attributedTitle?.string');
   const kit = card('HafaShareKit.swift');
-  expect(kit).toContain('guard HafaSharePreviewPolicy.allows(url) else { return }');
-  expect(kit).toContain('provider.shouldFetchSubresources = true');
-  expect(kit.indexOf('guard HafaSharePreviewPolicy.allows(url)')).toBeLessThan(kit.indexOf('let provider = LPMetadataProvider()'));
-  expect(kit).toContain('provider.timeout = 5');
-  expect(kit).toContain('deadline: .now() + 5');
-  expect(kit).toContain('linkProvider?.cancel()');
-  expect(kit).toContain('previewImageProgress?.cancel()');
+  expect(kit).not.toMatch(/LinkPresentation|LPMetadataProvider|URLSession|startFetchingMetadata|loadFileRepresentation/);
+  const preview = kit.slice(kit.indexOf('  func loadPreview('), kit.indexOf('  func loadThumbnail('));
+  expect(preview).toContain('cancelPreview()');
+  expect(preview).not.toContain('describe(');
   expect(kit).toContain('self.previewGeneration == generation');
-  expect(kit).not.toContain('loadObject(ofClass: UIImage.self)');
   expect(section('override func viewWillDisappear', 'private func handleViewLoad')).toContain('card?.cancelPreview()');
   for (const name of ['cancelCapture', 'closeCapture']) expect(controller.split(`private func ${name}`)[1].split('\n  }')[0]).toContain('card?.cancelPreview()');
 });

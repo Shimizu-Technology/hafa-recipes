@@ -120,3 +120,42 @@ for value in ["https://nothome.arpa/recipe", "https://home.arpa.example.com/reci
   check(HafaSharePreviewPolicy.allows(URL(string: value)!), "home.arpa boundary control: \(value)")
 }
 print("home.arpa exact/suffix/trailing-dot regression cases passed")
+
+// Compile the shipping preview entry point without UIKit. No address reaches a network API,
+// including public names with private DNS answers, private redirects and private image URLs.
+let kitURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("HafaShareKit.swift")
+let kitSource = try String(contentsOf: kitURL, encoding: .utf8)
+let start = kitSource.range(of: "  func loadPreview(")!.lowerBound
+let end = kitSource.range(of: "  func loadThumbnail(")!.lowerBound
+let previewMethod = String(kitSource[start..<end])
+let folder = FileManager.default.temporaryDirectory.appendingPathComponent("recipe-preview-" + UUID().uuidString)
+try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: folder) }
+let previewTest = folder.appendingPathComponent("main.swift")
+try ("""
+import Foundation
+final class PreviewProbe {
+  var cancellations = 0
+  func cancelPreview() { cancellations += 1 }
+\(previewMethod)
+}
+let preview = PreviewProbe()
+var described = false
+let links = ["https://example.com/public", "https://public-name.example/resolves-to-private",
+  "https://example.com/redirect?to=http://192.168.1.4", "https://example.com/page-with-private-image",
+  "http://nursery.home.arpa/", "http://192.168.1.4/", "http://0x7f.1/", "http://[fc00::1]/"]
+for link in links {
+  preview.loadPreview(URL(string: link)!) { _ in described = true; return ("Fetched", nil) }
+}
+precondition(preview.cancellations == links.count && !described)
+""").write(to: previewTest, atomically: true, encoding: .utf8)
+let compiler = Process()
+compiler.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+compiler.arguments = ["swift", previewTest.path]
+try compiler.run()
+compiler.waitUntilExit()
+check(compiler.terminationStatus == 0, "shipping preview entry point refuses all network fetching")
+for api in ["LinkPresentation", "LPMetadataProvider", "URLSession", "startFetchingMetadata", "loadFileRepresentation"] {
+  check(!kitSource.contains(api), "opaque network API stays out of shared kit: \(api)")
+}
+print("Network preview policy cases passed")

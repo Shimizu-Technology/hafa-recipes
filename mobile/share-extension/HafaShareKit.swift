@@ -1,4 +1,3 @@
-import LinkPresentation
 import SwiftUI
 import UIKit
 
@@ -57,9 +56,6 @@ final class HafaShareModel: ObservableObject {
   // Leaving before an outcome: the app decides whether that discards the capture.
   var onCancel: () -> Void = {}
   private var touched = false
-  private var linkProvider: LPMetadataProvider?
-  private var previewImageProgress: Progress?
-  private var previewTimeout: DispatchWorkItem?
   private var previewGeneration = UUID()
 
   init(preview: HafaSharePreview, action: String) {
@@ -99,45 +95,12 @@ final class HafaShareModel: ObservableObject {
 
   func cancelPreview() {
     previewGeneration = UUID()
-    linkProvider?.cancel(); linkProvider = nil
-    previewImageProgress?.cancel(); previewImageProgress = nil
-    previewTimeout?.cancel(); previewTimeout = nil
   }
 
   func loadPreview(_ url: URL, describe: @escaping (String?) -> (title: String, subtitle: String?)?) {
     cancelPreview()
-    guard HafaSharePreviewPolicy.allows(url) else { return }
-    let generation = previewGeneration
-    let provider = LPMetadataProvider()
-    provider.shouldFetchSubresources = true
-    provider.timeout = 5
-    linkProvider = provider
-    let timeout = DispatchWorkItem { [weak self] in
-      guard let self, self.previewGeneration == generation else { return }
-      self.cancelPreview()
-    }
-    previewTimeout = timeout
-    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
-    provider.startFetchingMetadata(for: url) { [weak self] metadata, _ in
-      DispatchQueue.main.async {
-        guard let self, self.previewGeneration == generation, let metadata else { return }
-        if let described = describe(metadata.title) {
-          self.preview.title = described.title
-          self.preview.subtitle = described.subtitle ?? self.preview.subtitle
-        }
-        // Policy-approved pages can supply their preview image. Downsample
-        // its file representation instead of requesting a full decoded UIImage.
-        guard let imageProvider = metadata.imageProvider ?? metadata.iconProvider,
-          let type = imageProvider.registeredTypeIdentifiers.first else { return }
-        self.previewImageProgress = imageProvider.loadFileRepresentation(forTypeIdentifier: type) { [weak self] url, _ in
-          let image = url.flatMap(HafaShareThumbnail.image)
-          DispatchQueue.main.async {
-            guard let self, self.previewGeneration == generation, let image else { return }
-            self.preview.image = UIImage(cgImage: image)
-          }
-        }
-      }
-    }
+    // The system preview provider cannot validate redirect targets, DNS results or subresources before connecting.
+    // Keep the sender's text and the URL's domain; no optional preview may contact a private network.
   }
 
   func loadThumbnail(_ url: URL) {
