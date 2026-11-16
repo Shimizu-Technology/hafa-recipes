@@ -33,6 +33,8 @@ export interface PartRun {
   runs?: Record<number, { environment: RunEnvironment; distance_meters?: number }>;
 }
 export interface ClassRun {
+  /** End class was chosen while a part was unfinished. */
+  ended_early?: boolean;
   parts: PartRun[];
   cursor: number;
   /** Countdown before each timed part; 0 for none. */

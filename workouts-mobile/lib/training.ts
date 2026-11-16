@@ -1,10 +1,11 @@
 import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand, type ResultRecoveryReceipt } from "./result-recovery";
-import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
+import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, SessionSaveResult, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
 import { timedCircuit } from "./timed-circuit";
 import { formatCapSeconds, intervalPosition, isDeathBy, ladderReps, movesFor, timedFormat, timedFormatProblem,
   trackedIntervalLimit, type TimedFormat } from "./timed-execution";
-import { endPart, isTimedPart, planClass, resolve, startPart, type ClassRun, type RunEnvironment } from "./class-session";
+import { endPart, isTimedPart, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
+import { carriesResults, classPayload, cleanScore, scoreProblem, withoutResults } from "./class-scores";
 import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly } from "./class-training";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
@@ -50,6 +51,8 @@ export interface SessionDraft {
   timed_format?: TimedFormat;
   /** A class run part by part (A, rest, B, C, D): each part's clock lives here, not in the session clock. */
   class_run?: ClassRun;
+  /** Scores the person reviewed or corrected, by part; parts without one keep the clock's score. */
+  class_scores?: Record<string, PartResult>;
   /** Started without fixed set/round counts; the person adds rounds and sets as they go. */
   open_ended?: boolean;
   /**
@@ -89,6 +92,8 @@ export interface SavedLocalSession {
   state: "queued" | "synced" | "blocked";
   /** The session ran on the EMOM, for-time or work/rest clock (not logged as you go or with chosen rounds). */
   timed_format?: true;
+  /** The server refused this session's scores or splits; the session saved without them, and they are kept here. */
+  unsent_results?: { reason: string; results?: PartResult[]; segments?: SessionRequest["segments"] };
 }
 export interface TrainingState {
   version: 1;
@@ -102,7 +107,7 @@ export interface TrainingState {
 }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 // Synced results live on the server. Keep only the newest few on the device so
-// each local save stays small; queued and blocked results are always kept.
+// each local save stays small; queued, blocked, and locally retained scores are always kept.
 export const syncedHistoryLimit = 20;
 /**
  * Whether this device ran the session on the format clock. The server keeps no such fact, so a synced
@@ -113,7 +118,7 @@ export function ranFormatTimer(history: readonly SavedLocalSession[], clientSess
 }
 export function pruneHistory(history: SavedLocalSession[]) {
   let synced = 0;
-  return history.filter((item) => item.state !== "synced" || ++synced <= syncedHistoryLimit);
+  return history.filter((item) => item.state !== "synced" || !!item.unsent_results || ++synced <= syncedHistoryLimit);
 }
 function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
   state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
@@ -446,7 +451,7 @@ export function createTrainingStore(
     operations = result;
     return result;
   }
-  async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+  async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<SessionSaveResult>) {
     await operations;
     const queue = state.history.filter((x) => x.state === "queued" && !x.recovery);
     let previousRejection: number | null = null;
@@ -460,6 +465,10 @@ export function createTrainingStore(
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
           if (local) {
+            if (saved.unsent_results) {
+              local.unsent_results = { ...saved.unsent_results, reason: "Class scores are not available on this server yet." };
+              local.request = withoutResults(local.request);
+            }
             local.state = "synced";
             local.synced_id = saved.id;
             local.synced_at = clock();
@@ -468,6 +477,7 @@ export function createTrainingStore(
             delete local.rejection_status;
             const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
             if (warning) local.problem = warning;
+            else if (local.unsent_results) local.problem = unsentProblem;
             else delete local.problem;
           }
           return s;
@@ -477,6 +487,21 @@ export function createTrainingStore(
         // Two results rejected the same way in a row look like a service-wide problem,
         // not a problem with each result; keep the rest queued for a later retry.
         const transient = stoppedHere === true || isTransientSyncError(status) || previousRejection === status;
+        // A 403 is about the scores only when heart rate went with them (its storage was turned off); otherwise it's the account.
+        if (!transient && (status === 422 || (status === 403 && item.request.heart_rate != null)) && carriesResults(item.request)) {
+          // Never strand a session over its optional scores: save it without them now, and keep them on the
+          // device so the person can see them and correct the score later.
+          await update((s) => {
+            const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
+            if (local) {
+              local.unsent_results = { reason: e instanceof Error ? e.message : "The scores could not be saved.",
+                results: local.request.results, segments: local.request.segments };
+              local.request = withoutResults(local.request);
+            }
+            return s;
+          });
+          return run(send);
+        }
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
           if (local) {
@@ -778,6 +803,31 @@ export function createTrainingStore(
         return s;
       });
     },
+    /** The person's score for a part (null goes back to the clock's score). Timestamps always stay the clock's. */
+    classScore(blockId: string, result: PartResult | null) {
+      return update((s) => {
+        const d = s.active;
+        if (!d?.class_run?.parts.some((p) => p.block_id === blockId)) throw Error("This part isn’t in the class.");
+        if (result) {
+          const clean = cleanScore({ ...result, block_id: blockId });
+          const problem = scoreProblem(clean);
+          if (problem) throw Error(problem);
+          d.class_scores = { ...d.class_scores, [blockId]: clean };
+        } else if (d.class_scores) delete d.class_scores[blockId];
+        return s;
+      });
+    },
+    /** A treadmill run's distance, edited after the part (an outdoor run's distance comes from GPS). */
+    classRunDistance(blockId: string, exerciseIndex: number, meters: number) {
+      return update((s) => {
+        const part = s.active?.class_run?.parts.find((p) => p.block_id === blockId);
+        const choice = part?.runs?.[exerciseIndex];
+        if (!part || choice?.environment !== "treadmill") throw Error("Only a treadmill run’s distance can be edited.");
+        if (!(meters >= 0 && meters <= 100000)) throw Error("Enter a distance from 0 to 100 km.");
+        part.runs = { ...part.runs, [exerciseIndex]: { environment: "treadmill", distance_meters: meters } };
+        return s;
+      });
+    },
     /** After a relaunch: the clock was right ("Keep"), or the person stopped at `at`, between leaving and now. */
     confirmKeptClock(stoppedAt?: number, now = clock()) {
       return update((s) => {
@@ -929,7 +979,7 @@ export function createTrainingStore(
           d.class_run = endPart(d.class_run, d.workout, now);
           if (!d.class_run.parts.some((p) => p.started_at != null && p.started_at <= now))
             throw Error("Start a part, or discard the session.");
-          if (status === "completed" && (!classOver(d.class_run, d.workout, now) || d.class_run.parts.some((p) => p.skipped) ||
+          if (status === "completed" && (!classOver(d.class_run, d.workout, now) || d.class_run.ended_early || d.class_run.parts.some((p) => p.skipped) ||
             !d.steps.every(logged(d)) || d.actuals.some((a) => !a.completed)))
             throw Error("Some parts or sets were skipped or not finished. Save this as a partial session.");
         } else if (status === "completed") {
@@ -954,6 +1004,7 @@ export function createTrainingStore(
         now = Math.max(now, d.checkpoint_at);
         closeActive(d, now);
         const classTime = d.class_run ? classActive(d.class_run, d.workout, now) : null;
+        const scores = d.class_run ? classPayload(d.class_run, d.workout, now, d.actuals, d.class_scores) : null;
         if (classTime) { d.active_intervals = classTime.intervals; d.active_milliseconds = classTime.seconds * 1000; }
         const request: SessionRequest = {
           ...(d.active_intervals ? { active_intervals: clone(d.active_intervals) } : {}),
@@ -971,6 +1022,9 @@ export function createTrainingStore(
           ),
           actuals: clone(d.actuals),
           notes: d.notes || null,
+          ...(scores?.results.length ? { results: scores.results } : {}),
+          ...(scores?.segments.length ? { segments: scores.segments } : {}),
+          ...(scores ? { recorded_on: "phone" as const } : {}),
         };
         const warning = historicalStructureWarning(d.workout, request.actuals, d.cell_identity_version);
         s.history.unshift({ request, workout: d.workout, generation: d.generation, state: "queued",
@@ -981,7 +1035,7 @@ export function createTrainingStore(
         return s;
       });
     },
-    sync(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+    sync(send: (request: SessionRequest, originalGeneration: number) => Promise<SessionSaveResult>) {
       // Concurrent callers wait for the same pass, so follow-up work sees its result.
       syncing ??= exclusive(() => run(send)).finally(() => {
         syncing = null;
@@ -991,7 +1045,7 @@ export function createTrainingStore(
     recoverResult(
       id: string, command: ResultRecoveryCommand,
       saveWorkout: (workout: AuthoredWorkout, key: string, generation: number) => Promise<Workout>,
-      send: (request: SessionRequest, generation: number) => Promise<TrainingSession>,
+      send: (request: SessionRequest, generation: number) => Promise<SessionSaveResult>,
       current: () => boolean
     ) {
       const existing = recoveries.get(id);
@@ -1086,19 +1140,25 @@ export function createTrainingStore(
       void result.finally(() => { recoveries.delete(id); }).catch(() => undefined);
       return result;
     },
-    correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string) {
+    correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string, results?: PartResult[], segments?: Segment[]) {
       return update((s) => {
         if (saved.generation !== generation) throw Error("This result belongs to an older account generation.");
         const errors = actuals.flatMap(actualErrors);
         if (errors.length) throw Error(errors.join(" "));
-        const { prescription_snapshot: _snapshot, ...prior } = saved.content;
+        // Only fields the server accepts go back: it adds others (such as results_summary) to what it stores.
+        const prior = Object.fromEntries(Object.entries(saved.content).filter(([key]) => requestFields.has(key))) as unknown as SessionRequest;
+        const problems = (results ?? []).map((r) => scoreProblem(cleanScore(r))).filter(Boolean);
+        if (problems.length) throw Error(problems[0]!);
         const request: SessionRequest = {
           ...prior,
+          ...(results ? { results: results.map(cleanScore) } : {}),
+          ...(segments ? { segments: clone(segments) } : {}),
           client_session_id: id,
           actuals: clone(actuals),
           // A correction can remove completed work; editing recorded cells cannot
           // prove that unrecorded work from a partial session was performed.
-          status: prior.status === "completed" && actuals.length > 0 && actuals.every((actual) => actual.completed)
+          status: prior.status === "completed" && actuals.every((actual) => actual.completed) &&
+            (actuals.length > 0 || (prior.actuals.length === 0 && !!(results ?? prior.results)?.length))
             ? "completed" : "partial",
           notes,
           supersedes_session_id: saved.id,
@@ -1136,6 +1196,10 @@ export function createTrainingStore(
   };
 }
 export type TrainingStore = ReturnType<typeof createTrainingStore>;
+export const unsentProblem = "Session saved, but its class scores weren’t accepted. Open the session and correct the scores to save them again.";
+const requestFields = new Set(["client_session_id", "workout_id", "workout_revision", "program_id", "program_revision", "program_session_id",
+  "started_at", "finished_at", "status", "active_seconds", "active_intervals", "activity_type", "actuals", "notes",
+  "results", "segments", "heart_rate", "recorded_on", "apple_workout_uuid"]);
 export function previousActual(
   workout: Workout,
   step: TrainingStep,

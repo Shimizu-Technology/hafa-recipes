@@ -9,14 +9,16 @@ import { buyInDone, endPart, skipPart, startPart, tapRound, type ClassRun } from
 import { nov17Class as w } from "./fixtures/nov17-class";
 import type { ActualSet } from "./models";
 
-const fixture = vi.hoisted(() => ({ alert: vi.fn(), warning: vi.fn(), announce: vi.fn(), fontScale: 1 }));
+const fixture = vi.hoisted(() => ({ alert: vi.fn(), warning: vi.fn(), announce: vi.fn(), copy: vi.fn(async (_text: string) => true), fontScale: 1 }));
 vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: fixture.fontScale }), View: "View", Pressable: "Pressable", Modal: "Modal",
   Alert: { alert: fixture.alert } }));
 vi.mock("expo-keep-awake", () => ({ activateKeepAwakeAsync: async () => {}, deactivateKeepAwake: async () => {} }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("expo-speech", () => ({ speak: vi.fn() }));
+vi.mock("expo-clipboard", () => ({ setStringAsync: fixture.copy }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button", IconButton: "IconButton",
-  ListRow: "ListRow", RestTimer: "RestTimer", Row: "Row", SectionHeader: "SectionHeader", Sheet: "Sheet",
+  ListRow: "ListRow", RestTimer: "RestTimer", Chip: "Chip", ChipRow: "ChipRow", Choice: "Choice", Field: "Field", Segmented: "Segmented",
+  useToast: () => () => {}, Row: "Row", SectionHeader: "SectionHeader", Sheet: "Sheet",
   formatClock: (seconds: number) => { const s = Math.max(0, Math.round(seconds)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; },
   haptics: { warning: fixture.warning, success() {}, tick() {} }, useColors: () => ({ accent: "coral", onAccent: "white", muted: "grey", text: "ink", surface: "white", borderStrong: "line" }) }));
 vi.mock("@/components/workout-instructions", () => ({ WorkoutInstructions: "WorkoutInstructions" }));
@@ -31,12 +33,12 @@ const store = () => {
   return createTrainingStore({ getItem: async (k) => data.get(k) ?? null, setItem: async (k, v) => { data.set(k, v); }, removeItem: async () => {} }, "o", 1, () => now);
 };
 let s: ReturnType<typeof store>;
-const actions = { act: vi.fn(), log: vi.fn<(a: ActualSet) => void>(), finish: vi.fn(), timer: vi.fn() };
+const actions = { act: vi.fn(), log: vi.fn<(a: ActualSet) => void>(), finish: vi.fn(), timer: vi.fn(), runDistance: vi.fn() };
 async function render(at: number) {
   now = at;
   const d = s.snapshot().active!;
   const props: ClassSessionProps = { d: { ...d, class_run: d.class_run! }, now, busy: false, error: "", runEnvironment: s.snapshot().run_environment ?? "outdoor",
-    activityPicker: null, act: actions.act, log: actions.log, undo() {}, timer: actions.timer, finish: actions.finish, discard() {} };
+    activityPicker: null, act: actions.act, log: actions.log, undo() {}, timer: actions.timer, finish: actions.finish, runDistance: actions.runDistance, discard() {} };
   await act(async () => { if (renderer) renderer.update(createElement(ClassSession, props)); else renderer = create(createElement(ClassSession, props)); });
 }
 function elements(node: unknown): Array<{ type: unknown; props: Record<string, any> }> {
@@ -108,12 +110,33 @@ describe("class runner (Nov 17)", () => {
     control("Done · D1")!.props.onPress();
     expect(actions.log.mock.calls[0][0]).toMatchObject({ block_id: "d", exercise_index: 0, completed: true, duration_seconds: 30 });
   });
+  it("reviews each score with Rx or Scaled chosen explicitly, copies it for WodUp, and saves it", async () => {
+    await s.classAct(startPart, 0);
+    await s.classAct(buyInDone, 6 * min);
+    await s.classAct(tapRound, 10 * min); await s.classAct(tapRound, 14 * min);
+    for (let i = 0; i < 3; i++) await s.classAct(skipPart, 18 * min);
+    await render(18 * min);
+    expect(renderer!.root.findAll((n) => (n.type as unknown) === "SectionHeader").map((n) => n.props.title)).toContain("Your scores");
+    const save = () => control("Save class")!;
+    expect(save().props.disabled).toBe(true);
+    // The hint stays small enough at the largest text size to leave the score cards room to scroll.
+    const hint = elements(screen().footer).find((n) => n.props.children === "Choose Rx or Scaled for each score to save.")!;
+    expect(hint.props.maxScale).toBe(1.5);
+    const editor = renderer!.root.findAll((n) => n.props?.block?.id === "a" && typeof n.props.onChange === "function")[0];
+    expect(editor.props.result).toMatchObject({ kind: "rounds_reps", rounds: 2, reps: 0, buy_in_done: true, buy_in_seconds: 360 });
+    await act(async () => editor.props.onChange({ ...editor.props.result, reps: 12, scaling: "rx" }));
+    expect(save().props.disabled).toBe(false);
+    await act(async () => control("Copy for WodUp")!.props.onPress());
+    expect(fixture.copy.mock.calls[0][0]).toBe("BUILD | BRIK · Tue Nov 17\nA: 2 rounds + 12 reps · Rx\n  Buy-in 6:00 · Rounds 4:00, 4:00");
+    save().props.onPress();
+    expect(actions.finish).toHaveBeenCalledWith("partial", [expect.objectContaining({ block_id: "a", rounds: 2, reps: 12, scaling: "rx" })]);
+  });
   it("ends with the parts listed and saves a partial class when parts were skipped", async () => {
     for (let i = 0; i < 4; i++) await s.classAct(skipPart, 0);
     await render(1000);
     expect(text()).toContain("Class done");
     control("Save class")!.props.onPress();
-    expect(actions.finish).toHaveBeenCalledWith("partial");
+    expect(actions.finish).toHaveBeenCalledWith("partial", []);
   });
   it("offers Buy-in done on a for-time part with a buy-in, then counts its rounds", async () => {
     const forTime = { ...w, blocks: [{ ...w.blocks[0], rounds: 3, execution: { mode: "for_time" as const, time_cap_seconds: 1200 } }] };
@@ -148,4 +171,28 @@ describe("class runner (Nov 17)", () => {
     await render(6 * min);
     expect(renderer!.root.findByType("Screen" as never).props.pinned).toBeUndefined();
   });
+});
+
+it("reviews a part auto-started while locked from the resolved run", async () => {
+  const workout = { ...w, blocks: [w.blocks[0], w.blocks[1]] };
+  s = store(); await s.load();
+  await s.start(workout, { workout_id: w.id, workout_revision: 1 }, "locked", 0);
+  await s.classAct(startPart, 0); await render(34 * min);
+  const editors = renderer!.root.findAll((n) => typeof n.props.onChange === "function" && n.props.result?.block_id);
+  expect(editors.map((n) => n.props.result.block_id)).toEqual(["a", "b"]);
+  expect(control("Save class")!.props.disabled).toBe(true);
+});
+it("typing an explicit load uses the kg unit already displayed", async () => {
+  const { ScoreEditor } = await import("../components/training/score-editor");
+  const { scoreProblem } = await import("./class-scores");
+  const change = vi.fn();
+  await act(async () => { renderer = create(createElement(ScoreEditor, { block: w.blocks[3],
+    result: { block_id: "d", kind: "load", origin: "manual", scaling: "rx" }, onChange: change })); });
+  await act(async () => renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "Weight")!.props.onChange("100"));
+  expect(change.mock.calls[0][0]).toMatchObject({ load: 100, load_unit: "kg" });
+  expect(scoreProblem(change.mock.calls[0][0])).toBeNull();
+  const chips = renderer!.root.findAllByType("Chip" as never);
+  expect(chips.map((n) => [n.props.role, n.props.accessibilityLabel])).toEqual([
+    ["radio", "D · Accessory: Rx"], ["radio", "D · Accessory: Scaled"],
+  ]);
 });

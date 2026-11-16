@@ -1,3 +1,4 @@
+vi.mock("@/components/training/score-editor", () => ({ ScoreEditor: "ScoreEditor", CopyForWodUp: "CopyForWodUp" }));
 vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
 vi.mock("@/components/design/foundation", () => ({ Copy: "Copy", useColors: () => ({}) }));
 vi.mock("@/components/design/athletic-motion", () => ({ Entrance: ({ children }: { children: unknown }) => children }));

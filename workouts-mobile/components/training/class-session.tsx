@@ -10,8 +10,10 @@ import { useKeepAwakeWhile } from "@/components/training/keep-awake";
 import { prescriptionLine } from "@/lib/discover";
 import type { ActualSet } from "@/lib/models";
 import { adjustRest, buyInDone, endPart, endRest, isRun, pausePart, resumePart, setRun, skipLeadIn, skipPart, startPart, tapRound, undoTap,
-  type ClassRun, type RunEnvironment } from "@/lib/class-session";
-import { classOver, currentPart, hasBuyIn } from "@/lib/class-training";
+  type ClassRun, type PartResult, type RunEnvironment } from "@/lib/class-session";
+import { classPayload, scoreProblem, scoredParts } from "@/lib/class-scores";
+import { CopyForWodUp, ScoreEditor } from "@/components/training/score-editor";
+import { classOver, currentPart, endClass, hasBuyIn } from "@/lib/class-training";
 import { buyInMove, partClock, partTitle, restLeft, restLine, roundMoves, visibleRuns } from "@/lib/class-view";
 import { footerCellWidth, footerLabelScale, largeText } from "@/lib/readable-layout";
 import { actualIdentity, exerciseElapsedSeconds, restRemainingSeconds, type SessionDraft } from "@/lib/training";
@@ -27,7 +29,9 @@ export interface ClassSessionProps {
   log(actual: ActualSet): void;
   undo(): void;
   timer(kind: "rest" | "interval", seconds?: number): void;
-  finish(status: "completed" | "partial"): void;
+  /** Saves the class with the reviewed scores (each part's score, Rx or Scaled). */
+  finish(status: "completed" | "partial", scores?: PartResult[]): void;
+  runDistance(blockId: string, exerciseIndex: number, meters: number): void;
   discard(): void;
   activityPicker: ReactNode;
 }
@@ -75,6 +79,7 @@ export function ClassSession(p: ClassSessionProps) {
   const [more, setMore] = useState(false);
   const [instructions, setInstructions] = useState(false);
   const [leadInDone, setLeadInDone] = useState<number | null>(null);
+  const [edits, setEdits] = useState<Record<string, PartResult>>({});
   useKeepAwakeWhile(!over, `class:${d.id}`);
   // One cue when a part caps, a rest ends or the class is done, even when the change happened while locked.
   const cue = `${index}:${status}`;
@@ -96,9 +101,13 @@ export function ClassSession(p: ClassSessionProps) {
     p.act((r, w, at) => setRun(r, w, i, next, r.parts[r.cursor].runs?.[i]?.distance_meters, at), next);
   const endEarly = () => Alert.alert(`End ${block.label} now?`, "The clock stops here and the class moves on.", [
     { text: "Keep going", style: "cancel" }, { text: `End ${block.label}`, style: "destructive", onPress: () => p.act(endPart) }]);
-  const canComplete = over && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
+  const canComplete = over && !run.ended_early && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
     d.steps.every((s) => d.actuals.some((a) => actualIdentity(a) === s.key));
-  const save = () => p.finish(canComplete ? "completed" : "partial");
+  const review = over ? classPayload(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : null;
+  // Every scored part is reviewed, including one still missing its value; only valid scores are ever sent.
+  const scored = over ? scoredParts(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }).map((x) => x.result) : [];
+  const unready = scored.some((r) => scoreProblem(r) || !r.scaling);
+  const save = () => p.finish(canComplete ? "completed" : "partial", scored);
 
   // A set-by-set part logs the prescribed dose, or the timed hold the person just ran.
   const timing = d.interval_started_at != null;
@@ -128,10 +137,21 @@ export function ClassSession(p: ClassSessionProps) {
           return <ListRow key={b.id} icon={x.skipped ? "remove-circle-outline" : "checkmark-circle"} title={partTitle(b)} detail={x.skipped ? "Skipped" : "Done"} />;
         })}
       </Card>
-      {!canComplete && <Copy kind="small" tone="muted">Skipped parts or sets save this as a partial session.</Copy>}
+      {!canComplete && <Copy kind="small" tone="muted">Unfinished or skipped parts and sets save this as a partial session.</Copy>}
+      {!!scored.length && <SectionHeader title="Your scores" />}
+      {review && scored.map((r) => {
+        const b = d.workout.blocks.find((x) => x.id === r.block_id)!;
+        return <ScoreEditor key={r.block_id} block={b} result={r} segments={review.segments.filter((s) => s.block_id === r.block_id)}
+          onChange={(next) => setEdits((e) => ({ ...e, [r.block_id]: next }))} onRunDistance={(i, m) => p.runDistance(r.block_id, i, m)} />;
+      })}
+      {!!review?.results.length && <CopyForWodUp workout={d.workout} results={review.results} segments={review.segments} />}
       {p.activityPicker}
     </>;
-    footer = <Button title="Save class" icon="checkmark-done" size="lg" busy={busy} onPress={save} />;
+    footer = <>
+      {/* Capped so the footer leaves room to scroll the score cards at the largest text size. */}
+      {unready && <Copy kind="small" tone="muted" align="center" maxScale={1.5}>Choose Rx or Scaled for each score to save.</Copy>}
+      <Button title="Save class" icon="checkmark-done" size="lg" busy={busy} disabled={unready} onPress={save} />
+    </>;
   } else if (status === "resting_after") {
     const left = restLeft(part, block, now);
     const restClock = <SessionClock text={formatClock(left)} caption={`Rest · ${restLine(next)}`} progress={block.rest_after_seconds ? left / block.rest_after_seconds : null}
@@ -237,8 +257,8 @@ export function ClassSession(p: ClassSessionProps) {
         {!over && (status === "running" || status === "paused") && part.kind !== "sets" &&
           <ListRow icon="stop-circle-outline" title={`End ${block.label} now`} disabled={busy} onPress={() => { setMore(false); endEarly(); }} />}
         {!over && status !== "resting_after" && <ListRow icon="play-skip-forward-outline" title={`Skip ${block.label}`} disabled={busy} onPress={() => { setMore(false); p.act(skipPart); }} />}
-        {!over && <ListRow icon="flag-outline" title="End class and save" detail="Saves what you did as a partial session" disabled={busy}
-          onPress={() => { setMore(false); p.finish("partial"); }} />}
+        {!over && <ListRow icon="flag-outline" title="End class" detail="Ends this part, skips the rest, and goes to your scores" disabled={busy}
+          onPress={() => { setMore(false); p.act(endClass); }} />}
         <ListRow icon="trash-outline" title="Discard this session" destructive disabled={busy} onPress={() => { setMore(false); p.discard(); }} />
       </Sheet>
       <Sheet visible={instructions} onClose={() => setInstructions(false)} title="Coach notes">
