@@ -116,6 +116,10 @@ async def erase_product_data(db, membership, requested_generation: int):
         from app.domains.workouts.activity_log_service import erase_activity_logs
 
         await erase_activity_logs(db, owner)
+    if await optional_table_exists(db, "workouts_part_results"):
+        from app.domains.workouts.part_result_models import PartResultRow
+
+        await db.execute(delete(PartResultRow).where(PartResultRow.app_user_id == owner))
     # Version records cascade from the library/program rows. The membership
     # tombstone remains so delayed offline writes cannot silently re-enroll.
     for model in (

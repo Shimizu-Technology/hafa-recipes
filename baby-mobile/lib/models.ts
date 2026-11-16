@@ -28,6 +28,11 @@ export interface ChildDetails {
   weeks_at_birth?: number | null;
   feeding?: "nursing" | "bottle" | "both" | null;
   tracking?: Record<string, boolean> | null;
+  /** "HH:MM", 24 hours, on the birth date's own clock. An older API drops it, and the date still stands. */
+  birth_time?: string | null;
+  /** Who's expecting, by app user id: a parent in the family. Set to whoever added the pregnancy until confirmed. */
+  expecting_member?: string | null;
+  expecting_confirmed?: boolean | null;
 }
 /**
  * The setup screen's values. `grams` and `cm` are the exact value once there is one, kept through any change of unit;
@@ -77,6 +82,8 @@ export interface Child {
   /** Where it lives, once the API lists spaces. Until then everything is personal. */
   space_id?: string;
   generation?: number;
+  /** Who added it: for a pregnancy, the person expecting. Only in a family, from an API that sends it. */
+  created_by?: string | null;
 }
 /** One of this account's spaces: its own personal one, and a family it's in. */
 export interface BabySpace {
@@ -103,7 +110,8 @@ export interface Bootstrap {
   /** Names of everyone who has been in this account's families. */
   people?: Record<string, string>;
   /** Only with the API's push flag on. Until it says so this phone asks for nothing and offers nothing. */
-  reminders?: { push?: boolean; routines?: boolean };
+  /** `family_news`: the API can push "contractions started" and "baby is here" to the family members she picks. */
+  reminders?: { push?: boolean; routines?: boolean; family_news?: boolean };
   /** Set only while the new Ask is on: the disclosure version to show and acknowledge. */
   ask_consent_version?: number | null;
   /** Always there from an API that keeps these. An older one doesn't send it, and the app hides them. */
@@ -511,6 +519,12 @@ export type Mutation = {
       child_id: string;
       birth_date: string | null;
       previous: string | null;
+      /** From the birth flow: her name for the baby and the birth answers, sent with the date. */
+      name?: string;
+      details?: Pick<ChildDetails, "birth_time" | "weight_at_birth_g">;
+      /** What those were before, for Undo: null was nothing. */
+      previous_name?: string;
+      previous_details?: Pick<ChildDetails, "birth_time" | "weight_at_birth_g">;
       hold_until?: string;
       sent?: boolean;
       attempts?: number;
@@ -573,7 +587,7 @@ export interface FeedTimer {
   /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
   record_id?: string;
 }
-export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit";
+export type ReminderKind = "event" | "visit_prep" | "import" | "feed_interval" | "running_timer" | "pregnancy_week" | "milestone_window" | "well_visit" | "family_news";
 export interface KindPref {
   enabled: boolean;
   /** Comes through quiet hours, as time-sensitive. */
@@ -626,12 +640,18 @@ export interface DeviceState {
   dueReminders?: DueReminder[];
   /** Dismissed here and not heard yet. */
   dismissing?: string[];
+  /** Labor and birth news she chose to send, kept here until the API has it. */
+  pendingNews?: import("./family-news").PendingNews[];
   /** The API's copy of this person's settings. Only with its push flag on. */
   reminderPrefs?: ReminderPrefs;
   /** Taps the API couldn't apply, kept until she has seen why. */
   feedNotices?: string[];
   /** Ask has shown its reminder about sources on this device. */
   askNoticeSeen?: boolean;
+  /** She's answered "so Kami can tell you the moment labor starts", either way: it's only asked once. */
+  newsAskSeen?: boolean;
+  /** Today's cards she chose to hide on this phone: "this_week", "day_of_life". */
+  hiddenToday?: string[];
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];
@@ -645,6 +665,12 @@ export interface DeviceState {
   /** By child id, or `new` for a profile not saved yet. Not in `drafts`: those are all records. */
   childDrafts?: Record<string, ChildDraft>;
   imports: ImportJob[];
+  /** "Organize everything waiting", while it runs and until she dismisses what it did. */
+  organizeRun?: import("./organize-waiting").OrganizeRun;
+  /** After a run met the daily limit: "Organize all" isn't offered again until then. */
+  organizeHeldUntil?: string;
+  /** Saved posts a read showed can never be read as they are (private, gone, out of tries). "Organize all" leaves them out. */
+  unreadableSources?: string[];
   selectedChild: string | null;
   /** Her own babies she's chosen to keep alongside a family's, so she's only asked once. */
   personalBabiesKept?: string[];

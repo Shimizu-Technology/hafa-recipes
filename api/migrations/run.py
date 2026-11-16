@@ -48,6 +48,7 @@ OPTIONAL_MIGRATIONS = (
     "migrations.047_add_workouts_source_media",
     "migrations.048_add_workouts_cover_upload",
     "migrations.049_add_workouts_coach_attachments",
+    "migrations.063_add_workouts_part_results",
 )
 BABY_MIGRATIONS = (
     "migrations.050_add_baby_domain",

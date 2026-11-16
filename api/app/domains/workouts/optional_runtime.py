@@ -11,6 +11,7 @@ from app.domains.workouts.export_service import verify_export_schema
 from app.domains.workouts.health_models import HEALTH_TABLES
 from app.domains.workouts.library_organization_service import verify_organization_schema
 from app.domains.workouts.measurement_service import verify_measurement_schema
+from app.domains.workouts.part_results import verify_part_results_schema
 from app.domains.workouts.recipe_grant_service import verify_recipe_grant_schema
 
 
@@ -27,6 +28,7 @@ async def verify_optional_workouts_schema(*, configured=None, target_engine=None
     await verify_activity_log_schema(target, settings)
     # Discover (045) is optional at startup: absent means Discover reports 503.
     await verify_discover_schema(target, settings)
+    await verify_part_results_schema(target, settings)
     if not settings.workouts_health_sync_enabled:
         return
     async with target.connect() as connection:

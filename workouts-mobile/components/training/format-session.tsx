@@ -3,11 +3,10 @@ import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from
 import { Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Speech from "expo-speech";
-// Installed and natively linked through `expo` (SDK 57); declare it directly at the next dependency-lock review.
-import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Button, Card, Copy, Field, IconButton, ListRow, Notice, Row, Screen, SectionHeader, SetRow, Sheet, formatClock, haptics, useColors } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { announce } from "@/components/training/session-parts";
+import { useKeepAwakeWhile } from "@/components/training/keep-awake";
 import { footerCellWidth, footerLabelScale, largeText } from "@/lib/readable-layout";
 import type { ActualSet } from "@/lib/models";
 import { actualIdentity, capRemainingSeconds, sessionElapsedMilliseconds, summaryOf, type SessionDraft, type TrainingStep } from "@/lib/training";
@@ -93,12 +92,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   }, [cue]);
   // Keep the screen on while the clock runs, so interval cues still fire with the phone set down.
   const running = !d.paused && !finished;
-  useEffect(() => {
-    if (!running) return;
-    const tag = `format-session:${d.id}`;
-    void activateKeepAwakeAsync(tag).catch(() => undefined);
-    return () => { void deactivateKeepAwake(tag).catch(() => undefined); };
-  }, [running, d.id]);
+  useKeepAwakeWhile(running, `format-session:${d.id}`);
 
   const mark = (completed: boolean) => {
     if (!typedValid) return;

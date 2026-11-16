@@ -493,3 +493,130 @@ it("with AI off, a connection failure does not falsely ask for AI permission", a
   await act(async () => { await result.send(); });
   expect(result.error).toBe("Request failed");
 });
+
+it("switches an entry's chat to everything and back, each side keeping its own conversation and draft", async () => {
+  const account = setup();
+  await mount("entry");
+  const home = { scope: "all", record_id: "entry", child_id: null };
+  expect(result.focusContext).toEqual(home);
+  expect(result.onFocus).toBe(true);
+  await question("About this post");
+  await act(async () => { await result.send(); });
+  expect(result.conversation).toBe("answer-conversation");
+  await act(async () => result.switchFocus("all"));
+  expect(result.onFocus).toBe(false);
+  expect(result.context).toEqual(general);
+  expect(result.messages).toEqual([]);
+  await question("Across everything");
+  account.api.chat.mockResolvedValueOnce({ conversation_id: "general-conversation", message: "General answer", citations: [] });
+  await act(async () => { await result.send(); });
+  expect(account.api.chat.mock.calls[1][0]).toMatchObject({ record_id: undefined, conversation_id: undefined });
+  await act(async () => result.switchFocus("entry"));
+  expect(result.onFocus).toBe(true);
+  expect(result.conversation).toBe("answer-conversation");
+  expect(result.messages.map((m) => m.content)).toEqual(["About this post", "Answer"]);
+  expect(result.focusedTitle).toBe("Saved advice");
+  await act(async () => result.switchFocus("all"));
+  expect(result.conversation).toBe("general-conversation");
+  await question("Unsent general draft");
+  await act(async () => result.switchFocus("entry"));
+  expect(result.question).toBe("");
+  await act(async () => result.switchFocus("all"));
+  expect(result.question).toBe("Unsent general draft");
+});
+
+it("offers no switch on a general Ask, and a day's chat switches back to its day", async () => {
+  const account = setup();
+  withNewAsk(account, 1);
+  await mount();
+  expect(result.focusContext).toBeNull();
+  await act(async () => result.switchFocus("entry"));
+  expect(result.context).toEqual(general);
+  await act(async () => renderer!.unmount());
+  await act(async () => { renderer = TestRenderer.create(React.createElement(function Day() { result = useAskSession(undefined, true, "2026-11-03"); return null; })); });
+  expect(result.onFocus).toBe(true);
+  await act(async () => result.switchFocus("all"));
+  expect(result.context.focus_date).toBeUndefined();
+  await act(async () => result.switchFocus("entry"));
+  expect(result.context.focus_date).toBe("2026-11-03");
+});
+
+it("forgets a deleted conversation on the other side of the switch", async () => {
+  const account = setup();
+  Object.assign(account.api, { deleteConversation: vi.fn(async () => undefined) });
+  await mount("entry");
+  await question("About this post");
+  await act(async () => { await result.send(); });
+  await act(async () => result.switchFocus("all"));
+  await act(async () => { await result.deleteConversation("answer-conversation"); });
+  await act(async () => result.switchFocus("entry"));
+  expect(result.conversation).toBeUndefined();
+  expect(result.messages).toEqual([]);
+  expect(result.context.record_id).toBe("entry");
+});
+
+it("brings back a side left through History, with its latest messages", async () => {
+  const account = setup();
+  await mount("entry");
+  await question("About this post");
+  await act(async () => { await result.send(); });
+  account.api.conversation.mockResolvedValueOnce(conversation(general, "general-chat"));
+  await act(async () => { await result.load("general-chat"); });
+  expect(result.onFocus).toBe(false);
+  await act(async () => result.switchFocus("entry"));
+  expect(result.conversation).toBe("answer-conversation");
+  await question("Second about the post");
+  account.api.chat.mockResolvedValueOnce({ conversation_id: "answer-conversation", message: "Second answer", citations: [] });
+  await act(async () => { await result.send(); });
+  await act(async () => result.switchFocus("all"));
+  expect(result.conversation).toBe("general-chat");
+  await act(async () => result.switchFocus("entry"));
+  expect(result.messages.map((m) => m.content)).toEqual(["About this post", "Answer", "Second about the post", "Second answer"]);
+});
+
+it("reopening Ask from the same entry carries on its newest conversation, and starts fresh with none or no connection", async () => {
+  const account = setup(), entry: AskContext = { scope: "all", record_id: "entry", child_id: null };
+  account.api.conversations.mockResolvedValue({ items: [
+    { ...conversation(general, "general-chat"), updated_at: "2026-11-15T10:00:00Z" },
+    { ...conversation(entry, "older-entry-chat"), updated_at: "2026-11-14T10:00:00Z" },
+    { ...conversation(entry, "newest-entry-chat"), updated_at: "2026-11-15T09:00:00Z" },
+    { ...conversation({ ...entry, record_id: "other" }, "other-entry-chat"), updated_at: "2026-11-16T09:00:00Z" },
+  ] });
+  account.api.conversation.mockImplementation(async (id: string) => conversation(entry, id));
+  await mount("entry");
+  expect(result.conversation).toBe("newest-entry-chat");
+  expect(result.messages.map((m) => m.content)).toEqual(["Earlier question", "Earlier answer"]);
+  expect(result.onFocus).toBe(true);
+  // New chat on it still starts fresh, on the same entry.
+  await act(async () => result.startNew());
+  expect(result.conversation).toBeUndefined();
+  expect(result.context.record_id).toBe("entry");
+  await act(async () => renderer!.unmount());
+  account.api.conversations.mockResolvedValue({ items: [conversation(general, "general-chat")] });
+  await mount("entry");
+  expect(result.conversation).toBeUndefined();
+  expect(result.messages).toEqual([]);
+  await act(async () => renderer!.unmount());
+  account.api.conversations.mockRejectedValue(new Error("Offline"));
+  await mount("entry");
+  expect(result.conversation).toBeUndefined();
+  expect(result.context.record_id).toBe("entry");
+  expect(result.error).toBe("");
+});
+
+it("reopening a day carries on its newest conversation unless she has already started typing", async () => {
+  const account = setup(), day: AskContext = { scope: "all", record_id: null, child_id: null, focus_date: "2026-11-03" };
+  account.api.conversations.mockResolvedValue({ items: [conversation(day, "day-chat")] });
+  account.api.conversation.mockImplementation(async (id: string) => conversation(day, id));
+  const Day = function Day() { result = useAskSession(undefined, true, "2026-11-03"); return null; };
+  await act(async () => { renderer = TestRenderer.create(React.createElement(Day)); });
+  expect(result.conversation).toBe("day-chat");
+  await act(async () => renderer!.unmount());
+  const pending = held<{ items: Conversation[] }>();
+  account.api.conversations.mockReturnValueOnce(pending.promise);
+  await act(async () => { renderer = TestRenderer.create(React.createElement(Day)); });
+  await question("Typed first");
+  await act(async () => { pending.release({ items: [conversation(day, "day-chat")] }); });
+  expect(result.conversation).toBeUndefined();
+  expect(result.question).toBe("Typed first");
+});
