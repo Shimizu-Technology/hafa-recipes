@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import type { BabyRecord, Child } from "@/lib/models";
-import type { RunningFeed } from "@/lib/feed-reducer";
+import { runningLimit, type RunningFeed } from "../lib/feed-reducer";
 import { duration, friendlyTime, timeAgo } from "@/lib/care-format";
 import { babyAge, careGlance, nextSide } from "@/lib/care-glance";
 import { Card, Copy, PressTarget, fonts, typeScale, useColors } from "./ui";
@@ -30,6 +30,9 @@ export function CareGlance({ child, rows, now, running, timeZone, sides = true }
     elapsed = feed ? Math.max(0, Math.floor((now.getTime() - new Date(feed.occurred_at).getTime()) / 60_000)) : 0,
     value = elapsed < 60 ? `${elapsed}m` : elapsed < 2880 ? `${Math.floor(elapsed / 60)}h ${elapsed % 60}m` : `${Math.floor(elapsed / 1440)}d`,
     side = running?.segments[running.segments.length - 1]?.side,
+    // A feed nobody finished doesn't read as "Feeding now" forever: past the hour it asks, and the card below says how to answer.
+    overdue = !!running && now.getTime() - new Date(running.started_at).getTime() >= runningLimit,
+    runningFor = running ? duration((now.getTime() - new Date(running.started_at).getTime()) / 60_000) : "",
     detail = feed ? [
       feed.data.method === "breast" && feed.data.side ? sideWord[feed.data.side]
         : feed.data.method === "bottle" ? "Bottle" : "Feeding",
@@ -41,14 +44,15 @@ export function CareGlance({ child, rows, now, running, timeZone, sides = true }
     eyebrow = (text: string) => <Text key={`${text}:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>{text}</Text>;
   const content = <Card tone="hero" style={{ gap: 12, flexDirection: stacked ? "column" : "row", alignItems: stacked ? "stretch" : "center" }}>
     <View style={{ flex: stacked ? undefined : 1, gap: 2, minWidth: 0 }}>
-      {eyebrow(side ? "Feeding now" : "Last fed")}
+      {eyebrow(side ? overdue ? "Still feeding?" : "Feeding now" : "Last fed")}
       {side ? <Text key={`now:${fontScale}`} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.4} style={{ ...typeScale.number, color: c.text }}>{sideWord[side]}</Text>
         : feed ? <Text key={`value:${fontScale}`} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.4} style={{ ...typeScale.number, color: c.text }}>
           {!Number.isFinite(elapsed) ? "Time not recorded" : elapsed < 1 ? "Just now" : <>{value} <Text style={{ fontSize: typeScale.footnote.fontSize, color: c.muted }}>ago</Text></>}
         </Text> : <Copy kind="heading">No recent feed</Copy>}
-      <Copy numeric kind="small" tone="muted">{side ? `Started ${friendlyTime(running!.started_at, now, timeZone)}` : detail}</Copy>
+      <Copy numeric kind="small" tone="muted">{side ? `Started ${friendlyTime(running!.started_at, now, timeZone)}${overdue ? ` · ${runningFor} ago` : ""}` : detail}</Copy>
     </View>
-    {!!next && <View style={{ gap: 2, alignItems: stacked ? "flex-start" : "flex-end", paddingLeft: stacked ? 0 : 14,
+    {/* At most half the row, so its caption never squeezes "Last fed" out of sight. */}
+    {!!next && <View style={{ gap: 2, alignItems: stacked ? "flex-start" : "flex-end", paddingLeft: stacked ? 0 : 14, flexShrink: 1, maxWidth: stacked ? undefined : "50%",
       borderLeftWidth: stacked ? 0 : 1, borderLeftColor: c.border }}>
       {eyebrow("Next side")}
       <Copy kind="small" tone="muted">Last record only. Follow your care team’s feeding plan.</Copy>
@@ -61,8 +65,10 @@ export function CareGlance({ child, rows, now, running, timeZone, sides = true }
       </View>
     </View>}
   </Card>;
-  const spoken = `${side ? `Feeding now, ${side} side, started ${friendlyTime(running!.started_at, now, timeZone)}.` : feed ? `Last fed ${timeAgo(feed.occurred_at, now)}. ${detail}.` : "No feed logged yet."}${next ? ` Next side ${next}.` : ""}`;
-  return feed ? <PressTarget accessibilityRole="button" accessibilityLabel={spoken} accessibilityHint="Opens this feeding entry"
-    onPress={() => router.push({ pathname: "/record/[id]", params: { id: feed.id } })}>{content}</PressTarget>
+  const spoken = `${side ? `${overdue ? "Still feeding?" : "Feeding now,"} ${side} side, started ${friendlyTime(running!.started_at, now, timeZone)}${overdue ? `, ${runningFor} ago` : ""}.` : feed ? `Last fed ${timeAgo(feed.occurred_at, now)}. ${detail}.` : "No feed logged yet."}${next ? ` Next side ${next}.` : ""}`;
+  // The card names the running feed when there is one, which may not be the newest record (a bottle top-up can be newer).
+  const opens = side ? running!.record.id : feed?.id;
+  return opens ? <PressTarget accessibilityRole="button" accessibilityLabel={spoken} accessibilityHint="Opens this feeding entry"
+    onPress={() => router.push({ pathname: "/record/[id]", params: { id: opens } })}>{content}</PressTarget>
     : <View accessible accessibilityLabel={spoken}>{content}</View>;
 }

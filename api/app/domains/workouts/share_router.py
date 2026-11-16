@@ -4,6 +4,7 @@ import hashlib
 import secrets
 from datetime import timedelta
 from typing import Annotated
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -159,6 +160,9 @@ class CaptureRequest(DomainModel):
     @classmethod
     def validate_source(cls, value):
         try:
+            host = (urlsplit(value).hostname or "").lower().rstrip(".")
+            if host == "wodup.com" or host.endswith(".wodup.com"):
+                raise ValueError("Paste the class text or add screenshots")
             return _safe_url(value)
         except ExtractionFailure as error:
             raise ValueError("Share a public http(s) workout link") from error

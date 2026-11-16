@@ -120,6 +120,34 @@ def test_alternating_emom_counts_total_minutes_and_warns_when_uneven(minutes, mo
     assert any("do not divide evenly" in warning for warning in warnings) is uneven
 
 
+STATIONS = [("Burpees", 10), ("Air Squats", 12), ("Push-Ups", 8), ("Lunges", 14)]
+
+
+@pytest.mark.parametrize("title,header,stations,intervals,rotation,review", [
+    # "(3 rounds)" is three passes through four minute stations: twelve intervals.
+    ("Every minute for 12 minutes (3 rounds):", "Minute {a}", 4, 12, "alternating", False),
+    ("Every minute for 12 minutes (3 rounds):", "Minute {a}:", 4, 12, "alternating", False),
+    ("Every 2 minutes for 16 minutes (2 rounds):", "Minutes {b} - {c}", 4, 8, "alternating", False),
+    # Six minute slots cannot rotate through two movements; one movement has no rotation.
+    ("Every minute for 12 minutes (2 rounds):", "Minute {a}", 2, 2, "alternating", True),
+    ("Every minute for 12 minutes (3 rounds):", None, 1, 3, None, True),
+])
+def test_emom_rounds_are_passes_through_minute_stations(title, header, stations, intervals, rotation, review):
+    moves = STATIONS[:stations]
+    rows = [f"{reps} {name}" for name, reps in moves]
+    lines = [title] + [line for n, row in enumerate(rows)
+                       for line in ([header.format(a=n + 1, b=2 * n + 1, c=2 * n + 2)] if header else []) + [row]]
+    interval = 120 if title.startswith("Every 2 minutes") else 60
+    clock = 16 if "16" in title else 12
+    data = raw({"mode": "emom", "interval_seconds": interval, "intervals": clock * 60 // interval, "rotation": rotation},
+               [quoted(name, ("reps_min", row), reps_min=reps, reps_max=reps) for (name, reps), row in zip(moves, rows)],
+               title)
+    workout, warnings, _ = ground("\n".join(lines), data)
+    expected = {"mode": "emom", "interval_seconds": interval, "intervals": intervals}
+    assert execution(workout) == expected | ({"rotation": rotation} if rotation else {})
+    assert any("timed execution" in warning for warning in warnings) is review
+
+
 def test_min_one_min_two_alone_establishes_alternating_rotation():
     text = "EMOM 20\nMin 1: 10 Burpees\nMin 2: 15 Air Squats"
     data = raw({"mode": "emom", "interval_seconds": 60, "intervals": 20, "rotation": None},
@@ -188,7 +216,9 @@ def test_rounds_for_time_count_only_under_for_time():
     assert untyped.blocks[0].rounds is None and not _numeric_supported("rounds", 5, text)
 
 
-@pytest.mark.parametrize("quote", ["AMRAP 15", "15:00 AMRAP", "AMRAP 15'", "AMRAP 15 minutes"])
+@pytest.mark.parametrize("quote", ["AMRAP 15", "15:00 AMRAP", "AMRAP 15'", "AMRAP 15 minutes",
+                                   "As Many Rounds and Reps as possible in 15 minutes",
+                                   "As many rounds + reps as possible in 15 minutes"])
 def test_amrap_cap_accepts_bare_and_clock_minutes(quote):
     text = f"{quote}: 10 Burpees"
     data = raw({"mode": "amrap", "time_cap_seconds": 900},

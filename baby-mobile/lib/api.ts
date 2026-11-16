@@ -103,6 +103,12 @@ export class MovedError extends ApiError {
     super("This entry moved. It’s being sent to where it lives now.", 409);
   }
 }
+/** Birth news reached the API before the birth date did. It's kept and sent again once the birth has synced. */
+export class NotBornYet extends ApiError {
+  constructor() {
+    super("The birth hasn’t reached Håfa Baby yet. Your news will go once it has.", 409);
+  }
+}
 /** Create family was refused because a phone signed in to this account hasn't updated. */
 export class PhonesNotReady extends ApiError {
   constructor(readonly readiness: FamilyReadiness) {
@@ -221,6 +227,7 @@ export function createBabyApi(
           if (detail.code === "moved" && detail.space_id && detail.generation !== undefined && detail.record)
             throw new MovedError({ space_id: detail.space_id, generation: detail.generation, revision: detail.revision ?? null, record: detail.record });
           if (detail.code === "phones_not_ready") throw new PhonesNotReady({ ready: false, phones: detail.phones ?? [], older_client_at: detail.older_client_at });
+          if (detail.code === "not_born") throw new NotBornYet();
           if (detail.code === "family_exit_required") throw new ApiError("Leave your family first. Your family’s data isn’t erased from here.", 409);
         }
         const safe = refusal || (
@@ -428,6 +435,9 @@ export function createBabyApi(
     dueReminders: () => request<{ items: DueReminder[] }>("/reminders/due"),
     upcomingReminders: () => request<{ items: UpcomingReminder[] }>("/reminders/upcoming"),
     dismissReminder: (id: string) => request<void>(`/reminders/${encodeURIComponent(id)}/dismiss`, "POST", {}),
+    /** Labor or birth news, pushed to the family members named. The same id is the same news. `push` says, per person, whether a phone will show it. */
+    familyNews: (body: { id: string; news: "labor" | "birth"; child_id: string; to: string[] }) =>
+      request<import("./family-news").NewsAnswer>("/family/news", "POST", body),
     tappedReminder: (id: string) => request<TappedReminder>(`/reminders/${encodeURIComponent(id)}/tap`),
     pushPrefs: () => request<ReminderPrefs>("/push/prefs"),
     savePushPrefs: (patch: PrefsPatch, g: Fence) => request<ReminderPrefs>("/push/prefs", "PATCH", patch, g),

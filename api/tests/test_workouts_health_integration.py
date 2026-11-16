@@ -771,3 +771,14 @@ async def test_export_rejects_forged_paused_duration(api):
     )
     assert response.status_code == 422
     assert await count(api, HealthExportIntent) == 0
+
+
+@pytest.mark.parametrize("activity", ["cross_training", "hiit", "functional_strength"])
+async def test_class_export_requires_capability_even_when_intent_is_cached(api, activity):
+    await connect(api, write_actuals=True)
+    row = await actual(api, activity_type=activity)
+    for supported in [True, False, True]:
+        response = await api.client.post("/api/v1/workouts/health/apple_health/exports", headers=HEADERS,
+            json={"session_id": str(row.id), "expected_revision": 1, **({"supports_class_activity_types": True} if supported else {})})
+        assert response.status_code == 200, response.text
+        assert response.json()["actual"]["activity"] == (activity if supported else "other")

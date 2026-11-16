@@ -10,13 +10,12 @@ import { runningFeed } from "@/lib/feed-reducer";
 import { dayKey, summaryLine } from "@/lib/tracker";
 import { dayOverlay } from "@/lib/care-summary";
 import { useCareSummary } from "@/lib/use-care-summary";
-import { babyArrived } from "@/lib/quick-care";
-import { messageFor } from "@/lib/models";
-import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, tap, typeScale, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { DueReminders } from "@/components/due-reminders";
+import { NewsAsk } from "@/components/news-ask";
 import { WaitingShares } from "@/components/waiting-shares";
 import { CareGlance, useMinuteClock } from "@/components/care-glance";
 import { BabySetupCard } from "@/components/stage-options";
@@ -29,7 +28,10 @@ import { trackerOn, trackersFor } from "../../../lib/trackers";
 import { BabyAgeCard, PregnancyHero, TipSection, WeekDetails } from "@/components/tips";
 import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
-import { dueLine, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
+import { dueLine, pregnancyProgress, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
+import { findBag, isBag, packedLine } from "../../../lib/hospital-bag";
+import { hiddenOnToday, weekPlan } from "../../../lib/this-week";
+import { DayOfLife, ThisWeek } from "../../../components/this-week";
 import { useTimingTips } from "@/lib/use-timing-tips";
 import { journalHome } from "../../../lib/use-open-journal";
 
@@ -39,7 +41,6 @@ const dockBelow = 1.5;
 export default function Today() {
   const scroller = useRef<ScrollView>(null);
   const b = useBaby(), c = useColors(),
-    toast = useToast(),
     now = useMinuteClock(),
     // Here, because a baby who's due and one who's born each get their own layout, and a half-typed question outlasts both.
     visitDrafts = useVisitDrafts(),
@@ -51,7 +52,9 @@ export default function Today() {
     records = b.records.filter((r) => !r.child_id || r.child_id === child?.id),
     latestCare = useTodayCare(),
     glance = careGlance(latestCare.all, child?.id ?? null, now, b.state.bootstrap!.profile.timezone),
-    routines = records.filter((r) => routineToday(r, now)),
+    // The bag has its own row, so the Lists row never takes its name.
+    routines = records.filter((r) => routineToday(r, now) && !isBag(r)),
+    bag = findBag(b.records),
     stage = todayStage(child, today),
     pregnant = stage === "pregnancy",
     expecting = pregnant || stage === "needs_birth",
@@ -84,23 +87,13 @@ export default function Today() {
     ];
   const titleText = child?.name.trim() || "Today";
   const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id, stage: "here" } });
-  /** One tap, since it may be the only hand free. Settings changes the date if it was another day. */
-  async function arrived() {
-    if (!child) return;
-    try {
-      const undo = await babyArrived(b, child, dayKey(today));
-      tap("success");
-      toast("Birth date set to today. You can change it in Settings.", { label: "Undo", onPress: async () => {
-        try { await undo(); toast("Undone."); } catch (e) { toast(messageFor(e)); }
-      } });
-    } catch (e) { toast(messageFor(e)); }
-  }
   if (expecting && child) return (
     <Screen scrollRef={scroller} title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       <DueReminders />
+      <NewsAsk />
       <WaitingShares />
       {children.length > 1 && <ChildFilter />}
       <LegacyTimer />
@@ -111,12 +104,19 @@ export default function Today() {
       </Card>}
       {tiles.length ? <MoreLogs child={child} now={now} shown={tiles} title="" big onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} /> : whatShows}
       {/* Right under the tiles, so in labour she needn't scroll for it. */}
-      {pregnant && parentHere && <Row title="Baby’s here?" detail="Sets today as the birth date and starts feeding, sleep and diaper logs" icon="heart-outline"
-        hint="Saves straight away, with Undo" onPress={() => void arrived()} />}
+      {pregnant && parentHere && <Row title="Baby’s here?" detail="Add the day and time, and tell your family. Starts feeding, sleep and diaper logs" icon="heart-outline"
+        hint="Opens one short screen" onPress={() => router.push({ pathname: "/birth", params: { id: child.id } })} />}
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
+      {pregnant && <ThisWeek child={child} today={today} />}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       {pregnant && <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />}
-      <Grouped>{keptRows}</Grouped>
+      <Grouped>
+        {/* From the third trimester, where she'd look for it, when This week (which leads with it) is hidden or has ended. It's also in Lists & routines. */}
+        {pregnant && (pregnancyProgress(child.due_date!, today)?.week ?? 0) >= 28 && (hiddenOnToday(b.state.hiddenToday, "this_week")
+          || !weekPlan(pregnancyProgress(child.due_date!, today)?.week ?? 0)) && <Row key="bag" numericDetail title="Hospital bag"
+          detail={bag ? packedLine(bag) : "A starter list to pack from"} icon="bag-handle-outline" onPress={() => router.push("/hospital-bag")} />}
+        {keptRows}
+      </Grouped>
     </Screen>
   );
   const feedsShow = showing("breast", "bottle"),
@@ -150,6 +150,7 @@ export default function Today() {
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />
       </View>}
+      {stage === "baby" && child && <DayOfLife child={child} today={today} />}
       {stage === "baby" && child && <BabyAgeCard child={child} now={today} tips={tipsNow.rows} />}
       <Grouped>
         {showCare && showing("sleep") && <Row title={sleepTitle} detail={sleepDetail} numericDetail icon={kindIcon.sleep}

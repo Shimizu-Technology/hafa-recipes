@@ -8,7 +8,7 @@ import type { Workout } from "./models";
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
   fontScale: 1,
   owner: "owner", generation: 1, current: true, storage: null as { isCurrent(): boolean } | null,
-  listeners: new Set<(state: string) => void>(), writeFailure: false, saveSession: vi.fn(), replace: vi.fn(), dismiss: vi.fn(), success: vi.fn(), announce: vi.fn() }));
+  keepAwake: vi.fn(), listeners: new Set<(state: string) => void>(), writeFailure: false, saveSession: vi.fn(), replace: vi.fn(), dismiss: vi.fn(), success: vi.fn(), announce: vi.fn() }));
 vi.mock("@/lib/context", async () => {
   const { useSyncExternalStore } = await import("react");
   const api = { sessions: async () => [], saveSession: fixture.saveSession };
@@ -31,6 +31,9 @@ vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy"
   ListGroup: "ListGroup", Stack: "Stack", haptics: { light() {}, tick() {}, success: fixture.success } }));
 vi.mock("@/components/training/number-stepper", () => ({ NumberStepper: "NumberStepper" }));
 vi.mock("@/components/training/format-session", () => ({ FormatSession: "FormatSession" }));
+vi.mock("@/components/training/lead-in", () => ({ LeadIn: "LeadIn" }));
+vi.mock("@/components/training/kept-running-sheet", () => ({ KeptRunningSheet: "KeptRunningSheet" }));
+vi.mock("@/components/training/keep-awake", () => ({ useKeepAwakeWhile: fixture.keepAwake }));
 vi.mock("@/components/training/set-entry", () => ({ SetNumberField: "SetNumberField" }));
 vi.mock("@/components/training/session-parts", () => ({ LastLogged: "LastLogged", RestDone: "RestDone", SetProgress: "SetProgress",
   announce: fixture.announce }));
@@ -62,17 +65,59 @@ beforeEach(async () => {
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); vi.useRealTimers(); });
 
-it("shows the typed cap and explicitly pauses once on background without counting time away", async () => {
+it("shows the typed cap and keeps the AMRAP clock running through Control Center, lock and app switch", async () => {
   expect(text()).toContain("20:00 time cap"); expect(footer().props.title).toBe("Log exercise");
+  expect(fixture.keepAwake).toHaveBeenLastCalledWith(true, "training:client");
   const pause = vi.spyOn(fixture.store!, "pause");
-  await act(async () => { fixture.listeners.forEach((listener) => { listener("inactive"); listener("background"); }); }); await settle();
-  expect(pause).toHaveBeenCalledTimes(1); expect(fixture.store!.snapshot().active!.paused).toBe(true);
-  await act(async () => { vi.advanceTimersByTime(60000); }); await settle();
-  expect(fixture.store!.snapshot().active!.active_milliseconds).toBe(0);
-  expect(footer().props.disabled).toBe(true); expect(text()).toContain("20:00");
+  await act(async () => { vi.setSystemTime(40_000); fixture.listeners.forEach((listener) => { listener("inactive"); listener("background"); }); }); await settle();
+  expect(pause).not.toHaveBeenCalled();
+  expect(fixture.store!.snapshot().active).toMatchObject({ paused: false, checkpoint_at: 40_000 });
+  await act(async () => { fixture.listeners.forEach((listener) => listener("active")); vi.advanceTimersByTime(60000); }); await settle();
+  expect(text()).toContain("18:30");
+  expect(footer().props.disabled).toBe(false);
 });
 
-it("keeps an interval clock running in the background, saves when it left, and restores it paused there after the app closes", async () => {
+it("drafts from an older version still pause their AMRAP on background", async () => {
+  const saved = JSON.parse(memory.get([...memory.keys()][0])!);
+  delete saved.active.clock_policy;
+  memory.set([...memory.keys()][0], JSON.stringify(saved));
+  const older = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null, setItem: async (key, value) => { memory.set(key, value); },
+    removeItem: async (key) => { memory.delete(key); } }, "owner", 1);
+  await older.load(); await older.pause(false);
+  await act(async () => { renderer!.unmount(); fixture.store = older;
+    renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Training))); }); await settle();
+  await act(async () => { fixture.listeners.forEach((listener) => listener("background")); }); await settle();
+  expect(older.snapshot().active!.paused).toBe(true);
+});
+
+it("counts down before the clock, and Start now skips it", async () => {
+  await act(async () => { await fixture.store!.discard();
+    await fixture.store!.start(workout, { workout_id: "source", workout_revision: 1 }, "lead", undefined, undefined, { lead_in_seconds: 3 }); }); await settle();
+  const leadIn = renderer!.root.findByType("LeadIn" as never);
+  expect(leadIn.props).toMatchObject({ until: 13_000, label: "AMRAP 20" });
+  await act(async () => { vi.setSystemTime(11_000); leadIn.props.onSkip(); }); await settle();
+  expect(fixture.store!.snapshot().active!.active_started_at).toBe(11_000);
+  await act(async () => { renderer!.root.findByType("LeadIn" as never).props.onDone(); }); await settle();
+  expect(renderer!.root.findAllByType("LeadIn" as never)).toHaveLength(0);
+});
+
+it("after a relaunch, asks once whether the clock that kept running is right", async () => {
+  await act(async () => { vi.setSystemTime(300_000); await fixture.store!.checkpoint(); }); await settle();
+  vi.setSystemTime(400_000);
+  const reopened = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null, setItem: async (key, value) => { memory.set(key, value); },
+    removeItem: async (key) => { memory.delete(key); } }, "owner", 1);
+  await reopened.load();
+  await act(async () => { renderer!.unmount(); fixture.store = reopened;
+    renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Training))); }); await settle();
+  const sheet = renderer!.root.findByType("KeptRunningSheet" as never);
+  expect(sheet.props).toMatchObject({ cap: 1200, busy: false });
+  expect(sheet.props.d.clock_kept_running).toEqual({ left_at: 300_000 });
+  await act(async () => { sheet.props.onStoppedAt(350_000); }); await settle();
+  expect(reopened.snapshot().active).toMatchObject({ paused: true, active_milliseconds: 340_000 });
+  expect(renderer!.root.findAllByType("KeptRunningSheet" as never)).toHaveLength(0);
+});
+
+it("keeps an interval clock running in the background, saves when it left, and keeps it running after the app closes", async () => {
   const emom: Workout = { id: "emom", generation: 1, revision: 1, title: "EMOM 20", kind: "session", provenance: "source",
     blocks: [{ id: "main", label: "Main", grouping: "interval", execution: { mode: "emom", interval_seconds: 60, intervals: 20, rotation: null },
       exercises: [{ name: "Burpees", reps_min: 10 }] }] };
@@ -83,11 +128,11 @@ it("keeps an interval clock running in the background, saves when it left, and r
   // Unlike an AMRAP, the wall clock keeps going while away; nothing is marked for the person.
   expect(pause).not.toHaveBeenCalled();
   expect(fixture.store!.snapshot().active).toMatchObject({ paused: false, checkpoint_at: 85_000, actuals: [] });
-  // The app is closed in the background and relaunched much later: it resumes paused at the moment it left.
+  // The app is closed in the background and relaunched later: the clock ran on, and the screen asks about it.
   const relaunched = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null, setItem: async (key, value) => { memory.set(key, value); },
-    removeItem: async (key) => { memory.delete(key); } }, "owner", 1, () => 9_000_000);
+    removeItem: async (key) => { memory.delete(key); } }, "owner", 1, () => 200_000);
   await relaunched.load();
-  expect(relaunched.snapshot().active).toMatchObject({ paused: true, active_milliseconds: 75_000, actuals: [] });
+  expect(relaunched.snapshot().active).toMatchObject({ paused: false, clock_kept_running: { left_at: 85_000 }, actuals: [] });
 });
 
 it("expiry does not imply completion; actual work enables an explicit cap save and preserves the original source", async () => {

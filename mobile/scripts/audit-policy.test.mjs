@@ -51,9 +51,7 @@ describe('mobile runtime audit policy', () => {
 const reviewedAt = Date.parse('2026-10-24T12:00:00Z');
 const buildToolAdvisories = [
   { packageName: 'decode-uri-component', source: 1243857, parent: 'node_modules/query-string' },
-  { packageName: 'glob', source: 1244013, parent: 'node_modules/@expo/fingerprint' },
   { packageName: 'minimatch', source: 1244623, parent: 'node_modules/@expo/fingerprint' },
-  { packageName: 'minimatch', source: 1244623, parent: 'node_modules/glob' },
 ];
 
 describe.each(buildToolAdvisories)('$packageName temporary dependency review', (advisory) => {
@@ -119,11 +117,6 @@ describe.each(buildToolAdvisories)('$packageName temporary dependency review', (
   });
 });
 
-it('rejects a change to the patched glob the other Expo packages use', () => {
-  const changed = structuredClone(lockfile);
-  changed.packages['node_modules/@expo/cli/node_modules/glob'].version = '13.0.0';
-  expect(isAcceptedAdvisory({ packageName: 'glob', source: 1244013, lockfile: changed, now: reviewedAt })).toBe(false);
-});
 
 it.each([
   ['deepmerge', 1243505], ['zod', 1243066], ['braces', 1240992], ['minimatch', 1244012],
