@@ -37,11 +37,51 @@ class LoadOption(DomainModel):
     load_unit: Literal["kg", "lb"]
     load_convention: Literal["total", "per_hand", "added", "assistance"] = "total"
     label: str | None = Field(default=None, max_length=40, exclude_if=lambda v: v is None)
+    # "Men: 15-20kg" is a range for one option.
+    load_max: float | None = Field(default=None, ge=0, le=2000, exclude_if=lambda v: v is None)
+
+    @model_validator(mode="after")
+    def valid_range(self):
+        if self.load_max is not None and self.load_max < self.load:
+            raise ValueError("load_max cannot be below load")
+        return self
 
 
 class RelativeLoad(DomainModel):
     basis: Literal["bodyweight", "one_rep_max"]
     percent: float = Field(gt=0, le=300)
+    # "~55-60% of 1RM".
+    percent_max: float | None = Field(default=None, gt=0, le=300, exclude_if=lambda v: v is None)
+
+    @model_validator(mode="after")
+    def valid_range(self):
+        if self.percent_max is not None and self.percent_max < self.percent:
+            raise ValueError("percent_max cannot be below percent")
+        return self
+
+
+class SetPrescription(DomainModel):
+    """One listed set of a class strength part: "Set 4 – Max reps" at ~90% 1RM."""
+
+    reps_min: int | None = Field(default=None, ge=1, le=1000)
+    reps_max: int | None = Field(default=None, ge=1, le=1000)
+    max_reps: bool | None = Field(default=None, exclude_if=lambda v: v is None)
+    relative_load: RelativeLoad | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @model_validator(mode="after")
+    def valid_reps(self):
+        if self.reps_min is not None and self.reps_max is not None and self.reps_min > self.reps_max:
+            raise ValueError("reps_min cannot exceed reps_max")
+        return self
+
+
+class ValueOption(DomainModel):
+    """A per-athlete choice that is not a load: 10/12 seconds, a 24/20 in box."""
+
+    quantity: Literal["duration_seconds", "height"]
+    value: float = Field(gt=0, le=86400)
+    unit: Literal["s", "in", "cm"]
+    label: str | None = Field(default=None, max_length=40, exclude_if=lambda v: v is None)
 
 
 class Benchmark(DomainModel):
@@ -73,6 +113,11 @@ class ExercisePrescription(DomainModel):
     duration_seconds_max: int | None = Field(default=None, ge=1, le=86400, exclude_if=lambda v: v is None)
     load_options: list[LoadOption] | None = Field(default=None, min_length=2, max_length=4, exclude_if=lambda v: v is None)
     relative_load: RelativeLoad | None = Field(default=None, exclude_if=lambda v: v is None)
+    # Class rows the server reads from source text; absent keys keep old hashes.
+    set_prescriptions: list[SetPrescription] | None = Field(default=None, min_length=1, max_length=20, exclude_if=lambda v: v is None)
+    value_options: list[ValueOption] | None = Field(default=None, min_length=2, max_length=4, exclude_if=lambda v: v is None)
+    calories: int | None = Field(default=None, ge=1, le=10000, exclude_if=lambda v: v is None)
+    calories_min: int | None = Field(default=None, ge=1, le=10000, exclude_if=lambda v: v is None)
     exercise_id: str | None = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     provenance: Provenance = "user"
@@ -115,6 +160,8 @@ class ExercisePrescription(DomainModel):
                 raise ValueError("reps_min cannot exceed reps_max")
         if self.load is not None and (self.load_unit is None or self.load_convention is None):
             raise ValueError("load requires a unit and load convention")
+        if self.calories_min is not None and (self.calories is None or self.calories_min > self.calories):
+            raise ValueError("Calorie range requires a maximum at least equal to its minimum")
         return self
 
 
@@ -169,6 +216,8 @@ WorkoutExecution = Annotated[
 class WorkoutBlock(DomainModel):
     role: Literal["warm_up", "main", "accessory", "cool_down"] | None = Field(default=None, exclude_if=lambda v: v is None)
     rest_after_seconds: int | None = Field(default=None, ge=0, le=3600, exclude_if=lambda v: v is None)
+    # "Within 10 minutes:" for the part's listed sets.
+    time_window_seconds: int | None = Field(default=None, ge=1, le=86400, exclude_if=lambda v: v is None)
     score_kind: Literal["auto", "rounds_reps", "time", "load", "reps", "none"] | None = Field(default=None, exclude_if=lambda v: v is None)
     instructions: list[Annotated[str, Field(min_length=1, max_length=2000)]] | None = Field(default=None, max_length=20, exclude_if=lambda v: v is None)
     id: str = Field(min_length=1, max_length=100)

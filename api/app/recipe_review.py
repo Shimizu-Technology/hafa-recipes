@@ -661,8 +661,23 @@ def apply_recipe_review(
     return assessment
 
 
+SHARED_COPY_MESSAGE = "This recipe was saved from someone's link, so only they can publish it."
+
+
+def reject_shared_copy_publish(extracted) -> None:
+    """A private copy saved from a Håfa link stays private: its cook never chose Discover for it."""
+
+    if isinstance(extracted, dict) and extracted.get("sharedCopy"):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SHARED_COPY_NOT_PUBLISHABLE", "message": SHARED_COPY_MESSAGE},
+        )
+
+
 def require_recipe_publishable(recipe) -> None:
     """Allow usable recipes with advisory warnings; keep incomplete drafts private."""
+
+    reject_shared_copy_publish(getattr(recipe, "extracted", None))
 
     if getattr(recipe, "review_state", None) == "source_incomplete" or source_is_incomplete(
         getattr(recipe, "extracted", None), extraction_method=getattr(recipe, "extraction_method", None)

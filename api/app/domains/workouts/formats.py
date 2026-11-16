@@ -131,7 +131,7 @@ def _emom(clause):
         number = int(count[1] or count[2])
         intervals = facts.get("intervals")
         if count[3] and count[3].lower().startswith("round") and intervals and intervals > number and intervals % number == 0:
-            # "Every 2 minutes for 20 minutes (2 rounds)" is two passes through
+            # "Every 2 minutes for 16 minutes (2 rounds)" is two passes through
             # a station rotation; read_format checks the stations fit.
             facts["cycles"] = number
             return facts

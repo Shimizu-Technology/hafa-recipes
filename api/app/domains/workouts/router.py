@@ -101,7 +101,7 @@ class EnrollmentRequest(DomainModel):
 
 
 class EnrollmentResponse(DomainModel):
-    features: list[str] = Field(default_factory=lambda: ["session_results_v1", "class_parts_v1"])
+    features: list[str] = Field(default_factory=lambda: ["session_results_v1", "class_parts_v1", "class_rows_v1"])
     enrolled: bool
     generation: int | None
     disclosure_version: int = DISCLOSURE_VERSION
