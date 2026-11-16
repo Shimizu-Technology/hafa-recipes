@@ -31,6 +31,7 @@ vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy"
   ListGroup: "ListGroup", Stack: "Stack", haptics: { light() {}, tick() {}, success: fixture.success } }));
 vi.mock("@/components/training/number-stepper", () => ({ NumberStepper: "NumberStepper" }));
 vi.mock("@/components/training/format-session", () => ({ FormatSession: "FormatSession" }));
+vi.mock("@/components/training/class-session", () => ({ ClassSession: "ClassSession" }));
 vi.mock("@/components/training/lead-in", () => ({ LeadIn: "LeadIn" }));
 vi.mock("@/components/training/kept-running-sheet", () => ({ KeptRunningSheet: "KeptRunningSheet" }));
 vi.mock("@/components/training/keep-awake", () => ({ useKeepAwakeWhile: fixture.keepAwake }));
