@@ -228,4 +228,32 @@ describe('share recipe sheet', () => {
     await act(async () => m.blur!());
     expect(m.close).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['backdrop', 'header back', 'blur'])('never sends or copies a link that finishes creating after the sheet was left (%s)', async way => {
+    let finish!: (value: unknown) => void;
+    m.create.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const root = await open(recipe(false));
+    await act(async () => button(root, 'Send link').props.onPress());
+    let pending!: Promise<void>;
+    await act(async () => { pending = button(root, 'Create link').props.onPress(); });
+    await act(async () => {
+      if (way === 'blur') m.blur!();
+      else if (way === 'header back') root.container.queryAll((n: any) => n.type === 'Pressable' && n.props.accessibilityLabel === 'Back')[0].props.onPress();
+      else root.container.queryAll((n: any) => n.type === 'Pressable')[0].props.onPress();
+    });
+    await act(async () => { finish({ stored: { url: TOKEN_URL, createdAt: '2026-11-16T03:00:00Z' } }); await pending; });
+    expect(m.create).toHaveBeenCalledTimes(1);
+    expect(m.share).not.toHaveBeenCalled();
+    expect(m.copy).not.toHaveBeenCalled();
+    expect(m.toast).not.toHaveBeenCalled();
+  });
+
+  it('says the link changed on another device instead of sending a dead link', async () => {
+    m.create.mockRejectedValue(Object.assign(new Error('replaced'), { code: 'LINK_REPLACED_ELSEWHERE' }));
+    const root = await open(recipe(false));
+    await act(async () => button(root, 'Send link').props.onPress());
+    await act(async () => button(root, 'Create link').props.onPress());
+    expect(m.share).not.toHaveBeenCalled();
+    expect(m.toast).toHaveBeenCalledWith({ message: 'This link was just changed on another device. Try again.', tone: 'error' });
+  });
 });

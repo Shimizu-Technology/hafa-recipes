@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View as RNView, useWindowDimensions } from 'react-native';
 import { useNavigation } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -69,6 +69,14 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
   const model = getShareSheetModel(mode, linkState);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
+  // Each way out of a confirmation bumps this, so a link that finishes creating afterwards never opens
+  // the share sheet or writes the clipboard behind the person's back. The server work still completes.
+  const delivery = useRef(0);
+  const dropPendingDelivery = () => { delivery.current += 1; };
+  const leave = () => { dropPendingDelivery(); onClose(); };
+  const backFromConfirm = () => { dropPendingDelivery(); setConfirm(null); };
+  useEffect(() => { if (!visible) dropPendingDelivery(); }, [visible]);
+  useEffect(() => () => dropPendingDelivery(), []);
   const original = recipe.extracted.servings;
   const scaled = original && scaledServings && scaledServings !== original ? scaledServings : null;
   // Text follows what the reader is looking at: a scaled recipe starts on its scaled servings.
@@ -81,7 +89,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
   }, [visible]);
   // Another screen opening (a tapped link, a notification) hides this one; don't leave the sheet over it.
   const navigation = useNavigation();
-  useEffect(() => (visible ? navigation.addListener('blur', onClose) : undefined), [visible, navigation, onClose]);
+  useEffect(() => (visible ? navigation.addListener('blur', leave) : undefined));
   // At accessibility text sizes the card drops to title and credit, and Send link comes right after it.
   const { fontScale } = useWindowDimensions();
   const large = fontScale * useContext(TextScaleContext) >= 1.6;
@@ -144,13 +152,20 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
         showToast({ message: 'Link turned off', tone: 'success' });
         return;
       }
-      const { stored } = await link.create.mutateAsync(undefined);
+      const ticket = delivery.current;
+      const { stored } = await link.create.mutateAsync(undefined).catch(error => {
+        if (delivery.current !== ticket) return { stored: null };
+        throw error;
+      });
+      if (delivery.current !== ticket || !stored) return;
       setConfirm(null);
       if (confirm.intent) await deliver(stored.url, confirm.intent).catch(() => undefined);
       else showToast({ message: 'New link ready', tone: 'success' });
-    } catch {
+    } catch (error) {
       showToast({
-        message: confirm.kind === 'revoke' ? 'Couldn’t turn off the link. Try again.' : 'Couldn’t create the link. Try again.',
+        message: (error as { code?: string })?.code === 'LINK_REPLACED_ELSEWHERE'
+          ? 'This link was just changed on another device. Try again.'
+          : confirm.kind === 'revoke' ? 'Couldn’t turn off the link. Try again.' : 'Couldn’t create the link. Try again.',
         tone: 'error',
       });
     } finally {
@@ -168,14 +183,14 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
     : <Button title="Send as text" onPress={() => void sendText()} />;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={confirm ? () => setConfirm(null) : onClose}>
-      <Pressable style={styles.overlay} onPress={onClose} accessible={false}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={confirm ? backFromConfirm : leave}>
+      <Pressable style={styles.overlay} onPress={leave} accessible={false}>
         <Pressable accessible={false} onPress={event => event.stopPropagation()}
           style={[styles.sheet, { backgroundColor: colors.background, borderColor: colors.hairline, paddingBottom: insets.bottom + spacing.md }]}>
           <RNView style={styles.grabberRow}><RNView style={[styles.grabber, { backgroundColor: colors.border }]} /></RNView>
           <RNView style={styles.header}>
             <Text accessibilityRole="header" maxFontSizeMultiplier={2} style={[styles.heading, { color: colors.text }]}>{confirmCopy ? confirmCopy.title : 'Share recipe'}</Text>
-            <Pressable onPress={confirm ? () => setConfirm(null) : onClose} hitSlop={8} style={styles.close}
+            <Pressable onPress={confirm ? backFromConfirm : leave} hitSlop={8} style={styles.close}
               accessibilityRole="button" accessibilityLabel={confirm ? 'Back' : 'Close'}>
               <Ionicons name={confirm ? 'arrow-back' : 'close'} size={22} color={colors.textSecondary} />
             </Pressable>
@@ -200,7 +215,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
                 <Text style={[styles.confirmText, { color: colors.text }]}>{confirmCopy.message}</Text>
                 <Button title={confirmCopy.action} onPress={runConfirm} loading={busy}
                   style={confirmCopy.destructive ? { backgroundColor: colors.destructive } : undefined} />
-                <Button title="Cancel" variant="ghost" onPress={() => setConfirm(null)} disabled={busy} />
+                <Button title="Cancel" variant="ghost" onPress={backFromConfirm} disabled={busy} />
               </RNView>
             ) : (
               <>
