@@ -3,7 +3,7 @@ import { nov17Class as w } from "./fixtures/nov17-class";
 import { buyInDone, endPart, planClass, setRun, skipPart, startPart, tapRound, type PartResult } from "./class-session";
 import { classPayload, cleanScore, parseTime, scoreProblem, scoredParts, wodupScore, wodupText } from "./class-scores";
 import { endClass } from "./class-training";
-import { createTrainingStore, unsentProblem } from "./training";
+import { createTrainingStore, pruneHistory, syncedHistoryLimit, unsentProblem } from "./training";
 import { createWorkoutsApi } from "./api";
 import type { SessionRequest, TrainingSession } from "./models";
 
@@ -206,4 +206,26 @@ it("keeps End class partial during the final timed part", async () => {
   await expect(store.finish("completed", undefined, "keep", "general_fitness")).rejects.toThrow("partial");
   await store.finish("partial", undefined, "keep", "general_fitness");
   expect(store.snapshot().history[0].request.status).toBe("partial");
+});
+
+it("never prunes class scores that exist only on this device", async () => {
+  const { store } = await classDay();
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  await store.sync(async (request) => ({ id: "saved", generation: 1, client_session_id: request.client_session_id,
+    title: w.title, started_at: request.started_at, status: request.status, content: { ...request, prescription_snapshot: w },
+    unsent_results: { results: request.results, segments: request.segments } }));
+  const retained = store.snapshot().history[0];
+  const newer = Array.from({ length: syncedHistoryLimit + 5 }, (_, i) => ({ ...retained, unsent_results: undefined,
+    request: { ...retained.request, client_session_id: `new-${i}` } }));
+  const pruned = pruneHistory([...newer, retained]);
+  expect(pruned).toHaveLength(syncedHistoryLimit + 1);
+  expect(pruned.at(-1)!.unsent_results).toEqual(retained.unsent_results);
+});
+it("keeps a completed timed class completed when correcting its score without set actuals", async () => {
+  const { store } = await classDay();
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  const prior = store.snapshot().history[0].request;
+  const saved = { id: "saved", generation: 1, content: { ...prior, status: "completed", prescription_snapshot: w } } as TrainingSession;
+  await store.correct(saved, [], "Corrected score", "score-correction", prior.results);
+  expect(store.snapshot().history[0].request.status).toBe("completed");
 });

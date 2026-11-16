@@ -108,7 +108,7 @@ export interface TrainingState {
 }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 // Synced results live on the server. Keep only the newest few on the device so
-// each local save stays small; queued and blocked results are always kept.
+// each local save stays small; queued, blocked, and locally retained scores are always kept.
 export const syncedHistoryLimit = 20;
 /**
  * Whether this device ran the session on the format clock. The server keeps no such fact, so a synced
@@ -119,7 +119,7 @@ export function ranFormatTimer(history: readonly SavedLocalSession[], clientSess
 }
 export function pruneHistory(history: SavedLocalSession[]) {
   let synced = 0;
-  return history.filter((item) => item.state !== "synced" || ++synced <= syncedHistoryLimit);
+  return history.filter((item) => item.state !== "synced" || !!item.unsent_results || ++synced <= syncedHistoryLimit);
 }
 function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
   state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
@@ -1182,7 +1182,8 @@ export function createTrainingStore(
           actuals: clone(actuals),
           // A correction can remove completed work; editing recorded cells cannot
           // prove that unrecorded work from a partial session was performed.
-          status: prior.status === "completed" && actuals.length > 0 && actuals.every((actual) => actual.completed)
+          status: prior.status === "completed" && actuals.every((actual) => actual.completed) &&
+            (actuals.length > 0 || (prior.actuals.length === 0 && !!(results ?? prior.results)?.length))
             ? "completed" : "partial",
           notes,
           supersedes_session_id: saved.id,

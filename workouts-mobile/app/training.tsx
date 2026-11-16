@@ -405,6 +405,7 @@ export default function Training() {
         roundLoad={(blockId, index, load, unit, convention) => { void store.classLoad(blockId, index, load, unit, convention)
           .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save the weight."); }); }}
         runDistance={(blockId, index, meters) => { void store.classRunDistance(blockId, index, meters)
+          .then(() => { if (sameSession()) setError(""); })
           .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save on this device."); }); }}
         discard={discard} />
     );

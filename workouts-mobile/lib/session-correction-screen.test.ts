@@ -7,11 +7,11 @@ import { createTrainingStore } from "./training";
 import type { SessionRequest, TrainingSession, Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
-  session: vi.fn(), saveSession: vi.fn(), replace: vi.fn() }));
+  ready: true, session: vi.fn(), saveSession: vi.fn(), replace: vi.fn() }));
 vi.mock("@/lib/context", async () => {
   const { useSyncExternalStore } = await import("react");
   return { useTraining: () => ({ owner: "owner", units: "imperial", api: { session: fixture.session, saveSession: fixture.saveSession } }),
-    useOfflineTraining: () => ({ store: fixture.store, ready: true, state: useSyncExternalStore(fixture.store!.subscribe, fixture.store!.snapshot) }) };
+    useOfflineTraining: () => ({ store: fixture.store, ready: fixture.ready, state: useSyncExternalStore(fixture.store!.subscribe, fixture.store!.snapshot) }) };
 });
 vi.mock("expo-router", () => ({ router: { replace: fixture.replace }, useLocalSearchParams: () => ({ id: "saved" }) }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "correction-client" }));
@@ -35,7 +35,7 @@ const button = (title: string) => renderer!.root.findAllByType("Button" as never
 const field = (label: string) => renderer!.root.findAllByType("Field" as never).find(node => node.props.label === label)!;
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  fixture.session.mockResolvedValue(saved); fixture.saveSession.mockRejectedValue(Error("offline fixture")); fixture.replace.mockReset();
+  fixture.ready = true; fixture.session.mockResolvedValue(saved); fixture.saveSession.mockRejectedValue(Error("offline fixture")); fixture.replace.mockReset();
   const memory = new Map<string, string>();
   fixture.store = createTrainingStore({ getItem: async key => memory.get(key) ?? null,
     setItem: async (key, value) => { memory.set(key, value); }, removeItem: async key => { memory.delete(key); } }, "owner", 1);
@@ -148,4 +148,14 @@ it("copies and corrects locally retained splits alongside locally retained score
   await act(async () => button("Correct these results").props.onPress());
   await act(async () => button("Save correction").props.onPress()); await settle();
   expect(fixture.store!.snapshot().history[0].request).toMatchObject({ results: [result], segments });
+});
+
+it("waits for local score history before allowing a correction to start", async () => {
+  await act(async () => button("Keep original results").props.onPress());
+  fixture.ready = false;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(SessionDetail))));
+  expect(button("Correct these results").props.disabled).toBe(true);
+  fixture.ready = true;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(SessionDetail))));
+  expect(button("Correct these results").props.disabled).toBe(false);
 });

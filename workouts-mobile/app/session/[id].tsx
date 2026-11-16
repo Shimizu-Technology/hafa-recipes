@@ -208,6 +208,7 @@ export default function SessionDetail() {
             ) : (
               <Button
                 title="Correct these results"
+                disabled={!offline.ready}
                 variant="ghost"
                 icon="create-outline"
                 onPress={() => {
