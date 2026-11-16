@@ -439,3 +439,45 @@ it.skipIf(process.platform !== "darwin")("generated native captures receive dist
     expect(execFileSync(binary, { encoding: "utf8" })).toContain("Distinct capture keys passed");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90000);
+
+it.skipIf(process.platform !== "darwin")("accepts Safari PDF and webpage providers while refusing five shared photos", () => {
+  const config = require("@expo/config").getConfig(new URL("..", import.meta.url).pathname).exp;
+  const share = config.plugins.find((entry: unknown) => Array.isArray(entry) && entry[0] === "expo-share-intent");
+  const rule = share[1].iosActivationRules;
+  expect(typeof rule).toBe("string");
+  expect(rule).not.toContain("TRUEPREDICATE");
+  const directory = mkdtempSync(join(tmpdir(), "workouts-share-activation-"));
+  try {
+    writeFileSync(join(directory, "rule.txt"), rule);
+    writeFileSync(join(directory, "main.swift"), `import Foundation
+let rule = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
+let predicate = NSPredicate(format: rule)
+func payload(_ providers: [[String]], items: Int = 1) -> [String: Any] {
+  ["extensionItems": Array(repeating: ["attachments": providers.map {
+    ["registeredTypeIdentifiers": $0]
+  }], count: items)]
+}
+let image = ["public.heic", "public.file-url"]
+let cases: [([String: Any], Bool)] = [
+  (payload([["com.adobe.pdf", "public.file-url"]]), true),
+  (payload([["com.apple.property-list"]]), true),
+  (payload([["public.url", "public.plain-text"]]), true),
+  (payload([["public.plain-text"]]), true),
+  (payload(Array(repeating: image, count: 4)), true),
+  (payload(Array(repeating: image, count: 5)), false),
+  (payload([image, ["com.adobe.pdf"]]), false),
+  (payload([["com.adobe.pdf"], ["com.adobe.pdf"]]), false),
+  (payload([["public.data"]]), false),
+  (payload([["public.movie"]]), false),
+  (payload([image], items: 2), false),
+  (payload([]), false),
+]
+for (input, expected) in cases { precondition(predicate.evaluate(with: input) == expected) }
+print("Bounded PDF, webpage and four-photo activation passed")
+`);
+    const binary = join(directory, "test");
+    execFileSync("xcrun", ["swiftc", join(directory, "main.swift"), "-o", binary], { timeout: 60000 });
+    expect(execFileSync(binary, [join(directory, "rule.txt")], { encoding: "utf8" }))
+      .toContain("Bounded PDF, webpage and four-photo activation passed");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 90000);
