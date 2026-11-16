@@ -43,7 +43,7 @@ import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { ShareRecipeSheet } from '@/components/ShareRecipeSheet';
-import { recipeCreditLine } from '@/lib/recipeShare';
+import { isSharedCopy, recipeCreditLine, SHARED_COPY_PUBLISH_NOTE } from '@/lib/recipeShare';
 import { 
   useRecipe, 
   useToggleRecipeSharing,
@@ -488,6 +488,10 @@ function RecipeDetailScreenContent() {
         Alert.alert(presentation.alertTitle, presentation.alertMessage);
       } catch (error: any) {
         const detail = error?.response?.data?.detail;
+        if (error?.response?.status === 409 && detail?.code === 'SHARED_COPY_NOT_PUBLISHABLE') {
+          Alert.alert('Can’t publish this recipe', detail.message || SHARED_COPY_PUBLISH_NOTE);
+          return;
+        }
         if (error?.response?.status === 409 && detail?.code === 'RECIPE_REVIEW_REQUIRED') {
           Alert.alert(
             'Review before publishing',
@@ -968,8 +972,13 @@ function RecipeDetailScreenContent() {
 
             <OfflineRecipeControl recipeId={id} eligible={Boolean(recipe.is_owner || savedStatus?.is_saved)} />
             
+            {/* A copy saved from someone's link stays private; only its cook can publish it. */}
+            {isOwner && isSharedCopy(recipe) && (
+              <RecipeDetailRow icon="lock-closed-outline" title="Private recipe" value={SHARED_COPY_PUBLISH_NOTE} stacked accessory={<></>} />
+            )}
+
             {/* Share to Library Toggle - only show for owner */}
-            {isOwner && (
+            {isOwner && !isSharedCopy(recipe) && (
               <RecipeDetailRow icon={recipe.is_public ? 'globe' : 'globe-outline'}
                 title={toggleSharingMutation.isPending ? 'Updating visibility...' : 'Public in Discover'}
                 onPress={handleToggleSharing} disabled={toggleSharingMutation.isPending}

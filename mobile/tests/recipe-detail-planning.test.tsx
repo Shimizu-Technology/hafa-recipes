@@ -11,7 +11,7 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ userId: 'owner' as string | null, tags: [] as string[], times: {} as Record<string, string>, isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, theme: 'dark' as 'light' | 'dark', activeTab: 'ingredients', totalEstimatedCost: 12, push: vi.fn() }));
+const m = vi.hoisted(() => ({ userId: 'owner' as string | null, tags: [] as string[], times: {} as Record<string, string>, isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, theme: 'dark' as 'light' | 'dark', activeTab: 'ingredients', totalEstimatedCost: 12, push: vi.fn(), sharedCopy: null as null | { sharedBy: string | null } }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
@@ -64,7 +64,7 @@ vi.mock('@/utils/haptics', () => ({ haptics: { selection: vi.fn() } }));
 vi.mock('@/hooks/useRecipes', () => ({
   useRecipe: () => ({ data: m.unavailable ? undefined : { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
     is_owner: true, is_public: m.isPublic, moderation_status: m.moderationStatus, review_state: 'ready', content_revision: m.revision,
-    extracted: { title: 'Rice', servings: m.servings, totalEstimatedCost: m.totalEstimatedCost, tags: m.tags, times: m.times,
+    extracted: { title: 'Rice', servings: m.servings, totalEstimatedCost: m.totalEstimatedCost, tags: m.tags, times: m.times, sharedCopy: m.sharedCopy,
       components: [{ name: 'Main', ingredients: [{ name: 'rice', quantity: '1', unit: 'cup' }], steps: ['Cook'] }] } } }),
   useToggleRecipeSharing: () => ({}), useIsRecipeSaved: () => ({}), useSaveRecipe: () => ({}),
   useUnsaveRecipe: () => ({}), useRecipeNote: () => ({}), useUpdateRecipeNote: () => ({}), useSimilarRecipes: () => ({ data: [] }),
@@ -238,4 +238,21 @@ it('keeps one Ask entry for guests and preserves the recipe chat intent through 
     expect(root.container.queryAll(node => node.type === 'RecipeChatModal')[0].props.isVisible).toBe(false);
     expect(guestRecipeIntent.bind(null)).toMatchObject({ recipeId: 'recipe-id', action: 'chat' });
   } finally { await act(async () => root.unmount()); m.userId = 'owner'; guestRecipeIntent.clear(); }
+});
+
+it('keeps a copy saved from someone’s link private, with the reason instead of the Public toggle', async () => {
+  const texts = (root: ReturnType<typeof createRoot>) => root.container.queryAll(node => node.type === 'Text')
+    .map(node => [node.props.children].flat().join(''));
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    expect(texts(root)).toContain('Public in Discover');
+    m.sharedCopy = { sharedBy: 'Lani' };
+    await act(async () => root.render(<RecipeDetailScreen />));
+    expect(texts(root)).not.toContain('Public in Discover');
+    expect(texts(root)).toContain('Saved from someone’s link. Only they can publish it.');
+    const row = root.container.queryAll(node => node.props.accessibilityLabel === 'Private recipe, Saved from someone’s link. Only they can publish it.');
+    expect(row).toHaveLength(1);
+    expect(row[0].props.onPress).toBeUndefined();
+  } finally { await act(async () => root.unmount()); m.sharedCopy = null; }
 });

@@ -43,9 +43,10 @@ export function RecipeDetailRow({ icon, title, value, accessory, stacked, last, 
   // Stacked rows keep the 12 pt icon gap at every text size (4 pt read as cramped beside large text);
   // the separator's inset assumes it too.
   const style = [styles.row, stacked && styles.stackedRow, { gap: stacked || fontScale < 2 ? 12 : 4 }];
+  const label = stacked && value ? `${title}, ${value}` : title;
   return onPress
-    ? <TouchableOpacity accessibilityLabel={stacked && value ? `${title}, ${value}` : title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
-    : <View style={style}>{content}</View>;
+    ? <TouchableOpacity accessibilityLabel={label} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
+    : <View style={style} {...(stacked ? { accessible: true, accessibilityLabel: props.accessibilityLabel ?? label } : {})}>{content}</View>;
 }
 
 /** Secondary action under Start cooking (Plan, Groceries, Scale): a white sheet with a hairline; shares the row evenly. */

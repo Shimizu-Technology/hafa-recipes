@@ -45,6 +45,13 @@ export function getSourceCredit(sourceUrl: string | null | undefined, sourceType
   return credit(`Recipe from ${host}`);
 }
 
+/** Saved from someone's Håfa link (#676): stays private; the API refuses to publish it (409). */
+export const SHARED_COPY_PUBLISH_NOTE = 'Saved from someone’s link. Only they can publish it.';
+
+export function isSharedCopy(recipe: { extracted?: { sharedCopy?: unknown } | null } | null | undefined): boolean {
+  return !!recipe?.extracted?.sharedCopy;
+}
+
 /**
  * The credit line under a recipe title. A copy saved from a Håfa link credits the original creator
  * ("Instagram post by @lanicooks") and who shared it; never the viewer's own name.
