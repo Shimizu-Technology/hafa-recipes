@@ -107,6 +107,9 @@ class ExtractionRequest(DomainModel):
     # receive AMRAP-only executions; an absent False keeps request digests stable.
     typed_formats: bool = Field(default=False, exclude_if=lambda value: not value)
     class_parts: bool = Field(default=False, exclude_if=lambda value: not value)
+    # Builds that show listed sets and per-athlete values opt in; others keep
+    # the earlier class shape (with those facts summarized in older fields).
+    class_rows: bool = Field(default=False, exclude_if=lambda value: not value)
     programming: Programming | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
@@ -121,6 +124,8 @@ class ExtractionRequest(DomainModel):
             raise ValueError("Paste class text or upload screenshots/a Full Page PDF; WodUp is never fetched")
         if self.programming is not None and not self.class_parts:
             raise ValueError("Programming hints require class_parts")
+        if self.class_rows and not self.class_parts:
+            raise ValueError("class_rows requires class_parts")
         if self.kind == "url" and not self.source_url:
             raise ValueError("A URL import requires source_url")
         if self.document_base64 and not self.class_parts and len(self.document_base64) > 4 * ((MAX_DOCUMENT_BYTES + 2) // 3):
@@ -178,6 +183,7 @@ class SourceImage:
 class SourceBundle:
     metadata: SourceMetadata
     class_parts: bool = field(default=False, kw_only=True)
+    class_rows: bool = field(default=False, kw_only=True)
     parts: list[SourcePart] = field(default_factory=list)
     images: list[SourceImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -355,6 +361,13 @@ field evidence; do not add general exercise instructions.
 """
 
 
+# The server reads these from class source rows; the model never supplies them.
+SERVER_READ_FIELDS = {
+    "ExercisePrescription": ("set_prescriptions", "value_options", "calories", "calories_min"),
+    "WorkoutBlock": ("time_window_seconds",), "LoadOption": ("load_max",), "RelativeLoad": ("percent_max",),
+}
+
+
 def _provider_workout_schema():
     schema = WorkoutContent.model_json_schema()
     for key in SERVER_CONTENT_FIELDS:
@@ -362,8 +375,11 @@ def _provider_workout_schema():
     schema["required"] = [
         key for key in schema.get("required", []) if key not in SERVER_CONTENT_FIELDS
     ]
-    for key in ("SourceContext", "SourceTextPart"):
+    for key in ("SourceContext", "SourceTextPart", "SetPrescription", "ValueOption"):
         schema.get("$defs", {}).pop(key, None)
+    for name, keys in SERVER_READ_FIELDS.items():
+        for key in keys:
+            schema["$defs"][name]["properties"].pop(key, None)
 
     def strict_union(node):
         # Strict structured output accepts anyOf, not a discriminated oneOf.
@@ -2069,7 +2085,8 @@ class WorkoutExtractor:
 
     async def extract(self, request: ExtractionRequest) -> WorkoutExtractionResult:
         progress = _current_progress.get()
-        source = SourceBundle(SourceMetadata(platform=request.kind), progress=progress, class_parts=request.class_parts)
+        source = SourceBundle(SourceMetadata(platform=request.kind), progress=progress, class_parts=request.class_parts,
+                              class_rows=request.class_rows)
         staged_media = False
         deadline = asyncio.get_running_loop().time() + MAX_EXTRACTION_SECONDS
 

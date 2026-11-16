@@ -7,8 +7,9 @@ from copy import deepcopy
 logger = logging.getLogger(__name__)
 LAYOUT_WARNING = "The page layout could not be read; review every part against the source."
 WORKOUT_KEYS = ("benchmark", "programming")
-BLOCK_KEYS = ("role", "rest_after_seconds", "score_kind", "instructions")
-EXERCISE_KEYS = ("segment", "distance_meters_min", "duration_seconds_max", "load_options", "relative_load")
+BLOCK_KEYS = ("role", "rest_after_seconds", "score_kind", "instructions", "time_window_seconds")
+EXERCISE_KEYS = ("segment", "distance_meters_min", "duration_seconds_max", "load_options", "relative_load",
+                 "set_prescriptions", "value_options", "calories", "calories_min")
 CLASS_PROMPT = """
 Class mode: A./B./Part A/A) headings are ordered parts; A1/A2 or D1/D2/D3
 under one heading form one superset. REST N MINS between parts is the previous
@@ -29,13 +30,13 @@ the programming and coach instructions. Never copy other members into output.
 """
 
 
-def apply_layout(workout, text, warnings):
+def apply_layout(workout, text, warnings, rows=False):
     """Read the page layout on a copy; a layout the reader cannot follow keeps the model's parts."""
     from app.domains.workouts.class_outline import apply_outline, stale_warnings
 
     draft, notes, renames = workout.model_copy(deep=True), [], {}
     try:
-        apply_outline(draft, text, notes, renames)
+        apply_outline(draft, text, notes, renames, rows)
     except Exception:  # noqa: BLE001 - a heuristic reader must never fail the import
         logger.exception("workouts_class_layout_failed")
         warnings.append(LAYOUT_WARNING)
@@ -166,7 +167,7 @@ def ground_class(workout, raw, source, warnings):
             warnings.append(f"Buy-in/cash-out structure for {block.label} needs review; source quotes were retained.")
     workout.programming = None  # Only explicit request hints can supply this private metadata.
     if text.strip():
-        apply_layout(workout, text, warnings)
+        apply_layout(workout, text, warnings, rows=source.class_rows)
 
 
 # Resume at programming, not at athlete initials inside a leaderboard.

@@ -324,8 +324,10 @@ def _unit_for(item, part):
     return next((unit for unit in part.items if name and name <= words(unit.heading)), None)
 
 
-def apply_outline(workout, text, warnings, renames=None):
+def apply_outline(workout, text, warnings, renames=None, rows=False):
     """Use the page layout for part boundaries, labels, notes and listed rows."""
+    from app.domains.workouts.class_rows import enrich_part
+
     outline = read_outline(text)
     if not outline.parts:
         return
@@ -390,6 +392,7 @@ def apply_outline(workout, text, warnings, renames=None):
             if outline_notes and (unit is not None or item.instructions):
                 notes = _merge_notes(unit.notes if unit else [], [item.instructions] if item.instructions else [], outline_notes)
                 item.instructions = "\n".join(notes)[:2000] if notes else None
+        enrich_part(block, part, part.notes + (outline.intro if part is outline.parts[0] else []), warnings, rows)
         if block.execution is not None and block.execution.mode == "emom" and _mixed_minutes(part):
             block.execution = block.execution.model_copy(update={"rotation": None})
             warnings.append(f"{block.label}: each minute lists a different group of movements; check the minute order.")
