@@ -8,6 +8,9 @@ from pathlib import Path
 import sys
 mobile, output = map(Path, sys.argv[1:])
 native = (mobile / 'node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift').read_text()
+shared = (mobile / 'modules/hafa-share-bridge/ios/HafaShareShared.swift').read_text()
+fragment = lambda s: s.split('// HAFA_SAVE_INTENT_BEGIN\n', 1)[1].split('// HAFA_SAVE_INTENT_END', 1)[0]
+assert fragment(shared) == fragment(native), 'Save-intent helper drifted from native intake'
 helper = native.split('// HAFA_ATOMIC_CAPTURE_SNAPSHOT_BEGIN\n', 1)[1].split('// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END', 1)[0]
 (output / 'HafaAtomicCaptureSnapshot.swift').write_text('import Foundation\n' + helper)
 PY

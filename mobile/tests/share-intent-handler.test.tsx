@@ -205,8 +205,16 @@ describe('durable share intake', () => {
   });
 });
 
-it.each([false, true])('keeps an unconfirmed share waiting and permits an explicitly saved share (%s)', async (confirmed) => {
-  mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a', requestedIsPublic: false, confirmed };
+it('ignores explicitly unconfirmed captures before intake or acknowledgment', async () => {
+  mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', confirmed: false };
   await render();
-  expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ state: confirmed ? 'ready' : 'waiting', preferences: expect.objectContaining({ isPublic: false }) }));
+  expect(mocks.add).not.toHaveBeenCalled();
+  expect(mocks.ack).not.toHaveBeenCalled();
+  expect(mocks.discard).not.toHaveBeenCalled();
+  expect(mocks.reset).not.toHaveBeenCalled();
+  expect(mocks.replace).not.toHaveBeenCalled();
+  mocks.payload = { ...mocks.payload, _hafa: { ...mocks.payload._hafa, confirmed: true } };
+  await act(async () => renderer.update(<Harness />));
+  expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ id: 'capture-a', state: 'waiting' }));
+  expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
 });

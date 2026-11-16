@@ -62,6 +62,9 @@ export function useHandleShareIntent() {
       try {
         native = typeof snapshot === 'string' ? JSON.parse(snapshot) : snapshot as NativeCaptureMetadata | null;
       } catch { native = null; }
+      // Defense in depth for stale/native events emitted before Save. Leave
+      // their receipt and files entirely under the extension's ownership.
+      if (native?.confirmed === false) return;
       if (native?.captureId && native.captureKey &&
           (processedCaptureIds.current.has(native.captureId) || processedCaptureKeys.current.has(native.captureKey))) return;
     }

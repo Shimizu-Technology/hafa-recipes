@@ -8,11 +8,16 @@ describe('per-item native share visibility', () => {
   it('waits for explicit Save before enqueueing the captured item', () => {
     const redirect = section('private func redirectToHostApp', 'private func submitCapture');
     expect(redirect).not.toContain('enqueueLink');
+    expect(redirect).not.toContain('enqueueCapture(');
     expect(redirect).toContain('\"confirmed\": false');
     expect(redirect).toContain('confirmationCaptureKey = source.key');
     expect(redirect).toContain('refreshCard()');
     const submit = section('private func submitCapture', 'private func enqueueCapture');
-    expect(submit.indexOf('metadata["requestedIsPublic"] = requested')).toBeLessThan(submit.indexOf('enqueueCapture('));
+    const visibilityIndex = submit.indexOf('metadata["requestedIsPublic"] = intent.isPublic');
+    const enqueueIndex = submit.indexOf('enqueueCapture(');
+    expect(visibilityIndex).toBeGreaterThanOrEqual(0);
+    expect(enqueueIndex).toBeGreaterThanOrEqual(0);
+    expect(visibilityIndex).toBeLessThan(enqueueIndex);
     expect(submit).toContain('guard !captureSubmitted');
     expect(submit).toContain('metadata[\"confirmed\"] = true');
     // Public, signed-out, photo and text captures stay on the phone for Håfa to finish.
@@ -31,7 +36,7 @@ describe('per-item native share visibility', () => {
   });
   it('takes a cancelled share back out of the queue but keeps a saved one', () => {
     const cancel = section('private func cancelCapture', 'private func closeCapture');
-    expect(cancel).toContain('guard !captureSubmitted');
+    expect(cancel).toContain('if saveWasTapped { closeCapture(); return }');
     expect(cancel).toContain('HafaShareStore.discardCapture(key)');
     expect(cancel).toContain('files?.cancelAndRemove()');
   });
@@ -56,7 +61,7 @@ it('keeps lock contention off UIKit actions and bounds every lock attempt', () =
   expect(store).toContain('DispatchQueue.main.async { completion(result) }');
   for (const name of ['submitCapture', 'changeCaptureVisibility']) {
     const action = controller.split(`private func ${name}`)[1].split('\n  }')[0];
-    expect(action).toContain('writeCapture(');
+    expect(action).toContain(name === 'submitCapture' ? 'HafaShareSaveIntent.write(' : 'writeCapture(');
   }
   expect(controller).toContain('captureWriting = true');
   expect(controller).toContain('[weak self]');
@@ -104,7 +109,7 @@ it('gates late attachment callbacks and puts copied photos in a capture-owned di
   const cancel = section('private func cancelCapture', 'private func closeCapture');
   expect(cancel).toContain('?? sharedKey');
   expect(cancel).toContain('HafaShareStore.performCaptureWrite');
-  expect(cancel).toContain('if discarded { self.closeCapture() }');
+  expect(cancel).toContain('if result == .discarded || result == .retained { self.closeCapture() }');
 });
 
 it('does not log Safari preprocessing dictionaries or other shared payloads', () => {
@@ -143,21 +148,22 @@ it('places wrapping chips at their measured sizes without overflowing the card',
   expect(flow).not.toContain('proposal: .unspecified');
 });
 
-it('claims Save before its queued confirmation and guards all dismissal paths until settlement', () => {
-  const submit = section('private func submitCapture', 'private func enqueueCapture');
-  expect(submit.indexOf('saveGate.begin()')).toBeLessThan(submit.indexOf('writeCapture('));
-  expect(submit.indexOf('setCaptureSaving(true)')).toBeLessThan(submit.indexOf('writeCapture('));
-  expect(submit).toContain('controller.saveGate.settle(); controller.setCaptureSaving(false)');
-  expect(section('private func finishCapture', 'private func answerOutcome')).toContain('saveGate.settle(); setCaptureSaving(false)');
-  for (const name of ['cancelCapture', 'closeCapture']) {
-    expect(controller.split(`private func ${name}()`)[1].trimStart().startsWith('{\n    saveGate.requestClose {')).toBe(true);
-  }
-  const state = section('private func setCaptureSaving', 'private func submitCapture');
-  expect(state).toContain('isModalInPresentation = saving');
-  expect(state).toContain('navigationController?.isModalInPresentation = saving');
+it('uses the shared save state, durable intent before confirmation, and bounded non-destructive Close', () => {
+  const submit = section('private func submitCapture', 'private func confirmCapture');
+  expect(submit.indexOf('setSaveState(.saving)')).toBeLessThan(submit.indexOf('HafaShareSaveIntent.write('));
+  expect(submit.indexOf('HafaShareSaveIntent.write(')).toBeLessThan(submit.indexOf('self.confirmCapture(intent)'));
+  expect(submit).toContain('self.saveAttemptID == attempt');
+  expect(controller).toContain('saveRecoveryDelay: TimeInterval = 12');
+  const slow = section('private func recoverSlowSave', 'private func submitCapture');
+  expect(slow).toContain('setSaveState(.slow)');
+  expect(slow).toContain('saveIntentRecorded');
+  expect(section('private func cancelCapture', 'private func discardCapture')).toContain('if saveWasTapped { closeCapture(); return }');
+  expect(section('private func discardCapture', 'private func closeCapture')).toContain('HafaShareStore.discardUnconfirmedCapture(key)');
   const kit = card('HafaShareKit.swift');
-  expect(kit).toContain('.interactiveDismissDisabled(model.isSaving)');
-  expect(kit).toContain('.disabled(model.isSaving)');
-  expect(kit).toContain('guard !model.isSaving else { return }');
-  expect(kit).toContain('model.isSaving ? "Saving…" : model.action');
+  expect(kit).toContain('case ready, saving, saved, failed, slow');
+  expect(kit).toContain('var canLeave: Bool { self != .saving }');
+  expect(kit).toContain('.disabled(!model.canLeave)');
+  expect(kit).toContain('.opacity(model.canLeave ? 1 : 0.4)');
+  expect(kit).toContain('.interactiveDismissDisabled(!model.canLeave)');
+  expect(kit).toContain('Button("Discard share", role: .destructive');
 });

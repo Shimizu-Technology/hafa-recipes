@@ -32,6 +32,12 @@ struct HafaSharePreview: Equatable {
   var symbol = "link"
 }
 
+// Shared by all three cards. Only Saving blocks the X, backdrop and dismissal.
+enum HafaShareSaveState: Equatable {
+  case ready, saving, saved, failed, slow
+  var canLeave: Bool { self != .saving }
+}
+
 final class HafaShareModel: ObservableObject {
   @Published var preview: HafaSharePreview
   @Published var choices: [HafaShareChoice] = []
@@ -39,12 +45,14 @@ final class HafaShareModel: ObservableObject {
   @Published var note: String?
   @Published var action: String
   @Published var isBusy = true
-  @Published var isSaving = false
+  @Published var saveState: HafaShareSaveState = .ready
+  var canLeave: Bool { saveState.canLeave }
   @Published var canSave = false
   @Published var outcome: HafaShareOutcome?
   @Published fileprivate(set) var isShown = false
   var onSelect: (_ choice: String, _ option: String) -> Void = { _, _ in }
   var onSave: () -> Void = {}
+  var onDiscard: (() -> Void)?
   var onOutcome: (HafaShareOutcome.Button) -> Void = { _ in }
   // Leaving before an outcome: the app decides whether that discards the capture.
   var onCancel: () -> Void = {}
@@ -60,7 +68,7 @@ final class HafaShareModel: ObservableObject {
   }
 
   func select(_ choice: String, _ option: String) {
-    guard !isBusy, !isSaving, let index = choices.firstIndex(where: { $0.id == choice }), choices[index].selected != option else { return }
+    guard !isBusy, saveState == .ready, let index = choices.firstIndex(where: { $0.id == choice }), choices[index].selected != option else { return }
     onSelect(choice, option)
   }
 
@@ -174,11 +182,11 @@ struct HafaShareSheet: View {
     }
     .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.9), value: model.isShown)
     .onAppear { DispatchQueue.main.async { model.show() } }
-    .interactiveDismissDisabled(model.isSaving)
+    .interactiveDismissDisabled(!model.canLeave)
   }
 
   private func leave() {
-    guard !model.isSaving else { return }
+    guard model.canLeave else { return }
     if model.outcome != nil { model.onOutcome(.close) } else { model.onCancel() }
   }
 
@@ -229,8 +237,9 @@ struct HafaShareSheet: View {
           .frame(width: 44, height: 44)
           .contentShape(Rectangle())
       }
-      .accessibilityLabel(model.outcome == nil ? "Cancel" : "Close")
-      .disabled(model.isSaving)
+      .accessibilityLabel(model.saveState == .ready && model.outcome == nil ? "Cancel" : "Close")
+      .disabled(!model.canLeave)
+      .opacity(model.canLeave ? 1 : 0.4)
     }
     .padding(.leading, 20).padding(.trailing, 10).padding(.top, 8)
     // The brand row is a label, not reading matter; it stays on one line so the content gets the room.
@@ -322,7 +331,7 @@ struct HafaShareSheet: View {
       }
     }
     .accessibilityElement(children: .contain)
-    .disabled(model.isBusy || model.isSaving)
+    .disabled(model.isBusy || model.saveState != .ready)
     .sensoryFeedback(.selection, trigger: choice.selected)
   }
 
@@ -421,8 +430,14 @@ struct HafaShareSheet: View {
           }
         }
       } else {
-        primaryButton(model.isSaving ? "Saving…" : model.action, busy: model.isBusy || model.isSaving) { model.onSave() }
-          .disabled(!model.canSave || model.isBusy || model.isSaving)
+        primaryButton(model.saveState == .saving ? "Saving…" : model.action, busy: model.isBusy || model.saveState == .saving) { model.onSave() }
+          .disabled(!model.canSave || model.isBusy || !model.canLeave)
+        if model.saveState == .failed, let discard = model.onDiscard {
+          Button("Discard share", role: .destructive, action: discard)
+            .font(theme.font(theme.strong, 15, .subheadline))
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .disabled(model.isBusy)
+        }
       }
     }
     .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 16)

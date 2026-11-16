@@ -4,34 +4,75 @@ import ImageIO
 import UniformTypeIdentifiers
 import Security
 
-// UIKit owns this state on main. A Save claims the capture synchronously,
-// before its first queued write, and no dismissal may discard it until settled.
-final class HafaShareSaveGate {
-  private(set) var isSaving = false
-
-  @discardableResult func begin() -> Bool {
-    precondition(Thread.isMainThread)
-    guard !isSaving else { return false }
-    isSaving = true
-    return true
+// HAFA_SAVE_INTENT_BEGIN
+// Compiled verbatim into the bridge/extension and Expo's native intake module.
+// The marker records a tap, not an import receipt or authority to change owners.
+enum HafaShareSaveIntent {
+  struct Intent: Codable {
+    let captureKey: String
+    let captureId: String
+    let accountScopeId: String?
+    let isPublic: Bool
   }
-
-  func settle() {
-    precondition(Thread.isMainThread)
-    isSaving = false
+  static func path(_ id: String, in container: URL) -> URL? {
+    guard let uuid = UUID(uuidString: id) else { return nil }
+    return container.appendingPathComponent("hafa-share-save-\(uuid.uuidString.lowercased()).json")
   }
-
-  @discardableResult func requestClose(_ close: () -> Void) -> Bool {
-    precondition(Thread.isMainThread)
-    guard !isSaving else { return false }
-    close()
-    return true
+  static func write(_ intent: Intent, in container: URL) throws {
+    guard let url = path(intent.captureId, in: container) else { throw CocoaError(.fileWriteInvalidFileName) }
+    try JSONEncoder().encode(intent).write(to: url, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+  }
+  static func recover(_ key: String, defaults: UserDefaults, container: URL) {
+    guard defaults.object(forKey: key) != nil,
+      var metadata = defaults.dictionary(forKey: "\(key).meta"), metadata["confirmed"] as? Bool == false,
+      let id = metadata["captureId"] as? String, let url = path(id, in: container),
+      let data = try? Data(contentsOf: url), let intent = try? JSONDecoder().decode(Intent.self, from: data),
+      intent.captureKey == key, intent.captureId == id,
+      intent.accountScopeId == metadata["accountScopeId"] as? String,
+      intent.accountScopeId == defaults.dictionary(forKey: "hafa.share.session.v1")?["accountScopeId"] as? String else { return }
+    metadata["confirmed"] = true
+    metadata["requestedIsPublic"] = intent.isPublic
+    defaults.set(metadata, forKey: "\(key).meta")
+    // Keep the journal until exact acknowledgment. A crash before defaults are
+    // synchronized must not lose the only durable record of the Save tap.
+  }
+  static func remove(_ key: String, defaults: UserDefaults, container: URL) {
+    guard let id = defaults.dictionary(forKey: "\(key).meta")?["captureId"] as? String,
+      let url = path(id, in: container) else { return }
+    try? FileManager.default.removeItem(at: url)
+  }
+  static func expireAbandoned(defaults: UserDefaults, container: URL, now: TimeInterval = Date().timeIntervalSince1970) {
+    let pendingKey = "hafarecipesShareKey.pending"
+    let pending = defaults.stringArray(forKey: pendingKey) ?? []
+    let remaining = pending.filter { value in
+      guard let key = URL(string: value)?.host?.components(separatedBy: "=").last,
+        let metadata = defaults.dictionary(forKey: "\(key).meta"), metadata["confirmed"] as? Bool == false,
+        let created = metadata["createdAt"] as? Double, now - created > 7 * 86400,
+        let id = metadata["captureId"] as? String, let marker = path(id, in: container),
+        !FileManager.default.fileExists(atPath: marker.path) else { return true }
+      defaults.removeObject(forKey: key)
+      defaults.removeObject(forKey: "\(key).meta")
+      return false
+    }
+    defaults.set(remaining, forKey: pendingKey)
   }
 }
+// HAFA_SAVE_INTENT_END
 
 // Compiled into the containing app and Share extension. Only the import-link
 // capability lives in their shared Keychain group; Clerk remains app-private.
+enum HafaShareDiscardResult { case discarded, retained, failed }
 enum HafaShareStore {
+  #if HAFA_SHARE_TESTS
+  static var testStore: (URL, UserDefaults)?
+  #endif
+  static var container: URL? {
+    #if HAFA_SHARE_TESTS
+    if let store = testStore { return store.0 }
+    #endif
+    return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
+  }
   static let appGroup = "group.com.shimizutechnology.recipeextractor"
   static let pendingKey = "hafarecipesShareKey.pending"
   static let sessionKey = "hafa.share.session.v1"
@@ -39,6 +80,11 @@ enum HafaShareStore {
   static let service = "com.shimizutechnology.hafa.share-import.v1"
 
   static func locked<T>(_ operation: (UserDefaults) throws -> T) rethrows -> T? {
+    #if HAFA_SHARE_TESTS
+    if let (container, defaults) = testStore {
+      return try withFileLock(container) { try operation(defaults) }
+    }
+    #endif
     guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
       let defaults = UserDefaults(suiteName: appGroup) else { return nil }
     return try withFileLock(container) {
@@ -128,6 +174,7 @@ enum HafaShareStore {
       let pending = defaults.stringArray(forKey: pendingKey) ?? []
       let remaining = remainingPending(pending, acknowledging: key)
       guard remaining.count < pending.count else { return false }
+      if let container { HafaShareSaveIntent.remove(key, defaults: defaults, container: container) }
       defaults.set(remaining, forKey: pendingKey)
       defaults.removeObject(forKey: key)
       defaults.removeObject(forKey: "\(key).meta")
@@ -147,11 +194,24 @@ enum HafaShareStore {
         guard reapAttachments(in: container, released: released, protected: protected + queued,
           sweepOrphans: false, retryProtected: false).isEmpty else { return false }
       }
+      if let container { HafaShareSaveIntent.remove(key, defaults: defaults, container: container) }
       defaults.set(remainingPending(pending, acknowledging: key), forKey: pendingKey)
       defaults.removeObject(forKey: key)
       defaults.removeObject(forKey: "\(key).meta")
       return true
     } ?? false
+  }
+
+  // Once native intake confirms/acknowledges this Save, the app owns its files.
+  static func discardUnconfirmedCapture(_ key: String) -> HafaShareDiscardResult {
+    locked { defaults in
+      guard defaults.object(forKey: key) != nil,
+        defaults.dictionary(forKey: "\(key).meta")?["confirmed"] as? Bool == false else { return .retained }
+      if let container { HafaShareSaveIntent.remove(key, defaults: defaults, container: container) }
+      defaults.set(remainingPending(defaults.stringArray(forKey: pendingKey) ?? [], acknowledging: key), forKey: pendingKey)
+      defaults.removeObject(forKey: key); defaults.removeObject(forKey: "\(key).meta")
+      return .discarded
+    } ?? .failed
   }
 
   static func attachmentPaths(_ payload: Any?) -> [String]? {
@@ -181,8 +241,9 @@ enum HafaShareStore {
   // other accounts, while the AppGroup lock protects native queue references.
   static func cleanupAttachments(released: [String], protected: [String]) -> [String] {
     locked { defaults in
-      guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
-        let queued = queuedAttachmentPaths(defaults: defaults) else { return released }
+      guard let container = self.container else { return released }
+      HafaShareSaveIntent.expireAbandoned(defaults: defaults, container: container)
+      guard let queued = queuedAttachmentPaths(defaults: defaults) else { return released }
       return reapAttachments(in: container, released: released, protected: protected + queued)
     } ?? released
   }

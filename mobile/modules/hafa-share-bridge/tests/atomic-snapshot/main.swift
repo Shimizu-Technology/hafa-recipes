@@ -104,3 +104,52 @@ checkWidget(failedArchiveState.snapshot == nil, "archive failure must still reti
 print("Widget archive failure: readable state retired")
 
 assert(widgetFailures == 0, "widget regression failures: \(widgetFailures)")
+
+// Exercise the exact native delivery/count/fallback policy with real journals.
+let intakeDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("hafa-intake-\(UUID().uuidString)")
+try FileManager.default.createDirectory(at: intakeDirectory, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: intakeDirectory) }
+let intakeID = UUID().uuidString.lowercased()
+let intakeKey = "hafarecipesShareKey.\(intakeID)"
+let intakeURL = "hafarecipes://dataUrl=\(intakeKey)#weburl"
+func intakeSeed(_ scope: String? = "scope-a") {
+  defaults.set(payloadA, forKey: intakeKey)
+  var metadata: [String: Any] = ["captureId": intakeID, "confirmed": false, "createdAt": Date().timeIntervalSince1970]
+  if let scope { metadata["accountScopeId"] = scope }
+  defaults.set(metadata, forKey: "\(intakeKey).meta")
+  defaults.set([intakeURL], forKey: HafaShareStore.pendingKey)
+  defaults.set(["accountScopeId": "scope-a"], forKey: HafaShareStore.sessionKey)
+}
+func intakeDelivery(_ pending: [String] = []) -> URL? {
+  HafaShareStore.withFileLock(intakeDirectory) {
+    HafaShareCaptureSnapshot.deliveryURL(pending: pending, fallback: intakeURL, defaults: defaults, container: intakeDirectory)
+  } ?? nil
+}
+intakeSeed()
+assert(intakeDelivery([intakeURL]) == nil, "no marker must stay hidden, including fallback")
+assert(HafaShareCaptureSnapshot.serialize(payloadJSON: payloadA, captureKey: intakeKey, defaults: defaults) == nil)
+assert(HafaShareCaptureSnapshot.deliverable([intakeURL], defaults: defaults, container: intakeDirectory).isEmpty)
+try HafaShareSaveIntent.write(.init(captureKey: intakeKey, captureId: intakeID, accountScopeId: "scope-b", isPublic: true), in: intakeDirectory)
+assert(intakeDelivery([intakeURL]) == nil, "another account's marker must not authorize this capture")
+try HafaShareSaveIntent.write(.init(captureKey: intakeKey, captureId: intakeID, accountScopeId: "scope-a", isPublic: false), in: intakeDirectory)
+defaults.set(["accountScopeId": "scope-b"], forKey: HafaShareStore.sessionKey)
+assert(intakeDelivery() == nil, "account switch must block recovery of original owner's intent")
+defaults.set(["accountScopeId": "scope-a"], forKey: HafaShareStore.sessionKey)
+assert(intakeDelivery()?.absoluteString == intakeURL, "matching marker can recover via deep-link fallback")
+assert(defaults.dictionary(forKey: "\(intakeKey).meta")?["confirmed"] as? Bool == true)
+let recoveredA = snapshot(payloadA, intakeKey)
+HafaShareSaveIntent.recover(intakeKey, defaults: defaults, container: intakeDirectory) // late/repeated recovery
+let recoveredB = snapshot(payloadA, intakeKey)
+assert((recoveredA["_hafa"] as! [String: Any])["captureId"] as? String == (recoveredB["_hafa"] as! [String: Any])["captureId"] as? String)
+HafaShareSaveIntent.remove(intakeKey, defaults: defaults, container: intakeDirectory)
+defaults.removeObject(forKey: intakeKey); defaults.removeObject(forKey: "\(intakeKey).meta")
+defaults.set([], forKey: HafaShareStore.pendingKey)
+assert(intakeDelivery() == nil, "acknowledged Save must never be resurrected by the deep link")
+intakeSeed()
+defaults.removeObject(forKey: "\(intakeKey).meta")
+assert(intakeDelivery([intakeURL]) != nil, "no metadata remains legacy-confirmed")
+intakeSeed()
+defaults.set(["captureId": intakeID, "confirmed": false, "createdAt": 1.0], forKey: "\(intakeKey).meta")
+assert(intakeDelivery([intakeURL]) == nil)
+assert(defaults.object(forKey: intakeKey) == nil, "unsaved expired captures age out without delivery")
+print("Native intake: explicit false hidden in queue/count/fallback; exact scoped intent recovers idempotently; legacy and expiry passed")
