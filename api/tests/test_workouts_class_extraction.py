@@ -302,9 +302,9 @@ async def test_realistic_wodup_header_keeps_all_coach_notes_and_parts():
     warnings = []
     cleaned = trim_class_parts([("provided_text", page)], warnings)[0][1]
     required = [line for line in page.split("\nShow less\n")[0].splitlines() if line.startswith((
-        "Phase 5,", "Workout Specific Movement Prep", "- This is progression",
-        "- The goal today", "- Perform your deadlift", "- The final tester",
-        "- Your initial", "A.", "B.", "C.", "2 alternating sets of:", "D1.", "D2.", "D3."))]
+        "Phase 2,", "Workout Specific Movement Prep", "- This is progression",
+        "- Settle into", "- Keep the kettlebell", "- The test weight",
+        "- Your opening", "A.", "B.", "C.", "3 alternating sets of:", "D1.", "D2.", "D3."))]
     assert len(required) == 14
     assert all(line in cleaned for line in required)
     assert all(name not in cleaned for name in ("Jane Doe", "C. Smith", "Bob Lee", "Mike R", "great one today"))
@@ -466,11 +466,12 @@ def test_exact_fixture_comparison_rejects_extra_list_items(extra):
         fixture_subset(SAMPLE, actual)
 
 
-# WodUp spells the same class out in full; the short fixture wording above hid these.
+# WodUp spells a class out in full; the short fixture wording above hid these.
+# Synthetic wording in WodUp's layout: a "Summit" benchmark and 12-minute parts.
 WODUP_WORDING = {
-    'Progression 2/3 for benchmark "Everest".': 'This is progression 2/3 for our benchmark workout, "Everest"',
-    "A. AMRAP 15 min": "A. As Many Rounds and Reps as possible in 15 minutes, with Buy In:",
-    "B. AMRAP 15 min": "B. As Many Rounds and Reps as possible in 15 minutes, with Buy In:",
+    'Progression 2/3 for benchmark "Everest".': 'Week two: progression 2/3 for our benchmark workout, "Summit"',
+    "A. AMRAP 15 min": "A. As Many Rounds and Reps as possible in 12 minutes, with Buy In:",
+    "B. AMRAP 15 min": "B. As Many Rounds and Reps as possible in 12 minutes, with Buy In:",
     "D. Accessories 2 alternating sets": "D. ACCESSORIES\n2 alternating sets of:",
 }
 
@@ -489,6 +490,9 @@ async def test_wodup_full_wording_keeps_amrap_buy_in_benchmark_and_accessory_hea
     for short, full in WODUP_WORDING.items():
         text = text.replace(short, full)
     raw = wodup_wording(response())
+    raw["benchmark"].update(key="summit", name="Summit")
+    for block in raw["blocks"][:2]:
+        block["execution"]["time_cap_seconds"] = 720
     accessories = raw["blocks"][3]
     accessories["label"] = "D. ACCESSORIES" if heading_in_source else "D. Accessory superset"
     accessories["evidence"] = [entry | {"wording": "2 alternating sets of:"} if entry["field"] == "rounds" else entry
@@ -496,9 +500,9 @@ async def test_wodup_full_wording_keeps_amrap_buy_in_benchmark_and_accessory_hea
     result = await WorkoutExtractor(FakeProvider(raw)).extract(
         ExtractionRequest(kind="text", text=text, class_parts=True, ai_consent=True))
     workout = result.workout
-    assert (workout.benchmark.name, workout.benchmark.stage, workout.benchmark.stages) == ("Everest", 2, 3)
+    assert (workout.benchmark.name, workout.benchmark.stage, workout.benchmark.stages) == ("Summit", 2, 3)
     for block in workout.blocks[:2]:
-        assert block.execution.model_dump(exclude_none=True) == {"mode": "amrap", "time_cap_seconds": 900}
+        assert block.execution.model_dump(exclude_none=True) == {"mode": "amrap", "time_cap_seconds": 720}
         assert block.exercises[0].segment == "buy_in"
     assert workout.blocks[3].rounds == 2
     # The printed "D. ACCESSORIES" heading names the role, whatever the model calls the part.
