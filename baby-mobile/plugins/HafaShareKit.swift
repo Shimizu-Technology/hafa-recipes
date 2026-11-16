@@ -25,6 +25,10 @@ struct HafaShareTheme {
   }
 }
 
+// Ready → Saving (no way out) → Saved, Failed (Try again; Close keeps it) or Slow (Close keeps it).
+// Only Cancel while Ready deletes what the share staged.
+enum HafaShareSaveState { case ready, saving, saved, failed, slow }
+
 struct HafaSharePreview: Equatable {
   var title: String
   var subtitle: String?
@@ -39,10 +43,11 @@ final class HafaShareModel: ObservableObject {
   @Published var note: String?
   @Published var action: String
   @Published var isBusy = true
+  @Published var saveState = HafaShareSaveState.ready
+  // Leaving is held only while a save is under way. Every other state can close.
+  var canLeave: Bool { saveState != .saving }
   @Published var canSave = false
   @Published var outcome: HafaShareOutcome?
-  // False while the app finishes a write that leaving would undo. ✕, a tap outside and Escape wait.
-  @Published var canLeave = true
   @Published fileprivate(set) var isShown = false
   var onSelect: (_ choice: String, _ option: String) -> Void = { _, _ in }
   var onSave: () -> Void = {}
@@ -61,7 +66,7 @@ final class HafaShareModel: ObservableObject {
   }
 
   func select(_ choice: String, _ option: String) {
-    guard !isBusy, let index = choices.firstIndex(where: { $0.id == choice }), choices[index].selected != option else { return }
+    guard !isBusy, saveState != .saving, let index = choices.firstIndex(where: { $0.id == choice }), choices[index].selected != option else { return }
     onSelect(choice, option)
   }
 
@@ -175,6 +180,7 @@ struct HafaShareSheet: View {
     }
     .animation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.9), value: model.isShown)
     .onAppear { DispatchQueue.main.async { model.show() } }
+    .interactiveDismissDisabled(!model.canLeave)
   }
 
   private func leave() {
@@ -229,9 +235,9 @@ struct HafaShareSheet: View {
           .frame(width: 44, height: 44)
           .contentShape(Rectangle())
       }
+      .accessibilityLabel(model.outcome == nil ? "Cancel" : "Close")
       .disabled(!model.canLeave)
       .opacity(model.canLeave ? 1 : 0.4)
-      .accessibilityLabel(model.outcome == nil ? "Cancel" : "Close")
     }
     .padding(.leading, 20).padding(.trailing, 10).padding(.top, 8)
     // The brand row is a label, not reading matter; it stays on one line so the content gets the room.
@@ -323,7 +329,7 @@ struct HafaShareSheet: View {
       }
     }
     .accessibilityElement(children: .contain)
-    .disabled(model.isBusy)
+    .disabled(model.isBusy || model.saveState == .saving)
     .sensoryFeedback(.selection, trigger: choice.selected)
   }
 
@@ -422,8 +428,8 @@ struct HafaShareSheet: View {
           }
         }
       } else {
-        primaryButton(model.action, busy: model.isBusy) { model.onSave() }
-          .disabled(!model.canSave || model.isBusy)
+        primaryButton(model.saveState == .saving ? "Saving…" : model.action, busy: model.isBusy || model.saveState == .saving) { model.onSave() }
+          .disabled(!model.canSave || model.isBusy || model.saveState == .saving)
       }
     }
     .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 16)

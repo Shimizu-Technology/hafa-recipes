@@ -201,20 +201,62 @@ final class BabyShareStore {
     throw Failure.invalid
   }
   private func publishLocked(_ raw: Any, capture: Capture, collection: String? = nil) throws {
+    let (payload, text) = try bytes(raw)
+    // Already published, by this same Save or by the app finishing it: the same answer once more, and never written twice.
+    // Publication is immutable, so anything else is refused.
+    if let existing = (try? manifest(capture.id))?.payload, capture.epoch == (try epoch()) {
+      guard existing == payload else { throw Failure.stale }
+      capture.lease = nil
+      return
+    }
     guard capture.epoch == (try epoch()), capture.lease != nil else { throw Failure.stale }
     // Only a capture with an owner can be filed: no one's category fits one shared under no account.
     guard collection == nil || (UUID(uuidString: collection!) != nil && capture.scope != nil) else { throw Failure.invalid }
-    let (payload, text) = try bytes(raw)
-    let original = try manifest(capture.id)
-    let value = Manifest(id: capture.id, epoch: capture.epoch, createdAt: capture.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: capture.automaticEpoch, heldSince: original.scope == nil ? capture.createdAt : nil, collection: collection?.lowercased())
-    try write(value, to: capture.directory.appendingPathComponent("manifest.json"))
-    try write(capture.id, to: root.appendingPathComponent("current.json"))
+    try commitLocked(capture.id, payload: payload, text: text, collection: collection?.lowercased())
+    // The manifest is the commit. From here the capture is the app's, whatever happens to the pointers below. Retire the
+    // producer lease before the host can acknowledge; only host read leases may now protect this capture.
+    capture.lease = nil
+    try? write(capture.id, to: root.appendingPathComponent("current.json"))
     // Keep the stock share-intent reader compatible. The native bridge uses the
     // immutable manifest, so these two legacy keys are never a token transaction.
     defaults.set(raw, forKey: sharedKey); defaults.set(capture.id, forKey: receiptKey); defaults.synchronize()
-    // Publication is immutable. Retire the producer lease before the host can
-    // acknowledge; only host read leases may now protect this capture.
-    capture.lease = nil
+  }
+  private func commitLocked(_ id: String, payload: Data, text: Bool, collection: String?) throws {
+    let original = try manifest(id), folder = try directory(id)
+    let value = Manifest(id: id, epoch: original.epoch, createdAt: original.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: original.automaticEpoch, heldSince: original.scope == nil ? original.createdAt : nil, collection: collection)
+    try write(value, to: folder.appendingPathComponent("manifest.json"))
+    try? FileManager.default.removeItem(at: folder.appendingPathComponent(Self.intentFile))
+  }
+  // Save was tapped. What to publish is written beside the staged files first, so if the extension can't finish, or is slow
+  // and she closes it, the app finishes it: once, and only for the account and space it was shared under.
+  private struct Intent: Codable {
+    let payload: Data
+    let text: Bool
+    let collection: String?
+  }
+  static let intentFile = "save-intent.json"
+  func intendPublish(_ raw: Any, capture: Capture, collection: String? = nil) throws {
+    try locked {
+      guard capture.epoch == (try epoch()), capture.lease != nil else { throw Failure.stale }
+      guard collection == nil || (UUID(uuidString: collection!) != nil && capture.scope != nil) else { throw Failure.invalid }
+      let (payload, text) = try bytes(raw)
+      try write(Intent(payload: payload, text: text, collection: collection?.lowercased()), to: capture.directory.appendingPathComponent(Self.intentFile))
+    }
+  }
+  // The app's intake, under the store lock: a Save the extension didn't finish is finished here, at most once. One with no
+  // marker (cancelled, or the extension stopped before Save) is never delivered. One from another account or space, or from
+  // before a privacy clear, isn't either.
+  private func recoverLocked() {
+    // Read, never created: a store with no epoch yet has nothing marked, and the legacy migration must still see it as new.
+    guard let generation = try? read(UUID.self, root.appendingPathComponent("epoch.json")) else { return }
+    let current = scope()
+    for folder in (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? [] {
+      let marker = folder.appendingPathComponent(Self.intentFile)
+      guard FileManager.default.fileExists(atPath: marker.path), let value = try? manifest(folder.lastPathComponent) else { continue }
+      if value.payload != nil { try? FileManager.default.removeItem(at: marker); continue }
+      guard let intent = try? read(Intent.self, marker), value.epoch == generation, value.scope == current else { continue }
+      try? commitLocked(value.id, payload: intent.payload, text: intent.text, collection: intent.collection)
+    }
   }
   func publish(_ raw: Any, capture: Capture, collection: String? = nil) throws {
     try locked { try publishLocked(raw, capture: capture, collection: collection) }
@@ -226,7 +268,8 @@ final class BabyShareStore {
   }
   func abort(_ capture: Capture) throws {
     try locked {
-      guard capture.lease != nil, currentID() != capture.id else { return }
+      // Never a published capture, whatever the pointers say: that one is already the app's.
+      guard capture.lease != nil, currentID() != capture.id, (try? manifest(capture.id))?.payload == nil else { return }
       try? FileManager.default.removeItem(at: capture.directory)
       capture.lease = nil
     }
@@ -258,6 +301,7 @@ final class BabyShareStore {
   }
   func pending() throws -> Snapshot? {
     try locked {
+      recoverLocked()
       try sweepLocked()
       if FileManager.default.fileExists(atPath: root.appendingPathComponent("suspended.json").path) { return nil }
       // Every published manifest is a queue entry; current.json is compatibility
@@ -535,7 +579,9 @@ final class BabyShareStore {
       guard folder.lastPathComponent != current else { continue }
       if (try? manifest(folder.lastPathComponent).payload) != nil { continue }
       let created = (try? manifest(folder.lastPathComponent).createdAt) ?? (try? folder.resourceValues(forKeys: [.creationDateKey]).creationDate)
-      guard let created, now().timeIntervalSince(created) >= Self.expiry,
+      // A Save the app hasn't finished yet keeps the same 30 days as any share waiting on the phone.
+      let marked = FileManager.default.fileExists(atPath: folder.appendingPathComponent(Self.intentFile).path)
+      guard let created, now().timeIntervalSince(created) >= (marked ? Self.unassignedExpiry : Self.expiry),
         let lease = try? Lease(folder.appendingPathComponent("lease.lock"), exclusive: true, nonblocking: true)
       else { continue }
       do {

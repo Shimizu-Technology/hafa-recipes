@@ -21,6 +21,24 @@ enum BabyShareSheetState: Equatable {
   // or far bigger than can be taken once it does arrive, so this ends it rather than spin for ever.
   static let giveUpAfter: TimeInterval = 180
   static let openApp = "Open Håfa Baby"
+  static let tryAgain = "Try again"
+  // Save's write normally takes a moment. One still going after this is called slow: Close is allowed again, and only keeps.
+  static let publishTimeout: TimeInterval = 12
+
+  static let discard = "Discard"
+  // How Save ended. `failed` and `slow` happened after Save was marked on the phone, so the app can finish it. `notKept` is the
+  // mark itself failing: nothing can be promised. `gone` is the account or its space cleared meanwhile, which takes the share.
+  enum Publication: Equatable { case kept, failed, notKept, gone, slow }
+
+  // Failed after Save was marked: closing keeps it, and the app finishes it. Discarding is its own button.
+  static let saveFailed = HafaShareOutcome(symbol: "exclamationmark", isProblem: true, title: "Couldn’t finish saving",
+    detail: "We’ll finish saving this when you open Håfa Baby, or you can try again now.", primary: tryAgain, secondary: discard)
+  // Nothing at all could be written. No promise: try again, or discard it.
+  static let saveNotKept = HafaShareOutcome(symbol: "exclamationmark", isProblem: true, title: "Couldn’t save this",
+    detail: "Nothing could be kept on this phone. Try again, or discard it.", primary: tryAgain, secondary: discard)
+  // Slow: the write is still going. It's kept for the app whichever way it ends.
+  static let saveSlow = HafaShareOutcome(symbol: "iphone", title: "Still saving",
+    detail: "We’ll finish saving this when you open Håfa Baby.", primary: "Done", secondary: openApp, opens: .secondary)
 
   var words: Words {
     switch self {

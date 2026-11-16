@@ -31,24 +31,41 @@
     babyCategories.first { $0["id"] == babyCategory }?["title"]
   }
   private func saveBabyShare() {
-    guard let producer = babyProducer, !babySaving, !captureConfirmationFinished, !babySheetClosed else { return }
-    babySaving = true
+    guard let producer = babyProducer, !captureConfirmationFinished, !babySheetClosed else { return }
     let card = babyCard()
-    card.isBusy = true
-    // Until it's kept, there's no way out that could undo it: ✕ and a tap outside wait, and the sheet can't be swiped away.
-    card.canLeave = false
-    isModalInPresentation = true
-    publishBabyCapture(collection: babyCategoryTitle == nil ? nil : babyCategory) { [weak self] kept in
+    guard publishBabyCapture(collection: babyCategoryTitle == nil ? nil : babyCategory, then: { [weak self] result in
       guard let self else { return }
-      card.canLeave = true
-      self.isModalInPresentation = false
-      if kept { self.submitBabyShare(producer) } else { self.showBabyProblem(.failed) }
-    }
+      switch result {
+      case .kept:
+        self.setBabySaveState(.saved)
+        self.submitBabyShare(producer)
+      case .failed, .notKept:
+        // Nothing here deletes it. Try again comes back to this card, ✕ keeps it, and Discard is the one way to delete it.
+        self.setBabySaveState(.failed)
+        card.finish(result == .failed ? BabyShareSheetState.saveFailed : BabyShareSheetState.saveNotKept)
+      case .gone:
+        self.setBabySaveState(.failed)
+        self.captureConfirmationFinished = true
+        if let outcome = BabyShareSheetState.failed.outcome() { card.finish(outcome) }
+      case .slow:
+        self.setBabySaveState(.slow)
+        self.captureConfirmationFinished = true
+        card.finish(BabyShareSheetState.saveSlow)
+      }
+    }) else { return }
+    card.outcome = nil
+    setBabySaveState(.saving)
   }
-  private func babyPublishOffMain(_ work: @escaping () -> Bool, then done: @escaping (Bool) -> Void) {
+  // The same rule as Recipes: no way out of the card, and no swiping the sheet away, only while a save is under way.
+  private func setBabySaveState(_ state: HafaShareSaveState) {
+    babyCard().saveState = state
+    isModalInPresentation = state == .saving
+    navigationController?.isModalInPresentation = state == .saving
+  }
+  private func babyPublishOffMain(_ work: @escaping () -> BabyShareSheetState.Publication, then done: @escaping (BabyShareSheetState.Publication) -> Void) {
     DispatchQueue.global(qos: .userInitiated).async {
-      let kept = work()
-      DispatchQueue.main.async { done(kept) }
+      let result = work()
+      DispatchQueue.main.async { done(result) }
     }
   }
   // It's safely on the phone now, so closing is safe too: what this doesn't deliver, the app will.
@@ -73,7 +90,6 @@
   private var babyPayload: Any?
   private var babyCategories: [[String: String]] = []
   private var babyCategory = BabyShareWords.later
-  private var babySaving = false
   private var babySaved = false
   private func babyCard() -> HafaShareModel {
     if let card = babyCardModel { return card }
@@ -83,6 +99,10 @@
     card.onCancel = { [weak self] in self?.finishConfirmation() }
     card.onOutcome = { [weak self] button in
       guard let self else { return }
+      if let outcome = self.babyCardModel?.outcome, [BabyShareSheetState.saveFailed, BabyShareSheetState.saveNotKept].contains(outcome) {
+        if button == .primary { return self.saveBabyShare() }
+        if button == .secondary { return self.discardBabyShare() }
+      }
       if button != .close, button == self.babyCardModel?.outcome?.opens { self.openBabyApp() }
       self.finishConfirmation()
     }

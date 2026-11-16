@@ -80,24 +80,58 @@ const presentedLifecycle = `${lifecycleStart}
       self.showBabySheet(.failed)
     }
   }
-  // Every way of closing the card. Before Save nothing is kept, and a provider answering late finds its capture retired.
-  // While Save is publishing, closing waits: aborting then would delete the very files being kept.
+  // Every way of closing the card. Only Cancel before Save deletes what was staged: a provider answering late then finds its
+  // capture retired. Once Save has started nothing here deletes, and while its write is under way closing waits.
   private func finishConfirmation() {
     guard !babySheetClosed, !babyPublishing else { return }
     babySheetClosed = true
     captureConfirmationFinished = true
-    abortBabyShare()
+    if !babySaveStarted { abortBabyShare() }
     closeBabyCard { [weak self] in self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
   }
+  private var babySaveStarted = false
+  // Her explicit choice after a failed Save: the one way, other than Cancel, that deletes what was staged.
+  private func discardBabyShare() {
+    guard !babySheetClosed, !babyPublishing, !babyPublishInFlight else { return }
+    abortBabyShare()
+    finishConfirmation()
+  }
+  // Closing waits while true. False again once the write answers, or once it's been slow for too long.
   private var babyPublishing = false
-  // Save's one write, off the main thread. \`done\` says whether it was kept, on the main thread.
-  private func publishBabyCapture(collection: String?, then done: @escaping (Bool) -> Void) {
-    guard let producer = babyProducer, let payload = babyPayload, !babyPublishing, !babySheetClosed else { return }
+  // The write itself, until it really returns: there's never a second one while the first may still land.
+  private var babyPublishInFlight = false
+  // Save's one write, off the main thread. \`done\` is called once, on the main thread: kept, failed, gone, or slow. An answer
+  // after slow is not reported; whatever it wrote stays for the app, and nothing here undoes it.
+  @discardableResult
+  private func publishBabyCapture(collection: String?, then done: @escaping (BabyShareSheetState.Publication) -> Void) -> Bool {
+    guard let producer = babyProducer, let payload = babyPayload, !babyPublishing, !babyPublishInFlight, !babySheetClosed else { return false }
+    babySaveStarted = true
     babyPublishing = true
-    babyPublishOffMain({ (try? producer.storage.publish(payload, capture: producer.capture, collection: collection)) != nil }) { [weak self] kept in
-      self?.babyPublishing = false
-      done(kept)
+    babyPublishInFlight = true
+    var answered = false
+    DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.publishTimeout) { [weak self] in
+      guard let self, !answered else { return }
+      answered = true
+      self.babyPublishing = false
+      done(.slow)
     }
+    babyPublishOffMain({
+      // Save is marked first, so whatever happens next the app can finish it. A mark that can't be written promises nothing.
+      do { try producer.storage.intendPublish(payload, capture: producer.capture, collection: collection) }
+      catch BabyShareStore.Failure.stale { return .gone }
+      catch { return .notKept }
+      do { try producer.storage.publish(payload, capture: producer.capture, collection: collection); return .kept }
+      catch BabyShareStore.Failure.stale { return .gone }
+      catch { return .failed }
+    }) { [weak self] result in
+      guard let self else { return }
+      self.babyPublishInFlight = false
+      guard !answered else { return }
+      answered = true
+      self.babyPublishing = false
+      done(result)
+    }
+    return true
   }
 ${lifecycleEnd}
 

@@ -151,12 +151,15 @@ describe("generated Safari preprocessing", () => {
     expect(stage).not.toContain(".publish(");
     expect(output.match(/storage\.publish\(/g)).toHaveLength(1);
     const publish = output.slice(output.indexOf("  private func publishBabyCapture("), output.indexOf("  // END HAFA BABY PRESENTED SHARE v1"));
-    expect(publish).toContain("try? producer.storage.publish(payload, capture: producer.capture, collection: collection)");
-    // Save can't be undone halfway: closing is held, visibly and for swipes, until publication settles.
+    expect(publish).toContain("try producer.storage.publish(payload, capture: producer.capture, collection: collection); return .kept");
+    // Save can't be undone halfway: closing is held, visibly and for swipes, only while it's saving.
     const save = output.slice(output.indexOf("  private func saveBabyShare("), output.indexOf("  private func babyPublishOffMain("));
     expect(save).toContain("publishBabyCapture(collection:");
-    expect(save.indexOf("card.canLeave = false")).toBeLessThan(save.indexOf("publishBabyCapture("));
-    expect(save).toContain("isModalInPresentation = true");
+    expect(save).toContain("isModalInPresentation = state == .saving");
+    expect(save).toContain("babyCard().saveState = state");
+    // Save is marked before it's published, so the app can finish what the extension can't.
+    expect(publish.indexOf("intendPublish(")).toBeLessThan(publish.indexOf("storage.publish("));
+    expect(publish).toContain("BabyShareSheetState.publishTimeout");
     expect(output).toContain("guard !babySheetClosed, !babyPublishing else { return }");
     expect(output).not.toContain("publish(raw, id: self.babyCaptureId)");
     expect(output).not.toContain("publish(encoded, id: self.babyCaptureId)");
@@ -200,7 +203,7 @@ describe("generated Safari preprocessing", () => {
     expect(output).toContain('"automatic_epoch": saved.automaticEpoch');
     expect(output).toContain('"capture_id", "occurred_at", "url", "text", "automatic_epoch"');
     expect(output).toContain("scope: original.scope");
-    expect(output).toContain("automaticEpoch: capture.automaticEpoch");
+    expect(output).toContain("automaticEpoch: original.automaticEpoch");
     expect(output).not.toContain('"hfws_v1."');
   });
   it("never shows the library's alert or its text, and never logs what was shared", () => {
@@ -284,7 +287,8 @@ describe("generated Safari preprocessing", () => {
     const output = patchShareController(upstream);
     const lifecycle = output.slice(output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1"), output.indexOf("  // END HAFA BABY PRESENTED SHARE v1"));
     expect(lifecycle.indexOf("babyWatchProvider()")).toBeLessThan(lifecycle.indexOf("    handleViewLoad()"));
-    expect(lifecycle).toContain("abortBabyShare()\n    closeBabyCard {");
+    // Only Cancel before Save deletes; after Save, closing keeps what's there.
+    expect(lifecycle).toContain("if !babySaveStarted { abortBabyShare() }\n    closeBabyCard {");
     expect(output.match(/completeRequest\(/g)).toHaveLength(1);
   });
   it("names the share row Håfa Baby and lists the fonts it copies", () => {

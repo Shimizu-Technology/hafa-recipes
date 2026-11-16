@@ -936,6 +936,81 @@ struct BabyShareStoreTests {
     try check(cleaned.first == ["id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "title": "Sleep and naps"], "one line, trimmed, one per id")
     try check(cleaned.count == BabyShareCategories.maxCount && !cleaned.contains { $0["title"] == "Bad id" || $0["title"] == "Again" }, "bad rows dropped, and at most a handful")
     try check(cleaned[1]["title"]?.count == 40 && cleaned[1]["title"]?.hasSuffix("…") == true, "a long name fits a chip")
+    do {
+      // Save marked, then the extension couldn't finish (Failed, then Close): the app's intake delivers it, once.
+      let (_, defaults, store, suite) = try fixture("intent-failed")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      var folder: URL!, id = ""
+      do {
+        // The extension marks Save, fails to publish, and is closed: its producer lease goes with it.
+        let capture = try store.begin()
+        folder = capture.directory; id = capture.id
+        try Data("photo".utf8).write(to: capture.directory.appendingPathComponent("photo.jpg"))
+        try store.intendPublish(["https://example.com/marked"], capture: capture, collection: "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA")
+      }
+      let recovered = try store.pending()
+      try check(recovered?.token.hasPrefix(id) == true, "a marked Save the extension didn't finish is delivered")
+      try check(try BabySharePayload.decode(recovered!)["collection_id"] as? String == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "with the category she chose")
+      try check(FileManager.default.fileExists(atPath: folder.appendingPathComponent("photo.jpg").path), "and its files")
+      try check(try store.pending()?.token == recovered!.token, "asked again before it's taken, it's the same one, not a copy")
+      try check(try store.acknowledge(recovered!.token), "taken by the app")
+      try check(try store.pending() == nil, "and never delivered again")
+    }
+    do {
+      // Slow, then the write lands after all: recovered or not, one delivery.
+      let (_, defaults, store, suite) = try fixture("intent-slow")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      let late = try store.begin()
+      try store.intendPublish(["https://example.com/slow"], capture: late)
+      try store.publish(["https://example.com/slow"], capture: late)
+      let first = try store.pending()
+      try check(first?.token.hasPrefix(late.id) == true && !FileManager.default.fileExists(atPath: late.directory.appendingPathComponent(BabyShareStore.intentFile).path), "the late success is the delivery, and the mark is gone")
+      try check(try store.acknowledge(first!.token) && store.pending() == nil, "delivered once")
+      // Recovery first, then the late write: still once, and the late publish doesn't fail.
+      let raced = try store.begin()
+      try store.intendPublish(["https://example.com/raced"], capture: raced)
+      let recovered = try store.pending()
+      try store.publish(["https://example.com/raced"], capture: raced)
+      try check(recovered?.token.hasPrefix(raced.id) == true && store.acknowledge(recovered!.token) && store.pending() == nil, "recovered then written late, delivered once")
+    }
+    do {
+      // No mark: cancelled, or the extension stopped before Save. Never delivered.
+      let (_, defaults, store, suite) = try fixture("intent-none")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      let unsaved = try store.begin()
+      try Data("photo".utf8).write(to: unsaved.directory.appendingPathComponent("photo.jpg"))
+      try check(try store.pending() == nil, "an unmarked capture is never delivered")
+    }
+    do {
+      // A mark from another space or another account is never delivered to this one.
+      let (_, defaults, store, suite) = try fixture("intent-other")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      let elsewhere = try store.begin()
+      try store.intendPublish(["https://example.com/personal"], capture: elsewhere)
+      try store.bind("owner-a:1:11111111-1111-4111-8111-111111111111")
+      try check(try store.pending() == nil, "a mark made for her personal space isn't delivered into the family")
+      try store.bind("owner-b:1:personal")
+      try check(try store.pending() == nil, "nor to another account")
+    }
+    do {
+      // The pointer written after the manifest failing doesn't undo a Save that's already committed.
+      let (root, defaults, store, suite) = try fixture("pointer-failure")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      let capture = try store.begin()
+      try Data("photo".utf8).write(to: capture.directory.appendingPathComponent("photo.jpg"))
+      let pointer = root.appendingPathComponent(".hafa-baby-share-store-v1/current.json")
+      try? FileManager.default.removeItem(at: pointer)
+      try FileManager.default.createDirectory(at: pointer.appendingPathComponent("blocked"), withIntermediateDirectories: true)
+      try store.publish(["https://example.com/pointer"], capture: capture)
+      try store.abort(capture)
+      try check(FileManager.default.fileExists(atPath: capture.directory.appendingPathComponent("photo.jpg").path), "a committed capture keeps its files, even if abort is asked")
+      try check(try store.pending()?.token.hasPrefix(capture.id) == true, "and is delivered")
+    }
     // The names are only ever shown for the credential that's here now. A family she left, a cleared space, a different
     // account, or no credential at all shows nothing, whatever the Keychain still holds.
     let family = "owner-a:1:11111111-1111-4111-8111-111111111111", personal = "owner-a:1:personal"

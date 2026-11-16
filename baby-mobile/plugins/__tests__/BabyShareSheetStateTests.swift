@@ -81,6 +81,17 @@ struct BabyShareSheetStateTests {
       try check(outcome.isProblem && outcome.opens == nil && outcome.primary == "Close", "\(state) is a problem with one way out")
     }
 
+    // After Save: Failed offers Try again and an explicit Discard, and only promises the app will finish when Save was marked.
+    let failedSave = BabyShareSheetState.saveFailed, notKept = BabyShareSheetState.saveNotKept, slowSave = BabyShareSheetState.saveSlow
+    try check(failedSave.primary == "Try again" && failedSave.secondary == "Discard" && failedSave.isProblem && !failedSave.closesItself, "failed: try again or discard")
+    try check(failedSave.detail?.contains("when you open Håfa Baby") == true, "a marked failure says the app finishes it")
+    try check(notKept.primary == "Try again" && notKept.secondary == "Discard" && notKept.detail?.contains("open Håfa Baby") == false, "an unmarked failure promises nothing")
+    try check(slowSave.detail == "We’ll finish saving this when you open Håfa Baby." && !slowSave.isProblem && !slowSave.closesItself && slowSave.opens == .secondary, "slow says the app finishes it")
+    try check(BabyShareSheetState.publishTimeout >= 10 && BabyShareSheetState.publishTimeout <= 15, "slow comes after 10–15 seconds")
+    for outcome in [failedSave, notKept, slowSave] {
+      for banned in ["source", "original", "import", "Error"] { try check(!(outcome.title + (outcome.detail ?? "")).contains(banned), "\(outcome.title) doesn't say \(banned)") }
+    }
+
     // Before Save: what it is, who'll see it, and where it goes.
     let rows = { (rows: [[String: String]]) in try! JSONSerialization.data(withJSONObject: rows) }
     let reel = BabyShareWords.describe(rows([["url": "https://www.instagram.com/reel/abc/", "meta": #"{"og:title":"Nurse on Instagram: \"Latch tips\nmore\""}"#]]))
