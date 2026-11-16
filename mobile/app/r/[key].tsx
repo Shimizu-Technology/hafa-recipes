@@ -78,8 +78,11 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   if (linkKey && isLoading) {
     return <RNView style={[styles.center, { backgroundColor: colors.background }]}>{header}<ActivityIndicator color={colors.actionText} /></RNView>;
   }
-  if (!linkKey || !recipe) {
-    const missing = !linkKey || (error as { status?: number } | null)?.status === 404;
+  // TanStack keeps the last good recipe after a failed refetch; a 404 (link turned off, recipe made
+  // private) must win over that cached copy, including on a remount before the next fetch.
+  const unavailable = (error as { status?: number } | null)?.status === 404;
+  if (!linkKey || !recipe || unavailable) {
+    const missing = !linkKey || unavailable;
     return (
       <RNView style={[styles.center, { backgroundColor: colors.background }]}>
         {header}
@@ -99,7 +102,8 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   const sharer = recipe.creator && recipe.creator !== 'A Håfa cook' ? recipe.creator : null;
   const credit = [source?.handle ? source.label : null, sharer && `Shared by ${sharer}`].filter(Boolean).join(' · ');
   const facts = [recipe.servings ? `Serves ${recipe.servings}` : null, recipe.time].filter(Boolean).join(' · ');
-  const components = recipe.components.filter(component => component.ingredients.length || component.steps.length);
+  // A component can carry only a cooking note ("Chill overnight"); keep it so the note isn't lost.
+  const components = recipe.components.filter(component => component.ingredients.length || component.steps.length || getCookingNotes(component.notes));
   const named = components.length > 1;
   const steps = components.flatMap(component => component.steps.filter(step => step.trim())
     .map((step, index) => ({ step, heading: named && index === 0 ? component.name : '' })));
@@ -136,17 +140,22 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
         </RNView>
       )}
 
-      {components.some(component => component.ingredients.length) && <Text accessibilityRole="header" style={[styles.section, { color: colors.text }]}>Ingredients</Text>}
-      {components.map((component, index) => component.ingredients.length ? (
-        <RNView key={`ingredients-${index}`} style={styles.block}>
-          {named && component.name ? <Text style={[styles.subhead, { color: colors.text }]}>{component.name}</Text> : null}
-          {component.ingredients.map((ingredient, row) => (
-            <RNView key={row} style={[styles.ingredient, { borderBottomColor: colors.hairline }]}>
-              <Text style={[styles.body, { color: colors.text }]}>{formatShareIngredient(ingredient)}</Text>
-            </RNView>
-          ))}
-        </RNView>
-      ) : null)}
+      {components.some(component => component.ingredients.length || getCookingNotes(component.notes)) && <Text accessibilityRole="header" style={[styles.section, { color: colors.text }]}>Ingredients</Text>}
+      {components.map((component, index) => {
+        const componentNotes = getCookingNotes(component.notes);
+        if (!component.ingredients.length && !componentNotes) return null;
+        return (
+          <RNView key={`ingredients-${index}`} style={styles.block}>
+            {named && component.name ? <Text style={[styles.subhead, { color: colors.text }]}>{component.name}</Text> : null}
+            {component.ingredients.map((ingredient, row) => (
+              <RNView key={row} style={[styles.ingredient, { borderBottomColor: colors.hairline }]}>
+                <Text style={[styles.body, { color: colors.text }]}>{formatShareIngredient(ingredient)}</Text>
+              </RNView>
+            ))}
+            {componentNotes ? <Text style={[styles.componentNotes, { color: colors.textSecondary }]}>{componentNotes}</Text> : null}
+          </RNView>
+        );
+      })}
 
       {steps.length > 0 && <Text accessibilityRole="header" style={[styles.section, { color: colors.text }]}>Steps</Text>}
       {steps.map(({ step, heading }, index) => (
@@ -183,6 +192,7 @@ const styles = StyleSheet.create({
   section: { fontSize: 20, lineHeight: 25, fontFamily: fontFamily.semibold, marginTop: spacing.lg },
   subhead: { fontSize: 16, lineHeight: 21, fontFamily: fontFamily.semibold, marginTop: spacing.sm },
   block: { gap: 2 },
+  componentNotes: { fontSize: 15, lineHeight: 21, paddingTop: spacing.sm },
   ingredient: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   body: { fontSize: 17, lineHeight: 24 },
   step: { flexDirection: 'row', gap: 12, paddingVertical: 6 },

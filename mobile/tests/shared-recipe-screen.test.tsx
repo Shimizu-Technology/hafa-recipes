@@ -139,4 +139,23 @@ describe('shared recipe view', () => {
     const original = root.container.queryAll((n: any) => n.type === 'Row' && n.props.title === 'Original')[0];
     expect(original.props).toMatchObject({ stacked: true, value: 'TikTok video by @thecoreyb' });
   });
+
+  it('shows the unavailable state when a refetch 404s, even with the earlier recipe still cached', async () => {
+    m.query = { data: shared, isLoading: false, error: { status: 404 }, refetch: vi.fn(), isFetching: false };
+    const root = await render();
+    expect(texts(root)).toContain('This recipe isn’t available');
+    expect(texts(root)).not.toContain('Sunday Bread');
+    expect(button(root, 'Save to my library')).toBeUndefined();
+  });
+
+  it('keeps component cooking notes, including a component that has only a note', async () => {
+    m.query = { ...m.query, data: { ...shared, components: [
+      { name: 'Dough', ingredients: [{ name: 'flour', quantity: '3', unit: 'cups' }], steps: ['Mix.'], notes: 'Use bread flour.' },
+      { name: 'Resting', ingredients: [], steps: [], notes: 'Chill overnight.' },
+    ] } };
+    const root = await render();
+    expect(texts(root)).toContain('Use bread flour.');
+    expect(texts(root)).toContain('Resting');
+    expect(texts(root)).toContain('Chill overnight.');
+  });
 });
