@@ -22,12 +22,12 @@ export function createImportPreferences(storage: Pick<typeof AsyncStorage, 'getI
     if (snapshot(owner).ready) return;
     const raw = await storage.getItem(key(owner));
     const value = raw ? JSON.parse(raw) as Partial<ImportPreferences> & { hasExplicitVisibility?: boolean } : INITIAL;
-    if (typeof value.isPublic !== 'boolean' || typeof value.location !== 'string' ||
+    if ((value.isPublic !== undefined && typeof value.isPublic !== 'boolean') || typeof value.location !== 'string' ||
         !value.location.trim() || value.location.length > 100) throw new Error('Could not read import settings.');
     // Old records with a saved boolean are explicit choices. New location-only
     // records retain the unset state instead of manufacturing a visibility choice.
-    const hasExplicitVisibility = Boolean(raw) && value.hasExplicitVisibility !== false;
-    states.set(owner, { isPublic: hasExplicitVisibility ? value.isPublic : false,
+    const hasExplicitVisibility = Boolean(raw) && typeof value.isPublic === 'boolean' && value.hasExplicitVisibility !== false;
+    states.set(owner, { isPublic: hasExplicitVisibility ? value.isPublic === true : false,
       location: value.location, hasExplicitVisibility, ready: true, error: null });
     emit();
   };

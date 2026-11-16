@@ -7,6 +7,8 @@ type Bridge = {
   configurePreferences?(accountScopeId: string, location: string, isPublic: boolean): Promise<void>;
   clearSession(revoke: boolean): Promise<boolean>;
   acknowledgeCapture(captureKey: string): Promise<boolean>;
+  discardCapture?(captureKey: string, protectedPaths: string[]): Promise<boolean>;
+  cleanupAttachments?(released: string[], protectedPaths: string[]): Promise<string[]>;
   readCaptureMetadata(captureKey: string): Promise<string | null>;
   getCurrentCaptureMetadata(): Promise<string | null>;
 };
@@ -24,5 +26,9 @@ export const configurePreferences = async (accountScopeId: string, location: str
   bridge?.configurePreferences?.(accountScopeId, location, isPublic);
 export const clearSession = async (revoke = true) => bridge?.clearSession(revoke) ?? true;
 export const acknowledgeCapture = async (captureKey: string) => bridge?.acknowledgeCapture(captureKey) ?? false;
+export const discardCapture = async (captureKey: string, protectedPaths: string[] = []) =>
+  bridge?.discardCapture?.(captureKey, protectedPaths) ?? bridge?.acknowledgeCapture(captureKey) ?? false;
+export const cleanupAttachments = async (released: string[], protectedPaths: string[]) =>
+  bridge?.cleanupAttachments?.(released, protectedPaths) ?? released;
 export const readCaptureMetadata = async (captureKey: string) => bridge?.readCaptureMetadata(captureKey) ?? null;
 export const getCurrentCaptureMetadata = async () => bridge?.getCurrentCaptureMetadata() ?? null;

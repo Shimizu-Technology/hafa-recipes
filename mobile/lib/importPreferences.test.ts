@@ -56,3 +56,13 @@ it('preserves saved Public and does not turn location-only settings into a visib
   await saved.hydrate('new');
   expect(saved.snapshot('new')).toMatchObject({ isPublic: true, hasExplicitVisibility: true });
 });
+
+it('keeps a legacy location-only record Private and preserves ambiguous legacy Public', async () => {
+  const { preferences, values } = store();
+  values.set('hafa_import_preferences_v1:location-only', JSON.stringify({ location: 'Hawaii' }));
+  values.set('hafa_import_preferences_v1:legacy-public', JSON.stringify({ location: 'Hawaii', isPublic: true }));
+  await preferences.hydrate('location-only');
+  await preferences.hydrate('legacy-public');
+  expect(preferences.snapshot('location-only')).toMatchObject({ ready: true, isPublic: false, hasExplicitVisibility: false });
+  expect(preferences.snapshot('legacy-public')).toMatchObject({ ready: true, isPublic: true, hasExplicitVisibility: true });
+});

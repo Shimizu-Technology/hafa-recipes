@@ -85,7 +85,7 @@ it('guards preview networking, bounds its lifetime, and keeps supplied Safari ti
   const kit = card('HafaShareKit.swift');
   expect(kit).toContain('guard HafaSharePreviewPolicy.allows(url) else { return }');
   expect(kit).toContain('provider.shouldFetchSubresources = true');
-  expect(kit.indexOf('guard HafaSharePreviewPolicy.allows(url)')).toBeLessThan(kit.indexOf('let provider = LPMetadataProvider()')); 
+  expect(kit.indexOf('guard HafaSharePreviewPolicy.allows(url)')).toBeLessThan(kit.indexOf('let provider = LPMetadataProvider()'));
   expect(kit).toContain('provider.timeout = 5');
   expect(kit).toContain('deadline: .now() + 5');
   expect(kit).toContain('linkProvider?.cancel()');
@@ -98,7 +98,7 @@ it('guards preview networking, bounds its lifetime, and keeps supplied Safari ti
 
 it('gates late attachment callbacks and puts copied photos in a capture-owned directory', () => {
   const photos = section('private func handleImages', 'private func documentDirectoryPath');
-  expect(photos).toContain('files.copy(source)');
+  expect(photos).toContain('HafaShareImageTransfer.load(files: files');
   expect(photos).toContain('guard !captureClosed else { return }');
   expect(section('private func redirectToHostApp', '// The one link')).toContain('guard !captureClosed else { return }');
   const cancel = section('private func cancelCapture', 'private func closeCapture');
@@ -112,4 +112,13 @@ it('does not log Safari preprocessing dictionaries or other shared payloads', ()
   expect(safari).toContain('results["baseURI"]');
   expect(safari).not.toContain('NSLog');
   expect(controller).not.toContain('NSLog(');
+});
+
+it('supports data/object-only images through the off-main transfer chain', () => {
+  const photos = section('private func handleImages', 'private func documentDirectoryPath');
+  expect(photos).toContain('loadDataRepresentation');
+  expect(photos).toContain('loadObject(ofClass: UIImage.self)');
+  expect(photos).toContain('done { image.pngData() }');
+  const store = readFileSync(new URL('./modules/hafa-share-bridge/ios/HafaShareShared.swift', import.meta.url), 'utf8');
+  expect(store).toContain('DispatchQueue.global(qos: .utility).async');
 });

@@ -1,5 +1,7 @@
 import Darwin
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import Security
 
 // Compiled into the containing app and Share extension. Only the import-link
@@ -110,14 +112,111 @@ enum HafaShareStore {
 
   // Cancellation is idempotent, including a capture still loading attachments.
   // Run on captureWriteQueue so an earlier receipt write cannot recreate it.
-  static func discardCapture(_ key: String) -> Bool {
+  static func discardCapture(_ key: String, deletingAttachments: Bool = false, protected: [String] = []) -> Bool {
     locked { defaults in
       let pending = defaults.stringArray(forKey: pendingKey) ?? []
+      if deletingAttachments {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
+          let queued = queuedAttachmentPaths(defaults: defaults, excluding: key) else { return false }
+        let released = attachmentPaths(defaults.object(forKey: key)) ?? []
+        guard reapAttachments(in: container, released: released, protected: protected + queued,
+          sweepOrphans: false, retryProtected: false).isEmpty else { return false }
+      }
       defaults.set(remainingPending(pending, acknowledging: key), forKey: pendingKey)
       defaults.removeObject(forKey: key)
       defaults.removeObject(forKey: "\(key).meta")
       return true
     } ?? false
+  }
+
+  static func attachmentPaths(_ payload: Any?) -> [String]? {
+    guard let data = payload as? Data,
+      let media = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+    guard media.allSatisfy({ $0["path"] is String }) else { return nil }
+    return media.flatMap { [$0["path"] as? String, $0["thumbnail"] as? String].compactMap { $0 } }
+  }
+
+  // A malformed media receipt stops cleanup; guessing its references could
+  // destroy a capture that the host has not yet persisted.
+  static func queuedAttachmentPaths(defaults: UserDefaults, excluding: String? = nil) -> [String]? {
+    var paths: [String] = []
+    for value in defaults.stringArray(forKey: pendingKey) ?? [] {
+      guard let url = URL(string: value), let key = captureKey(from: value),
+        ["text", "weburl", "media", "file"].contains(url.fragment ?? "") else { return nil }
+      if key == excluding { continue }
+      if ["media", "file"].contains(url.fragment ?? "") {
+        guard let references = attachmentPaths(defaults.object(forKey: key)) else { return nil }
+        paths += references
+      }
+    }
+    return paths
+  }
+
+  // The host supplies references from the complete durable inbox, including
+  // other accounts, while the AppGroup lock protects native queue references.
+  static func cleanupAttachments(released: [String], protected: [String]) -> [String] {
+    locked { defaults in
+      guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
+        let queued = queuedAttachmentPaths(defaults: defaults) else { return released }
+      return reapAttachments(in: container, released: released, protected: protected + queued)
+    } ?? released
+  }
+
+  static func reapAttachments(in container: URL, released: [String], protected: [String],
+    now: Date = Date(), sweepOrphans: Bool = true, retryProtected: Bool = true) -> [String] {
+    let manager = FileManager.default
+    let logicalRoot = container.standardizedFileURL
+    let root = logicalRoot.resolvingSymlinksInPath()
+    func ownedDirectory(_ name: String) -> Bool {
+      name.hasPrefix("hafa-share-") && UUID(uuidString: String(name.dropFirst("hafa-share-".count))) != nil
+    }
+    func localURL(_ path: String) -> URL? {
+      let url = path.hasPrefix("/") ? URL(fileURLWithPath: path) : URL(string: path)
+      guard let url, url.isFileURL else { return nil }
+      let normalized = url.standardizedFileURL
+      let relative: String
+      if normalized.path.hasPrefix(logicalRoot.path + "/") { relative = String(normalized.path.dropFirst(logicalRoot.path.count + 1)) }
+      else if normalized.path.hasPrefix(root.path + "/") { relative = String(normalized.path.dropFirst(root.path.count + 1)) }
+      else { return nil }
+      let expected = root.appendingPathComponent(relative).standardizedFileURL
+      guard expected.resolvingSymlinksInPath().path == expected.path else { return nil }
+      return expected
+    }
+    func ownedFile(_ path: String) -> URL? {
+      guard let url = localURL(path) else { return nil }
+      let parent = url.deletingLastPathComponent()
+      if parent.deletingLastPathComponent().path == root.path && ownedDirectory(parent.lastPathComponent) { return url }
+      // Older extensions copied UUID-named photos directly into the container.
+      let stem = url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "screenshot_", with: "")
+      return parent.path == root.path && UUID(uuidString: stem) != nil ? url : nil
+    }
+    let live = Set(protected.compactMap(localURL).map(\.path))
+    var remaining: [String] = []
+    for path in Set(released) {
+      guard let url = ownedFile(path) else { continue }
+      guard !live.contains(url.path) else {
+        if retryProtected { remaining.append(path) }
+        continue
+      }
+      do {
+        if manager.fileExists(atPath: url.path) { try manager.removeItem(at: url) }
+        let parent = url.deletingLastPathComponent()
+        if ownedDirectory(parent.lastPathComponent),
+          (try? manager.contentsOfDirectory(atPath: parent.path).isEmpty) == true { try? manager.removeItem(at: parent) }
+      } catch { remaining.append(path) }
+    }
+    guard sweepOrphans, let children = try? manager.contentsOfDirectory(at: root,
+      includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .creationDateKey, .contentModificationDateKey]) else { return remaining }
+    for folder in children where ownedDirectory(folder.lastPathComponent) {
+      let canonicalFolder = folder.resolvingSymlinksInPath().standardizedFileURL
+      guard let values = try? folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .creationDateKey, .contentModificationDateKey]),
+        values.isDirectory == true, values.isSymbolicLink != true,
+        let modified = values.contentModificationDate, let created = values.creationDate,
+        now.timeIntervalSince(max(created, modified)) > 7 * 86400,
+        !live.contains(where: { $0 == canonicalFolder.path || $0.hasPrefix(canonicalFolder.path + "/") }) else { continue }
+      try? manager.removeItem(at: folder)
+    }
+    return remaining.sorted()
   }
 
   static func validBaseURL(_ value: String) -> URL? {
@@ -248,6 +347,21 @@ final class HafaShareAttachmentFiles: @unchecked Sendable {
     }
   }
 
+  var isCancelled: Bool {
+    lock.lock(); defer { lock.unlock() }
+    return cancelled
+  }
+
+  func saveImageData(_ data: Data) -> URL? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+      let type = CGImageSourceGetType(source), let ext = UTType(type as String)?.preferredFilenameExtension else { return nil }
+    return try? withWrite { directory in
+      let destination = directory.appendingPathComponent("\(UUID().uuidString).\(ext)")
+      try data.write(to: destination, options: .atomic)
+      return destination
+    }
+  }
+
   func cancelAndRemove() -> Bool {
     lock.lock(); defer { lock.unlock() }
     cancelled = true
@@ -255,5 +369,37 @@ final class HafaShareAttachmentFiles: @unchecked Sendable {
       if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
       return true
     } catch { return false }
+  }
+}
+
+// The same fallback chain serves file-, data- and object-only image providers.
+// Object encoding and data I/O run on utility, never UIKit's main thread.
+enum HafaShareImageTransfer {
+  typealias Encoder = @Sendable () -> Data?
+  static func load(files: HafaShareAttachmentFiles,
+    file: @escaping (@escaping (URL?) -> Void) -> Void,
+    data: @escaping (@escaping (Data?) -> Void) -> Void,
+    object: @escaping (@escaping (Encoder?) -> Void) -> Void,
+    completion: @escaping (URL?) -> Void) {
+    func loadObject() {
+      guard !files.isCancelled else { completion(nil); return }
+      object { encode in
+        DispatchQueue.global(qos: .utility).async {
+          guard !files.isCancelled, let encoded = encode?() else { completion(nil); return }
+          completion(files.saveImageData(encoded))
+        }
+      }
+    }
+    file { source in
+      if let source, let copied = files.copy(source) { completion(copied); return }
+      guard !files.isCancelled else { completion(nil); return }
+      data { encoded in
+        guard let encoded else { loadObject(); return }
+        DispatchQueue.global(qos: .utility).async {
+          if let saved = files.saveImageData(encoded) { completion(saved) }
+          else { loadObject() }
+        }
+      }
+    }
   }
 }

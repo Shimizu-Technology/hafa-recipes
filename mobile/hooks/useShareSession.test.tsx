@@ -4,12 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
   owner: 'owner-a' as string | undefined, subject: 'subject-a', signedIn: true,
-  storage: new Map<string, string>(), foreground: null as ((state: string) => void) | null,
-  clear: vi.fn(), configure: vi.fn(), preferences: vi.fn(), provision: vi.fn(), scopeOwner: vi.fn(), disclosure: vi.fn(),
+  listeners: [] as ((state: string) => void)[], storage: new Map<string, string>(), foreground: null as ((state: string) => void) | null,
+  cleanup: vi.fn(async () => undefined), clear: vi.fn(), configure: vi.fn(), preferences: vi.fn(), provision: vi.fn(), scopeOwner: vi.fn(), disclosure: vi.fn(),
   settings: { ready: true, hasExplicitVisibility: true, isPublic: true, location: 'Guam' },
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' }, AppState: { addEventListener: (_: string, listener: (state: string) => void) => {
-  mocks.foreground = listener; return { remove: vi.fn() };
+  mocks.listeners.push(listener); mocks.foreground = listener; return { remove: vi.fn() };
 } } }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {
   getItem: async (key: string) => mocks.storage.get(key) ?? null,
@@ -20,16 +20,16 @@ vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: mo
 vi.mock('./useRecipes', () => ({ useCurrentUserIdentity: () => ({ data: mocks.owner ? { id: mocks.owner } : undefined }) }));
 vi.mock('./useImportPreferences', () => ({ useImportPreferences: () => mocks.settings }));
 vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: undefined }) }));
-vi.mock('@/modules/hafa-share-bridge/src', () => ({ configurePreferences: mocks.preferences, clearSession: mocks.clear, configureSession: mocks.configure, getInstallationId: async () => 'installation' }));
+vi.mock('@/modules/hafa-share-bridge/src', () => ({ cleanupAttachments: vi.fn(async (released: string[]) => released), configurePreferences: mocks.preferences, clearSession: mocks.clear, configureSession: mocks.configure, getInstallationId: async () => 'installation' }));
 vi.mock('@/lib/api', () => ({ API_BASE_URL: 'https://api.example', api: { createShareCredential: mocks.provision, getPublishingDisclosure: mocks.disclosure } }));
-vi.mock('@/lib/importInbox', () => ({ saveShareScopeOwner: mocks.scopeOwner }));
+vi.mock('@/lib/importInbox', () => ({ saveShareScopeOwner: mocks.scopeOwner, importInbox: { cleanupAttachments: mocks.cleanup } }));
 import { SHARE_SESSION_KEY, useShareSession } from './useShareSession';
 function Harness() { useShareSession(); return null; }
 let renderer: ReactTestRenderer | undefined;
 const expiry = () => new Date(Date.now() + 30 * 86400000).toISOString();
 const credential = (scope: string) => ({ token: `token-${scope}`, account_scope_id: scope, expires_at: expiry(), location: 'Guam', is_public: false });
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.storage.clear(); mocks.owner = 'owner-a'; mocks.subject = 'subject-a'; mocks.signedIn = true;
+  vi.clearAllMocks(); mocks.listeners = []; mocks.storage.clear(); mocks.owner = 'owner-a'; mocks.subject = 'subject-a'; mocks.signedIn = true;
   mocks.settings = { ready: true, hasExplicitVisibility: true, isPublic: true, location: 'Guam' }; mocks.disclosure.mockResolvedValue({ requires_acceptance: false });
   mocks.preferences.mockResolvedValue(undefined); mocks.clear.mockResolvedValue(true); mocks.configure.mockResolvedValue(undefined); mocks.scopeOwner.mockResolvedValue(undefined);
   mocks.provision.mockResolvedValue(credential('scope-a'));
@@ -137,4 +137,13 @@ it('sends Private before and after provisioning when visibility was never chosen
   mocks.settings.hasExplicitVisibility = true;
   await act(async () => renderer!.update(<Harness />));
   expect(mocks.preferences).toHaveBeenLastCalledWith('scope-a', 'Guam', true);
+});
+
+it('runs all-account attachment housekeeping on mount and foreground, including signed-out phones', async () => {
+  mocks.signedIn = false;
+  await act(async () => { renderer = create(<Harness />); });
+  expect(mocks.cleanup).toHaveBeenCalledOnce();
+  expect(mocks.cleanup).toHaveBeenCalledWith(expect.any(Function));
+  await act(async () => { for (const listener of mocks.listeners) listener('active'); });
+  expect(mocks.cleanup).toHaveBeenCalledTimes(2);
 });
