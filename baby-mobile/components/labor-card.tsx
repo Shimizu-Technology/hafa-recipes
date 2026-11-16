@@ -10,6 +10,7 @@ import type { FamilyMember } from "../lib/family";
 import { familySpaces, isCaregiver } from "../lib/spaces";
 import { findBag, packedLine } from "../lib/hospital-bag";
 import { laborView, whenToCall } from "../lib/labor";
+import { deliveryRowTitle } from "../lib/voice-words";
 import { ExpectingAsk } from "./expecting-ask";
 import { undoShown } from "../lib/running-feed";
 import { CallContact } from "@/components/call-contact";
@@ -96,7 +97,7 @@ export function LaborCard({ child, today, running, week, family: known }: { chil
     {lines.map((line) => <CallContact key={line.key} line={line} />)}
     {/* Not mid-contraction. */}
     {!running && !lines.some((line) => line.key === "delivery") && contactsOn(bootstrap) && deliveryMatters(bootstrap, today) &&
-      <QuietRow title="Add where you plan to deliver" onPress={() => router.push({ pathname: "/profile", params: { open: "delivery" } })} />}
+      <QuietRow title={deliveryRowTitle(voice)} onPress={() => router.push({ pathname: "/profile", params: { open: "delivery" } })} />}
     <Row title="Hospital bag" numericDetail detail={bag ? packedLine(bag) : "A starter list to pack from"} icon="bag-handle-outline"
       onPress={() => router.push("/hospital-bag")} />
   </Section>;

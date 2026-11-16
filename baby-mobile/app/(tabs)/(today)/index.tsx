@@ -104,7 +104,7 @@ export default function Today() {
       </Card>}
       {tiles.length ? <MoreLogs child={child} now={now} shown={tiles} title="" big onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} /> : whatShows}
       {/* Right under the tiles, so in labour she needn't scroll for it. */}
-      {pregnant && parentHere && <Row title="Baby’s here?" detail="Add the day and time, and tell your family. Starts feeding, sleep and diaper logs" icon="heart-outline"
+      {pregnant && parentHere && <Row title="Baby’s here?" wrapDetail detail="Add the day and time, tell your family, and start the care logs" icon="heart-outline"
         hint="Opens one short screen" onPress={() => router.push({ pathname: "/birth", params: { id: child.id } })} />}
       {pregnant && <WeekDetails child={child} now={today} tips={tipsNow.rows} />}
       {pregnant && <ThisWeek child={child} today={today} />}

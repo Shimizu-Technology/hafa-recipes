@@ -74,7 +74,7 @@ describe("on Today", () => {
   const words = () => all("Copy").map((node) => node.props.children);
   function setup(state: Partial<DeviceState> = {}, records: unknown[] = []) {
     let current = { hiddenToday: [], bootstrap: { contacts: {} }, ...state } as unknown as DeviceState;
-    m.baby = { get state() { return current; }, records, commit: vi.fn(async (change: (s: DeviceState) => DeviceState) => { current = change(current); }) };
+    m.baby = { owner: "kami", get state() { return current; }, records, commit: vi.fn(async (change: (s: DeviceState) => DeviceState) => { current = change(current); }) };
   }
   beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); m.push.mockClear(); m.toast.mockClear(); });
   afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
@@ -96,6 +96,26 @@ describe("on Today", () => {
     expect(m.push).toHaveBeenLastCalledWith({ pathname: "/profile", params: { open: "delivery" } });
     await act(async () => rows.find((row) => row.props.title.startsWith("Choose your baby"))!.props.onPress());
     expect(m.push).toHaveBeenLastCalledWith({ pathname: "/child", params: { id: "c", doctor: "1" } });
+  });
+  it("on her partner's phone, reads about Kami, not \"you\", and says so plainly when it isn't settled", async () => {
+    const kami = { ...expecting, space_id: "fam", details: { expecting_member: "kami", expecting_confirmed: true } } as unknown as Child;
+    setup({ bootstrap: { contacts: {}, people: { kami: "Kami" }, spaces: [{ id: "fam", kind: "family", role: "parent" }] } } as unknown as Partial<DeviceState>);
+    Object.assign(m.baby, { owner: "leon", api: { familyMembers: vi.fn(async () => ({ items: [
+      { app_user_id: "kami", role: "parent", status: "active" }, { app_user_id: "leon", role: "parent", status: "active" }] })) } });
+    await act(async () => { renderer = create(<ThisWeek child={kami} today={new Date(2026, 10, 15)} />); });
+    const titles = () => all("Row").map((row) => row.props.title).join(" | ");
+    expect(titles()).toContain("Finish packing the bag");
+    expect(titles()).toContain("Ask Kami’s provider when to call or come in once contractions start");
+    expect(titles()).toContain("Save where Kami will deliver, and their number");
+    expect(words()).toContain("A few weeks before Kami’s due date, Kami’s provider checks for group B strep. You can ask when it is.");
+    expect(`${titles()} ${words().join(" ")}`).not.toMatch(/\byour (bag|provider|due date|next visit)|where you/);
+    await act(async () => renderer!.unmount());
+    // Nobody has said: everyday words, no name guessed.
+    const guessed = { ...kami, details: { expecting_member: "leon", expecting_confirmed: false } } as unknown as Child;
+    await act(async () => { renderer = create(<ThisWeek child={guessed} today={new Date(2026, 10, 15)} />); });
+    expect(titles()).toContain("Ask the provider when to call");
+    expect(words()).toContain("A few weeks before the due date, the provider checks for group B strep. You can ask when it is.");
+    expect(`${titles()} ${words().join(" ")}`).not.toMatch(/Kami|Leon|\byour (bag|provider)/);
   });
   it("hides with Undo, and stays hidden", async () => {
     setup();

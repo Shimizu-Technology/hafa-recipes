@@ -134,6 +134,10 @@ describe("on Leon's phone, where Kami is the one in labor", () => {
     expect(words()).toContain("Call Kami’s doctor or midwife right away");
     expect(words()).not.toContain("you’re in labor");
   });
+  it("asks where Kami plans to deliver, not where \"you\" do", async () => {
+    await mount(hers, 38);
+    expect(all("QuietRow").map((node) => node.props.title)).toEqual(["Add where Kami plans to deliver"]);
+  });
   it("with no signal, doesn't offer \"Tell your partner\", which would mean Kami", async () => {
     m.baby.api.familyMembers = vi.fn(async () => { throw new Error("offline"); });
     await mount(hers);
