@@ -504,10 +504,11 @@ class ApiClient {
   }
 
   /** Owner only: creates the unlisted link, replacing (and turning off) any earlier one. */
-  async createRecipeShareLink(id: string): Promise<{ url: string }> {
+  async createRecipeShareLink(id: string): Promise<{ url: string; created_at: string | null }> {
     const { data } = await this.client.post(`/api/recipes/${id}/share-link`, undefined, { timeout: 15_000 });
     if (typeof data?.url !== 'string' || !data.url.startsWith('https://')) throw new Error('The link wasn’t created. Please try again.');
-    return { url: data.url };
+    // Older APIs don't return created_at; the caller then asks the status endpoint.
+    return { url: data.url, created_at: typeof data.created_at === 'string' ? data.created_at : null };
   }
 
   /** Owner only: one page of recipes with an active unlisted link, newest first. */

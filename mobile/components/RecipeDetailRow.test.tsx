@@ -73,4 +73,13 @@ describe('stacked action rows', () => {
     } finally { m.fontScale = 1; }
     expect(gap(await render({}))).toBe(12);
   });
+
+  it('reads the title and detail together to screen readers', async () => {
+    const root = await render({ value: 'TikTok video by @thecoreyb' });
+    expect(root.container.queryAll((n: any) => n.type === 'TouchableOpacity')[0].props.accessibilityLabel).toBe('Original, TikTok video by @thecoreyb');
+    const plain = await render({ title: 'Copy link' });
+    expect(plain.container.queryAll((n: any) => n.type === 'TouchableOpacity')[0].props.accessibilityLabel).toBe('Copy link');
+    const custom = await render({ value: 'x', accessibilityLabel: 'Send the original' });
+    expect(custom.container.queryAll((n: any) => n.type === 'TouchableOpacity')[0].props.accessibilityLabel).toBe('Send the original');
+  });
 });

@@ -65,7 +65,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
   const insets = useSafeAreaInsets();
   const mode = getRecipeShareMode(recipe, isOwner);
   const link = useRecipeShareLink(recipe.id, visible && mode === 'private');
-  const linkState = { loading: link.isLoading, unavailable: link.isUnavailable, active: link.active, url: link.url };
+  const linkState = { loading: link.isLoading, unavailable: link.isUnavailable, error: link.isError, active: link.active, url: link.url };
   const model = getShareSheetModel(mode, linkState);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
@@ -160,9 +160,11 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
 
   const confirmCopy = confirm ? CONFIRM_COPY[confirm.kind] : null;
   const linkChecking = mode === 'private' && link.isLoading;
+  // Until the status is known, Send and Copy stay off; the "Try again" row below recovers.
+  const linkBlocked = linkChecking || (mode === 'private' && link.isError);
   const hasSendText = model.primary === 'send-link';
   const primaryButton = model.primary === 'send-link'
-    ? <Button title={linkChecking ? 'Checking link…' : 'Send link'} onPress={() => void requestLink('send')} loading={linkChecking} />
+    ? <Button title={linkChecking ? 'Checking link…' : 'Send link'} onPress={() => void requestLink('send')} loading={linkChecking} disabled={linkBlocked} />
     : <Button title="Send as text" onPress={() => void sendText()} />;
 
   return (
@@ -223,7 +225,7 @@ export function ShareRecipeSheet({ recipe, isOwner, visible, onClose, scaledServ
                 {!large && primaryButton}
                 <RNView style={[styles.group, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
                   {model.showCopyLink && <RecipeDetailRow icon="link-outline" title="Copy link" stacked last={!hasSendText && !source}
-                    disabled={linkChecking} onPress={() => void requestLink('copy')} />}
+                    disabled={linkBlocked} onPress={() => void requestLink('copy')} />}
                   {hasSendText && <RecipeDetailRow icon="document-text-outline" title="Send as text"
                     value="Ingredients and steps" stacked last={!source} onPress={() => void sendText()} />}
                   {source && <RecipeDetailRow icon="play-circle-outline" title="Original" value={source.label} stacked last

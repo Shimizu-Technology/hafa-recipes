@@ -86,6 +86,9 @@ describe('link requests', () => {
 
   it('waits for the status check and never links hidden or unavailable recipes', () => {
     expect(resolveLinkRequest('private', ID, { ...idle, loading: true })).toEqual({ kind: 'wait' });
+    // A failed status check is not "no link": creating one now could replace a link people already have.
+    expect(resolveLinkRequest('private', ID, { ...idle, error: true })).toEqual({ kind: 'error' });
+    expect(resolveLinkRequest('private', ID, { ...idle, error: true, active: true, url: 'https://hafa-recipes.com/r/x' })).toEqual({ kind: 'error' });
     expect(resolveLinkRequest('private', ID, { ...idle, unavailable: true })).toEqual({ kind: 'none' });
     expect(resolveLinkRequest('under-review', ID, idle)).toEqual({ kind: 'none' });
   });
