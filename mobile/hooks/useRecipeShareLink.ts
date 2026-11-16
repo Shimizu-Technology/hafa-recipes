@@ -27,6 +27,18 @@ export function usableStoredLink(status: RecipeShareLinkStatus | undefined, stor
   return stored.createdAt === null || stored.createdAt === status.created_at ? stored.url : null;
 }
 
+/**
+ * Whether a status read after an older-API create describes a later link than the one just made: none
+ * active, or created more than a second after the create response (the HTTP Date header has whole-second
+ * precision). Without a server time, a dated status can't be checked and is accepted.
+ */
+export function replacedAfter(status: RecipeShareLinkStatus, respondedAt: string | null): boolean {
+  if (!status.active) return true;
+  const created = status.created_at ? Date.parse(status.created_at) : NaN;
+  const responded = respondedAt ? Date.parse(respondedAt) : NaN;
+  return Number.isFinite(created) && Number.isFinite(responded) && created > responded + 1000;
+}
+
 /** Owner-only unlisted link for a private recipe: status, the link kept on this phone, create, replace and turn off. */
 export function useRecipeShareLink(recipeId: string, enabled: boolean) {
   const queryClient = useQueryClient();
@@ -64,13 +76,22 @@ export function useRecipeShareLink(recipeId: string, enabled: boolean) {
   const create = useMutation({
     mutationFn: async () => {
       const created = await api.createRecipeShareLink(recipeId);
-      // Newer APIs date the link in the create response; older ones need the status check.
+      // Newer APIs (#690) date the link in the create response; older ones need the status check.
       const fresh: RecipeShareLinkStatus = created.created_at
         ? { active: true, created_at: created.created_at }
         : await api.getRecipeShareLink(recipeId).catch(() => ({ active: true, created_at: null }));
+      if (!created.created_at && replacedAfter(fresh, created.responded_at)) {
+        // Another phone replaced or turned off this link between our POST and GET, so this URL is
+        // already dead. Pairing it with the newer date would make a dead link look current.
+        throw Object.assign(new Error('The link changed on another device.'), { code: 'LINK_REPLACED_ELSEWHERE' });
+      }
       const stored = { url: created.url, createdAt: fresh.created_at };
       await storeRecipeLink(recipeId, stored);
       return { fresh, stored };
+    },
+    onError: (error: unknown) => {
+      // Show the other device's link as active, so the next Send offers to replace it.
+      if ((error as { code?: string })?.code === 'LINK_REPLACED_ELSEWHERE') void queryClient.invalidateQueries({ queryKey: statusKey });
     },
     onSuccess: async ({ fresh, stored }: { fresh: RecipeShareLinkStatus; stored: StoredRecipeLink }) => {
       // An in-flight status fetch from before the create must not overwrite the new link's status.
