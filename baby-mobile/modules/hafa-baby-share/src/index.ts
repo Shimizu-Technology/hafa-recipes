@@ -20,6 +20,8 @@ export interface NativeShare {
   claimed?: boolean;
   blocked?: "unreadable";
   import_id?: string;
+  /** The category chosen on the share sheet. Filing it is best effort: the share is saved either way. */
+  collection_id?: string;
   url?: string;
   text?: string;
   files: { path: string; fileName: string; mimeType: string }[];
@@ -54,6 +56,7 @@ const bridge = requireOptionalNativeModule<{
   blockShare(token: string, reason: string): Promise<boolean>;
   blockedShares(owner: string): Promise<WaitingShare[]>;
   removeBlockedShare(token: string, owner: string): Promise<boolean>;
+  publishCategories(items: { id: string; title: string }[], owner: string, generation: number, destination: string | null): Promise<void>;
 }>("HafaBabyShare");
 export const nativeSharingAvailable = !!bridge;
 /** Lets the share sheet tell a sign-in that hasn't connected yet from being signed out. Clearing the session clears it. */
@@ -79,3 +82,6 @@ export const configureSession = (session: ShareSession, base: string, owner: str
   bridge?.configureSession(session.token, base, session.expires_at, owner, session.generation, session.auto_process_epoch ?? 0, destination) ?? Promise.resolve();
 
 export const returnClaim = (token: string, owner: string) => bridge?.returnClaim(token, owner) ?? Promise.resolve(false);
+/** What the share sheet offers to file into: the session's own space's categories, newest first. Dropped with the session. */
+export const publishCategories = (items: { id: string; title: string }[], owner: string, generation: number, destination: string | null = null) =>
+  bridge?.publishCategories(items, owner, generation, destination) ?? Promise.resolve();

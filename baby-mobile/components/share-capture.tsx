@@ -8,7 +8,8 @@ import { addMutation } from "@/lib/outbox";
 import type { LocalFile, Mutation, Profile } from "@/lib/models";
 import { stockShareScope } from "../lib/stock-share-scope";
 import { captureBelongs, captureDestination, captureStale, shareOwner } from "../lib/share-scope";
-import { notSentMessage } from "../lib/outbox";
+import { noFamilyAccessMessage, notSentMessage } from "../lib/outbox";
+import { familySpaces } from "../lib/spaces";
 import { ApiError } from "../lib/api";
 import { useShareSession } from "@/lib/use-share-session";
 import { claimSettled, onSharesChanged, sharesChanged, type ClaimOutcome } from "../lib/share-session-state";
@@ -113,6 +114,7 @@ export function ShareCapture() {
             const occurred_at = native?.occurred_at ?? new Date().toISOString();
             const profile = bootstrap.profile as Profile & { auto_process_shares?: boolean };
             const save: Mutation = { id: saveId, generation, type: "save", files: copied,
+              ...(native?.collection_id ? { file_into: native.collection_id } : {}),
               record: { id, kind: "source", title: sharedSourceTitle(text),
                 body: "", child_id: null, occurred_at,
                 data: { url, source_text: text, status: "saved", topics: [] } } };
@@ -126,7 +128,9 @@ export function ShareCapture() {
               copiesRetained = true;
               // Read here, from this write's own state: bootstrap can list the family after this drain began, and a capture made before it must not go there.
               const place = native ? captureDestination(native.scope, state.bootstrap) : {};
-              let next = addMutation(state, { ...save, ...place, ...(place.left_space ? { error: notSentMessage } : {}) });
+              // Held for a family she left, or one she's in without a parent's access. Either way only she moves it.
+              const held = place.left_space && (familySpaces(state.bootstrap).some((space) => space.id === place.left_space) ? noFamilyAccessMessage : notSentMessage);
+              let next = addMutation(state, { ...save, ...place, ...(held ? { error: held } : {}) });
               if (place.left_space) return next;
               // A share added from the waiting card was never covered by permission for AI, whatever's on now.
               if (!native?.claimed && profile.ai_consent && profile.auto_process_shares &&

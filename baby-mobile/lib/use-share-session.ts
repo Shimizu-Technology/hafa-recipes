@@ -13,7 +13,8 @@ import {
   serializeShareSession,
   sharesChanged,
 } from "./share-session-state";
-import { sessionScope, shareDestination, shareOwner } from "./share-scope";
+import { sessionReachable, sessionScope, shareDestination, shareOwner } from "./share-scope";
+import { shareCategories } from "./share-categories";
 import { accessKey, generationOf, spaceFence, spacesLive } from "./spaces";
 export { revokeShareSession } from "./share-session-state";
 
@@ -56,11 +57,16 @@ export function useShareSession() {
           // Only another account's retires what's here. A new credential for this one rebinds, and captures keep their ids and receipts.
           const previous = await Share.sessionOwner();
           if (previous && shareOwner(previous) !== b.owner) await Share.clearSession();
+          // Left or removed from its family, or its space cleared: it can't write there any more. It and its category
+          // names go now, not after the new one arrives, which might not. Captures it made are kept for the rebind.
+          else if (previous && !sessionReachable(previous, b.owner, b.state.bootstrap)) await Share.suspendSession();
           // Before asking for the credential, which is the part that can fail.
           await Share.noteSignedIn().catch(() => undefined);
         });
         if (!current()) return;
         const bootstrap = b.state.bootstrap!, destination = shareDestination(bootstrap);
+        // Asked alongside the credential. A list that can't be had leaves the last one, which the sheet only shows for the same tag.
+        const categories = Promise.resolve().then(() => b.api.records({ kind: "collection", limit: 100 })).catch(() => null);
         const session = await b.api.request<Share.ShareSession>("/share/session", "POST",
           { installation_id: await Share.installationId() }, spaceFence(bootstrap, destination));
         await serializeShareSession(async () => {
@@ -72,6 +78,11 @@ export function useShareSession() {
         });
         // Connected, so whatever's waiting can be offered to this account now.
         if (current()) sharesChanged();
+        // Native refuses a list for any credential but the one that's there now.
+        const page = await categories;
+        if (page && current()) await serializeShareSession(() => Share.publishCategories(
+          shareCategories(page.items, spacesLive(bootstrap) ? session.space_id : undefined),
+          b.owner, session.generation, sessionScope(bootstrap, session))).catch(() => undefined);
       } catch {
         // Keep an existing same-account capability when offline. Expired tokens
         // only produce the truthful local-save confirmation in the extension.

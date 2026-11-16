@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { keepInPersonal, addMutation, localFileUris, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState, holdEditor, sendHeldToFamily } from "./outbox";
+import { keepInPersonal, addMutation, localFileUris, noticeTitle, notSentMessage, pendingRecords, retargeted, rejoined, retryUnavailable, withoutFamily, type Moved, recoveredNotice, upgradedState, retryMutation, draftsBeforeFamily, promotedInFamily, settledDraft, queuedChain, keepHeldDraft, inheritedFiles, baseOf, waitingForEarlier, heldDraftWarning, deviceVersion, fencedState, holdEditor, sendHeldToFamily } from "./outbox";
 import legacy from "./fixtures/legacy-family-39-40.json";
 import { emptyState, optimisticRecord, type Bootstrap, type DeviceState, type EditorDraft, type Mutation, type RecordData } from "./models";
-import { retryVisitLinks, visitWriteProblem, visitLinkMessage, keepVisitInPersonal } from "./outbox";
+import { retryVisitLinks, visitWriteProblem, visitLinkMessage, keepVisitInPersonal, leftFamilyNotice } from "./outbox";
 
 const personal = "personal-space", family = "family-space";
 const boot = (): Bootstrap => ({ generation: 2, ai_available: false, profile: { display_name: "", timezone: "UTC", ai_consent: false }, personal_space_id: personal,
@@ -143,6 +143,25 @@ describe("leaving a family, or being removed", () => {
     expect(back.outbox.some((m) => m.type === "save" && m.record.id === "shared")).toBe(false);
     expect(draftsBeforeFamily(back, boot()).heldDrafts).toEqual(back.heldDrafts);
     expect(settledDraft(draft, back).body).toBe(body);
+  });
+  it("doesn't resend a held saved post to a family she's back in only as a caregiver, but does for a parent", () => {
+    const post = { ...queued, record: write("post", "source", null, { status: "saved", topics: [] }) } as Mutation;
+    const left = withoutFamily({ ...before(), outbox: [post] }, family, uuid);
+    const asCaregiver = (b: Bootstrap): Bootstrap => ({ ...b, spaces: b.spaces!.map((space) => space.id === family ? { ...space, role: "caregiver" as const } : space) });
+    expect(rejoined(left, asCaregiver(boot())).outbox[0]).toMatchObject({ left_space: family, error: notSentMessage });
+    expect(rejoined(left, boot()).outbox[0]).toMatchObject({ error: undefined, left_space: undefined });
+  });
+  it("sends a held saved post when a caregiver becomes a parent in the same family, keeping other notices", () => {
+    const asCaregiver = (b: Bootstrap): Bootstrap => ({ ...b, spaces: b.spaces!.map((space) => space.id === family ? { ...space, role: "caregiver" as const } : space) });
+    const post = { ...queued, record: write("post", "source", null, { status: "saved", topics: [] }), left_space: family, error: notSentMessage } as Mutation;
+    const held = { ...before(), outbox: [post], feedNotices: [leftFamilyNotice] } as DeviceState;
+    expect(promotedInFamily(asCaregiver(boot()), boot())).toBe(true);
+    expect(promotedInFamily(boot(), boot())).toBe(false);
+    expect(promotedInFamily(boot(), asCaregiver(boot()))).toBe(false);
+    expect(promotedInFamily(undefined, boot())).toBe(false);
+    const sent = rejoined(held, boot(), false);
+    expect(sent.outbox[0]).toMatchObject({ error: undefined, left_space: undefined });
+    expect(sent.feedNotices).toEqual([leftFamilyNotice]);
   });
   it("keeps a saved change separate from the editor draft it preceded", () => {
     const saved = { ...queued, record: write("shared", "event") } as Mutation;

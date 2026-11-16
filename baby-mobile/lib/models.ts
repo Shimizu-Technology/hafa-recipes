@@ -460,6 +460,8 @@ export type Mutation = {
       record: RecordWrite;
       files: LocalFile[];
       base?: SaveBase;
+      /** A category chosen on the share sheet, filed once this lands. Best effort: it's saved either way. */
+      file_into?: string;
       /** Waiting to try again after the service said not yet. */
       hold_until?: string;
       attempts?: number;
