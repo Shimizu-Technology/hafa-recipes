@@ -62,3 +62,17 @@ it('keeps lock contention off UIKit actions and bounds every lock attempt', () =
   expect(controller).toContain('your recipe and last choice are safe.');
   expect(controller).not.toContain('flock(descriptor, LOCK_EX)');
 });
+
+it('persists photos before starting any preview and uses file downsampling off main', () => {
+  const redirect = section('private func redirectToHostApp', '// The one link');
+  expect(redirect).toContain('saveCaptureSource()');
+  expect(redirect).not.toContain('describeCapture(');
+  const save = section('private func saveCaptureSource', 'private func changeCaptureVisibility');
+  expect(save.indexOf('controller.captureDurable = true')).toBeLessThan(save.indexOf('controller.describeCapture('));
+  const photos = section('private func handleImages', 'private func documentDirectoryPath');
+  expect(photos).toContain('loadFileRepresentation');
+  expect(photos).not.toContain('UIImage(');
+  const kit = card('HafaShareKit.swift');
+  expect(kit).toContain('DispatchQueue.global(qos: .utility)');
+  expect(controller).not.toContain('UIImage.init(contentsOfFile:)');
+});

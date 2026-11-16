@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 // Run on a Mac: swiftc share-extension/HafaShareContent.swift share-extension/RecipeShareWords.swift
 //   share-extension/tests/main.swift -o /tmp/recipe-share-card-tests && /tmp/recipe-share-card-tests
@@ -60,3 +61,20 @@ for value in [RecipeShareWords.Result.importing, .confirmPublic, .review, .signe
 }
 check(RecipeShareWords.unreadable.isProblem && RecipeShareWords.unreadable.opens == nil, "unreadable is a dead end with Close")
 print("Recipe share card: \(checks) checks passed")
+
+// A large encoded photo and a malformed file exercise the production downsampler.
+let photo = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+defer { try? FileManager.default.removeItem(at: photo) }
+do {
+  let context = CGContext(data: nil, width: 4096, height: 2048, bitsPerComponent: 8, bytesPerRow: 0,
+    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+  let destination = CGImageDestinationCreateWithURL(photo as CFURL, "public.jpeg" as CFString, 1, nil)!
+  CGImageDestinationAddImage(destination, context.makeImage()!, [kCGImagePropertyOrientation: 6] as CFDictionary)
+  check(CGImageDestinationFinalize(destination), "photo fixture encoded")
+}
+let thumb = HafaShareThumbnail.image(at: photo)!
+check(thumb.width == 90 && thumb.height == 180, "large photo downsampled with orientation")
+try Data("not an image".utf8).write(to: photo)
+check(HafaShareThumbnail.image(at: photo) == nil, "malformed photo has no preview")
+check(HafaShareThumbnail.image(at: URL(string: "https://example.com/image.jpg")!) == nil, "thumbnail cannot fetch a URL")
+print("Photo downsampling: large file, orientation, malformed and remote checks passed")

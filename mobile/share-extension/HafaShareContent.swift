@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 // The share card's plain content: choices, outcomes and the words for a shared link.
 // Turns what a share carries (a link, and the page's title when there is one) into the words on the card.
@@ -100,4 +101,19 @@ struct HafaShareOutcome: Equatable {
   var opens: Button? = nil
   // Only an answer with nothing left to do closes on its own. Anything with a next step waits for a tap.
   var closesItself = false
+}
+
+// Reads only a small decoded image from the file, including EXIF orientation.
+// Used on a utility queue after the source has a durable queue receipt.
+enum HafaShareThumbnail {
+  static func image(at url: URL) -> CGImage? {
+    guard url.isFileURL,
+      let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+      kCGImageSourceThumbnailMaxPixelSize: 180,
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+    ] as CFDictionary)
+  }
 }

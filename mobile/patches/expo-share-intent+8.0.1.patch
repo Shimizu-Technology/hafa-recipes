@@ -225,7 +225,7 @@ index e52b6d0..2a1d56c 100644
 +}
 +// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..1d2fb4d 100644
+index f1f4b72..ed45edf 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -299,7 +299,125 @@ index f1f4b72..1d2fb4d 100644
                self.redirectToHostApp(type: .weburl)
              }
            } else {
-@@ -313,9 +315,7 @@ class ShareViewController: UIViewController {
+@@ -238,92 +240,33 @@ class ShareViewController: UIViewController {
+ 
+ 
+   private func handleImages(content: NSExtensionItem, attachment: NSItemProvider, index: Int) async {
+-    Task.detached {
+-      do {
+-        let item = try await attachment.loadItem(forTypeIdentifier: self.imageContentType)
+-        
+-        Task { @MainActor in
+-          var url: URL? = nil
+-          
+-          if let dataURL = item as? URL {
+-            url = dataURL
+-          } else if let imageData = item as? UIImage {
+-            url = self.saveScreenshot(imageData)
+-            if url == nil {
+-              NSLog("[ERROR] handleImages: saveScreenshot returned nil")
+-            }
+-          } else if let data = item as? Data {
+-            if let image = UIImage(data: data) {
+-              url = self.saveScreenshot(image)
+-            } else {
+-              NSLog("[ERROR] handleImages: Failed to create UIImage from Data")
+-            }
+-          } else {
+-            NSLog("[ERROR] handleImages: Item is unexpected type: \(type(of: item))")
+-          }
+-
+-          guard let safeURL = url else {
+-            NSLog("[ERROR] handleImages: Failed to get URL for image item")
+-            self.dismissWithError(message: "Failed to process image")
+-            return
+-          }
+-
+-          var pixelWidth: Int? = nil
+-          var pixelHeight: Int? = nil
+-          if let imageSource = CGImageSourceCreateWithURL(safeURL as CFURL, nil) {
+-            if let imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil)
+-              as Dictionary?
+-            {
+-              pixelWidth = imageProperties[kCGImagePropertyPixelWidth] as? Int
+-              pixelHeight = imageProperties[kCGImagePropertyPixelHeight] as? Int
+-              // Check orientation and flip size if required
+-              if let orientationNumber = imageProperties[kCGImagePropertyOrientation] as! CFNumber?
+-              {
+-                var orientation: Int = 0
+-                CFNumberGetValue(orientationNumber, .intType, &orientation)
+-                if orientation > 4 {
+-                  let temp: Int? = pixelWidth
+-                  pixelWidth = pixelHeight
+-                  pixelHeight = temp
+-                }
+-              }
+-            }
+-          }
+-
+-          // Always copy
+-          let fileName = self.getFileName(from: safeURL, type: .image)
+-          let fileExtension = self.getExtension(from: safeURL, type: .image)
+-          let fileSize = self.getFileSize(from: safeURL)
+-          let mimeType = safeURL.mimeType(ext: fileExtension)
+-          let newName = "\(UUID().uuidString).\(fileExtension)"
+-          let newPath = FileManager.default
+-            .containerURL(
+-              forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier)!
+-            .appendingPathComponent(newName)
+-          
+-          let copied = Self.copyFile(at: safeURL, to: newPath)
+-          
+-          if copied {
+-            self.sharedMedia.append(
+-              SharedMediaFile(
+-                path: newPath.absoluteString, thumbnail: nil, fileName: fileName,
+-                fileSize: fileSize, width: pixelWidth, height: pixelHeight, duration: nil,
+-                mimeType: mimeType, type: .image))
+-          }
+-
+-          // If this is the last item, save imagesData in userDefaults and redirect to host app
+-          if index == (content.attachments?.count)! - 1 {
+-            let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
+-            userDefaults?.set(self.toData(data: self.sharedMedia), forKey: self.sharedKey)
+-            userDefaults?.synchronize()
+-            self.redirectToHostApp(type: .media)
+-          }
+-        }
+-      } catch {
+-        NSLog("[ERROR] handleImages: Exception loading image item: \(error)")
+-        await self.dismissWithError(message: "Cannot load image content: \(error.localizedDescription)")
++    // Ask for a file, never a full UIImage. Copy while the provider's temporary
++    // URL is valid; decoding is reserved for the bounded preview after receipt.
++    guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: hostAppGroupIdentifier) else {
++      dismissWithError(); return
++    }
++    let copied: URL? = await withCheckedContinuation { continuation in
++      attachment.loadFileRepresentation(forTypeIdentifier: imageContentType) { source, _ in
++        guard let source else { continuation.resume(returning: nil); return }
++        let destination = container.appendingPathComponent("\(UUID().uuidString).\(source.pathExtension)")
++        do {
++          try FileManager.default.copyItem(at: source, to: destination)
++          continuation.resume(returning: destination)
++        } catch { continuation.resume(returning: nil) }
+       }
+     }
++    guard let url = copied else { dismissWithError(); return }
++    var width: Int?, height: Int?
++    if let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
++      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
++      width = properties[kCGImagePropertyPixelWidth] as? Int
++      height = properties[kCGImagePropertyPixelHeight] as? Int
++      if (properties[kCGImagePropertyOrientation] as? Int ?? 1) > 4 { swap(&width, &height) }
++    }
++    sharedMedia.append(SharedMediaFile(path: url.absoluteString, thumbnail: nil,
++      fileName: getFileName(from: url, type: .image), fileSize: getFileSize(from: url),
++      width: width, height: height, duration: nil, mimeType: url.mimeType(ext: url.pathExtension), type: .image))
++    if index == (content.attachments?.count ?? 0) - 1 { redirectToHostApp(type: .media) }
+   }
+ 
+   private func documentDirectoryPath() -> URL? {
+@@ -398,9 +341,7 @@ class ShareViewController: UIViewController {
  
            // If this is the last item, save imagesData in userDefaults and redirect to host app
            if index == (content.attachments?.count)! - 1 {
@@ -309,19 +427,8 @@ index f1f4b72..1d2fb4d 100644
 +
              self.redirectToHostApp(type: .media)
            }
-         }
-@@ -398,9 +398,7 @@ class ShareViewController: UIViewController {
  
-           // If this is the last item, save imagesData in userDefaults and redirect to host app
-           if index == (content.attachments?.count)! - 1 {
--            let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
--            userDefaults?.set(self.toData(data: self.sharedMedia), forKey: self.sharedKey)
--            userDefaults?.synchronize()
-+
-             self.redirectToHostApp(type: .media)
-           }
- 
-@@ -466,50 +464,242 @@ class ShareViewController: UIViewController {
+@@ -466,50 +407,242 @@ class ShareViewController: UIViewController {
      }
  
      if index == (content.attachments?.count)! - 1 {
@@ -380,7 +487,6 @@ index f1f4b72..1d2fb4d 100644
 +    pendingCapture = (captureKey, UUID().uuidString.lowercased(), payload, "\(shareProtocol)://dataUrl=\(captureKey)#\(type)")
 +    let link = captureLink()
 +    captureKind = link != nil ? .link : type == .media ? .photos(sharedMedia.count) : .text
-+    describeCapture(link)
 +    saveCaptureSource()
 +  }
 +
@@ -415,16 +521,17 @@ index f1f4b72..1d2fb4d 100644
        }
 -      responder = responder!.next
 +    case .photos(let count):
-+      let image = sharedMedia.first.flatMap { URL(string: $0.path)?.path ?? $0.path }.flatMap(UIImage.init(contentsOfFile:))
 +      card.preview = HafaSharePreview(title: RecipeShareWords.photosTitle(count), subtitle: "Photos to turn into a recipe",
-+        image: image.flatMap(HafaShareModel.thumbnail), symbol: "photo.on.rectangle")
++        symbol: "photo.on.rectangle")
++      if let path = sharedMedia.first?.path, let url = URL(string: path), url.isFileURL { card.loadThumbnail(url) }
 +    case .text:
 +      let first = sharedText.joined(separator: "\n").split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
 +      card.preview = HafaSharePreview(title: first.isEmpty ? "Shared text" : String(first.prefix(90)),
 +        subtitle: "Text to turn into a recipe", symbol: "text.alignleft")
-+    }
-+  }
-+
+     }
+-    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
+   }
+ 
 +  private func showCard() {
 +    guard card == nil else { return }
 +    let model = HafaShareModel(preview: HafaSharePreview(title: RecipeShareWords.loading, symbol: "link"), action: RecipeShareWords.action)
@@ -496,6 +603,7 @@ index f1f4b72..1d2fb4d 100644
 +      controller.card?.action = RecipeShareWords.action
 +      controller.card?.canSave = true
 +      controller.refreshCard()
++      controller.describeCapture(controller.captureLink())
 +    }
 +  }
 +
@@ -509,10 +617,9 @@ index f1f4b72..1d2fb4d 100644
 +    } ?? false }) { controller, saved in
 +      if saved { controller.captureVisibility = requested; controller.refreshCard() }
 +      else { controller.card?.note = "Couldn’t change that. Try again — your recipe and last choice are safe." }
-     }
--    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
-   }
- 
++    }
++  }
++
 +  private func submitCapture() {
 +    guard !captureSubmitted, !captureWriting, !captureClosed else { return }
 +    if !captureDurable { saveCaptureSource(); return }

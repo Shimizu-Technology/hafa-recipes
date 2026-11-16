@@ -103,6 +103,13 @@ final class HafaShareModel: ObservableObject {
     }
   }
 
+  func loadThumbnail(_ url: URL) {
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let image = HafaShareThumbnail.image(at: url).map { UIImage(cgImage: $0) }
+      DispatchQueue.main.async { self?.preview.image = image }
+    }
+  }
+
   // Share extensions get little memory; keep previews small.
   static func thumbnail(_ image: UIImage) -> UIImage? {
     let side: CGFloat = 180, scale = min(1, side / max(image.size.width, image.size.height, 1))
