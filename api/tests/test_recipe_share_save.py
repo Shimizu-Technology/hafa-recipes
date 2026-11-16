@@ -1,6 +1,7 @@
 """Share-sheet list and private-copy acceptance against disposable Postgres."""
 import asyncio
 import json
+from uuid import UUID
 
 import httpx
 import pytest
@@ -13,7 +14,7 @@ from app.db.database import get_db
 from app.models.identity import AppUser
 from app.models.moderation import UserBlock
 from app.models.recipe import Recipe, RecipeNote, SavedRecipe
-from app.recipe_links import create_link, limiter, list_links, revoke_link
+from app.recipe_links import create_link, limiter, link_status, list_links, revoke_link
 from app.recipe_pages import save_shared_recipe
 from tests.test_recipe_links import fixture as fixture  # noqa: F401
 from tests.test_recipe_links import user
@@ -309,3 +310,48 @@ def test_edits_keep_the_shared_copy_credit():
     edit = RecipeEdit(title='Red rice', servings=4, ingredients=original['components'][0]['ingredients'], steps=['Cook rice'])
     assert _build_edited_extracted(original, edit)['sharedCopy'] == {'sharedBy': 'Lani'}
     assert 'sharedCopy' not in _build_edited_extracted({k: v for k, v in original.items() if k != 'sharedCopy'}, edit)
+
+
+@pytest.mark.asyncio
+async def test_create_and_rotate_return_the_status_created_at(fixture):
+    db, recipe = fixture
+    created = await create_link(recipe.id, Response(), user(), db)
+    status = await link_status(recipe.id, Response(), user(), db)
+    assert created['created_at'] == status['created_at'] and created['created_at'].tzinfo
+    rotated = await create_link(recipe.id, Response(), user(), db)
+    assert rotated['created_at'] == (await link_status(recipe.id, Response(), user(), db))['created_at']
+    assert rotated['token'] != created['token']
+
+
+@pytest.mark.asyncio
+async def test_saved_copies_can_never_be_published(fixture):
+    from app.routers.recipes import (
+        RecipeEdit,
+        RecipeSharingUpdate,
+        RecipeUpdate,
+        edit_recipe,
+        toggle_recipe_sharing,
+        update_recipe,
+    )
+    db, recipe = fixture
+    recipe.is_public = True
+    await db.commit()
+    copy_id = payload(await save_shared_recipe(str(recipe.id), db, user('other')))['recipe_id']
+    attempts = [
+        lambda: toggle_recipe_sharing(UUID(copy_id), RecipeSharingUpdate(is_public=True), db, user('other')),
+        lambda: toggle_recipe_sharing(UUID(copy_id), None, db, user('other')),  # older clients flip with no body
+        lambda: update_recipe(UUID(copy_id), RecipeUpdate(is_public=True), db, user('other')),
+        lambda: edit_recipe(UUID(copy_id), RecipeEdit(title='Rice', servings=4, ingredients=[{'name': 'rice', 'quantity': '2', 'unit': 'cups'}],
+                                                       steps=['Cook'], is_public=True), db, user('other')),
+    ]
+    for attempt in attempts:
+        with pytest.raises(HTTPException) as denied:
+            await attempt()
+        assert denied.value.status_code == 409
+        assert denied.value.detail['code'] == 'SHARED_COPY_NOT_PUBLISHABLE'
+        await db.rollback()
+    copy = await db.get(Recipe, copy_id)
+    await db.refresh(copy)
+    assert copy.is_public is False
+    # Keeping it private still works.
+    assert (await toggle_recipe_sharing(UUID(copy_id), RecipeSharingUpdate(is_public=False), db, user('other')))['is_public'] is False

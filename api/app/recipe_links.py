@@ -72,10 +72,14 @@ async def create_link(recipe_id: UUID, response: Response, user: ClerkUser = Dep
     # Locking the parent serializes create/revoke, including the first creation.
     token = secrets.token_urlsafe(32)
     await db.execute(delete(RecipeLink).where(RecipeLink.recipe_id == recipe_id))
-    db.add(RecipeLink(recipe_id=recipe_id, token_hash=hashlib.sha256(token.encode()).hexdigest()))
+    link = RecipeLink(recipe_id=recipe_id, token_hash=hashlib.sha256(token.encode()).hexdigest())
+    db.add(link)
     await db.commit()
+    await db.refresh(link, ['created_at'])
     response.headers.update(PRIVATE_HEADERS)
-    return {'url': f'{SITE}/r/{token}', 'token': token, 'recipe_id': str(recipe_id), 'visibility': 'unlisted'}
+    # created_at matches GET status, so the owner's phone can keep the link without a second request.
+    return {'url': f'{SITE}/r/{token}', 'token': token, 'recipe_id': str(recipe_id), 'visibility': 'unlisted',
+            'created_at': link.created_at}
 
 
 @router.delete('/api/recipes/{recipe_id}/share-link', status_code=204)

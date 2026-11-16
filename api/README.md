@@ -414,7 +414,10 @@ Private - Shimizu Technology
 Public pages and OG images recheck visibility or the unlisted grant on every
 request. Unlisted links do not expire by default. Owners can inspect
 `GET /api/recipes/{id}/share-link` (`active`, `created_at`), rotate with POST,
-and revoke with DELETE. No read endpoint returns the token or its hash.
+and revoke with DELETE. No read endpoint returns the token or its hash. POST
+(create or rotate) returns `{url, token, recipe_id, visibility, created_at}`;
+`created_at` equals what the status endpoint reports for that link, so a client
+can keep the link without a second request. Older APIs omit it.
 
 Share-sheet API (authenticated with the usual bearer token):
 
@@ -428,9 +431,12 @@ Share-sheet API (authenticated with the usual bearer token):
   unlisted token. Returns 200 `{saved: true, recipe_id: "<private copy UUID>"}`
   on first save and retry; open that ID through the ordinary library/detail API.
   It creates a private recipe owned by the viewer, using the shared-view field
-  allowlist, original source URL and photo. Visible notes retain “Shared by”
-  credit; the contributor field identifies the viewer, so copies cannot change
-  the viewer's profile attribution. Private note rows, transcripts, evidence,
+  allowlist, original source URL and photo. The copy records
+  `extracted.sharedCopy = {sharedBy: <sharer's public name or null>}` and leaves
+  `extractor_display_name` empty, so it never carries the viewer's or the
+  sharer's name in contributor queries. Edits keep `sharedCopy`. A saved copy
+  can't be published: the share toggle and the PUT/PATCH edit routes return 409
+  `{code: "SHARED_COPY_NOT_PUBLISHABLE"}` for `is_public: true`. Private note rows, transcripts, evidence,
   original snapshots and tokens are never copied. Concurrent saves and either
   key format converge on one copy per stable viewer/source identity.
 - Every save rechecks the current grant and moderation/block/completeness
