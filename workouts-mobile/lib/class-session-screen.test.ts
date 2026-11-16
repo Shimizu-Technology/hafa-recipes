@@ -191,4 +191,8 @@ it("typing an explicit load uses the kg unit already displayed", async () => {
   await act(async () => renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "Weight")!.props.onChange("100"));
   expect(change.mock.calls[0][0]).toMatchObject({ load: 100, load_unit: "kg" });
   expect(scoreProblem(change.mock.calls[0][0])).toBeNull();
+  const chips = renderer!.root.findAllByType("Chip" as never);
+  expect(chips.map((n) => [n.props.role, n.props.accessibilityLabel])).toEqual([
+    ["radio", "D · Accessory: Rx"], ["radio", "D · Accessory: Scaled"],
+  ]);
 });

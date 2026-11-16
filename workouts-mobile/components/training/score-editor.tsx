@@ -63,8 +63,8 @@ export function ScoreEditor({ block, result, segments = [], onChange, onRunDista
       {!!problem && <Copy kind="small" tone="error">{problem}</Copy>}
       <Copy kind="label">Rx or scaled?</Copy>
       <ChipRow>
-        <Chip label="Rx" selected={result.scaling === "rx"} onPress={() => onChange({ ...result, scaling: "rx", scaling_note: undefined })} />
-        <Chip label="Scaled" selected={result.scaling === "scaled"} onPress={() => onChange({ ...result, scaling: "scaled" })} />
+        <Chip label="Rx" role="radio" accessibilityLabel={`${partTitle(block)}: Rx`} selected={result.scaling === "rx"} onPress={() => onChange({ ...result, scaling: "rx", scaling_note: undefined })} />
+        <Chip label="Scaled" role="radio" accessibilityLabel={`${partTitle(block)}: Scaled`} selected={result.scaling === "scaled"} onPress={() => onChange({ ...result, scaling: "scaled" })} />
       </ChipRow>
       {result.scaling === "scaled" && <Field label="What you scaled" optional value={result.scaling_note ?? ""}
         onChange={(v) => onChange({ ...result, scaling_note: v.slice(0, 200) || undefined })} />}
