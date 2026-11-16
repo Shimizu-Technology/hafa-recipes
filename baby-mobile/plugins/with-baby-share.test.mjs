@@ -283,13 +283,6 @@ describe("generated Safari preprocessing", () => {
     for (const file of ["./HafaShareKit.swift", "./HafaShareContent.swift"])
       expect(readFileSync(new URL(file, import.meta.url), "utf8")).not.toMatch(/BabyShare|Håfa Baby|"Done"|"Stop"/);
   });
-  it("keeps network previews disabled before any DNS, redirect or subresource request", () => {
-    const kit = readFileSync(new URL("./HafaShareKit.swift", import.meta.url), "utf8");
-    expect(kit).not.toMatch(/LinkPresentation|LPMetadataProvider|URLSession|startFetchingMetadata|loadFileRepresentation/);
-    const preview = kit.slice(kit.indexOf("  func loadPreview("), kit.indexOf("  func loadThumbnail("));
-    expect(preview).toContain("cancelPreview()");
-    expect(preview).not.toContain("describe(");
-  });
   it("bounds a provider that never answers, and closes through one path that keeps nothing unpublished", () => {
     const output = patchShareController(upstream);
     const lifecycle = output.slice(output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1"), output.indexOf("  // END HAFA BABY PRESENTED SHARE v1"));
@@ -387,7 +380,6 @@ describe("generated Safari preprocessing", () => {
         const between = (source, start, end) => source.slice(source.indexOf(start), source.indexOf(end));
         const sheetTests = join(directory, "GeneratedSheetStateTests.swift");
         writeFileSync(sheetTests, readFileSync(new URL("./__tests__/BabyShareSheetStateTests.swift", import.meta.url), "utf8")
-          .replace("/* GENERATED_NETWORK_PREVIEW */", between(kit, "  func loadPreview(", "  func loadThumbnail("))
           .replace("/* GENERATED_SELECT */", between(kit, "  func select(", "  func finish("))
           .replace("/* GENERATED_SAVE_STATE */", between(kit, "enum HafaShareSaveState:", "final class HafaShareModel:"))
           .replace("/* GENERATED_SAVE */", between(confirmation, "  private func saveBabyShare(", "  private func babyAlreadySaved(").replaceAll("private ", ""))

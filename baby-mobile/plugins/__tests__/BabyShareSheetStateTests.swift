@@ -1,11 +1,6 @@
 import Foundation
 
 // Inject production methods into the existing native target; hold publication and receipt independently.
-private final class PreviewProbe {
-  var cancellations = 0
-  func cancelPreview() { cancellations += 1 }
-  /* GENERATED_NETWORK_PREVIEW */
-}
 private final class ConfirmationCard {
   var isBusy = false, canSave = true
   var saveState = HafaShareSaveState.ready
@@ -173,17 +168,8 @@ struct BabyShareSheetStateTests {
     confirmation.receipt?(nil, false)
     try check(confirmation.card.outcome?.title == "Added to Sleep", "first confirmation wins")
 
-    // Even a public host can resolve privately, redirect locally, or embed a local image. Fetch nothing.
-    let preview = PreviewProbe()
-    var described = false
-    for link in ["https://example.com/public", "https://public-name.example/resolves-to-private",
-      "https://example.com/redirect?to=http://192.168.1.4", "https://example.com/page-with-private-image",
-      "http://nursery.home.arpa/", "http://192.168.1.4/", "http://0x7f.1/", "http://[fc00::1]/"] {
-      preview.loadPreview(URL(string: link)!) { _ in described = true; return ("Fetched", nil) }
-    }
-    try check(preview.cancellations == 8 && !described, "preview entry point keeps sender content for every URL")
-
-    // The lexical filter stays compatible; it alone does not authorize networking.
+    // The phone only asks an ordinary public page for its title and picture. The same list as Recipes' policy suite (#693),
+    // and the bearer links and private hosts the #696 review named.
     let fetch = { (link: String) in HafaSharePreviewPolicy.allows(URL(string: link)!) }
     let key = String(repeating: "a", count: 43)
     for link in ["https://www.instagram.com/reel/abc/?igsh=xyz", "https://www.tiktok.com/@a/video/1", "http://example.com/a?page=2",
