@@ -59,7 +59,7 @@ enum HafaShareSaveIntent {
       let data = try? Data(contentsOf: url), let intent = try? JSONDecoder().decode(Intent.self, from: data),
       intent.captureKey == key, intent.captureId == id,
       intent.accountScopeId == metadata["accountScopeId"] as? String,
-      intent.accountScopeId == defaults.dictionary(forKey: "hafa.share.session.v1")?["accountScopeId"] as? String else { return }
+      (intent.accountScopeId == nil || intent.accountScopeId == defaults.dictionary(forKey: "hafa.share.session.v1")?["accountScopeId"] as? String) else { return }
     metadata["confirmed"] = true
     metadata["requestedIsPublic"] = intent.isPublic
     defaults.set(metadata, forKey: "\(key).meta")

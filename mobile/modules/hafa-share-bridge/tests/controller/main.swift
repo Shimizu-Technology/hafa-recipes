@@ -10,7 +10,7 @@ func until(_ message: String, timeout: TimeInterval = 4, _ condition: () -> Bool
 final class Fixture {
   let root: URL, suite: String, defaults: UserDefaults, id: String, key: String, url: String
   let files: HafaShareAttachmentFiles, photo: URL, controller: ShareViewController
-  init(delay: TimeInterval = 12) throws {
+  init(delay: TimeInterval = 12, scope: String? = "scope-a") throws {
     id = UUID().uuidString.lowercased(); key = "hafarecipesShareKey.\(id)"
     url = "hafarecipes://dataUrl=\(key)#media"
     root = FileManager.default.temporaryDirectory.appendingPathComponent("hafa-controller-\(id)")
@@ -23,11 +23,13 @@ final class Fixture {
       try Data(repeating: 42, count: 1024).write(to: path); return path
     }!
     defaults.set(try JSONSerialization.data(withJSONObject: [["path": photo.path, "type": 0]]), forKey: key)
-    defaults.set(["captureId": id, "confirmed": false, "accountScopeId": "scope-a", "createdAt": Date().timeIntervalSince1970], forKey: "\(key).meta")
+    var metadata: [String: Any] = ["captureId": id, "confirmed": false, "createdAt": Date().timeIntervalSince1970]
+    if let scope { metadata["accountScopeId"] = scope }
+    defaults.set(metadata, forKey: "\(key).meta")
     defaults.set([url], forKey: HafaShareStore.pendingKey)
-    defaults.set(["accountScopeId": "scope-a"], forKey: HafaShareStore.sessionKey)
+    if let scope { defaults.set(["accountScopeId": scope], forKey: HafaShareStore.sessionKey) }
     controller = ShareViewController()
-    controller.prepareTestCapture(key: key, id: id, files: files, recoveryDelay: delay)
+    controller.prepareTestCapture(key: key, id: id, files: files, recoveryDelay: delay, scope: scope)
   }
   deinit { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
   var photoExists: Bool { FileManager.default.fileExists(atPath: photo.path) }
@@ -182,5 +184,22 @@ do {
   until("acknowledged import must show Already saved") { f.controller.testOutcome == "Already saved to Håfa Recipes" }
   precondition(f.photoExists && f.delivery() == nil)
   print("PASS: Discard after exact acknowledgment reports Already saved and keeps host files")
+}
+do {
+  let f = try Fixture(scope: nil)
+  let fd = open(f.root.appendingPathComponent("hafa-share-queue.lock").path, O_CREAT | O_RDWR, 0o600)
+  precondition(fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) == 0)
+  f.controller.tapTestSave()
+  until("unassigned Save should fail confirmation under real lock contention") { f.controller.testState == .failed }
+  f.controller.tapTestClose(); precondition(f.controller.testClosed); f.checkRetained()
+  flock(fd, LOCK_UN); close(fd)
+  f.defaults.set(["accountScopeId": "signed-in-scope"], forKey: HafaShareStore.sessionKey)
+  precondition(f.delivery()?.absoluteString == f.url, "sign-in stranded an unassigned saved capture")
+  let metadata = f.defaults.dictionary(forKey: "\(f.key).meta")!
+  precondition(metadata["confirmed"] as? Bool == true && metadata["accountScopeId"] == nil, "recovery auto-assigned the capture")
+  let intent = try JSONDecoder().decode(HafaShareSaveIntent.Intent.self, from: Data(contentsOf: f.marker))
+  precondition(intent.accountScopeId == nil, "recovery changed the durable owner tag")
+  f.acknowledgeOnce()
+  print("PASS: unassigned Save + real failed confirmation + Close -> sign-in recovers once without assigning ownership")
 }
 print("All generated-controller save/recovery regressions passed")

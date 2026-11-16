@@ -218,3 +218,15 @@ it('ignores explicitly unconfirmed captures before intake or acknowledgment', as
   expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ id: 'capture-a', state: 'waiting' }));
   expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
 });
+
+it('keeps a recovered unassigned Save claim-required after sign-in', async () => {
+  mocks.signedIn = true;
+  mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', confirmed: true, requestedIsPublic: false };
+  await render();
+  expect(mocks.scopeOwner).not.toHaveBeenCalled();
+  expect(mocks.add).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    id: 'capture-a', ownerId: null, accountScopeId: undefined, state: 'waiting',
+    preferences: { isPublic: false, location: 'Guam' },
+  }));
+  expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
+});

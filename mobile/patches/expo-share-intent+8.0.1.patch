@@ -89,7 +89,7 @@ index 3d343c6..2f21541 100644
          console.debug("useShareIntent[parsed] ", JSON.stringify(result, null, 2));
      return result;
 diff --git a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
-index e52b6d0..690bd01 100644
+index e52b6d0..21c25b0 100644
 --- a/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
 +++ b/node_modules/expo-share-intent/ios/ExpoShareIntentModule.swift
 @@ -5,10 +5,12 @@
@@ -297,7 +297,7 @@ index e52b6d0..690bd01 100644
 +      let data = try? Data(contentsOf: url), let intent = try? JSONDecoder().decode(Intent.self, from: data),
 +      intent.captureKey == key, intent.captureId == id,
 +      intent.accountScopeId == metadata["accountScopeId"] as? String,
-+      intent.accountScopeId == defaults.dictionary(forKey: "hafa.share.session.v1")?["accountScopeId"] as? String else { return }
++      (intent.accountScopeId == nil || intent.accountScopeId == defaults.dictionary(forKey: "hafa.share.session.v1")?["accountScopeId"] as? String) else { return }
 +    metadata["confirmed"] = true
 +    metadata["requestedIsPublic"] = intent.isPublic
 +    defaults.set(metadata, forKey: "\(key).meta")

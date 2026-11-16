@@ -166,3 +166,21 @@ assert(defaults.dictionary(forKey: "\(intakeKey).meta")?["accountScopeId"] as? S
 defaults.set(["accountScopeId": "scope-a"], forKey: HafaShareStore.sessionKey)
 assert(intakeDelivery() != nil, "unseen marked Save must remain recoverable for original scope after arbitrary age")
 print("Native intake: revoked/mismatched scopes stay hidden without aging out marked captures or owner tags")
+// Staged before provisioning, then Save was recorded but confirmation failed.
+// Signing in before recovery must not assign this phone-local capture to her account.
+intakeSeed(nil)
+try HafaShareSaveIntent.write(.init(captureKey: intakeKey, captureId: intakeID, accountScopeId: nil, isPublic: true), in: intakeDirectory)
+assert(defaults.dictionary(forKey: "\(intakeKey).meta")?["confirmed"] as? Bool == false)
+defaults.set(["accountScopeId": "newly-signed-in-scope"], forKey: HafaShareStore.sessionKey)
+assert(intakeDelivery([intakeURL]) != nil, "sign-in must not strand an unassigned durable Save")
+let unassigned = snapshot(payloadA, intakeKey)["_hafa"] as! [String: Any]
+assert(unassigned["confirmed"] as? Bool == true && unassigned["accountScopeId"] == nil)
+assert(unassigned["requestedIsPublic"] as? Bool == true)
+// Matching nil ownership on both sides is required; a scoped marker cannot claim it.
+intakeSeed(nil)
+try HafaShareSaveIntent.write(.init(captureKey: intakeKey, captureId: intakeID, accountScopeId: "scope-a", isPublic: false), in: intakeDirectory)
+assert(intakeDelivery() == nil, "assigned marker cannot claim an unassigned capture")
+intakeSeed("scope-a")
+try HafaShareSaveIntent.write(.init(captureKey: intakeKey, captureId: intakeID, accountScopeId: nil, isPublic: false), in: intakeDirectory)
+assert(intakeDelivery() == nil, "unassigned marker cannot bypass an assigned capture's scope")
+print("Native intake: unassigned Save survives sign-in, preserves nil ownership/visibility, and still rejects mixed ownership")
