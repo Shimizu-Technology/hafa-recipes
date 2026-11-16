@@ -571,3 +571,33 @@ async def test_original_text_copy_preserves_cross_surface_legacy_replays(baby_ap
     wrong=await c.post("/api/v1/baby/records",headers=shared.GEN,
         json={**legacy,"data":{**legacy["data"],"source_text":"Changed text"}})
     assert wrong.status_code==409
+
+
+async def test_capture_files_into_her_category_once_and_never_into_one_it_cannot_reach(baby_api):
+    c = baby_api.client
+    capability = await session(c)
+    category = shared.payload("collection", title="Sleep", data={"record_ids": []})
+    assert (await c.post("/api/v1/baby/records", headers=shared.GEN, json=category)).status_code == 200
+    body = capture(collection_id=category["id"])
+    first = await c.post("/api/v1/baby/share/captures", headers=capability, json=body)
+    again = await c.post("/api/v1/baby/share/captures", headers=capability, json=body)
+    assert first.status_code == again.status_code == 202, (first.text, again.text)
+    assert first.json()["collection_id"] == again.json()["collection_id"] == category["id"]
+    filed = (await c.get("/api/v1/baby/records/" + category["id"])).json()
+    assert filed["data"]["record_ids"] == [body["capture_id"]] and filed["revision"] == 2
+    # Another person's category, or none at all: the original is still saved, just not filed.
+    stranger = shared.payload("collection", data={"record_ids": []})
+    assert (await c.post(
+        "/api/v1/baby/records", headers={**shared.GEN, "X-Test-Owner": "other"}, json=stranger,
+    )).status_code == 200
+    for target in (stranger["id"], str(uuid4()), body["capture_id"]):
+        loose = capture(collection_id=target)
+        result = await c.post("/api/v1/baby/share/captures", headers=capability, json=loose)
+        assert result.status_code == 202 and result.json()["collection_id"] is None, result.text
+        assert (await c.get("/api/v1/baby/records/" + loose["capture_id"])).status_code == 200
+    untouched = (await c.get("/api/v1/baby/records/" + stranger["id"], headers={"X-Test-Owner": "other"})).json()
+    assert untouched["data"]["record_ids"] == []
+    # A category is part of the capture's identity, so a different one is a different capture.
+    assert (await c.post(
+        "/api/v1/baby/share/captures", headers=capability, json={**body, "collection_id": None},
+    )).status_code == 409
