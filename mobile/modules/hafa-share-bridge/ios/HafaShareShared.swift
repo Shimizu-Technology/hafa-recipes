@@ -223,7 +223,8 @@ private final class HafaShareNetworkDelegate: NSObject, URLSessionTaskDelegate {
 
 // Each extension invocation owns one directory. This lock covers the actual
 // copy and cancellation: late provider callbacks cannot recreate discarded files.
-final class HafaShareAttachmentFiles {
+// Mutable state is protected by lock, including every filesystem operation.
+final class HafaShareAttachmentFiles: @unchecked Sendable {
   private let directory: URL
   private let lock = NSLock()
   private var cancelled = false

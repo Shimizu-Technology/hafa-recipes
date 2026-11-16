@@ -84,7 +84,7 @@ let blockedPreviews = [
   "https://user:pass@example.com/recipe", "https://user@example.com/recipe", "https://example.com/?TOKEN=secret",
   "https://example.com/?key=s", "https://example.com/?sig=s", "https://example.com/?auth=s",
   "https://example.com/?access_token=s", "https://example.com/?code=s", "https://example.com/?%74oken=s",
-  "https://example.com/?X-Amz-Signature=s", "https://example.com/#access_token=secret",
+  "https://example.com/?X-Amz-Signature=s", "https://example.com/?bearer=s", "https://example.com/#access_token=secret",
   "https://hafarecipes.com/r/\(key)", "https://custom.example/r/\(key)",
   "http://localhost/a", "http://localhost./a", "http://foo.local/a", "http://foo.local./a", "http://intranet/a",
   "http://127.0.0.1/a", "http://127.1/a", "http://2130706433/a", "http://0x7f000001/a", "http://0177.0.0.1/a",

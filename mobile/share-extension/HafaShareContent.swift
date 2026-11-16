@@ -4,7 +4,7 @@ import ImageIO
 
 // The share card's plain content: choices, outcomes and the words for a shared link.
 // Turns what a share carries (a link, and the page's title when there is one) into the words on the card.
-// Foundation only, so it runs in the Mac tests. Keep the copies in the three apps identical.
+// Uses system APIs available in the Mac tests. Keep the copies in the three apps identical.
 enum HafaSharePreviewText {
   struct Described: Equatable {
     let title: String
@@ -128,7 +128,7 @@ enum HafaSharePreviewPolicy {
       let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
       var host = components.host?.lowercased(), !host.isEmpty else { return false }
     if !(url.fragment ?? "").isEmpty { return false }
-    let secrets: Set<String> = ["token", "key", "sig", "auth", "authorization", "accesstoken", "code", "apikey", "jwt", "password", "credential"]
+    let secrets: Set<String> = ["token", "key", "sig", "auth", "authorization", "accesstoken", "code", "apikey", "jwt", "password", "credential", "bearer", "session", "sessionid"]
     for item in components.queryItems ?? [] {
       let name = item.name.lowercased().filter { $0.isLetter || $0.isNumber }
       if secrets.contains(name) || ["token", "signature", "secret", "credential"].contains(where: name.contains) { return false }

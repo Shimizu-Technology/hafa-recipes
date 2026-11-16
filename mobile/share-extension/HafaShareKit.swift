@@ -120,7 +120,7 @@ final class HafaShareModel: ObservableObject {
         // its file representation rather than requesting a full decoded UIImage.
         guard let imageProvider = metadata.imageProvider ?? metadata.iconProvider,
           let type = imageProvider.registeredTypeIdentifiers.first else { return }
-        self.previewImageProgress = imageProvider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
+        self.previewImageProgress = imageProvider.loadFileRepresentation(forTypeIdentifier: type) { [weak self] url, _ in
           let image = url.flatMap(HafaShareThumbnail.image)
           DispatchQueue.main.async {
             guard let self, self.previewGeneration == generation, let image else { return }

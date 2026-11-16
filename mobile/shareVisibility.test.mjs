@@ -91,6 +91,7 @@ it('guards preview networking, bounds its lifetime, and keeps supplied Safari ti
   expect(kit).toContain('previewImageProgress?.cancel()');
   expect(kit).toContain('self.previewGeneration == generation');
   expect(kit).not.toContain('loadObject(ofClass: UIImage.self)');
+  expect(section('override func viewWillDisappear', 'private func handleViewLoad')).toContain('card?.cancelPreview()');
   for (const name of ['cancelCapture', 'closeCapture']) expect(controller.split(`private func ${name}`)[1].split('\n  }')[0]).toContain('card?.cancelPreview()');
 });
 
