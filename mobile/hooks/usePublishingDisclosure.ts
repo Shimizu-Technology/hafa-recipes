@@ -10,9 +10,22 @@ import {
   type PublishingDisclosureStatus,
 } from '@/lib/recipePublishing';
 
+import { usePublishingConfirmation } from '@/contexts/PublishingConfirmation';
+
+export const DISCLOSURE_TIMEOUT_MS = 15_000;
+async function bounded<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([operation, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error('Publishing request timed out.'), { name: 'TimeoutError' })), DISCLOSURE_TIMEOUT_MS);
+    })]);
+  } finally { clearTimeout(timer!); }
+}
+
 const publishingDisclosureKey = ['publishingDisclosure'] as const;
 
 export function usePublishingDisclosure() {
+  const confirm = usePublishingConfirmation();
   const creationScope = recipeScope();
   const queryClient = ownerQueryClient(useQueryClient(), creationScope);
   const inFlight = useRef(false);
@@ -21,9 +34,13 @@ export function usePublishingDisclosure() {
   const isScreenActive = useRef(false);
   const [isCheckingDisclosure, setIsCheckingDisclosure] = useState(false);
 
-  useEffect(() => () => {
-    isMounted.current = false;
-  }, []);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      confirm.cancel?.();
+    };
+  }, [confirm]);
 
   useFocusEffect(useCallback(() => {
     isScreenActive.current = true;
@@ -33,8 +50,8 @@ export function usePublishingDisclosure() {
   }, []));
 
   const requestPublishing = useCallback(async (recipePreview?: string): Promise<boolean> => {
-    if (inFlight.current) return false;
     chosePrivate.current = false;
+    if (inFlight.current) return false;
     inFlight.current = true;
     setIsCheckingDisclosure(true);
 
@@ -42,51 +59,30 @@ export function usePublishingDisclosure() {
       // Always ask the server. A cached acceptance must never outlive a newer
       // disclosure version introduced while the app is still running.
       assertRecipeScope(creationScope);
-      const status = await api.getPublishingDisclosure();
+      const status = await bounded(api.getPublishingDisclosure());
       assertRecipeScope(creationScope);
       queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, status);
       if (!isScreenActive.current) return false;
-      if (!status.requires_acceptance) return true;
-
-      return await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          'Before you publish recipes',
-          recipePreview
-            ? `${PUBLISHING_DISCLOSURE_MESSAGE}\n\nFor this recipe: ${recipePreview}`
-            : PUBLISHING_DISCLOSURE_MESSAGE,
-          [
-            { text: 'Keep private', style: 'cancel', onPress: () => { chosePrivate.current = true; resolve(false); } },
-            {
-              text: 'Agree and publish',
-              onPress: async () => {
-                try {
-                  assertRecipeScope(creationScope);
-                  const accepted = await api.acceptPublishingDisclosure(status.current_version);
-                  queryClient.setQueryData<PublishingDisclosureStatus>(
-                    publishingDisclosureKey,
-                    accepted,
-                  );
-                  resolve(isScreenActive.current);
-                } catch {
-                  if (isScreenActive.current) {
-                    Alert.alert(
-                      'Couldn’t update publishing preference',
-                      'Please check your connection and try again.',
-                    );
-                  }
-                  resolve(false);
-                }
-              },
-            },
-          ],
-          { cancelable: true, onDismiss: () => resolve(false) },
-        );
+      const approved = await confirm({
+        message: [status.requires_acceptance ? PUBLISHING_DISCLOSURE_MESSAGE : '', recipePreview || ''].filter(Boolean).join('\n\n'),
+        label: status.requires_acceptance ? 'Agree and make public' : 'Make public',
       });
-    } catch {
+      assertRecipeScope(creationScope);
+      if (!approved) { chosePrivate.current = true; return false; }
+      if (!isScreenActive.current) return false;
+      if (status.requires_acceptance) {
+        const accepted = await bounded(api.acceptPublishingDisclosure(status.current_version));
+        assertRecipeScope(creationScope);
+        queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, accepted);
+      }
+      return isScreenActive.current;
+    } catch (error) {
       if (isScreenActive.current) {
         Alert.alert(
           'Couldn’t check publishing preference',
-          'Please check your connection and try again.',
+          error instanceof Error && error.name === 'TimeoutError'
+            ? 'Publishing confirmation timed out. Your recipe has not been published. Please try again.'
+            : 'Please check your connection and try again.',
         );
       }
       return false;
@@ -94,7 +90,7 @@ export function usePublishingDisclosure() {
       inFlight.current = false;
       if (isMounted.current) setIsCheckingDisclosure(false);
     }
-  }, [queryClient]);
+  }, [queryClient, confirm]);
 
   return { requestPublishing, isCheckingDisclosure, didChoosePrivate: () => chosePrivate.current };
 }

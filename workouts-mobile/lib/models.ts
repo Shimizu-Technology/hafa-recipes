@@ -178,6 +178,8 @@ export interface Program {
   source_ids: string[];
   rule_version: string;
 }
+/** Client-only receipt for optional fields omitted by an older server. */
+export type SessionSaveResult = TrainingSession & { unsent_results?: Pick<SessionRequest, "results" | "segments"> };
 export interface TrainingSession {
   id: string;
   generation: number;

@@ -1,3 +1,4 @@
+vi.mock('@/contexts/PublishingConfirmation', () => ({ PublishingConfirmationProvider: ({ children }: { children: React.ReactNode }) => children }));
 const scanFiles = vi.hoisted(() => new Set<string>());
 vi.mock('@react-native-async-storage/async-storage', () => { const data = new Map<string,string>(); return { default: { getItem: async(k:string)=>data.get(k)??null, setItem:async(k:string,v:string)=>{data.set(k,v)}, getAllKeys:async()=>[...data.keys()], multiRemove:async(ks:string[])=>{ks.forEach(k=>data.delete(k))} } }; });
 vi.mock('expo-file-system', () => ({ Paths: { document: 'file:///private' },
@@ -125,7 +126,7 @@ vi.mock('@/hooks/useRecipes', () => ({
   useSaveCapturedRecipe: () => ({ mutateAsync: mocks.save }),
 }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
-  usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, isCheckingDisclosure: false }),
+  usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, didChoosePrivate: () => true, isCheckingDisclosure: false }),
 }));
 vi.mock('@/lib/ocrReview', () => ({
   getOcrPublishDisclosure: () => ({

@@ -55,7 +55,7 @@ export function ScoreEditor({ block, result, segments = [], onChange, onRunDista
           rounds: num(text.rounds) ?? 0, reps: num(text.reps) ?? 0, time_seconds: parseTime(text.time) ?? undefined }))} />
       </>}
       {result.kind === "load" && <Row gap={12} wrap align="flex-end">
-        {field("load", "Weight", (v) => ({ load: num(v) }))}
+        {field("load", "Weight", (v) => ({ load: num(v), load_unit: result.load_unit ?? "kg" }))}
         <Segmented<"kg" | "lb"> label="Unit" value={result.load_unit ?? "kg"} options={[{ value: "kg", label: "kg" }, { value: "lb", label: "lb" }]}
           onChange={(unit) => onChange({ ...result, load_unit: unit })} />
       </Row>}

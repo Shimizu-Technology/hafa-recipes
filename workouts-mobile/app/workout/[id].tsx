@@ -1,3 +1,4 @@
+import { YourResults } from "@/components/your-results";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { workoutCardMeta } from "@/lib/library-view";
 import { AccessibilityInfo, View } from "react-native";
@@ -264,6 +265,7 @@ export default function WorkoutDetail() {
             {exercises > 0 && <SectionHeader title="Exercises" />}
             <WorkoutExerciseList blocks={workout.blocks} formatChip={formatChip} units={units}
               weightKg={profile.data?.profile?.weight_kg} />
+            {workout.kind !== "program" && <YourResults workoutId={workout.id} benchmarkKey={workout.benchmark?.key} />}
             {workout.kind !== "program" && exercises > 0 && <ListGroup>
               <ListRow
                 icon="calendar-outline"

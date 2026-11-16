@@ -101,11 +101,11 @@ export function ClassSession(p: ClassSessionProps) {
     p.act((r, w, at) => setRun(r, w, i, next, r.parts[r.cursor].runs?.[i]?.distance_meters, at), next);
   const endEarly = () => Alert.alert(`End ${block.label} now?`, "The clock stops here and the class moves on.", [
     { text: "Keep going", style: "cancel" }, { text: `End ${block.label}`, style: "destructive", onPress: () => p.act(endPart) }]);
-  const canComplete = over && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
+  const canComplete = over && !run.ended_early && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
     d.steps.every((s) => d.actuals.some((a) => actualIdentity(a) === s.key));
-  const review = over ? classPayload(d.class_run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : null;
+  const review = over ? classPayload(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : null;
   // Every scored part is reviewed, including one still missing its value; only valid scores are ever sent.
-  const scored = over ? scoredParts(d.class_run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }).map((x) => x.result) : [];
+  const scored = over ? scoredParts(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }).map((x) => x.result) : [];
   const unready = scored.some((r) => scoreProblem(r) || !r.scaling);
   const save = () => p.finish(canComplete ? "completed" : "partial", scored);
 
@@ -137,7 +137,7 @@ export function ClassSession(p: ClassSessionProps) {
           return <ListRow key={b.id} icon={x.skipped ? "remove-circle-outline" : "checkmark-circle"} title={partTitle(b)} detail={x.skipped ? "Skipped" : "Done"} />;
         })}
       </Card>
-      {!canComplete && <Copy kind="small" tone="muted">Skipped parts or sets save this as a partial session.</Copy>}
+      {!canComplete && <Copy kind="small" tone="muted">Unfinished or skipped parts and sets save this as a partial session.</Copy>}
       {!!scored.length && <SectionHeader title="Your scores" />}
       {review && scored.map((r) => {
         const b = d.workout.blocks.find((x) => x.id === r.block_id)!;

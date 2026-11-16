@@ -79,6 +79,7 @@ export function endClass(run: ClassRun, workout: Workout, now: number) {
   const next = resolve(run, workout, now);
   const part = next.parts[next.cursor];
   const status = partStatus(part, workout.blocks.find((b) => b.id === part.block_id)!, now);
+  if (["pending", "lead_in", "running", "paused"].includes(status)) next.ended_early = true;
   if (status === "pending" || status === "lead_in") {
     Object.assign(part, { skipped: true, ended_at: now });
     delete part.started_at; delete part.lead_in_ms;

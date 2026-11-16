@@ -300,7 +300,11 @@ export default function Training() {
     if (!current() || store!.snapshot().active != null) { finishing.current = false; return; }
     haptics.success();
     const saved = store!.snapshot().history.find((h) => h.request.client_session_id === d!.id);
-    void store!.sync(api.saveSession).then(() => { if (current()) void cache.invalidateQueries({ queryKey: [owner, "sessions"] }); });
+    void store!.sync(api.saveSession).then(() => {
+      if (!current()) return;
+      // New scores change your results and best scores as well as your sessions.
+      for (const key of ["sessions", "results", "benchmarks"]) void cache.invalidateQueries({ queryKey: [owner, key] });
+    });
     if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request, saved.timed_format === true) ??
       (saved.request.results?.map((r) => `${saved.workout.blocks.find((b) => b.id === r.block_id)?.label ?? ""} ${formatPartScore(r)}`.trim()).join(" · ") || null) });
     else router.replace("/progress");

@@ -128,6 +128,8 @@ function Routes() {
         <Stack.Screen name="ai-preferences" />
         <Stack.Screen name="session/[id]" />
         <Stack.Screen name="history-progress" />
+        <Stack.Screen name="best-scores" />
+        <Stack.Screen name="heart-rate-summaries" />
       </Stack.Protected>
     </Stack>
   );

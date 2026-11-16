@@ -1,10 +1,10 @@
 import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand, type ResultRecoveryReceipt } from "./result-recovery";
-import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
+import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, SessionSaveResult, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
 import { timedCircuit } from "./timed-circuit";
 import { formatCapSeconds, intervalPosition, isDeathBy, ladderReps, movesFor, timedFormat, timedFormatProblem,
   trackedIntervalLimit, type TimedFormat } from "./timed-execution";
-import { endPart, isTimedPart, planClass, resolve, startPart, type ClassRun, type PartResult, type RunEnvironment } from "./class-session";
+import { endPart, isTimedPart, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
 import { carriesResults, classPayload, cleanScore, scoreProblem, withoutResults } from "./class-scores";
 import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly } from "./class-training";
 export type UnitSystem = "metric" | "imperial";
@@ -451,7 +451,7 @@ export function createTrainingStore(
     operations = result;
     return result;
   }
-  async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+  async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<SessionSaveResult>) {
     await operations;
     const queue = state.history.filter((x) => x.state === "queued" && !x.recovery);
     let previousRejection: number | null = null;
@@ -465,6 +465,10 @@ export function createTrainingStore(
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
           if (local) {
+            if (saved.unsent_results) {
+              local.unsent_results = { ...saved.unsent_results, reason: "Class scores are not available on this server yet." };
+              local.request = withoutResults(local.request);
+            }
             local.state = "synced";
             local.synced_id = saved.id;
             local.synced_at = clock();
@@ -975,7 +979,7 @@ export function createTrainingStore(
           d.class_run = endPart(d.class_run, d.workout, now);
           if (!d.class_run.parts.some((p) => p.started_at != null && p.started_at <= now))
             throw Error("Start a part, or discard the session.");
-          if (status === "completed" && (!classOver(d.class_run, d.workout, now) || d.class_run.parts.some((p) => p.skipped) ||
+          if (status === "completed" && (!classOver(d.class_run, d.workout, now) || d.class_run.ended_early || d.class_run.parts.some((p) => p.skipped) ||
             !d.steps.every(logged(d)) || d.actuals.some((a) => !a.completed)))
             throw Error("Some parts or sets were skipped or not finished. Save this as a partial session.");
         } else if (status === "completed") {
@@ -1031,7 +1035,7 @@ export function createTrainingStore(
         return s;
       });
     },
-    sync(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+    sync(send: (request: SessionRequest, originalGeneration: number) => Promise<SessionSaveResult>) {
       // Concurrent callers wait for the same pass, so follow-up work sees its result.
       syncing ??= exclusive(() => run(send)).finally(() => {
         syncing = null;
@@ -1041,7 +1045,7 @@ export function createTrainingStore(
     recoverResult(
       id: string, command: ResultRecoveryCommand,
       saveWorkout: (workout: AuthoredWorkout, key: string, generation: number) => Promise<Workout>,
-      send: (request: SessionRequest, generation: number) => Promise<TrainingSession>,
+      send: (request: SessionRequest, generation: number) => Promise<SessionSaveResult>,
       current: () => boolean
     ) {
       const existing = recoveries.get(id);
@@ -1136,7 +1140,7 @@ export function createTrainingStore(
       void result.finally(() => { recoveries.delete(id); }).catch(() => undefined);
       return result;
     },
-    correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string, results?: PartResult[]) {
+    correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string, results?: PartResult[], segments?: Segment[]) {
       return update((s) => {
         if (saved.generation !== generation) throw Error("This result belongs to an older account generation.");
         const errors = actuals.flatMap(actualErrors);
@@ -1148,6 +1152,7 @@ export function createTrainingStore(
         const request: SessionRequest = {
           ...prior,
           ...(results ? { results: results.map(cleanScore) } : {}),
+          ...(segments ? { segments: clone(segments) } : {}),
           client_session_id: id,
           actuals: clone(actuals),
           // A correction can remove completed work; editing recorded cells cannot

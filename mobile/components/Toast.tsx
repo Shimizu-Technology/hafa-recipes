@@ -47,7 +47,11 @@ const surface = Colors.dark;
 
 export { showToast, hideToast } from '@/lib/toast';
 
-export function ToastHost() {
+/**
+ * `announce={false}` for a second host inside a native Modal, which draws above the root host;
+ * the root host still announces, so VoiceOver hears each toast once.
+ */
+export function ToastHost({ announce = true }: { announce?: boolean } = {}) {
   const toast = useSyncExternalStore(subscribeToast, getToast, getToast);
   const [shown, setShown] = useState<ToastState | null>(toast);
   const reduceMotion = useReduceMotion();
@@ -82,7 +86,7 @@ export function ToastHost() {
     if (toast) {
       setShown(toast);
       progress.value = withTiming(1, { duration: ENTER_MS, easing: EASE_OUT });
-      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(toastAnnouncement(toast));
+      if (announce && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(toastAnnouncement(toast));
       return;
     }
     progress.value = withTiming(0, { duration: EXIT_MS, easing: EASE_OUT }, (finished) => {
@@ -111,7 +115,7 @@ export function ToastHost() {
   return (
     <RNView pointerEvents="box-none" style={[styles.container, { bottom }]}>
       <Animated.View
-        accessibilityLiveRegion="polite"
+        accessibilityLiveRegion={announce ? 'polite' : 'none'}
         style={[
           styles.toast,
           { backgroundColor: surface.backgroundElevated, shadowColor: surface.shadowColor },

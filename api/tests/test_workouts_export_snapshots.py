@@ -11,6 +11,7 @@ import pytest
 from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy import delete, event, func, select, text, update
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domains.workouts import export_service, security
 from app.domains.workouts.export_models import (
@@ -25,9 +26,15 @@ from app.domains.workouts.export_service import (
     invalidate_export_snapshots,
     verify_export_schema,
 )
-from app.domains.workouts.lifecycle import membership_for
+from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import WorkoutRecord, WorkoutsProgram
-from app.domains.workouts.router import Generation, User
+from app.domains.workouts.router import (
+    ExportResponse,
+    Generation,
+    User,
+    consent_response,
+    enrollment_response,
+)
 from app.domains.workouts.security import WorkoutsRoute
 from app.models.identity import AppUser
 from tests.test_workouts_data_integration import (
@@ -42,6 +49,7 @@ from tests.test_workouts_data_integration import (
 
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
 PREFIX = "/api/v1/workouts"
+WAIT_SECONDS = 30  # Event ordering is the assertion; elapsed setup time is not.
 
 
 @pytest.fixture
@@ -77,7 +85,25 @@ async def snapshots(data_api, monkeypatch):  # noqa: F811
         return Response(status_code=204)
 
     data_api.app.include_router(routes)
-    return data_api
+    pending_tasks = []
+
+    def start_task(coro):
+        task = asyncio.create_task(coro)
+        pending_tasks.append(task)
+        return task
+
+    data_api.start_export_task = start_task
+    try:
+        yield data_api
+    finally:
+        # Never let a failed event assertion leave an RR transaction/global
+        # advisory slot alive while the fixture drops its schema.
+        for task in pending_tasks:
+            if not task.done() and not task.cancelling():
+                task.cancel()
+        await asyncio.wait_for(
+            asyncio.gather(*pending_tasks, return_exceptions=True), WAIT_SECONDS
+        )
 
 
 async def add(api, title="Private fixture"):
@@ -133,14 +159,14 @@ async def test_repeatable_read_during_materialization_not_only_after(snapshots):
         return result
 
     service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
-    pending = asyncio.create_task(service.create(user(), 1))
-    await asyncio.wait_for(acquired.wait(), 5)
+    pending = api.start_export_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
     await add(api, "Concurrent insertion")
     async with api.sessions.begin() as db:
         row = await db.get(WorkoutRecord, UUID(rows[0]["id"]))
         row.content = {**row.content, "title": "Concurrent update"}
     resume.set()
-    manifest = await asyncio.wait_for(pending, 5)
+    manifest = await asyncio.wait_for(pending, WAIT_SECONDS)
     second = await service.read(user(), 1, manifest.id, page=1)
     assert manifest.totals["workouts"] == 11
     assert second.export.datasets["workouts"][0]["content"]["title"] == "Original 0"
@@ -319,13 +345,13 @@ async def test_revocation_while_building_cannot_publish(snapshots):
         return result
 
     service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
-    pending = asyncio.create_task(service.create(user(), 1))
-    await asyncio.wait_for(acquired.wait(), 5)
+    pending = api.start_export_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
     async with api.sessions.begin() as db:
         await membership_for(db, "owner", generation=1, write=True)
         await invalidate_export_snapshots(db, "owner", 1)
     resume.set()
-    failure = await assert_error(asyncio.wait_for(pending, 5), 410)
+    failure = await assert_error(asyncio.wait_for(pending, WAIT_SECONDS), 410)
     assert failure.detail == "export_snapshot_unavailable"
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
@@ -443,8 +469,8 @@ async def test_fresh_publication_observes_revocation_without_erase_hook(snapshot
         return result
 
     service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
-    pending = asyncio.create_task(service.create(user(), 1))
-    await asyncio.wait_for(acquired.wait(), 5)
+    pending = api.start_export_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
     from app.domains.workouts.models import WorkoutsConsent
 
     # Exercise the fresh permission fingerprint independently of the parent
@@ -455,7 +481,7 @@ async def test_fresh_publication_observes_revocation_without_erase_hook(snapshot
         row.accepted_at = None
         await db.commit()
     resume.set()
-    await assert_error(asyncio.wait_for(pending, 5), 410)
+    await assert_error(asyncio.wait_for(pending, WAIT_SECONDS), 410)
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
 
@@ -501,8 +527,8 @@ async def test_cancelled_build_disposes_temp_ciphertext(snapshots):
         return result
 
     service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
-    pending = asyncio.create_task(service.create(user(), 1))
-    await asyncio.wait_for(acquired.wait(), 5)
+    pending = api.start_export_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
@@ -639,31 +665,59 @@ async def test_readiness_rejects_missing_account_cascade(snapshots):
 
 async def test_global_creation_slot_cross_instance_failfast_and_reader_independent(snapshots):
     api = snapshots
-    existing = await api.exports.create(user("other"), 1)
     acquired, resume = asyncio.Event(), asyncio.Event()
 
-    async def source(db, current_user, limit, offset):
+    async def empty_page(db, current_user, limit, offset):
+        # Keep this an admission test, independent of full-inventory query cost
+        # and its production statement deadline. Other cases cover real pages.
+        member = await membership_for(db, current_user.id, generation=1)
+        return ExportResponse(
+            generated_at=now(), enrollment=enrollment_response(member),
+            profile=None, profile_revision=0, ai_consent=consent_response(None),
+            grants=[], datasets={"workouts": []}, totals={"workouts": 0},
+            has_more={"workouts": False}, limit=limit, offset=offset,
+        )
+
+    async def source(*args):
         acquired.set()
         await resume.wait()
-        return await export_service.approved_export_page(db, current_user, limit, offset)
+        return await empty_page(*args)
 
-    creator = PrivateExportService(api.sessions, settings=settings(), page_source=source)
-    pending = asyncio.create_task(creator.create(user(), 1))
-    await asyncio.wait_for(acquired.wait(), 5)
-    other_instance = PrivateExportService(api.sessions, settings=settings())
-    failure = await assert_error(
-        asyncio.wait_for(other_instance.create(user("other"), 1), 1), 429, "export_snapshot_busy"
+    # Separate pools model two replicas; the slot must live in PostgreSQL,
+    # rather than in one service object or one checked-out connection.
+    other_engine = create_async_engine(DATABASE_URL)
+    other_instance = PrivateExportService(
+        async_sessionmaker(other_engine, expire_on_commit=False),
+        settings=settings(), page_source=empty_page,
     )
-    assert failure.headers == {"Retry-After": "2"}
-    assert (
-        await other_instance.read(user("other"), 1, existing.id, page=0)
-    ).snapshot_id == existing.id
-    async with api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 2
-    resume.set()
-    assert (await asyncio.wait_for(pending, 5)).generation == 1
-    replacement = await other_instance.create(user("other"), 1)
-    assert replacement.id != existing.id
+    pending = None
+    try:
+        existing = await other_instance.create(user("other"), 1)
+        creator = PrivateExportService(api.sessions, settings=settings(), page_source=source)
+        pending = api.start_export_task(creator.create(user(), 1))
+        await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
+        failure = await assert_error(
+            asyncio.wait_for(other_instance.create(user("other"), 1), WAIT_SECONDS),
+            429, "export_snapshot_busy",
+        )
+        assert failure.headers == {"Retry-After": "2"}
+        assert not pending.done()  # Denial did not wait for the held source.
+        assert (
+            await other_instance.read(user("other"), 1, existing.id, page=0)
+        ).snapshot_id == existing.id
+        async with api.sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 2
+        resume.set()
+        assert (await asyncio.wait_for(pending, WAIT_SECONDS)).generation == 1
+        replacement = await other_instance.create(user("other"), 1)
+        assert replacement.id != existing.id
+    finally:
+        resume.set()
+        if pending is not None:
+            if not pending.done() and not pending.cancelling():
+                pending.cancel()
+            await asyncio.wait_for(asyncio.gather(pending, return_exceptions=True), WAIT_SECONDS)
+        await other_engine.dispose()
 
 
 @pytest.mark.parametrize("action", ["revoke", "product_delete"])
@@ -682,8 +736,8 @@ async def test_privacy_changes_after_committed_first_page_do_not_wait_for_rr_bui
         return await export_service.approved_export_page(db, current_user, limit, offset)
 
     service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
-    pending = asyncio.create_task(service.create(user(), 1))
-    await asyncio.wait_for(acquired.wait(), 5)
+    pending = api.start_export_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 1
 
@@ -697,10 +751,10 @@ async def test_privacy_changes_after_committed_first_page_do_not_wait_for_rr_bui
 
     # Original implementation held a page FK lock until all RR pages committed;
     # this revocation would have waited for resume and timed out/rolled back.
-    await asyncio.wait_for(privacy_change(), 1)
+    await asyncio.wait_for(privacy_change(), WAIT_SECONDS)
     assert not pending.done()
     resume.set()
-    await assert_error(asyncio.wait_for(pending, 5), 410 if action == "revoke" else 409)
+    await assert_error(asyncio.wait_for(pending, WAIT_SECONDS), 410 if action == "revoke" else 409)
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportSnapshot)) == 0
         assert await db.scalar(select(func.count()).select_from(WorkoutsExportPage)) == 0
@@ -729,10 +783,10 @@ async def test_global_page_slot_cross_instance_denial_before_ciphertext_load(sna
 
     sessions = async_sessionmaker(api.engine, class_=PausingSession, expire_on_commit=False)
     first_instance = PrivateExportService(sessions, settings=settings())
-    pending = asyncio.create_task(first_instance.read(user(), 1, first.id, page=0))
-    await asyncio.wait_for(acquired.wait(), 5)
+    pending = api.start_export_task(first_instance.read(user(), 1, first.id, page=0))
+    await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
     await assert_error(
-        asyncio.wait_for(api.exports.read(user("other"), 1, other.id, page=0), 1),
+        asyncio.wait_for(api.exports.read(user("other"), 1, other.id, page=0), WAIT_SECONDS),
         429,
         "export_snapshot_busy",
     )
@@ -768,8 +822,8 @@ async def test_cancelled_creation_releases_global_admission(snapshots):
         await asyncio.Event().wait()
 
     service = PrivateExportService(api.sessions, settings=settings(), page_source=source)
-    pending = asyncio.create_task(service.create(user(), 1))
-    await asyncio.wait_for(acquired.wait(), 5)
+    pending = api.start_export_task(service.create(user(), 1))
+    await asyncio.wait_for(acquired.wait(), WAIT_SECONDS)
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
@@ -799,16 +853,16 @@ async def test_cpu_build_settlement_preserves_source_and_publication_fences(
         # No DB/ORM/context inputs are passed to the worker; DB remains on loop.
         assert export_service.source_context.get() is None
         loop.call_soon_threadsafe(entered.set)
-        assert release.wait(5)
+        assert release.wait(WAIT_SECONDS * 2)
         if ending == "failure":
             raise ValueError("Private synthetic serialization failure")
         return encode(*args)
 
     monkeypatch.setattr(export_service.SnapshotSourceContext, "prepare", classmethod(capture))
     monkeypatch.setattr(export_service, "encode_page", held)
-    pending = asyncio.create_task(api.exports.create(user(), 1))
+    pending = api.start_export_task(api.exports.create(user(), 1))
     try:
-        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(entered.wait(), WAIT_SECONDS)
         assert not captured[0]._closed
         if ending == "cancel":
             pending.cancel()
@@ -830,10 +884,10 @@ async def test_cpu_build_settlement_preserves_source_and_publication_fences(
         release.set()
         if ending == "cancel":
             with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(pending, 5)
+                await asyncio.wait_for(pending, WAIT_SECONDS)
         else:
             await assert_error(
-                asyncio.wait_for(pending, 5),
+                asyncio.wait_for(pending, WAIT_SECONDS),
                 {"revoke": 410, "generation": 409, "failure": 503}[ending],
             )
         assert captured[0]._closed and captured[0].static_metadata() is None
@@ -869,13 +923,13 @@ async def test_cancelled_cpu_read_retains_read_slot_until_real_worker_settles(
         assert all(isinstance(value, (bytes, UUID, int, bool)) for value in args)
         assert export_service.source_context.get() is None
         loop.call_soon_threadsafe(entered.set)
-        assert release.wait(5)
+        assert release.wait(WAIT_SECONDS * 2)
         return decode(*args)
 
     monkeypatch.setattr(export_service, "decode_page", held)
-    pending = asyncio.create_task(api.exports.read(user(), 1, first.id, page=0, encoded=True))
+    pending = api.start_export_task(api.exports.read(user(), 1, first.id, page=0, encoded=True))
     try:
-        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(entered.wait(), WAIT_SECONDS)
         pending.cancel()
         await asyncio.sleep(0)
         assert not pending.done()
@@ -889,7 +943,7 @@ async def test_cancelled_cpu_read_retains_read_slot_until_real_worker_settles(
         )
         release.set()
         with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(pending, 5)
+            await asyncio.wait_for(pending, WAIT_SECONDS)
         monkeypatch.setattr(export_service, "decode_page", decode)
         assert (await api.exports.read(user("other"), 1, other.id, page=0)).snapshot_id == other.id
     finally:

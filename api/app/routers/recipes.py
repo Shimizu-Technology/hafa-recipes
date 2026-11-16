@@ -63,6 +63,7 @@ from app.recipe_review import (
     evidence_user_verified_paths,
     evidence_uses_field_review,
     evidence_was_user_reviewed,
+    reject_shared_copy_publish,
     require_recipe_publishable,
     review_response_fields,
     reviewable_recipe_paths,
@@ -647,6 +648,9 @@ def _build_edited_extracted(
     if source_is_incomplete(old_extracted, extraction_method=extraction_method):
         estimate_basis["sourceIncomplete"] = True
     new_extracted = preserve_unchanged_estimates(estimate_basis, new_extracted)
+    if old_extracted.get("sharedCopy"):
+        # A saved copy keeps its "Shared by" credit through edits.
+        new_extracted["sharedCopy"] = old_extracted["sharedCopy"]
     return invalidate_changed_inputs(
         old_extracted,
         new_extracted,
@@ -955,7 +959,7 @@ async def create_manual_recipe(
         extraction_quality=None,
         has_audio_transcript=False,
         user_id=user.id,
-        extractor_display_name=user.display_name,  # Store display name for attribution
+        extractor_display_name=user.recipe_display_name,  # Store display name for attribution
         is_public=recipe_input.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
@@ -1082,7 +1086,7 @@ async def _save_captured_recipe(
         user_id=user.id,
         capture_id=capture_data.capture_id,
         capture_request_hash=request_hash,
-        extractor_display_name=user.display_name,  # Store display name for attribution
+        extractor_display_name=user.recipe_display_name,  # Store display name for attribution
         is_public=capture_data.is_public,
         total_minutes=compute_total_minutes(extracted),  # Compute for SQL filtering
     )
@@ -2168,6 +2172,8 @@ async def update_recipe(
         raise HTTPException(status_code=403, detail="You can only update your own recipes")
 
     target_is_public = update.is_public if update.is_public is not None else recipe.is_public
+    if target_is_public:
+        reject_shared_copy_publish(recipe.extracted)
 
     # Update the extracted JSONB with new values
     old_extracted = dict(recipe.extracted) if recipe.extracted else {}
@@ -2387,6 +2393,8 @@ async def edit_recipe(
 
     verified_paths = _review_paths_for_edit(edit, recipe)
     target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
+    if target_is_public:
+        reject_shared_copy_publish(recipe.extracted)
 
     # Preserve some fields from original extracted data
     old_extracted = dict(recipe.extracted or {})
@@ -2508,6 +2516,8 @@ async def edit_recipe_with_image(
 
     verified_paths = _review_paths_for_edit(edit, recipe)
     target_is_public = edit.is_public if edit.is_public is not None else recipe.is_public
+    if target_is_public:
+        reject_shared_copy_publish(recipe.extracted)
     thumbnail_url = uploaded_url or recipe.thumbnail_url
 
     old_extracted = dict(recipe.extracted or {})

@@ -132,11 +132,6 @@ async def test_enqueue_replay_rotate_revoke_and_delete(sharing_db):
                 "/api/share/imports", json={**capture, "url": "file:///etc/passwd"}, headers=headers
             )
         ).status_code == 422
-        assert (
-            await client.post(
-                "/api/share/credentials", json={"installation_id": installation, "is_public": True}
-            )
-        ).status_code == 409
         rotated = await client.post(
             "/api/share/credentials", json={"installation_id": installation}
         )
@@ -217,7 +212,8 @@ async def test_capture_preferences_cannot_broaden_capability_and_survive_rotatio
         assert issued.status_code == 201, issued.text
         headers = {"Authorization": "Bearer " + issued.json()["token"]}
         accepted = await client.post("/api/share/imports", json=public_capture, headers=headers)
-        assert accepted.status_code == 202, accepted.text
+        assert accepted.status_code == 403, accepted.text
+        assert issued.json()["is_public"] is False
         private_capture = {
             "capture_id": str(uuid4()), "url": "https://example.com/private",
             "is_public": False, "location": "United Kingdom",
@@ -231,12 +227,10 @@ async def test_capture_preferences_cannot_broaden_capability_and_survive_rotatio
         )
         assert legacy.status_code == 202, legacy.text
         async with sharing_db() as db:
-            public_job = await db.get(ExtractionJob, accepted.json()["job_id"])
             private_job = await db.get(ExtractionJob, accepted_private.json()["job_id"])
             legacy_job = await db.get(ExtractionJob, legacy.json()["job_id"])
-            assert public_job.requested_is_public is True and public_job.location == "Hawaii"
             assert private_job.requested_is_public is False and private_job.location == "United Kingdom"
-            assert legacy_job.requested_is_public is True and legacy_job.location == "Guam"
+            assert legacy_job.requested_is_public is False and legacy_job.location == "Guam"
         # Replaying an accepted capture after changing settings never mutates it.
         issued = await client.post("/api/share/credentials", json={"installation_id": installation})
         headers = {"Authorization": "Bearer " + issued.json()["token"]}
@@ -251,7 +245,7 @@ async def test_capture_preferences_cannot_broaden_capability_and_survive_rotatio
 
 
 @pytest.mark.asyncio
-async def test_public_capture_rechecks_disclosure_at_submission(sharing_db):
+async def test_public_capture_requires_foreground_even_with_legacy_public_credential(sharing_db):
     async with sharing_db() as db:
         owner = await db.get(AppUser, "stable_owner")
         owner.publishing_disclosure_version = 1
@@ -265,13 +259,20 @@ async def test_public_capture_rechecks_disclosure_at_submission(sharing_db):
         headers = {"Authorization": "Bearer " + issued.json()["token"]}
         async with sharing_db() as db:
             owner = await db.get(AppUser, "stable_owner")
-            owner.publishing_disclosure_version = 0
+            owner.publishing_disclosure_version = 1
+            legacy_credential = await db.get(ShareImportCredential, issued.json()["credential_id"])
+            legacy_credential.is_public = True
             await db.commit()
         rejected = await client.post(
             "/api/share/imports", headers=headers,
             json={"capture_id": str(uuid4()), "url": "https://example.com/public", "is_public": True},
         )
-        assert rejected.status_code == 409
+        assert rejected.status_code == 403
+        legacy = await client.post(
+            "/api/share/imports", headers=headers,
+            json={"capture_id": str(uuid4()), "url": "https://example.com/legacy-public"},
+        )
+        assert legacy.status_code == 403
         private = await client.post(
             "/api/share/imports", headers=headers,
             json={"capture_id": str(uuid4()), "url": "https://example.com/private", "is_public": False},

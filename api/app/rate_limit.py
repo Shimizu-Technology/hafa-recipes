@@ -97,7 +97,11 @@ class UserRateLimiter:
 
             retry_after = 0
             for window in windows:
-                in_window = sum(1 for event in events if now - event < window.seconds)
+                # The deque is already trimmed to the horizon. Avoid rescanning
+                # the full public-page bucket on every admission and rejection.
+                in_window = len(events) if window.seconds == horizon else sum(
+                    1 for event in events if now - event < window.seconds
+                )
                 if in_window >= window.limit:
                     oldest_in_window = events[len(events) - in_window]
                     retry_after = max(

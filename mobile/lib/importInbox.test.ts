@@ -49,6 +49,7 @@ describe('durable import inbox', () => {
     const inbox = createImportInbox(persisted);
     const request = { url: 'https://example.com/shared', location: 'Hawaii', notes: '2 cups rice', is_public: true };
     await inbox.add({ ...entry('crashed'), request });
+    await inbox.claim('crashed', 'owner-a', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
     await inbox.claimForSubmit('crashed', 'owner-a', inbox.snapshot()[0]);
     const restarted = createImportInbox(persisted);
     await restarted.hydrate();
@@ -170,4 +171,32 @@ describe('durable import inbox', () => {
     await inbox.patch('a', { state: 'accepted', recipeId: 'recipe-a' });
     expect(visibleImportEntries(inbox.snapshot(), 'owner-a')).toMatchObject([{ id: 'b', state: 'ready' }]);
   });
+});
+
+it('persists owner-bound approval once and invalidates it when request, capture or owner changes', async () => {
+  const persisted = storage();
+  const inbox = createImportInbox(persisted);
+  const request = { url: 'https://example.com/public', is_public: true };
+  await inbox.add({ ...entry('public'), request });
+  expect(await inbox.claimForSubmit('public', 'owner-a', inbox.snapshot()[0])).toBeNull();
+  const stale = inbox.snapshot()[0];
+  await inbox.patch('public', { request: { ...request, notes: 'new notes' } });
+  await inbox.claim('public', 'owner-a', request, { publicConfirmed: true, expected: stale });
+  expect(inbox.snapshot()[0].publicConfirmed).toBeUndefined();
+  for (const patch of [{ request }, { capture: { kind: 'url' as const, url: request.url } }, { ownerId: 'owner-a' }]) {
+    await inbox.claim('public', 'owner-a', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
+    await inbox.patch('public', patch);
+    expect(inbox.snapshot()[0].publicConfirmed).toBeUndefined();
+  }
+  await inbox.claim('public', 'owner-b', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
+  expect(inbox.snapshot()[0].publicConfirmed).toBeUndefined();
+  await inbox.claim('public', 'owner-a', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
+  const restarted = createImportInbox(persisted);
+  await restarted.hydrate();
+  expect(restarted.snapshot()[0].publicConfirmed).toBe(true);
+  expect(await restarted.claimForSubmit('public', 'owner-b', restarted.snapshot()[0])).toBeNull();
+  const submitted = await restarted.claimForSubmit('public', 'owner-a', restarted.snapshot()[0]);
+  expect(submitted?.request?.is_public).toBe(true);
+  expect(submitted?.publicConfirmed).toBeUndefined();
+  expect(restarted.snapshot()[0].publicConfirmed).toBeUndefined();
 });

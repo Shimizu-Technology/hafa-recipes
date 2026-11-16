@@ -54,7 +54,8 @@ NEXT_EACH_INTERVAL = (rf"\b{NEXT_MOVE}\s+(?:{EACH_INTERVAL})"
 # "One movement per minute? No, do them all": a question or a denial right after it.
 # "... each minute. No rest." still states it.
 DENIED_AFTER = r"\s*(?:\?|[.!,;:\-–—]+\s*(?:no|nope)\s*[.!,;:\-–—])"
-ROTATION_ROW = r"^\s*(?:min(?:ute)?\s*\d+|M\d+|odd|even)(?:\s+min(?:ute)?s?)?\s*[:.)\-–]"
+# WodUp prints bare "Minute 1" and "Minutes 1 - 2" header lines.
+ROTATION_ROW = r"^\s*(?:min(?:ute)?s?\s*\d+(?:\s*[-–]\s*\d+)?|M\d+|odd|even)(?:\s+min(?:ute)?s?)?\s*(?:[:.)\-–]|$)"
 # "One" is no interval count ("one movement", Tabata timers' "1 INTERVAL").
 COUNT_WORDS = {word: index for index, word in enumerate(
     "two three four five six seven eight nine ten eleven twelve".split(), start=2)}
@@ -108,7 +109,7 @@ def _emom(clause):
         facts["interval_seconds"] = round(seconds(token[2], token[3]))
     after = clause[token.end():]
     count = re.search(r"^\s*(?:for\s+)?[x×]\s*(\d+)\b(?!\s*(?:reps?|/))"
-                      r"|\b(?:for\s+)?(\d+)\s*(?:rounds?|sets?|intervals?)\b", after, re.I)
+                      r"|\b(?:for\s+)?(\d+)\s*(rounds?|sets?|intervals?)\b", after, re.I)
     total = None
     for match in re.finditer(UNIT, clause, re.I):
         before, following = clause[:match.start()], clause[match.end():]
@@ -127,10 +128,17 @@ def _emom(clause):
         if total % facts["interval_seconds"] == 0:
             facts["intervals"] = total // facts["interval_seconds"]
     if count:
+        number = int(count[1] or count[2])
+        intervals = facts.get("intervals")
+        if count[3] and count[3].lower().startswith("round") and intervals and intervals > number and intervals % number == 0:
+            # "Every 2 minutes for 16 minutes (2 rounds)" is two passes through
+            # a station rotation; read_format checks the stations fit.
+            facts["cycles"] = number
+            return facts
         # "E3MOM for 15 minutes (5 sets)" must agree with its own clock.
-        if total and int(count[1] or count[2]) * facts["interval_seconds"] != total:
+        if total and number * facts["interval_seconds"] != total:
             facts["conflict"] = True
-        facts["intervals"] = int(count[1] or count[2])
+        facts["intervals"] = number
     return facts
 
 
@@ -228,6 +236,11 @@ def read_format(mode: str, quotes, rows=(), moves: int = 1, *, count_quotes=(),
             if key in merged and merged[key] != value:
                 conflict = True
             merged.setdefault(key, value)
+    cycles = merged.pop("cycles", None) if merged else None
+    if cycles and (moves < 2 or merged["intervals"] // cycles > moves):
+        # One movement, or more minute slots than movements, cannot be a
+        # rotation; the round count then disagrees with its own clock.
+        merged["intervals"], conflict = cycles, True
     if merged is not None and mode == "for_time" and "time_cap_seconds" not in merged:
         # Captions often put the cap on its own line: "For time" / "Cap: 20".
         caps = {cap for cap in map(_cap, clauses) if cap}
@@ -264,7 +277,7 @@ def row_lines(text: str, wording: str):
     for index, line in enumerate(lines):
         if wording in line:
             above = lines[index - 1] if index else ""
-            yield f"{above} {line}" if re.fullmatch(ROTATION_ROW + r"\s*", above, re.I) else line
+            yield f"{above}\n{line}" if re.fullmatch(ROTATION_ROW + r"\s*", above, re.I) else line
 
 
 def work_rest_ratios(wording: str, work_rest_block: bool = False) -> list[re.Match]:

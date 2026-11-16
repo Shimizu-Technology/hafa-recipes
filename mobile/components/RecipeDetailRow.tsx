@@ -8,25 +8,45 @@ type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & 
   title: string;
   value?: string;
   accessory?: ReactNode;
+  /**
+   * Action-list layout: the value is a left-aligned line directly under the title, truncated to one line
+   * (two at accessibility text sizes), and the icon, text and chevron are centered in the row.
+   */
+  stacked?: boolean;
+  /** Last row in its group: the card's own edge closes it, so no separator is drawn under it. */
+  last?: boolean;
 };
 
 /** Shared anatomy for every row in recipe detail's More group. */
-export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...props }: RecipeDetailRowProps) {
+export function RecipeDetailRow({ icon, title, value, accessory, stacked, last, onPress, ...props }: RecipeDetailRowProps) {
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
+  const textScale = useContext(TextScaleContext);
+  const valueLines = fontScale * textScale >= 1.6 ? 2 : 1;
   const content = <>
     <View style={styles.icon}><Ionicons name={icon} size={20} color={colors.textSecondary} /></View>
-    <View style={styles.copy}>
-      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-      {value ? <Text style={[styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
-    </View>
+    {stacked ? (
+      <View style={styles.stackedCopy}>
+        <Text style={[styles.stackedTitle, { color: colors.text }]}>{title}</Text>
+        {value ? <Text numberOfLines={valueLines} ellipsizeMode="tail" style={[styles.stackedValue, { color: colors.textSecondary }]}>{value}</Text> : null}
+      </View>
+    ) : (
+      <View style={styles.copy}>
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        {value ? <Text style={[styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
+      </View>
+    )}
     <View style={styles.accessory}>{accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}</View>
-    <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />
+    {last ? null : <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />}
   </>;
-  const style = [styles.row, { gap: fontScale >= 2 ? 4 : 12 }];
+  // Stacked rows share one height, so a row without detail ("Copy link") matches the rows that have it.
+  // Stacked rows keep the 12 pt icon gap at every text size (4 pt read as cramped beside large text);
+  // the separator's inset assumes it too.
+  const style = [styles.row, stacked && styles.stackedRow, { gap: stacked || fontScale < 2 ? 12 : 4 }];
+  const label = stacked && value ? `${title}, ${value}` : title;
   return onPress
-    ? <TouchableOpacity accessibilityLabel={title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
-    : <View style={style}>{content}</View>;
+    ? <TouchableOpacity accessibilityLabel={label} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
+    : <View style={style} {...(stacked ? { accessible: true, accessibilityLabel: props.accessibilityLabel ?? label } : {})}>{content}</View>;
 }
 
 /** Secondary action under Start cooking (Plan, Groceries, Scale): a white sheet with a hairline; shares the row evenly. */
@@ -62,4 +82,9 @@ const styles = StyleSheet.create({
   copy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4 },
   title: { fontSize: 17, lineHeight: 22, flexGrow: 1, flexShrink: 1 },
   value: { fontSize: 15, lineHeight: 20, flexShrink: 1, textAlign: 'right', marginLeft: 'auto' },
+  stackedRow: { minHeight: 68 },
+  // No flexGrow on the title here: in a column it would stretch and push the value down.
+  stackedCopy: { flex: 1, justifyContent: 'center', gap: 2 },
+  stackedTitle: { fontSize: 17, lineHeight: 22 },
+  stackedValue: { fontSize: 15, lineHeight: 20, textAlign: 'left' },
 });

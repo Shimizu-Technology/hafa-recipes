@@ -122,6 +122,11 @@ class Media(BaseModel):
     thumbnail: Optional[str] = None
 
 
+class SharedCopy(BaseModel):
+    """Marks a private copy saved from a Håfa link. sharedBy is the sharer's public name, or None."""
+    sharedBy: Optional[str] = None
+
+
 # ============================================================
 # Main Recipe Schema (the JSONB 'extracted' field)
 # ============================================================
@@ -153,6 +158,8 @@ class RecipeExtracted(BaseModel):
     sourceIncomplete: bool = False
     lowConfidence: Optional[bool] = None
     confidenceWarning: Optional[str] = None
+    # Set only on copies saved from a Håfa link; the original creator stays in sourceUrl.
+    sharedCopy: Optional[SharedCopy] = None
 
 
 # ============================================================

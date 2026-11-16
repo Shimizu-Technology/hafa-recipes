@@ -30,6 +30,7 @@ export default function SessionDetail() {
   // Scores the server refused stay on this device; a correction sends them again.
   const local = offline.state.history.find((h) => h.synced_id === id);
   const savedScores = q.data?.content.results?.length ? q.data.content.results : local?.unsent_results?.results ?? [];
+  const savedSegments = q.data?.content.results?.length ? q.data.content.segments ?? [] : local?.unsent_results?.segments ?? [];
   const blockOf = (blockId: string) => q.data!.content.prescription_snapshot.blocks.find((b) => b.id === blockId);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,9 +47,10 @@ export default function SessionDetail() {
         return result;
       });
       const correctionId = Crypto.randomUUID();
-      if (scores?.length) await offline.store.correct(q.data, actuals, notes, correctionId, scores);
+      if (scores?.length) await offline.store.correct(q.data, actuals, notes, correctionId, scores, savedSegments);
       else await offline.store.correct(q.data, actuals, notes, correctionId);
-      void offline.store.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
+      void offline.store.sync(api.saveSession).then(() => Promise.all(["sessions", "results", "benchmarks"]
+        .map((key) => cache.invalidateQueries({ queryKey: [owner, key] }))));
       router.replace("/progress");
     } catch (e) {
       setError((e as Error).message);
@@ -100,7 +102,7 @@ export default function SessionDetail() {
                 <Copy kind="label">Scores</Copy>
                 {savedScores.map((r) => <Copy key={r.block_id}>{[blockOf(r.block_id) ? partTitle(blockOf(r.block_id)!) : r.block_id, formatPartScore(r),
                   r.scaling === "rx" ? "Rx" : r.scaling === "scaled" ? `Scaled${r.scaling_note ? ` (${r.scaling_note})` : ""}` : null].filter(Boolean).join(" · ")}</Copy>)}
-                <CopyForWodUp workout={q.data.content.prescription_snapshot} results={savedScores} segments={q.data.content.segments ?? []} />
+                <CopyForWodUp workout={q.data.content.prescription_snapshot} results={savedScores} segments={savedSegments} />
               </Card>
             )}
             {!editing && !!local?.unsent_results && !q.data.content.results?.length && <Notice error>{unsentProblem}</Notice>}
