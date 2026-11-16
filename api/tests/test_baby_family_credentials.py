@@ -75,3 +75,28 @@ async def test_caregiver_cannot_provision_a_family_source_capability(baby_api, f
     result = await baby_api.client.post("/api/v1/baby/share/session", headers=records.headers(family, "other"),
                                         json={"installation_id": str(uuid4())})
     assert result.status_code == 403
+
+
+async def test_family_capture_files_only_into_a_category_in_its_own_space(baby_api, family):
+    c = baby_api.client
+    c._transport.app.include_router(native.router)
+    result = await c.post("/api/v1/baby/share/session", headers=records.headers(family),
+                          json={"installation_id": str(uuid4())})
+    assert result.status_code == 201, result.text
+    capability = {"Authorization": "Bearer " + result.json()["token"]}
+    async with baby_api.sessions() as db:
+        personal = (await db.get(BabyMembership, "owner")).personal_space_id
+    shared, private = (native.shared.payload("collection", data={"record_ids": []}) for _ in range(2))
+    assert (await c.post("/api/v1/baby/records", headers=records.headers(family), json=shared)).status_code == 200
+    assert (await c.post("/api/v1/baby/records", headers=records.headers(personal, generation=1), json=private)).status_code == 200
+    # Her own category, but in her personal space: the family's post never lands in it.
+    loose = native.capture(collection_id=private["id"])
+    result = await c.post("/api/v1/baby/share/captures", headers=capability, json=loose)
+    assert result.status_code == 202 and result.json()["collection_id"] is None, result.text
+    filed = native.capture(collection_id=shared["id"])
+    result = await c.post("/api/v1/baby/share/captures", headers=capability, json=filed)
+    assert result.status_code == 202 and result.json()["collection_id"] == shared["id"], result.text
+    async with baby_api.sessions() as db:
+        assert (await db.get(BabyRecord, private["id"])).data["record_ids"] == []
+        category = await db.get(BabyRecord, shared["id"])
+        assert category.data["record_ids"] == [filed["capture_id"]] and category.revision == 2 and category.change_seq > 0

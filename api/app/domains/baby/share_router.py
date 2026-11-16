@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, ValidationError, model_validator
 from sqlalchemy import func, select, text
 
 from app.domains.baby.access import AccessChanged, access_for, family_enabled, touch
@@ -20,6 +20,7 @@ from app.domains.baby.lifecycle import digest, now, source_creation_hashes
 from app.domains.baby.models import BabyImport, BabyRecord
 from app.domains.baby.schemas import (
     DEFAULT_SOURCE_TITLE,
+    CollectionData,
     DomainModel,
     ImportCreate,
     RecordCreate,
@@ -202,6 +203,8 @@ class CaptureRequest(DomainModel):
     occurred_at: AwareDatetime
     url: str | None = Field(default=None, max_length=2000)
     text: str | None = Field(default=None, max_length=100000)
+    # The category she picked in the share sheet. Filing is best effort: the original is saved either way.
+    collection_id: UUID | None = None
 
     @model_validator(mode="after")
     def original(self):
@@ -225,6 +228,33 @@ class CaptureRequest(DomainModel):
                 mode="json"
             ),
         )
+
+
+async def file_capture(db, access, source, collection_id):
+    """Add a new capture's original to one of her categories in its own space. False when it can't be."""
+    # The same reach as any write here, so a category another person holds, an older generation's, or one in another
+    # space is never found. Locked, because the app edits membership with a revision check that this must bump.
+    query = select(BabyRecord).where(
+        BabyRecord.id == collection_id, access.condition(BabyRecord),
+        BabyRecord.kind == "collection", BabyRecord.deleted_at.is_(None),
+    )
+    if access.enabled:
+        query = query.where(BabyRecord.space_id == source.space_id)
+    collection = await db.scalar(query.with_for_update().execution_options(populate_existing=True))
+    if collection is None:
+        return False
+    try:
+        members = CollectionData.model_validate(collection.data).record_ids
+    except ValidationError:
+        return False
+    if source.id in members:
+        return True
+    if len(members) >= 500:
+        return False
+    collection.data = {**collection.data, "record_ids": [*collection.data.get("record_ids", []), str(source.id)]}
+    collection.revision, collection.updated_at = collection.revision + 1, now()
+    await touch(collection, access.target)
+    return True
 
 
 async def admit_capture(db, capture, member, access=None):
@@ -346,6 +376,9 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
     immutable = body.model_dump(mode="json")
     if not body.automatic_epoch:
         immutable.pop("automatic_epoch", None)
+    # Older apps never send a category, so their replays keep the same fingerprint.
+    if body.collection_id is None:
+        immutable.pop("collection_id", None)
     fingerprint = digest(immutable)
     capture = await db.get(BabyShareCapture, body.capture_id)
     replayed = capture is not None
@@ -383,6 +416,9 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
                 )
             db.add(source)
             await touch(source, access.target)
+        request = {"automatic_epoch": body.automatic_epoch}
+        if body.collection_id is not None and await file_capture(db, access, source, body.collection_id):
+            request["collection_id"] = str(body.collection_id)
         capture = BabyShareCapture(
             id=body.capture_id,
             app_user_id=credential.app_user_id,
@@ -390,7 +426,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
             generation=credential.generation,
             record_id=body.capture_id,
             creation_hash=fingerprint,
-            request={"automatic_epoch": body.automatic_epoch},
+            request=request,
             created_at=now(),
             status="deferred"
             if member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
@@ -414,6 +450,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
         else capture.status,
         "import_id": str(job.id) if job else None,
         "replayed": replayed,
+        "collection_id": capture.request.get("collection_id"),
     }
     if access.enabled:
         result["space_id"] = str(capture.space_id)
