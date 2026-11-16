@@ -1,3 +1,4 @@
+import type { BenchmarkGroup, ResultsPage } from "./results-history";
 import type { DayProposal } from "@/components/adjust-training";
 import type { ScheduleOnceCommand } from "./schedule-once";
 import { streamCoachRequest } from "./coach-stream";
@@ -1121,6 +1122,24 @@ export function createWorkoutsApi(
     },
     async session(id: string) {
       return sessionRecord((await request<SessionEnvelope>(`/sessions/${encodeURIComponent(id)}`)).data);
+    },
+    /** Scores by part (W3): one workout's, one benchmark's, or all, newest first. */
+    async results(filter: { workout_id?: string; benchmark_key?: string; limit?: number } = {}) {
+      const query = new URLSearchParams(Object.entries({ limit: 50, ...filter }).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)]));
+      return (await request<ResultsPage>(`/results?${query}`)).data;
+    },
+    async benchmarks() {
+      return (await request<BenchmarkGroup[]>("/benchmarks")).data;
+    },
+    async heartRateSummaries() {
+      return (await request<{ available: boolean; enabled: boolean }>("/health-summary-consent")).data;
+    },
+    async setHeartRateSummaries(enabled: boolean) {
+      return (await request<{ available: boolean; enabled: boolean }>("/health-summary-consent", "PUT", { enabled }, { generation: currentGeneration() })).data;
+    },
+    /** Turns storage off and deletes every saved heart-rate summary, including corrections. */
+    async deleteHeartRateSummaries() {
+      return (await request<{ enabled: false; deleted_sessions: number }>("/health-summary-consent", "DELETE", undefined, { generation: currentGeneration() })).data;
     },
     async saveSession(body: SessionRequest, generation: number) {
       return sessionRecord((await request<SessionEnvelope>("/sessions", "POST", body, { generation })).data);

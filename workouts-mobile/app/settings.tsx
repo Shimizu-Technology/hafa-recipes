@@ -110,6 +110,7 @@ export default function Settings() {
       <SectionHeader title="Connections" />
       <ListGroup>
         <ListRow title="Health connections" icon="heart-outline" onPress={() => router.push("/connections")} />
+        <ListRow title="Heart-rate summaries" icon="pulse-outline" detail="Off unless you turn it on" onPress={() => router.push("/heart-rate-summaries")} />
         <ListRow title="AI preferences" icon="sparkles-outline" onPress={() => router.push("/ai-preferences")} />
         <ListRow title="Håfa apps" icon="apps-outline" detail="Recipes, Workouts, and Baby, one account" onPress={() => router.push("/hafa-apps")} />
       </ListGroup>
