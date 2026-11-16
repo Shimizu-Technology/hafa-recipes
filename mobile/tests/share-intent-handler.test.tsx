@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
   alert: vi.fn(), replace: vi.fn(), reset: vi.fn(), add: vi.fn(), ack: vi.fn(), metadata: vi.fn(),
-  scopeOwner: vi.fn(), getShareIntent: vi.fn(), signedIn: true,
+  cleanup: vi.fn(async () => undefined), discard: vi.fn(), scopeOwner: vi.fn(), getShareIntent: vi.fn(), signedIn: true,
   payload: { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl', _hafa: {} as Record<string, unknown> },
   action: { kind: 'url', url: 'https://example.com/recipe' } as Record<string, unknown>,
   hasIntent: true,
@@ -18,9 +18,10 @@ vi.mock('expo-share-intent', () => ({
   ShareIntentModule: { getShareIntent: mocks.getShareIntent },
   useShareIntentContext: () => ({ hasShareIntent: mocks.hasIntent, shareIntent: mocks.payload, resetShareIntent: mocks.reset }),
 }));
-vi.mock('@/modules/hafa-share-bridge/src', () => ({ getCurrentCaptureMetadata: mocks.metadata, acknowledgeCapture: mocks.ack }));
+vi.mock('@/modules/hafa-share-bridge/src', () => ({ getCurrentCaptureMetadata: mocks.metadata, acknowledgeCapture: mocks.ack, discardCapture: mocks.discard }));
 vi.mock('@/lib/shareCapture', () => ({ resolveShareIntent: () => mocks.action }));
-vi.mock('@/lib/importInbox', () => ({ importInbox: { add: mocks.add }, getShareScopeOwner: mocks.scopeOwner }));
+vi.mock('@/lib/importInbox', () => ({ importInbox: { add: mocks.add, cleanupAttachments: mocks.cleanup,
+  protectedAttachmentPaths: async () => ['file:///group/existing-inbox.jpg'] }, getShareScopeOwner: mocks.scopeOwner }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => queryClient }));
 const queryClient = { invalidateQueries: vi.fn() };
 vi.mock('@/hooks/useRecipes', () => ({ extractionJobKeys: { all: ['jobs'] }, useCurrentUserIdentity: () => ({ data: { id: 'durable-owner' } }) }));
@@ -36,7 +37,7 @@ beforeEach(() => {
   mocks.payload = { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a' } };
   mocks.action = { kind: 'url', url: 'https://example.com/recipe' };
   mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a' }));
-  mocks.scopeOwner.mockResolvedValue('durable-owner'); mocks.add.mockResolvedValue(undefined); mocks.ack.mockResolvedValue(true);
+  mocks.scopeOwner.mockResolvedValue('durable-owner'); mocks.add.mockResolvedValue(undefined); mocks.ack.mockResolvedValue(true); mocks.discard.mockResolvedValue(true);
 });
 afterEach(async () => { if (renderer) await act(async () => renderer.unmount()); vi.useRealTimers(); });
 describe('durable share intake', () => {
@@ -111,7 +112,7 @@ describe('durable share intake', () => {
   it('rejects unsupported A by its exact identity and drains supported B', async () => {
     mocks.action = { kind: 'unsupported', message: 'Share JPEG, PNG, GIF, or WebP recipe images.' };
     await render();
-    expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
+    expect(mocks.discard).toHaveBeenCalledExactlyOnceWith('key-a', ['file:///group/existing-inbox.jpg']);
     expect(mocks.add).not.toHaveBeenCalled();
     expect(mocks.replace).not.toHaveBeenCalled();
     expect(mocks.reset).toHaveBeenCalledExactlyOnceWith(false);
@@ -119,7 +120,7 @@ describe('durable share intake', () => {
     // A duplicate foreground snapshot must not reject or consume B again.
     mocks.payload = { ...mocks.payload, _hafa: { ...mocks.payload._hafa } };
     await act(async () => renderer.update(<Harness />));
-    expect(mocks.ack).toHaveBeenCalledOnce();
+    expect(mocks.discard).toHaveBeenCalledOnce();
     mocks.getShareIntent.mockImplementationOnce(async () => {
       mocks.payload = { webUrl: 'https://example.com/b', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' } };
       mocks.action = { kind: 'url', url: 'https://example.com/b' };
@@ -127,11 +128,13 @@ describe('durable share intake', () => {
     });
     await act(async () => { vi.runOnlyPendingTimers(); });
     expect(mocks.add).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'capture-b', capture: { kind: 'url', url: 'https://example.com/b' } }));
-    expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-b']);
+    expect(mocks.discard.mock.calls.map(([key]) => key)).toEqual(['key-a']);
+    expect(mocks.discard).toHaveBeenCalledWith('key-a', ['file:///group/existing-inbox.jpg']);
+    expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-b']);
   });
   it('preserves unsupported A after acknowledgment failure and retries the same key safely', async () => {
     mocks.action = { kind: 'unsupported', message: 'Share supported recipe images.' };
-    mocks.ack.mockResolvedValueOnce(false);
+    mocks.discard.mockResolvedValueOnce(false);
     await render();
     expect(mocks.reset).not.toHaveBeenCalled();
     expect(mocks.add).not.toHaveBeenCalled();
@@ -141,7 +144,7 @@ describe('durable share intake', () => {
     // A native refresh emits a fresh object with the original atomic identity.
     mocks.payload = { ...mocks.payload, _hafa: { ...mocks.payload._hafa } };
     await act(async () => renderer.update(<Harness />));
-    expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-a']);
+    expect(mocks.discard.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-a']);
     expect(mocks.reset).toHaveBeenCalledExactlyOnceWith(false);
     await act(async () => { vi.runOnlyPendingTimers(); });
     expect(mocks.getShareIntent).toHaveBeenCalledOnce();
@@ -202,8 +205,28 @@ describe('durable share intake', () => {
   });
 });
 
-it.each([false, true])('keeps an unconfirmed share waiting and permits an explicitly saved share (%s)', async (confirmed) => {
-  mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a', requestedIsPublic: false, confirmed };
+it('ignores explicitly unconfirmed captures before intake or acknowledgment', async () => {
+  mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', confirmed: false };
   await render();
-  expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ state: confirmed ? 'ready' : 'waiting', preferences: expect.objectContaining({ isPublic: false }) }));
+  expect(mocks.add).not.toHaveBeenCalled();
+  expect(mocks.ack).not.toHaveBeenCalled();
+  expect(mocks.discard).not.toHaveBeenCalled();
+  expect(mocks.reset).not.toHaveBeenCalled();
+  expect(mocks.replace).not.toHaveBeenCalled();
+  mocks.payload = { ...mocks.payload, _hafa: { ...mocks.payload._hafa, confirmed: true } };
+  await act(async () => renderer.update(<Harness />));
+  expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ id: 'capture-a', state: 'waiting' }));
+  expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
+});
+
+it('keeps a recovered unassigned Save claim-required after sign-in', async () => {
+  mocks.signedIn = true;
+  mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', confirmed: true, requestedIsPublic: false };
+  await render();
+  expect(mocks.scopeOwner).not.toHaveBeenCalled();
+  expect(mocks.add).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    id: 'capture-a', ownerId: null, accountScopeId: undefined, state: 'waiting',
+    preferences: { isPublic: false, location: 'Guam' },
+  }));
+  expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
 });

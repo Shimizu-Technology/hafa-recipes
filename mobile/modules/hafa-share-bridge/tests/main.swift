@@ -28,7 +28,9 @@ let signedOut = HafaShareStore.capturePreferences(session: nil, preferences: pub
 assert(signedOut["requestedIsPublic"] as? Bool == true)
 assert(signedOut["accountScopeId"] == nil)
 let fresh = HafaShareStore.capturePreferences(session: nil, preferences: nil)
-assert(fresh["requestedIsPublic"] as? Bool == true && fresh["accountScopeId"] == nil)
+assert(fresh["requestedIsPublic"] as? Bool == false && fresh["accountScopeId"] == nil)
+let sessionWithoutChoice = HafaShareStore.capturePreferences(session: ["accountScopeId": "owner-a"], preferences: nil)
+assert(sessionWithoutChoice["requestedIsPublic"] as? Bool == false)
 let notYetProvisioned = HafaShareStore.capturePreferences(session: nil, preferences: privateSession)
 assert(notYetProvisioned["requestedIsPublic"] as? Bool == false)
 assert(notYetProvisioned["accountScopeId"] == nil)
@@ -111,3 +113,139 @@ assert(HafaShareStore.canSubmitInBackground(["requestedIsPublic": false]))
 assert(!HafaShareStore.canSubmitInBackground(["requestedIsPublic": true]))
 assert(!HafaShareStore.canSubmitInBackground([:]))
 print("Public and legacy-unknown captures stay local for foreground confirmation")
+
+let capabilityOnly = HafaShareStore.capturePreferences(session: ["accountScopeId": "owner-a", "isPublic": true], preferences: nil)
+assert(capabilityOnly["requestedIsPublic"] as? Bool == false)
+let wrongAccountChoice = HafaShareStore.capturePreferences(session: ["accountScopeId": "owner-a", "isPublic": true], preferences: publicPreference.merging(["accountScopeId": "other"]) { _, new in new })
+assert(wrongAccountChoice["requestedIsPublic"] as? Bool == false)
+print("Unset and cross-account choices cannot inherit a public capability")
+
+// Cancel waits for an in-flight attachment write, deletes only that capture,
+// and prevents callbacks that arrive after cancellation from recreating files.
+let attachmentRoot = directory.appendingPathComponent("attachments")
+try FileManager.default.createDirectory(at: attachmentRoot, withIntermediateDirectories: true)
+let neighbour = attachmentRoot.appendingPathComponent("another-capture.jpg")
+try Data("keep".utf8).write(to: neighbour)
+let files = HafaShareAttachmentFiles(container: attachmentRoot)
+let entered = DispatchSemaphore(value: 0), finishWrite = DispatchSemaphore(value: 0), removed = DispatchSemaphore(value: 0)
+DispatchQueue.global().async {
+  try! files.withWrite { folder in
+    entered.signal()
+    finishWrite.wait()
+    try Data("photo".utf8).write(to: folder.appendingPathComponent("photo.jpg"))
+  }
+}
+assert(entered.wait(timeout: .now() + 2) == .success)
+DispatchQueue.global().async { assert(files.cancelAndRemove()); removed.signal() }
+finishWrite.signal()
+assert(removed.wait(timeout: .now() + 2) == .success)
+assert(files.copy(neighbour) == nil)
+assert(try! FileManager.default.contentsOfDirectory(atPath: attachmentRoot.path) == ["another-capture.jpg"])
+assert(try! Data(contentsOf: neighbour) == Data("keep".utf8))
+assert(files.cancelAndRemove())
+let cancelledEarly = HafaShareAttachmentFiles(container: attachmentRoot)
+assert(cancelledEarly.cancelAndRemove() && cancelledEarly.copy(neighbour) == nil)
+let kept = HafaShareAttachmentFiles(container: attachmentRoot)
+let keptURL = kept.copy(neighbour)!
+assert(FileManager.default.fileExists(atPath: keptURL.path))
+assert(kept.cancelAndRemove())
+print("Attachment cancellation: in-flight/late writes, exact ownership, idempotency and retained files passed")
+
+let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF1sAAAAASUVORK5CYII=")!
+for mode in ["file", "data", "object", "cancelled"] {
+  let destination = HafaShareAttachmentFiles(container: attachmentRoot)
+  let input = directory.appendingPathComponent("source.png")
+  try png.write(to: input)
+  if mode == "cancelled" { assert(destination.cancelAndRemove()) }
+  var order: [String] = [], result: URL?, complete = false
+  HafaShareImageTransfer.load(files: destination, file: { done in
+    order.append("file"); done(mode == "file" ? input : nil)
+  }, data: { done in
+    order.append("data"); done(mode == "data" ? png : nil)
+  }, object: { done in
+    order.append("object"); done { assert(!Thread.isMainThread); return png }
+  }, completion: { url in DispatchQueue.main.async { result = url; complete = true } })
+  let deadline = Date(timeIntervalSinceNow: 2)
+  while !complete && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01)) }
+  assert(complete)
+  if mode == "cancelled" { assert(result == nil && order == ["file"]) }
+  else {
+    assert(result != nil && (try! Data(contentsOf: result!)) == png)
+    assert(order == (mode == "file" ? ["file"] : mode == "data" ? ["file", "data"] : ["file", "data", "object"]))
+  }
+  assert(destination.cancelAndRemove())
+}
+print("Image provider file/data/object fallback and off-main object encoding passed")
+
+let cleanupRoot = directory.appendingPathComponent("cleanup", isDirectory: true)
+try FileManager.default.createDirectory(at: cleanupRoot, withIntermediateDirectories: true)
+func captureFile(_ filename: String = "photo.jpg") throws -> URL {
+  let folder = cleanupRoot.appendingPathComponent("hafa-share-\(UUID().uuidString)", isDirectory: true)
+  try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+  let photo = folder.appendingPathComponent(filename)
+  try png.write(to: photo)
+  return photo
+}
+let releasedFile = try captureFile()
+let waitingFile = try captureFile()
+let foreignAccountFile = try captureFile()
+let orphan = try captureFile()
+let recent = try captureFile()
+let legacyPhoto = cleanupRoot.appendingPathComponent("\(UUID().uuidString).png")
+try png.write(to: legacyPhoto)
+let unrelated = cleanupRoot.appendingPathComponent("grocery-widget-state-v1.json")
+try Data("keep".utf8).write(to: unrelated)
+let now = Date(timeIntervalSinceNow: 8 * 86400)
+try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: recent.deletingLastPathComponent().path)
+let livePaths = [waitingFile.absoluteString, foreignAccountFile.absoluteString]
+let remaining = HafaShareStore.reapAttachments(in: cleanupRoot,
+  released: [releasedFile.absoluteString, waitingFile.absoluteString, legacyPhoto.absoluteString, unrelated.absoluteString, neighbour.absoluteString],
+  protected: livePaths, now: now)
+assert(remaining == [waitingFile.absoluteString])
+assert(HafaShareStore.reapAttachments(in: cleanupRoot, released: [waitingFile.absoluteString], protected: livePaths,
+  sweepOrphans: false, retryProtected: false).isEmpty)
+assert(FileManager.default.fileExists(atPath: waitingFile.path))
+assert(!FileManager.default.fileExists(atPath: releasedFile.path))
+assert(!FileManager.default.fileExists(atPath: releasedFile.deletingLastPathComponent().path))
+assert(!FileManager.default.fileExists(atPath: orphan.path))
+assert(!FileManager.default.fileExists(atPath: legacyPhoto.path))
+for (name, value) in [("waiting", waitingFile), ("foreign", foreignAccountFile), ("recent", recent), ("unrelated", unrelated), ("outside", neighbour)] { assert(FileManager.default.fileExists(atPath: value.path), "must retain \(name): \(value.path)") }
+let linkFolder = cleanupRoot.appendingPathComponent("hafa-share-\(UUID().uuidString)")
+try FileManager.default.createSymbolicLink(at: linkFolder, withDestinationURL: neighbour.deletingLastPathComponent())
+assert(HafaShareStore.reapAttachments(in: cleanupRoot, released: [linkFolder.appendingPathComponent(neighbour.lastPathComponent).absoluteString], protected: [], sweepOrphans: false).isEmpty)
+assert(FileManager.default.fileExists(atPath: neighbour.path))
+assert(HafaShareStore.reapAttachments(in: cleanupRoot, released: [waitingFile.absoluteString], protected: [], sweepOrphans: false).isEmpty)
+assert(!FileManager.default.fileExists(atPath: waitingFile.path))
+let fixtureSuite = "hafa-cleanup-tests.\(UUID().uuidString)"
+let fixtureDefaults = UserDefaults(suiteName: fixtureSuite)!
+defer { fixtureDefaults.removePersistentDomain(forName: fixtureSuite) }
+fixtureDefaults.set(["hafarecipes://dataUrl=queued#media"], forKey: HafaShareStore.pendingKey)
+fixtureDefaults.set(try JSONSerialization.data(withJSONObject: [["path": foreignAccountFile.absoluteString, "thumbnail": recent.absoluteString]]), forKey: "queued")
+assert(HafaShareStore.queuedAttachmentPaths(defaults: fixtureDefaults) == [foreignAccountFile.absoluteString, recent.absoluteString])
+assert(HafaShareStore.queuedAttachmentPaths(defaults: fixtureDefaults, excluding: "queued") == [])
+fixtureDefaults.set(Data("bad".utf8), forKey: "queued")
+assert(HafaShareStore.queuedAttachmentPaths(defaults: fixtureDefaults) == nil)
+fixtureDefaults.set(["hafarecipes://dataUrl=queued#unknown"], forKey: HafaShareStore.pendingKey)
+assert(HafaShareStore.queuedAttachmentPaths(defaults: fixtureDefaults) == nil)
+print("Attachment retirement: accepted/discarded, legacy photos, exact ownership, queue/inbox protection, age threshold and symlink safety passed")
+
+// An unseen Save must survive orphan sweeps even without a queue payload or
+// manifest, and regardless of whether its original account is active now.
+let journalPhoto = try captureFile()
+let journalID = UUID().uuidString.lowercased()
+let journalKey = "hafarecipesShareKey.\(UUID().uuidString)"
+let journal = HafaShareSaveIntent.Intent(captureKey: journalKey, captureId: journalID,
+  accountScopeId: "old-owner-scope", isPublic: false, attachmentDirectory: journalPhoto.deletingLastPathComponent().path)
+try HafaShareSaveIntent.write(journal, in: cleanupRoot)
+let journalPath = HafaShareSaveIntent.path(journalID, in: cleanupRoot)!
+let retained = HafaShareStore.reapAttachments(in: cleanupRoot, released: [journalPhoto.path], protected: [], now: now)
+assert(retained == [journalPhoto.path] && FileManager.default.fileExists(atPath: journalPhoto.path))
+let decodedJournal = try JSONDecoder().decode(HafaShareSaveIntent.Intent.self, from: Data(contentsOf: journalPath))
+assert(decodedJournal.accountScopeId == "old-owner-scope")
+// An explicit discard can release only its exact marker, not another owner's.
+assert(HafaShareStore.reapAttachments(in: cleanupRoot, released: [journalPhoto.path], protected: [], now: now,
+  sweepOrphans: false, excludingSaveIntent: "different-key") == [journalPhoto.path])
+assert(HafaShareStore.reapAttachments(in: cleanupRoot, released: [journalPhoto.path], protected: [], now: now,
+  sweepOrphans: false, excludingSaveIntent: journalKey).isEmpty)
+assert(!FileManager.default.fileExists(atPath: journalPhoto.path))
+print("Durable Save journals protect orphaned files and owner tags indefinitely; only exact explicit discard bypasses protection")
