@@ -21,6 +21,18 @@ export function redactBreadcrumb<T extends { message?: string; data?: Record<str
 }
 
 /**
+ * beforeBreadcrumb never sees breadcrumbs the native SDK records (its network layer, for one); they are
+ * merged into the event. Redact every breadcrumb and the request URL on the way out.
+ */
+export function redactEvent<T extends { breadcrumbs?: { message?: string; data?: Record<string, unknown> }[]; request?: { url?: string } }>(event: T): T {
+  return {
+    ...event,
+    ...(event.breadcrumbs ? { breadcrumbs: event.breadcrumbs.map(redactBreadcrumb) } : {}),
+    ...(event.request?.url ? { request: { ...event.request, url: redactRecipeLinks(event.request.url) } } : {}),
+  };
+}
+
+/**
  * Initialize Sentry SDK.
  * Call this once at app startup, before any other code runs.
  */
@@ -81,7 +93,7 @@ export function initSentry() {
           return null;
         }
       }
-      return event;
+      return redactEvent(event);
     },
   });
 
