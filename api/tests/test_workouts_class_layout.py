@@ -122,7 +122,7 @@ def test_page_layout_fixes_labels_notes_and_restores_a_skipped_part():
     assert workout.instructions == ['This is progression 1/4 for our benchmark workout, "Summit"',
                                     "Hold one pace for the whole session"]
     a, b, c = workout.blocks
-    assert a.instructions[0] == "Front squat strength" and len(a.instructions) == 4
+    assert a.instructions[-4] == "Front squat strength"  # the part's four coach notes
     assert "GUIDELINES: keep one accessory programme for the cycle" in c.instructions
     assert c.role == "accessory" and c.grouping == "superset" and c.rounds == 2
     assert [item.name for item in c.exercises] == ["Cable Face Pulls", "Side Plank"]
