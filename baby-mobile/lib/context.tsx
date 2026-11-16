@@ -38,6 +38,7 @@ import {
   localFileUris,
   retiredSpaces,
   rejoined,
+  promotedInFamily,
   retargeted,
   retryUnavailable,
   upgradedState,
@@ -265,7 +266,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
         grew = familySpaces(bootstrap).some((space) => !familySpaces(s.bootstrap).some((known) => known.id === space.id)),
         // With no spaces listed the API has stopped saying, which isn't the same as this account being out of one.
         left = retiredSpaces(fenced, bootstrap).reduce((rows, space) => withoutFamily(rows, space, Crypto.randomUUID), fenced),
-        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap),
+        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap)
+          : promotedInFamily(s.bootstrap, bootstrap) ? rejoined(left, bootstrap, false) : left, bootstrap),
         familyBaby = bootstrap.children.find((child) => familySpaces(bootstrap).some((space) => space.id === child.space_id));
       return upgradedState({
         ...next,

@@ -71,6 +71,8 @@ private final class GeneratedController: TestViewController {
   func runAll() { while !held.isEmpty { held.removeFirst()() } }
   var alreadySaved = 0
   func babyAlreadySaved() { alreadySaved += 1 }
+  var discardFailed = 0
+  func babyDiscardFailed() { discardFailed += 1 }
   func handleViewLoad() {
     guard prepareBabyShare() else { return }
     providerStarts += 1
@@ -252,6 +254,13 @@ private struct BabyShareLifecycleTests {
         try check(failed == .notKept, "a mark that can't be written is reported as not kept")
         try check(FileManager.default.fileExists(atPath: photo.path), "and the staged photo is still there")
         if discards {
+          // A marked Save whose mark can't be removed: the card stays open and says so, and nothing is closed or deleted.
+          try Data("{}".utf8).write(to: failingCapture.directory.appendingPathComponent("save-intent.json"))
+          try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: failingCapture.directory.path)
+          failing.discardBabyShare()
+          try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: failingCapture.directory.path)
+          try check(failing.discardFailed == 1 && failing.extensionContext!.completed == 0, "a Discard that can't remove it keeps the card open")
+          try check(FileManager.default.fileExists(atPath: photo.path), "and the staged photo is still there")
           failing.discardBabyShare()
           try check(failing.alreadySaved == 0, "nothing was saved, so Discard really discards")
           try check(!FileManager.default.fileExists(atPath: failingCapture.directory.path), "Discard is the one choice that deletes it")

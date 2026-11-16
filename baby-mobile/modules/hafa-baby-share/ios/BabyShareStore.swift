@@ -279,7 +279,11 @@ final class BabyShareStore {
       guard let value = try? manifest(capture.id) else { return cleared ? .gone : .alreadySaved }
       if value.payload != nil { return .alreadySaved }
       guard !cleared, capture.lease != nil else { return .gone }
-      try FileManager.default.removeItem(at: capture.directory)
+      // Unmark first. Once the Save intent is gone nothing can recover it, so a removal that fails part way can't leave a
+      // half-deleted share for the app to finish. Anything left unmarked is swept like an abandoned capture.
+      let marker = capture.directory.appendingPathComponent(Self.intentFile)
+      if FileManager.default.fileExists(atPath: marker.path) { try FileManager.default.removeItem(at: marker) }
+      try? FileManager.default.removeItem(at: capture.directory)
       capture.lease = nil
       return .discarded
     }

@@ -69,6 +69,10 @@
     captureConfirmationFinished = true
     babyCard().finish(BabyShareSheetState.alreadySaved)
   }
+  // Discard couldn't remove it. The card stays on Couldn't save, as in Recipes, so she can try again or close and keep it.
+  private func babyDiscardFailed() {
+    babyCard().note = "Couldn’t discard that. Tap Discard share to try again. Close keeps your copy."
+  }
   // The same rule as Recipes: no way out of the card, and no swiping the sheet away, only while a save is under way.
   private func setBabySaveState(_ state: HafaShareSaveState) {
     babyCard().saveState = state

@@ -341,13 +341,17 @@ export function withoutFamily(state: DeviceState, space: string, uuid: () => str
   }, leftFamilyNotice);
 }
 /** Back in a family this phone had stopped writing to: what was waiting for it goes again, if she can write it there now. */
-export function rejoined(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces">): DeviceState {
+export function rejoined(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces">, returned = true): DeviceState {
   const back = (m: Mutation) => !!m.left_space && bootstrap.spaces?.some((space) => space.id === m.left_space &&
     (space.role === "parent" || m.type === "save" && caregiverCanWrite(m.record.kind))),
-    // "You're no longer in this family" isn't true any more, in this family or a new one.
-    notices = state.feedNotices?.filter((notice) => notice !== leftFamilyNotice);
+    // "You're no longer in this family" isn't true any more, in this family or a new one. A new role in a family she never left says nothing about that.
+    notices = returned ? state.feedNotices?.filter((notice) => notice !== leftFamilyNotice) : undefined;
   return { ...state, ...(notices ? { feedNotices: notices } : {}), outbox: state.outbox.map((m) => (back(m) ? m.localOnly ? { ...m, left_space: undefined, error: undefined } : retryMutation(m) : m)) };
 }
+/** A family she was already in where she's now a parent: what was held for want of access can go. */
+export const promotedInFamily = (before: Pick<Bootstrap, "spaces"> | undefined, after: Pick<Bootstrap, "spaces">) =>
+  !!after.spaces?.some((space) => space.kind === "family" && space.role === "parent" &&
+    before?.spaces?.some((known) => known.id === space.id && known.role !== "parent"));
 /**
  * Copies what a former family's queue held into the personal space, under a new id, and takes its chain out. The last
  * edit is the one she meant. Links into the family go, and so do uploads there: those were retired, and using one again

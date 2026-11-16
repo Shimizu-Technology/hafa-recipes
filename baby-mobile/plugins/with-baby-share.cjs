@@ -94,8 +94,12 @@ const presentedLifecycle = `${lifecycleStart}
   // store lock, so if the app finished it first she's told so instead of the card closing as if it had gone.
   private func discardBabyShare() {
     guard !babySheetClosed, !babyPublishing, !babyPublishInFlight, let producer = babyProducer else { return }
-    if (try? producer.storage.discard(producer.capture)) == .alreadySaved { return babyAlreadySaved() }
-    finishConfirmation()
+    // A removal that fails keeps the card open: closing now would leave the marked Save for the app to finish.
+    switch try? producer.storage.discard(producer.capture) {
+    case .alreadySaved?: babyAlreadySaved()
+    case .discarded?, .gone?: finishConfirmation()
+    case nil: babyDiscardFailed()
+    }
   }
   // Closing waits while true. False again at the write's first answer, or once it's been slow for too long.
   private var babyPublishing = false
