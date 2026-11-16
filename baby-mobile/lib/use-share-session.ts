@@ -76,13 +76,13 @@ export function useShareSession() {
           // same-account captures. Account cleanup is serialized separately.
           if (!current() && (isShareSessionSuspended() || !b.current())) await Share.suspendSession();
         });
+        // Connected, so whatever's waiting can be offered to this account now.
+        if (current()) sharesChanged();
         // Native refuses a list for any credential but the one that's there now.
         const page = await categories;
         if (page && current()) await serializeShareSession(() => Share.publishCategories(
           shareCategories(page.items, spacesLive(bootstrap) ? session.space_id : undefined),
           b.owner, session.generation, sessionScope(bootstrap, session))).catch(() => undefined);
-        // Connected, so whatever's waiting can be offered to this account now.
-        if (current()) sharesChanged();
       } catch {
         // Keep an existing same-account capability when offline. Expired tokens
         // only produce the truthful local-save confirmation in the extension.

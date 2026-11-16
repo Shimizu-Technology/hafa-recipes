@@ -247,7 +247,8 @@ describe("from the review of #543: when the queue meets a failure", () => {
     mock.saved = { ...emptyState(), bootstrap, records: [], outbox: [write("a", "sleep"), write("b", "gone"), write("c")] } as unknown as DeviceState;
     await mount(); await flush();
     expect(baby.state.outbox).toEqual([]);
-    expect(baby.state.records.map((row) => row.id).sort()).toEqual(["a", "b", "c"]);
+    expect(baby.state.records.map((row) => row.id).sort()).toEqual(["a", "b", "c", "sleep"]);
+    expect(baby.state.records.find((row) => row.id === "sleep")).toMatchObject({ revision: 5, data: { record_ids: ["old", "a"] } });
     expect(mock.api.save).toHaveBeenCalledWith(expect.objectContaining({ id: "sleep", data: { record_ids: ["old", "a"] } }), 1);
     expect(mock.api.record.mock.calls.map((call: unknown[]) => call[0])).toEqual(["sleep", "gone"]);
   });

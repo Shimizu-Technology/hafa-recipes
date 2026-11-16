@@ -601,7 +601,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
               };
               result = await api.save(feedEdit(value), fenceOf(next));
               // Chosen on the share sheet. A category that's gone, full or in another space leaves the post unfiled in Saved.
-              if (next.file_into) await changeCategory(api, next.file_into, [result.id], next.generation).catch(() => undefined);
+              if (next.file_into) {
+                const filed = await changeCategory(api, next.file_into, [result.id], next.generation).catch(() => undefined);
+                if (filed) await commit((s) => ({ ...s, records: replaceRecord(s.records, filed.record) }));
+              }
             } else {
               // Persist before the request: a lost admission response can replay
               // an already-completed job after a relaunch.

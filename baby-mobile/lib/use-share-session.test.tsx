@@ -13,7 +13,7 @@ vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, 
   installationId: async () => "install", configureSession: mock.configureSession, noteSignedIn: mock.noteSignedIn, publishCategories: mock.publishCategories }));
 vi.mock("./share-session-state", async (original) => ({ ...(await original<object>()) }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearSession: mock.clearSession, suspendSession: mock.suspendSession }));
-import { askForShareSession } from "./share-session-state";
+import { askForShareSession, onSharesChanged } from "./share-session-state";
 import { ShareSessionGuard, useShareSession } from "./use-share-session";
 
 const personal = "22222222-2222-4222-8222-222222222222", family = "11111111-1111-4111-8111-111111111111";
@@ -55,6 +55,22 @@ describe("the share sheet's categories", () => {
     expect(baby.api.records).toHaveBeenCalledWith({ kind: "collection", limit: 100 });
     expect(mock.publishCategories).toHaveBeenCalledWith([{ id: "ours", title: "ours" }], "owner", 1, family);
     expect(mock.configureSession.mock.invocationCallOrder[0]).toBeLessThan(mock.publishCategories.mock.invocationCallOrder[0]);
+  });
+  it("offers waiting shares while the optional categories request is still pending", async () => {
+    const baby: any = account({});
+    let answer!: (page: { items: unknown[] }) => void;
+    baby.api.records = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+    const changed = vi.fn();
+    const stop = onSharesChanged(changed);
+    try {
+      await mount(baby);
+      expect(mock.configureSession).toHaveBeenCalledOnce();
+      expect(changed).toHaveBeenCalledOnce();
+      expect(mock.publishCategories).not.toHaveBeenCalled();
+      await act(async () => { answer({ items: [] }); });
+      expect(mock.publishCategories).toHaveBeenCalledOnce();
+      expect(changed).toHaveBeenCalledOnce();
+    } finally { stop(); }
   });
   it("leave the last list alone when they can't be had, and never hold up the credential", async () => {
     const baby: any = account({});
