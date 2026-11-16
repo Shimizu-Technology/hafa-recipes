@@ -109,7 +109,7 @@ struct BabyShareSheetStateTests {
     let key = String(repeating: "a", count: 43)
     for link in ["https://www.instagram.com/reel/abc/?igsh=xyz", "https://www.tiktok.com/@a/video/1", "http://example.com/a?page=2",
       "https://8.8.8.8/a", "https://[2606:4700:4700::1111]/a", "https://example.com/a#comments", "https://example.com/a#step=2",
-      "https://dropbox.com/features", "https://drive.google.com/about", "https://notdropbox.com/s/public"] {
+      "https://dropbox.com/features", "https://drive.google.com/about", "https://notdropbox.com/s/public", "https://home.arpa.example.com/a", "https://myhome.arpa-news.com/a"] {
       try check(fetch(link), "\(link) may be asked")
     }
     for link in [
@@ -124,7 +124,7 @@ struct BabyShareSheetStateTests {
       "http://0x7f.1/", "http://127.1/a", "http://2130706433/a", "http://0x7f000001/a", "http://0177.0.0.1/a", "http://127.0.0.1/a",
       "http://10.0.0.1/a", "http://172.16.0.1/a", "http://192.168.1.4/", "http://169.254.169.254/a", "http://0.0.0.0/a",
       "http://[::1]/", "http://[fc00::1]/a", "http://[fe80::1]/a", "http://[::ffff:127.0.0.1]/a",
-      "http://nursery.home/", "http://printer.local/", "http://foo.local./a", "http://router.lan/", "http://wiki.internal/", "http://localhost/a",
+      "http://nursery.home/", "http://nursery.home.arpa/", "http://nursery.home.arpa./", "http://NURSERY.Home.Arpa/", "http://home.arpa/", "http://a.b.home.arpa/", "http://printer.local/", "http://foo.local./a", "http://router.lan/", "http://wiki.internal/", "http://localhost/a",
       "http://intranet/", "ftp://example.com/", "file:///tmp/a",
     ] {
       try check(!fetch(link), "\(link) is never asked")
