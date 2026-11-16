@@ -97,3 +97,18 @@ for value in ["https://www.instagram.com/reel/abc/?igsh=xyz", "https://www.tikto
   check(HafaSharePreviewPolicy.allows(URL(string: value)!), "public preview: \(value)")
 }
 print("Preview privacy: sensitive URLs, local hosts and public controls passed")
+
+for name in ["rlkey", "resourcekey", "sid", "sk", "otp", "Policy", "Signature", "Expires", "token", "access_token", "code"] {
+  for separator in ["?", "#"] {
+    check(!HafaSharePreviewPolicy.allows(URL(string: "https://example.com/recipe\(separator)\(name)=secret")!), "secret parameter in query/fragment: \(name)")
+  }
+}
+for link in ["https://example.com/#%74oken=secret", "https://example.com/#/auth?access_token=secret", "https://example.com/#route?code=secret",
+  "https://www.dropbox.com/s/private-key/recipe.jpg", "https://dropbox.com/scl/fi/private-key/recipe.jpg",
+  "https://drive.google.com/file/d/private-key/view", "https://docs.google.com/document/d/private-key/edit"] {
+  check(!HafaSharePreviewPolicy.allows(URL(string: link)!), "path/fragment credential: \(link)")
+}
+for link in ["https://example.com/recipe#comments", "https://example.com/recipe#recipe", "https://example.com/recipe#step=2", "https://example.com/recipe#token", "https://dropbox.com/features", "https://drive.google.com/about", "https://notdropbox.com/s/public"] {
+  check(HafaSharePreviewPolicy.allows(URL(string: link)!), "ordinary anchor/public page: \(link)")
+}
+print("Round 2 preview policy checks passed")

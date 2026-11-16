@@ -100,7 +100,7 @@ final class HafaShareModel: ObservableObject {
     guard HafaSharePreviewPolicy.allows(url) else { return }
     let generation = previewGeneration
     let provider = LPMetadataProvider()
-    provider.shouldFetchSubresources = false
+    provider.shouldFetchSubresources = true
     provider.timeout = 5
     linkProvider = provider
     let timeout = DispatchWorkItem { [weak self] in
@@ -116,8 +116,8 @@ final class HafaShareModel: ObservableObject {
           self.preview.title = described.title
           self.preview.subtitle = described.subtitle ?? self.preview.subtitle
         }
-        // Subresource fetching stays disabled. If LP already has an image, use
-        // its file representation rather than requesting a full decoded UIImage.
+        // Policy-approved pages can supply their preview image. Downsample
+        // its file representation instead of requesting a full decoded UIImage.
         guard let imageProvider = metadata.imageProvider ?? metadata.iconProvider,
           let type = imageProvider.registeredTypeIdentifiers.first else { return }
         self.previewImageProgress = imageProvider.loadFileRepresentation(forTypeIdentifier: type) { [weak self] url, _ in

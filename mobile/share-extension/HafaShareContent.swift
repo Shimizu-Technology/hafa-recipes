@@ -127,13 +127,19 @@ enum HafaSharePreviewPolicy {
       url.user == nil, url.password == nil,
       let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
       var host = components.host?.lowercased(), !host.isEmpty else { return false }
-    if !(url.fragment ?? "").isEmpty { return false }
-    let secrets: Set<String> = ["token", "key", "sig", "auth", "authorization", "accesstoken", "code", "apikey", "jwt", "password", "credential", "bearer", "session", "sessionid"]
-    for item in components.queryItems ?? [] {
-      let name = item.name.lowercased().filter { $0.isLetter || $0.isNumber }
-      if secrets.contains(name) || ["token", "signature", "secret", "credential"].contains(where: name.contains) { return false }
+    if containsSecrets(components.queryItems ?? []) { return false }
+    if let fragment = components.fragment {
+      // OAuth and signed share parameters sometimes live after #. Ordinary
+      // section anchors carry no credential and keep their network preview.
+      var parameters = URLComponents()
+      parameters.query = String(fragment.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).last ?? "")
+      if containsSecrets((parameters.queryItems ?? []).filter { $0.value != nil }) { return false }
     }
     let path = url.pathComponents
+    let domain = host.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    func belongsTo(_ base: String) -> Bool { domain == base || domain.hasSuffix("." + base) }
+    if belongsTo("docs.google.com") || belongsTo("drive.google.com") && url.path.hasPrefix("/file/d/") ||
+      belongsTo("dropbox.com") && (url.path.hasPrefix("/s/") || url.path.hasPrefix("/scl/")) { return false }
     for index in path.indices where path[index] == "r" && index + 1 < path.count {
       // Unlisted keys are bearer credentials, even on a custom Håfa domain.
       if path[index + 1].range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil { return false }
@@ -159,5 +165,14 @@ enum HafaSharePreviewPolicy {
     }
     // No single-label intranet hosts or invalid numeric address spellings.
     return host.contains(".") && host.last?.isNumber == false
+  }
+
+  private static func containsSecrets(_ items: [URLQueryItem]) -> Bool {
+    let secrets: Set<String> = ["token", "key", "sig", "auth", "authorization", "accesstoken", "code", "apikey", "jwt", "password", "credential", "bearer", "session", "sessionid", "rlkey", "resourcekey", "sid", "sk", "otp", "policy", "signature", "expires"]
+    return items.contains { item in
+      let name = item.name.removingPercentEncoding?.lowercased().filter { $0.isLetter || $0.isNumber }
+        ?? item.name.lowercased().filter { $0.isLetter || $0.isNumber }
+      return secrets.contains(name) || ["token", "signature", "secret", "credential"].contains(where: name.contains)
+    }
   }
 }

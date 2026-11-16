@@ -84,7 +84,8 @@ it('guards preview networking, bounds its lifetime, and keeps supplied Safari ti
   expect(controller).toContain('attributedTitle?.string');
   const kit = card('HafaShareKit.swift');
   expect(kit).toContain('guard HafaSharePreviewPolicy.allows(url) else { return }');
-  expect(kit).toContain('provider.shouldFetchSubresources = false');
+  expect(kit).toContain('provider.shouldFetchSubresources = true');
+  expect(kit.indexOf('guard HafaSharePreviewPolicy.allows(url)')).toBeLessThan(kit.indexOf('let provider = LPMetadataProvider()')); 
   expect(kit).toContain('provider.timeout = 5');
   expect(kit).toContain('deadline: .now() + 5');
   expect(kit).toContain('linkProvider?.cancel()');
