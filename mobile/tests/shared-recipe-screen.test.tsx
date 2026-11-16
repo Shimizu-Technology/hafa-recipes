@@ -121,7 +121,7 @@ describe('shared recipe view', () => {
   });
 
   it('explains an unavailable link', async () => {
-    m.query = { data: undefined, isLoading: false, error: { status: 404 }, refetch: vi.fn(), isFetching: false };
+    m.query = { data: { unavailable: true }, isLoading: false, error: null, refetch: vi.fn(), isFetching: false };
     const root = await render();
     expect(texts(root)).toContain('This recipe isn’t available');
     expect(button(root, 'Save to my library')).toBeUndefined();
@@ -141,7 +141,7 @@ describe('shared recipe view', () => {
   });
 
   it('shows the unavailable state when a refetch 404s, even with the earlier recipe still cached', async () => {
-    m.query = { data: shared, isLoading: false, error: { status: 404 }, refetch: vi.fn(), isFetching: false };
+    m.query = { data: { unavailable: true }, isLoading: false, error: null, refetch: vi.fn(), isFetching: false };
     const root = await render();
     expect(texts(root)).toContain('This recipe isn’t available');
     expect(texts(root)).not.toContain('Sunday Bread');

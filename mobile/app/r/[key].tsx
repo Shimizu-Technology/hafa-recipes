@@ -16,6 +16,7 @@ import { openRecipeSource } from '@/lib/openRecipeSource';
 import { classifyRecipeLinkKey } from '@/lib/recipeLinkRoute';
 import { formatShareIngredient, getSourceCredit } from '@/lib/recipeShare';
 import { getCookingNotes } from '@/lib/recipeTrust';
+import type { SharedRecipe } from '@/types/recipe';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { showToast } from '@/lib/toast';
 
@@ -30,6 +31,8 @@ export default function SharedRecipeScreen() {
   return <UnlistedRecipe linkKey={target?.kind === 'unlisted' ? target.key : null} />;
 }
 
+const UNAVAILABLE = { unavailable: true } as const;
+
 function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -38,12 +41,17 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   const { userId, sessionId } = useAuth();
   const save = useSaveSharedRecipe(linkKey);
   const [problem, setProblem] = useState<SharedSaveProblem | null>(null);
-  const { data: recipe, isLoading, error, refetch, isFetching } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['sharedRecipe', linkKey],
-    queryFn: ({ signal }) => api.getSharedRecipe(linkKey!, signal),
+    // A 404 (link turned off, recipe made private) resolves to a marker that replaces the cached recipe,
+    // so a later failed refetch (503, offline) can't bring the old recipe back; only a success does.
+    queryFn: ({ signal }) => api.getSharedRecipe(linkKey!, signal)
+      .catch((failure: { status?: number }) => { if (failure?.status === 404) return UNAVAILABLE; throw failure; }),
     enabled: !!linkKey,
-    retry: (count: number, failure: unknown) => count < 1 && ![404, 429].includes((failure as { status?: number })?.status ?? 0),
+    retry: (count: number, failure: unknown) => count < 1 && (failure as { status?: number })?.status !== 429,
   });
+  const unavailable = !!data && 'unavailable' in data;
+  const recipe = unavailable ? undefined : data as SharedRecipe | undefined;
   const runSave = async (guard?: () => void) => {
     setProblem(null);
     try {
@@ -78,9 +86,6 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   if (linkKey && isLoading) {
     return <RNView style={[styles.center, { backgroundColor: colors.background }]}>{header}<ActivityIndicator color={colors.actionText} /></RNView>;
   }
-  // TanStack keeps the last good recipe after a failed refetch; a 404 (link turned off, recipe made
-  // private) must win over that cached copy, including on a remount before the next fetch.
-  const unavailable = (error as { status?: number } | null)?.status === 404;
   if (!linkKey || !recipe || unavailable) {
     const missing = !linkKey || unavailable;
     // Rate limited: say so and when to retry, instead of blaming the connection.
