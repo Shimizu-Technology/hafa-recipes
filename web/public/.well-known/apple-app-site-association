@@ -1,0 +1,8 @@
+{
+  "applinks": {
+    "details": [{
+      "appIDs": ["4T358A5S74.com.shimizutechnology.recipeextractor"],
+      "components": [{"/": "/r/*"}]
+    }]
+  }
+}
