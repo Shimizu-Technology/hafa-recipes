@@ -355,3 +355,30 @@ async def test_saved_copies_can_never_be_published(fixture):
     assert copy.is_public is False
     # Keeping it private still works.
     assert (await toggle_recipe_sharing(UUID(copy_id), RecipeSharingUpdate(is_public=False), db, user('other')))['is_public'] is False
+
+
+@pytest.mark.asyncio
+async def test_create_response_keeps_its_own_date_when_another_device_rotates_right_after(fixture):
+    db, recipe = fixture
+    other_phone = async_sessionmaker(db.bind, expire_on_commit=False)
+    rotated = {}
+    commit = db.commit
+
+    async def commit_then_rotate_elsewhere():
+        # Phone B rotates the link in the window after A commits (lock released) and before A responds.
+        await commit()
+        if not rotated:
+            async with other_phone() as db_b:
+                rotated.update(await create_link(recipe.id, Response(), user(), db_b))
+
+    db.commit = commit_then_rotate_elsewhere
+    try:
+        created = await create_link(recipe.id, Response(), user(), db)
+    finally:
+        db.commit = commit
+    status = await link_status(recipe.id, Response(), user(), db)
+    assert rotated and status['created_at'] == rotated['created_at']
+    # A's response describes A's own link, never B's: the app pairs URL and date from this response.
+    assert created['created_at'] != rotated['created_at']
+    assert created['created_at'] < rotated['created_at']
+    assert created['token'] != rotated['token']
