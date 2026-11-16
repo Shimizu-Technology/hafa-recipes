@@ -13,6 +13,7 @@ import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { appendRecipeImage } from './imageMultipart';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
 import { API_BASE_URL, SHOW_DEVELOPER_TOOLS } from './apiConfig';
+import { LINK_REQUEST_TIMEOUT_MS, timeoutSignal } from './requestTimeout';
 import {
   Recipe,
   RecipeListItem,
@@ -527,12 +528,22 @@ class ApiClient {
    */
   async getSharedRecipe(key: string, signal?: AbortSignal): Promise<SharedRecipe> {
     const token = await this.getAuthTokenWithRetry('/public/r/data', signal);
-    const response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/data`, {
-      signal,
-      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    });
-    if (!response.ok) throw Object.assign(new Error('This recipe isn’t available.'), { status: response.status });
-    return response.json();
+    const request = timeoutSignal(LINK_REQUEST_TIMEOUT_MS, signal, (this as any).ownerSignal);
+    try {
+      const response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/data`, {
+        signal: request.signal,
+        headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!response.ok) {
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        throw Object.assign(new Error('This recipe isn’t available.'), {
+          status: response.status, ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}),
+        });
+      }
+      return await response.json();
+    } finally {
+      request.done();
+    }
   }
 
   /**
@@ -543,13 +554,20 @@ class ApiClient {
     const token = await this.getAuthTokenWithRetry('/public/r/save', (this as any).ownerSignal, requestGuard);
     if (!token) throw Object.assign(new Error('Sign in to save this recipe.'), { status: 401 });
     requestGuard?.();
-    const response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/save`, {
-      method: 'POST',
-      signal: (this as any).ownerSignal,
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-    });
+    const request = timeoutSignal(LINK_REQUEST_TIMEOUT_MS, (this as any).ownerSignal);
+    let response: Response;
+    let body: any;
+    try {
+      response = await fetch(`${API_BASE_URL}/public/r/${encodeURIComponent(key)}/save`, {
+        method: 'POST',
+        signal: request.signal,
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      });
+      body = await response.json().catch(() => null);
+    } finally {
+      request.done();
+    }
     requestGuard?.();
-    const body = await response.json().catch(() => null);
     if (!response.ok || typeof body?.recipe_id !== 'string') {
       const retryAfter = Number(response.headers.get('Retry-After'));
       throw Object.assign(new Error('The recipe wasn’t saved.'), {

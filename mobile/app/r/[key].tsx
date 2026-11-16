@@ -10,7 +10,7 @@ import { Button, Text, useColors } from '@/components/Themed';
 import { RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { fontFamily, layout, radius, spacing } from '@/constants/Colors';
 import { useRecipeQuery as useQuery } from '@/hooks/useRecipeQuery';
-import { sharedSaveProblem, useSaveSharedRecipe, type SharedSaveProblem } from '@/hooks/useSaveSharedRecipe';
+import { retryWait, sharedSaveProblem, useSaveSharedRecipe, type SharedSaveProblem } from '@/hooks/useSaveSharedRecipe';
 import { api, API_BASE_URL } from '@/lib/api';
 import { openRecipeSource } from '@/lib/openRecipeSource';
 import { classifyRecipeLinkKey } from '@/lib/recipeLinkRoute';
@@ -42,7 +42,7 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
     queryKey: ['sharedRecipe', linkKey],
     queryFn: ({ signal }) => api.getSharedRecipe(linkKey!, signal),
     enabled: !!linkKey,
-    retry: (count: number, failure: unknown) => count < 1 && (failure as { status?: number })?.status !== 404,
+    retry: (count: number, failure: unknown) => count < 1 && ![404, 429].includes((failure as { status?: number })?.status ?? 0),
   });
   const runSave = async (guard?: () => void) => {
     setProblem(null);
@@ -83,13 +83,18 @@ function UnlistedRecipe({ linkKey }: { linkKey: string | null }) {
   const unavailable = (error as { status?: number } | null)?.status === 404;
   if (!linkKey || !recipe || unavailable) {
     const missing = !linkKey || unavailable;
+    // Rate limited: say so and when to retry, instead of blaming the connection.
+    const failure = error as { status?: number; retryAfter?: number } | null;
+    const limited = !missing && failure?.status === 429;
+    const limitedMessage = limited ? `Too many people opened this link at once. Try again ${retryWait(failure?.retryAfter)}.` : '';
     return (
       <RNView style={[styles.center, { backgroundColor: colors.background }]}>
         {header}
         <Ionicons name="link-outline" size={44} color={colors.textMuted} />
         <Text style={[styles.unavailableTitle, { color: colors.text }]}>{missing ? 'This recipe isn’t available' : 'Couldn’t open this recipe'}</Text>
         <Text style={[styles.unavailableText, { color: colors.textSecondary }]}>
-          {missing ? 'It may be private, or the link was turned off. Ask the person who sent it for a new link.' : 'Check your connection and try again.'}
+          {missing ? 'It may be private, or the link was turned off. Ask the person who sent it for a new link.'
+            : limited ? limitedMessage : 'Check your connection and try again.'}
         </Text>
         {!missing && <Button title="Try again" onPress={() => void refetch()} loading={isFetching} />}
         <Button title="Go to Library" variant="ghost" onPress={() => router.replace('/(tabs)/recipes')} />

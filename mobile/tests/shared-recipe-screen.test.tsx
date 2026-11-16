@@ -158,4 +158,11 @@ describe('shared recipe view', () => {
     expect(texts(root)).toContain('Resting');
     expect(texts(root)).toContain('Chill overnight.');
   });
+
+  it('says a rate-limited read is busy, with when to retry, instead of blaming the connection', async () => {
+    m.query = { data: undefined, isLoading: false, error: { status: 429, retryAfter: 20 }, refetch: vi.fn(), isFetching: false };
+    const root = await render();
+    expect(texts(root)).toContain('Too many people opened this link at once. Try again in 20 seconds.');
+    expect(texts(root)).not.toContain('Check your connection');
+  });
 });
