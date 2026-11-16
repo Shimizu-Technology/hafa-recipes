@@ -44,6 +44,7 @@ vi.mock('@/components/RecipeDetailChrome', () => ({
 vi.mock('@/components/RecipeDetailPreview', () => ({ RecipeDetailPreview: () => null }));
 vi.mock('@/components/VersionHistoryModal', () => ({ default: () => null }));
 vi.mock('@/components/SafetyActionModal', () => ({ SafetyActionModal: () => null }));
+vi.mock('@/components/ShareRecipeSheet', () => ({ ShareRecipeSheet: () => null }));
 vi.mock('@/components/Skeleton', () => ({ SkeletonSimilarRecipes: () => null }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: () => null }));
 vi.mock('@/hooks/useNutritionRefresh', () => ({ useNutritionRefresh: () => ({}) }));

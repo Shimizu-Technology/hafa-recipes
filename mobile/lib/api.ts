@@ -41,6 +41,8 @@ import {
   MealPlanEntryCreate,
   DayMeals,
   WeekPlan,
+  RecipeShareLinkStatus,
+  RecipeShareLinkSummary,
 } from '../types/recipe';
 import type {
   AppealCreatePayload,
@@ -492,6 +494,31 @@ class ApiClient {
   async setRecipeSharing(id: string, isPublic: boolean): Promise<{ is_public: boolean; message: string }> {
     const { data } = await this.client.post(`/api/recipes/${id}/share`, { is_public: isPublic });
     return data;
+  }
+
+  /** Owner only: whether the recipe has an unlisted link. The link itself is never returned again. */
+  async getRecipeShareLink(id: string): Promise<RecipeShareLinkStatus> {
+    const { data } = await this.client.get(`/api/recipes/${id}/share-link`, { timeout: 15_000 });
+    return { active: data?.active === true, created_at: typeof data?.created_at === 'string' ? data.created_at : null };
+  }
+
+  /** Owner only: creates the unlisted link, replacing (and turning off) any earlier one. */
+  async createRecipeShareLink(id: string): Promise<{ url: string; created_at: string | null }> {
+    const { data } = await this.client.post(`/api/recipes/${id}/share-link`, undefined, { timeout: 15_000 });
+    if (typeof data?.url !== 'string' || !data.url.startsWith('https://')) throw new Error('The link wasn’t created. Please try again.');
+    // created_at (#690) ties this URL to the server's current link; without it the caller won't keep the URL.
+    return { url: data.url, created_at: typeof data.created_at === 'string' ? data.created_at : null };
+  }
+
+
+  /** Owner only: one page of recipes with an active unlisted link, newest first. */
+  async listRecipeShareLinks(limit = 100, offset = 0): Promise<RecipeShareLinkSummary[]> {
+    const { data } = await this.client.get('/api/recipes/share-links', { params: { limit, offset }, timeout: 15_000 });
+    return Array.isArray(data) ? data : [];
+  }
+
+  async revokeRecipeShareLink(id: string): Promise<void> {
+    await this.client.delete(`/api/recipes/${id}/share-link`, { timeout: 15_000 });
   }
 
   async getPublishingDisclosure(): Promise<PublishingDisclosureStatus> {
