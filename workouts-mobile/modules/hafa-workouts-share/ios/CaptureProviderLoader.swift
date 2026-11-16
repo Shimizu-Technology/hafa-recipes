@@ -1,5 +1,6 @@
   // A single main-actor task owns aggregation. Await each provider in source
   // order; no attachment can publish a partial capture ahead of another one.
+  private var sharedPDFPage = false
   private var loadingShare = false
   private var captureLoadingTask: Task<Void, Never>?
   override func viewDidDisappear(_ animated: Bool) {
@@ -22,6 +23,9 @@
           try Task.checkCancellation()
           try await loadCaptureAttachment(attachment)
           try Task.checkCancellation()
+        }
+        if sharedPDFPage && !sharedMedia.contains(where: { $0.mimeType == "application/pdf" }) {
+          throw captureError("Save this PDF to Files, then share or pick it in Håfa Workouts.")
         }
         guard !sharedMedia.isEmpty || !sharedWebUrl.isEmpty || sharedText.contains(where: {
           !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -46,8 +50,13 @@
     } else if attachment.hasItemConformingToTypeIdentifier(propertyListType) {
       let item = try await attachment.loadItem(forTypeIdentifier: propertyListType)
       guard let dictionary = item as? NSDictionary,
-        let results = dictionary[NSExtensionJavaScriptPreprocessingResultsKey] as? NSDictionary,
-        let source = results["baseURI"] as? String, let sourceURL = URL(string: source), !sourceURL.isFileURL
+        let results = dictionary[NSExtensionJavaScriptPreprocessingResultsKey] as? NSDictionary
+      else { throw captureError("Could not read the shared webpage. Please share it again.") }
+      if results["contentType"] as? String == "application/pdf" {
+        sharedPDFPage = true
+        return // Do not substitute a URL for PDF bytes hidden by Safari preprocessing.
+      }
+      guard let source = results["baseURI"] as? String, let sourceURL = URL(string: source), !sourceURL.isFileURL
       else { throw captureError("Could not read the shared webpage. Please share it again.") }
       let clean = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false)
       guard ["https", "http"].contains(clean?.scheme ?? ""), clean?.user == nil, clean?.password == nil

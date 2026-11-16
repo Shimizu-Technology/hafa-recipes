@@ -11,7 +11,7 @@ import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
 import { isISODate } from "@/lib/sharing";
-import { partTags, restAfterText, segmentLabel } from "@/lib/class-parts";
+import { keepPrescriptionTokens, partTags, restAfterText, segmentLabel } from "@/lib/class-parts";
 import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
 import { recoverySource } from "@/lib/import-recovery";
 import type { ExtractionRequest, ImportJob } from "@/lib/capture";
@@ -468,7 +468,7 @@ export default function ImportReview() {
                           <Copy key={index}>
                             <Copy kind="label">{segmentLabel(e) ? `${segmentLabel(e)} · ` : ""}{e.name}</Copy>
                             {" · "}
-                            <Copy>{prescriptionLine(e)}</Copy>
+                            <Copy>{keepPrescriptionTokens(prescriptionLine(e))}</Copy>
                             {e.instructions ? <Copy kind="small">{"\n"}{e.instructions}</Copy> : null}
                       {e.notes ? <Copy kind="small">{"\n"}Private note · {e.notes}</Copy> : null}
                           </Copy>

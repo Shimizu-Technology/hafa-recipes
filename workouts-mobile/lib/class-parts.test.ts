@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import { nov17Class } from "./fixtures/nov17-class";
 import { prescriptionLine } from "./discover";
 import { authoredWorkout } from "./api";
-import { benchmarkLine, instructionsTitle, partTags, programmingLine, relativeLoadSuggestion, restAfterText, segmentLabel } from "./class-parts";
+import { keepPrescriptionTokens, benchmarkLine, instructionsTitle, partTags, programmingLine, relativeLoadSuggestion, restAfterText, segmentLabel } from "./class-parts";
 import type { ExercisePrescription, Workout } from "./models";
 import { timedCircuit } from "./timed-circuit";
 import { onceOnlyMovesProblem, timedFormat, timedStartHint } from "./timed-execution";
@@ -138,4 +138,12 @@ describe("the single-part timer and once-only moves (Nov 17 part A)", () => {
     expect(other.snapshot().active!.steps.map((step) => `${step.exercise_index}r${step.round_index}`))
       .toEqual(["0r1", "1r1", "2r1", "0r2", "1r2", "2r2", "3r1"]);
   });
+});
+
+it("joins load choices, units and rep ranges without changing the stored prescription", () => {
+  const item: ExercisePrescription = { name: "Press", reps_min: 8, reps_max: 10, load_options: [{ load: 20, load_unit: "lb" }, { load: 14, load_unit: "lb" }] };
+  const before = JSON.stringify(item);
+  expect(keepPrescriptionTokens("20/14 lb · 8–10 reps")).toBe("20\u2060/\u206014\u00a0lb · 8\u2060–\u206010\u00a0reps");
+  expect(keepPrescriptionTokens(prescriptionLine(item))).toContain("8\u2060–\u206010\u00a0reps");
+  expect(JSON.stringify(item)).toBe(before);
 });

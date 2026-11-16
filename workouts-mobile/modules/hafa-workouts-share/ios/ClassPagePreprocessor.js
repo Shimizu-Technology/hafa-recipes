@@ -1,7 +1,7 @@
 // Safari runs this on the page already open on the device. No network access.
 var ExtensionPreprocessingJS = {
   run: function (args) {
-    var result = { baseURI: "", meta: "" };
+    var result = { baseURI: "", meta: "", contentType: (document.contentType || "").toLowerCase().split(";")[0].trim() };
     try {
       var url = new URL(document.URL);
       if (!/^https?:$/.test(url.protocol) || url.username || url.password) throw Error();

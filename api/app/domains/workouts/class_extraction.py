@@ -1,5 +1,6 @@
 """Ground opt-in class structure without exposing new shapes to older imports."""
 
+import math
 import re
 from copy import deepcopy
 
@@ -13,7 +14,13 @@ part's rest_after_seconds; never put it on the last part. Buy-in/then before
 repeating moves is segment=buy_in, and Cash-out is cash_out (AMRAP/for-time).
 800-1000m is distance_meters_min=800,distance_meters=1000; 30-40s is
  duration_seconds=30,duration_seconds_max=40. Per-sex 20/14 lb becomes
-load_options, with no invented sex labels. %BW/bodyweight and %1RM become
+load_options, with no invented sex labels. English "20 or 14 lb" is the same
+load choice as "20/14 lb", not a single load. "8 to 10 reps" is reps_min=8,
+reps_max=10, not 8 reps or 10 sets. "500 to 700 m" is a distance range.
+Use ascending range bounds, including when vision reads them in reverse order.
+Retain movement alternatives such as "run or row" together in the exercise name;
+never pick one alternative or create two mandatory movements. Quote the complete
+alternatives/range wording in each affected field's evidence. %BW/bodyweight and %1RM become
 relative_load; RPE/RIR stay effort. These class rules override the legacy null-load rules.
 Warm-up/Cooldown/Active recovery set role and score_kind=none; accessories set
 role=accessory. Timed main parts use role=main. Quote coach notes exactly:
@@ -26,17 +33,48 @@ the programming and coach instructions. Never copy other members into output.
 """
 
 
-def load_pairs(wording):
-    pairs = set()
+def load_choices(wording):
+    choices = []
     number = r"\d+(?:\.\d+)?"
     unit = r"kg|lbs?"
-    chain = rf"(?<![\d.])(?:{number}\s*(?:{unit})?\s*/\s*(?:[♀♂]\s*)?){{1,3}}{number}\s*(?:{unit})\b"
+    chain = rf"(?<![\d.])(?:{number}\s*(?:{unit})?\s*(?:/|\bor\b)\s*(?:[♀♂]\s*)?){{1,3}}{number}\s*(?:{unit})\b"
     for match in re.finditer(chain, wording, re.I):
-        trailing = None
+        trailing, pairs = None, []
         for value, own_unit in reversed(re.findall(rf"({number})\s*({unit})?", match[0], re.I)):
             trailing = (own_unit or trailing).lower().rstrip("s")
-            pairs.add((float(value), trailing))
-    return pairs
+            pairs.append((float(value), trailing))
+        choice = tuple(dict.fromkeys(reversed(pairs)))
+        if len(choice) >= 2:
+            choices.append(choice)
+    return choices
+
+
+def load_pairs(wording):
+    return {pair for choice in load_choices(wording) for pair in choice}
+
+
+def normalize_class(raw):
+    """Normalize provider spelling/order; grounding must still verify the quotes."""
+    raw = deepcopy(raw)
+    if not isinstance(raw, dict) or not isinstance(raw.get("blocks"), list):
+        return raw  # Leave malformed shapes for the schema to reject.
+    for block in raw["blocks"]:
+        if not isinstance(block, dict) or not isinstance(block.get("exercises"), list):
+            continue
+        for item in block["exercises"]:
+            if not isinstance(item, dict) or not isinstance(item.get("evidence", []), list):
+                continue
+            choices = {choice for entry in item.get("evidence", []) if isinstance(entry, dict) and entry.get("field") in {"load", "load_options", "notes"} and isinstance(entry.get("wording"), str)
+                       for choice in load_choices(entry.get("wording", ""))}
+            if len(choices) == 1 and not item.get("load_options") and not item.get("relative_load"):
+                item["load_options"] = [{"load": value, "load_unit": unit} for value, unit in next(iter(choices))]
+                item["load"] = item["load_unit"] = item["load_convention"] = None
+            for lo, hi in (("reps_min", "reps_max"), ("distance_meters_min", "distance_meters"),
+                           ("duration_seconds", "duration_seconds_max")):
+                values = (item.get(lo), item.get(hi))
+                if all(isinstance(v, (int, float)) and not isinstance(v, bool) and (not isinstance(v, float) or math.isfinite(v)) and v > 0 for v in values):
+                    item[lo], item[hi] = sorted(values)
+    return raw
 
 
 def legacy_shape(raw):
@@ -54,6 +92,7 @@ def legacy_shape(raw):
 
 def ground_class(workout, raw, source, warnings):
     from app.domains.workouts.extraction import _numeric_supported, _quote_is_supported
+    from app.domains.workouts.schemas import LoadOption
 
     text = "\n".join(p.text for p in source.parts)
     def quotes(item, field):
@@ -94,22 +133,42 @@ def ground_class(workout, raw, source, warnings):
         for item, old in zip(block.exercises, original["exercises"]):
             if item.per_side is None and re.search(r"\bside[ -]lying|\bunilateral\b", item.name, re.I):
                 warnings.append(f"Per-side details for {item.name} are unspecified; review the source.")
+            # Restore an explicit rep range when the model duplicated/wrongly chose
+            # one endpoint. Do not override unresolved per-side/total ambiguity.
+            rep_ranges = {tuple(sorted(map(int, pair))) for q in quotes(item, "reps_min") + quotes(item, "reps_max")
+                          for pair in re.findall(r"(\d+)\s*(?:[-–]|\bto\b)\s*(\d+)\s*(?:reps?|repetitions?)\b", q, re.I)}
+            if len(rep_ranges) == 1 and all(1 <= value <= 1000 for value in next(iter(rep_ranges))) and (item.reps_min is not None or item.reps_max is not None):
+                for field in ("reps_min", "reps_max"):
+                    warning = f"Unsupported {field} removed from {item.name}."
+                    if getattr(item, field) is None and old.get(field) is not None and warning in warnings:
+                        warnings.remove(warning)  # One repaired field, not every exercise with this name.
+                item.reps_min, item.reps_max = next(iter(rep_ranges))
+            if not item.load_options and item.relative_load is None:
+                choices = {choice for q in quotes(item, "load_options") + quotes(item, "load") + quotes(item, "notes") for choice in load_choices(q)}
+                if len(choices) == 1:
+                    item.load_options = [LoadOption(load=value, load_unit=unit) for value, unit in next(iter(choices))]
+                    item.load = item.load_unit = item.load_convention = None
+                    for warning in (f"Unsupported load removed from {item.name}.", f"Creator load for {item.name} needs unit/convention review; original evidence remains available."):
+                        if old.get("load") is not None and warning in warnings:
+                            warnings.remove(warning)
             for field, base, unit in (("distance_meters_min", "distance_meters", "distance"), ("duration_seconds_max", "duration_seconds", "duration")):
                 if getattr(item, field) is None:
                     continue
                 valid = False
                 for q in quotes(item, field):
-                    for a, b, suffix in re.findall(r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(km|meters?|metres?|m|seconds?|secs?|s|minutes?|mins?)\b", q, re.I):
+                    for a, b, suffix in re.findall(r"(\d+(?:\.\d+)?)\s*(?:[-–]|\bto\b)\s*(\d+(?:\.\d+)?)\s*(km|meters?|metres?|m|seconds?|secs?|s|minutes?|mins?)\b", q, re.I):
                         suffix = suffix.lower()
                         units = {"km", "m", "meter", "meters", "metre", "metres"} if unit == "distance" else {"s", "sec", "secs", "second", "seconds", "m", "min", "mins", "minute", "minutes"}
                         if suffix not in units:
                             continue
                         factor = 1000 if suffix == "km" else 60 if unit == "duration" and suffix in {"m", "min", "mins", "minute", "minutes"} else 1
                         expected = (old[field], old[base]) if unit == "distance" else (old[base], old[field])
-                        valid |= (float(a) * factor, float(b) * factor) == expected
+                        valid |= tuple(sorted((float(a) * factor, float(b) * factor))) == expected
                 if valid:
+                    warning = f"Unsupported {base} removed from {item.name}."
+                    if getattr(item, base) is None and warning in warnings:
+                        warnings.remove(warning)
                     setattr(item, base, old[base])
-                    warnings[:] = [w for w in warnings if w != f"Unsupported {base} removed from {item.name}."]
                 else:
                     setattr(item, field, None)
                     warnings.append(f"Unsupported {field} removed from {item.name}.")
@@ -123,7 +182,7 @@ def ground_class(workout, raw, source, warnings):
                     item.relative_load = None
                     warnings.append(f"Unsupported relative load removed from {item.name}.")
             if item.load_options:
-                q = "\n".join(quotes(item, "load_options"))
+                q = "\n".join(quotes(item, "load_options") + quotes(item, "load") + quotes(item, "notes"))
                 if not all((option.load, option.load_unit) in load_pairs(q) for option in item.load_options):
                     item.load_options = None
                     warnings.append(f"Unsupported load options removed from {item.name}.")
@@ -131,6 +190,11 @@ def ground_class(workout, raw, source, warnings):
                     for option in item.load_options:
                         if option.label and option.label not in q:
                             option.label = None
+            movement_choices = {m[0] for q in quotes(item, "name") for m in re.finditer(
+                r"\b(?:run|row|bike|ski|walk)(?:\s+erg)?\s+or\s+(?:run|row|bike|ski|walk)(?:\s+erg)?\b", q, re.I)
+                if item.name.casefold() in re.split(r"\s+or\s+", m[0].casefold())}
+            if len(movement_choices) == 1:
+                item.name = next(iter(movement_choices))
         phases = [{"buy_in": 0, None: 1, "cash_out": 2}[item.segment] for item in block.exercises]
         if any(item.segment for item in block.exercises) and (block.execution is None or block.execution.mode not in {"amrap", "for_time"} or phases != sorted(phases)):
             for item in block.exercises:

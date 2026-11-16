@@ -41,3 +41,9 @@ export function benchmarkLine(workout: Pick<Workout, "benchmark">) {
 /** Coach notes, rather than generic instructions, for a class from a gym or coach. */
 export const instructionsTitle = (workout: Pick<Workout, "programming">) =>
   workout.programming && workout.programming.source_kind !== "self" ? "Coach notes" : "Workout instructions";
+
+/** Keep numeric prescriptions together when accessibility text wraps. Display only. */
+export function keepPrescriptionTokens(text: string) {
+  return text.replace(/(\d)\s*([/–-])\s*(?=\d)/g, "$1\u2060$2\u2060")
+    .replace(/(\d) +(?=(?:kg|lbs?|reps?|m|km|s|min|seconds?|minutes?)\b)/g, "$1\u00a0");
+}

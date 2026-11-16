@@ -13,7 +13,7 @@ it("reads only bounded visible WodUp text and strips query/fragment without netw
   const sandbox: any = { ...context };
   runInNewContext(script, sandbox);
   sandbox.ExtensionPreprocessingJS.run({ completionFunction: (value: any) => { result = value; } });
-  expect(result).toEqual({ baseURI: "https://wodup.com/gym", meta: "", classText: context.document.body.innerText.slice(0, 30000) });
+  expect(result).toEqual({ baseURI: "https://wodup.com/gym", meta: "", contentType: "", classText: context.document.body.innerText.slice(0, 30000) });
   context.document.body.innerText = readFileSync(new URL("../../api/tests/fixtures/wodup_nov17_page.txt", import.meta.url), "utf8");
   sandbox.ExtensionPreprocessingJS.run({ completionFunction: (value: any) => { result = value; } });
   expect(result.classText).toBe(context.document.body.innerText.slice(0, 30000));
@@ -50,4 +50,15 @@ it("removes WodUp URL-only text and tracking parameters without changing instruc
   expect(classText("https://wodup.com/gym?token=secret#scores")).toBe("");
   expect(classText("A. 10 squats\nhttps://wodup.com/gym?token=secret#scores\nhttps://youtube.com/watch?v=abc")).toBe("A. 10 squats\n\nhttps://youtube.com/watch?v=abc");
   expect(classDate("Pacific/Guam")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+});
+
+it("reports Safari PDF content type even for a local document and keeps HTML preprocessing", () => {
+  const sandbox: any = { URL, document: { URL: "file:///private/class.pdf", contentType: "application/pdf", body: { innerText: "" } } };
+  runInNewContext(script, sandbox);
+  let result: any;
+  sandbox.ExtensionPreprocessingJS.run({ completionFunction: (value: any) => { result = value; } });
+  expect(result.contentType).toBe("application/pdf"); expect(result.classText).toBeUndefined();
+  sandbox.document = { URL: "https://wodup.com/class", contentType: "text/html", body: { innerText: "A. 8 squats" } };
+  sandbox.ExtensionPreprocessingJS.run({ completionFunction: (value: any) => { result = value; } });
+  expect(result).toMatchObject({ contentType: "text/html", classText: "A. 8 squats" });
 });

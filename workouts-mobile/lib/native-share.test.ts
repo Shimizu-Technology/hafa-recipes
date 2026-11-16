@@ -443,7 +443,10 @@ it.skipIf(process.platform !== "darwin")("generated native captures receive dist
 it.skipIf(process.platform !== "darwin")("accepts Safari PDF and webpage providers while refusing five shared photos", () => {
   const config = require("@expo/config").getConfig(new URL("..", import.meta.url).pathname).exp;
   const share = config.plugins.find((entry: unknown) => Array.isArray(entry) && entry[0] === "expo-share-intent");
-  const rule = share[1].iosActivationRules;
+  const info = require("@expo/plist").default.parse(require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
+    .getShareExtensionInfoContent("Workouts", "com.example.workouts", share[1]));
+  expect(info.NSExtension.NSExtensionAttributes.NSExtensionJavaScriptPreprocessingFile).toBe("ShareExtensionPreprocessor");
+  const rule = info.NSExtension.NSExtensionAttributes.NSExtensionActivationRule;
   expect(typeof rule).toBe("string");
   expect(rule).not.toContain("TRUEPREDICATE");
   const directory = mkdtempSync(join(tmpdir(), "workouts-share-activation-"));
@@ -457,8 +460,16 @@ func payload(_ providers: [[String]], items: Int = 1) -> [String: Any] {
     ["registeredTypeIdentifiers": $0]
   }], count: items)]
 }
+func items(_ providers: [[[String]]]) -> [String: Any] {
+  ["extensionItems": providers.map { ["attachments": $0.map { ["registeredTypeIdentifiers": $0] }] }]
+}
 let image = ["public.heic", "public.file-url"]
 let cases: [([String: Any], Bool)] = [
+  (items([[["com.adobe.pdf"]], [["public.url"]]]), true),
+  (items([[["public.url"]], [["com.adobe.pdf", "public.file-url"]]]), true),
+  (items([[["com.adobe.pdf"]], [["com.adobe.pdf"]]]), false),
+  (items([[["com.adobe.pdf"]], [image]]), false),
+  (items([[["com.adobe.pdf"]], [["public.url"]], [["public.url"]]]), false),
   (payload([["com.adobe.pdf", "public.file-url"]]), true),
   (payload([["com.apple.property-list"]]), true),
   (payload([["public.url", "public.plain-text"]]), true),
@@ -481,3 +492,11 @@ print("Bounded PDF, webpage and four-photo activation passed")
       .toContain("Bounded PDF, webpage and four-photo activation passed");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90000);
+it("rejects a preprocessed PDF before saving a URL-only capture, but keeps delivered PDF bytes", () => {
+  const loader = native("CaptureProviderLoader.swift");
+  expect(loader).toContain('if results["contentType"] as? String == "application/pdf"');
+  expect(loader.indexOf('sharedPDFPage = true')).toBeLessThan(loader.indexOf('let source = results["baseURI"]'));
+  expect(loader).toContain('sharedPDFPage && !sharedMedia.contains(where: { $0.mimeType == "application/pdf" })');
+  expect(loader).toContain("Save this PDF to Files, then share or pick it in Håfa Workouts.");
+  expect(loader.indexOf('if sharedPDFPage &&')).toBeLessThan(loader.indexOf('try redirectToHostApp(type: .media)'));
+});
