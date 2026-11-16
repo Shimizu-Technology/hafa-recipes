@@ -501,4 +501,5 @@ async def test_wodup_full_wording_keeps_amrap_buy_in_benchmark_and_accessory_hea
         assert block.execution.model_dump(exclude_none=True) == {"mode": "amrap", "time_cap_seconds": 900}
         assert block.exercises[0].segment == "buy_in"
     assert workout.blocks[3].rounds == 2
-    assert workout.blocks[3].role == ("accessory" if heading_in_source else None)
+    # The printed "D. ACCESSORIES" heading names the role, whatever the model calls the part.
+    assert workout.blocks[3].role == "accessory"
