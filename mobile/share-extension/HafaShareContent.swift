@@ -145,7 +145,8 @@ enum HafaSharePreviewPolicy {
       if path[index + 1].range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil { return false }
     }
     host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]."))
-    if host == "localhost" || [".localhost", ".local", ".internal", ".home", ".lan"].contains(where: host.hasSuffix) { return false }
+    // home.arpa is the residential domain (RFC 8375), like .home and .lan: a name on someone's own network.
+    if host == "localhost" || host == "home.arpa" || [".localhost", ".local", ".internal", ".home", ".lan", ".home.arpa"].contains(where: host.hasSuffix) { return false }
     var v4 = in_addr()
     // inet_aton also catches shortened, decimal, octal and hex IPv4 spellings.
     if inet_aton(host, &v4) == 1 {

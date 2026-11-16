@@ -112,3 +112,11 @@ for link in ["https://example.com/recipe#comments", "https://example.com/recipe#
   check(HafaSharePreviewPolicy.allows(URL(string: link)!), "ordinary anchor/public page: \(link)")
 }
 print("Round 2 preview policy checks passed")
+
+for value in ["http://home.arpa/recipe", "https://router.home.arpa/recipe", "https://deep.router.home.arpa./recipe", "https://HOME.ARPA./recipe"] {
+  check(!HafaSharePreviewPolicy.allows(URL(string: value)!), "home.arpa private preview: \(value)")
+}
+for value in ["https://nothome.arpa/recipe", "https://home.arpa.example.com/recipe"] {
+  check(HafaSharePreviewPolicy.allows(URL(string: value)!), "home.arpa boundary control: \(value)")
+}
+print("home.arpa exact/suffix/trailing-dot regression cases passed")
