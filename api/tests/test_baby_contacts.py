@@ -102,6 +102,7 @@ READERS = {
     "access": "a moved row's reply to the app",
     "changes": "/changes, which returns child_response",
     "push_worker": "Expo's own ticket `details`",
+    "family_news": "a birth's time, on the recipient's own Today; never a lock screen or a model",
 }
 
 

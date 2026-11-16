@@ -170,7 +170,7 @@ class WorkoutsGrant(Base):
     granted_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     __table_args__ = (
         CheckConstraint(
-            "scope IN ('recipes_library_context','recipes_meal_plan_context','health_activity_read','health_activity_write','health_body_measurements_read','ai_health_context')",
+            "scope IN ('recipes_library_context','recipes_meal_plan_context','health_activity_read','health_activity_write','health_body_measurements_read','ai_health_context','health_workout_summary_store')",
             name="ck_workouts_grant_scope",
         ),
     )

@@ -9,11 +9,14 @@ import { Button, HeaderAction, Card, Choice, Copy, Empty, Notice, Row, Screen, S
 import { friendlyTime } from "@/lib/care-format";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
+import { findBag, isBag, packedLine } from "../lib/hospital-bag";
 export default function Routines() {
   const b = useBaby(),
     [error, setError] = useState(""),
+    // The hospital bag has its own screen, grouped the way it's packed; here it's one row.
+    bag = findBag(b.records),
     routines = b.records.filter(
-      (r) => r.kind === "routine" && (!b.state.selectedChild || !r.child_id || r.child_id === b.state.selectedChild)
+      (r) => r.kind === "routine" && !isBag(r) && (!b.state.selectedChild || !r.child_id || r.child_id === b.state.selectedChild)
     );
   async function toggle(record: BabyRecord, id: string) {
     try {
@@ -50,6 +53,8 @@ export default function Routines() {
       <SyncStatus />
       <ChildFilter />
       {!!error && <Notice error>{error}</Notice>}
+      <Row title="Hospital bag" numericDetail detail={bag ? packedLine(bag) : "A starter list to pack from"} icon="bag-handle-outline"
+        onPress={() => router.push("/hospital-bag")} />
       {routines.length ? (
         <Section title="Your routines">
           {routines.map((r) => (
@@ -78,7 +83,7 @@ export default function Routines() {
         <Empty
           icon="checkmark-circle-outline"
           title="Make room for what helps."
-          body="Start with a hospital bag list, appointment prep, or a routine you have chosen. Nothing is activated for you."
+          body="Appointment prep, an evening routine, or any list you have chosen. Nothing is activated for you."
           action={
             <Button
               secondary

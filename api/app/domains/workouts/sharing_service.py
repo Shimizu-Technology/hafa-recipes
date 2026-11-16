@@ -165,6 +165,9 @@ def project_workout(raw, *, include_source_url=False):
         source_url=safe_source_url(source.source_url) if include_source_url else None,
         blocks=[],
     )
+    # Keep only the privacy classification so recipient copies cannot publish it.
+    if (source_data.get("programming") or {}).get("source_kind") == "gym":
+        projected["programming"] = {"source_kind": "gym"}
     if include_source_url:
         from app.domains.workouts.source_media import asset_id
 
@@ -175,7 +178,9 @@ def project_workout(raw, *, include_source_url=False):
     incomplete = not source.blocks
     for index, source_block in enumerate(source_data["blocks"]):
         block = {
-            key: source_block[key] for key in ("grouping", "rounds", "rest_between_rounds_seconds")
+            key: source_block[key] for key in ("grouping", "rounds", "rest_between_rounds_seconds",
+                           "role", "rest_after_seconds", "score_kind", "instructions")
+            if key in source_block
         }
         if source_block.get("execution") is not None:
             block["execution"] = {
@@ -202,6 +207,11 @@ def project_workout(raw, *, include_source_url=False):
                     "load_convention",
                     "rep_scheme",
                     "ladder",
+                    "segment",
+                    "distance_meters_min",
+                    "duration_seconds_max",
+                    "load_options",
+                    "relative_load",
                 ) if key in exercise
             }
             for exercise in source_block["exercises"]
