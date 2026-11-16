@@ -104,3 +104,10 @@ it('gates late attachment callbacks and puts copied photos in a capture-owned di
   expect(cancel).toContain('HafaShareStore.performCaptureWrite');
   expect(cancel).toContain('if discarded { self.closeCapture() }');
 });
+
+it('does not log Safari preprocessing dictionaries or other shared payloads', () => {
+  const safari = section('private func handlePrepocessing', 'private func handlePkPass');
+  expect(safari).toContain('results["baseURI"]');
+  expect(safari).not.toContain('NSLog');
+  expect(controller).not.toContain('NSLog(');
+});

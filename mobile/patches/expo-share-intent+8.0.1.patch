@@ -225,7 +225,7 @@ index e52b6d0..2a1d56c 100644
 +}
 +// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..f71ae8d 100644
+index f1f4b72..31128e1 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -266,7 +266,15 @@ index f1f4b72..f71ae8d 100644
    }
  
    override func viewDidAppear(_ animated: Bool) {
-@@ -87,12 +95,14 @@ class ShareViewController: UIViewController {
+@@ -72,7 +80,6 @@ class ShareViewController: UIViewController {
+         } else if attachment.hasItemConformingToTypeIdentifier(textContentType) {
+           await handleText(content: content, attachment: attachment, index: index)
+         } else {
+-          NSLog("[ERROR] content type not handle !\(String(describing: content))")
+           dismissWithError(message: "content type not handle \(String(describing: content)))")
+         }
+       }
+@@ -87,20 +94,20 @@ class ShareViewController: UIViewController {
            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".vcf")
            _ = Self.copyFile(at: url, to: tmp)
            Task { @MainActor in
@@ -281,7 +289,15 @@ index f1f4b72..f71ae8d 100644
              await self.handleFileURL(content: content, url: tmp, index: index)
            }
          } else {
-@@ -112,13 +122,12 @@ class ShareViewController: UIViewController {
+-          NSLog("[ERROR] Cannot load vcard content !\(String(describing: content))")
+           await self.dismissWithError(message: "Cannot load vCard content \(String(describing: content))")
+         }
+       } catch {
+-        NSLog("[ERROR] handleVCard exception: \(error.localizedDescription)")
+         await self.dismissWithError(message: "vCard error: \(error.localizedDescription)")
+       }
+     }
+@@ -112,19 +119,17 @@ class ShareViewController: UIViewController {
          as? String
        {
          Task { @MainActor in
@@ -297,7 +313,13 @@ index f1f4b72..f71ae8d 100644
              self.redirectToHostApp(type: .text)
            }
  
-@@ -135,13 +144,12 @@ class ShareViewController: UIViewController {
+         }
+       } else {
+-        NSLog("[ERROR] Cannot load text content !\(String(describing: content))")
+         await self.dismissWithError(
+           message: "Cannot load text content \(String(describing: content))")
+       }
+@@ -135,19 +140,17 @@ class ShareViewController: UIViewController {
      Task.detached {
        if let item = try! await attachment.loadItem(forTypeIdentifier: self.urlContentType) as? URL {
          Task { @MainActor in
@@ -313,7 +335,13 @@ index f1f4b72..f71ae8d 100644
              self.redirectToHostApp(type: .weburl)
            }
  
-@@ -163,6 +171,7 @@ class ShareViewController: UIViewController {
+         }
+       } else {
+-        NSLog("[ERROR] Cannot load url content !\(String(describing: content))")
+         await self.dismissWithError(
+           message: "Cannot load url content \(String(describing: content))")
+       }
+@@ -163,31 +166,25 @@ class ShareViewController: UIViewController {
          as? NSDictionary
        {
          Task { @MainActor in
@@ -321,7 +349,11 @@ index f1f4b72..f71ae8d 100644
  
            if let results = item[NSExtensionJavaScriptPreprocessingResultsKey]
              as? NSDictionary
-@@ -174,9 +183,7 @@ class ShareViewController: UIViewController {
+           {
+-            NSLog(
+-              "[DEBUG] NSExtensionJavaScriptPreprocessingResultsKey \(String(describing: results))"
+-            )
+             self.sharedWebUrl.append(
                WebUrl(url: results["baseURI"] as! String, meta: results["meta"] as! String))
              // If this is the last item, save sharedText in userDefaults and redirect to host app
              if index == (content.attachments?.count)! - 1 {
@@ -332,23 +364,61 @@ index f1f4b72..f71ae8d 100644
                self.redirectToHostApp(type: .weburl)
              }
            } else {
-@@ -222,6 +229,7 @@ class ShareViewController: UIViewController {
-                   NSLog("[ERROR] Cannot load pkpass content: Item was neither URL nor Data for type \(self.pkpassContentType). Attachment: \(attachment)")
+-            NSLog("[ERROR] Cannot load preprocessing results !\(String(describing: content))")
+             self.dismissWithError(
+               message: "Cannot load preprocessing results \(String(describing: content))")
+           }
+ 
+         }
+       } else {
+-        NSLog("[ERROR] Cannot load preprocessing content !\(String(describing: content))")
+         await self.dismissWithError(
+           message: "Cannot load preprocessing content \(String(describing: content))")
+       }
+@@ -196,40 +193,34 @@ class ShareViewController: UIViewController {
+ 
+   private func handlePkPass(content: NSExtensionItem, attachment: NSItemProvider, index: Int) async {
+       Task.detached {
+-          NSLog("[DEBUG] Attempting to handle pkpass file for item \(index)")
+-          NSLog("[DEBUG] Available type identifiers: \(attachment.registeredTypeIdentifiers)")
+   
+           do {
+               if let url = try await attachment.loadItem(forTypeIdentifier: self.pkpassContentType) as? URL {
+-                  NSLog("[DEBUG] Successfully loaded pkpass as URL: \(url.absoluteString)")
+-                  NSLog("[DEBUG] URL path: \(url.path), isFileURL: \(url.isFileURL)")
+                   await self.handleFileURL(content: content, url: url, index: index)
+   
+               } else if let data = try await attachment.loadItem(forTypeIdentifier: self.pkpassContentType) as? Data {
+-                  NSLog("[DEBUG] Successfully loaded pkpass as Data, size: \(data.count) bytes")
+                   let tempFileName = UUID().uuidString + ".pkpass"
+                   let tempFileURL = FileManager.default.temporaryDirectory.appendingPathComponent(tempFileName)
+   
+                   // Writing data to a file is I/O, keep it off the main thread.
+                   try data.write(to: tempFileURL)
+-                  NSLog("[DEBUG] Saved pkpass data to temporary file: \(tempFileURL.path)")
+   
+                   // Handle the newly created temporary file URL.
+                   await self.handleFileURL(content: content, url: tempFileURL, index: index)
+   
+               } else {
+                   // If it's neither URL nor Data, it's unexpected for pkpassContentType.
+-                  NSLog("[ERROR] Cannot load pkpass content: Item was neither URL nor Data for type \(self.pkpassContentType). Attachment: \(attachment)")
                    // Ensure dismissWithError runs on the main thread if it interacts with UI
                    Task { @MainActor in
 +          guard !self.captureClosed else { return }
                        self.dismissWithError(message: "Cannot load pkpass content (unexpected data type).")
                    }
                }
-@@ -230,6 +238,7 @@ class ShareViewController: UIViewController {
-               NSLog("[ERROR] Exception when handling pkpass: \(error.localizedDescription)")
+           } catch {
+               // Catch errors from loadItem or data.write
+-              NSLog("[ERROR] Exception when handling pkpass: \(error.localizedDescription)")
                // Ensure dismissWithError runs on the main thread if it interacts with UI
                Task { @MainActor in
 +          guard !self.captureClosed else { return }
                    self.dismissWithError(message: "Error processing pkpass: \(error.localizedDescription)")
                }
            }
-@@ -238,92 +247,28 @@ class ShareViewController: UIViewController {
+@@ -238,92 +229,28 @@ class ShareViewController: UIViewController {
  
  
    private func handleImages(content: NSExtensionItem, attachment: NSItemProvider, index: Int) async {
@@ -461,7 +531,7 @@ index f1f4b72..f71ae8d 100644
    }
  
    private func documentDirectoryPath() -> URL? {
-@@ -337,56 +282,20 @@ class ShareViewController: UIViewController {
+@@ -337,56 +264,20 @@ class ShareViewController: UIViewController {
      }
    }
  
@@ -520,7 +590,7 @@ index f1f4b72..f71ae8d 100644
              guard
                let sharedFile = self.getSharedMediaFile(
                  forVideo: newPath, fileName: fileName, fileSize: fileSize, mimeType: mimeType)
-@@ -398,9 +307,7 @@ class ShareViewController: UIViewController {
+@@ -398,15 +289,12 @@ class ShareViewController: UIViewController {
  
            // If this is the last item, save imagesData in userDefaults and redirect to host app
            if index == (content.attachments?.count)! - 1 {
@@ -531,7 +601,13 @@ index f1f4b72..f71ae8d 100644
              self.redirectToHostApp(type: .media)
            }
  
-@@ -417,6 +324,7 @@ class ShareViewController: UIViewController {
+         }
+       } else {
+-        NSLog("[ERROR] Cannot load video content !\(String(describing: content))")
+         await self.dismissWithError(
+           message: "Cannot load video content \(String(describing: content))")
+       }
+@@ -417,12 +305,12 @@ class ShareViewController: UIViewController {
      Task.detached {
        if let url = try? await attachment.loadItem(forTypeIdentifier: self.pdfContentType) as? URL {
          Task { @MainActor in
@@ -539,7 +615,13 @@ index f1f4b72..f71ae8d 100644
  
            await self.handleFileURL(content: content, url: url, index: index)
  
-@@ -433,6 +341,7 @@ class ShareViewController: UIViewController {
+         }
+       } else {
+-        NSLog("[ERROR] Cannot load pdf content !\(String(describing: content))")
+         await self.dismissWithError(
+           message: "Cannot load pdf content \(String(describing: content))")
+       }
+@@ -433,12 +321,12 @@ class ShareViewController: UIViewController {
      Task.detached {
        if let url = try? await attachment.loadItem(forTypeIdentifier: self.fileURLType) as? URL {
          Task { @MainActor in
@@ -547,7 +629,13 @@ index f1f4b72..f71ae8d 100644
  
            await self.handleFileURL(content: content, url: url, index: index)
  
-@@ -451,13 +360,8 @@ class ShareViewController: UIViewController {
+         }
+       } else {
+-        NSLog("[ERROR] Cannot load file content !\(String(describing: content))")
+         await self.dismissWithError(
+           message: "Cannot load file content \(String(describing: content))")
+       }
+@@ -451,13 +339,8 @@ class ShareViewController: UIViewController {
      let fileExtension = self.getExtension(from: url, type: .file)
      let fileSize = self.getFileSize(from: url)
      let mimeType = url.mimeType(ext: fileExtension)
@@ -563,7 +651,7 @@ index f1f4b72..f71ae8d 100644
        self.sharedMedia.append(
          SharedMediaFile(
            path: newPath.absoluteString, thumbnail: nil, fileName: fileName,
-@@ -466,50 +370,267 @@ class ShareViewController: UIViewController {
+@@ -466,50 +349,267 @@ class ShareViewController: UIViewController {
      }
  
      if index == (content.attachments?.count)! - 1 {
@@ -861,7 +949,23 @@ index f1f4b72..f71ae8d 100644
    enum RedirectType {
      case media
      case text
-@@ -615,9 +736,7 @@ class ShareViewController: UIViewController {
+@@ -550,7 +650,6 @@ class ShareViewController: UIViewController {
+       let resources = try url.resourceValues(forKeys: [.fileSizeKey])
+       return resources.fileSize
+     } catch {
+-      NSLog("Error: \(error)")
+       return nil
+     }
+   }
+@@ -562,7 +661,6 @@ class ShareViewController: UIViewController {
+       }
+       try FileManager.default.copyItem(at: srcURL, to: dstURL)
+     } catch (let error) {
+-      NSLog("Cannot copy item at \(srcURL) to \(dstURL): \(error)")
+       return false
+     }
+     return true
+@@ -615,9 +713,7 @@ class ShareViewController: UIViewController {
    private func getThumbnailPath(for url: URL) -> URL {
      let fileName = Data(url.lastPathComponent.utf8).base64EncodedString().replacingOccurrences(
        of: "==", with: "")
