@@ -191,7 +191,7 @@ describe('recipe editor draft preservation', () => {
       await act(async () => { tree = create(<EditRecipeScreen />); });
       const visibility = host(tree, 'TouchableOpacity', props => props.accessibilityLabel?.includes('Tap to'))[0];
       expect(visibility.props.accessibilityLabel).toBe(isPublic
-        ? 'Shared to library. Tap to make private.' : 'Private recipe. Tap to publish.');
+        ? 'Public in Discover. Tap to make private.' : 'Private recipe. Tap to publish.');
       mocks.editorRecipe = structuredClone(saved); // Delayed GET now completes.
       await act(async () => tree.update(<EditRecipeScreen />));
       await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
