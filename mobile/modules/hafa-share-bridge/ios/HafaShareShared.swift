@@ -4,6 +4,31 @@ import ImageIO
 import UniformTypeIdentifiers
 import Security
 
+// UIKit owns this state on main. A Save claims the capture synchronously,
+// before its first queued write, and no dismissal may discard it until settled.
+final class HafaShareSaveGate {
+  private(set) var isSaving = false
+
+  @discardableResult func begin() -> Bool {
+    precondition(Thread.isMainThread)
+    guard !isSaving else { return false }
+    isSaving = true
+    return true
+  }
+
+  func settle() {
+    precondition(Thread.isMainThread)
+    isSaving = false
+  }
+
+  @discardableResult func requestClose(_ close: () -> Void) -> Bool {
+    precondition(Thread.isMainThread)
+    guard !isSaving else { return false }
+    close()
+    return true
+  }
+}
+
 // Compiled into the containing app and Share extension. Only the import-link
 // capability lives in their shared Keychain group; Clerk remains app-private.
 enum HafaShareStore {

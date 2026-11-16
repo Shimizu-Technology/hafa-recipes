@@ -122,3 +122,42 @@ it('supports data/object-only images through the off-main transfer chain', () =>
   const store = readFileSync(new URL('./modules/hafa-share-bridge/ios/HafaShareShared.swift', import.meta.url), 'utf8');
   expect(store).toContain('DispatchQueue.global(qos: .utility).async');
 });
+
+it('keeps the site subtitle on one line at accessibility text sizes', () => {
+  const subtitle = card('HafaShareKit.swift').split('Text(subtitle)')[1].split('\n        }')[0];
+  expect(subtitle).toContain('.lineLimit(1)');
+  expect(subtitle).toContain('.minimumScaleFactor(large ? 0.6 : 1)');
+  expect(subtitle).toContain('.truncationMode(.middle)');
+  expect(subtitle).not.toContain('.lineLimit(large ? 3 : 1)');
+});
+
+it('places wrapping chips at their measured sizes without overflowing the card', () => {
+  const kit = card('HafaShareKit.swift');
+  const chip = kit.split('private func chip(')[1].split('private func outcomeView')[0];
+  expect(chip).toContain('.lineLimit(2).multilineTextAlignment(.leading)');
+  expect(chip).toContain('RoundedRectangle(cornerRadius: 20, style: .continuous)');
+  const flow = kit.split('private struct HafaShareFlow: Layout')[1];
+  expect(flow).toContain('size.width = min(size.width, width)');
+  expect(flow).toContain('sizes.append(size)');
+  expect(flow).toContain('proposal: ProposedViewSize(arranged.sizes[index])');
+  expect(flow).not.toContain('proposal: .unspecified');
+});
+
+it('claims Save before its queued confirmation and guards all dismissal paths until settlement', () => {
+  const submit = section('private func submitCapture', 'private func enqueueCapture');
+  expect(submit.indexOf('saveGate.begin()')).toBeLessThan(submit.indexOf('writeCapture('));
+  expect(submit.indexOf('setCaptureSaving(true)')).toBeLessThan(submit.indexOf('writeCapture('));
+  expect(submit).toContain('controller.saveGate.settle(); controller.setCaptureSaving(false)');
+  expect(section('private func finishCapture', 'private func answerOutcome')).toContain('saveGate.settle(); setCaptureSaving(false)');
+  for (const name of ['cancelCapture', 'closeCapture']) {
+    expect(controller.split(`private func ${name}()`)[1].trimStart().startsWith('{\n    saveGate.requestClose {')).toBe(true);
+  }
+  const state = section('private func setCaptureSaving', 'private func submitCapture');
+  expect(state).toContain('isModalInPresentation = saving');
+  expect(state).toContain('navigationController?.isModalInPresentation = saving');
+  const kit = card('HafaShareKit.swift');
+  expect(kit).toContain('.interactiveDismissDisabled(model.isSaving)');
+  expect(kit).toContain('.disabled(model.isSaving)');
+  expect(kit).toContain('guard !model.isSaving else { return }');
+  expect(kit).toContain('model.isSaving ? "Saving…" : model.action');
+});

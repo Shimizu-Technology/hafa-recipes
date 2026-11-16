@@ -225,7 +225,7 @@ index e52b6d0..2a1d56c 100644
 +}
 +// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..02c8af8 100644
+index f1f4b72..465e97a 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -535,7 +535,7 @@ index f1f4b72..02c8af8 100644
 -        await self.dismissWithError(message: "Cannot load image content: \(error.localizedDescription)")
 -      }
 +      }, completion: { continuation.resume(returning: $0) })
-     }
++    }
 +    guard !captureClosed else { return }
 +    guard let url = copied else { dismissWithError(); return }
 +    var width: Int?, height: Int?
@@ -544,7 +544,7 @@ index f1f4b72..02c8af8 100644
 +      width = properties[kCGImagePropertyPixelWidth] as? Int
 +      height = properties[kCGImagePropertyPixelHeight] as? Int
 +      if (properties[kCGImagePropertyOrientation] as? Int ?? 1) > 4 { swap(&width, &height) }
-+    }
+     }
 +    sharedMedia.append(SharedMediaFile(path: url.absoluteString, thumbnail: nil,
 +      fileName: getFileName(from: url, type: .image), fileSize: getFileSize(from: url),
 +      width: width, height: height, duration: nil, mimeType: url.mimeType(ext: url.pathExtension), type: .image))
@@ -672,7 +672,7 @@ index f1f4b72..02c8af8 100644
        self.sharedMedia.append(
          SharedMediaFile(
            path: newPath.absoluteString, thumbnail: nil, fileName: fileName,
-@@ -466,50 +363,267 @@ class ShareViewController: UIViewController {
+@@ -466,50 +363,284 @@ class ShareViewController: UIViewController {
      }
  
      if index == (content.attachments?.count)! - 1 {
@@ -693,33 +693,16 @@ index f1f4b72..02c8af8 100644
 -      let action = UIAlertAction(title: "OK", style: .cancel) { _ in
 -        self.dismiss(animated: true, completion: nil)
 -        self.extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
--      }
--
--      alert.addAction(action)
--      self.present(alert, animated: true, completion: nil)
 +    // Every unreadable share ends here. The library's message can carry private detail, so none of it is shown.
 +    DispatchQueue.main.async { [weak self] in
 +      guard let self, !self.captureFinished, !self.captureDurable, self.pendingCapture == nil else { return }
 +      self.captureFinished = true
 +      self.showCard()
 +      self.card?.finish(RecipeShareWords.unreadable)
-     }
-   }
- 
-   private func redirectToHostApp(type: RedirectType) {
--    let nonce = UUID().uuidString
--    let url = URL(string: "\(shareProtocol)://dataUrl=\(sharedKey)?nonce=\(nonce)#\(type)")!
--    var responder = self as UIResponder?
--
--    while responder != nil {
--      if let application = responder as? UIApplication {
--        if application.canOpenURL(url) {
--          application.open(url)
--        } else {
--          NSLog("redirectToHostApp canOpenURL KO: \(shareProtocol)")
--          self.dismissWithError(
--            message: "Application not found, invalid url scheme \(shareProtocol)")
--          return
++    }
++  }
++
++  private func redirectToHostApp(type: RedirectType) {
 +    guard !captureClosed else { return }
 +    let payload: Any?
 +    switch type {
@@ -763,9 +746,8 @@ index f1f4b72..02c8af8 100644
 +          guard pageTitle == nil, let title else { return nil }
 +          let fetched = HafaSharePreviewText.describe(url: url, pageTitle: title, fallback: RecipeShareWords.fallbackTitle)
 +          return (fetched.title, fetched.subtitle)
-         }
++        }
        }
--      responder = responder!.next
 +    case .photos(let count):
 +      card.preview = HafaSharePreview(title: RecipeShareWords.photosTitle(count), subtitle: "Photos to turn into a recipe",
 +        symbol: "photo.on.rectangle")
@@ -776,7 +758,9 @@ index f1f4b72..02c8af8 100644
 +        subtitle: "Text to turn into a recipe", symbol: "text.alignleft")
 +    }
 +  }
-+
+ 
+-      alert.addAction(action)
+-      self.present(alert, animated: true, completion: nil)
 +  private func showCard() {
 +    guard card == nil else { return }
 +    let model = HafaShareModel(preview: HafaSharePreview(title: RecipeShareWords.loading, symbol: "link"), action: RecipeShareWords.action)
@@ -818,9 +802,23 @@ index f1f4b72..02c8af8 100644
 +      self.captureWriteID = nil; self.captureWriting = false
 +      self.card?.isBusy = false
 +      completion(self, result)
-+    }
-+  }
-+
+     }
+   }
+ 
+-  private func redirectToHostApp(type: RedirectType) {
+-    let nonce = UUID().uuidString
+-    let url = URL(string: "\(shareProtocol)://dataUrl=\(sharedKey)?nonce=\(nonce)#\(type)")!
+-    var responder = self as UIResponder?
+-
+-    while responder != nil {
+-      if let application = responder as? UIApplication {
+-        if application.canOpenURL(url) {
+-          application.open(url)
+-        } else {
+-          NSLog("redirectToHostApp canOpenURL KO: \(shareProtocol)")
+-          self.dismissWithError(
+-            message: "Application not found, invalid url scheme \(shareProtocol)")
+-          return
 +  private func saveCaptureSource() {
 +    guard let source = pendingCapture else { return }
 +    writeCapture({ HafaShareStore.locked { defaults -> (isPublic: Bool, signedIn: Bool)? in
@@ -865,10 +863,17 @@ index f1f4b72..02c8af8 100644
 +    }
 +  }
 +
++  private func setCaptureSaving(_ saving: Bool) {
++    card?.isSaving = saving
++    isModalInPresentation = saving
++    navigationController?.isModalInPresentation = saving
++  }
++
 +  private func submitCapture() {
 +    guard !captureSubmitted, !captureWriting, !captureClosed else { return }
 +    if !captureDurable { saveCaptureSource(); return }
-+    guard let captureKey = confirmationCaptureKey else { return }
++    guard let captureKey = confirmationCaptureKey, saveGate.begin() else { return }
++    setCaptureSaving(true)
 +    let requested = captureVisibility
 +    writeCapture({ HafaShareStore.locked { defaults -> Bool in
 +      guard var metadata = defaults.dictionary(forKey: "\(captureKey).meta") else { return false }
@@ -877,7 +882,11 @@ index f1f4b72..02c8af8 100644
 +      defaults.set(metadata, forKey: "\(captureKey).meta")
 +      return true
 +    } ?? false }) { controller, saved in
-+      guard saved else { controller.card?.note = "Couldn’t save that. Try again — your recipe and last choice are safe."; return }
++      guard saved else {
++        controller.saveGate.settle(); controller.setCaptureSaving(false)
++        controller.card?.note = "Couldn’t save that. Try again — your recipe and last choice are safe."
++        return
++      }
 +      controller.captureSubmitted = true
 +      controller.card?.isBusy = true
 +      guard RecipeShareWords.sendsNow(kind: controller.captureKind, isPublic: requested, signedIn: controller.captureSignedIn),
@@ -898,6 +907,7 @@ index f1f4b72..02c8af8 100644
 +  private func finishCapture(accepted: Bool) {
 +    guard !captureClosed, !captureFinished else { return }
 +    captureFinished = true
++    saveGate.settle(); setCaptureSaving(false)
 +    card?.finish(RecipeShareWords.outcome(RecipeShareWords.result(
 +      kind: captureKind, isPublic: captureVisibility, signedIn: captureSignedIn, accepted: accepted)))
 +  }
@@ -910,33 +920,39 @@ index f1f4b72..02c8af8 100644
 +
 +  // Leaving before Save takes the share back out of the queue. Once saved, Håfa keeps it.
 +  private func cancelCapture() {
-+    card?.cancelPreview()
-+    guard !captureClosed else { return }
-+    guard !captureSubmitted else { return closeCapture() }
-+    let key = confirmationCaptureKey ?? pendingCapture?.key ?? sharedKey
-+    let files = attachmentFiles
-+    captureClosed = true; captureWriteID = nil
-+    // Serialized after any pending receipt write. File removal waits for active
-+    // copies, then prevents every late attachment callback from writing again.
-+    HafaShareStore.performCaptureWrite({
-+      guard HafaShareStore.discardCapture(key) else { return false }
-+      return files?.cancelAndRemove() ?? true
-+    }) { [weak self] discarded in
-+      guard let self else { return }
-+      if discarded { self.closeCapture() }
-+      else {
-+        self.captureClosed = false; self.captureWriting = false
-+        self.card?.isBusy = false; self.card?.canSave = false
-+        self.card?.note = "Couldn’t discard that. Tap Cancel to try again."
-+      }
-+    }
-+  }
-+
++    saveGate.requestClose {
++      card?.cancelPreview()
++      guard !captureClosed else { return }
++      guard !captureSubmitted else { return closeCapture() }
++      let key = confirmationCaptureKey ?? pendingCapture?.key ?? sharedKey
++      let files = attachmentFiles
++      captureClosed = true; captureWriteID = nil
++      // Serialized after any pending receipt write. File removal waits for active
++      // copies, then prevents every late attachment callback from writing again.
++      HafaShareStore.performCaptureWrite({
++        guard HafaShareStore.discardCapture(key) else { return false }
++        return files?.cancelAndRemove() ?? true
++      }) { [weak self] discarded in
++        guard let self else { return }
++        if discarded { self.closeCapture() }
++        else {
++          self.captureClosed = false; self.captureWriting = false
++          self.card?.isBusy = false; self.card?.canSave = false
++          self.card?.note = "Couldn’t discard that. Tap Cancel to try again."
+         }
+       }
+-      responder = responder!.next
+     }
+-    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
+   }
+ 
 +  private func closeCapture() {
-+    card?.cancelPreview()
-+    captureClosed = true; captureWriteID = nil
-+    guard let card else { return extensionContext?.completeRequest(returningItems: [], completionHandler: nil) ?? () }
-+    card.dismiss { [weak self] in self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
++    saveGate.requestClose {
++      card?.cancelPreview()
++      captureClosed = true; captureWriteID = nil
++      guard let card else { return extensionContext?.completeRequest(returningItems: [], completionHandler: nil) ?? () }
++      card.dismiss { [weak self] in self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
++    }
 +  }
 +
 +  // The same link the extension used to open on its own; Håfa picks up exactly this capture.
@@ -945,14 +961,14 @@ index f1f4b72..02c8af8 100644
 +    while let current = responder {
 +      if let application = current as? UIApplication { application.open(url, options: [:], completionHandler: nil); return }
 +      responder = current.next
-     }
--    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
-   }
- 
++    }
++  }
++
 +  private lazy var attachmentFiles: HafaShareAttachmentFiles? = {
 +    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: hostAppGroupIdentifier)
 +      .map { HafaShareAttachmentFiles(container: $0) }
 +  }()
++  private let saveGate = HafaShareSaveGate()
 +  private var card: HafaShareModel?
 +  private var captureKind: RecipeShareWords.Kind = .link
 +  private var captureVisibility = false
@@ -970,7 +986,7 @@ index f1f4b72..02c8af8 100644
    enum RedirectType {
      case media
      case text
-@@ -550,7 +664,6 @@ class ShareViewController: UIViewController {
+@@ -550,7 +681,6 @@ class ShareViewController: UIViewController {
        let resources = try url.resourceValues(forKeys: [.fileSizeKey])
        return resources.fileSize
      } catch {
@@ -978,7 +994,7 @@ index f1f4b72..02c8af8 100644
        return nil
      }
    }
-@@ -561,8 +674,7 @@ class ShareViewController: UIViewController {
+@@ -561,8 +691,7 @@ class ShareViewController: UIViewController {
          try FileManager.default.removeItem(at: dstURL)
        }
        try FileManager.default.copyItem(at: srcURL, to: dstURL)
@@ -988,7 +1004,7 @@ index f1f4b72..02c8af8 100644
        return false
      }
      return true
-@@ -615,9 +727,7 @@ class ShareViewController: UIViewController {
+@@ -615,9 +744,7 @@ class ShareViewController: UIViewController {
    private func getThumbnailPath(for url: URL) -> URL {
      let fileName = Data(url.lastPathComponent.utf8).base64EncodedString().replacingOccurrences(
        of: "==", with: "")
