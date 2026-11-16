@@ -125,7 +125,7 @@ def member_line(line, heading=False):
     body = re.sub(r"^[A-Z]\d{0,2}\.\s+", "", line)
     if member_comment(body) or member_score_line(body):  # "C. Jones: great job", never "B. Strength: Front Squat"
         return True
-    # "SkiErg for 4 minutes" and "10 Burpees" are programming; a result never says "for N" or starts with a count.
+    # "SkiErg for 3 minutes" and "10 Burpees" are programming; a result never says "for N" or starts with a count.
     programming = CAPS_FORMAT.search(body) or FORMAT_PHRASE.search(body) or re.search(r"\bfor\s+\d|^\d", body, re.I)
     return bool(MEMBER_SCORE.fullmatch(line)) and not programming
 
