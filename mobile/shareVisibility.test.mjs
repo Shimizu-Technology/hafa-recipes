@@ -32,7 +32,8 @@ describe('per-item native share visibility', () => {
   it('takes a cancelled share back out of the queue but keeps a saved one', () => {
     const cancel = section('private func cancelCapture', 'private func closeCapture');
     expect(cancel).toContain('guard !captureSubmitted');
-    expect(cancel).toContain('HafaShareStore.acknowledge(key)');
+    expect(cancel).toContain('HafaShareStore.discardCapture(key)');
+    expect(cancel).toContain('files?.cancelAndRemove()');
   });
   it('bundles the Calm fonts and mark into the extension and appends the card sources', () => {
     const files = readFileSync(new URL('writeIosShareExtensionFiles.js', root), 'utf8');
@@ -91,4 +92,15 @@ it('guards preview networking, bounds its lifetime, and keeps supplied Safari ti
   expect(kit).toContain('self.previewGeneration == generation');
   expect(kit).not.toContain('loadObject(ofClass: UIImage.self)');
   for (const name of ['cancelCapture', 'closeCapture']) expect(controller.split(`private func ${name}`)[1].split('\n  }')[0]).toContain('card?.cancelPreview()');
+});
+
+it('gates late attachment callbacks and puts copied photos in a capture-owned directory', () => {
+  const photos = section('private func handleImages', 'private func documentDirectoryPath');
+  expect(photos).toContain('files.copy(source)');
+  expect(photos).toContain('guard !captureClosed else { return }');
+  expect(section('private func redirectToHostApp', '// The one link')).toContain('guard !captureClosed else { return }');
+  const cancel = section('private func cancelCapture', 'private func closeCapture');
+  expect(cancel).toContain('?? sharedKey');
+  expect(cancel).toContain('HafaShareStore.performCaptureWrite');
+  expect(cancel).toContain('if discarded { self.closeCapture() }');
 });

@@ -225,7 +225,7 @@ index e52b6d0..2a1d56c 100644
 +}
 +// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..3d4f943 100644
+index f1f4b72..f71ae8d 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -266,7 +266,27 @@ index f1f4b72..3d4f943 100644
    }
  
    override func viewDidAppear(_ animated: Bool) {
-@@ -116,9 +124,7 @@ class ShareViewController: UIViewController {
+@@ -87,12 +95,14 @@ class ShareViewController: UIViewController {
+           let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".vcf")
+           _ = Self.copyFile(at: url, to: tmp)
+           Task { @MainActor in
++          guard !self.captureClosed else { return }
+             await self.handleFileURL(content: content, url: tmp, index: index)
+           }
+         } else if let data = try? await attachment.loadItem(forTypeIdentifier: self.vcardContentType) as? Data {
+           let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".vcf")
+           try data.write(to: tmp)
+           Task { @MainActor in
++          guard !self.captureClosed else { return }
+             await self.handleFileURL(content: content, url: tmp, index: index)
+           }
+         } else {
+@@ -112,13 +122,12 @@ class ShareViewController: UIViewController {
+         as? String
+       {
+         Task { @MainActor in
++          guard !self.captureClosed else { return }
+ 
            self.sharedText.append(item)
            // If this is the last item, save sharedText in userDefaults and redirect to host app
            if index == (content.attachments?.count)! - 1 {
@@ -277,7 +297,12 @@ index f1f4b72..3d4f943 100644
              self.redirectToHostApp(type: .text)
            }
  
-@@ -139,9 +145,7 @@ class ShareViewController: UIViewController {
+@@ -135,13 +144,12 @@ class ShareViewController: UIViewController {
+     Task.detached {
+       if let item = try! await attachment.loadItem(forTypeIdentifier: self.urlContentType) as? URL {
+         Task { @MainActor in
++          guard !self.captureClosed else { return }
+ 
            self.sharedWebUrl.append(WebUrl(url: item.absoluteString, meta: ""))
            // If this is the last item, save sharedText in userDefaults and redirect to host app
            if index == (content.attachments?.count)! - 1 {
@@ -288,7 +313,15 @@ index f1f4b72..3d4f943 100644
              self.redirectToHostApp(type: .weburl)
            }
  
-@@ -174,9 +178,7 @@ class ShareViewController: UIViewController {
+@@ -163,6 +171,7 @@ class ShareViewController: UIViewController {
+         as? NSDictionary
+       {
+         Task { @MainActor in
++          guard !self.captureClosed else { return }
+ 
+           if let results = item[NSExtensionJavaScriptPreprocessingResultsKey]
+             as? NSDictionary
+@@ -174,9 +183,7 @@ class ShareViewController: UIViewController {
                WebUrl(url: results["baseURI"] as! String, meta: results["meta"] as! String))
              // If this is the last item, save sharedText in userDefaults and redirect to host app
              if index == (content.attachments?.count)! - 1 {
@@ -299,7 +332,23 @@ index f1f4b72..3d4f943 100644
                self.redirectToHostApp(type: .weburl)
              }
            } else {
-@@ -238,92 +240,33 @@ class ShareViewController: UIViewController {
+@@ -222,6 +229,7 @@ class ShareViewController: UIViewController {
+                   NSLog("[ERROR] Cannot load pkpass content: Item was neither URL nor Data for type \(self.pkpassContentType). Attachment: \(attachment)")
+                   // Ensure dismissWithError runs on the main thread if it interacts with UI
+                   Task { @MainActor in
++          guard !self.captureClosed else { return }
+                       self.dismissWithError(message: "Cannot load pkpass content (unexpected data type).")
+                   }
+               }
+@@ -230,6 +238,7 @@ class ShareViewController: UIViewController {
+               NSLog("[ERROR] Exception when handling pkpass: \(error.localizedDescription)")
+               // Ensure dismissWithError runs on the main thread if it interacts with UI
+               Task { @MainActor in
++          guard !self.captureClosed else { return }
+                   self.dismissWithError(message: "Error processing pkpass: \(error.localizedDescription)")
+               }
+           }
+@@ -238,92 +247,28 @@ class ShareViewController: UIViewController {
  
  
    private func handleImages(content: NSExtensionItem, attachment: NSItemProvider, index: Int) async {
@@ -389,19 +438,14 @@ index f1f4b72..3d4f943 100644
 -        await self.dismissWithError(message: "Cannot load image content: \(error.localizedDescription)")
 +    // Ask for a file, never a full UIImage. Copy while the provider's temporary
 +    // URL is valid; decoding is reserved for the bounded preview after receipt.
-+    guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: hostAppGroupIdentifier) else {
-+      dismissWithError(); return
-+    }
++    guard !captureClosed, let files = attachmentFiles else { return }
 +    let copied: URL? = await withCheckedContinuation { continuation in
 +      attachment.loadFileRepresentation(forTypeIdentifier: imageContentType) { source, _ in
 +        guard let source else { continuation.resume(returning: nil); return }
-+        let destination = container.appendingPathComponent("\(UUID().uuidString).\(source.pathExtension)")
-+        do {
-+          try FileManager.default.copyItem(at: source, to: destination)
-+          continuation.resume(returning: destination)
-+        } catch { continuation.resume(returning: nil) }
++        continuation.resume(returning: files.copy(source))
        }
      }
++    guard !captureClosed else { return }
 +    guard let url = copied else { dismissWithError(); return }
 +    var width: Int?, height: Int?
 +    if let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
@@ -417,7 +461,66 @@ index f1f4b72..3d4f943 100644
    }
  
    private func documentDirectoryPath() -> URL? {
-@@ -398,9 +341,7 @@ class ShareViewController: UIViewController {
+@@ -337,56 +282,20 @@ class ShareViewController: UIViewController {
+     }
+   }
+ 
+-  private func saveScreenshot(_ image: UIImage) -> URL? {
+-    guard let screenshotData = image.pngData() else {
+-      return nil
+-    }
+-    
+-    // Try using the app group container instead of documents directory
+-    guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier) else {
+-      return nil
+-    }
+-    
+-    let fileName = "screenshot_\(UUID().uuidString).png"
+-    let screenshotPath = containerURL.appendingPathComponent(fileName)
+-    
+-    do {
+-      try screenshotData.write(to: screenshotPath)
+-
+-      let fileExists = FileManager.default.fileExists(atPath: screenshotPath.path)
+-      
+-      if fileExists {
+-        let attributes = try? FileManager.default.attributesOfItem(atPath: screenshotPath.path)
+-        _ = attributes?[.size] as? Int ?? 0
+-      }
+-      
+-      return screenshotPath
+-    } catch {
+-      NSLog("[ERROR] saveScreenshot: Failed to write screenshot: \(error)")
+-      NSLog("[ERROR] saveScreenshot: Error details: \(error.localizedDescription)")
+-      return nil
+-    }
+-  }
+-
+   private func handleVideos(content: NSExtensionItem, attachment: NSItemProvider, index: Int) async
+   {
+     Task.detached {
+       if let url = try? await attachment.loadItem(forTypeIdentifier: self.videoContentType) as? URL
+       {
+         Task { @MainActor in
++          guard !self.captureClosed else { return }
+ 
+           // Always copy
+           let fileName = self.getFileName(from: url, type: .video)
+           let fileExtension = self.getExtension(from: url, type: .video)
+           let fileSize = self.getFileSize(from: url)
+           let mimeType = url.mimeType(ext: fileExtension)
+-          let newName = "\(UUID().uuidString).\(fileExtension)"
+-          let newPath = FileManager.default
+-            .containerURL(
+-              forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier)!
+-            .appendingPathComponent(newName)
+-          let copied = Self.copyFile(at: url, to: newPath)
+-          if copied {
++          if let newPath = self.attachmentFiles?.copy(url) {
+             guard
+               let sharedFile = self.getSharedMediaFile(
+                 forVideo: newPath, fileName: fileName, fileSize: fileSize, mimeType: mimeType)
+@@ -398,9 +307,7 @@ class ShareViewController: UIViewController {
  
            // If this is the last item, save imagesData in userDefaults and redirect to host app
            if index == (content.attachments?.count)! - 1 {
@@ -428,7 +531,39 @@ index f1f4b72..3d4f943 100644
              self.redirectToHostApp(type: .media)
            }
  
-@@ -466,50 +407,245 @@ class ShareViewController: UIViewController {
+@@ -417,6 +324,7 @@ class ShareViewController: UIViewController {
+     Task.detached {
+       if let url = try? await attachment.loadItem(forTypeIdentifier: self.pdfContentType) as? URL {
+         Task { @MainActor in
++          guard !self.captureClosed else { return }
+ 
+           await self.handleFileURL(content: content, url: url, index: index)
+ 
+@@ -433,6 +341,7 @@ class ShareViewController: UIViewController {
+     Task.detached {
+       if let url = try? await attachment.loadItem(forTypeIdentifier: self.fileURLType) as? URL {
+         Task { @MainActor in
++          guard !self.captureClosed else { return }
+ 
+           await self.handleFileURL(content: content, url: url, index: index)
+ 
+@@ -451,13 +360,8 @@ class ShareViewController: UIViewController {
+     let fileExtension = self.getExtension(from: url, type: .file)
+     let fileSize = self.getFileSize(from: url)
+     let mimeType = url.mimeType(ext: fileExtension)
+-    let newName = "\(UUID().uuidString).\(fileExtension)"
+-    let newPath = FileManager.default
+-      .containerURL(
+-        forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier)!
+-      .appendingPathComponent(newName)
+-    let copied = Self.copyFile(at: url, to: newPath)
+-    if copied {
++    guard !captureClosed else { return }
++    if let newPath = attachmentFiles?.copy(url) {
+       self.sharedMedia.append(
+         SharedMediaFile(
+           path: newPath.absoluteString, thumbnail: nil, fileName: fileName,
+@@ -466,50 +370,267 @@ class ShareViewController: UIViewController {
      }
  
      if index == (content.attachments?.count)! - 1 {
@@ -476,6 +611,7 @@ index f1f4b72..3d4f943 100644
 -          self.dismissWithError(
 -            message: "Application not found, invalid url scheme \(shareProtocol)")
 -          return
++    guard !captureClosed else { return }
 +    let payload: Any?
 +    switch type {
 +    case .text: payload = sharedText
@@ -529,10 +665,9 @@ index f1f4b72..3d4f943 100644
 +      let first = sharedText.joined(separator: "\n").split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
 +      card.preview = HafaSharePreview(title: first.isEmpty ? "Shared text" : String(first.prefix(90)),
 +        subtitle: "Text to turn into a recipe", symbol: "text.alignleft")
-     }
--    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
-   }
- 
++    }
++  }
++
 +  private func showCard() {
 +    guard card == nil else { return }
 +    let model = HafaShareModel(preview: HafaSharePreview(title: RecipeShareWords.loading, symbol: "link"), action: RecipeShareWords.action)
@@ -605,9 +740,10 @@ index f1f4b72..3d4f943 100644
 +      controller.card?.canSave = true
 +      controller.refreshCard()
 +      controller.describeCapture(controller.captureLink())
-+    }
-+  }
-+
+     }
+-    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
+   }
+ 
 +  private func changeCaptureVisibility(_ requested: Bool) {
 +    guard captureDurable, !captureSubmitted, !captureWriting, let key = confirmationCaptureKey else { return }
 +    writeCapture({ HafaShareStore.locked { defaults -> Bool in
@@ -659,6 +795,7 @@ index f1f4b72..3d4f943 100644
 +  }
 +
 +  private func answerOutcome(_ button: HafaShareOutcome.Button) {
++    if !captureSubmitted { cancelCapture(); return }
 +    if button != .close, button == card?.outcome?.opens, let url = captureURL { openHafa(url) }
 +    closeCapture()
 +  }
@@ -666,9 +803,25 @@ index f1f4b72..3d4f943 100644
 +  // Leaving before Save takes the share back out of the queue. Once saved, Håfa keeps it.
 +  private func cancelCapture() {
 +    card?.cancelPreview()
-+    guard !captureSubmitted, let key = confirmationCaptureKey ?? pendingCapture?.key else { return closeCapture() }
++    guard !captureClosed else { return }
++    guard !captureSubmitted else { return closeCapture() }
++    let key = confirmationCaptureKey ?? pendingCapture?.key ?? sharedKey
++    let files = attachmentFiles
 +    captureClosed = true; captureWriteID = nil
-+    HafaShareStore.performCaptureWrite({ HafaShareStore.acknowledge(key) }) { [weak self] _ in self?.closeCapture() }
++    // Serialized after any pending receipt write. File removal waits for active
++    // copies, then prevents every late attachment callback from writing again.
++    HafaShareStore.performCaptureWrite({
++      guard HafaShareStore.discardCapture(key) else { return false }
++      return files?.cancelAndRemove() ?? true
++    }) { [weak self] discarded in
++      guard let self else { return }
++      if discarded { self.closeCapture() }
++      else {
++        self.captureClosed = false; self.captureWriting = false
++        self.card?.isBusy = false; self.card?.canSave = false
++        self.card?.note = "Couldn’t discard that. Tap Cancel to try again."
++      }
++    }
 +  }
 +
 +  private func closeCapture() {
@@ -687,6 +840,10 @@ index f1f4b72..3d4f943 100644
 +    }
 +  }
 +
++  private lazy var attachmentFiles: HafaShareAttachmentFiles? = {
++    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: hostAppGroupIdentifier)
++      .map { HafaShareAttachmentFiles(container: $0) }
++  }()
 +  private var card: HafaShareModel?
 +  private var captureKind: RecipeShareWords.Kind = .link
 +  private var captureVisibility = false
@@ -704,6 +861,17 @@ index f1f4b72..3d4f943 100644
    enum RedirectType {
      case media
      case text
+@@ -615,9 +736,7 @@ class ShareViewController: UIViewController {
+   private func getThumbnailPath(for url: URL) -> URL {
+     let fileName = Data(url.lastPathComponent.utf8).base64EncodedString().replacingOccurrences(
+       of: "==", with: "")
+-    let path = FileManager.default
+-      .containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier)!
+-      .appendingPathComponent("\(fileName).jpg")
++    let path = url.deletingLastPathComponent().appendingPathComponent("\(fileName).jpg")
+     return path
+   }
+ 
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/withIosAppEntitlements.js b/node_modules/expo-share-intent/plugin/build/ios/withIosAppEntitlements.js
 index 0633a61..ab77304 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/withIosAppEntitlements.js

@@ -119,3 +119,34 @@ assert(capabilityOnly["requestedIsPublic"] as? Bool == false)
 let wrongAccountChoice = HafaShareStore.capturePreferences(session: ["accountScopeId": "owner-a", "isPublic": true], preferences: publicPreference.merging(["accountScopeId": "other"]) { _, new in new })
 assert(wrongAccountChoice["requestedIsPublic"] as? Bool == false)
 print("Unset and cross-account choices cannot inherit a public capability")
+
+// Cancel waits for an in-flight attachment write, deletes only that capture,
+// and prevents callbacks that arrive after cancellation from recreating files.
+let attachmentRoot = directory.appendingPathComponent("attachments")
+try FileManager.default.createDirectory(at: attachmentRoot, withIntermediateDirectories: true)
+let neighbour = attachmentRoot.appendingPathComponent("another-capture.jpg")
+try Data("keep".utf8).write(to: neighbour)
+let files = HafaShareAttachmentFiles(container: attachmentRoot)
+let entered = DispatchSemaphore(value: 0), finishWrite = DispatchSemaphore(value: 0), removed = DispatchSemaphore(value: 0)
+DispatchQueue.global().async {
+  try! files.withWrite { folder in
+    entered.signal()
+    finishWrite.wait()
+    try Data("photo".utf8).write(to: folder.appendingPathComponent("photo.jpg"))
+  }
+}
+assert(entered.wait(timeout: .now() + 2) == .success)
+DispatchQueue.global().async { assert(files.cancelAndRemove()); removed.signal() }
+finishWrite.signal()
+assert(removed.wait(timeout: .now() + 2) == .success)
+assert(files.copy(neighbour) == nil)
+assert(try! FileManager.default.contentsOfDirectory(atPath: attachmentRoot.path) == ["another-capture.jpg"])
+assert(try! Data(contentsOf: neighbour) == Data("keep".utf8))
+assert(files.cancelAndRemove())
+let cancelledEarly = HafaShareAttachmentFiles(container: attachmentRoot)
+assert(cancelledEarly.cancelAndRemove() && cancelledEarly.copy(neighbour) == nil)
+let kept = HafaShareAttachmentFiles(container: attachmentRoot)
+let keptURL = kept.copy(neighbour)!
+assert(FileManager.default.fileExists(atPath: keptURL.path))
+assert(kept.cancelAndRemove())
+print("Attachment cancellation: in-flight/late writes, exact ownership, idempotency and retained files passed")

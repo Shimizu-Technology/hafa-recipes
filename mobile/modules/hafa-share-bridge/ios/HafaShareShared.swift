@@ -108,6 +108,18 @@ enum HafaShareStore {
     } ?? false
   }
 
+  // Cancellation is idempotent, including a capture still loading attachments.
+  // Run on captureWriteQueue so an earlier receipt write cannot recreate it.
+  static func discardCapture(_ key: String) -> Bool {
+    locked { defaults in
+      let pending = defaults.stringArray(forKey: pendingKey) ?? []
+      defaults.set(remainingPending(pending, acknowledging: key), forKey: pendingKey)
+      defaults.removeObject(forKey: key)
+      defaults.removeObject(forKey: "\(key).meta")
+      return true
+    } ?? false
+  }
+
   static func validBaseURL(_ value: String) -> URL? {
     guard let url = URL(string: value), url.scheme == "https", url.host != nil,
       url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }
@@ -206,5 +218,41 @@ private final class HafaShareNetworkDelegate: NSObject, URLSessionTaskDelegate {
     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
     completionHandler: @escaping (URLRequest?) -> Void) {
     completionHandler(nil)
+  }
+}
+
+// Each extension invocation owns one directory. This lock covers the actual
+// copy and cancellation: late provider callbacks cannot recreate discarded files.
+final class HafaShareAttachmentFiles {
+  private let directory: URL
+  private let lock = NSLock()
+  private var cancelled = false
+
+  init(container: URL, captureID: UUID = UUID()) {
+    directory = container.appendingPathComponent("hafa-share-\(captureID.uuidString)", isDirectory: true)
+  }
+
+  func withWrite<T>(_ operation: (URL) throws -> T) throws -> T? {
+    lock.lock(); defer { lock.unlock() }
+    guard !cancelled else { return nil }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return try operation(directory)
+  }
+
+  func copy(_ source: URL) -> URL? {
+    try? withWrite { directory in
+      let destination = directory.appendingPathComponent("\(UUID().uuidString).\(source.pathExtension)")
+      try FileManager.default.copyItem(at: source, to: destination)
+      return destination
+    }
+  }
+
+  func cancelAndRemove() -> Bool {
+    lock.lock(); defer { lock.unlock() }
+    cancelled = true
+    do {
+      if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+      return true
+    } catch { return false }
   }
 }
