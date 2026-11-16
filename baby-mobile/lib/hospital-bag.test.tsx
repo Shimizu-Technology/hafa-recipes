@@ -75,6 +75,28 @@ describe("the screen", () => {
   beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); m.toast.mockClear(); });
   afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
   const mount = async () => { await act(async () => { renderer = create(<HospitalBag />); }); };
+  const titles = () => all("Section").map((node) => node.props.title);
+
+  it("on her partner's phone, the sections are for Kami and for him, and the intro and starter lines don't say \"you\" about her", async () => {
+    setup([bag()], [{ id: "fam", kind: "family", role: "parent", generation: 1 }]);
+    Object.assign(m.baby.state, { bootstrap: { generation: 3, profile: { timezone: "Pacific/Guam" }, people: { kami: "Kami" }, spaces: [{ id: "fam", kind: "family", role: "parent", generation: 1 }],
+      children: [{ id: "c", name: "Baby", due_date: "2026-12-10", birth_date: null, space_id: "fam", details: { expecting_member: "kami", expecting_confirmed: true } }] } });
+    Object.assign(m.baby, { owner: "leon", api: { familyMembers: vi.fn(async () => ({ items: [{ app_user_id: "kami", role: "parent", status: "active" }, { app_user_id: "leon", role: "parent", status: "active" }] })) } });
+    await mount();
+    expect(titles()).toEqual(["For Kami", "For baby", "For you", "Papers & phone"]);
+    await act(async () => renderer!.unmount());
+    // Hers, and a phone that doesn't know yet.
+    m.baby.owner = "kami";
+    await mount();
+    expect(titles()).toEqual(["For you", "For baby", "For your partner", "Papers & phone"]);
+    await act(async () => renderer!.unmount());
+    m.baby.owner = "leon"; m.baby.state.bootstrap.children[0].details = { expecting_member: "leon", expecting_confirmed: false };
+    await mount();
+    expect(titles()).toEqual(["For the person giving birth", "For baby", "For their partner", "Papers & phone"]);
+    await act(async () => renderer!.unmount());
+    // A new starter list reads right for whoever packs it.
+    expect(Object.values(starterBag).flat().map(([, label]) => label).join(" | ")).not.toMatch(/\bYour\b|\byour\b/);
+  });
 
   it("starts the starter list in one tap, as an ordinary checklist with no reminder", async () => {
     setup([]);

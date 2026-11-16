@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View } from "react-native";
+import { View, useWindowDimensions } from "react-native";
 import { Button, Card, Copy, PressTarget, useToast } from "./ui";
 import { useBaby } from "@/lib/context";
 import { messageFor, type DueReminder } from "@/lib/models";
@@ -7,12 +7,13 @@ import { reminderDestination } from "@/lib/notification-route";
 import { dismissReminder, shownDue } from "@/lib/reminder-due";
 import { openPlace, placeReminder } from "@/lib/reminder-open";
 import { usePathname } from "expo-router";
+import { wordFitLimit } from "../lib/text-fit";
 
 const shownAtOnce = 3;
 
 /** Push is never the only record of a reminder: what's due is here until it's dismissed or its reason goes. */
 export function DueReminders() {
-  const b = useBaby(), toast = useToast(), pathname = usePathname(), [all, setAll] = useState(false);
+  const b = useBaby(), toast = useToast(), pathname = usePathname(), [all, setAll] = useState(false), { width } = useWindowDimensions();
   const items = shownDue(b.state), shown = all ? items : items.slice(0, shownAtOnce);
   if (!items.length) return null;
   async function open(item: DueReminder) {
@@ -23,7 +24,8 @@ export function DueReminders() {
   return <View accessibilityLabel="Reminders" style={{ gap: 8 }}>
     {shown.map((item) => <Card key={item.id} tone="soft" style={{ gap: 4 }}>
       <PressTarget accessibilityRole="button" accessibilityLabel={item.text} accessibilityHint="Opens it" onPress={() => void open(item).catch((e) => toast(messageFor(e)))} style={{ minHeight: 44, justifyContent: "center" }}>
-        <Copy kind="label">{item.text}</Copy>
+        {/* The screen's 16pt gutters and the card's 22pt padding are all the line has to itself. */}
+        <Copy kind="label" limit={wordFitLimit(item.text, width - 2 * 16 - 2 * 22)}>{item.text}</Copy>
       </PressTarget>
       <Button variant="ghost" title="Dismiss" accessibilityLabel={`Dismiss: ${item.text}`} onPress={() => void dismissReminder(b, item.id).catch((e) => toast(messageFor(e)))} />
     </Card>)}

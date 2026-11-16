@@ -8,6 +8,9 @@ import { router } from "expo-router";
 import { added, bagTitle, findBags, grouped, packedLine, removed, starterItems, toggled, type BagSection } from "../lib/hospital-bag";
 import { Button, Card, Choice, Copy, Field, HeaderAction, Icon, Notice, PressTarget, Screen, Section, tap, useColors, useToast } from "@/components/ui";
 import { SyncStatus } from "@/components/sync-status";
+import { useExpectingVoice } from "../components/expecting-voice";
+import { bagAddLabel, bagIntro, bagSectionTitle } from "../lib/voice-words";
+import { profileToday, timingChild } from "../lib/timing";
 
 /**
  * Her hospital bag: a starter list she packs from, grouped the way a bag is packed. It's a checklist routine
@@ -18,6 +21,9 @@ export default function HospitalBag() {
     [editing, setEditing] = useState(false), [error, setError] = useState(""), [starting, setStarting] = useState(false),
     [drafts, setDrafts] = useState<Partial<Record<BagSection, string>>>({});
   const shared = familySpaces(b.state.bootstrap).length > 0, latest = useRef(b);
+  // The bag is hers: on her partner's phone "For you" is his and she's by name, until the baby is born.
+  const child = timingChild(b.state, profileToday(new Date(), b.state.bootstrap?.profile?.timezone)), heard = useExpectingVoice(child),
+    voice = child && !child.birth_date ? heard : "mine";
   latest.current = b;
   async function save(record: BabyRecord, data: RecordData) {
     setError("");
@@ -64,11 +70,10 @@ export default function HospitalBag() {
     {!!error && <Notice error>{error}</Notice>}
     {!bag ? <Card tone="hero" style={{ gap: 12 }}>
       <Copy kind="heading">A list to pack from</Copy>
-      <Copy tone="muted">Start with a list of what most people bring for the birth: things for you, for baby, for your partner, and the papers.
-        Tick things off as you pack, and change anything to suit you and your hospital.</Copy>
+      <Copy tone="muted">{bagIntro(voice)}</Copy>
       <Copy kind="small" tone="muted">Many hospitals give pads, diapers and gowns. Their own list, if they gave you one, wins.</Copy>
       <Button title="Start my hospital bag" icon="bag-handle-outline" busy={starting} onPress={() => void start()} />
-    </Card> : grouped(bag).map((section) => <Section key={section.id} title={section.title}>
+    </Card> : grouped(bag).map((section) => <Section key={section.id} title={bagSectionTitle(section.id, section.title, voice)}>
       {section.items.map((item) => editing ? <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 50 }}>
         <View style={{ flex: 1 }}><Copy>{item.label}</Copy></View>
         <PressTarget accessibilityRole="button" accessibilityLabel={`Remove ${item.label}`} onPress={() => remove(bag, item.id, item.label)}
@@ -78,7 +83,7 @@ export default function HospitalBag() {
       </View> : <Choice key={item.id} label={item.label} selected={item.done} onPress={() => void save(bag, toggled(bag, item.id))} />)}
       {!section.items.length && !editing && <Copy kind="small" tone="muted">Nothing here. Tap Edit to add something.</Copy>}
       {editing && "add" in section && <>
-        <Field label={section.add} maxLength={500} value={drafts[section.id as BagSection] ?? ""}
+        <Field label={bagAddLabel(section.id, section.add, voice)} maxLength={500} value={drafts[section.id as BagSection] ?? ""}
           onChange={(text) => setDrafts((all) => ({ ...all, [section.id]: text }))} returnKeyType="done"
           onSubmit={() => add(bag, section.id as BagSection)} />
         <Button secondary title="Add" disabled={!drafts[section.id as BagSection]?.trim()} onPress={() => add(bag, section.id as BagSection)} />
