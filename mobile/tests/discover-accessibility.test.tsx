@@ -1,5 +1,5 @@
 vi.mock('@/components/chrome/SearchField', () => ({ SearchLauncher: 'SearchLauncher', SearchRow: ({ children }: any) => <>{children}</>, SearchField: 'SearchField', FilterButton: ({ onPress, count }: any) => React.createElement('button', { accessibilityLabel: 'Filter recipes', onPress, count }) }));
-vi.mock('@/components/chrome/Chips', () => ({ ChipRow: ({ children }: any) => <>{children}</>, Chip: ({ label, accessibilityLabel, onPress }: any) => React.createElement('button', { accessibilityLabel: accessibilityLabel ?? label, onPress }) }));
+vi.mock('@/components/chrome/Chips', () => ({ ChipRow: ({ children }: any) => <>{children}</>, Chip: ({ label, accessibilityLabel, onPress, selected }: any) => React.createElement('button', { accessibilityLabel: accessibilityLabel ?? label, onPress, accessibilityState: selected === undefined ? undefined : { selected } }) }));
 vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
@@ -182,6 +182,21 @@ describe('Discover accessibility', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 
+  it('toggles an Under 30 min chip that filters All recipes instead of repeating cards in a section', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<DiscoverScreen />); });
+    try {
+      const chip = () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Under 30 minutes filter')!;
+      expect(chip().props.accessibilityState).toEqual({ selected: false });
+      await act(async () => chip().props.onPress());
+      expect(chip().props.accessibilityState).toEqual({ selected: true });
+      expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ timeFilter: 'quick' }));
+      await act(async () => chip().props.onPress());
+      expect(chip().props.accessibilityState).toEqual({ selected: false });
+      expect(mocks.searchArgs.at(-1)).not.toEqual(expect.objectContaining({ timeFilter: 'quick' }));
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
   it('keeps Discover as a grid and exposes unique actions through the header menu', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<DiscoverScreen />); });
@@ -194,7 +209,7 @@ describe('Discover accessibility', () => {
       expect(byText(renderer, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
       await act(async () => byText(renderer, 'Apply (1)').props.onPress());
       expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
-      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Surprise me', 'Top contributors', 'What can I make, search by ingredient']);
+      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Under 30 minutes filter', 'Surprise me', 'Top contributors', 'What can I make, search by ingredient']);
       await act(async () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Top contributors')!.props.onPress());
       const contributors = renderer.root.findByType('AllContributorsModal' as any);
       expect(contributors.props.visible).toBe(true);
