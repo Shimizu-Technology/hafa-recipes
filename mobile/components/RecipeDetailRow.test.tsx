@@ -37,9 +37,10 @@ describe('stacked action rows', () => {
 
   it('allows two lines of detail at accessibility text sizes', async () => {
     m.fontScale = 2;
-    const root = await render({ value: 'TikTok video by @thecoreyb' });
-    expect(text(root, 'TikTok video by @thecoreyb').props.numberOfLines).toBe(2);
-    m.fontScale = 1;
+    try {
+      const root = await render({ value: 'TikTok video by @thecoreyb' });
+      expect(text(root, 'TikTok video by @thecoreyb').props.numberOfLines).toBe(2);
+    } finally { m.fontScale = 1; }
   });
 
   it('gives a row without detail the same minimum height as a row with detail', async () => {
@@ -60,5 +61,16 @@ describe('stacked action rows', () => {
     const root = await render({ title: 'Copy link' });
     expect(root.container.queryAll((n: any) => n.type === 'Text')).toHaveLength(1);
     expect(root.container.queryAll((n: any) => n.type === 'Ionicons' && n.props.name === 'chevron-forward')).toHaveLength(1);
+  });
+
+  it('keeps the normal 12 pt icon gap at accessibility sizes for stacked rows only', async () => {
+    const gap = (root: any) => root.container.queryAll((n: any) => n.type === 'TouchableOpacity')[0].props.style.at(-1).gap;
+    m.fontScale = 3.1;
+    try {
+      expect(gap(await render({ value: 'Ingredients and steps' }))).toBe(12);
+      // Recipe detail's side-by-side rows keep their tighter large-text gap.
+      expect(gap(await render({ stacked: false, value: 'Ingredients and steps' }))).toBe(4);
+    } finally { m.fontScale = 1; }
+    expect(gap(await render({}))).toBe(12);
   });
 });

@@ -40,7 +40,9 @@ export function RecipeDetailRow({ icon, title, value, accessory, stacked, last, 
     {last ? null : <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />}
   </>;
   // Stacked rows share one height, so a row without detail ("Copy link") matches the rows that have it.
-  const style = [styles.row, stacked && styles.stackedRow, { gap: fontScale >= 2 ? 4 : 12 }];
+  // Stacked rows keep the 12 pt icon gap at every text size (4 pt read as cramped beside large text);
+  // the separator's inset assumes it too.
+  const style = [styles.row, stacked && styles.stackedRow, { gap: stacked || fontScale < 2 ? 12 : 4 }];
   return onPress
     ? <TouchableOpacity accessibilityLabel={title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
     : <View style={style}>{content}</View>;
