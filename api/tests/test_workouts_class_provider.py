@@ -104,3 +104,25 @@ async def test_ordinary_imports_keep_their_budget_and_their_dose_check(provider)
     _, payloads = await provider(False, (class_output(), "stop"), (class_output(), "stop"))
     assert [payload["model"] for payload in payloads] == ["primary-test", "fallback-test"]
     assert payloads[0]["max_completion_tokens"] == OUTPUT_TOKENS
+
+
+def test_one_reversed_duration_or_distance_range_is_repaired_not_refetched():
+    from app.domains.workouts.extraction import _validate_provider_workout
+
+    raw = {"title": "Class", "kind": "session", "blocks": [{"id": "a", "label": "A", "exercises": [
+        {"name": "Run", "distance_meters": 400, "distance_meters_min": 800, "duration_seconds": 40, "duration_seconds_max": 30},
+        {"name": "Burpees", "reps_min": 20, "reps_max": 20}]}]}
+    warnings = _validate_provider_workout(raw)
+    run = raw["blocks"][0]["exercises"][0]
+    assert (run["distance_meters"], run["distance_meters_min"], run["duration_seconds"], run["duration_seconds_max"]) == (
+        400, None, 40, None)
+    assert warnings == ["Reversed range removed from Run; review the original source evidence."] * 2
+
+
+def test_class_part_slips_that_change_no_prescription_are_repaired():
+    from app.domains.workouts.extraction import _validate_provider_workout
+
+    raw = {"title": "Class", "kind": "session", "benchmark": {"key": "summit", "name": "Summit", "block_ids": ["a", "missing"]},
+           "blocks": [{"id": "a", "label": "A", "exercises": []}, {"id": "b", "label": "B", "rest_after_seconds": 180, "exercises": []}]}
+    assert _validate_provider_workout(raw) == []
+    assert raw["benchmark"]["block_ids"] == ["a"] and raw["blocks"][-1]["rest_after_seconds"] is None

@@ -440,6 +440,14 @@ def workout_response_format() -> dict:
     }
 
 
+RANGE_REPAIRS = {
+    "Duration range requires a minimum no greater than its maximum": "duration_seconds_max",
+    "Distance range requires a maximum at least equal to its minimum": "distance_meters_min",
+}
+# Class-part slips that do not change any prescription.
+WORKOUT_REPAIRS = {"Benchmark block_ids must reference existing parts", "The last part cannot have rest_after_seconds"}
+
+
 def _validate_provider_workout(raw: dict) -> list[str]:
     """Repair only dependent optional values; core/type/range errors still fail."""
     warnings = []
@@ -452,6 +460,9 @@ def _validate_provider_workout(raw: dict) -> list[str]:
             for issue in error.errors():
                 location = issue["loc"]
                 message = str(issue.get("ctx", {}).get("error", ""))
+                if issue["type"] == "value_error" and not location and message in WORKOUT_REPAIRS:
+                    repairs.append((raw, message))
+                    continue
                 if (
                     issue["type"] != "value_error"
                     or len(location) != 4
@@ -461,12 +472,22 @@ def _validate_provider_workout(raw: dict) -> list[str]:
                     not in {
                         "reps_min cannot exceed reps_max",
                         "load requires a unit and load convention",
+                        *RANGE_REPAIRS,
                     }
                 ):
                     raise
                 repairs.append((raw["blocks"][location[1]]["exercises"][location[3]], message))
             for item, message in repairs:
-                if message == "reps_min cannot exceed reps_max":
+                if message == "Benchmark block_ids must reference existing parts":
+                    ids = {block.get("id") for block in item.get("blocks") or []}
+                    item["benchmark"]["block_ids"] = [value for value in item["benchmark"]["block_ids"] if value in ids]
+                elif message == "The last part cannot have rest_after_seconds":
+                    item["blocks"][-1]["rest_after_seconds"] = None
+                elif message in RANGE_REPAIRS:
+                    # One reversed range is a slip in one value, not a reason to pay for another model.
+                    item[RANGE_REPAIRS[message]] = None
+                    warnings.append(f"Reversed range removed from {item['name']}; review the original source evidence.")
+                elif message == "reps_min cannot exceed reps_max":
                     item["reps_min"] = item["reps_max"] = None
                     warnings.append(
                         f"Reversed reps range removed from {item['name']}; review the original source evidence."
