@@ -78,9 +78,10 @@ export function cleanScore(r: PartResult): PartResult {
 }
 
 /** "3 rounds + 12 reps", "8:42", "Capped · 2 rounds + 14 reps", "Buy-in · 900 m". */
+const count = (n: number | undefined, word: string) => `${n ?? 0} ${word}${n === 1 ? "" : "s"}`;
 export function wodupScore(r: PartResult) {
-  if (r.kind === "rounds_reps" && r.buy_in_done !== false) return `${r.rounds ?? 0} rounds + ${r.reps ?? 0} reps`;
-  if (r.kind === "time" && r.capped) return `Capped · ${r.rounds ?? 0} rounds + ${r.reps ?? 0} reps`;
+  if (r.kind === "rounds_reps" && r.buy_in_done !== false) return `${count(r.rounds, "round")} + ${count(r.reps, "rep")}`;
+  if (r.kind === "time" && r.capped) return `Capped · ${count(r.rounds, "round")} + ${count(r.reps, "rep")}`;
   return formatPartScore(r);
 }
 const scalingWord = (r: PartResult) => (r.scaling === "rx" ? "Rx" : r.scaling === "scaled" ? "Scaled" : r.scaling === "custom" ? "Custom" : null);

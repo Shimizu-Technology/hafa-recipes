@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
 import { buyInDone, endPart, planClass, setRun, skipPart, startPart, tapRound, type PartResult } from "./class-session";
-import { classPayload, cleanScore, parseTime, scoreProblem, scoredParts, wodupText } from "./class-scores";
+import { classPayload, cleanScore, parseTime, scoreProblem, scoredParts, wodupScore, wodupText } from "./class-scores";
 import { endClass } from "./class-training";
 import { createTrainingStore, unsentProblem } from "./training";
 import { createWorkoutsApi } from "./api";
@@ -68,6 +68,12 @@ describe("class results and splits (W2 contract)", () => {
       "A: 2 rounds + 12 reps · Rx", "  Buy-in 6:00 (treadmill) · Rounds 4:00, 4:00",
       "B: Buy-in · 900 m · Scaled (14 lb ball)",
     ].join("\n"));
+  });
+  it("says 1 round and 1 rep, not 1 rounds, in the WodUp text", () => {
+    const base = { block_id: "b", origin: "timer", scaling: "rx" } as const;
+    expect(wodupScore({ ...base, kind: "rounds_reps", rounds: 1, reps: 0, buy_in_done: true } as PartResult)).toBe("1 round + 0 reps");
+    expect(wodupScore({ ...base, kind: "rounds_reps", rounds: 2, reps: 1, buy_in_done: true } as PartResult)).toBe("2 rounds + 1 rep");
+    expect(wodupScore({ ...base, kind: "time", capped: true, rounds: 1, reps: 1 } as PartResult)).toBe("Capped · 1 round + 1 rep");
   });
   it("never strands a session over a refused score: saves it without scores and keeps them on the device", async () => {
     const { store } = await classDay();
