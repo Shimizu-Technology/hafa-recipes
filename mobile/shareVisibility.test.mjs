@@ -109,7 +109,8 @@ it('gates late attachment callbacks and puts copied photos in a capture-owned di
   const cancel = section('private func cancelCapture', 'private func closeCapture');
   expect(cancel).toContain('?? sharedKey');
   expect(cancel).toContain('HafaShareStore.performCaptureWrite');
-  expect(cancel).toContain('if result == .discarded || result == .retained { self.closeCapture() }');
+  expect(cancel).toContain('if result == .discarded { self.closeCapture() }');
+  expect(cancel).toContain('Already saved to Håfa Recipes');
 });
 
 it('does not log Safari preprocessing dictionaries or other shared payloads', () => {

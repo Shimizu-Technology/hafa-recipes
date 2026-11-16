@@ -13,15 +13,44 @@ enum HafaShareSaveIntent {
     let captureId: String
     let accountScopeId: String?
     let isPublic: Bool
+    let attachmentDirectory: String?
+    init(captureKey: String, captureId: String, accountScopeId: String?, isPublic: Bool, attachmentDirectory: String? = nil) {
+      self.captureKey = captureKey; self.captureId = captureId; self.accountScopeId = accountScopeId
+      self.isPublic = isPublic; self.attachmentDirectory = attachmentDirectory
+    }
   }
+  #if HAFA_SHARE_TESTS
+  static var beforeWrite: (() -> Void)?
+  #endif
   static func path(_ id: String, in container: URL) -> URL? {
     guard let uuid = UUID(uuidString: id) else { return nil }
     return container.appendingPathComponent("hafa-share-save-\(uuid.uuidString.lowercased()).json")
   }
   static func write(_ intent: Intent, in container: URL) throws {
+    #if HAFA_SHARE_TESTS
+    beforeWrite?()
+    #endif
     guard let url = path(intent.captureId, in: container) else { throw CocoaError(.fileWriteInvalidFileName) }
     try JSONEncoder().encode(intent).write(to: url, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+  }
+  // Journals survive missing payloads, revoked/expired credentials and account
+  // mismatches. Their directory/owner snapshot protects an unseen saved copy.
+  static func retainedDirectories(in container: URL, excluding key: String? = nil) -> [String] {
+    let root = container.standardizedFileURL.resolvingSymlinksInPath()
+    return ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []).compactMap { url in
+      guard url.lastPathComponent.hasPrefix("hafa-share-save-"),
+        let data = try? Data(contentsOf: url), let intent = try? JSONDecoder().decode(Intent.self, from: data),
+        path(intent.captureId, in: root)?.lastPathComponent == url.lastPathComponent,
+        intent.captureKey != key, intent.captureKey.hasPrefix("hafarecipesShareKey."),
+        UUID(uuidString: String(intent.captureKey.dropFirst("hafarecipesShareKey.".count))) != nil,
+        let directory = intent.attachmentDirectory else { return nil }
+      let folder = URL(fileURLWithPath: directory).standardizedFileURL.resolvingSymlinksInPath()
+      guard folder.deletingLastPathComponent() == root,
+        folder.lastPathComponent.hasPrefix("hafa-share-"),
+        UUID(uuidString: String(folder.lastPathComponent.dropFirst("hafa-share-".count))) != nil else { return nil }
+      return folder.path
+    }
   }
   static func recover(_ key: String, defaults: UserDefaults, container: URL) {
     guard defaults.object(forKey: key) != nil,
@@ -36,6 +65,16 @@ enum HafaShareSaveIntent {
     defaults.set(metadata, forKey: "\(key).meta")
     // Keep the journal until exact acknowledgment. A crash before defaults are
     // synchronized must not lose the only durable record of the Save tap.
+  }
+  // A bounded handoff ledger distinguishes an acknowledged receipt from a
+  // missing/corrupt one when Discard races the host after it removed the queue entry.
+  static func recordAcknowledgment(_ key: String, defaults: UserDefaults) {
+    var keys = defaults.stringArray(forKey: "hafa.share.acknowledged.v1") ?? []
+    keys.removeAll { $0 == key }; keys.append(key)
+    defaults.set(Array(keys.suffix(256)), forKey: "hafa.share.acknowledged.v1")
+  }
+  static func wasAcknowledged(_ key: String, defaults: UserDefaults) -> Bool {
+    (defaults.stringArray(forKey: "hafa.share.acknowledged.v1") ?? []).contains(key)
   }
   static func remove(_ key: String, defaults: UserDefaults, container: URL) {
     guard let id = defaults.dictionary(forKey: "\(key).meta")?["captureId"] as? String,
@@ -62,7 +101,7 @@ enum HafaShareSaveIntent {
 
 // Compiled into the containing app and Share extension. Only the import-link
 // capability lives in their shared Keychain group; Clerk remains app-private.
-enum HafaShareDiscardResult { case discarded, retained, failed }
+enum HafaShareDiscardResult { case discarded, alreadySaved, retained, failed }
 enum HafaShareStore {
   #if HAFA_SHARE_TESTS
   static var testStore: (URL, UserDefaults)?
@@ -174,6 +213,7 @@ enum HafaShareStore {
       let pending = defaults.stringArray(forKey: pendingKey) ?? []
       let remaining = remainingPending(pending, acknowledging: key)
       guard remaining.count < pending.count else { return false }
+      HafaShareSaveIntent.recordAcknowledgment(key, defaults: defaults)
       if let container { HafaShareSaveIntent.remove(key, defaults: defaults, container: container) }
       defaults.set(remaining, forKey: pendingKey)
       defaults.removeObject(forKey: key)
@@ -192,7 +232,7 @@ enum HafaShareStore {
           let queued = queuedAttachmentPaths(defaults: defaults, excluding: key) else { return false }
         let released = attachmentPaths(defaults.object(forKey: key)) ?? []
         guard reapAttachments(in: container, released: released, protected: protected + queued,
-          sweepOrphans: false, retryProtected: false).isEmpty else { return false }
+          sweepOrphans: false, retryProtected: false, excludingSaveIntent: key).isEmpty else { return false }
       }
       if let container { HafaShareSaveIntent.remove(key, defaults: defaults, container: container) }
       defaults.set(remainingPending(pending, acknowledging: key), forKey: pendingKey)
@@ -205,6 +245,8 @@ enum HafaShareStore {
   // Once native intake confirms/acknowledges this Save, the app owns its files.
   static func discardUnconfirmedCapture(_ key: String) -> HafaShareDiscardResult {
     locked { defaults in
+      if defaults.dictionary(forKey: "\(key).meta")?["confirmed"] as? Bool == true ||
+        HafaShareSaveIntent.wasAcknowledged(key, defaults: defaults) { return .alreadySaved }
       guard defaults.object(forKey: key) != nil,
         defaults.dictionary(forKey: "\(key).meta")?["confirmed"] as? Bool == false else { return .retained }
       if let container { HafaShareSaveIntent.remove(key, defaults: defaults, container: container) }
@@ -249,7 +291,7 @@ enum HafaShareStore {
   }
 
   static func reapAttachments(in container: URL, released: [String], protected: [String],
-    now: Date = Date(), sweepOrphans: Bool = true, retryProtected: Bool = true) -> [String] {
+    now: Date = Date(), sweepOrphans: Bool = true, retryProtected: Bool = true, excludingSaveIntent: String? = nil) -> [String] {
     let manager = FileManager.default
     let logicalRoot = container.standardizedFileURL
     let root = logicalRoot.resolvingSymlinksInPath()
@@ -276,11 +318,12 @@ enum HafaShareStore {
       let stem = url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "screenshot_", with: "")
       return parent.path == root.path && UUID(uuidString: stem) != nil ? url : nil
     }
-    let live = Set(protected.compactMap(localURL).map(\.path))
+    let marked = HafaShareSaveIntent.retainedDirectories(in: container, excluding: excludingSaveIntent)
+    let live = Set((protected + marked).compactMap(localURL).map(\.path))
     var remaining: [String] = []
     for path in Set(released) {
       guard let url = ownedFile(path) else { continue }
-      guard !live.contains(url.path) else {
+      guard !live.contains(where: { url.path == $0 || url.path.hasPrefix($0 + "/") }) else {
         if retryProtected { remaining.append(path) }
         continue
       }
@@ -411,6 +454,7 @@ private final class HafaShareNetworkDelegate: NSObject, URLSessionTaskDelegate {
 // Mutable state is protected by lock, including every filesystem operation.
 final class HafaShareAttachmentFiles: @unchecked Sendable {
   private let directory: URL
+  var ownedDirectory: String { directory.path }
   private let lock = NSLock()
   private var cancelled = false
 

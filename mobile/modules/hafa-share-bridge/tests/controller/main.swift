@@ -133,7 +133,8 @@ do {
   flock(fd, LOCK_UN); close(fd)
   precondition(f.delivery() != nil) // host has adopted the capture
   f.controller.tapTestDiscard()
-  until("discard must defer to host ownership") { f.controller.testClosed }
+  until("discard must show host ownership") { f.controller.testOutcome == "Already saved to Håfa Recipes" }
+  precondition(!f.controller.testClosed)
   f.checkRetained(); f.acknowledgeOnce()
   print("PASS: explicit Discard cannot delete attachments after host recovery")
 }
@@ -152,5 +153,34 @@ do {
   until("late confirmation after acknowledgment must settle") { settled }
   precondition(f.delivery() == nil && f.photoExists, "late write resurrected or discarded host capture")
   print("PASS: late confirmation after acknowledgment never recreates the receipt")
+}
+do {
+  let f = try Fixture(delay: 0.05)
+  let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+  HafaShareSaveIntent.beforeWrite = { started.signal(); release.wait() }
+  f.controller.tapTestSave()
+  precondition(started.wait(timeout: .now() + 2) == .success)
+  until("pending marker must allow Slow Close without promising recovery") { f.controller.testState == .slow }
+  precondition(f.controller.testCanLeave && f.controller.testNote.contains("Save has not been recorded yet"))
+  precondition(!FileManager.default.fileExists(atPath: f.marker.path))
+  f.controller.tapTestClose(); precondition(f.controller.testClosed); f.checkRetained()
+  release.signal()
+  until("late marker should still preserve the tap") { FileManager.default.fileExists(atPath: f.marker.path) }
+  HafaShareSaveIntent.beforeWrite = nil
+  f.acknowledgeOnce()
+  print("PASS: Slow before journal completion makes no false recovery promise and permits Close")
+}
+do {
+  let f = try Fixture()
+  let fd = open(f.root.appendingPathComponent("hafa-share-queue.lock").path, O_CREAT | O_RDWR, 0o600)
+  precondition(fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) == 0)
+  f.controller.tapTestSave()
+  until("forced confirmation failure") { f.controller.testState == .failed }
+  flock(fd, LOCK_UN); close(fd)
+  f.acknowledgeOnce()
+  f.controller.tapTestDiscard()
+  until("acknowledged import must show Already saved") { f.controller.testOutcome == "Already saved to Håfa Recipes" }
+  precondition(f.photoExists && f.delivery() == nil)
+  print("PASS: Discard after exact acknowledgment reports Already saved and keeps host files")
 }
 print("All generated-controller save/recovery regressions passed")

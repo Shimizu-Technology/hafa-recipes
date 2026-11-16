@@ -228,3 +228,24 @@ assert(HafaShareStore.queuedAttachmentPaths(defaults: fixtureDefaults) == nil)
 fixtureDefaults.set(["hafarecipes://dataUrl=queued#unknown"], forKey: HafaShareStore.pendingKey)
 assert(HafaShareStore.queuedAttachmentPaths(defaults: fixtureDefaults) == nil)
 print("Attachment retirement: accepted/discarded, legacy photos, exact ownership, queue/inbox protection, age threshold and symlink safety passed")
+
+// An unseen Save must survive orphan sweeps even without a queue payload or
+// manifest, and regardless of whether its original account is active now.
+let journalPhoto = try captureFile()
+let journalID = UUID().uuidString.lowercased()
+let journalKey = "hafarecipesShareKey.\(UUID().uuidString)"
+let journal = HafaShareSaveIntent.Intent(captureKey: journalKey, captureId: journalID,
+  accountScopeId: "old-owner-scope", isPublic: false, attachmentDirectory: journalPhoto.deletingLastPathComponent().path)
+try HafaShareSaveIntent.write(journal, in: cleanupRoot)
+let journalPath = HafaShareSaveIntent.path(journalID, in: cleanupRoot)!
+let retained = HafaShareStore.reapAttachments(in: cleanupRoot, released: [journalPhoto.path], protected: [], now: now)
+assert(retained == [journalPhoto.path] && FileManager.default.fileExists(atPath: journalPhoto.path))
+let decodedJournal = try JSONDecoder().decode(HafaShareSaveIntent.Intent.self, from: Data(contentsOf: journalPath))
+assert(decodedJournal.accountScopeId == "old-owner-scope")
+// An explicit discard can release only its exact marker, not another owner's.
+assert(HafaShareStore.reapAttachments(in: cleanupRoot, released: [journalPhoto.path], protected: [], now: now,
+  sweepOrphans: false, excludingSaveIntent: "different-key") == [journalPhoto.path])
+assert(HafaShareStore.reapAttachments(in: cleanupRoot, released: [journalPhoto.path], protected: [], now: now,
+  sweepOrphans: false, excludingSaveIntent: journalKey).isEmpty)
+assert(!FileManager.default.fileExists(atPath: journalPhoto.path))
+print("Durable Save journals protect orphaned files and owner tags indefinitely; only exact explicit discard bypasses protection")

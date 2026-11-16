@@ -12,6 +12,7 @@ extension ShareViewController {
   var testState: HafaShareSaveState { card!.saveState }
   var testCanLeave: Bool { card!.canLeave }
   var testClosed: Bool { captureClosed }
+  var testOutcome: String? { card?.outcome?.title }
   var testNote: String { card?.note ?? "" }
   func tapTestSave() { submitCapture() }
   func tapTestClose() { cancelCapture() }
