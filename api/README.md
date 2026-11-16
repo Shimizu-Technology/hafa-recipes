@@ -408,3 +408,81 @@ into the provider dashboard.
 ## License
 
 Private - Shimizu Technology
+
+### Recipe page proxy and unlisted links (held PRs #650 / #651)
+
+Public pages and OG images recheck visibility or the unlisted grant on every
+request. Unlisted links do not expire by default. Owners can inspect
+`GET /api/recipes/{id}/share-link` (`active`, `created_at`), rotate with POST,
+and revoke with DELETE. No read endpoint returns the token or its hash.
+
+The lead configures the proxy after review; these PRs do not change secrets:
+
+1. Generate one random secret of at least 32 bytes using a password manager.
+2. On the **hafa-recipes marketing Netlify site**, add `RECIPE_PROXY_SECRET`.
+   Its scope must include **Runtime**, in the production deploy context.
+   The `/r/*` rule uses `signed = "RECIPE_PROXY_SECRET"`.
+3. On the shared **recipe-api Render service**, add the same value under
+   `RECIPE_PROXY_SECRET`, then redeploy/restart. Redeploy the Netlify site so its
+   proxy configuration uses the value. Never put the value in TOML or a PR.
+4. Verify a production `/r/<public UUID>` page and `/og.jpg`. The API accepts only
+   HS256 JWS with issuer `netlify` and a valid required expiry, then reads
+   `x-nf-client-connection-ip`. Forwarded-for alone has no authority.
+   Before configuration, absent/invalid signatures use the socket peer with a
+   12,000 requests/minute ceiling (also a global per-process ceiling). Once the
+   secret is set, unsigned/invalid traffic instead shares a 600/minute bucket,
+   checked before the global ceiling. Verified visitors have 120 requests/minute;
+   IPv6 addresses share their /64. Signature expiry allows 30 seconds of clock
+   skew. Each page normally uses two requests. Through production Netlify, send
+   a spoofed `x-nf-client-connection-ip` and confirm the proxy overwrites it.
+   These are process-local budgets; revisit shared quotas if API replicas grow.
+
+Migration **062** remains additive and replayable; **063 belongs to Workouts**.
+It now adds `created_at timestamptz NOT NULL DEFAULT now()`, including when the
+original 062 table already exists. Existing grants get the upgrade time because
+no historical creation timestamp was recorded. No default expiry is introduced.
+Replay accepts additional columns from later additive migrations and still
+validates every required column type/nullability and the original constraints.
+The lead must verify a production backup/restore point before running:
+
+```sh
+cd api
+MIGRATION_062_RESTORE_POINT='<verified restore-point name>' uv run python -m migrations.062_add_recipe_share_links
+```
+
+OG generation releases the DB connection before media I/O. At most four jobs
+run, same-image requests coalesce, Pillow has two dedicated workers, and readers
+fall back to the default image after two seconds (or immediately at capacity).
+HTML starts the same bounded/coalesced image job without awaiting it, so the
+first unfurl can find the photo ready. External async downloads have a ten-second
+overall deadline; owned S3 threads retain admission until their sockets finish.
+Successful photos occupy a 32-entry, five-minute process cache. Failed fetches
+are retried rather than cached. S3 OG persistence is deferred: existing thumbnail
+variants are immutable public objects, which would bypass unlisted revocation;
+protected OG storage needs its own access/deletion lifecycle.
+
+Uvicorn suppresses `/public/r/*` access records, and Sentry drops its traces and
+removes request details from errors. Render application logs therefore do not
+receive those Uvicorn paths. This cannot redact provider-owned ingress logs or
+Netlify traffic logs: capability URLs necessarily reach both proxies. Provider
+logs are accepted only after the lead confirms there are no third-party log
+drains and the mobile phase provides easy-to-reach revocation. Restrict provider
+log access and retention. Do not export capability URLs to third-party sinks.
+No provider logging setting was changed by these PRs. Link recipients and
+messaging services can retain previews.
+
+Photo-less recipe previews use a Figtree 600 wordmark, Fraunces 500 titles and static Noto Sans 500,
+Noto Sans JP 500 and Noto Emoji 400 fallbacks, with their SIL OFL licenses in
+`app/assets/fonts/`. Sources: [Noto Sans](https://github.com/google/fonts/tree/main/ofl/notosans),
+[Noto Sans JP](https://github.com/google/fonts/tree/main/ofl/notosansjp), and
+[Noto Emoji](https://github.com/google/fonts/tree/main/ofl/notoemoji).
+Titles wrap to four lines, keeping grapheme clusters together. Unknown glyphs
+use a visible replacement while HTML/OG metadata retain the complete title.
+Title-only cards share the bounded image workers/cache; busy or failed renders
+return retryable 503s rather than a successful generic brand card.
+
+The page omits the hero when no real photo exists; the title card remains in OG previews.
+Public pages pair the primary app-opening button with an outlined App Store button;
+unlisted pages offer only the primary App Store button. The button group wraps whole
+buttons on narrow screens. Figtree comes from the app’s pinned
+`@expo-google-fonts/figtree` 0.4.1 package; its SIL OFL license is vendored alongside it.

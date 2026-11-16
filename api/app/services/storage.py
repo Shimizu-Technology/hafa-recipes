@@ -325,6 +325,7 @@ class StorageService:
         recipe_id: str | UUID,
         *,
         referer: str | None = None,
+        external_timeout_seconds: float | None = None,
     ) -> ValidatedImage:
         """Download and validate one owned or external thumbnail without writes."""
         owned_key = self._owned_storage_key(image_url)
@@ -339,7 +340,12 @@ class StorageService:
             parsed = self._safe_urlparse(image_url)
             if parsed and parsed.hostname in self._owned_storage_hosts():
                 raise ValueError("Owned thumbnail URL is not canonical")
-            image_data, content_type = await self._download_public_url(image_url, referer=referer)
+            # Only this async external path is cancellable. An S3 to_thread
+            # call must retain its admission until its underlying socket ends.
+            image_data, content_type = await asyncio.wait_for(
+                self._download_public_url(image_url, referer=referer),
+                timeout=external_timeout_seconds,
+            )
         return validate_image_bytes(
             image_data,
             max_bytes=MAX_THUMBNAIL_BYTES,

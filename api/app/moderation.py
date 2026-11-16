@@ -143,10 +143,9 @@ def source_incomplete_condition(extracted=Recipe.extracted, extraction_method=Re
     )
 
 
-def public_recipe_conditions(viewer_user_id: str | None = None):
+def public_recipe_conditions(viewer_user_id: str | None = None, *, require_public: bool = True):
     """Return the complete policy for recipes shown on public surfaces."""
     conditions = [
-        Recipe.is_public.is_(True),
         Recipe.moderation_status == "active",
         ~source_incomplete_condition(),
         or_(Recipe.review_state.is_(None), Recipe.review_state.in_(["ready", "needs_review"])),
@@ -160,6 +159,8 @@ def public_recipe_conditions(viewer_user_id: str | None = None):
             ),
         ),
     ]
+    if require_public:
+        conditions.append(Recipe.is_public.is_(True))
     if viewer_user_id:
         conditions.append(
             or_(
