@@ -369,6 +369,7 @@ export function ListRow({
   leading,
   icon,
   value,
+  badge,
   onPress,
   destructive = false,
   trailing = "chevron",
@@ -380,6 +381,7 @@ export function ListRow({
   leading?: string;
   icon?: IconName;
   value?: string;
+  badge?: string;
   onPress?: () => void;
   destructive?: boolean;
   trailing?: "chevron" | "external" | "none";
@@ -405,6 +407,9 @@ export function ListRow({
           </Copy>
         )}
       </View>
+      {!!badge && <View style={{ backgroundColor: c.accent, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
+        <Copy kind="label" color={c.onAccent}>{badge}</Copy>
+      </View>}
       {!!value && (
         <Copy kind="small" tone="muted">
           {value}
@@ -424,7 +429,7 @@ export function ListRow({
   return (
     <Pressable
       accessibilityRole={trailing === "external" ? "link" : "button"}
-      accessibilityLabel={detail ? `${title}. ${detail}` : title}
+      accessibilityLabel={[title, detail, badge === "PR" ? "Personal record" : badge, value].filter(Boolean).join(". ")}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}

@@ -4,9 +4,9 @@ import type { Storage } from "./drafts";
 import { timedCircuit } from "./timed-circuit";
 import { formatCapSeconds, intervalPosition, isDeathBy, ladderReps, movesFor, timedFormat, timedFormatProblem,
   trackedIntervalLimit, type TimedFormat } from "./timed-execution";
-import { endPart, isTimedPart, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
+import { endPart, isTimedPart, partKind, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
 import { carriesResults, classPayload, cleanScore, scoreProblem, withoutResults } from "./class-scores";
-import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly } from "./class-training";
+import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly, roundActuals } from "./class-training";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
   | { workout_id: string; workout_revision: number }
@@ -24,6 +24,7 @@ export interface TrainingStep {
   exercise: ExercisePrescription;
 }
 export interface SessionDraft {
+  class_loads?: Record<string, Record<number, { load: number; load_unit: "kg" | "lb" }>>;
   id: string;
   cell_identity_version?: 2;
   generation: number;
@@ -245,7 +246,7 @@ export function historicalStructureWarning(workout: Workout, actuals: ActualSet[
     const block = workout.blocks.find((b) => b.id === actual.block_id);
     const exercise = block?.exercises[actual.exercise_index];
     if (!block || !exercise) return true;
-    return (!timedCircuit(workout) && !timedFormat(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
+    return (!isTimedPart(partKind(block)) && !timedCircuit(workout) && !timedFormat(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
       (exercise.per_side ? actual.side !== "left" && actual.side !== "right" : actual.side != null && actual.side !== "both");
   });
   return outsidePrescription ?
@@ -795,11 +796,35 @@ export function createTrainingStore(
         // A part that started on its own after a rest gets its run choices before this action can pass them by.
         d.class_run = resolve(d.class_run, d.workout, now);
         syncClass(s, now);
+        const priorPart = currentPart(d.class_run, d.workout, now).part;
         d.class_run = change(d.class_run, d.workout, now);
+        const changedPart = d.class_run.parts.find((p) => p.block_id === priorPart.block_id)!;
+        if (changedPart.round_taps.length > priorPart.round_taps.length) {
+          const block = d.workout.blocks.find((b) => b.id === priorPart.block_id)!;
+          const actuals = roundActuals(block, changedPart.round_taps.length, d.class_loads?.[block.id]);
+          if (changedPart.round_taps.length > 100 || d.actuals.length + actuals.length > 1000)
+            throw Error("This session reached the tracking limit. Save it before logging more work.");
+          d.actuals.push(...actuals);
+        } else if (changedPart.round_taps.length < priorPart.round_taps.length) {
+          d.actuals = d.actuals.filter((a) => a.block_id !== priorPart.block_id || a.round_index !== priorPart.round_taps.length);
+        }
         if (environment) s.run_environment = environment;
         // Set rest and set undo from the part just left don't carry into the next part.
         if (currentPart(d.class_run, d.workout, now).index !== before) { clearTimers(d); d.undo = []; }
         syncClass(s, now);
+        return s;
+      });
+    },
+    /** Weight used for subsequent round taps; previous rounds keep their recorded load. */
+    classLoad(blockId: string, exerciseIndex: number, load: number | null, load_unit: "kg" | "lb") {
+      return update((s) => {
+        const d = s.active;
+        if (!d?.class_run || !d.workout.blocks.find((b) => b.id === blockId)?.exercises[exerciseIndex])
+          throw Error("This movement isn’t in the class.");
+        if (load != null && (!Number.isFinite(load) || load < 0 || load > 2000)) throw Error("Enter a weight from 0 to 2000.");
+        d.class_loads ??= {}; d.class_loads[blockId] ??= {};
+        if (load == null) delete d.class_loads[blockId][exerciseIndex];
+        else d.class_loads[blockId][exerciseIndex] = { load, load_unit };
         return s;
       });
     },

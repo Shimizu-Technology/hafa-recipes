@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Alert } from "react-native";
+import { Alert, useWindowDimensions } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Copy, Notice, Screen, useToast } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
+import { footerLabelScale } from "@/lib/readable-layout";
 import { useTraining } from "@/lib/context";
 
 /**
@@ -10,6 +11,7 @@ import { useTraining } from "@/lib/context";
  * part) are saved, never a heart-rate trace. Turning off can keep or delete what was saved.
  */
 export default function HeartRateSummaries() {
+  const { width, fontScale } = useWindowDimensions();
   const { api, owner, enrollment } = useTraining();
   const cache = useQueryClient();
   const toast = useToast();
@@ -30,9 +32,9 @@ export default function HeartRateSummaries() {
       setBusy(false);
     }
   }
-  const confirmDelete = () => Alert.alert("Turn off and delete saved heart-rate summaries?",
+  const confirmDelete = () => Alert.alert(q.data?.enabled ? "Turn off and delete saved heart-rate summaries?" : "Delete saved heart-rate summaries?",
     "Every saved heart-rate average and maximum is removed from your Workouts history, including edited sessions. Your workouts and scores stay. Apple Health keeps its own data.",
-    [{ text: "Cancel", style: "cancel" }, { text: "Turn off and delete", style: "destructive",
+    [{ text: "Cancel", style: "cancel" }, { text: q.data?.enabled ? "Turn off and delete" : "Delete saved summaries", style: "destructive",
       onPress: () => { void change(() => api.deleteHeartRateSummaries(),
         (r) => `Turned off. Deleted from ${r.deleted_sessions ?? 0} ${r.deleted_sessions === 1 ? "session" : "sessions"}.`); } }]);
   return (
@@ -48,14 +50,14 @@ export default function HeartRateSummaries() {
         </Copy>
         {q.data && !q.data.available && <Notice>Heart-rate summaries aren’t available yet. Check back after the next update.</Notice>}
         {!!error && <Notice error>{error}</Notice>}
-        {q.data?.available && !q.data.enabled && <Button title="Turn on heart-rate summaries" icon="heart-outline" busy={busy}
+        {q.data?.available && !q.data.enabled && <Button title="Turn on heart-rate summaries" maxScale={Math.min(2, footerLabelScale("summaries", width - 64, fontScale))} icon="heart-outline" busy={busy}
           onPress={() => { void change(() => api.setHeartRateSummaries(true), () => "Heart-rate summaries are on."); }} />}
         {q.data?.enabled && <>
           <Notice tone="success">On. New workouts can save heart-rate summaries.</Notice>
           <Button title="Turn off, keep saved summaries" variant="secondary" busy={busy}
             onPress={() => { void change(() => api.setHeartRateSummaries(false), () => "Turned off. Saved summaries are kept."); }} />
         </>}
-        {q.data && <Button title="Turn off and delete saved heart-rate summaries" variant="destructive" icon="trash-outline" disabled={busy}
+        {q.data && <Button title={q.data.enabled ? "Turn off and delete saved heart-rate summaries" : "Delete saved heart-rate summaries"} maxScale={Math.min(2, footerLabelScale("summaries", width - 64, fontScale))} variant="destructive" icon="trash-outline" disabled={busy}
           onPress={confirmDelete} />}
       </QueryState>
     </Screen>

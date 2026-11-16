@@ -14,6 +14,7 @@ import type { Workout } from "./models";
 const fixture = vi.hoisted(() => ({
   params: {} as Record<string, string>,
   library: vi.fn(),
+  results: vi.fn(),
   capabilities: vi.fn(),
   discover: vi.fn(),
   discoverRandom: vi.fn(),
@@ -63,6 +64,7 @@ vi.mock("@/lib/context", () => {
   const localDrafts = { load: fixture.load, save: fixture.saveDraft, remove: async () => undefined };
   const api = {
     library: fixture.library,
+    results: fixture.results,
     capabilities: fixture.capabilities,
     discover: fixture.discover,
     discoverRandom: fixture.discoverRandom,
@@ -267,6 +269,7 @@ const saved: Workout = { ...detail.workout, id: "copy-1", generation: 1, revisio
 beforeEach(() => {
   fixture.map.clear();
   fixture.library.mockReset().mockResolvedValue([]);
+  fixture.results.mockReset().mockResolvedValue({ items: [], history_limited: false });
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
@@ -1924,4 +1927,20 @@ it("hides the active Needs info count in archived scope and restores it in activ
   expect(button("Needs info · 1")).toBeUndefined();
   await act(async () => listRow("Show active workouts")!.props.onPress()); await settle();
   expect(button("Needs info · 1")).toBeDefined();
+});
+
+it("puts Your results before the exercise list and marks a PR row with a badge", async () => {
+  fixture.params = { id: "saved" };
+  fixture.workout.mockResolvedValue({ ...saved, programming: { source_kind: "gym", gym_name: "Unified" } });
+  const base = { session_id: "s", block_id: "b", block_label: "Main", comparison_key: "w:b", kind: "reps", scaling: "rx", better: "higher",
+    result: { block_id: "b", kind: "reps", reps: 12, origin: "manual" } };
+  fixture.results.mockResolvedValue({ items: [
+    { ...base, id: "new", sort_value: 12, performed_at: "2026-11-17T00:00:00Z" },
+    { ...base, id: "old", sort_value: 10, performed_at: "2026-11-16T00:00:00Z" },
+  ], history_limited: false });
+  await mount(WorkoutDetail);
+  const headings = nodes("SectionHeader").map((n) => n.props.title);
+  expect(headings.indexOf("Your results")).toBeGreaterThanOrEqual(0);
+  expect(headings.indexOf("Your results")).toBeLessThan(headings.indexOf("Exercises"));
+  expect(nodes("ListRow").find((n) => n.props.badge === "PR")!.props.value).toBeUndefined();
 });

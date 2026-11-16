@@ -5,7 +5,7 @@ import { light } from "../constants/theme";
 const f = vi.hoisted(() => ({ segments: ["(tabs)", "library"], listeners: new Set<(value: string) => void>(), start: vi.fn(), stop: vi.fn(), announce: vi.fn(), reduced: false, appState: "active" }));
 vi.mock("react-native", () => {
   class Value { constructor(public value: number) {} setValue(v: number) { this.value = v; } }
-  return { View: "View", Pressable: "Pressable", ScrollView: "ScrollView", Modal: "Modal", KeyboardAvoidingView: "KeyboardAvoidingView", Platform: { OS: "ios" }, RefreshControl: "RefreshControl",
+  return { useWindowDimensions: () => ({ fontScale: 1, width: 390 }), View: "View", Pressable: "Pressable", ScrollView: "ScrollView", Modal: "Modal", KeyboardAvoidingView: "KeyboardAvoidingView", Platform: { OS: "ios" }, RefreshControl: "RefreshControl",
     AccessibilityInfo: { announceForAccessibility: f.announce },
     AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, fn: (value: string) => void) => { f.listeners.add(fn); return { remove: () => f.listeners.delete(fn) }; } },
     Animated: { View: "AnimatedView", Value, timing: () => ({ start() {} }), sequence: () => ({}), loop: () => ({ start: f.start, stop: f.stop }) } };
@@ -19,7 +19,7 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34 }) }));
 vi.mock("expo-router", () => ({ router: {}, useSegments: () => f.segments }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
-import { Skeleton, ToastProvider, useToast } from "../components/design/surfaces";
+import { Skeleton, ToastProvider, useToast, ListRow } from "../components/design/surfaces";
 import { reportTabScreenBottomInset } from "./bottom-overlay";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.listeners.clear(); f.start.mockClear(); f.stop.mockClear(); f.announce.mockClear(); f.reduced = false; f.appState = "active"; vi.useFakeTimers(); });
@@ -58,4 +58,12 @@ it("keeps toasts above the tab bar and the Ask Coach pill", () => {
   // Off the tabs it keeps clear of bottom action bars such as the session controls.
   expect(toastBottom()).toBe(34 + 72);
   f.segments = ["(tabs)", "library"];
+});
+
+it("renders a distinct PR badge and announces Personal record with the score", () => {
+  act(() => { view = create(createElement(ListRow, { title: "3 + 12", detail: "Nov 17 · Rx", badge: "PR", onPress() {} })); });
+  expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toBe("3 + 12. Nov 17 · Rx. Personal record");
+  const badge = view!.root.findAllByType("Copy" as never).find(n => n.props.children === "PR")!;
+  expect(badge.props).toMatchObject({ kind: "label", color: light.onAccent });
+  expect(badge.parent!.props.style.backgroundColor).toBe(light.accent);
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
-import { createTrainingStore } from "./training";
+import { createTrainingStore, historicalStructureWarning } from "./training";
 import { buyInDone, endPart, endRest, isRun, partStatus, pausePart, resumePart, skipPart, startPart, tapRound, undoTap } from "./class-session";
+import { exerciseRecords } from "./progress-insights";
 import { currentPart, isClassWorkout } from "./class-training";
 import type { ActualSet, Workout } from "./models";
 
@@ -172,4 +173,38 @@ describe("runs the API asks Outdoor/Treadmill for", () => {
     expect(isRun({ name: "Rowing", distance_meters: 500 })).toBe(false);
     expect(partStatus).toBeDefined();
   });
+});
+
+it("logs repeating movement actuals with prescribed or edited loads, persists them, and undoes just the last round", async () => {
+  const workout = structuredClone(w);
+  workout.blocks[0].exercises[1] = { ...workout.blocks[0].exercises[1], relative_load: null, load: 50, load_unit: "kg" };
+  const { store, storage, at } = await classStore(workout, 0);
+  await store.classAct(startPart); at(min); await store.classAct(buyInDone);
+  at(2 * min); await store.classAct(tapRound);
+  expect(store.snapshot().active!.actuals).toMatchObject([
+    { block_id: "a", exercise_index: 1, round_index: 1, reps: 15, load: 50, load_unit: "kg" },
+    { block_id: "a", exercise_index: 2, round_index: 1, reps: 20 },
+    { block_id: "a", exercise_index: 3, round_index: 1, distance_meters: 400 },
+  ]);
+  await store.classLoad("a", 1, 60, "kg");
+  at(3 * min); await store.classAct(tapRound);
+  expect(store.snapshot().active!.actuals[3]).toMatchObject({ load: 60, round_index: 2 });
+  expect(historicalStructureWarning(workout, store.snapshot().active!.actuals)).toBeNull();
+  const restored = createTrainingStore(storage, "owner", 1, () => T0 + 3 * min);
+  await restored.load();
+  expect(restored.snapshot().active!.actuals).toHaveLength(6);
+  await restored.classAct(undoTap);
+  expect(restored.snapshot().active!.actuals).toHaveLength(3);
+  expect(restored.snapshot().active!.actuals[0].load).toBe(50);
+  await restored.finish("partial", undefined, "keep", "general_fitness");
+  expect(restored.snapshot().history[0].request.actuals[0]).toMatchObject({ reps: 15, load: 50, load_unit: "kg" });
+  const records = exerciseRecords(restored.snapshot().history.map((h) => ({ request: h.request, workout: h.workout })), "metric");
+  expect(records.find((r) => r.name === "Deadlift")!.best).toContain("50 kg");
+});
+it("never invents a relative or multiple-choice load", async () => {
+  const { store, at } = await classStore(w, 0);
+  await store.classAct(startPart); at(min); await store.classAct(buyInDone);
+  at(2 * min); await store.classAct(tapRound);
+  expect(store.snapshot().active!.actuals[0].load).toBeUndefined();
+  await expect(store.classLoad("a", 1, -1, "kg")).rejects.toThrow("weight");
 });

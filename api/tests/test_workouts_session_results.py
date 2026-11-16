@@ -385,3 +385,28 @@ async def test_collapsed_interval_advances_legacy_replay_normalization(data_api)
     assert replay.json()["id"] == identifier
     assert replay.json()["content"] == legacy
     assert replay.json()["warnings"]
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("erasure_installed", [False, True])
+async def test_hr_delete_leaves_null_only_summaries_untouched(data_api, erasure_installed):  # noqa: F811
+    api = data_api
+    saved = await workout(api)
+    if erasure_installed:
+        from app.domains.workouts.heart_rate_erasure import install_heart_rate_erasure
+        async with api.sessions.begin() as db:
+            await install_heart_rate_erasure(db)
+    payload = session_payload(saved)
+    payload["segments"] = [{"block_id": "strength", "kind": "part", "index": 1,
+                            "started_at": payload["started_at"], "ended_at": payload["finished_at"],
+                            "avg_hr": None, "max_hr": None}]
+    posted = await api.client.post("/api/v1/workouts/sessions", json=payload, headers=GENERATION)
+    assert posted.status_code == 201, posted.text
+    session_id = posted.json()["id"]
+    async with api.sessions() as db:
+        before = (await db.execute(text("SELECT content, xmin::text FROM workouts_sessions WHERE id=:id"), {"id": session_id})).one()
+    deleted = await api.client.delete("/api/v1/workouts/health-summary-consent", headers=GENERATION)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"enabled": False, "deleted_sessions": 0}
+    async with api.sessions() as db:
+        after = (await db.execute(text("SELECT content, xmin::text FROM workouts_sessions WHERE id=:id"), {"id": session_id})).one()
+    assert after == before  # No rewrite, including the null-valued segment fields.

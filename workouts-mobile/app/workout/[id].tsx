@@ -261,11 +261,11 @@ export default function WorkoutDetail() {
               {!!programmingLine(workout) && <Copy kind="label" tone="accent">{programmingLine(workout)}</Copy>}
               {!!benchmarkLine(workout) && <Copy kind="small" tone="muted">{benchmarkLine(workout)}</Copy>}
             </View>}
+            {workout.kind !== "program" && <YourResults workoutId={workout.id} benchmarkKey={workout.benchmark?.key} />}
             <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} said={formatChip} title={instructionsTitle(workout)} />
             {exercises > 0 && <SectionHeader title="Exercises" />}
             <WorkoutExerciseList blocks={workout.blocks} formatChip={formatChip} units={units}
               weightKg={profile.data?.profile?.weight_kg} />
-            {workout.kind !== "program" && <YourResults workoutId={workout.id} benchmarkKey={workout.benchmark?.key} />}
             {workout.kind !== "program" && exercises > 0 && <ListGroup>
               <ListRow
                 icon="calendar-outline"

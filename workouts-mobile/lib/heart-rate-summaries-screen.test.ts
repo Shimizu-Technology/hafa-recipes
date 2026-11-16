@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({ alert: vi.fn(), toast: vi.fn(), api: {
   heartRateSummaries: vi.fn(), setHeartRateSummaries: vi.fn(), deleteHeartRateSummaries: vi.fn() } }));
-vi.mock("react-native", () => ({ Alert: { alert: fixture.alert } }));
+vi.mock("react-native", () => ({ Alert: { alert: fixture.alert }, useWindowDimensions: () => ({ width: 390, fontScale: 3.1 }) }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ api: fixture.api, owner: "owner", enrollment: { enrolled: true, generation: 1 } }) }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Copy: "Copy", Notice: "Notice", Button: "Button", useToast: () => fixture.toast }));
 vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: { children: unknown }) => children }));
@@ -46,4 +46,15 @@ it("says when the server can't store summaries yet, and offers no switch on", as
   await render();
   expect(button("Turn on heart-rate summaries")).toBeUndefined();
   expect(renderer!.root.findAll((n) => (n.type as unknown) === "Notice").map((n) => n.props.children)).toContain("Heart-rate summaries aren’t available yet. Check back after the next update.");
+});
+
+it("uses delete-only wording while off and caps the XL label so summaries stays whole", async () => {
+  fixture.api.heartRateSummaries.mockResolvedValue({ available: true, enabled: false });
+  await render();
+  const remove = button("Delete saved heart-rate summaries");
+  expect(remove).toBeDefined();
+  expect(remove.props.maxScale).toBeLessThan(3.1);
+  expect(remove.props.maxScale * 17 * 0.6 * "summaries".length).toBeLessThan(390 - 64 - 44);
+  remove.props.onPress();
+  expect(fixture.alert.mock.calls[0][0]).toBe("Delete saved heart-rate summaries?");
 });

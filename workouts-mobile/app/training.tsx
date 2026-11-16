@@ -402,6 +402,8 @@ export default function Training() {
           await finish(status);
         }); }}
         // Each keystroke is a write; the store applies them in order, so typing fast can't drop one the way `run` drops a double tap.
+        roundLoad={(blockId, index, load, unit) => { void store.classLoad(blockId, index, load, unit)
+          .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save the weight."); }); }}
         runDistance={(blockId, index, meters) => { void store.classRunDistance(blockId, index, meters)
           .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save on this device."); }); }}
         discard={discard} />

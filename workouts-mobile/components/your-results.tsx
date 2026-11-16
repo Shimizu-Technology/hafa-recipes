@@ -18,7 +18,7 @@ export function YourResults({ workoutId, benchmarkKey }: { workoutId: string; be
           <Copy kind="label">{part.label}</Copy>
           {part.items.slice(0, 5).map((row) => (
             <ListRow key={row.id} title={rowScore(row)} detail={[shortDate(row.performed_at), scalingLabel(row.scaling)].join(" · ")}
-              value={row.pr ? "PR" : row.best ? "Best" : undefined}
+              badge={row.pr ? "PR" : undefined} value={!row.pr && row.best ? "Best" : undefined}
               onPress={() => router.push({ pathname: "/session/[id]", params: { id: row.session_id } })} />
           ))}
         </Card>
