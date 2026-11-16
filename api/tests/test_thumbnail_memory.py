@@ -11,6 +11,8 @@ from PIL import Image, ImageDraw
 
 PROGRAM = r"""
 import asyncio, json, os, resource, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor
+import app.services.storage as storage_module
 from pathlib import Path
 from app.services.storage import StorageService
 from app.services.cover_selection import CoverCandidate, _prepare
@@ -26,6 +28,11 @@ data=Path(sys.argv[1]).read_bytes()
 baseline, initial_peak = resident(), peak()
 retained=[]
 async def run():
+    # Measure retention on one worker. Executor growth can allocate another
+    # native/Pillow arena between iterations even though calls are sequential.
+    worker = ThreadPoolExecutor(max_workers=1)
+    asyncio.get_running_loop().set_default_executor(worker)
+    storage_module._thumbnail_executor = worker
     for iteration in range(8):
         if sys.argv[2]=='thumbnail':
             rows=await StorageService()._prepare_thumbnail_variants(data, 'image/jpeg')
