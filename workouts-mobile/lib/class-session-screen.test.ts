@@ -16,7 +16,7 @@ vi.mock("expo-keep-awake", () => ({ activateKeepAwakeAsync: async () => {}, deac
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("expo-speech", () => ({ speak: vi.fn() }));
 vi.mock("expo-clipboard", () => ({ setStringAsync: fixture.copy }));
-vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button", IconButton: "IconButton",
+vi.mock("@/components/ui", () => ({ Screen: ({ children, footer, ...props }: any) => createElement("Screen", { ...props, footer }, children, footer), Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button", IconButton: "IconButton",
   ListRow: "ListRow", RestTimer: "RestTimer", Chip: "Chip", ChipRow: "ChipRow", Choice: "Choice", Field: "Field", Segmented: "Segmented",
   useToast: () => () => {}, Row: "Row", SectionHeader: "SectionHeader", Sheet: "Sheet",
   formatClock: (seconds: number) => { const s = Math.max(0, Math.round(seconds)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; },
@@ -33,12 +33,12 @@ const store = () => {
   return createTrainingStore({ getItem: async (k) => data.get(k) ?? null, setItem: async (k, v) => { data.set(k, v); }, removeItem: async () => {} }, "o", 1, () => now);
 };
 let s: ReturnType<typeof store>;
-const actions = { act: vi.fn(), log: vi.fn<(a: ActualSet) => void>(), finish: vi.fn(), timer: vi.fn(), runDistance: vi.fn() };
+const actions = { act: vi.fn(), log: vi.fn<(a: ActualSet) => void>(), finish: vi.fn(), roundLoad: vi.fn(), timer: vi.fn(), runDistance: vi.fn() };
 async function render(at: number) {
   now = at;
   const d = s.snapshot().active!;
   const props: ClassSessionProps = { d: { ...d, class_run: d.class_run! }, now, busy: false, error: "", runEnvironment: s.snapshot().run_environment ?? "outdoor",
-    activityPicker: null, act: actions.act, log: actions.log, undo() {}, timer: actions.timer, finish: actions.finish, runDistance: actions.runDistance, discard() {} };
+    activityPicker: null, act: actions.act, log: actions.log, undo() {}, timer: actions.timer, finish: actions.finish, runDistance: actions.runDistance, roundLoad: actions.roundLoad, discard() {} };
   await act(async () => { if (renderer) renderer.update(createElement(ClassSession, props)); else renderer = create(createElement(ClassSession, props)); });
 }
 function elements(node: unknown): Array<{ type: unknown; props: Record<string, any> }> {
@@ -98,6 +98,10 @@ describe("class runner (Nov 17)", () => {
     await render(16 * min);
     expect(text()).toContain("2:00");
     expect(text()).toContain("Rest · then B · AMRAP 15");
+    expect(screen()).toMatchObject({ title: "Rest", subtitle: "then B · AMRAP 15" });
+    const parts = renderer!.root.findAllByType("ListRow" as never);
+    expect(parts.find((n) => n.props.title === "A · AMRAP 15")!.props.detail).toBe("Done");
+    expect(parts.find((n) => n.props.title === "B · AMRAP 15")!.props.detail).toBe("Up next");
     expect(fixture.announce).toHaveBeenCalledWith("Time. Rest, then B · AMRAP 15");
     expect(control("Start B now")).toBeDefined();
     expect(control("+15 s")).toBeDefined();
@@ -126,6 +130,9 @@ describe("class runner (Nov 17)", () => {
     expect(editor.props.result).toMatchObject({ kind: "rounds_reps", rounds: 2, reps: 0, buy_in_done: true, buy_in_seconds: 360 });
     await act(async () => editor.props.onChange({ ...editor.props.result, reps: 12, scaling: "rx" }));
     expect(save().props.disabled).toBe(false);
+    await act(async () => editor.props.onChange({ ...editor.props.result, scaling: "scaled" }));
+    expect(text()).toContain("Scaled: add the weights you used to count toward PRs");
+    await act(async () => editor.props.onChange({ ...editor.props.result, scaling: "rx" }));
     await act(async () => control("Copy for WodUp")!.props.onPress());
     expect(fixture.copy.mock.calls[0][0]).toBe("BUILD | BRIK · Tue Nov 17\nA: 2 rounds + 12 reps · Rx\n  Buy-in 6:00 · Rounds 4:00, 4:00");
     save().props.onPress();
@@ -195,4 +202,17 @@ it("typing an explicit load uses the kg unit already displayed", async () => {
   expect(chips.map((n) => [n.props.role, n.props.accessibilityLabel])).toEqual([
     ["radio", "D · Accessory: Rx"], ["radio", "D · Accessory: Scaled"],
   ]);
+});
+
+it("keeps the run choice in the fixed footer and lets the athlete set the next round weight", async () => {
+  await s.classAct(startPart, 0); await s.classAct(buyInDone, min); await render(2 * min);
+  const footerRuns = elements(screen().footer).filter((n) => n.props.label === "400 m Run");
+  expect(footerRuns).toHaveLength(1);
+  expect(renderer!.root.findAllByType("Copy" as never).find((n) => n.props.children === "Outdoor")!.props.maxScale).toBe(1.5);
+  await act(async () => control("Round weights")!.props.onPress());
+  const field = () => renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "Deadlift weight")!;
+  await act(async () => field().props.onChange("60"));
+  expect(actions.roundLoad).toHaveBeenLastCalledWith("a", 1, 60, "kg");
+  await act(async () => field().props.onChange("60.."));
+  expect(control("+1 round")!.props.disabled).toBe(true);
 });

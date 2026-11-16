@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Button, Card, Copy, IconButton, ListRow, Notice, RestTimer, Row, Screen, SectionHeader, Sheet, formatClock, haptics, useColors } from "@/components/ui";
+import { Button, Card, Copy, Field, Segmented, IconButton, ListRow, Notice, RestTimer, Row, Screen, SectionHeader, Sheet, formatClock, haptics, useColors } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { SessionClock } from "@/components/training/session-clock";
 import { LeadIn } from "@/components/training/lead-in";
@@ -31,6 +31,7 @@ export interface ClassSessionProps {
   timer(kind: "rest" | "interval", seconds?: number): void;
   /** Saves the class with the reviewed scores (each part's score, Rx or Scaled). */
   finish(status: "completed" | "partial", scores?: PartResult[]): void;
+  roundLoad?(blockId: string, exerciseIndex: number, load: number | null, unit: "kg" | "lb", convention?: ActualSet["load_convention"]): void;
   runDistance(blockId: string, exerciseIndex: number, meters: number): void;
   discard(): void;
   activityPicker: ReactNode;
@@ -59,8 +60,8 @@ function RunChoice({ label, value, onChange, disabled }: { label: string; value:
       style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderRadius: 14,
         borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surface, opacity: pressed ? 0.7 : 1 })}>
       <Ionicons name={value === "outdoor" ? "sunny-outline" : "speedometer-outline"} size={22} color={c.text} />
-      <Copy style={{ flex: 1 }}>{label}</Copy>
-      <Copy kind="label">{word}</Copy>
+      <Copy maxScale={1.5} style={{ flex: 1 }}>{label}</Copy>
+      <Copy kind="label" maxScale={1.5}>{word}</Copy>
       <Ionicons name="swap-horizontal" size={18} color={c.muted} />
     </Pressable>
   );
@@ -76,6 +77,9 @@ export function ClassSession(p: ClassSessionProps) {
   const { fontScale, width } = useWindowDimensions();
   const grid = largeText(fontScale);
   const half = (title: string) => (grid ? { maxScale: footerLabelScale(title, footerCellWidth(width) - 12, fontScale), icon: undefined } : {});
+  const [weights, setWeights] = useState(false);
+  const [loadUnits, setLoadUnits] = useState<Record<string, "kg" | "lb">>({});
+  const [loadText, setLoadText] = useState<Record<string, string>>({});
   const [more, setMore] = useState(false);
   const [instructions, setInstructions] = useState(false);
   const [leadInDone, setLeadInDone] = useState<number | null>(null);
@@ -95,6 +99,8 @@ export function ClassSession(p: ClassSessionProps) {
 
   const step = d.steps[d.cursor];
   const setPart = !over && part.kind === "sets" && status === "running" && step?.block_id === block.id;
+  const invalidLoad = Object.entries(loadText).some(([key, value]) => key.startsWith(`${block.id}:`) && value.trim() !== "" &&
+    (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 2000));
   const roundText = (n: number) => `${n} ${n === 1 ? "round" : "rounds"}`;
   const env = (i: number) => part.runs?.[i]?.environment ?? p.runEnvironment;
   const chooseRun = (i: number, next: RunEnvironment) =>
@@ -218,15 +224,19 @@ export function ClassSession(p: ClassSessionProps) {
     pinned = grid ? clockCard : null;
     body = <>
       {!grid && clockCard}
+      {invalidLoad && <Notice error>Enter a weight from 0 to 2000 before logging a round.</Notice>}
       {paused && <Notice tone="warning">{block.label} is paused. Only this part’s clock stopped.</Notice>}
       {buyingIn ? <Copy kind="label">Buy-in · {buyInMove(block)}</Copy>
         : counting && <Copy tone="muted">This round · {roundMoves(block)}</Copy>}
-      {visibleRuns(part, block).map((i) => <RunChoice key={i} label={isRun(block.exercises[i]) ? moveText(block.exercises[i], 1) : block.exercises[i].name}
-        value={env(i)} disabled={busy} onChange={(v) => chooseRun(i, v)} />)}
+      {counting && !buyingIn && block.exercises.some((e) => e.load != null || e.relative_load || e.load_options?.length) &&
+        <Button title="Round weights" variant="secondary" icon="barbell-outline" onPress={() => setWeights(true)} />}
+
     </>;
     footer = <>
+      {visibleRuns(part, block).map((i) => <RunChoice key={i} label={moveText(block.exercises[i], 1)}
+        value={env(i)} disabled={busy} onChange={(v) => chooseRun(i, v)} />)}
       {buyingIn ? <BigTap title="Buy-in done" hint="Starts counting rounds" disabled={busy || paused} onPress={() => p.act(buyInDone)} />
-        : counting ? <BigTap title="+1 round" hint={`Now ${roundText(part.round_taps.length)}`} disabled={busy || paused} onPress={() => p.act(tapRound)} />
+        : counting ? <BigTap title="+1 round" hint={`Now ${roundText(part.round_taps.length)}`} disabled={busy || paused || invalidLoad} onPress={() => p.act(tapRound)} />
         : null}
       {part.kind === "for_time" && <Button title="Done · stop the clock" icon="stop-circle-outline" size="lg" disabled={busy} onPress={() => p.act(endPart)} />}
       <Row gap={12}>
@@ -241,17 +251,39 @@ export function ClassSession(p: ClassSessionProps) {
 
   const leadIn = status === "lead_in" || (part.started_at != null && now < part.started_at + 1500 && leadInDone !== part.started_at && part.lead_in_ms != null);
   return (
-    <Screen native back title={over ? d.workout.title : partTitle(block)} subtitle={over ? undefined : d.workout.title}
+    <Screen native back title={over ? d.workout.title : status === "resting_after" ? "Rest" : partTitle(block)} subtitle={status === "resting_after" ? restLine(next) : over ? undefined : d.workout.title}
       action={<IconButton icon="ellipsis-horizontal" label="More class actions" onPress={() => setMore(true)} />}
       footer={<>{!!p.error && <Notice error>{p.error}</Notice>}{footer}</>} pinned={pinned ?? undefined}>
       {body}
       {!over && run.parts.length > 1 && <>
         <SectionHeader title="Today’s parts" />
         <Card compact>{run.parts.map((x, i) => <ListRow key={x.block_id} title={partTitle(d.workout.blocks[i])}
-          detail={i < index ? (x.skipped ? "Skipped" : "Done") : i === index ? "Now" : undefined} />)}</Card>
+          detail={i < index ? (x.skipped ? "Skipped" : "Done") : i === index ? (status === "resting_after" ? "Done" : "Now") : status === "resting_after" && i === index + 1 ? "Up next" : undefined} />)}</Card>
       </>}
       {leadIn && part.started_at != null && <LeadIn until={part.started_at} label={partTitle(block)}
         onSkip={() => p.act(skipLeadIn)} onDone={() => setLeadInDone(part.started_at!)} />}
+      <Sheet visible={weights} onClose={() => setWeights(false)} title="Round weights">
+        <Copy tone="muted">Used for your next round. Earlier rounds keep their weights.</Copy>
+        {block.exercises.map((e, i) => {
+          if (e.segment || (e.load == null && !e.relative_load && !e.load_options?.length)) return null;
+          const recorded = d.class_loads?.[block.id]?.[i];
+          const key = `${block.id}:${i}`;
+          const unit = loadUnits[key] ?? recorded?.load_unit ?? e.load_unit ?? "kg";
+          const value = loadText[key] ?? String(recorded ? recorded.load ?? "" : e.load ?? "");
+          return <View key={key} style={{ gap: 12 }}>
+            <Copy kind="label">{e.name}</Copy><Copy kind="small" tone="muted">{prescriptionLine(e)}</Copy>
+            <Field label={`${e.name} weight`} numeric value={value} onChange={(v) => {
+              setLoadText((t) => ({ ...t, [key]: v }));
+              if (v.trim() === "" || (Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 2000))
+                p.roundLoad?.(block.id, i, v.trim() ? Number(v) : null, unit);
+            }} />
+            <Segmented<"kg" | "lb"> label={`${e.name} unit`} value={unit} options={[{ value: "kg", label: "kg" }, { value: "lb", label: "lb" }]}
+              onChange={(u) => { setLoadUnits((t) => ({ ...t, [key]: u })); if (value.trim() && Number.isFinite(Number(value))) p.roundLoad?.(block.id, i, Number(value), u); }} />
+            {e.load_options?.map((option, n) => <Button key={n} title={`${option.load} ${option.load_unit}${option.label ? ` · ${option.label}` : ""}`} variant="secondary"
+              onPress={() => { setLoadText((t) => ({ ...t, [key]: String(option.load) })); setLoadUnits((t) => ({ ...t, [key]: option.load_unit })); p.roundLoad?.(block.id, i, option.load, option.load_unit, option.load_convention ?? "total"); }} />)}
+          </View>;
+        })}
+      </Sheet>
       <Sheet visible={more} onClose={() => setMore(false)} title="Class">
         <ListRow icon="book-outline" title="Coach notes" onPress={() => { setMore(false); setInstructions(true); }} />
         {!over && (status === "running" || status === "paused") && part.kind !== "sets" &&

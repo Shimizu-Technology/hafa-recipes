@@ -4,9 +4,9 @@ import type { Storage } from "./drafts";
 import { timedCircuit } from "./timed-circuit";
 import { formatCapSeconds, intervalPosition, isDeathBy, ladderReps, movesFor, timedFormat, timedFormatProblem,
   trackedIntervalLimit, type TimedFormat } from "./timed-execution";
-import { endPart, isTimedPart, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
+import { endPart, isTimedPart, partKind, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
 import { carriesResults, classPayload, cleanScore, scoreProblem, withoutResults } from "./class-scores";
-import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly } from "./class-training";
+import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly, roundActuals, type ClassLoad } from "./class-training";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
   | { workout_id: string; workout_revision: number }
@@ -24,6 +24,9 @@ export interface TrainingStep {
   exercise: ExercisePrescription;
 }
 export interface SessionDraft {
+  class_loads?: Record<string, Record<number, ClassLoad>>;
+  /** Actual identities whose weight came from Rx rather than an athlete entry, retained across reloads. */
+  class_prescribed_loads?: string[];
   id: string;
   cell_identity_version?: 2;
   generation: number;
@@ -245,7 +248,7 @@ export function historicalStructureWarning(workout: Workout, actuals: ActualSet[
     const block = workout.blocks.find((b) => b.id === actual.block_id);
     const exercise = block?.exercises[actual.exercise_index];
     if (!block || !exercise) return true;
-    return (!timedCircuit(workout) && !timedFormat(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
+    return (!isTimedPart(partKind(block)) && !timedCircuit(workout) && !timedFormat(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
       (exercise.per_side ? actual.side !== "left" && actual.side !== "right" : actual.side != null && actual.side !== "both");
   });
   return outsidePrescription ?
@@ -451,6 +454,22 @@ export function createTrainingStore(
     operations = result;
     return result;
   }
+  function acceptSaved(s: TrainingState, local: SavedLocalSession, saved: SessionSaveResult) {
+    if (saved.unsent_results) {
+      local.unsent_results = { ...saved.unsent_results, reason: "Class scores are not available on this server yet." };
+      local.request = withoutResults(local.request);
+    }
+    local.state = "synced";
+    local.synced_id = saved.id;
+    local.synced_at = clock();
+    if (local.recovery_origin && local.recovered_with)
+      rememberRecovery(s, local.recovery_origin.request.client_session_id, local.recovered_with, saved.id);
+    delete local.rejection_status;
+    const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
+    if (warning) local.problem = warning;
+    else if (local.unsent_results) local.problem = unsentProblem;
+    else delete local.problem;
+  }
   async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<SessionSaveResult>) {
     await operations;
     const queue = state.history.filter((x) => x.state === "queued" && !x.recovery);
@@ -465,20 +484,7 @@ export function createTrainingStore(
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
           if (local) {
-            if (saved.unsent_results) {
-              local.unsent_results = { ...saved.unsent_results, reason: "Class scores are not available on this server yet." };
-              local.request = withoutResults(local.request);
-            }
-            local.state = "synced";
-            local.synced_id = saved.id;
-            local.synced_at = clock();
-            if (local.recovery_origin && local.recovered_with)
-              rememberRecovery(s, local.recovery_origin.request.client_session_id, local.recovered_with, saved.id);
-            delete local.rejection_status;
-            const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
-            if (warning) local.problem = warning;
-            else if (local.unsent_results) local.problem = unsentProblem;
-            else delete local.problem;
+            acceptSaved(s, local, saved);
           }
           return s;
         });
@@ -795,11 +801,41 @@ export function createTrainingStore(
         // A part that started on its own after a rest gets its run choices before this action can pass them by.
         d.class_run = resolve(d.class_run, d.workout, now);
         syncClass(s, now);
+        const priorPart = currentPart(d.class_run, d.workout, now).part;
         d.class_run = change(d.class_run, d.workout, now);
+        const changedPart = d.class_run.parts.find((p) => p.block_id === priorPart.block_id)!;
+        if (changedPart.round_taps.length > priorPart.round_taps.length) {
+          const block = d.workout.blocks.find((b) => b.id === priorPart.block_id)!;
+          const actuals = roundActuals(block, changedPart.round_taps.length, d.class_loads?.[block.id]);
+          if (changedPart.round_taps.length > 100 || d.actuals.length + actuals.length > 1000)
+            throw Error("This session reached the tracking limit. Save it before logging more work.");
+          d.class_prescribed_loads ??= d.actuals.filter((a) => a.load != null &&
+            d.class_run?.parts.some((p) => p.block_id === a.block_id && ["amrap", "for_time"].includes(p.kind)) &&
+            !d.class_loads?.[a.block_id]?.[a.exercise_index]).map(actualIdentity);
+          d.class_prescribed_loads.push(...actuals.filter((a) => a.load != null &&
+            !d.class_loads?.[a.block_id]?.[a.exercise_index]).map(actualIdentity));
+          d.actuals.push(...actuals);
+        } else if (changedPart.round_taps.length < priorPart.round_taps.length) {
+          d.actuals = d.actuals.filter((a) => a.block_id !== priorPart.block_id || a.round_index !== priorPart.round_taps.length);
+          d.class_prescribed_loads = d.class_prescribed_loads?.filter((key) => d.actuals.some((a) => actualIdentity(a) === key));
+        }
         if (environment) s.run_environment = environment;
         // Set rest and set undo from the part just left don't carry into the next part.
         if (currentPart(d.class_run, d.workout, now).index !== before) { clearTimers(d); d.undo = []; }
         syncClass(s, now);
+        return s;
+      });
+    },
+    /** Weight used for subsequent round taps; previous rounds keep their recorded load. */
+    classLoad(blockId: string, exerciseIndex: number, load: number | null, load_unit: "kg" | "lb", load_convention?: ActualSet["load_convention"]) {
+      return update((s) => {
+        const d = s.active;
+        if (!d?.class_run || !d.workout.blocks.find((b) => b.id === blockId)?.exercises[exerciseIndex])
+          throw Error("This movement isn’t in the class.");
+        if (load != null && (!Number.isFinite(load) || load < 0 || load > 2000)) throw Error("Enter a weight from 0 to 2000.");
+        d.class_loads ??= {}; d.class_loads[blockId] ??= {};
+        const convention = load_convention ?? d.class_loads[blockId][exerciseIndex]?.load_convention;
+        d.class_loads[blockId][exerciseIndex] = { load, load_unit, ...(convention ? { load_convention: convention } : {}) };
         return s;
       });
     },
@@ -1020,7 +1056,16 @@ export function createTrainingStore(
               d.active_milliseconds + (d.active_started_at == null ? 0 : Math.max(0, now - d.active_started_at))
             ) / 1000
           ),
-          actuals: clone(d.actuals),
+          actuals: clone(d.actuals).map((a) => {
+            const scaled = scores?.results.some((r) => r.block_id === a.block_id && r.scaling === "scaled");
+            const inferred = d.class_prescribed_loads ? d.class_prescribed_loads.includes(actualIdentity(a)) :
+              d.class_run?.parts.some((p) => p.block_id === a.block_id && ["amrap", "for_time"].includes(p.kind)) &&
+                !d.class_loads?.[a.block_id]?.[a.exercise_index];
+            if (scaled && inferred) {
+              delete a.load; delete a.load_unit; delete a.load_convention;
+            }
+            return a;
+          }),
           notes: d.notes || null,
           ...(scores?.results.length ? { results: scores.results } : {}),
           ...(scores?.segments.length ? { segments: scores.segments } : {}),
@@ -1091,8 +1136,7 @@ export function createTrainingStore(
               // acceptance must resolve here before any new workout is created.
               const saved = await sendCurrent(clone(original.request), generation);
               await update(s => { const item = s.history.find(h => h.request.client_session_id === id)!;
-                item.state = "synced"; item.synced_id = saved.id; item.synced_at = clock();
-                delete item.rejection_status; delete item.problem;
+                acceptSaved(s, item, saved);
                 rememberRecovery(s, id, command, saved.id); return s; });
               return saved.id;
             } catch (error) {

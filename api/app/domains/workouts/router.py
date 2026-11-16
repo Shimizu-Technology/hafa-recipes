@@ -1353,12 +1353,13 @@ async def delete_summary_choice(user: User, db: Database, generation: Generation
         removed = await db.execute(text("""
             UPDATE workouts_sessions SET content = public.workouts_without_heart_rate(content)
             WHERE app_user_id=:owner AND generation=:generation
-                AND content IS DISTINCT FROM public.workouts_without_heart_rate(content)
+                AND (content->'heart_rate'->>'avg' IS NOT NULL OR content->'heart_rate'->>'max' IS NOT NULL
+                OR jsonb_path_exists(content, '$.segments[*] ? (@.avg_hr != null || @.max_hr != null)'))
         """), {"owner": user.id, "generation": generation})
         removed_count = removed.rowcount
     elif await db.scalar(text("""SELECT EXISTS(SELECT 1 FROM workouts_sessions
-        WHERE app_user_id=:owner AND generation=:generation AND (content ? 'heart_rate'
-        OR jsonb_path_exists(content, '$.segments[*].avg_hr') OR jsonb_path_exists(content, '$.segments[*].max_hr')))"""),
+        WHERE app_user_id=:owner AND generation=:generation AND (content->'heart_rate'->>'avg' IS NOT NULL OR content->'heart_rate'->>'max' IS NOT NULL
+                OR jsonb_path_exists(content, '$.segments[*] ? (@.avg_hr != null || @.max_hr != null)')))"""),
         {"owner": user.id, "generation": generation}):
         raise HTTPException(503, "Heart-rate summary deletion is being set up")
     from app.domains.workouts.export_service import invalidate_export_snapshots

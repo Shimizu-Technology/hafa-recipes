@@ -195,10 +195,10 @@ describe("discover API client", () => {
     expect((transport.mock.calls[0][1] as RequestInit).method).toBe("GET");
     await api.discoverWorkout("a b");
     expect(transport.mock.calls[1][0]).toBe("https://example.test/api/v1/workouts/discover/a%20b");
-    // A cancelled query (e.g. a superseded search) aborts the request it started.
+    // An already-cancelled query never starts a token or network request.
     controller.abort();
     await expect(api.discover({ q: "old" }, 0, controller.signal)).rejects.toBeInstanceOf(ApiError);
-    expect((transport.mock.calls[2][1] as RequestInit).signal?.aborted).toBe(true);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
   it("saves, reports, blocks, publishes and unpublishes on the documented routes", async () => {
     const record = { id: "copy", generation: 3, revision: 1, content: { title: "Legs", kind: "session", provenance: "user", blocks: [] },

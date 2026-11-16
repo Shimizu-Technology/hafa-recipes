@@ -66,8 +66,11 @@ export function ScoreEditor({ block, result, segments = [], onChange, onRunDista
         <Chip label="Rx" role="radio" accessibilityLabel={`${partTitle(block)}: Rx`} selected={result.scaling === "rx"} onPress={() => onChange({ ...result, scaling: "rx", scaling_note: undefined })} />
         <Chip label="Scaled" role="radio" accessibilityLabel={`${partTitle(block)}: Scaled`} selected={result.scaling === "scaled"} onPress={() => onChange({ ...result, scaling: "scaled" })} />
       </ChipRow>
-      {result.scaling === "scaled" && <Field label="What you scaled" optional value={result.scaling_note ?? ""}
-        onChange={(v) => onChange({ ...result, scaling_note: v.slice(0, 200) || undefined })} />}
+      {result.scaling === "scaled" && <>
+        <Copy kind="small" tone="muted">Scaled: add the weights you used to count toward PRs</Copy>
+        <Field label="What you scaled" optional value={result.scaling_note ?? ""}
+          onChange={(v) => onChange({ ...result, scaling_note: v.slice(0, 200) || undefined })} />
+      </>}
       {segments.filter((s) => s.kind !== "rest").map((s) => (
         <Row key={`${s.kind}${s.index}`} gap={8} justify="space-between" wrap>
           <Copy kind="small" tone="muted">{s.kind === "buy_in" ? `Buy-in · ${s.label ?? ""}` : `Round ${s.index}`}

@@ -1,6 +1,6 @@
-import type { Workout } from "./models";
+import type { ActualSet, Workout } from "./models";
 import { buyIn, classIntervals, isTimedPart, partKind, partStatus, resolve, type ClassRun, type RunEnvironment } from "./class-session";
-import { hasOnceOnlyMoves, isUnknownMode } from "./timed-execution";
+import { hasOnceOnlyMoves, isUnknownMode, repsFor } from "./timed-execution";
 import { visibleRuns } from "./class-view";
 
 /**
@@ -92,4 +92,21 @@ export function endClass(run: ClassRun, workout: Workout, now: number) {
   for (const later of next.parts.slice(next.cursor + 1)) Object.assign(later, { skipped: true, ended_at: now });
   next.cursor = next.parts.length - 1;
   return next;
+}
+
+export type ClassLoad = { load: number | null; load_unit: "kg" | "lb"; load_convention?: ActualSet["load_convention"] };
+
+/** A round tap records only repeating moves. Choices and relative weights need an explicit actual load. */
+export function roundActuals(block: Block, round: number, loads: Record<number, ClassLoad> = {}): ActualSet[] {
+  return block.exercises.flatMap((e, i) => {
+    if (e.segment) return [];
+    const chosen = loads[i] ?? (e.load != null && e.load_unit ? { load: e.load, load_unit: e.load_unit } : undefined);
+    const weight = chosen?.load != null ? { ...chosen, load: chosen.load } : {};
+    const sides = e.per_side ? ["left", "right"] as const : [null];
+    return sides.map((side) => ({ block_id: block.id, exercise_index: i, set_index: 1, round_index: round,
+      side, completed: true,
+      reps: repsFor(e, round), duration_seconds: e.duration_seconds ?? null,
+      distance_meters: e.distance_meters ?? null, ...weight,
+      ...(Object.keys(weight).length ? { load_convention: chosen?.load_convention ?? e.load_convention ?? "total" as const } : {}) }));
+  });
 }
