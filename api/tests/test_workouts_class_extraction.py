@@ -464,3 +464,41 @@ def test_exact_fixture_comparison_rejects_extra_list_items(extra):
         actual["blocks"][0]["exercises"].append(deepcopy(actual["blocks"][0]["exercises"][-1]))
     with pytest.raises(AssertionError):
         fixture_subset(SAMPLE, actual)
+
+
+# WodUp spells the same class out in full; the short fixture wording above hid these.
+WODUP_WORDING = {
+    'Progression 2/3 for benchmark "Everest".': 'This is progression 2/3 for our benchmark workout, "Everest"',
+    "A. AMRAP 15 min": "A. As Many Rounds and Reps as possible in 15 minutes, with Buy In:",
+    "B. AMRAP 15 min": "B. As Many Rounds and Reps as possible in 15 minutes, with Buy In:",
+    "D. Accessories 2 alternating sets": "D. ACCESSORIES\n2 alternating sets of:",
+}
+
+
+def wodup_wording(value):
+    if isinstance(value, dict):
+        return {key: wodup_wording(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [wodup_wording(item) for item in value]
+    return WODUP_WORDING.get(value, value)
+
+
+@pytest.mark.parametrize("heading_in_source", [True, False])
+async def test_wodup_full_wording_keeps_amrap_buy_in_benchmark_and_accessory_heading(heading_in_source):
+    text = TEXT
+    for short, full in WODUP_WORDING.items():
+        text = text.replace(short, full)
+    raw = wodup_wording(response())
+    accessories = raw["blocks"][3]
+    accessories["label"] = "D. ACCESSORIES" if heading_in_source else "D. Accessory superset"
+    accessories["evidence"] = [entry | {"wording": "2 alternating sets of:"} if entry["field"] == "rounds" else entry
+                               for entry in accessories["evidence"] if entry["field"] != "role"]
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(
+        ExtractionRequest(kind="text", text=text, class_parts=True, ai_consent=True))
+    workout = result.workout
+    assert (workout.benchmark.name, workout.benchmark.stage, workout.benchmark.stages) == ("Everest", 2, 3)
+    for block in workout.blocks[:2]:
+        assert block.execution.model_dump(exclude_none=True) == {"mode": "amrap", "time_cap_seconds": 900}
+        assert block.exercises[0].segment == "buy_in"
+    assert workout.blocks[3].rounds == 2
+    assert workout.blocks[3].role == ("accessory" if heading_in_source else None)

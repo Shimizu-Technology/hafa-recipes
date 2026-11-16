@@ -66,7 +66,9 @@ def ground_class(workout, raw, source, warnings):
     benchmark = workout.benchmark
     if benchmark:
         evidence_text = text + "\n" + "\n".join(q for b in workout.blocks for q in quotes(b, "benchmark"))
-        if not re.search(rf"\bbenchmark\s+['\"‘’“”]?{re.escape(benchmark.name)}(?:['\"‘’“”]|\b)", evidence_text, re.I):
+        # 'benchmark "Everest"' or WodUp's 'benchmark workout, "Everest"'.
+        named = rf"\bbenchmark(?:\s+(?:workout|wod|test))?(?:\s*[,:–—-]\s*|\s+)['\"‘’“”]?{re.escape(benchmark.name)}(?:['\"‘’“”]|\b)"
+        if not re.search(named, evidence_text, re.I):
             workout.benchmark = None
             warnings.append("Unsupported benchmark removed; review the source.")
         elif benchmark.stage is not None and not re.search(rf"\bprogression\s+{benchmark.stage}\s*/\s*{benchmark.stages}\b", evidence_text, re.I):
@@ -86,7 +88,9 @@ def ground_class(workout, raw, source, warnings):
             block.rest_after_seconds = None
             warnings.append(f"Unsupported rest after {block.label} removed.")
         role_words = {"warm_up": r"warm[ -]?up", "cool_down": r"cool[ -]?down|active recovery", "accessory": r"accessor"}
-        if block.role and block.role != "main" and not any(re.search(role_words[block.role], q, re.I) for q in quotes(block, "role")):
+        # A part heading copied verbatim ("D. ACCESSORIES") is its own role evidence.
+        heading = [block.label] if block.label and re.search(rf"^\s*{re.escape(block.label)}\s*:?\s*$", text, re.I | re.M) else []
+        if block.role and block.role != "main" and not any(re.search(role_words[block.role], q, re.I) for q in quotes(block, "role") + heading):
             block.role = block.score_kind = None
             warnings.append(f"Unsupported role for {block.label} removed.")
         if block.score_kind == "none" and block.role not in {"warm_up", "cool_down", "accessory"}:
