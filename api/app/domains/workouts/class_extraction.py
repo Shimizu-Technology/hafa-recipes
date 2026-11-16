@@ -50,6 +50,55 @@ def apply_layout(workout, text, warnings):
     warnings[:] = stale_warnings(workout, warnings, placed) + notes
 
 
+def screenshot_notes_without_members(workout, warnings):
+    """Screenshot notes have no text to check against, so drop any that read
+    as a member's result or comment ("Jane Doe 12:43 Rx", "Mike R: great job")."""
+    from app.domains.workouts.class_outline import member_line
+
+    def member(note):
+        return member_line(note) or (MEMBER_COMMENT.fullmatch(note) and not re.search(r"\d", note))
+
+    removed = False
+    for holder in [workout, *workout.blocks]:
+        notes = holder.instructions or []
+        kept = [note for note in notes if not member(note)]
+        removed |= len(kept) < len(notes)
+        holder.instructions = kept if holder is workout else (kept or None)
+    if removed:
+        warnings.append("Lines that read like member results or comments were left out of the coach notes.")
+
+
+NOTE_ROW = re.compile(r"^(.+?)\s+(?:distances?|ranges?)$", re.I)
+
+
+def review_screenshot_rows(workout, warnings):
+    """A screenshot's "RUN DISTANCE 800-1000m" note is a range, not a movement,
+    and a run read as 100 m beside an 800-1000 m range needs a second look."""
+    for block in workout.blocks:
+        ranges, rows = {}, []
+        for item in block.exercises:
+            note = NOTE_ROW.match(item.name)
+            if note and item.distance_meters_min is not None:
+                ranges.setdefault(note[1].casefold(), []).append((item.distance_meters_min, item.distance_meters))
+            else:
+                rows.append(item)
+        if len(rows) == len(block.exercises):
+            continue
+        block.exercises = rows
+        seen = {}
+        for item in rows:
+            listed = ranges.get(item.name.casefold(), [])
+            index = seen[item.name.casefold()] = seen.get(item.name.casefold(), -1) + 1
+            if index >= len(listed) or item.distance_meters is None:
+                continue
+            low, high = listed[index]
+            if low <= item.distance_meters <= high:
+                item.distance_meters, item.distance_meters_min = high, low
+            else:
+                warnings.append(f"{item.name} reads {item.distance_meters:g} m but {block.label} lists "
+                                f"{low:g}-{high:g} m; check the screenshot.")
+
+
 def load_pairs(wording):
     pairs = set()
     number = r"\d+(?:\.\d+)?"
@@ -80,10 +129,13 @@ def ground_class(workout, raw, source, warnings):
     from app.domains.workouts.extraction import _numeric_supported, _quote_is_supported
 
     text = "\n".join(p.text for p in source.parts)
+    # Screenshots have no text to quote; their notes are the model's reading of
+    # the page and stay under the visual-review warning.
+    image_only = not text.strip() and bool(source.images)
     def quotes(item, field):
         return [e.wording for e in item.evidence if e.field == field and _quote_is_supported(e, source)]
     def quoted(value, item, field):
-        return value in text or value in quotes(item, field)
+        return image_only or value in text or value in quotes(item, field)
     workout.instructions = [v for v in raw.get("instructions", []) if quoted(v, workout.blocks[0], "workout_instructions")] if workout.blocks else []
     if len(workout.instructions) < len(raw.get("instructions", [])):
         warnings.append("Unquoted coach notes removed; review the source.")
@@ -164,6 +216,11 @@ def ground_class(workout, raw, source, warnings):
             for item in block.exercises:
                 item.segment = None
             warnings.append(f"Buy-in/cash-out structure for {block.label} needs review; source quotes were retained.")
+    if image_only:
+        review_screenshot_rows(workout, warnings)
+        screenshot_notes_without_members(workout, warnings)
+        if workout.instructions or any(block.instructions for block in workout.blocks):
+            warnings.append("Coach notes were read from screenshots; check them against the class.")
     workout.programming = None  # Only explicit request hints can supply this private metadata.
     if text.strip():
         apply_layout(workout, text, warnings)
