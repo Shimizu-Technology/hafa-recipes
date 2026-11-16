@@ -36,7 +36,7 @@ async def test_bootstrap_says_nothing_about_reminders_with_the_flag_off(baby_api
 async def test_bootstrap_says_reminders_are_on_at_any_client_level(push):  # noqa: F811
     for client in ("2", "3"):
         response = await push.client.get(BOOTSTRAP, headers={"X-Baby-Client": client})
-        assert response.json()["reminders"] == {"push": True}
+        assert response.json()["reminders"] == {"push": True, "family_news": True}
 
 
 async def test_a_tap_finds_its_reminder(push):  # noqa: F811

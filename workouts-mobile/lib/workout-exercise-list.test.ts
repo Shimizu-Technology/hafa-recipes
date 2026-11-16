@@ -3,7 +3,7 @@ import { act, create } from "react-test-renderer";
 import { expect, it, vi } from "vitest";
 import type { Workout } from "./models";
 
-vi.mock("@/components/ui", () => ({ ListGroup: "ListGroup", ListRow: "ListRow" }));
+vi.mock("@/components/ui", () => ({ Copy: "Copy", ListGroup: "ListGroup", ListRow: "ListRow" }));
 import { WorkoutExerciseList } from "../components/workout-exercise-list";
 
 it("renders numbered rows with a group header and all secondary details", () => {

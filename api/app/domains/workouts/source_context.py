@@ -21,6 +21,9 @@ def without_source_context(value):
 
 
 def retain_source_context(workout, source):
+    if getattr(source, "class_parts", False):
+        workout.source_context = None
+        return workout
     # Leave room for server IDs and warning projection without raising the existing
     # 240KB saved-record limit. Never retain image data URLs or metadata as text.
     parts, remaining, truncated = [], 30_000, False

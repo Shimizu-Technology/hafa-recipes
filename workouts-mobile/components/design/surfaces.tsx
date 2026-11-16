@@ -436,7 +436,8 @@ export function ListRow({
 }
 
 /** Groups ListRows inside one card with hairline separators. */
-export function ListGroup({ children, grouped: explicitGrouped, header, separatorInset = 0 }: PropsWithChildren<{ grouped?: boolean; header?: string; separatorInset?: number }>) {
+/** `notes`: short lines under the header, inside the group, such as a class part's coach notes. */
+export function ListGroup({ children, grouped: explicitGrouped, header, notes, separatorInset = 0 }: PropsWithChildren<{ grouped?: boolean; header?: string; notes?: string[] | null; separatorInset?: number }>) {
   const c = useColors();
   const pageGrouped = useGroupedPage();
   const grouped = explicitGrouped ?? pageGrouped;
@@ -460,6 +461,7 @@ export function ListGroup({ children, grouped: explicitGrouped, header, separato
       }}
     >
       {!!header && <View style={{ paddingTop: 12, paddingBottom: 8 }}><Copy kind="caption" tone="muted">{header}</Copy></View>}
+      {!!notes?.length && <View style={{ gap: 4, paddingBottom: 8 }}>{notes.map((line, i) => <Copy key={i} kind="small">{line}</Copy>)}</View>}
       {items.map((child, i) => (
         <View key={(isValidElement(child) && child.key) || i}>
           {i > 0 && <View style={{ marginLeft: separatorInset, borderTopWidth: 1, borderTopColor: c.border }} />}

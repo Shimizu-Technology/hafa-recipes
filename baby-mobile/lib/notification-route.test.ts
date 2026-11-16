@@ -547,6 +547,8 @@ describe("where each kind opens", () => {
     ["feed_interval", { record_id: id, child_id: "baby" }, { path: "/", pathname: "/(tabs)/(today)", child: "baby" }],
     ["running_timer", { record_id: id, child_id: "baby" }, { path: "/", pathname: "/(tabs)/(today)", child: "baby" }],
     ["pregnancy_week", { child_id: "baby", week: 37 }, { path: "/", pathname: "/(tabs)/(today)", child: "baby" }],
+    // "Kami: contractions have started" opens Today, not "That reminder isn't here any more".
+    ["family_news", { child_id: "baby", news: "labor" }, { path: "/", pathname: "/(tabs)/(today)", child: "baby" }],
     ["milestone_window", {}, { path: "/milestones", pathname: "/milestones" }],
     ["well_visit", {}, { path: "/well-visits", pathname: "/well-visits" }],
   ])("%s", (kind, data, place) => {

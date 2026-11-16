@@ -168,6 +168,12 @@ class ChildDetails(BaseModel):
     tracking: dict[TrackerId, StrictBool] | None = Field(default=None, max_length=MAX_TRACKERS)
     # With the baby, so it follows them into a family, and everyone there can read and call it.
     doctor: CareContact | None = None
+    # Wall-clock time of birth on the birth date, "HH:MM" in 24 hours. Optional: the date alone is enough.
+    birth_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    # Who's expecting: a parent in the baby's family, by app user id. Set to whoever adds a pregnancy, and
+    # `expecting_confirmed` false until someone in the family says so, since the person adding it may not be her.
+    expecting_member: str | None = Field(default=None, min_length=1, max_length=64)
+    expecting_confirmed: StrictBool | None = None
 
     @field_validator("length_at_birth_cm")
     @classmethod

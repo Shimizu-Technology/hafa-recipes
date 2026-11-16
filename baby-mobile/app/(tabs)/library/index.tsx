@@ -15,6 +15,7 @@ import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
 import { CategoryPicker } from "@/components/category-picker";
 import { ImportUpdates } from "@/components/import-updates";
+import { OrganizeWaiting } from "../../../components/organize-waiting";
 import { HeaderSearch } from "@/components/header-search";
 import { Swell } from "@/components/motion";
 import { HeaderPill, TabActions, headerActions } from "@/components/tab-stack";
@@ -30,7 +31,7 @@ export default function Library() {
   const [selecting, setSelecting] = useState(false), [selected, setSelected] = useState<string[]>([]);
   const [organizing, setOrganizing] = useState(false), [error, setError] = useState("");
   const [lastChange, setLastChange] = useState<{ record: BabyRecord; added: string[] } | null>(null);
-  const [undoing, setUndoing] = useState(false), undoBusy = useRef(false);
+  const [undoing, setUndoing] = useState(false), undoBusy = useRef(false), [scan, setScan] = useState(0);
   const toast = useToast(), [deciding, setDeciding] = useState(""), decidingRef = useRef(false),
     [chooseFor, setChooseFor] = useState<string[]>([]), params = useLocalSearchParams<{ view?: string; at?: string }>();
   const today = profileToday(new Date(), b.state.bootstrap?.profile.timezone), tipsChild = timingChild(b.state, today),
@@ -116,7 +117,7 @@ export default function Library() {
   }
   const listingCategories = view === "categories" && !collection;
   return <Screen title="Saved"
-    onRefresh={() => { history.refresh(); categories.refresh(); }}
+    onRefresh={() => { history.refresh(); categories.refresh(); setScan((n) => n + 1); }}
     footer={selecting ? <Button title={`Choose category · ${selected.length} selected`} disabled={!selected.length}
       onPress={() => setOrganizing(true)} /> : lastChange ? <Swell key={`${lastChange.record.id}:${lastChange.added.join(",")}`}><Card tone="soft">
       <Copy lines={2}>Saved to {lastChange.record.title}.</Copy>
@@ -137,6 +138,8 @@ export default function Library() {
       { label: "Categories", value: "categories", icon: "folder-outline" as const },
     ]} onChange={(value) => value.startsWith("topic:") ? openCategory(value.slice(6)) : chooseView(value)} />
     {!!error && <Notice error>{error}</Notice>}
+    {/* Posts saved while automatic organizing was off, or whose read failed: one tap reads them all. */}
+    {!selecting && !q && !collection && (view === "all" || view === "inbox") && <OrganizeWaiting scan={scan} />}
     {chooseFor.length > 0 && !organizing && <Button secondary title="Choose another category" icon="folder-outline"
       onPress={() => { setSelected(chooseFor); setOrganizing(true); }} />}
     {listingCategories ? <>

@@ -15,8 +15,8 @@ function answeredHere(state: Pick<DeviceState, "outbox">, item: DueReminder) {
   return false;
 }
 
-/** What a caregiver hears, as on the API. Everything else is for parents. */
-const caregiverHears = new Set(["event", "running_timer"]);
+/** What a caregiver hears, as on the API. Everything else is for parents. Family news only comes when a parent picked them. */
+const caregiverHears = new Set(["event", "running_timer", "family_news"]);
 /** This phone's list is only as old as its last fetch, and a fetch can fail. What it shows goes by the access it has now. */
 export function stillHers(bootstrap: DeviceState["bootstrap"], item: Pick<DueReminder, "kind" | "space_id">) {
   if (bootstrap?.active === false) return false;

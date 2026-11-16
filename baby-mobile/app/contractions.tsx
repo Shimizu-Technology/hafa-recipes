@@ -10,11 +10,10 @@ import { careWrite, logCare, queueSessionAction } from "@/lib/quick-care";
 import { friendlyTime } from "@/lib/care-format";
 import { pregnancyProgress, profileToday, timingChild } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
-import { contactsOn, deliveryLine, deliveryMatters } from "../lib/contacts";
-import { Button, Card, Copy, Empty, Grouped, Notice, PressTarget, QuietRow, Row, Screen, Section, fonts, radii, tap, typeScale, useColors, useToast } from "@/components/ui";
+import { Button, Card, Copy, Empty, Grouped, Notice, PressTarget, Row, Screen, Section, fonts, radii, tap, typeScale, useColors, useToast } from "@/components/ui";
 import { useSecondClock } from "@/components/feed-timer";
 import { useMinuteClock } from "@/components/care-glance";
-import { CallContact } from "@/components/call-contact";
+import { LaborCard, useLaborFamily } from "../components/labor-card";
 import { DoctorNote } from "@/components/doctor-note";
 import { MedicalSource } from "@/components/medical-source";
 import { SyncStatus } from "@/components/sync-status";
@@ -32,8 +31,11 @@ export default function Contractions() {
     now = useSecondClock(true),
     [running, ...others] = runningContractions(rows, childId, now),
     writing = useRef(false),
-    guidance = contractionGuidance(child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined),
-    place = deliveryLine(b.state.bootstrap);
+    week = child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined,
+    // On her partner's phone, timing for her: "Kami's contractions", and the guidance about her. Only when that's
+    // been said; until then, everyday words.
+    family = useLaborFamily(child), support = family.support,
+    guidance = contractionGuidance(week, family.voice);
   async function save(action: () => Promise<() => Promise<unknown>>, message: string) {
     if (writing.current) return;
     writing.current = true;
@@ -51,7 +53,7 @@ export default function Contractions() {
   }, "Stopped");
   const toggle = () => running ? stop(running) : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
   const elapsed = running ? secondsWords((now.getTime() - new Date(running.occurred_at).getTime()) / 1000) : "";
-  return <Screen title="Contractions" back>
+  return <Screen title={support?.name ? `${support.name}’s contractions` : "Contractions"} back>
     <PressTarget accessibilityRole="button" accessibilityLabel={running ? `Stop. Timing, started ${friendlyTime(running.occurred_at, minute, timeZone)}` : "Start"} accessibilityHint="Saves straight away" onPress={() => void toggle()}
       style={{ minHeight: 172, borderRadius: radii.card, alignItems: "center", justifyContent: "center", gap: 4, padding: 16, backgroundColor: c.addFill }}>
       <Text key={fontScale} maxFontSizeMultiplier={1.5} style={{ fontFamily: fonts.display, fontSize: 48, lineHeight: 56, color: c.onAdd }}>{running ? "Stop" : "Start"}</Text>
@@ -68,9 +70,8 @@ export default function Contractions() {
       <Button secondary title="Stop this one" onPress={() => void stop(row)} />
     </Card>)}
     <Copy numeric kind="label">{hourLine(lastHour(rows, now))}</Copy>
-    {!!place && <CallContact line={place} />}
-    {/* Not mid-contraction. */}
-    {!place && !running && contactsOn(b.state.bootstrap) && deliveryMatters(b.state.bootstrap, today) && <QuietRow title="Add where you plan to deliver" onPress={() => router.push({ pathname: "/profile", params: { open: "delivery" } })} />}
+    {/* Tell her partner, when to call, the numbers she saved and the bag, in one place under the timer. */}
+    <LaborCard child={child} today={today} running={!!running} week={week} family={family} />
 
     {/* Being offline already has its one calm line, up top. */}
     {!!care.error && b.online !== false && !b.unreachable && <Notice>Showing what’s on this phone. {care.error}</Notice>}

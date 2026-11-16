@@ -82,7 +82,7 @@ async def test_before_the_migration_nothing_is_offered_and_nothing_goes(push):
 
 @pytest.mark.parametrize("baby_api", [61], indirect=True)
 async def test_after_the_migration_the_api_says_so(push):
-    assert (await push.client.get(BOOTSTRAP, headers=CURRENT)).json()["reminders"] == {"push": True, "routines": True}
+    assert (await push.client.get(BOOTSTRAP, headers=CURRENT)).json()["reminders"] == {"push": True, "family_news": True, "routines": True}
 
 
 @pytest.mark.parametrize("baby_api", [61], indirect=True)

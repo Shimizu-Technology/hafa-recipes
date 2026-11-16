@@ -30,9 +30,12 @@ import {
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
-import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput, capRemainingSeconds, restAfter } from "@/lib/training";
+import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput, capRemainingSeconds, restAfter, isWallClock, leadInRemaining } from "@/lib/training";
 import { FormatSession } from "@/components/training/format-session";
-import { formatScore } from "@/lib/timed-execution";
+import { LeadIn } from "@/components/training/lead-in";
+import { KeptRunningSheet } from "@/components/training/kept-running-sheet";
+import { useKeepAwakeWhile } from "@/components/training/keep-awake";
+import { formatCapSeconds, formatLabel, formatScore } from "@/lib/timed-execution";
 import type { ActualSet } from "@/lib/models";
 import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 import { SetNumberField } from "@/components/training/set-entry";
@@ -92,6 +95,10 @@ export default function Training() {
   const [moreInstructions, setMoreInstructions] = useState(false);
   const [summary, setSummary] = useState<(ReturnType<typeof sessionSummary> & { partial: boolean; score: string | null }) | null>(null);
   const finishing = useRef(false);
+  // The lead-in this screen already handed over to the running clock.
+  const [leadInDone, setLeadInDone] = useState<number | null>(null);
+  // Keep the screen on while an AMRAP clock runs; timed formats do the same in FormatSession.
+  useKeepAwakeWhile(!!d?.timed_circuit && !d.paused && capRemainingSeconds(d, now) !== 0, `training:${d?.id}`);
   const phase = d?.paused ? ((d.rest_remaining_milliseconds ?? 0) > 0 ? "resting" : "idle") : restPhase(d?.rest_until ?? null, now);
   useEffect(() => {
     // One alert when a rest runs out on its own; "End rest" clears the timer instead.
@@ -118,13 +125,14 @@ export default function Training() {
   useEffect(() => {
     const sub = AppState.addEventListener("change", (status) => {
       const active = store?.snapshot().active;
-      if (sameSession() && status !== "active" && active?.timed_circuit && !active.paused && !backgroundPausePending.current) {
+      // Drafts from older versions keep their pause-on-leave AMRAP; a wall clock only ever checkpoints.
+      if (sameSession() && status !== "active" && active?.timed_circuit && !isWallClock(active) && !active.paused && !backgroundPausePending.current) {
         backgroundPausePending.current = true;
         void store!.pause(true).catch(() => { if (sameSession()) setError("Could not pause the circuit on this device. Review its saved timer before resuming."); })
           .finally(() => { if (sameSession()) backgroundPausePending.current = false; });
-      } else if (sameSession() && status !== "active" && active?.timed_format && !active.paused) {
-        // Interval clocks keep running in the background like a wall clock; save the moment we left
-        // so a relaunch after the app is closed restores the session paused there.
+      } else if (sameSession() && status !== "active" && (active?.timed_format || active?.timed_circuit) && !active.paused) {
+        // Timed clocks keep running in the background like a wall clock. Save the moment we left, so a
+        // relaunch after the app is closed can say how long it ran on.
         void store!.checkpoint().catch(() => undefined);
       }
     });
@@ -359,8 +367,23 @@ export default function Training() {
         },
       },
     ]);
+  const cap = d.timed_circuit?.time_cap_seconds ?? (d.timed_format ? formatCapSeconds(d.timed_format) : null);
+  const leadInUntil = d.lead_in_until != null && !d.paused && leadInDone !== d.lead_in_until &&
+    (leadInRemaining(d, now) > 0 || now < d.lead_in_until + 2000) ? d.lead_in_until : null;
+  const clockOverlays = <>
+    {leadInUntil != null && !d.clock_kept_running && (
+      <LeadIn until={leadInUntil} label={formatLabel(d.workout.blocks[0]) ?? d.workout.title}
+        onSkip={() => { void run(() => store.skipLeadIn()); }}
+        onDone={() => { setLeadInDone(leadInUntil); setNow(Date.now()); }} />
+    )}
+    {!!d.clock_kept_running && (
+      <KeptRunningSheet d={{ ...d, clock_kept_running: d.clock_kept_running }} now={now} busy={busy} cap={cap}
+        onKeep={() => { void run(() => store.confirmKeptClock()); }}
+        onStoppedAt={(at) => { void run(() => store.confirmKeptClock(at)); }} />
+    )}
+  </>;
   if (d.timed_format)
-    return (
+    return (<>
       <FormatSession d={{ ...d, timed_format: d.timed_format }} now={now} busy={busy} error={error}
         activityPicker={<ActivityPicker value={activity} onChange={chooseActivity} />}
         log={(actuals) => { void run(() => store.logGroup(actuals)); }}
@@ -371,7 +394,8 @@ export default function Training() {
           await finish(status);
         }); }}
         discard={discard} />
-    );
+      {clockOverlays}
+    </>);
   return (
     <Screen native
       back
@@ -775,6 +799,7 @@ export default function Training() {
           onPress={() => { if (!d.actuals.length) discard(); else void run(() => finish("partial", true)); }} />}
         <Button title="Keep training" variant="ghost" disabled={busy} onPress={() => setFinishReview(false)} />
       </Sheet>
+      {clockOverlays}
     </Screen>
   );
 }

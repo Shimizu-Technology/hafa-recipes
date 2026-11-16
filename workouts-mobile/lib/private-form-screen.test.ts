@@ -9,6 +9,7 @@ import { createPrivateForm } from "./private-form";
 import { workoutErrors } from "./library";
 import { submittedCaptureScope } from "./capture";
 import type { Measurement } from "./measurements";
+import { nov17Class } from "./fixtures/nov17-class";
 const fixture = vi.hoisted(() => ({
   map: new Map<string, string>(),
   owner: "owner-initial",
@@ -1196,6 +1197,29 @@ it("mounted workout editing preserves spaces and newlines while instructions are
     notes: ["Rest after each round.", "Repeat at your own pace."] }));
   await click("Save changes");
   expect(fixture.updateWorkout.mock.calls[0][0].notes).toEqual(["Rest after each round.", "Repeat at your own pace."]);
+});
+
+it("editing a class and saving keeps its programming, benchmark, parts and class prescriptions", async () => {
+  fixture.params = { id: "workout" };
+  fixture.workout.mockResolvedValue({ ...nov17Class, id: "workout", generation: workout.generation, revision: 1 });
+  await mount(EditWorkout);
+  const editor = () => find("WorkoutEditor").props;
+  await act(async () => editor().onChange({ ...editor().value, title: "Tue class" }));
+  // A reps edit on B's wall balls, the way the editor changes one move.
+  await act(async () => editor().onChange({ ...editor().value, blocks: editor().value.blocks.map((block: Workout["blocks"][number], i: number) =>
+    i !== 1 ? block : { ...block, exercises: block.exercises.map((move, j) => j !== 1 ? move : { ...move, reps_min: 25, reps_max: 25 }) }) }));
+  await click("Save changes");
+  const saved = fixture.updateWorkout.mock.calls[0][0];
+  expect(saved.title).toBe("Tue class");
+  expect(saved.programming).toEqual(nov17Class.programming);
+  expect(saved.benchmark).toEqual(nov17Class.benchmark);
+  expect(saved.blocks.map((block: Workout["blocks"][number]) => [block.role, block.score_kind ?? null, block.rest_after_seconds ?? null]))
+    .toEqual([["main", null, 180], ["main", null, null], ["cool_down", "none", null], ["accessory", "none", null]]);
+  expect(saved.blocks[0].exercises[0]).toMatchObject({ segment: "buy_in", distance_meters: 1000, distance_meters_min: 800 });
+  expect(saved.blocks[0].exercises[1].relative_load).toEqual({ basis: "bodyweight", percent: 75 });
+  expect(saved.blocks[1].exercises[1]).toMatchObject({ reps_min: 25, reps_max: 25, load_options: nov17Class.blocks[1].exercises[1].load_options });
+  expect(saved.blocks[2].instructions).toEqual(["Active recovery."]);
+  expect(saved.blocks[3].exercises[0].duration_seconds_max).toBe(40);
 });
 
 it("mounted workout editing preserves original content/revision across background query updates and lost acknowledgment", async () => {
