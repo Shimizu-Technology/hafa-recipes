@@ -270,7 +270,10 @@ struct HafaShareSheet: View {
           Text(subtitle)
             .font(theme.font(theme.regular, 14, .subheadline))
             .foregroundStyle(Color(theme.secondary))
-            .lineLimit(large ? 3 : 1)
+            // A site name is one word: it shrinks to fit rather than breaking mid-word at large text.
+            .lineLimit(1)
+            .minimumScaleFactor(large ? 0.6 : 1)
+            .truncationMode(.middle)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -345,14 +348,15 @@ struct HafaShareSheet: View {
     return Button { model.select(choice.id, option.id) } label: {
       HStack(spacing: 6) {
         if let symbol = option.symbol { Image(systemName: symbol).font(.system(size: 13, weight: .semibold)) }
-        Text(option.title).font(theme.font(theme.strong, 15, .subheadline))
+        // A long name wraps inside its chip at large text instead of running off the card.
+        Text(option.title).font(theme.font(theme.strong, 15, .subheadline)).lineLimit(2).multilineTextAlignment(.leading)
       }
       .foregroundStyle(Color(selected ? theme.onAccent : theme.ink))
       .padding(.horizontal, 14).padding(.vertical, 9)
       .frame(minHeight: 40)
-      .background(Capsule().fill(Color(selected ? theme.accent : theme.surface)))
-      .overlay(Capsule().strokeBorder(Color(selected ? theme.accent : theme.hairline), lineWidth: 1))
-      .contentShape(Capsule())
+      .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(selected ? theme.accent : theme.surface)))
+      .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(selected ? theme.accent : theme.hairline), lineWidth: 1))
+      .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
     .buttonStyle(HafaSharePress())
     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -437,18 +441,22 @@ private struct HafaShareFlow: Layout {
     arrange(proposal.width ?? .infinity, subviews).size
   }
   func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-    for (index, origin) in arrange(bounds.width, subviews).origins.enumerated() {
-      subviews[index].place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+    let arranged = arrange(bounds.width, subviews)
+    for index in subviews.indices {
+      // Placed at the size it was measured at, so a wrapped chip stays inside the card and its row.
+      subviews[index].place(at: CGPoint(x: bounds.minX + arranged.origins[index].x, y: bounds.minY + arranged.origins[index].y),
+        proposal: ProposedViewSize(arranged.sizes[index]))
     }
   }
-  private func arrange(_ width: CGFloat, _ subviews: Subviews) -> (origins: [CGPoint], size: CGSize) {
-    var origins: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
+  private func arrange(_ width: CGFloat, _ subviews: Subviews) -> (origins: [CGPoint], sizes: [CGSize], size: CGSize) {
+    var origins: [CGPoint] = [], sizes: [CGSize] = [], x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
     for subview in subviews {
-      let size = subview.sizeThatFits(.init(width: width, height: nil))
+      var size = subview.sizeThatFits(.init(width: width, height: nil))
+      size.width = min(size.width, width)
       if x > 0, x + size.width > width { x = 0; y += line + spacing; line = 0 }
-      origins.append(CGPoint(x: x, y: y))
+      origins.append(CGPoint(x: x, y: y)); sizes.append(size)
       x += size.width + spacing; line = max(line, size.height); widest = max(widest, x - spacing)
     }
-    return (origins, CGSize(width: widest, height: y + line))
+    return (origins, sizes, CGSize(width: widest, height: y + line))
   }
 }
