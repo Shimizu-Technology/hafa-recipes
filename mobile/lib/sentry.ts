@@ -32,6 +32,33 @@ export function redactEvent<T extends { breadcrumbs?: { message?: string; data?:
   };
 }
 
+type SpanLike = { description?: string; data?: Record<string, unknown> };
+
+/** Performance events: redact the transaction name and every span's description and string data too. */
+export function redactTransaction<T extends Parameters<typeof redactEvent>[0] & { transaction?: string; spans?: SpanLike[] }>(event: T): T {
+  const redacted = redactEvent(event);
+  return {
+    ...redacted,
+    ...(event.transaction ? { transaction: redactRecipeLinks(event.transaction) } : {}),
+    ...(event.spans ? { spans: event.spans.map(span => ({
+      ...span,
+      ...(span.description ? { description: redactRecipeLinks(span.description) } : {}),
+      ...(span.data ? { data: Object.fromEntries(Object.entries(span.data)
+        .map(([key, value]) => [key, typeof value === 'string' ? redactRecipeLinks(value) : value])) } : {}),
+    })) } : {}),
+  };
+}
+
+/**
+ * Native options the JS hooks can't cover. The iOS SDK records URLSession requests (the app's
+ * fetches to /public/r/<key> and expo-image's og.jpg loads) as breadcrumbs and spans on its own,
+ * and native crash and app-hang reports never pass through beforeSend. Unlisted link keys are
+ * passwords, so the native layer records no network breadcrumbs or spans at all. @sentry/react-native
+ * 7.11 forwards these keys to sentry-cocoa 8.58's initWithDict (enableNetworkBreadcrumbs,
+ * enableNetworkTracking) even though its TypeScript options don't declare them.
+ */
+export const NATIVE_NETWORK_PRIVACY = { enableNetworkBreadcrumbs: false, enableNetworkTracking: false } as const;
+
 /**
  * Initialize Sentry SDK.
  * Call this once at app startup, before any other code runs.
@@ -44,8 +71,18 @@ export function initSentry() {
     return;
   }
 
-  Sentry.init({
-    dsn: SENTRY_DSN,
+  Sentry.init(sentryOptions(SENTRY_DSN));
+
+  if (__DEV__) {
+    console.log('Sentry: Initialized (disabled in development)');
+  }
+}
+
+/** The options initSentry passes to Sentry.init (exported for tests). */
+export function sentryOptions(dsn: string): Parameters<typeof Sentry.init>[0] {
+  return {
+    dsn,
+    ...NATIVE_NETWORK_PRIVACY,
     
     // Only enable in production builds
     enabled: !__DEV__,
@@ -95,11 +132,10 @@ export function initSentry() {
       }
       return redactEvent(event);
     },
-  });
 
-  if (__DEV__) {
-    console.log('Sentry: Initialized (disabled in development)');
-  }
+    // Sampled performance traces carry request URLs in span descriptions and data.
+    beforeSendTransaction: event => redactTransaction(event),
+  };
 }
 
 /**
