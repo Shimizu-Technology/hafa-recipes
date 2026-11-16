@@ -69,7 +69,16 @@ MAX_ACQUISITION_SECONDS = 90
 MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_CLASS_DOCUMENT_BYTES = 10 * 1024 * 1024
-PROMPT_VERSION = "workout-extraction-evidence-v9"
+PROMPT_VERSION = "workout-extraction-evidence-v10"
+# A five-part class with evidence quotes needs more room than one reel; the
+# smaller limit truncated real classes and paid for a second model.
+OUTPUT_TOKENS = 6000
+CLASS_OUTPUT_TOKENS = 16000
+# Real class answers took 18 s (p50) to 25 s (max) for about 4000 tokens; a
+# full 16000-token answer needs about 90 s. Two attempts stay inside the
+# import's 240 s limit.
+READ_TIMEOUT_SECONDS = 60.0
+CLASS_READ_TIMEOUT_SECONDS = 100.0
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
 
@@ -452,6 +461,14 @@ def workout_response_format() -> dict:
     }
 
 
+RANGE_REPAIRS = {
+    "Duration range requires a minimum no greater than its maximum": "duration_seconds_max",
+    "Distance range requires a maximum at least equal to its minimum": "distance_meters_min",
+}
+# Class-part slips that do not change any prescription.
+WORKOUT_REPAIRS = {"Benchmark block_ids must reference existing parts", "The last part cannot have rest_after_seconds"}
+
+
 def _validate_provider_workout(raw: dict) -> list[str]:
     """Repair only dependent optional values; core/type/range errors still fail."""
     warnings = []
@@ -464,6 +481,9 @@ def _validate_provider_workout(raw: dict) -> list[str]:
             for issue in error.errors():
                 location = issue["loc"]
                 message = str(issue.get("ctx", {}).get("error", ""))
+                if issue["type"] == "value_error" and not location and message in WORKOUT_REPAIRS:
+                    repairs.append((raw, message))
+                    continue
                 if (
                     issue["type"] != "value_error"
                     or len(location) != 4
@@ -473,12 +493,23 @@ def _validate_provider_workout(raw: dict) -> list[str]:
                     not in {
                         "reps_min cannot exceed reps_max",
                         "load requires a unit and load convention",
+                        *RANGE_REPAIRS,
                     }
                 ):
                     raise
                 repairs.append((raw["blocks"][location[1]]["exercises"][location[3]], message))
             for item, message in repairs:
-                if message == "reps_min cannot exceed reps_max":
+                if message == "Benchmark block_ids must reference existing parts":
+                    ids = {block.get("id") for block in item.get("blocks") or []}
+                    item["benchmark"]["block_ids"] = [value for value in item["benchmark"]["block_ids"] if value in ids]
+                    warnings.append("Benchmark parts that are not in the import were removed; review the benchmark.")
+                elif message == "The last part cannot have rest_after_seconds":
+                    item["blocks"][-1]["rest_after_seconds"] = None
+                elif message in RANGE_REPAIRS:
+                    # One reversed range is a slip in one value, not a reason to pay for another model.
+                    item[RANGE_REPAIRS[message]] = None
+                    warnings.append(f"Reversed range removed from {item['name']}; review the original source evidence.")
+                elif message == "reps_min cannot exceed reps_max":
                     item["reps_min"] = item["reps_max"] = None
                     warnings.append(
                         f"Reversed reps range removed from {item['name']}; review the original source evidence."
@@ -537,6 +568,7 @@ class ProductionExtractionProvider:
         settings = get_settings()
         primary = settings.workout_extraction_model
         fallback = settings.workout_extraction_fallback_model
+        tokens = CLASS_OUTPUT_TOKENS if source.class_parts else OUTPUT_TOKENS
         last_error = "provider_failed"
         best = None
         for index, model in enumerate((primary, fallback)):
@@ -557,14 +589,15 @@ class ProductionExtractionProvider:
                         model=invocation.model,
                         envelope=ProviderEnvelope(
                             endpoint="chat_completions",
-                            max_output_tokens=6000,
+                            max_output_tokens=tokens,
                             includes_images=bool(source.images),
                             service_tier="default",
                             sdk_max_retries=0,
                         ),
                     ) as paid:
                         async with httpx.AsyncClient(
-                            timeout=60.0, transport=httpx.AsyncHTTPTransport(retries=0)
+                            timeout=CLASS_READ_TIMEOUT_SECONDS if source.class_parts else READ_TIMEOUT_SECONDS,
+                            transport=httpx.AsyncHTTPTransport(retries=0)
                         ) as client:
                             response = await client.post(
                                 "https://api.openai.com/v1/chat/completions",
@@ -573,7 +606,7 @@ class ProductionExtractionProvider:
                                     "model": invocation.model,
                                     "messages": provider_messages(source),
                                     "response_format": workout_response_format(),
-                                    "max_completion_tokens": 6000,
+                                    "max_completion_tokens": tokens,
                                     "store": False,
                                     "service_tier": "default",
                                     "reasoning_effort": settings.openai_reasoning_effort,
@@ -595,9 +628,17 @@ class ProductionExtractionProvider:
                             quality > best[0] and _prescription_preserves(grounded, best[3])
                         )):
                             best = (quality, parsed, warnings, grounded)
-                        if (not quality[0] or (grounded.kind != "exercise" and quality[0] != quality[1])
+                        # A class lists "Max" efforts and undosed accessories on purpose, and
+                        # its page layout restores omitted parts; a second model adds cost, not facts.
+                        modelled = any(block.get("exercises") for block in parsed.get("blocks") or [])
+                        if not quality[0] or not modelled or not source.class_parts and (
+                                (grounded.kind != "exercise" and quality[0] != quality[1])
                                 or _missing_source_movements(grounded, source)):
                             raise ExtractionFailure("provider_insufficient_prescription")
+                        if source.class_parts and _missing_source_movements(grounded, source):
+                            # Accepted without a second model; the result still warns that a listed movement is missing.
+                            source.metadata.coverage_notes.append(
+                                "The class answer left out a listed movement; review the source before training.")
                         paid.complete(outcome="success")
                         invocation.succeed(data)
                         if best is not None and not _prescription_preserves(grounded, best[3]):

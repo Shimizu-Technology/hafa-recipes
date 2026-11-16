@@ -27,6 +27,11 @@ quote naming it; preserve progression 2/3 as stage/stages. Supply evidence for
 each class field, including segment, ranges, load options, rest, role and notes.
 Ignore leaderboards, athlete names/results and comments in images; extract only
 the programming and coach instructions. Never copy other members into output.
+Return one block per lettered part (A., B., or an A1/A2 group) in source order,
+however long the class: never merge, split or skip parts. "Workout Specific
+Movement Prep" is a link, never a block. One exercise per movement, even when
+"Set 1 - 5 reps ... Set 4 - Max reps" lists its sets. Quote the shortest exact
+phrase as evidence.
 """
 
 
