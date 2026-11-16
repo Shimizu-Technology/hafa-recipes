@@ -15,6 +15,7 @@ import {
 import { contactsOn } from "../lib/contacts";
 import { Button, Chips, Copy, Field, Notice, Row, Screen, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
+import { ExpectingProfile } from "@/components/expecting-ask";
 import { Disclosure } from "@/components/disclosure";
 import { StageOptions } from "@/components/stage-options";
 
@@ -211,6 +212,8 @@ export default function ChildEditor() {
               : !!form.due && !!(form.weeks || form.days) && <Copy numeric kind="small" tone="muted">{dueSaid(form.due)}</Copy>}
           </View>
           {!!child?.birth_date && <Notice>Saving this removes the birth date.</Notice>}
+          {/* Saved straight away, for the whole family: not part of this screen's Save. */}
+          {!!child && <ExpectingProfile child={child} />}
         </>}
         {here && <View style={{ gap: 8 }}>
           <DateField label="Birth date" value={form.birth} onChange={(birth) => edit("birth", (current) => ({ ...current, birth }))} dateOnly optional maximumDate={today} />

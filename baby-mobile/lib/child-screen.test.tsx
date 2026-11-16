@@ -23,6 +23,7 @@ vi.mock("@/components/ui", () => ({
   Button: "Button", Chips: "Chips", Copy: "Copy", Field: "Field", Notice: "Notice", Row: "Row", Screen: "Screen", useToast: () => f.toast,
 }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
+vi.mock("@/components/expecting-ask", () => ({ ExpectingProfile: "ExpectingProfile" }));
 vi.mock("@/components/stage-options", () => ({ StageOptions: "StageOptions" }));
 vi.mock("@/components/disclosure", () => ({ Disclosure: (props: { startOpen?: boolean; children: React.ReactNode }) => props.startOpen ? props.children : null }));
 vi.mock("@/lib/models", () => import("./models"));

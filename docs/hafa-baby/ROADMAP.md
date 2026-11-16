@@ -62,6 +62,8 @@ captures before cleanup. Captures made before an owner is established are kept
 unassigned rather than attached to a later account. Existing
 Recipes/Workouts data are not sent to Baby AI.
 
+**Organize everything waiting.** Saved shows one card when posts are `saved` (never processed, because automatic organizing was off) or `failed`. One tap, after the usual AI consent, reads them all through the ordinary `POST /imports` with `record_id`, the same request as "Read with AI". The phone hands the outbox at most three at a time, leaving room in the API's five-waiting limit for new shares, and keeps the run in device state (`organizeRun`) so it continues after a relaunch. A refusal for the daily allowance or AI spending window stops the run and leaves the rest saved for tomorrow; a full queue waits two minutes; a post refused for itself is counted as needing a look. No new endpoint, flag or migration.
+
 ## API contract
 
 Prefix `/api/v1/baby`; existing Clerk bearer auth resolves stable AppUser ID.
@@ -188,6 +190,10 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
 Details may be tightened together, never changed independently in API/client.
 
 **Care contacts.** `PATCH /profile/contacts` keeps her doctor and where she plans to deliver in `baby_memberships.profile`; `details.doctor` on a child keeps the baby's doctor, so it goes with the baby and everyone in the family reads it. Each is a name and a phone number, with what a copied number brings along cleaned up the same way by the app and the API. Bootstrap always carries `contacts`, which is how a phone knows the API keeps them, and the fields stay hidden until then. Her own are stored in `baby_memberships.profile` under `contacts`, and they're in `SERVER_PROFILE_FIELDS`, so they're never in the `profile` a phone reads and echoes back, and nobody else reads them. They're in her export and removed with her data. No request to a model carries any of them: the Ask context and tools name the child fields they send, and `test_baby_contacts.py` checks that at the HTTP layer.
+
+**Hospital bag.** `/hospital-bag` is an ordinary checklist routine (no reminder) started from an editable starter list, grouped For you, For baby, For your partner, and Papers & phone. The section rides in each item's id (`bag:<section>:<key>`), since the API allows only `id,label,done` on an item; a line added in the plain routine editor shows under "Also packing". It is shared with the family like any list, so a partner or caregiver can tick things off. Today shows it from week 28 of a pregnancy, and Lists & routines always lists it. The starter content avoids medical claims and says the hospital's own list wins; Kami signs off on it.
+
+**This week and Day N on Today.** From week 28 to 42, Today shows "This week" under the week's facts: one or two sourced lines on what to expect (visit cadence and the group B strep check from MedlinePlus, rear-facing car seats from AAP) and three or four practical to-dos that open the hospital bag, a new doctor question, the baby's doctor or the delivery place, marked done when the app already has them. For days 1 to 14 after the birth (day 1 is the birth day, as AAP counts), "Day N" shows what most babies do around then (AAP HealthyChildren's diaper and nursing ranges, and the 48-hour first checkup) and CDC's signs to talk to the baby's doctor. Per Leon's Nov 15 decision these reassurance lines replace the earlier C2 cut: they are typical ranges shown on their own card, never set against her counts or coloured as a verdict. Either card hides from its own Hide link (with Undo) and comes back in What shows; the choice is kept on this phone in `hiddenToday`. No API change.
 
 ## Family, tracker and calendar contracts
 
@@ -332,6 +338,14 @@ A running feed stores its actions, and everything else is derived by one pure re
 - `reminder_minutes` (up to 5, up to 4 weeks) sets when reminders go: minutes before the start, or before 9 AM on an all-day event's first day. Omitted when empty.
 - `POST /events/{id}/split` changes a repeat from one date on: it ends the series and creates its replacement in one transaction, under a client-chosen ID, so a retry gets the same answer. `recurrence.anchor` keeps the date the count started on, so a Jan 31 series split at Feb 28 still gives Mar 31.
 - A question or note can only link to its own child's event or a whole-family one; general ones fit any. Giving an event to another child lets go of the links that no longer fit. `GET /records?event_id=` reads one event's records.
+
+### Birth flow and family news
+
+"Baby's here?" on Today opens `/birth`: name (optional), the day with or without the time (`details.birth_time`, "HH:MM" on the profile clock, Leon's Nov 15 decision; an older API ignores it), and weight in lb/oz (optional). Saving is one durable `child_birth` change carrying the date plus any name and details, so a delivery room with no signal loses nothing and newborn care turns on at once; Undo works as before. "Tell your family" lists the family's active members with the other parents ticked and caregivers one tap away. Their news is kept in `pendingNews` on the phone and sent by `POST /family/news` once there's signal and, for a birth, once the date has landed. The API (`family_news.py`) checks every recipient is in that family, makes one ordinary reminder row each (kind `family_news`, fixed lock-screen text, no names), and rechecks at every read: labor news ends at the birth, birth news needs the birth date, and the sender must still be a parent there; either leaves Today after 12 or 24 hours. Unlike other kinds, `family_news` is on (and through quiet hours) for a recipient until they turn it off, because it only ever comes when family chose to tell them. Bootstrap's `reminders.family_news` advertises it; without push nothing changes.
+
+### Labor mode
+
+Under the contraction timer, "When it's time" gathers labor in one place: **Tell <partner>** sends labor news (the same `pendingNews` and `POST /family/news` as the birth flow) to the other parents in one tap, with Undo, and "Tell someone else too" adds caregivers; "When to call" leads with her provider's instructions, names MedlinePlus's call-right-away signs, and from 37 weeks only shows the "5-1-1" pattern attributed to Cleveland Clinic's maternity FAQ (before 37 weeks the preterm notice's "don't wait" stands alone); then her doctor's and delivery place's call buttons and the hospital bag. The timer never says she has reached a pattern. This revisits the Nov 7 review's F1 ("no 5-1-1") at the lead's request, as attributed guidance rather than a timer result.
 
 ### 10 Push delivery
 

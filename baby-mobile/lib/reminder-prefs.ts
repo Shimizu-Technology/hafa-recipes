@@ -1,7 +1,7 @@
 import * as Crypto from "expo-crypto";
 import type { Bootstrap, Child, DeviceState, KindPref, PrefsPatch, QuietHours, ReminderKind, ReminderPrefs } from "./models";
 import { addMutation } from "./outbox";
-import { isCaregiver } from "./spaces";
+import { familySpaces, isCaregiver } from "./spaces";
 
 type Account = { state: DeviceState; commit: (change: (s: DeviceState) => DeviceState) => Promise<void>; sync: () => Promise<void> };
 
@@ -48,9 +48,11 @@ export async function turnOn(b: Account, kind: ReminderKind, details: Partial<Ki
 
 const expecting = (children: Child[]) => children.some((child) => child.due_date && !child.birth_date);
 /** Only what can actually reach this person. The API has no milestone or well-visit reminders yet, so they aren't listed. */
-export function kindsFor(bootstrap: Pick<Bootstrap, "spaces"> | null | undefined, children: Child[]): ReminderKind[] {
-  if (isCaregiver(bootstrap)) return ["event", "running_timer"];
-  return ["feed_interval", "event", "running_timer", ...(expecting(children) ? (["pregnancy_week"] as const) : []), "visit_prep", "import"];
+export function kindsFor(bootstrap: Pick<Bootstrap, "spaces" | "reminders"> | null | undefined, children: Child[]): ReminderKind[] {
+  // Family news is on unless she turns it off (it only comes when family chose to tell her), so it's listed wherever it can come.
+  const news = bootstrap?.reminders?.family_news && familySpaces(bootstrap).length ? (["family_news"] as const) : [];
+  if (isCaregiver(bootstrap)) return ["event", "running_timer", ...news];
+  return ["feed_interval", "event", "running_timer", ...(expecting(children) ? (["pregnancy_week"] as const) : []), "visit_prep", "import", ...news];
 }
 
 const nextHour = (clock: string) => `${String((Number(clock.slice(0, 2)) + 1) % 24).padStart(2, "0")}${clock.slice(2)}`;

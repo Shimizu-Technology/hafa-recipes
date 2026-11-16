@@ -1015,3 +1015,23 @@ async def test_shared_copy_can_enter_coach_adaptation_acceptance_without_invente
     assert adapted.json()["id"] != record["id"]
     source = await api.client.get(f"/api/v1/workouts/library/{record['id']}")
     assert source.json()["content"] == record["content"] and source.json()["revision"] == 1
+
+
+async def test_gym_share_copy_cannot_publish(api):
+    from app.domains.workouts import discover
+    from tests.test_workouts_discover import accept_disclosure, migration045
+
+    await migration045.run_migration(configured=settings(), migration_engine=api.engine)
+    api.app.include_router(discover.router)
+    await accept_disclosure(api, "recipient")
+    content = {**WORKOUT, "programming": {"source_kind": "gym", "gym_name": "Private gym", "track": "Private track", "date": "2026-11-17"}}
+    _, _, share = await create_share(api, content=content)
+    copied = await api.client.post(share["api_path"] + "/copy", json={
+        "copy_request_id": str(uuid4()), "snapshot_digest": share["snapshot_digest"],
+        "acknowledge_not_personalized": True,
+    }, headers={**GENERATION, "X-Test-User": "recipient"})
+    assert copied.status_code == 201, copied.text
+    record = copied.json()["record"]
+    assert record["content"]["programming"] == {"source_kind": "gym"}
+    published = await api.client.post(f'/api/v1/workouts/library/{record["id"]}/publish', headers={**GENERATION, "X-Test-User": "recipient"})
+    assert published.status_code == 422 and published.json()["detail"] == "Gym programming stays private."

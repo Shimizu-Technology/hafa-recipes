@@ -52,8 +52,10 @@ describe("What shows", () => {
   it("lists every tracker for this stage as a plain switch, set from the defaults", async () => {
     setup([newborn]);
     await mount();
-    expect(switches().map((n) => n.props.accessibilityLabel).sort()).toEqual(trackersFor("born").map((t) => t.label).sort());
+    expect(switches().map((n) => n.props.accessibilityLabel).sort()).toEqual([...trackersFor("born").map((t) => t.label), "First two weeks: what most babies do"].sort());
     expect(named("Diaper").props.value).toBe(true);
+    // Today's own cards come back here, kept on this phone.
+    expect(named("First two weeks: what most babies do").props.value).toBe(true);
     expect(named("Pumping").props.value).toBe(false);
   });
   it("gives a long name the whole row at the largest text sizes, so it doesn't break mid-word", async () => {

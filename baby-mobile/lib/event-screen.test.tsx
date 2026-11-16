@@ -3,9 +3,10 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ phone: { available: true, added: [] as unknown[], result: "saved" }, title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
-vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
-vi.mock("expo-router", () => ({ useNavigationContainerRef: () => ({ getRootState: () => undefined }), useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
+const mock = vi.hoisted(() => ({ phone: { available: true, added: [] as unknown[], result: "saved" }, title: "" as string | undefined, upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, floating: undefined as unknown, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
+vi.mock("react-native", () => ({ View: "View", Image: "Image", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" }, Modal: "Modal", ScrollView: "ScrollView" }));
+vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }) }));
+vi.mock("expo-router", () => ({ Stack: { Screen: ({ options }: any) => options?.unstable_headerRightItems?.()[0]?.element ?? null }, useNavigationContainerRef: () => ({ getRootState: () => undefined }), useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
 vi.mock("expo-document-picker", () => ({}));
 vi.mock("expo-image-picker", () => ({}));
@@ -29,8 +30,8 @@ vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
 vi.mock("@/lib/visits", () => import("./visits"));
 vi.mock("@/lib/phone-calendar", () => ({ phoneCalendarAvailable: () => mock.phone.available, phoneEvent: () => ({ title: "from-helper" }), phoneEventLine: () => "Only the title, time and place are copied.", addToPhoneCalendar: async (event: unknown) => { mock.phone.added.push(event); return mock.phone.result; } }));
 vi.mock("@/components/event-fields", () => import("../components/event-fields"));
-const ui = vi.hoisted(() => ({ fonts: {}, typeScale: {}, tap: () => undefined, FilterChips: "FilterChips", Icon: "Icon", PressTarget: "PressTarget", Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
-  Screen: ({ children, footer, title }: { children: unknown; footer?: unknown; title?: string }) => { mock.title = title; return [children, footer]; }, useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
+const ui = vi.hoisted(() => ({ fonts: {}, typeScale: {}, radii: {}, FLOATING_HEIGHT: 52, tap: () => undefined, FilterChips: "FilterChips", Icon: "Icon", PressTarget: "PressTarget", Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
+  Screen: ({ children, footer, title, floating }: { children: unknown; footer?: unknown; title?: string; floating?: unknown }) => { mock.title = title; mock.floating = floating; return [children, footer]; }, useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
@@ -54,35 +55,52 @@ const event = (extra: Partial<BabyRecord["data"]> = {}, id = "class") => ({ ...o
 const found = (type: string, match: (props: any) => boolean) => renderer!.root.findAll((n) => String(n.type) === type && match(n.props))[0];
 async function mount(component: React.ComponentType) { await act(async () => { renderer = create(React.createElement(component)); }); }
 const press = (type: string, title: string) => act(async () => { await found(type, (p) => p.title === title).props.onPress(); });
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.alerts = []; mock.ids = 0; });
-afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+/** A choice in one of the page's sheets, by its title; it runs once the sheet has gone. */
+const sheetItem = (title: string) => found("PressTarget", (p) => p.accessibilityLabel === title || String(p.accessibilityLabel).startsWith(title + ". "));
+const pick = async (title: string) => {
+  await act(async () => { await sheetItem(title).props.onPress(); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 420)); });
+};
+/** Opens the ⋯ menu at the top right and chooses from it. */
+const menu = async (title: string) => { await act(async () => { await sheetItem("More actions").props.onPress(); }); await pick(title); };
+// Event fixtures are in November 2026; relative labels must not depend on the run date.
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-08T00:00:00Z")); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.spyOn(console, "error").mockImplementation(() => undefined); vi.clearAllMocks(); mock.alerts = []; mock.ids = 0; });
+afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("asks which dates an edit to a repeating event reaches, in plain words, before opening the editor", async () => {
   setup([event()]);
   mock.params = { id: "class", at: "2026-11-16T00:00:00.000Z" };
   await mount(EventDetail);
   expect(mock.push).not.toHaveBeenCalled();
-  await press("Button", "Edit event");
+  await menu("Edit event");
   expect(mock.push).not.toHaveBeenCalled();
-  const one = found("Row", (p) => p.title === "Just this one"), future = found("Row", (p) => p.title === "All future");
-  expect(one.props.detail).toMatch(/^Changes .*Nov 16 only\. The other dates stay as they are\.$/);
-  expect(future.props.detail).toMatch(/^Changes .*Nov 16 and every date after it\. Earlier dates stay as they are\.$/);
-  await press("Row", "All future");
+  const one = sheetItem("Just this one"), future = sheetItem("All future");
+  expect(one.props.accessibilityLabel).toMatch(/^Just this one\. Changes .*Nov 16 only\. The other dates stay as they are\.$/);
+  expect(future.props.accessibilityLabel).toMatch(/^All future\. Changes .*Nov 16 and every date after it\. Earlier dates stay as they are\.$/);
+  await pick("All future");
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" } });
+});
+it("writes today in lower case mid-sentence", async () => {
+  setup([{ ...event(), occurred_at: "2026-11-01T00:00:00.000Z" }]);
+  mock.params = { id: "class", at: "2026-11-08T00:00:00.000Z" };
+  await mount(EventDetail);
+  await menu("Edit event");
+  expect(sheetItem("Just this one").props.accessibilityLabel).toBe("Just this one. Changes today only. The other dates stay as they are.");
+  expect(sheetItem("All future").props.accessibilityLabel).toBe("All future. Changes today and every date after it. Earlier dates stay as they are.");
 });
 it("goes straight to the editor for an event that doesn't repeat", async () => {
   setup([event({ recurrence: null })]);
   mock.params = { id: "class" };
   await mount(EventDetail);
-  await press("Button", "Edit event");
+  await menu("Edit event");
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: "event", id: "class" } });
 });
 it("takes one date off, keeping everything else the event holds, through the outbox", async () => {
   const b = setup([event()]);
   mock.params = { id: "class", at: "2026-11-09T00:00:00.000Z" };
   await mount(EventDetail);
-  await press("Button", "Delete event");
-  await press("Row", "Just this one");
+  await menu("Delete event");
+  await pick("Just this one");
   const [change] = b.state.outbox;
   expect(change).toMatchObject({ type: "save", record: { id: "class", revision: 4, data: { reminder_minutes: [60], exceptions: [{ original_start: "2026-11-09T00:00:00.000Z", cancelled: true, overrides: null }] } } });
   expect(mock.back).toHaveBeenCalled();
@@ -91,15 +109,15 @@ it("deletes the event when all future starts from its first date, and ends it fr
   const b = setup([event()]);
   mock.params = { id: "class", at: "2026-11-02T00:00:00.000Z" };
   await mount(EventDetail);
-  await press("Button", "Delete event");
-  await press("Row", "All future");
+  await menu("Delete event");
+  await pick("All future");
   expect(b.state.outbox[0].type).toBe("delete");
   await act(async () => renderer!.unmount());
   const again = setup([event()]);
   mock.params = { id: "class", at: "2026-11-16T00:00:00.000Z" };
   await mount(EventDetail);
-  await press("Button", "Delete event");
-  await press("Row", "All future");
+  await menu("Delete event");
+  await pick("All future");
   expect(again.state.outbox[0]).toMatchObject({ type: "save", record: { data: { recurrence: { until: "2026-11-15" }, reminder_minutes: [60] } } });
 });
 it("adds Baptism with a tap on its kind and Save, with no signal, and queues it through the outbox", async () => {
@@ -214,7 +232,7 @@ it("tells her what stays when she deletes an appointment", async () => {
   setup([visit()]);
   mock.params = { id: "class" };
   await mount(EventDetail);
-  await press("Button", "Delete event");
+  await menu("Delete event");
   expect(mock.alerts[0][1]).toContain("Its questions and notes stay in your Journal.");
 });
 it("shows the next visit she's already booked", async () => {
@@ -649,7 +667,7 @@ describe("any event works", () => {
     expect(renderer!.root.findAll((n) => String(n.type) === "VisitLinks")[0].props.visit.id).toBe("was");
     expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(0);
     expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")).toHaveLength(0);
-    await press("Button", "Delete event");
+    await menu("Delete event");
     expect(mock.alerts[0][1]).toContain("Its questions and notes stay in your Journal");
   });
   it("with the family flag off, asks nothing and adds nothing", async () => {
@@ -664,11 +682,11 @@ describe("any event works", () => {
 
 describe("adding to the phone's calendar", () => {
   const open = async () => { setup([event({ recurrence: null }, "e")]); mock.params = { id: "e" }; await mount(EventDetail); };
-  const buttons = () => renderer!.root.findAll((n) => n.props.title === "Add to my phone’s calendar");
+  const buttons = () => renderer!.root.findAll((n) => String(n.type) === "PressTarget" && String(n.props.accessibilityLabel).startsWith("Add to my phone’s calendar"));
   beforeEach(() => { mock.phone = { available: true, added: [], result: "saved" }; });
   it("is one tap, and says so when it's saved", async () => {
     await open();
-    await press("Button", "Add to my phone’s calendar");
+    await menu("Add to my phone’s calendar");
     expect(mock.phone.added).toEqual([{ title: "from-helper" }]);
     expect(mock.toast).toHaveBeenCalledWith("Added to your phone’s calendar.");
   });
@@ -676,7 +694,7 @@ describe("adding to the phone's calendar", () => {
     for (const result of ["canceled", "done"]) {
       await open();
       mock.phone.result = result; mock.toast.mockClear();
-      await press("Button", "Add to my phone’s calendar");
+      await menu("Add to my phone’s calendar");
       expect(mock.toast).not.toHaveBeenCalled();
       await act(async () => renderer!.unmount());
     }
@@ -684,7 +702,7 @@ describe("adding to the phone's calendar", () => {
   it("says so plainly when the sheet won't open", async () => {
     mock.phone.result = "unavailable";
     await open();
-    await press("Button", "Add to my phone’s calendar");
+    await menu("Add to my phone’s calendar");
     expect(mock.toast).toHaveBeenCalledWith("Your phone’s calendar couldn’t open.");
   });
   it("isn't there on a binary without it", async () => {
@@ -780,7 +798,7 @@ it.each([true, false])("saves a private follow-up with a valid child link (famil
   const b = setup([row]);b.state.bootstrap.personal_space_id = "personal";
   b.state.bootstrap.spaces = [{ id: "personal", kind: "personal", role: "parent", generation: 1 }, { id: "fam", kind: "family", role: "parent", generation: 1 }];
   b.state.bootstrap.children = [{ id: "baby", name: "Noa", revision: 1, space_id: row.space_id }];
-  mock.params = { id: row.id };await mount(EventDetail);await press("Button", "Make a follow-up calendar item");
+  mock.params = { id: row.id };await mount(EventDetail);await menu("Make a follow-up calendar item");
   const target = mock.push.mock.calls.at(-1)![0];await act(async () => renderer!.unmount());mock.params = target.params;await mount(Edit);await press("Button", "Save event");
   expect(b.state.outbox[0]).toMatchObject({ space_id: "personal", record: { body: "Bring the report", child_id: familyChild ? null : "baby", data: { reminder_minutes: [] } } });
 });
@@ -801,4 +819,29 @@ it.each([false, true])("hides postpartum weeks on an unattached shared visit and
   expect(saved.child_id).toBeNull();expect(saved.space_id).toBe("fam");
   expect(saved.data.due_date_snapshot).toBe(stored ? null : undefined);
   expect(saved.data.clinician_age).toBe("Clinic words");
+});
+
+describe("the event's ⋯ menu and Ask", () => {
+  const labels = () => renderer!.root.findAll((n) => String(n.type) === "Modal")[0]!.findAll((n) => String(n.type) === "PressTarget")
+    .map((n) => String(n.props.accessibilityLabel).split(". ")[0]).filter((label) => label !== "Close menu" && label !== "Cancel");
+  it("holds edit, the phone's calendar, a follow-up and delete, and keeps Book next on the page", async () => {
+    setup([visit({ follow_up: "Bring the report" })]);
+    mock.params = { id: "class" };
+    await mount(EventDetail);
+    expect(labels()).toEqual(["Edit event", "Add to my phone’s calendar", "Make a follow-up calendar item", "Delete event"]);
+    expect(renderer!.root.findAll((n) => String(n.type) === "Button" && n.props.title === "Book next")).toHaveLength(1);
+    expect(renderer!.root.findAll((n) => String(n.type) === "Button" && ["Edit event", "Delete event", "Add to my phone’s calendar"].includes(n.props.title))).toHaveLength(0);
+  });
+  it("floats Ask about this event only with the new Ask, which can open an event", async () => {
+    const b = setup([visit()]);
+    mock.params = { id: "class" };
+    await mount(EventDetail);
+    expect(mock.floating).toBeFalsy();
+    await act(async () => renderer!.unmount());
+    b.state.bootstrap = { ...b.state.bootstrap!, ask_consent_version: 1, profile: { ...b.state.bootstrap!.profile, ai_consent: true, ai_consent_version: 1 } };
+    await mount(EventDetail);
+    expect(mock.floating).toBeTruthy();
+    await act(async () => (mock.floating as React.ReactElement<{ onPress: () => void }>).props.onPress());
+    expect(mock.push).toHaveBeenCalledWith({ pathname: "/ask-entry", params: { record_id: "class" } });
+  });
 });
