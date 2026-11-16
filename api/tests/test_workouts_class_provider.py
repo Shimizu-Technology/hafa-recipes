@@ -88,7 +88,10 @@ def provider(monkeypatch):
         source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", page)], class_parts=class_parts)
         budget = FakeBudget()
         result = await ProductionExtractionProvider(budget_guard=budget, development_api_key="k").extract(source)
-        # The budget reserves exactly the answer size the request asks for.
+        # Every attempt asks for the class or ordinary answer size, and the budget reserves exactly that.
+        expected = CLASS_OUTPUT_TOKENS if class_parts else OUTPUT_TOKENS
+        assert (CLASS_OUTPUT_TOKENS, OUTPUT_TOKENS) == (16_000, 6_000)
+        assert all(payload["max_completion_tokens"] == expected for payload in state.payloads)
         assert [envelope.max_output_tokens for _, _, envelope in budget.reservations] == [
             payload["max_completion_tokens"] for payload in state.payloads]
         state.source = source
