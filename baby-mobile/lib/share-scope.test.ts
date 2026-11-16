@@ -66,8 +66,13 @@ describe("where a capture goes", () => {
   it("says when it was made for a family she's since left: it may be there already under this id, so only she can copy it", () => {
     expect(captureDestination(`owner:1:${family}`, live())).toEqual({ space_id: family, left_space: family });
   });
-  it("keeps it hers if she's only a caregiver there now", () => {
-    expect(captureDestination(`owner:1:${family}`, live("caregiver"))).toEqual({ space_id: personal });
+  it("holds it as Not sent if she's only a caregiver there now (parent, then caregiver): never quietly saved to her own space", () => {
+    expect(captureDestination(`owner:1:${family}`, live("caregiver"))).toEqual({ space_id: family, left_space: family });
+  });
+  it("holds every family share she can't write to, and delivers the ones she still can", () => {
+    expect(captureDestination(`owner:1:${family}`, live())).toEqual({ space_id: family, left_space: family });
+    expect(captureDestination(`owner:1:${family}`, live("caregiver")).left_space).toBe(family);
+    expect(captureDestination(`owner:1:${family}`, live("parent"))).toEqual({ space_id: family });
   });
 });
 

@@ -40,9 +40,12 @@
         self.setBabySaveState(.saved)
         self.submitBabyShare(producer)
       case .failed, .notKept:
-        // Nothing here deletes it. Try again comes back to this card, ✕ keeps it, and Discard is the one way to delete it.
+        // Nothing here deletes it. The card stays, Save becomes Try again, ✕ keeps it, and Discard share is the one way to delete it.
         self.setBabySaveState(.failed)
-        card.finish(result == .failed ? BabyShareSheetState.saveFailed : BabyShareSheetState.saveNotKept)
+        card.outcome = nil
+        card.canSave = true
+        card.action = BabyShareSheetState.tryAgain
+        card.note = result == .failed ? BabyShareSheetState.saveFailedNote : BabyShareSheetState.saveNotKeptNote
       case .gone:
         self.setBabySaveState(.failed)
         self.captureConfirmationFinished = true
@@ -102,12 +105,9 @@
     card.onSelect = { [weak self] _, option in self?.babyCategory = option; self?.refreshBabyCard() }
     card.onSave = { [weak self] in self?.saveBabyShare() }
     card.onCancel = { [weak self] in self?.finishConfirmation() }
+    card.onDiscard = { [weak self] in self?.discardBabyShare() }
     card.onOutcome = { [weak self] button in
       guard let self else { return }
-      if let outcome = self.babyCardModel?.outcome, [BabyShareSheetState.saveFailed, BabyShareSheetState.saveNotKept].contains(outcome) {
-        if button == .primary { return self.saveBabyShare() }
-        if button == .secondary { return self.discardBabyShare() }
-      }
       if button != .close, button == self.babyCardModel?.outcome?.opens { self.openBabyApp() }
       self.finishConfirmation()
     }

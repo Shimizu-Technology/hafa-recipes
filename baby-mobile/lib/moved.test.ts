@@ -144,6 +144,13 @@ describe("leaving a family, or being removed", () => {
     expect(draftsBeforeFamily(back, boot()).heldDrafts).toEqual(back.heldDrafts);
     expect(settledDraft(draft, back).body).toBe(body);
   });
+  it("doesn't resend a held saved post to a family she's back in only as a caregiver, but does for a parent", () => {
+    const post = { ...queued, record: write("post", "source", null, { status: "saved", topics: [] }) } as Mutation;
+    const left = withoutFamily({ ...before(), outbox: [post] }, family, uuid);
+    const asCaregiver = (b: Bootstrap): Bootstrap => ({ ...b, spaces: b.spaces!.map((space) => space.id === family ? { ...space, role: "caregiver" as const } : space) });
+    expect(rejoined(left, asCaregiver(boot())).outbox[0]).toMatchObject({ left_space: family, error: notSentMessage });
+    expect(rejoined(left, boot()).outbox[0]).toMatchObject({ error: undefined, left_space: undefined });
+  });
   it("keeps a saved change separate from the editor draft it preceded", () => {
     const saved = { ...queued, record: write("shared", "event") } as Mutation;
     const draft = { ...write("shared", "event"), body: "unsaved", space_id: family, files: [], existing: true } as EditorDraft;

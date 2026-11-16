@@ -25,18 +25,16 @@ enum BabyShareSheetState: Equatable {
   // Save's write normally takes a moment. One still going after this is called slow: Close is allowed again, and only keeps.
   static let publishTimeout: TimeInterval = 12
 
-  static let discard = "Discard"
   // How Save ended. `failed` and `slow` happened after Save was marked on the phone, so the app can finish it. `notKept` is the
   // mark itself failing: nothing can be promised. `gone` is the account or its space cleared meanwhile, which takes the share.
   // `slowUnmarked` is slow before the mark is down: nothing is promised yet.
   enum Publication: Equatable { case kept, failed, notKept, gone, slow, slowUnmarked }
 
-  // Failed after Save was marked: closing keeps it, and the app finishes it. Discarding is its own button.
-  static let saveFailed = HafaShareOutcome(symbol: "exclamationmark", isProblem: true, title: "Couldn’t finish saving",
-    detail: "We’ll finish saving this when you open Håfa Baby, or you can try again now.", primary: tryAgain, secondary: discard)
-  // Nothing at all could be written. No promise: try again, or discard it.
-  static let saveNotKept = HafaShareOutcome(symbol: "exclamationmark", isProblem: true, title: "Couldn’t save this",
-    detail: "Nothing could be kept on this phone. Try again, or discard it.", primary: tryAgain, secondary: discard)
+  // Failed stays on the card, as in Recipes: Save becomes Try again, the kit adds Discard share, and ✕ keeps it.
+  // After Save was marked, closing keeps it and the app finishes it.
+  static let saveFailedNote = "Couldn’t finish saving. Try again, or close and we’ll finish saving it when you open Håfa Baby."
+  // Nothing at all could be written. No promise.
+  static let saveNotKeptNote = "Couldn’t save this. Nothing could be kept on this phone. Try again, or choose Discard share."
   // Slow before Save is marked on the phone: honest that it might not be kept.
   static let saveSlowUnmarked = HafaShareOutcome(symbol: "hourglass", title: "Still saving",
     detail: "Keep this open a moment, or close and share it again.", primary: "Close")

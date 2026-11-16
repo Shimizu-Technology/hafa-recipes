@@ -313,6 +313,8 @@ export function retargeted(state: DeviceState, change: Mutation, moved: Moved, u
 export const noticeTitle = (notice: string) => (notice === heldUpgradeNotice ? "Drafts kept on this phone" : notice === recoveredNotice ? "Back on this phone" : notice === leftFamilyNotice ? "Your family" : notice.startsWith("Saved to your own space") ? "Kept in your space" : "A tap wasn’t added");
 export const heldUpgradeNotice = "This phone kept some older changes for you. Open Sync & recovery to choose what to send or keep.";
 export const notSentMessage = "Not sent: you’re no longer in this family.";
+/** Still in the family, but without the access this needs, such as a caregiver with a saved post. */
+export const noFamilyAccessMessage = "Not sent: you can’t add saved posts to this family now.";
 export const leftFamilyNotice = "No longer in this family. Anything not sent is in Sync & recovery.";
 /**
  * Leaving or removal. The family's rows go from this phone at once. What's queued for it stops, and says why, to be kept
@@ -338,9 +340,10 @@ export function withoutFamily(state: DeviceState, space: string, uuid: () => str
     ...(state.changes ? { changes: { cursor, access } } : {}),
   }, leftFamilyNotice);
 }
-/** Back in a family this phone had stopped writing to: what was waiting for it goes again. */
+/** Back in a family this phone had stopped writing to: what was waiting for it goes again, if she can write it there now. */
 export function rejoined(state: DeviceState, bootstrap: Pick<Bootstrap, "spaces">): DeviceState {
-  const back = (m: Mutation) => !!m.left_space && bootstrap.spaces?.some((space) => space.id === m.left_space),
+  const back = (m: Mutation) => !!m.left_space && bootstrap.spaces?.some((space) => space.id === m.left_space &&
+    (space.role === "parent" || m.type === "save" && caregiverCanWrite(m.record.kind))),
     // "You're no longer in this family" isn't true any more, in this family or a new one.
     notices = state.feedNotices?.filter((notice) => notice !== leftFamilyNotice);
   return { ...state, ...(notices ? { feedNotices: notices } : {}), outbox: state.outbox.map((m) => (back(m) ? m.localOnly ? { ...m, left_space: undefined, error: undefined } : retryMutation(m) : m)) };

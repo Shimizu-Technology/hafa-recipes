@@ -3,7 +3,7 @@ import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type DeviceState, type EditorDraft, type LocalFile, type Mutation } from "./models";
 import { ApiError } from "./api";
-import { keepInPersonal, notSentMessage } from "./outbox";
+import { keepInPersonal, noFamilyAccessMessage, notSentMessage } from "./outbox";
 const scope = vi.hoisted(() => ({
   account: null as unknown, foreground: null as null | ((state: string) => void),
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
@@ -672,6 +672,19 @@ describe("captures from an older build, after the update and after Create family
     const kept = keepInPersonal(account.state, account.state.outbox[0], () => "copy");
     expect(kept.outbox[0]).toMatchObject({ space_id: personal, record: { id: "copy" } });
     expect(kept.outbox[0].left_space).toBeUndefined();
+  });
+  it("holds one made as a parent when she's only a caregiver there now: Not sent, and only Save to my space moves it", async () => {
+    const account = setup();
+    Object.assign(account.state.bootstrap!, shared([{ id: family, kind: "family", role: "caregiver", generation: 1, access_version: 1 }]));
+    account.state.bootstrap!.profile.ai_consent = true;
+    (account.state.bootstrap!.profile as { auto_process_shares?: boolean }).auto_process_shares = true;
+    scope.pending.mockResolvedValueOnce(capture({ scope: `disposable-local-parent:1:${family}` })).mockResolvedValue(null);
+    await drain(account);
+    expect(account.state.outbox).toHaveLength(1);
+    expect(account.state.outbox[0]).toMatchObject({ id: "share-save:capture-a", space_id: family, left_space: family, error: noFamilyAccessMessage, record: { id: "capture-a" } });
+    expect(account.state.outbox.some((m) => m.space_id === personal)).toBe(false);
+    const kept = keepInPersonal(account.state, account.state.outbox[0], () => "copy");
+    expect(kept.outbox[0]).toMatchObject({ space_id: personal, record: { id: "copy" } });
   });
   it("retires one from before her space was cleared, so a later capture isn't stuck behind it", async () => {
     const account = setup();

@@ -82,16 +82,15 @@ struct BabyShareSheetStateTests {
     }
 
     // After Save: Failed offers Try again and an explicit Discard, and only promises the app will finish when Save was marked.
-    let failedSave = BabyShareSheetState.saveFailed, notKept = BabyShareSheetState.saveNotKept, slowSave = BabyShareSheetState.saveSlow
-    try check(failedSave.primary == "Try again" && failedSave.secondary == "Discard" && failedSave.isProblem && !failedSave.closesItself, "failed: try again or discard")
-    try check(failedSave.detail?.contains("when you open Håfa Baby") == true, "a marked failure says the app finishes it")
-    try check(notKept.primary == "Try again" && notKept.secondary == "Discard" && notKept.detail?.contains("open Håfa Baby") == false, "an unmarked failure promises nothing")
+    let slowSave = BabyShareSheetState.saveSlow
+    try check(BabyShareSheetState.saveFailedNote.contains("when you open Håfa Baby") && BabyShareSheetState.saveFailedNote.contains("Try again"), "a marked failure says the app finishes it")
+    try check(!BabyShareSheetState.saveNotKeptNote.contains("open Håfa Baby") && BabyShareSheetState.saveNotKeptNote.contains("Discard share"), "an unmarked failure promises nothing")
     try check(slowSave.detail == "We’ll finish saving this when you open Håfa Baby." && !slowSave.isProblem && !slowSave.closesItself && slowSave.opens == .secondary, "slow says the app finishes it")
     try check(BabyShareSheetState.publishTimeout >= 10 && BabyShareSheetState.publishTimeout <= 15, "slow comes after 10–15 seconds")
     let slowUnmarked = BabyShareSheetState.saveSlowUnmarked, alreadySaved = BabyShareSheetState.alreadySaved
     try check(slowUnmarked.detail?.contains("open Håfa Baby") == false && slowUnmarked.detail?.contains("share it again") == true && slowUnmarked.secondary == nil, "slow before the mark promises nothing")
     try check(alreadySaved.title == "Already saved to Håfa Baby" && alreadySaved.primary == "Done" && !alreadySaved.isProblem, "Discard after the app won says so")
-    for outcome in [failedSave, notKept, slowSave, slowUnmarked, alreadySaved] {
+    for outcome in [slowSave, slowUnmarked, alreadySaved] {
       for banned in ["source", "original", "import", "Error"] { try check(!(outcome.title + (outcome.detail ?? "")).contains(banned), "\(outcome.title) doesn't say \(banned)") }
     }
 
