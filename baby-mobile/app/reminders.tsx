@@ -17,6 +17,7 @@ const words: Partial<Record<ReminderKind, { title: string; detail: string }>> = 
   pregnancy_week: { title: "New week", detail: "The morning a new pregnancy week starts" },
   visit_prep: { title: "Visit questions", detail: "The evening before a visit you’ve saved questions for" },
   import: { title: "Saved posts", detail: "When a post you saved has finished" },
+  family_news: { title: "Family news", detail: "When someone in your family tells you labor has started or the baby is here. On unless you turn it off, and it comes through quiet hours" },
 };
 const hourChoices = ["1", "1.5", "2", "2.5", "3", "3.5", "4", "5", "6"];
 const hourLabel = (hours: string) => (hours === "1" ? "1 hour" : `${hours} hours`);
@@ -36,14 +37,17 @@ function Line({ title, detail, on, onChange }: { title: string; detail?: string;
 
 /** Per person, on every phone they use. Nothing here asks the phone for anything until she turns something on. */
 export default function Reminders() {
-  const b = useBaby(), bootstrap = b.state.bootstrap!, prefs = shownPrefs(b.state), [denied, setDenied] = useState(false),
+  const b = useBaby(), bootstrap = b.state.bootstrap!, prefs = shownPrefs(b.state), [denied, setDenied] = useState(false), [askable, setAskable] = useState(false),
     [choosingHours, setChoosingHours] = useState(false), [opening, setOpening] = useState(""),
     zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const live = remindersOn(bootstrap);
+  /** What the phone allows now: asked and refused for good, or still askable. Read again after every answer. */
+  const look = () => {
+    if (Platform.OS !== "web") void Notifications.getPermissionsAsync().then((now) => { setDenied(!now.granted && !now.canAskAgain); setAskable(!now.granted && now.canAskAgain); }).catch(() => undefined);
+  };
   useEffect(() => { if (live) void b.refreshPrefs(); }, [live]);
   useEffect(() => {
     if (!live) return;
-    const look = () => { if (Platform.OS !== "web") void Notifications.getPermissionsAsync().then((now) => setDenied(!now.granted && !now.canAskAgain)).catch(() => undefined); };
     look();
     const app = AppState.addEventListener("change", (status) => { if (status === "active") look(); });
     return () => app.remove();
@@ -55,6 +59,13 @@ export default function Reminders() {
     if (answer === "denied") setDenied(true);
   };
   const off = (kind: ReminderKind) => savePrefs(b, { kinds: { [kind]: { enabled: false } } });
+  // Family news is on before she's ever been asked, so this is where "Not now" on Today comes back to.
+  const newsWaiting = askable && kinds.includes("family_news") && !!prefs.kinds.family_news?.enabled;
+  const allowNews = async () => {
+    // Refused at the phone, it may not ask again: the row gives way to "Open notification settings".
+    if (await askToNotify("family_news") === "granted") { setAskable(false); void b.registerPush(); }
+    else look();
+  };
   const feed = prefs.kinds.feed_interval, showHours = kinds.includes("feed_interval") && (choosingHours || !!feed?.enabled);
   return <Screen title="Reminders" back>
     <Copy tone="muted">Just for you, on every phone you use. They also show on Today until you dismiss them.</Copy>
@@ -65,6 +76,8 @@ export default function Reminders() {
       <Row title="Open notification settings" icon="notifications-outline" onPress={() => void Linking.openSettings().catch(() => setOpening("Open your phone’s Settings to change notification permissions."))} />
       {!!opening && <Copy kind="small" tone="muted">{opening}</Copy>}
     </View>}
+    {newsWaiting && <Grouped><Row title="Turn on notifications" detail="So family news reaches this phone, not just the app"
+      icon="notifications-outline" onPress={() => void allowNews()} /></Grouped>}
     <Grouped separatorInset={16}>
       {kinds.map((kind) => <Line key={kind} title={words[kind]!.title} detail={words[kind]!.detail} on={kind === "feed_interval" ? !!feed?.enabled || choosingHours : !!prefs.kinds[kind]?.enabled}
         onChange={(value) => {

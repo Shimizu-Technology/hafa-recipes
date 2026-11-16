@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Modal, Platform, View, useColorScheme } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { clockIn, keyDate, recordDay } from "@/lib/tracker";
+import { clockIn, keyDate, recordDay, withDay } from "@/lib/tracker";
 import { Button, Card, Copy, useColors } from "./ui";
 export function DateField({
   label,
@@ -32,12 +32,11 @@ export function DateField({
     zone = !dateOnly && timeZone ? { timeZoneName: timeZone } : {};
   const parsed = value ? new Date(dateOnly ? value + "T12:00:00" : value) : new Date(),
     valid = Number.isFinite(parsed.getTime()) ? parsed : new Date();
-  function change(date: Date) {
-    onChange(
-      dateOnly
-        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-        : date.toISOString()
-    );
+  function change(date: Date, picked: "date" | "time") {
+    if (dateOnly) return onChange(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`);
+    // A new day keeps the time she chose, but never past the latest allowed: today at a time still to come.
+    const moved = picked === "date" ? withDay(date, valid, timeZone) : date;
+    onChange((maximumDate && moved > maximumDate ? maximumDate : moved).toISOString());
   }
   function open(m: "date" | "time") {
     setDraft(valid);
@@ -76,7 +75,7 @@ export function DateField({
           {...zone}
           onChange={(event, date) => {
             setMode(null);
-            if (event.type === "set" && date) change(date);
+            if (event.type === "set" && date) change(date, mode);
           }}
         />
       )}
@@ -101,7 +100,7 @@ export function DateField({
               <Button
                 title={mode === "time" ? "Use this time" : "Use this date"}
                 onPress={() => {
-                  change(draft);
+                  change(draft, mode);
                   setMode(null);
                 }}
               />

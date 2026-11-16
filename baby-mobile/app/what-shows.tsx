@@ -8,8 +8,9 @@ import { setTracking } from "@/lib/quick-care";
 import { profileToday, timingChild, trackerStage } from "@/lib/timing";
 import { trackerOn, trackersFor, trackingKey, type Tracker } from "../lib/trackers";
 import { babyLabel, canAddBaby, canChangeBaby, remindersOn } from "../lib/spaces";
+import { hiddenOnToday, withHidden } from "../lib/this-week";
 
-function Line({ tracker, on, onChange }: { tracker: Tracker; on: boolean; onChange: (on: boolean) => void }) {
+function Line({ tracker, on, onChange }: { tracker: Pick<Tracker, "icon" | "label">; on: boolean; onChange: (on: boolean) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   // At the largest sizes a long name needs the whole row, so the switch goes under it.
   const stacked = fontScale >= 2;
@@ -43,6 +44,14 @@ export default function WhatShows() {
     {children.length > 1 && <Chips label="Baby" value={child.id} options={children.map((one) => ({ label: babyLabel(one, bootstrap), value: one.id }))} onChange={setPicked} />}
     {group(`For ${babyLabel(child, bootstrap)}`, listed.filter((tracker) => tracker.about === "baby"))}
     {group("For you", listed.filter((tracker) => tracker.about === "her"))}
+    {/* Kept on this phone. Hiding one is on its own card; this is where it comes back. */}
+    <View style={{ gap: 8 }}>
+      <Copy kind="small" tone="muted">On Today</Copy>
+      <Grouped separatorInset={48}>{(stage === "expecting" ? [["this_week", "This week: what to expect and get ready"]] as const
+        : [["day_of_life", "First two weeks: what most babies do"]] as const).map(([card, label]) =>
+        <Line key={card} tracker={{ label, icon: "sunny-outline" }} on={!hiddenOnToday(b.state.hiddenToday, card)}
+          onChange={(on) => void b.commit((s) => ({ ...s, hiddenToday: withHidden(s.hiddenToday, card, !on) }))} />)}</Grouped>
+    </View>
     {remindersOn(bootstrap) && <Row title="Reminders" detail="Choose what notifies you, and quiet hours" icon="alarm-outline" onPress={() => router.push("/reminders")} />}
   </Screen>;
 }

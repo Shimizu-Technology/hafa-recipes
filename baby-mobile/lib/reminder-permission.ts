@@ -12,15 +12,16 @@ const reasons: Partial<Record<ReminderKind, string>> = {
   pregnancy_week: "So Håfa Baby can tell you when a new week starts, even with the app closed.",
   visit_prep: "So Håfa Baby can tell you the evening before a visit you’ve saved questions for, even with the app closed.",
   import: "So Håfa Baby can tell you when a post you saved has finished, even with the app closed.",
+  family_news: "So your family can tell you the moment labor starts or the baby is here, even with the app closed.",
 };
 
-export async function askToNotify(kind: ReminderKind): Promise<PermissionAnswer> {
+export async function askToNotify(kind: ReminderKind, reason?: string): Promise<PermissionAnswer> {
   if (Platform.OS === "web") return "denied";
   const now = await Notifications.getPermissionsAsync();
   if (now.granted) return "granted";
   if (!now.canAskAgain) return "denied";
   const go = await new Promise<boolean>((answer) =>
-    Alert.alert("Turn on notifications?", reasons[kind] ?? "So Håfa Baby can remind you, even with the app closed.", [
+    Alert.alert("Turn on notifications?", reason ?? reasons[kind] ?? "So Håfa Baby can remind you, even with the app closed.", [
       { text: "Not now", style: "cancel", onPress: () => answer(false) },
       { text: "Continue", onPress: () => answer(true) },
     ], { cancelable: true, onDismiss: () => answer(false) })

@@ -103,8 +103,10 @@ describe("cached words and access", () => {
     const state = withSpaces([personal, { ...family, role: "caregiver" }], [
       due("feed", { kind: "feed_interval", space_id: "family" }), due("event", { kind: "event", space_id: "family" }),
       due("timer", { kind: "running_timer", space_id: "family" }), due("own", { kind: "feed_interval", space_id: "personal" }),
+      // Grandma, picked for the news: it stays on her Today.
+      due("news", { kind: "family_news", space_id: "family" }),
     ]);
-    expect(shownDue(state).map((item) => item.id)).toEqual(["event", "timer", "own"]);
+    expect(shownDue(state).map((item) => item.id)).toEqual(["event", "timer", "own", "news"]);
   });
   it("nothing shows on a space that's been cleared", () => {
     const state = withSpaces([personal], [due("a", { space_id: "personal" })]);

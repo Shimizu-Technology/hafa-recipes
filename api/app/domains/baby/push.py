@@ -35,9 +35,11 @@ REGISTRATION_WINDOWS = (QuotaWindow(seconds=600, limit=30),)
 PERSON_ROW = "_person"
 ReminderKind = Literal[
     "event", "visit_prep", "import", "feed_interval", "running_timer", "pregnancy_week",
-    "milestone_window", "well_visit", "routine",
+    "milestone_window", "well_visit", "routine", "family_news",
 ]
 REMINDER_KINDS = ReminderKind.__args__
+# On, and through quiet hours, until the person turns it off: it only comes because family chose to tell them.
+ON_UNLESS_OFF = {"family_news": {"enabled": True, "break_through": True}}
 TOKEN = re.compile(r"Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,160}\]")
 InstallationId = Annotated[str, Path(pattern=r"^[A-Za-z0-9._:-]{8,128}$")]
 Registration = Annotated[str, Query(pattern=r"^\d{1,17}$")]
@@ -117,7 +119,7 @@ class Prefs:
     kinds: dict = field(default_factory=dict)
 
     def kind(self, name):
-        return self.kinds.get(name) or KindPref()
+        return self.kinds.get(name) or KindPref(**ON_UNLESS_OFF.get(name, {}))
 
     def response(self):
         return {

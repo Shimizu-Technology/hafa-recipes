@@ -162,6 +162,7 @@ class SyncRequest(DomainModel):
 
 
 class ExportRequest(DomainModel):
+    supports_class_activity_types: StrictBool = False
     session_id: UUID
     expected_revision: int = Field(strict=True, ge=1, le=2_147_483_647)
 
@@ -310,7 +311,9 @@ async def prepare_export(
         operation="export",
         write=True,
     )
-    session, actual, reason = await actual_for_export(db, user.id, generation, request.session_id)
+    session, actual, reason = await actual_for_export(
+        db, user.id, generation, request.session_id,
+        supports_class_activity_types=request.supports_class_activity_types)
     if reason:
         return {"status": "unsupported", "message": reason, "actual": None, "intent_id": None}
     row = await db.scalar(
@@ -340,7 +343,7 @@ async def prepare_export(
     return {
         "status": "ready",
         "intent_id": str(row.id),
-        "actual": row.actual,
+        "actual": {**row.actual, "activity": actual["activity"]},
         "provider_write_status": row.status,
         "source_id": row.source_id,
     }

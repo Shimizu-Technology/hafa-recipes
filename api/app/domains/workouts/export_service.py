@@ -248,6 +248,7 @@ async def guard_projection_memory(db, owner, generation, limit, offset):
         ("workouts_programs", ("content",)),
         ("workouts_program_versions", ("content",)),
         ("workouts_sessions", ("content",)),
+        ("workouts_part_results", ("comparison_key", "block_label")),
         ("workouts_activities", ("content",)),
         ("workouts_import_jobs", ("result",)),
         ("workouts_proposals", ("content",)),

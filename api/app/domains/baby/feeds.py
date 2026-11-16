@@ -1,7 +1,8 @@
 """One reducer for a feed's actions. No database or clock, so the app can mirror it exactly.
 
 The result depends only on the set of actions, never on the order they arrived. Order is
-``(at, id)``, with ``at`` compared as an instant and ``id`` as its lowercase UUID text.
+``(at, finish, id)``: ``at`` compared as an instant, a finish after any side action at the same instant (so
+a finish never swallows a switch it ties with), then ``id`` as its lowercase UUID text.
 """
 
 from datetime import UTC, datetime
@@ -14,7 +15,7 @@ def instant(value):
 
 
 def ordered(actions):
-    return sorted(actions, key=lambda item: (instant(item["at"]), str(item["id"])))
+    return sorted(actions, key=lambda item: (instant(item["at"]), item["action"] == "finish", str(item["id"])))
 
 
 def reduce_feed(actions):
