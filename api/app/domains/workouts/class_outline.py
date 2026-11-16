@@ -87,13 +87,33 @@ MEMBER_RESULT = re.compile(r"^[^\W\d][\w.'’\-]*(?:[ \t]+[^\W\d][\w.'’\-]*){0
                            r"(?:\s+(?:rx|scaled|custom))?$|^[A-Z][a-z.'’\-]+(?:[ \t]+[A-Z][a-z.'’\-]+){1,3}[ \t]+\d+(?:\.\d+)?\s*(?:lbs?|kg)$", re.I)
 
 
+# "Scaling: lighter dumbbells" and "B. Strength: Front Squat" are programming labels, not a member's name.
+COACH_LABELS = re.compile(
+    r"^(?:coach(?:'s)?\s+notes?|notes?|scaling|scaled|rx|rx'd|stimulus|intent|goal|focus|cues?|tips?|purpose|aim|"
+    r"target|tempo|rest|pacing|strategy|warm[- ]?up|cool[- ]?down|movement prep|strength|skill|conditioning|"
+    r"accessor(?:y|ies)|metcon|finisher|core|mobility|options?|modifications?|subs?|substitutions?|equipment|"
+    r"load|weight|time\s*cap|cap|format|score|reps|sets|rounds|rpe|rir|breathing|beginner|intermediate|advanced|"
+    r"men|women|partner|team|today|why|how|guidelines|reminder|note to self)$", re.I)
+# A member's comment reads like a person ("Mike R", "J. Smith") or like praise.
+PERSON = re.compile(r"^(?:[A-Z][a-z]+(?:[ \t]+[A-Z]\.?)|[A-Z]\.[ \t]*[A-Z][a-z]+)$")
+SOCIAL = re.compile(r"\b(?:great|nice|awesome|love[ds]?|thanks?|thank you|congrats|congratulations|well done|crushed|"
+                    r"killed it|beast|amazing|proud|good job|good work|fun one|brutal|haha|lol)\b", re.I)
+
+
+def member_comment(text):
+    """"Mike R: great one today", but never a labelled coach note on its prefix alone."""
+    found = re.fullmatch(r"([^:\n]{1,40}):\s*(\S.*)", text.strip())
+    if not found or COACH_LABELS.match(found[1].strip()):
+        return False
+    return bool(PERSON.match(found[1].strip()) or SOCIAL.search(found[2]))
+
+
 def member_line(line, heading=False):
     """A result or comment row that a selection without its Leaderboard heading
     carried past the trim. Lettered lines ("J. Smith 225 lb") get the full check."""
     from app.domains.workouts.class_extraction import (
         CAPS_FORMAT,
         FORMAT_PHRASE,
-        MEMBER_COMMENT,
         MEMBER_SCORE,
         member_score_line,
     )
@@ -103,9 +123,9 @@ def member_line(line, heading=False):
     if not heading:
         return False
     body = re.sub(r"^[A-Z]\d{0,2}\.\s+", "", line)
-    if MEMBER_COMMENT.fullmatch(line) or member_score_line(body):
+    if member_comment(body) or member_score_line(body):  # "C. Jones: great job", never "B. Strength: Front Squat"
         return True
-    # "SkiErg for 4 minutes" and "10 Burpees" are programming; a result never says "for N" or starts with a count.
+    # "SkiErg for 3 minutes" and "10 Burpees" are programming; a result never says "for N" or starts with a count.
     programming = CAPS_FORMAT.search(body) or FORMAT_PHRASE.search(body) or re.search(r"\bfor\s+\d|^\d", body, re.I)
     return bool(MEMBER_SCORE.fullmatch(line)) and not programming
 

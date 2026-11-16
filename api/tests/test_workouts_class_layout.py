@@ -316,3 +316,18 @@ def test_a_part_made_from_a_coach_note_is_removed():
     workout, warnings, _ = ground(PAGE + "\n- Zone 2 aerobic conditioning builds your base", raw)
     assert all(block.label != "Zone 2 Aerobic Conditioning" for block in workout.blocks)
     assert "A part that is not on the page was removed." in warnings
+
+
+def test_a_labelled_heading_is_a_part_and_a_member_comment_is_not():
+    page = """A. Warm-up: easy row
+Row 500 meters
+B. Strength: Front Squat
+5 sets of 3 reps
+C. Jones: great job today"""
+    raw = {"title": "Class", "kind": "session", "blocks": [
+        {"id": "a", "label": "A", "evidence": [], "exercises": [move("Row", "Row 500 meters")]},
+        {"id": "b", "label": "B", "evidence": [], "exercises": [move("Front Squat", "Front Squat")]}]}
+    assert [part.key for part in read_outline(page).parts] == ["A", "B"]
+    workout, warnings, _ = ground(page, raw)
+    assert [block.label for block in workout.blocks] == ["A", "B"]
+    assert "Jones" not in dump(workout, warnings)
