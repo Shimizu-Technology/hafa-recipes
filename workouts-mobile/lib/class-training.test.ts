@@ -3,7 +3,7 @@ import { nov17Class as w } from "./fixtures/nov17-class";
 import { createTrainingStore, historicalStructureWarning } from "./training";
 import { buyInDone, endPart, endRest, isRun, partStatus, pausePart, resumePart, skipPart, startPart, tapRound, undoTap } from "./class-session";
 import { exerciseRecords } from "./progress-insights";
-import { currentPart, isClassWorkout } from "./class-training";
+import { currentPart, isClassWorkout, roundActuals } from "./class-training";
 import type { ActualSet, Workout } from "./models";
 
 const min = 60_000;
@@ -186,9 +186,10 @@ it("logs repeating movement actuals with prescribed or edited loads, persists th
     { block_id: "a", exercise_index: 2, round_index: 1, reps: 20 },
     { block_id: "a", exercise_index: 3, round_index: 1, distance_meters: 400 },
   ]);
+  await store.classLoad("a", 1, 55, "kg", "per_hand");
   await store.classLoad("a", 1, 60, "kg");
   at(3 * min); await store.classAct(tapRound);
-  expect(store.snapshot().active!.actuals[3]).toMatchObject({ load: 60, round_index: 2 });
+  expect(store.snapshot().active!.actuals[3]).toMatchObject({ load: 60, round_index: 2, load_convention: "per_hand" });
   expect(historicalStructureWarning(workout, store.snapshot().active!.actuals)).toBeNull();
   const restored = createTrainingStore(storage, "owner", 1, () => T0 + 3 * min);
   await restored.load();
@@ -207,4 +208,12 @@ it("never invents a relative or multiple-choice load", async () => {
   at(2 * min); await store.classAct(tapRound);
   expect(store.snapshot().active!.actuals[0].load).toBeUndefined();
   await expect(store.classLoad("a", 1, -1, "kg")).rejects.toThrow("weight");
+});
+
+it("clearing a prescribed weight records no load and chosen options keep their load convention", () => {
+  const block = structuredClone(w.blocks[0]);
+  block.exercises[1] = { ...block.exercises[1], relative_load: null, load: 50, load_unit: "kg" };
+  expect(roundActuals(block, 1, { 1: { load: null, load_unit: "kg" } })[0].load).toBeUndefined();
+  expect(roundActuals(block, 1, { 1: { load: 20, load_unit: "kg", load_convention: "per_hand" } })[0])
+    .toMatchObject({ load: 20, load_unit: "kg", load_convention: "per_hand" });
 });

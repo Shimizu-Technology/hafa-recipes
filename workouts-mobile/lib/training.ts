@@ -6,7 +6,7 @@ import { formatCapSeconds, intervalPosition, isDeathBy, ladderReps, movesFor, ti
   trackedIntervalLimit, type TimedFormat } from "./timed-execution";
 import { endPart, isTimedPart, partKind, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
 import { carriesResults, classPayload, cleanScore, scoreProblem, withoutResults } from "./class-scores";
-import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly, roundActuals } from "./class-training";
+import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly, roundActuals, type ClassLoad } from "./class-training";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
   | { workout_id: string; workout_revision: number }
@@ -24,7 +24,7 @@ export interface TrainingStep {
   exercise: ExercisePrescription;
 }
 export interface SessionDraft {
-  class_loads?: Record<string, Record<number, { load: number; load_unit: "kg" | "lb" }>>;
+  class_loads?: Record<string, Record<number, ClassLoad>>;
   id: string;
   cell_identity_version?: 2;
   generation: number;
@@ -816,15 +816,15 @@ export function createTrainingStore(
       });
     },
     /** Weight used for subsequent round taps; previous rounds keep their recorded load. */
-    classLoad(blockId: string, exerciseIndex: number, load: number | null, load_unit: "kg" | "lb") {
+    classLoad(blockId: string, exerciseIndex: number, load: number | null, load_unit: "kg" | "lb", load_convention?: ActualSet["load_convention"]) {
       return update((s) => {
         const d = s.active;
         if (!d?.class_run || !d.workout.blocks.find((b) => b.id === blockId)?.exercises[exerciseIndex])
           throw Error("This movement isn’t in the class.");
         if (load != null && (!Number.isFinite(load) || load < 0 || load > 2000)) throw Error("Enter a weight from 0 to 2000.");
         d.class_loads ??= {}; d.class_loads[blockId] ??= {};
-        if (load == null) delete d.class_loads[blockId][exerciseIndex];
-        else d.class_loads[blockId][exerciseIndex] = { load, load_unit };
+        const convention = load_convention ?? d.class_loads[blockId][exerciseIndex]?.load_convention;
+        d.class_loads[blockId][exerciseIndex] = { load, load_unit, ...(convention ? { load_convention: convention } : {}) };
         return s;
       });
     },

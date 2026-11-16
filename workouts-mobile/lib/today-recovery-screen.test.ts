@@ -954,7 +954,8 @@ it("Today counts the movement actuals from a class round while the class is stil
   await store.load();
   await store.start(nov17Class, { workout_id: nov17Class.id, workout_revision: 1 }, "class", 1000);
   await store.classAct(startPart, 1000); await store.classAct(buyInDone, 2000); await store.classAct(tapRound, 3000);
-  fixture.active = store.snapshot().active!;
+  const active = store.snapshot().active!;
+  fixture.active = { workout: { title: active.workout.title }, actuals: active.actuals };
   await mount();
   expect(text()).toContain("3 sets recorded so far");
   expect(buttons("Resume")).toHaveLength(1);

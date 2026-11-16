@@ -31,7 +31,7 @@ export interface ClassSessionProps {
   timer(kind: "rest" | "interval", seconds?: number): void;
   /** Saves the class with the reviewed scores (each part's score, Rx or Scaled). */
   finish(status: "completed" | "partial", scores?: PartResult[]): void;
-  roundLoad?(blockId: string, exerciseIndex: number, load: number | null, unit: "kg" | "lb"): void;
+  roundLoad?(blockId: string, exerciseIndex: number, load: number | null, unit: "kg" | "lb", convention?: ActualSet["load_convention"]): void;
   runDistance(blockId: string, exerciseIndex: number, meters: number): void;
   discard(): void;
   activityPicker: ReactNode;
@@ -60,8 +60,8 @@ function RunChoice({ label, value, onChange, disabled }: { label: string; value:
       style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderRadius: 14,
         borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surface, opacity: pressed ? 0.7 : 1 })}>
       <Ionicons name={value === "outdoor" ? "sunny-outline" : "speedometer-outline"} size={22} color={c.text} />
-      <Copy style={{ flex: 1 }}>{label}</Copy>
-      <Copy kind="label">{word}</Copy>
+      <Copy maxScale={1.5} style={{ flex: 1 }}>{label}</Copy>
+      <Copy kind="label" maxScale={1.5}>{word}</Copy>
       <Ionicons name="swap-horizontal" size={18} color={c.muted} />
     </Pressable>
   );
@@ -269,7 +269,7 @@ export function ClassSession(p: ClassSessionProps) {
           const recorded = d.class_loads?.[block.id]?.[i];
           const key = `${block.id}:${i}`;
           const unit = loadUnits[key] ?? recorded?.load_unit ?? e.load_unit ?? "kg";
-          const value = loadText[key] ?? String(recorded?.load ?? e.load ?? "");
+          const value = loadText[key] ?? String(recorded ? recorded.load ?? "" : e.load ?? "");
           return <View key={key} style={{ gap: 12 }}>
             <Copy kind="label">{e.name}</Copy><Copy kind="small" tone="muted">{prescriptionLine(e)}</Copy>
             <Field label={`${e.name} weight`} numeric value={value} onChange={(v) => {
@@ -280,7 +280,7 @@ export function ClassSession(p: ClassSessionProps) {
             <Segmented<"kg" | "lb"> label={`${e.name} unit`} value={unit} options={[{ value: "kg", label: "kg" }, { value: "lb", label: "lb" }]}
               onChange={(u) => { setLoadUnits((t) => ({ ...t, [key]: u })); if (value.trim() && Number.isFinite(Number(value))) p.roundLoad?.(block.id, i, Number(value), u); }} />
             {e.load_options?.map((option, n) => <Button key={n} title={`${option.load} ${option.load_unit}${option.label ? ` · ${option.label}` : ""}`} variant="secondary"
-              onPress={() => { setLoadText((t) => ({ ...t, [key]: String(option.load) })); setLoadUnits((t) => ({ ...t, [key]: option.load_unit })); p.roundLoad?.(block.id, i, option.load, option.load_unit); }} />)}
+              onPress={() => { setLoadText((t) => ({ ...t, [key]: String(option.load) })); setLoadUnits((t) => ({ ...t, [key]: option.load_unit })); p.roundLoad?.(block.id, i, option.load, option.load_unit, option.load_convention ?? "total"); }} />)}
           </View>;
         })}
       </Sheet>

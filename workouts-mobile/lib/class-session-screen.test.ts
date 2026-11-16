@@ -201,6 +201,7 @@ it("keeps the run choice in the fixed footer and lets the athlete set the next r
   await s.classAct(startPart, 0); await s.classAct(buyInDone, min); await render(2 * min);
   const footerRuns = elements(screen().footer).filter((n) => n.props.label === "400 m Run");
   expect(footerRuns).toHaveLength(1);
+  expect(renderer!.root.findAllByType("Copy" as never).find((n) => n.props.children === "Outdoor")!.props.maxScale).toBe(1.5);
   await act(async () => control("Round weights")!.props.onPress());
   const field = () => renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "Deadlift weight")!;
   await act(async () => field().props.onChange("60"));

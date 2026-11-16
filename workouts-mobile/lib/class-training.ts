@@ -94,16 +94,19 @@ export function endClass(run: ClassRun, workout: Workout, now: number) {
   return next;
 }
 
+export type ClassLoad = { load: number | null; load_unit: "kg" | "lb"; load_convention?: ActualSet["load_convention"] };
+
 /** A round tap records only repeating moves. Choices and relative weights need an explicit actual load. */
-export function roundActuals(block: Block, round: number, loads: Record<number, { load: number; load_unit: "kg" | "lb" }> = {}): ActualSet[] {
+export function roundActuals(block: Block, round: number, loads: Record<number, ClassLoad> = {}): ActualSet[] {
   return block.exercises.flatMap((e, i) => {
     if (e.segment) return [];
-    const weight = loads[i] ?? (e.load != null && e.load_unit ? { load: e.load, load_unit: e.load_unit } : {});
+    const chosen = loads[i] ?? (e.load != null && e.load_unit ? { load: e.load, load_unit: e.load_unit } : undefined);
+    const weight = chosen?.load != null ? { ...chosen, load: chosen.load } : {};
     const sides = e.per_side ? ["left", "right"] as const : [null];
     return sides.map((side) => ({ block_id: block.id, exercise_index: i, set_index: 1, round_index: round,
       side, completed: true,
       reps: repsFor(e, round), duration_seconds: e.duration_seconds ?? null,
       distance_meters: e.distance_meters ?? null, ...weight,
-      ...(Object.keys(weight).length ? { load_convention: e.load_convention ?? "total" as const } : {}) }));
+      ...(Object.keys(weight).length ? { load_convention: chosen?.load_convention ?? e.load_convention ?? "total" as const } : {}) }));
   });
 }
