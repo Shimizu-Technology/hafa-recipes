@@ -225,7 +225,8 @@ it("keeps a completed timed class completed when correcting its score without se
   const { store } = await classDay();
   await store.finish("partial", undefined, "keep", "general_fitness");
   const prior = store.snapshot().history[0].request;
-  const saved = { id: "saved", generation: 1, content: { ...prior, actuals: [], status: "completed", prescription_snapshot: w } } as TrainingSession;
+  const saved: TrainingSession = { id: "saved", generation: 1, client_session_id: prior.client_session_id, title: w.title,
+    started_at: prior.started_at, status: "completed", content: { ...prior, actuals: [], status: "completed", prescription_snapshot: w } };
   await store.correct(saved, [], "Corrected score", "score-correction", prior.results);
   expect(store.snapshot().history[0].request.status).toBe("completed");
 });
