@@ -486,6 +486,7 @@ def _validate_provider_workout(raw: dict) -> list[str]:
                 if message == "Benchmark block_ids must reference existing parts":
                     ids = {block.get("id") for block in item.get("blocks") or []}
                     item["benchmark"]["block_ids"] = [value for value in item["benchmark"]["block_ids"] if value in ids]
+                    warnings.append("Benchmark parts that are not in the import were removed; review the benchmark.")
                 elif message == "The last part cannot have rest_after_seconds":
                     item["blocks"][-1]["rest_after_seconds"] = None
                 elif message in RANGE_REPAIRS:
@@ -618,6 +619,10 @@ class ProductionExtractionProvider:
                                 (grounded.kind != "exercise" and quality[0] != quality[1])
                                 or _missing_source_movements(grounded, source)):
                             raise ExtractionFailure("provider_insufficient_prescription")
+                        if source.class_parts and _missing_source_movements(grounded, source):
+                            # Accepted without a second model; the result still warns that a listed movement is missing.
+                            source.metadata.coverage_notes.append(
+                                "The class answer left out a listed movement; review the source before training.")
                         paid.complete(outcome="success")
                         invocation.succeed(data)
                         if best is not None and not _prescription_preserves(grounded, best[3]):

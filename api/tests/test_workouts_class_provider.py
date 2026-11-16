@@ -83,12 +83,18 @@ def provider(monkeypatch):
 
     monkeypatch.setattr(module.httpx, "AsyncClient", client)
 
-    async def run(class_parts, *replies):
+    async def run(class_parts, *replies, page=PAGE):
         state.replies, state.payloads = list(replies), []
-        source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", PAGE)], class_parts=class_parts)
-        result = await ProductionExtractionProvider(budget_guard=FakeBudget(), development_api_key="k").extract(source)
+        source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", page)], class_parts=class_parts)
+        budget = FakeBudget()
+        result = await ProductionExtractionProvider(budget_guard=budget, development_api_key="k").extract(source)
+        # The budget reserves exactly the answer size the request asks for.
+        assert [envelope.max_output_tokens for _, _, envelope in budget.reservations] == [
+            payload["max_completion_tokens"] for payload in state.payloads]
+        state.source = source
         return result, state.payloads
 
+    run.state = state
     return run
 
 
@@ -138,5 +144,36 @@ def test_class_part_slips_that_change_no_prescription_are_repaired():
 
     raw = {"title": "Class", "kind": "session", "benchmark": {"key": "summit", "name": "Summit", "block_ids": ["a", "missing"]},
            "blocks": [{"id": "a", "label": "A", "exercises": []}, {"id": "b", "label": "B", "rest_after_seconds": 180, "exercises": []}]}
-    assert _validate_provider_workout(raw) == []
+    assert _validate_provider_workout(raw) == ["Benchmark parts that are not in the import were removed; review the benchmark."]
     assert raw["benchmark"]["block_ids"] == ["a"] and raw["blocks"][-1]["rest_after_seconds"] is None
+
+
+ROWS = "A. For Time:\n10 x Burpees\n12 x Row"
+
+
+def burpees_only():
+    return {"title": "Class", "kind": "session", "blocks": [{"id": "a", "label": "A", "evidence": [], "exercises": [
+        {"name": "Burpees", "reps_min": 10, "reps_max": 10,
+         "evidence": [ev("name", "10 x Burpees"), ev("reps_min", "10 x Burpees"), ev("reps_max", "10 x Burpees")]}]}]}
+
+
+@pytest.mark.asyncio
+async def test_a_class_answer_missing_a_dosed_movement_is_kept_but_noted(provider):
+    _, payloads = await provider(True, (burpees_only(), "stop"), page=ROWS)
+    assert [payload["model"] for payload in payloads] == ["primary-test"]
+    assert "The class answer left out a listed movement; review the source before training." in (
+        provider.state.source.metadata.coverage_notes)
+
+
+@pytest.mark.asyncio
+async def test_a_class_import_missing_a_dosed_movement_warns_and_stays_incomplete():
+    from app.domains.workouts.extraction import ExtractionRequest, WorkoutExtractor
+    from tests.test_workout_extraction import FakeProvider
+
+    result = await WorkoutExtractor(FakeProvider(burpees_only())).extract(
+        ExtractionRequest(kind="text", text=ROWS, class_parts=True, ai_consent=True))
+    # The page layout restores a skipped part, not a missing row inside a part the import kept.
+    assert [item.name for block in result.workout.blocks for item in block.exercises] == ["Burpees"]
+    assert "Some movements listed in the source were not extracted. Review the original source before training." in (
+        result.warnings)
+    assert result.status == "incomplete"
