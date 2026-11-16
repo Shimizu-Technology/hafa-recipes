@@ -1151,8 +1151,8 @@ export function createWorkoutsApi(
       return (await request<{ enabled: false; deleted_sessions: number }>("/health-summary-consent", "DELETE", undefined, { generation: currentGeneration() })).data;
     },
     async saveSession(body: SessionRequest, generation: number) {
-      // Scores and splits go only to a server that says it takes them; the session never depends on them.
-      const supported = membership?.features?.includes("session_results_v1");
+      // Only an explicit capability list can rule scores out. Unknown servers get the payload; sync retains it on 422.
+      const supported = membership?.features == null || membership.features.includes("session_results_v1");
       const sendable = supported ? body : withoutResults(body);
       const saved = sessionRecord((await request<SessionEnvelope>("/sessions", "POST", sendable, { generation })).data);
       return { ...saved, ...(!supported && (body.results?.length || body.segments?.length)

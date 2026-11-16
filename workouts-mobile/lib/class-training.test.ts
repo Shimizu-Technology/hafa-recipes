@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
-import { createTrainingStore, historicalStructureWarning } from "./training";
+import { createTrainingStore, historicalStructureWarning, trainingKey } from "./training";
 import { buyInDone, endPart, endRest, isRun, partStatus, pausePart, resumePart, skipPart, startPart, tapRound, undoTap } from "./class-session";
 import { exerciseRecords } from "./progress-insights";
 import { currentPart, isClassWorkout, roundActuals } from "./class-training";
@@ -216,4 +216,63 @@ it("clearing a prescribed weight records no load and chosen options keep their l
   expect(roundActuals(block, 1, { 1: { load: null, load_unit: "kg" } })[0].load).toBeUndefined();
   expect(roundActuals(block, 1, { 1: { load: 20, load_unit: "kg", load_convention: "per_hand" } })[0])
     .toMatchObject({ load: 20, load_unit: "kg", load_convention: "per_hand" });
+});
+
+it.each(["rx", "scaled"] as const)("%s review never treats unconfirmed Rx loads as a scaled athlete's weights", async (scaling) => {
+  const workout = structuredClone(w);
+  workout.blocks[0].exercises[1] = { ...workout.blocks[0].exercises[1], relative_load: null, load: 100, load_unit: "kg" };
+  const { store, storage, at } = await classStore(workout, 0);
+  await store.classAct(startPart); at(min); await store.classAct(buyInDone);
+  at(2 * min); await store.classAct(tapRound); // Rx default, not confirmed.
+  await store.classLoad("a", 1, 60, "kg");
+  at(3 * min); await store.classAct(tapRound); // Athlete's own weight.
+  const restored = createTrainingStore(storage, "owner", 1, () => T0 + 4 * min);
+  await restored.load();
+  await restored.classScore("a", { block_id: "a", kind: "rounds_reps", rounds: 2, reps: 0, scaling, origin: "timer" });
+  await restored.finish("partial", undefined, "keep", "general_fitness");
+  const saved = restored.snapshot().history[0];
+  expect(saved.request.actuals[0].load).toBe(scaling === "scaled" ? undefined : 100);
+  expect(saved.request.actuals[3]).toMatchObject({ load: 60, load_unit: "kg" });
+  expect(exerciseRecords([{ request: saved.request, workout }], "metric").find((r) => r.name === "Deadlift")!.best)
+    .toContain(scaling === "scaled" ? "60 kg" : "100 kg");
+});
+it("Scaled without any weight entry keeps reps but removes the inferred load and lift PR", async () => {
+  const workout = structuredClone(w);
+  workout.blocks[0].exercises[1] = { ...workout.blocks[0].exercises[1], relative_load: null, load: 100, load_unit: "kg" };
+  const { store, at } = await classStore(workout, 0);
+  await store.classAct(startPart); at(min); await store.classAct(buyInDone); at(2 * min); await store.classAct(tapRound);
+  await store.classScore("a", { block_id: "a", kind: "rounds_reps", rounds: 1, reps: 0, scaling: "scaled", origin: "timer" });
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  const saved = store.snapshot().history[0];
+  expect(saved.request.actuals[0]).toMatchObject({ reps: 15 });
+  expect(saved.request.actuals[0].load).toBeUndefined();
+  expect(saved.request.actuals[0].load_unit).toBeUndefined();
+  expect(saved.request.actuals[0].load_convention).toBeUndefined();
+  expect(exerciseRecords([{ request: saved.request, workout }], "metric").find((r) => r.name === "Deadlift")!.measure.metric).toBe("reps");
+});
+
+it("protects Scaled drafts recorded before load provenance was tracked", async () => {
+  const workout = structuredClone(w);
+  workout.blocks[0].exercises[1] = { ...workout.blocks[0].exercises[1], relative_load: null, load: 100, load_unit: "kg" };
+  const { store, storage, at } = await classStore(workout, 0);
+  await store.classAct(startPart); at(min); await store.classAct(buyInDone); at(2 * min); await store.classAct(tapRound);
+  const key = trainingKey("owner", 1), legacy = JSON.parse((await storage.getItem(key))!);
+  delete legacy.active.class_prescribed_loads;
+  await storage.setItem(key, JSON.stringify(legacy));
+  const restored = createTrainingStore(storage, "owner", 1, () => T0 + 3 * min);
+  await restored.load();
+  await restored.classScore("a", { block_id: "a", kind: "rounds_reps", rounds: 1, reps: 0, scaling: "scaled", origin: "timer" });
+  await restored.finish("partial", undefined, "keep", "general_fitness");
+  expect(restored.snapshot().history[0].request.actuals[0].load).toBeUndefined();
+});
+it("undoing an inferred round does not hide an explicitly confirmed weight when the round is logged again", async () => {
+  const workout = structuredClone(w);
+  workout.blocks[0].exercises[1] = { ...workout.blocks[0].exercises[1], relative_load: null, load: 100, load_unit: "kg" };
+  const { store, at } = await classStore(workout, 0);
+  await store.classAct(startPart); at(min); await store.classAct(buyInDone); at(2 * min); await store.classAct(tapRound);
+  await store.classAct(undoTap); await store.classLoad("a", 1, 100, "kg");
+  at(3 * min); await store.classAct(tapRound);
+  await store.classScore("a", { block_id: "a", kind: "rounds_reps", rounds: 1, reps: 0, scaling: "scaled", origin: "timer" });
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  expect(store.snapshot().history[0].request.actuals[0].load).toBe(100);
 });

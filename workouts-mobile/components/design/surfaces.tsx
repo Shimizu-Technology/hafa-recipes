@@ -429,7 +429,7 @@ export function ListRow({
   return (
     <Pressable
       accessibilityRole={trailing === "external" ? "link" : "button"}
-      accessibilityLabel={[title, detail, badge === "PR" ? "Personal record" : badge, value].filter(Boolean).join(". ")}
+      accessibilityLabel={[title, detail, badge === "PR" ? "Personal record" : badge].filter(Boolean).join(". ")}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}

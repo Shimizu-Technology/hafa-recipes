@@ -67,3 +67,9 @@ it("renders a distinct PR badge and announces Personal record with the score", (
   expect(badge.props).toMatchObject({ kind: "label", color: light.onAccent });
   expect(badge.parent!.props.style.backgroundColor).toBe(light.accent);
 });
+
+it("preserves ordinary ListRow VoiceOver labels without appending every visual value", () => {
+  act(() => { view = create(createElement(ListRow, { title: "Saved sessions", detail: "View history", value: "12", onPress() {} })); });
+  expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toBe("Saved sessions. View history");
+  expect(view!.root.findAllByType("Copy" as never).some((n) => n.props.children === "12")).toBe(true);
+});

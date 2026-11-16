@@ -3,6 +3,7 @@ import { Alert, useWindowDimensions } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Copy, Notice, Screen, useToast } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
+import { contentWidth, spacing } from "@/constants/theme";
 import { footerLabelScale } from "@/lib/readable-layout";
 import { useTraining } from "@/lib/context";
 
@@ -17,6 +18,9 @@ export default function HeartRateSummaries() {
   const toast = useToast();
   const key = [owner, "heart-rate-summaries", enrollment?.generation];
   const q = useQuery({ queryKey: key, enabled: !!enrollment?.enrolled, queryFn: () => api.heartRateSummaries() });
+  const deleteTitle = q.data?.enabled ? "Turn off and delete saved heart-rate summaries" : "Delete saved heart-rate summaries";
+  const labelScale = (title: string, icon = false) => Math.min(2, footerLabelScale(title,
+    Math.min(width, contentWidth) - spacing.md * 2 - (icon ? 29 : 0), fontScale));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function change(work: () => Promise<{ enabled: boolean; deleted_sessions?: number }>, done: (r: { deleted_sessions?: number }) => string) {
@@ -50,14 +54,14 @@ export default function HeartRateSummaries() {
         </Copy>
         {q.data && !q.data.available && <Notice>Heart-rate summaries aren’t available yet. Check back after the next update.</Notice>}
         {!!error && <Notice error>{error}</Notice>}
-        {q.data?.available && !q.data.enabled && <Button title="Turn on heart-rate summaries" maxScale={Math.min(2, footerLabelScale("summaries", width - 64, fontScale))} icon="heart-outline" busy={busy}
+        {q.data?.available && !q.data.enabled && <Button title="Turn on heart-rate summaries" maxScale={labelScale("Turn on heart-rate summaries", true)} icon="heart-outline" busy={busy}
           onPress={() => { void change(() => api.setHeartRateSummaries(true), () => "Heart-rate summaries are on."); }} />}
         {q.data?.enabled && <>
           <Notice tone="success">On. New workouts can save heart-rate summaries.</Notice>
-          <Button title="Turn off, keep saved summaries" variant="secondary" busy={busy}
+          <Button title="Turn off, keep saved summaries" maxScale={labelScale("Turn off, keep saved summaries")} variant="secondary" busy={busy}
             onPress={() => { void change(() => api.setHeartRateSummaries(false), () => "Turned off. Saved summaries are kept."); }} />
         </>}
-        {q.data && <Button title={q.data.enabled ? "Turn off and delete saved heart-rate summaries" : "Delete saved heart-rate summaries"} maxScale={Math.min(2, footerLabelScale("summaries", width - 64, fontScale))} variant="destructive" icon="trash-outline" disabled={busy}
+        {q.data && <Button title={deleteTitle} maxScale={labelScale(deleteTitle, true)} variant="destructive" icon="trash-outline" disabled={busy}
           onPress={confirmDelete} />}
       </QueryState>
     </Screen>

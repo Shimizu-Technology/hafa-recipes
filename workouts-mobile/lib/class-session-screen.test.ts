@@ -130,6 +130,9 @@ describe("class runner (Nov 17)", () => {
     expect(editor.props.result).toMatchObject({ kind: "rounds_reps", rounds: 2, reps: 0, buy_in_done: true, buy_in_seconds: 360 });
     await act(async () => editor.props.onChange({ ...editor.props.result, reps: 12, scaling: "rx" }));
     expect(save().props.disabled).toBe(false);
+    await act(async () => editor.props.onChange({ ...editor.props.result, scaling: "scaled" }));
+    expect(text()).toContain("Scaled: add the weights you used to count toward PRs");
+    await act(async () => editor.props.onChange({ ...editor.props.result, scaling: "rx" }));
     await act(async () => control("Copy for WodUp")!.props.onPress());
     expect(fixture.copy.mock.calls[0][0]).toBe("BUILD | BRIK · Tue Nov 17\nA: 2 rounds + 12 reps · Rx\n  Buy-in 6:00 · Rounds 4:00, 4:00");
     save().props.onPress();

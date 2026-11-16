@@ -234,7 +234,7 @@ export interface SessionRequest {
   actuals: ActualSet[];
   notes?: string | null;
   supersedes_session_id?: string;
-  /** Class scores and splits (API `session_results_v1`); sent only when the account's enrollment lists it. */
+  /** Class scores and splits (API `session_results_v1`); omitted only when a known capability list excludes them. */
   results?: import("./class-session").PartResult[];
   segments?: import("./class-session").Segment[];
   recorded_on?: "phone" | "watch";

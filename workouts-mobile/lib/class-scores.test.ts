@@ -118,21 +118,23 @@ describe("score entry", () => {
   });
 });
 
-describe("sending scores only to a server that takes them", () => {
+describe("score capability negotiation", () => {
   const request: SessionRequest = { client_session_id: "c", workout_id: "w", workout_revision: 1, started_at: iso(0), finished_at: iso(min),
     status: "partial", actuals: [], results: [{ block_id: "a", kind: "completed", origin: "timer" }], recorded_on: "phone" };
-  async function sentBody(features?: string[]) {
+  async function sentBody(features?: string[], loaded = true) {
     const transport = vi.fn(async (url: string) => url.endsWith("/enrollment")
       ? new Response(JSON.stringify({ enrolled: true, generation: 1, disclosure_version: 1, adult_confirmed: true, shared_account_deletion_acknowledged: true,
         enrolled_at: null, ...(features ? { features } : {}) }))
       : new Response(JSON.stringify({ id: "s", generation: 1, client_session_id: "c", content: { prescription_snapshot: w }, created_at: iso(0) }))) as unknown as typeof fetch;
     const api = createWorkoutsApi("https://example.test", async () => "token", transport);
-    await api.enrollment();
+    if (loaded) await api.enrollment();
     await api.saveSession(request, 1);
-    return JSON.parse((transport as unknown as ReturnType<typeof vi.fn>).mock.calls[1][1].body);
+    return JSON.parse((transport as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)![1].body);
   }
-  it("strips results unless enrollment lists session_results_v1", async () => {
-    expect((await sentBody()).results).toBeUndefined();
+  it("sends scores for unknown or unloaded capabilities and strips only an explicit opt-out", async () => {
+    expect((await sentBody()).results).toHaveLength(1);
+    expect((await sentBody(undefined, false)).results).toHaveLength(1);
+    expect((await sentBody([])).results).toBeUndefined();
     expect((await sentBody(["class_parts_v1"])).recorded_on).toBeUndefined();
     expect((await sentBody(["session_results_v1", "class_parts_v1"])).results).toHaveLength(1);
   });
@@ -182,7 +184,7 @@ it("retains feature-gated scores and splits through a successful correction", as
   await store.finish("partial", undefined, "keep", "general_fitness");
   const original = store.snapshot().history[0].request;
   const transport = vi.fn(async (url: string, init?: RequestInit) => new Response(JSON.stringify(url.endsWith("/enrollment")
-    ? { enrolled: true, generation: 1 }
+    ? { enrolled: true, generation: 1, features: [] }
     : { id: "saved", generation: 1, client_session_id: original.client_session_id, content: { ...JSON.parse(String(init!.body)), prescription_snapshot: w } })));
   const api = createWorkoutsApi("https://example.test", async () => "token", transport as typeof fetch);
   await api.enrollment(); await store.sync(api.saveSession);
@@ -229,4 +231,41 @@ it("keeps a completed timed class completed when correcting its score without se
     started_at: prior.started_at, status: "completed", content: { ...prior, actuals: [], status: "completed", prescription_snapshot: w } };
   await store.correct(saved, [], "Corrected score", "score-correction", prior.results);
   expect(store.snapshot().history[0].request.status).toBe("completed");
+});
+
+it("retains a 422-rejected score and splits through a successful correction", async () => {
+  const { store } = await classDay();
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  const original = store.snapshot().history[0].request;
+  await store.sync(async (request) => {
+    if (request.results) throw Object.assign(Error("Scores not accepted"), { status: 422 });
+    return { id: "saved", generation: 1, client_session_id: request.client_session_id, title: w.title,
+      started_at: request.started_at, status: request.status, content: { ...request, prescription_snapshot: w } };
+  });
+  const retained = store.snapshot().history[0];
+  expect(retained.unsent_results).toMatchObject({ results: original.results, segments: original.segments });
+  const saved: TrainingSession = { id: "saved", generation: 1, client_session_id: original.client_session_id, title: w.title,
+    started_at: original.started_at, status: "partial", content: { ...retained.request, prescription_snapshot: w } };
+  await store.correct(saved, saved.content.actuals, "", "correct-422", retained.unsent_results!.results, retained.unsent_results!.segments);
+  const send = vi.fn(async (request: SessionRequest) => ({ ...saved, id: "corrected", content: { ...request, prescription_snapshot: w } }));
+  await store.sync(send);
+  expect(send.mock.calls[0][0]).toMatchObject({ supersedes_session_id: "saved", results: original.results, segments: original.segments });
+  expect(store.snapshot().history[0]).toMatchObject({ state: "synced", synced_id: "corrected" });
+});
+it("replay-original recovery uses the same retained-score warning as ordinary sync", async () => {
+  const { store } = await classDay();
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  const original = store.snapshot().history[0].request;
+  await store.sync(async () => { throw Object.assign(Error("Source removed"), { status: 404 }); });
+  const create = vi.fn(async () => w);
+  const saved = await store.recoverResult(original.client_session_id,
+    { creation_key: "recovery-key", client_session_id: "recovery-session" }, create,
+    async (request) => ({ id: "replayed", generation: 1, client_session_id: request.client_session_id, title: w.title,
+      started_at: request.started_at, status: request.status, content: { ...request, prescription_snapshot: w },
+      unsent_results: { results: request.results, segments: request.segments } }), () => true);
+  expect(saved).toBe("replayed"); expect(create).not.toHaveBeenCalled();
+  const retained = store.snapshot().history[0];
+  expect(retained).toMatchObject({ state: "synced", synced_id: "replayed", problem: unsentProblem,
+    unsent_results: { results: original.results, segments: original.segments } });
+  expect(retained.request.results).toBeUndefined(); expect(retained.request.segments).toBeUndefined();
 });
