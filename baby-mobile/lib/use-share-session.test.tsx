@@ -146,6 +146,32 @@ describe("the share credential", () => {
     expect(baby.api.request).toHaveBeenCalledTimes(2);
     expect(mock.clearSession).not.toHaveBeenCalled();
   });
+  it("after leaving or removal from the family, retires the old credential before asking, so a failed request leaves no family names", async () => {
+    mock.previous = `owner:1:${family}`;
+    const baby = account({ personal_space_id: personal, spaces: [own] });
+    baby.api.request.mockRejectedValue(Error("offline"));
+    await mount(baby);
+    expect(mock.suspendSession).toHaveBeenCalledTimes(1);
+    expect(mock.suspendSession.mock.invocationCallOrder[0]).toBeLessThan(baby.api.request.mock.invocationCallOrder[0]);
+    // Suspending keeps the captures it made; only another account's credential is privacy-cleared.
+    expect(mock.clearSession).not.toHaveBeenCalled();
+    expect(mock.configureSession).not.toHaveBeenCalled();
+  });
+  it("keeps a credential for a family it's still a parent in, and its own space's, without retiring either", async () => {
+    for (const previous of [`owner:1:${family}`, "owner:1:personal", "owner:1"]) {
+      vi.clearAllMocks();
+      mock.previous = previous;
+      await mount(account({ personal_space_id: personal, spaces: [own, shared] }, { space_id: family }));
+      expect(mock.suspendSession).not.toHaveBeenCalled();
+      await act(async () => renderer?.unmount());
+    }
+  });
+  it("retires a credential from before its own space was cleared, before asking", async () => {
+    mock.previous = "owner:1:personal";
+    const baby = account({ generation: 2, personal_space_id: personal, spaces: [{ ...own, generation: 2 }] }, { space_id: personal, generation: 2 });
+    await mount(baby);
+    expect(mock.suspendSession.mock.invocationCallOrder[0]).toBeLessThan(baby.api.request.mock.invocationCallOrder[0]);
+  });
   it("still clears another account's", async () => {
     mock.previous = "someone-else:1";
     await mount(account({}));

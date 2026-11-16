@@ -20,6 +20,18 @@ export function captureBelongs(scope: string | undefined, owner: string, bootstr
   const family = familySpaces(bootstrap).find((space) => space.id === tag.destination);
   return tag.destination === "personal" ? tag.generation === bootstrap?.generation : !family || tag.generation === family.generation;
 }
+/**
+ * Whether the credential on this phone can still write where it was made for: this account's own space before it was
+ * cleared, or a family it's still a parent in. When it can't, it has to go before a new one is asked for, so that a failed
+ * request can't leave it, or the family's category names, on the phone.
+ */
+export function sessionReachable(scope: string, owner: string, bootstrap?: Bootstrap) {
+  const tag = tagged(scope);
+  if (tag.owner !== owner || !bootstrap) return false;
+  if (tag.destination === "personal") return tag.generation === bootstrap.generation;
+  const family = spacesLive(bootstrap) ? familySpaces(bootstrap).find((space) => space.id === tag.destination) : undefined;
+  return family?.role === "parent" && tag.generation === family.generation;
+}
 /** Where new captures go: the family for its parents, and otherwise this account's own space. */
 export function shareDestination(bootstrap?: Bootstrap) {
   if (!spacesLive(bootstrap)) return undefined;

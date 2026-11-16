@@ -936,6 +936,21 @@ struct BabyShareStoreTests {
     try check(cleaned.first == ["id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "title": "Sleep and naps"], "one line, trimmed, one per id")
     try check(cleaned.count == BabyShareCategories.maxCount && !cleaned.contains { $0["title"] == "Bad id" || $0["title"] == "Again" }, "bad rows dropped, and at most a handful")
     try check(cleaned[1]["title"]?.count == 40 && cleaned[1]["title"]?.hasSuffix("…") == true, "a long name fits a chip")
+    // The names are only ever shown for the credential that's here now. A family she left, a cleared space, a different
+    // account, or no credential at all shows nothing, whatever the Keychain still holds.
+    let family = "owner-a:1:11111111-1111-4111-8111-111111111111", personal = "owner-a:1:personal"
+    let cached: [String: Any] = ["scope": family, "items": [["id": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", "title": "Our family"]]]
+    let visible = BabyShareCategories.visible
+    try check(visible(cached, family, family).map { $0["title"] } == ["Our family"], "the same credential and share see the list")
+    try check(visible(cached, personal, personal).isEmpty, "a new destination's credential never sees the old family's names")
+    try check(visible(cached, nil, family).isEmpty, "with the credential gone (left, removed, suspended), nothing shows")
+    try check(visible(cached, family, personal).isEmpty, "a share tagged elsewhere sees nothing")
+    try check(visible(cached, family, nil).isEmpty && visible(nil, family, family).isEmpty, "no owner, or no list, shows nothing")
+    try check(visible(cached, "owner-a:2:11111111-1111-4111-8111-111111111111", "owner-a:2:11111111-1111-4111-8111-111111111111").isEmpty, "a cleared generation sees nothing")
+    try check(BabyShareCategories.survives(cached, binding: family), "a rotated credential for the same space keeps the list")
+    for other in [personal, "owner-b:1:11111111-1111-4111-8111-111111111111", "owner-a:2:11111111-1111-4111-8111-111111111111"] {
+      try check(!BabyShareCategories.survives(cached, binding: other), "binding \(other) drops the list")
+    }
     print("\(count) native capture store cases passed")
   }
 }

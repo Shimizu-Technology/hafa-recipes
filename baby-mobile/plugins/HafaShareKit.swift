@@ -1,4 +1,3 @@
-import ImageIO
 import LinkPresentation
 import SwiftUI
 import UIKit
@@ -42,6 +41,8 @@ final class HafaShareModel: ObservableObject {
   @Published var isBusy = true
   @Published var canSave = false
   @Published var outcome: HafaShareOutcome?
+  // False while the app finishes a write that leaving would undo. ✕, a tap outside and Escape wait.
+  @Published var canLeave = true
   @Published fileprivate(set) var isShown = false
   var onSelect: (_ choice: String, _ option: String) -> Void = { _, _ in }
   var onSave: () -> Void = {}
@@ -50,6 +51,9 @@ final class HafaShareModel: ObservableObject {
   var onCancel: () -> Void = {}
   private var touched = false
   private var linkProvider: LPMetadataProvider?
+  private var previewImageProgress: Progress?
+  private var previewTimeout: DispatchWorkItem?
+  private var previewGeneration = UUID()
 
   init(preview: HafaSharePreview, action: String) {
     self.preview = preview
@@ -62,6 +66,7 @@ final class HafaShareModel: ObservableObject {
   }
 
   func finish(_ outcome: HafaShareOutcome) {
+    cancelPreview()
     isBusy = false
     self.outcome = outcome
     UIAccessibility.post(notification: .announcement, argument: [outcome.title, outcome.detail].compactMap { $0 }.joined(separator: ". "))
@@ -85,47 +90,60 @@ final class HafaShareModel: ObservableObject {
     DispatchQueue.main.asyncAfter(deadline: .now() + (UIAccessibility.isReduceMotionEnabled ? 0.12 : 0.26), execute: done)
   }
 
-  // A best-effort look at the link: the page's own title, fetched on this phone only and never its pictures or scripts.
-  // Links that carry a sign-in or token, private addresses and Håfa's own links are never asked. Anything slow or
-  // missing leaves the site name showing.
+  func cancelPreview() {
+    previewGeneration = UUID()
+    linkProvider?.cancel(); linkProvider = nil
+    previewImageProgress?.cancel(); previewImageProgress = nil
+    previewTimeout?.cancel(); previewTimeout = nil
+  }
+
   func loadPreview(_ url: URL, describe: @escaping (String?) -> (title: String, subtitle: String?)?) {
-    guard HafaSharePreviewText.mayFetchPreview(url) else { return }
+    cancelPreview()
+    guard HafaSharePreviewPolicy.allows(url) else { return }
+    let generation = previewGeneration
     let provider = LPMetadataProvider()
+    provider.shouldFetchSubresources = true
     provider.timeout = 5
-    provider.shouldFetchSubresources = false
     linkProvider = provider
+    let timeout = DispatchWorkItem { [weak self] in
+      guard let self, self.previewGeneration == generation else { return }
+      self.cancelPreview()
+    }
+    previewTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
     provider.startFetchingMetadata(for: url) { [weak self] metadata, _ in
-      guard let metadata else { return }
       DispatchQueue.main.async {
-        guard let self, self.linkProvider === provider, let described = describe(metadata.title) else { return }
-        self.preview.title = described.title
-        self.preview.subtitle = described.subtitle ?? self.preview.subtitle
+        guard let self, self.previewGeneration == generation, let metadata else { return }
+        if let described = describe(metadata.title) {
+          self.preview.title = described.title
+          self.preview.subtitle = described.subtitle ?? self.preview.subtitle
+        }
+        // Policy-approved pages can supply their preview image. Downsample
+        // its file representation instead of requesting a full decoded UIImage.
+        guard let imageProvider = metadata.imageProvider ?? metadata.iconProvider,
+          let type = imageProvider.registeredTypeIdentifiers.first else { return }
+        self.previewImageProgress = imageProvider.loadFileRepresentation(forTypeIdentifier: type) { [weak self] url, _ in
+          let image = url.flatMap(HafaShareThumbnail.image)
+          DispatchQueue.main.async {
+            guard let self, self.previewGeneration == generation, let image else { return }
+            self.preview.image = UIImage(cgImage: image)
+          }
+        }
       }
     }
   }
 
-  func cancelPreview() {
-    linkProvider?.cancel()
-    linkProvider = nil
-  }
-
-  // A file already on this phone, such as a shared photo. Decoded small, off the main thread.
-  func loadThumbnail(_ file: URL) {
-    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      guard let image = Self.thumbnail(file) else { return }
-      DispatchQueue.main.async { self?.preview.image = image }
+  func loadThumbnail(_ url: URL) {
+    let generation = previewGeneration
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let image = HafaShareThumbnail.image(at: url)
+      DispatchQueue.main.async {
+        guard let self, self.previewGeneration == generation, let image else { return }
+        self.preview.image = UIImage(cgImage: image)
+      }
     }
   }
 
-  // Share extensions get little memory, so ImageIO makes the small copy straight from the file, upright.
-  static func thumbnail(_ file: URL) -> UIImage? {
-    guard let source = CGImageSourceCreateWithURL(file as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-      let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-        kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceShouldCacheImmediately: true, kCGImageSourceThumbnailMaxPixelSize: 192,
-      ] as CFDictionary) else { return nil }
-    return UIImage(cgImage: image)
-  }
 }
 
 final class HafaShareHostingController: UIHostingController<HafaShareSheet> {
@@ -160,6 +178,7 @@ struct HafaShareSheet: View {
   }
 
   private func leave() {
+    guard model.canLeave else { return }
     if model.outcome != nil { model.onOutcome(.close) } else { model.onCancel() }
   }
 
@@ -210,6 +229,8 @@ struct HafaShareSheet: View {
           .frame(width: 44, height: 44)
           .contentShape(Rectangle())
       }
+      .disabled(!model.canLeave)
+      .opacity(model.canLeave ? 1 : 0.4)
       .accessibilityLabel(model.outcome == nil ? "Cancel" : "Close")
     }
     .padding(.leading, 20).padding(.trailing, 10).padding(.top, 8)

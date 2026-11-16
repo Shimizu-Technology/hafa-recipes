@@ -150,8 +150,14 @@ describe("generated Safari preprocessing", () => {
     const stage = output.slice(output.indexOf("  private func stageBabyPayload("), output.indexOf("  private func babyShareStore("));
     expect(stage).not.toContain(".publish(");
     expect(output.match(/storage\.publish\(/g)).toHaveLength(1);
-    const save = output.slice(output.indexOf("  private func saveBabyShare("), output.indexOf("  private func submitBabyShare("));
-    expect(save).toContain("try producer.storage.publish(payload, capture: producer.capture, collection: collection)");
+    const publish = output.slice(output.indexOf("  private func publishBabyCapture("), output.indexOf("  // END HAFA BABY PRESENTED SHARE v1"));
+    expect(publish).toContain("try? producer.storage.publish(payload, capture: producer.capture, collection: collection)");
+    // Save can't be undone halfway: closing is held, visibly and for swipes, until publication settles.
+    const save = output.slice(output.indexOf("  private func saveBabyShare("), output.indexOf("  private func babyPublishOffMain("));
+    expect(save).toContain("publishBabyCapture(collection:");
+    expect(save.indexOf("card.canLeave = false")).toBeLessThan(save.indexOf("publishBabyCapture("));
+    expect(save).toContain("isModalInPresentation = true");
+    expect(output).toContain("guard !babySheetClosed, !babyPublishing else { return }");
     expect(output).not.toContain("publish(raw, id: self.babyCaptureId)");
     expect(output).not.toContain("publish(encoded, id: self.babyCaptureId)");
     // Retained SDK video, file and screenshot writes use the pre-await namespace;

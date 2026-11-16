@@ -120,6 +120,14 @@ enum BabySharePayload {
 // Foundation only, so the Mac tests can run it.
 enum BabyShareCategories {
   static let maxCount = 8
+  // Shown only when the list was written for the credential that's here now, and the share was tagged for that same
+  // credential. A family this account has left, or a space since cleared, never shows its names.
+  static func visible(_ cached: [String: Any]?, credentialScope: String?, captureScope: String?) -> [[String: String]] {
+    guard let captureScope, credentialScope == captureScope, cached?["scope"] as? String == captureScope else { return [] }
+    return clean(cached?["items"] as? [[String: String]] ?? [])
+  }
+  // A new credential keeps the list only for the very same account, generation and space.
+  static func survives(_ cached: [String: Any]?, binding scope: String) -> Bool { cached?["scope"] as? String == scope }
   // At most a handful, each with a real id and a name short enough to sit in a chip.
   static func clean(_ items: [[String: String]]) -> [[String: String]] {
     var seen = Set<String>(), rows: [[String: String]] = []

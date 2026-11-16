@@ -103,15 +103,34 @@ struct BabyShareSheetStateTests {
     try check(BabyShareWords.notice(scope: nil, signedIn: false)?.text.contains("not signed in") == true, "signed out is said before Save")
     try check(BabyShareWords.notice(scope: nil, signedIn: true)?.text.contains("not signed in") == false, "a sign-in still connecting isn't told it's signed out")
 
-    // The phone only asks an ordinary public page for its title.
-    let fetch = { (link: String) in HafaSharePreviewText.mayFetchPreview(URL(string: link)!) }
-    for link in ["https://www.instagram.com/reel/abc/?igsh=xyz", "https://www.tiktok.com/@a/video/1", "http://example.com/a?page=2"] {
+    // The phone only asks an ordinary public page for its title and picture. The same list as Recipes' policy suite (#693),
+    // and the bearer links and private hosts the #696 review named.
+    let fetch = { (link: String) in HafaSharePreviewPolicy.allows(URL(string: link)!) }
+    let key = String(repeating: "a", count: 43)
+    for link in ["https://www.instagram.com/reel/abc/?igsh=xyz", "https://www.tiktok.com/@a/video/1", "http://example.com/a?page=2",
+      "https://8.8.8.8/a", "https://[2606:4700:4700::1111]/a", "https://example.com/a#comments", "https://example.com/a#step=2",
+      "https://dropbox.com/features", "https://drive.google.com/about", "https://notdropbox.com/s/public"] {
       try check(fetch(link), "\(link) may be asked")
     }
-    for link in ["https://user:pw@example.com/", "https://example.com/a?token=1", "https://example.com/a?access_token=1", "https://example.com/a?X-Amz-Signature=1",
-      "https://example.com/a#access_token=1", "https://example.com/a?sig=1", "https://localhost/a", "https://printer.local/", "http://192.168.1.4/",
-      "http://[::1]/", "https://hafa-recipes.com/r/abc", "https://www.hafa-recipes.com/r/abc", "ftp://example.com/", "file:///tmp/a", "https://intranet/"] {
+    for link in [
+      // Bearer links: whoever holds the link can open it.
+      "https://www.dropbox.com/scl/fi/abc/scan.pdf?rlkey=secret&dl=0", "https://drive.google.com/file/d/abc/view?resourcekey=secret",
+      "https://www.dropbox.com/s/private-key/scan.jpg", "https://docs.google.com/document/d/private-key/edit",
+      "https://hafarecipes.com/r/\(key)", "https://custom.example/r/\(key)",
+      "https://user:pw@example.com/", "https://user@example.com/", "https://example.com/a?token=1", "https://example.com/a?%74oken=1",
+      "https://example.com/a?access_token=1", "https://example.com/a?X-Amz-Signature=1", "https://example.com/a?sig=1", "https://example.com/a?bearer=1",
+      "https://example.com/a#access_token=1", "https://example.com/#/auth?access_token=1", "https://example.com/#route?code=1",
+      // Private and local hosts, in every IPv4 spelling.
+      "http://0x7f.1/", "http://127.1/a", "http://2130706433/a", "http://0x7f000001/a", "http://0177.0.0.1/a", "http://127.0.0.1/a",
+      "http://10.0.0.1/a", "http://172.16.0.1/a", "http://192.168.1.4/", "http://169.254.169.254/a", "http://0.0.0.0/a",
+      "http://[::1]/", "http://[fc00::1]/a", "http://[fe80::1]/a", "http://[::ffff:127.0.0.1]/a",
+      "http://nursery.home/", "http://printer.local/", "http://foo.local./a", "http://router.lan/", "http://wiki.internal/", "http://localhost/a",
+      "http://intranet/", "ftp://example.com/", "file:///tmp/a",
+    ] {
       try check(!fetch(link), "\(link) is never asked")
+    }
+    for name in ["rlkey", "resourcekey", "sid", "sk", "otp", "Policy", "Signature", "Expires", "token", "access_token", "code"] {
+      for separator in ["?", "#"] { try check(!fetch("https://example.com/a\(separator)\(name)=secret"), "\(name) after \(separator) is never asked") }
     }
     try check(!BabyShareSheetState.stillWorking.words.title.contains("Saved"), "still working promises nothing")
     try check(BabyShareSheetState.notSignedIn.words.title == "You’re not signed in", "signed out says so")

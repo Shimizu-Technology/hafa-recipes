@@ -1,8 +1,10 @@
+import Darwin
 import Foundation
+import ImageIO
 
 // The share card's plain content: choices, outcomes and the words for a shared link.
 // Turns what a share carries (a link, and the page's title when there is one) into the words on the card.
-// Foundation only, so it runs in the Mac tests. Keep the copies in the three apps identical.
+// Uses system APIs available in the Mac tests. Keep the copies in the three apps identical.
 enum HafaSharePreviewText {
   struct Described: Equatable {
     let title: String
@@ -37,25 +39,6 @@ enum HafaSharePreviewText {
     let first = url.pathComponents.dropFirst().first ?? ""
     guard first.hasPrefix("@"), first.count > 1, first.count <= 40 else { return nil }
     return first
-  }
-
-  // Whether the phone may ask a link for its own title and picture. Never one that carries a sign-in, a token or a
-  // signature, nor a private address or a Håfa link, which could be someone's unlisted recipe. Anything else stays
-  // with what the share itself said.
-  static func mayFetchPreview(_ url: URL) -> Bool {
-    guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), ["http", "https"].contains(parts.scheme?.lowercased() ?? ""),
-      parts.user == nil, parts.password == nil, let host = parts.host?.lowercased(), host.contains("."), !host.hasSuffix(".")
-    else { return false }
-    // An address, not a name: local networks, and anything that can't be told apart from them.
-    if host.contains(":") || host.split(separator: ".").allSatisfy({ $0.allSatisfy(\.isNumber) }) { return false }
-    for suffix in [".local", ".localhost", ".internal", ".lan", ".home.arpa", ".test", ".invalid", ".example"] where host.hasSuffix(suffix) { return false }
-    for domain in ["hafa-recipes.com", "hafarecipes.com", "shimizu-technology.com"] where host == domain || host.hasSuffix("." + domain) { return false }
-    let names = (parts.queryItems ?? []).map { $0.name.lowercased() } + (parts.fragment ?? "").split(separator: "&").map { $0.split(separator: "=").first.map { String($0).lowercased() } ?? "" }
-    for name in names {
-      if ["key", "apikey", "api_key", "sig", "code", "auth", "session", "sessionid", "jwt", "otp", "state"].contains(name)
-        || ["token", "secret", "password", "signature", "credential", "x-amz-", "x-goog-"].contains(where: name.contains) { return false }
-    }
-    return true
   }
 
   static func describe(url: URL?, pageTitle: String?, fallback: (String?) -> String) -> Described {
@@ -119,4 +102,77 @@ struct HafaShareOutcome: Equatable {
   var opens: Button? = nil
   // Only an answer with nothing left to do closes on its own. Anything with a next step waits for a tap.
   var closesItself = false
+}
+
+// Reads only a small decoded image from the file, including EXIF orientation.
+// Used on a utility queue after the source has a durable queue receipt.
+enum HafaShareThumbnail {
+  static func image(at url: URL) -> CGImage? {
+    guard url.isFileURL,
+      let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+      kCGImageSourceThumbnailMaxPixelSize: 180,
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+    ] as CFDictionary)
+  }
+}
+
+// A preview is optional network activity before Save. Sensitive shares keep only
+// the metadata supplied by the sender; they never enter LinkPresentation.
+enum HafaSharePreviewPolicy {
+  static func allows(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+      url.user == nil, url.password == nil,
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      var host = components.host?.lowercased(), !host.isEmpty else { return false }
+    if containsSecrets(components.queryItems ?? []) { return false }
+    if let fragment = components.fragment {
+      // OAuth and signed share parameters sometimes live after #. Ordinary
+      // section anchors carry no credential and keep their network preview.
+      var parameters = URLComponents()
+      parameters.query = String(fragment.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).last ?? "")
+      if containsSecrets((parameters.queryItems ?? []).filter { $0.value != nil }) { return false }
+    }
+    let path = url.pathComponents
+    let domain = host.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    func belongsTo(_ base: String) -> Bool { domain == base || domain.hasSuffix("." + base) }
+    if belongsTo("docs.google.com") || belongsTo("drive.google.com") && url.path.hasPrefix("/file/d/") ||
+      belongsTo("dropbox.com") && (url.path.hasPrefix("/s/") || url.path.hasPrefix("/scl/")) { return false }
+    for index in path.indices where path[index] == "r" && index + 1 < path.count {
+      // Unlisted keys are bearer credentials, even on a custom Håfa domain.
+      if path[index + 1].range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil { return false }
+    }
+    host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]."))
+    if host == "localhost" || [".localhost", ".local", ".internal", ".home", ".lan"].contains(where: host.hasSuffix) { return false }
+    var v4 = in_addr()
+    // inet_aton also catches shortened, decimal, octal and hex IPv4 spellings.
+    if inet_aton(host, &v4) == 1 {
+      let ip = UInt32(bigEndian: v4.s_addr)
+      let a = ip >> 24, b = ip >> 16 & 255
+      return !(a == 0 || a == 10 || a == 127 || a == 169 && b == 254 ||
+        a == 172 && (16...31).contains(b) || a == 192 && b == 168 ||
+        a == 100 && (64...127).contains(b) || a >= 224)
+    }
+    if host.contains(":") {
+      var v6 = in6_addr()
+      guard inet_pton(AF_INET6, host, &v6) == 1 else { return false }
+      let bytes = withUnsafeBytes(of: v6) { Array($0) }
+      // Only global unicast; excludes loopback, unspecified, link-local, ULA,
+      // multicast, scoped addresses and IPv4-mapped/translated local literals.
+      return bytes[0] & 0xe0 == 0x20 && !(bytes[0] == 0x20 && bytes[1] == 0x02)
+    }
+    // No single-label intranet hosts or invalid numeric address spellings.
+    return host.contains(".") && host.last?.isNumber == false
+  }
+
+  private static func containsSecrets(_ items: [URLQueryItem]) -> Bool {
+    let secrets: Set<String> = ["token", "key", "sig", "auth", "authorization", "accesstoken", "code", "apikey", "jwt", "password", "credential", "bearer", "session", "sessionid", "rlkey", "resourcekey", "sid", "sk", "otp", "policy", "signature", "expires"]
+    return items.contains { item in
+      let name = item.name.removingPercentEncoding?.lowercased().filter { $0.isLetter || $0.isNumber }
+        ?? item.name.lowercased().filter { $0.isLetter || $0.isNumber }
+      return secrets.contains(name) || ["token", "signature", "secret", "credential"].contains(where: name.contains)
+    }
+  }
 }

@@ -64,14 +64,15 @@ enum BabyShareSession {
       try writeCategories(["scope": scope, "items": rows])
     }
   }
-  static func categories(for scope: String?) -> [[String: String]] {
-    guard let scope, var query = try? categoryQuery() else { return [] }
+  private static func readCategories() -> [String: Any]? {
+    guard var query = try? categoryQuery() else { return nil }
     query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
-    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
-      let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any], value["scope"] as? String == scope
-    else { return [] }
-    return BabyShareCategories.clean(value["items"] as? [[String: String]] ?? [])
+    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+  }
+  static func categories(for scope: String?) -> [[String: String]] {
+    BabyShareCategories.visible(readCategories(), credentialScope: (try? read())?["scope"] as? String, captureScope: scope)
   }
   static func baseURL(_ value: String) -> URL? {
     guard let url = URL(string: value), url.host != nil, url.user == nil, url.password == nil,
@@ -97,6 +98,8 @@ enum BabyShareSession {
     try storage.bind(scope, automaticEpoch: automaticEpoch) {
       try write(["token": token, "base": base, "expires": expiry.timeIntervalSince1970,
         "scope": scope, "generation": generation, "auto_process_epoch": automaticEpoch])
+      // Another destination's names go with its credential, even before the app lists the new one's.
+      if !BabyShareCategories.survives(readCategories(), binding: scope) { try writeCategories(nil) }
     }
   }
   static func disable(storage: BabyShareStore, preserveUnassigned: Bool = false, recoveringOwner: String? = nil) throws -> [String: Any]? {

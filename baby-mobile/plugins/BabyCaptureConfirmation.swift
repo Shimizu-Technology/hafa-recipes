@@ -31,14 +31,24 @@
     babyCategories.first { $0["id"] == babyCategory }?["title"]
   }
   private func saveBabyShare() {
-    guard let producer = babyProducer, let payload = babyPayload, !babySaving, !captureConfirmationFinished, !babySheetClosed else { return }
+    guard let producer = babyProducer, !babySaving, !captureConfirmationFinished, !babySheetClosed else { return }
     babySaving = true
-    babyCard().isBusy = true
-    let collection = babyCategoryTitle == nil ? nil : babyCategory
-    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      do { try producer.storage.publish(payload, capture: producer.capture, collection: collection) }
-      catch { DispatchQueue.main.async { self?.showBabyProblem(.failed) }; return }
-      DispatchQueue.main.async { self?.submitBabyShare(producer) }
+    let card = babyCard()
+    card.isBusy = true
+    // Until it's kept, there's no way out that could undo it: ✕ and a tap outside wait, and the sheet can't be swiped away.
+    card.canLeave = false
+    isModalInPresentation = true
+    publishBabyCapture(collection: babyCategoryTitle == nil ? nil : babyCategory) { [weak self] kept in
+      guard let self else { return }
+      card.canLeave = true
+      self.isModalInPresentation = false
+      if kept { self.submitBabyShare(producer) } else { self.showBabyProblem(.failed) }
+    }
+  }
+  private func babyPublishOffMain(_ work: @escaping () -> Bool, then done: @escaping (Bool) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      let kept = work()
+      DispatchQueue.main.async { done(kept) }
     }
   }
   // It's safely on the phone now, so closing is safe too: what this doesn't deliver, the app will.

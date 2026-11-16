@@ -13,7 +13,7 @@ import {
   serializeShareSession,
   sharesChanged,
 } from "./share-session-state";
-import { sessionScope, shareDestination, shareOwner } from "./share-scope";
+import { sessionReachable, sessionScope, shareDestination, shareOwner } from "./share-scope";
 import { shareCategories } from "./share-categories";
 import { accessKey, generationOf, spaceFence, spacesLive } from "./spaces";
 export { revokeShareSession } from "./share-session-state";
@@ -57,6 +57,9 @@ export function useShareSession() {
           // Only another account's retires what's here. A new credential for this one rebinds, and captures keep their ids and receipts.
           const previous = await Share.sessionOwner();
           if (previous && shareOwner(previous) !== b.owner) await Share.clearSession();
+          // Left or removed from its family, or its space cleared: it can't write there any more. It and its category
+          // names go now, not after the new one arrives, which might not. Captures it made are kept for the rebind.
+          else if (previous && !sessionReachable(previous, b.owner, b.state.bootstrap)) await Share.suspendSession();
           // Before asking for the credential, which is the part that can fail.
           await Share.noteSignedIn().catch(() => undefined);
         });

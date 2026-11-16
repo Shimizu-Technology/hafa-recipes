@@ -81,12 +81,23 @@ const presentedLifecycle = `${lifecycleStart}
     }
   }
   // Every way of closing the card. Before Save nothing is kept, and a provider answering late finds its capture retired.
+  // While Save is publishing, closing waits: aborting then would delete the very files being kept.
   private func finishConfirmation() {
-    guard !babySheetClosed else { return }
+    guard !babySheetClosed, !babyPublishing else { return }
     babySheetClosed = true
     captureConfirmationFinished = true
     abortBabyShare()
     closeBabyCard { [weak self] in self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
+  }
+  private var babyPublishing = false
+  // Save's one write, off the main thread. \`done\` says whether it was kept, on the main thread.
+  private func publishBabyCapture(collection: String?, then done: @escaping (Bool) -> Void) {
+    guard let producer = babyProducer, let payload = babyPayload, !babyPublishing, !babySheetClosed else { return }
+    babyPublishing = true
+    babyPublishOffMain({ (try? producer.storage.publish(payload, capture: producer.capture, collection: collection)) != nil }) { [weak self] kept in
+      self?.babyPublishing = false
+      done(kept)
+    }
   }
 ${lifecycleEnd}
 

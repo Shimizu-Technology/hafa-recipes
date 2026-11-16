@@ -60,6 +60,9 @@ private final class GeneratedController: TestViewController {
   var babyPayload: Any?
   // The generator test checks that staging never publishes; here it only needs to hold the payload.
   func stageBabyPayload(_ raw: Any) throws { babyPayload = raw }
+  // Publication held until the test lets it run, as a slow disk or a busy lock would.
+  var heldPublication: (() -> Void)?
+  func babyPublishOffMain(_ work: @escaping () -> Bool, then done: @escaping (Bool) -> Void) { heldPublication = { done(work()) } }
   func handleViewLoad() {
     guard prepareBabyShare() else { return }
     providerStarts += 1
@@ -175,6 +178,26 @@ private struct BabyShareLifecycleTests {
       try check(try store.pending()?.token.hasPrefix(keptCapture.id) == true, "Save is what keeps it")
       try check(FileManager.default.fileExists(atPath: keptCapture.directory.path), "and closing after Save leaves it for the app")
       try check(kept.extensionContext!.completed == 1, "and completes once")
+
+      // Close while Save is still publishing: nothing is aborted, and the capture it was writing survives.
+      let saving = GeneratedController(hideView: true, storage: store)
+      saving.viewDidLoad(); saving.viewDidAppear(true)
+      let savingCapture = saving.babyProducer!.capture
+      try Data("staged photo".utf8).write(to: savingCapture.directory.appendingPathComponent("photo.jpg"))
+      try saving.stageBabyPayload(["saving"])
+      saving.babyStaged = true
+      var result: Bool?
+      saving.publishBabyCapture(collection: nil) { result = $0 }
+      try check(saving.heldPublication != nil && result == nil, "publication is under way")
+      saving.finishConfirmation()
+      try check(saving.extensionContext!.completed == 0 && saving.cardClosed == 0, "Close waits while Save publishes")
+      try check(FileManager.default.fileExists(atPath: savingCapture.directory.appendingPathComponent("photo.jpg").path), "and its staged files are untouched")
+      saving.heldPublication?()
+      try check(result == true, "publication then completes")
+      try check(try store.published(savingCapture.id) != nil, "and the capture is kept")
+      saving.finishConfirmation()
+      try check(saving.extensionContext!.completed == 1, "after which Close works")
+      try check(FileManager.default.fileExists(atPath: savingCapture.directory.appendingPathComponent("photo.jpg").path), "and leaves the capture for the app")
     }
     print("\(checks) native generated lifecycle cases passed")
   }
