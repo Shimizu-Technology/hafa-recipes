@@ -128,12 +128,13 @@ enum HafaShareStore {
     guard let session, let account = session["accountScopeId"] as? String, !account.isEmpty else {
       // Preferences can be saved before credential provisioning finishes.
       // Without a session retain that intent, but leave ownership unassigned.
-      return ["requestedIsPublic": preferences?["isPublic"] as? Bool ?? true,
+      // With no saved preference a share starts private; Public is always her choice.
+      return ["requestedIsPublic": preferences?["isPublic"] as? Bool ?? false,
         "location": preferences?["location"] as? String ?? "Guam"]
     }
     let source = preferences?["accountScopeId"] as? String == account ? preferences! : session
     return ["accountScopeId": account, "location": source["location"] as? String ?? "Guam",
-      "requestedIsPublic": source["isPublic"] as? Bool ?? true]
+      "requestedIsPublic": source["isPublic"] as? Bool ?? false]
   }
 
   static func importPayload(captureID: String, url: String, metadata: [String: Any]) -> [String: Any] {

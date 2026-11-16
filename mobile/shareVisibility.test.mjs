@@ -2,31 +2,47 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 const root = new URL('./node_modules/expo-share-intent/plugin/build/ios/', import.meta.url);
 const controller = readFileSync(new URL('ShareExtensionViewController.swift', root), 'utf8');
+const card = (name) => readFileSync(new URL(`./share-extension/${name}`, import.meta.url), 'utf8');
+const section = (start, end) => controller.split(start)[1].split(end)[0];
 describe('per-item native share visibility', () => {
   it('waits for explicit Save before enqueueing the captured item', () => {
-    const redirect = controller.split('private func redirectToHostApp')[1].split('@objc private func submitCapture')[0];
+    const redirect = section('private func redirectToHostApp', 'private func submitCapture');
     expect(redirect).not.toContain('enqueueLink');
     expect(redirect).toContain('\"confirmed\": false');
     expect(redirect).toContain('confirmationCaptureKey = source.key');
-    expect(redirect).toContain('updateVisibilityChoices()');
-    const submit = controller.split('@objc private func submitCapture')[1].split('private var confirmationTitle')[0];
-    expect(submit.indexOf('metadata["requestedIsPublic"] = requested')).toBeLessThan(submit.indexOf('enqueueLink'));
+    expect(redirect).toContain('refreshCard()');
+    const submit = section('private func submitCapture', 'private func enqueueCapture');
+    expect(submit.indexOf('metadata["requestedIsPublic"] = requested')).toBeLessThan(submit.indexOf('enqueueCapture('));
     expect(submit).toContain('guard !captureSubmitted');
     expect(submit).toContain('metadata[\"confirmed\"] = true');
+    // Public, signed-out, photo and text captures stay on the phone for Håfa to finish.
+    expect(submit).toContain('RecipeShareWords.sendsNow(');
   });
-  it('offers labelled, growing choices that update only the captured receipt', () => {
-    expect(controller).toContain('["Private", "Public in Discover"]');
-    expect(controller).toContain('heightAnchor.constraint(greaterThanOrEqualToConstant: 48)');
-    expect(controller).toContain('choice.titleLabel?.numberOfLines = 0');
-    const choice = controller.split('@objc private func changeCaptureVisibility')[1].split('private func showCaptureConfirmation')[0];
+  it('offers two labelled cards that update only the captured receipt, private by default', () => {
+    const words = card('RecipeShareWords.swift');
+    expect(words).toContain('title: "Private", detail: "Only you"');
+    expect(words).toContain('title: "Public", detail: "Anyone in Discover"');
+    expect(words).toContain('Håfa will ask you to confirm before it goes public.');
+    const choice = section('private func changeCaptureVisibility', 'private func submitCapture');
     expect(choice).toContain('defaults.set(metadata, forKey: "\\(key).meta")');
     expect(choice).not.toContain('preferencesKey');
     expect(choice).not.toContain('sessionKey');
+    expect(controller).toContain('metadata["requestedIsPublic"] as? Bool ?? false');
   });
-  it('bundles DM Sans into the extension and registers it for the Håfa controls', () => {
-    expect(controller).toContain('UIFont(name: "DMSans-Regular"');
-    expect(readFileSync(new URL('writeIosShareExtensionFiles.js', root), 'utf8')).toContain('UIAppFonts: ["DMSans.ttf"]');
-    expect(readFileSync(new URL('withIosShareExtensionXcodeTarget.js', root), 'utf8')).toContain('"DMSans.ttf"');
+  it('takes a cancelled share back out of the queue but keeps a saved one', () => {
+    const cancel = section('private func cancelCapture', 'private func closeCapture');
+    expect(cancel).toContain('guard !captureSubmitted');
+    expect(cancel).toContain('HafaShareStore.acknowledge(key)');
+  });
+  it('bundles the Calm fonts and mark into the extension and appends the card sources', () => {
+    const files = readFileSync(new URL('writeIosShareExtensionFiles.js', root), 'utf8');
+    expect(files).toContain('UIAppFonts: ["Figtree-Regular.ttf", "Figtree-SemiBold.ttf", "Fraunces-Medium.ttf"]');
+    expect(files).toContain('"HafaShareContent.swift", "HafaShareKit.swift", "RecipeShareWords.swift", "RecipeShareTheme.swift"');
+    const target = readFileSync(new URL('withIosShareExtensionXcodeTarget.js', root), 'utf8');
+    for (const name of ['Figtree-Regular.ttf', 'Figtree-SemiBold.ttf', 'Fraunces-Medium.ttf', 'HafaMark.png']) expect(target).toContain(`"${name}"`);
+    const theme = card('RecipeShareTheme.swift');
+    expect(theme).toContain('regular: "Figtree-Regular", strong: "Figtree-SemiBold", display: "Fraunces-Medium"');
+    expect(controller).not.toContain('DMSans');
   });
 });
 
@@ -38,11 +54,11 @@ it('keeps lock contention off UIKit actions and bounds every lock attempt', () =
   expect(store).toContain('qos: .utility');
   expect(store).toContain('DispatchQueue.main.async { completion(result) }');
   for (const name of ['submitCapture', 'changeCaptureVisibility']) {
-    const action = controller.split(`@objc private func ${name}`)[1].split('\n  }')[0];
+    const action = controller.split(`private func ${name}`)[1].split('\n  }')[0];
     expect(action).toContain('writeCapture(');
   }
   expect(controller).toContain('captureWriting = true');
   expect(controller).toContain('[weak self]');
-  expect(controller).toContain('Could not save the choice. Try again. Your source and last saved choice are safe.');
+  expect(controller).toContain('your recipe and last choice are safe.');
   expect(controller).not.toContain('flock(descriptor, LOCK_EX)');
 });
