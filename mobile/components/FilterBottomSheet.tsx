@@ -53,6 +53,7 @@ const MEAL_TYPE_FILTERS = [
 
 export type SourceFilter = typeof SOURCE_FILTERS[number]['key'];
 export type TimeFilter = typeof TIME_FILTERS[number]['key'];
+export const cookTimeLabel = (key: TimeFilter) => TIME_FILTERS.find(option => option.key === key)!.label;
 export type SortOption = typeof SORT_OPTIONS[number]['key'];
 export type OwnershipFilter = typeof OWNERSHIP_FILTERS[number]['key'];
 export type MealTypeFilter = typeof MEAL_TYPE_FILTERS[number]['key'];

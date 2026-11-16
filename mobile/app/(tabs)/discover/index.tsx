@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, Pressable, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 
 import AllContributorsModal from '@/components/AllContributorsModal';
-import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
+import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter, cookTimeLabel } from '@/components/FilterBottomSheet';
 import { SignInBanner } from '@/components/SignInBanner';
 import { Text, useColors, View } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, layout, radius, shadows, spacing } from '@/constants/Colors';
@@ -602,7 +602,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             {discoverTools}
             {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
             {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
-              <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
+              <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && cookTimeLabel(timeFilter), ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
             </TouchableOpacity>}
             {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
           </>}

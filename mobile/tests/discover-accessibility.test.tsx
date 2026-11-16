@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
-  signedIn: true, searching: false, focused: true, feedEnabled: false,
+  signedIn: true, searching: false, focused: true, feedEnabled: false, loading: true,
   push: vi.fn(),
   save: vi.fn(), unsave: vi.fn(),
   searchArgs: [] as unknown[],
@@ -110,7 +110,7 @@ vi.mock('@/hooks/useRecipes', () => {
   const page = {
     recipes: [],
     total: 0,
-    isLoading: true,
+    get isLoading() { return mocks.loading; },
     refetch: vi.fn(),
     fetchNextPage: vi.fn(),
     hasNextPage: false,
@@ -162,6 +162,7 @@ const SOURCE_LABELS = ['All Sources', 'TikTok', 'YouTube', 'Instagram', 'Website
 describe('Discover accessibility', () => {
   beforeEach(() => {
     mocks.searchArgs = [];
+    mocks.loading = true;
   });
 
   it('keeps a single Surprise request in flight and shows progress until navigation', async () => {
@@ -183,6 +184,7 @@ describe('Discover accessibility', () => {
   });
 
   it('toggles an Under 30 min chip that filters All recipes instead of repeating cards in a section', async () => {
+    mocks.loading = false;
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<DiscoverScreen />); });
     try {
@@ -191,6 +193,7 @@ describe('Discover accessibility', () => {
       await act(async () => chip().props.onPress());
       expect(chip().props.accessibilityState).toEqual({ selected: true });
       expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ timeFilter: 'quick' }));
+      expect(textOf(byLabel(renderer, 'Clear Discover filters')!)).toBe('Under 30 min ×');
       await act(async () => chip().props.onPress());
       expect(chip().props.accessibilityState).toEqual({ selected: false });
       expect(mocks.searchArgs.at(-1)).not.toEqual(expect.objectContaining({ timeFilter: 'quick' }));
