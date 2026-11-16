@@ -8,10 +8,10 @@ const storeSource = fs
   .trim();
 const payloadSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabySharePayload.swift"), "utf8").trim();
 const sessionSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabyShareSession.swift"), "utf8").trim();
-const sheetSource = ["BabyShareSheetState.swift", "HafaShareSheetView.swift", "BabyShareTheme.swift"]
+const sheetSource = ["HafaShareContent.swift", "HafaShareKit.swift", "BabyShareSheetState.swift", "BabyShareWords.swift", "BabyShareTheme.swift"]
   .map((file) => fs.readFileSync(path.join(__dirname, file), "utf8").trim())
   .join("\n");
-// The extension can't read the app's bundle. These are the sheet's only assets, about 230 KB.
+// The extension can't read the app's bundle. These and the card's mark are its only assets, about 235 KB.
 const shareFonts = [
   "@expo-google-fonts/newsreader/500Medium/Newsreader_500Medium.ttf",
   "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
@@ -43,11 +43,16 @@ const upstreamLifecycle = `  override func viewDidLoad() {
 `;
 const presentedLifecycle = `${lifecycleStart}
   private var babyShareStarted = false
-  private var babyPublished = false
+  private var babyStaged = false
   private var babySheetClosed = false
+  // A compact card over the app she shared from, not a full-height page.
+  override func awakeFromNib() {
+    super.awakeFromNib()
+    modalPresentationStyle = .overFullScreen
+  }
   override func viewDidLoad() {
     super.viewDidLoad()
-    // Painted before anything else can take time, so no share ever sits on a blank sheet.
+    // Painted before anything else can take time, so no share ever sits on a blank card.
     showBabySheet(.saving)
     // Acquire the privacy epoch before presentation or any provider work.
     _ = prepareBabyShare()
@@ -65,23 +70,23 @@ const presentedLifecycle = `${lifecycleStart}
   // A provider that never answers gets nowhere else, since everything after it waits for publication.
   private func babyWatchProvider() {
     DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.stillWorkingAfter) { [weak self] in
-      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      guard let self, !self.babyStaged, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
       self.showBabySheet(.stillWorking)
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + BabyShareSheetState.giveUpAfter) { [weak self] in
-      guard let self, !self.babyPublished, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
+      guard let self, !self.babyStaged, !self.captureConfirmationFinished, !self.babySheetClosed else { return }
       self.captureConfirmationFinished = true
       self.abortBabyShare()
       self.showBabySheet(.failed)
     }
   }
-  // Every way of closing the sheet. Before publication nothing is kept, and a provider answering late finds its capture retired.
+  // Every way of closing the card. Before Save nothing is kept, and a provider answering late finds its capture retired.
   private func finishConfirmation() {
     guard !babySheetClosed else { return }
     babySheetClosed = true
     captureConfirmationFinished = true
     abortBabyShare()
-    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+    closeBabyCard { [weak self] in self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
   }
 ${lifecycleEnd}
 
@@ -98,7 +103,7 @@ const handler = `  private func handlePrepocessing(content: NSExtensionItem, att
       self.sharedWebUrl.append(WebUrl(url: page.url, meta: page.metadata))
       if index == attachments.count - 1 {
         let encoded = try JSONEncoder().encode(self.sharedWebUrl)
-        try publishBabyPayload(encoded)
+        try stageBabyPayload(encoded)
         self.redirectToHostApp(type: .weburl)
       }
     } catch {
@@ -344,7 +349,7 @@ function patchShareController(text) {
     /let userDefaults = UserDefaults\(suiteName: self\.hostAppGroupIdentifier\)\s+userDefaults\?\.set\(([^\n]+), forKey: self\.sharedKey\)\s+userDefaults\?\.set\(self\.babyCaptureId, forKey: "babyCaptureId"\)\s+userDefaults\?\.synchronize\(\)/g,
     (_, payload) => {
       publishers++;
-      return `guard self.publishBabyShare(${payload}) else { return }`;
+      return `guard self.stageBabyShare(${payload}) else { return }`;
     }
   );
   if (publishers !== 4 || /userDefaults\??\.set\([^\n]+forKey: self\.sharedKey\)/.test(text))
@@ -365,21 +370,21 @@ function patchShareController(text) {
   private func abortBabyShare() {
     if let producer = babyProducer { try? producer.storage.abort(producer.capture) }
   }
-  private func publishBabyPayload(_ raw: Any) throws {
-    guard let producer = babyProducer else { throw BabyShareStore.Failure.stale }
+  // Held until she saves. Its files are already in the capture's own folder, which closing without Save removes.
+  private func stageBabyPayload(_ raw: Any) throws {
+    guard babyProducer != nil else { throw BabyShareStore.Failure.stale }
     let caption = (self.extensionContext?.inputItems.first as? NSExtensionItem)?.attributedContentText?.string ?? ""
-    let payload = try BabySharePayload.merging(raw, caption: caption)
-    try producer.storage.publish(payload, capture: producer.capture)
+    babyPayload = try BabySharePayload.merging(raw, caption: caption)
   }
   private func babyShareStore() throws -> BabyShareStore {
     guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier),
       let defaults = UserDefaults(suiteName: self.hostAppGroupIdentifier) else { throw BabyShareStore.Failure.unavailable }
     return BabyShareStore(container: container, defaults: defaults, sharedKey: self.sharedKey)
   }
-  private func publishBabyShare(_ raw: Any?) -> Bool {
+  private func stageBabyShare(_ raw: Any?) -> Bool {
     do {
       guard let raw else { throw BabyShareStore.Failure.invalid }
-      try publishBabyPayload(raw)
+      try stageBabyPayload(raw)
       return true
     } catch {
       self.abortBabyShare()
@@ -419,7 +424,8 @@ function patchShareController(text) {
   text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n" + sheetSource + "\n";
   return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
 }
-/** The share row reads the extension's own name, and the sheet needs its fonts listed. */
+const shareMark = path.join(__dirname, "HafaMark.png");
+/** The share row reads the extension's own name, and the card needs its fonts listed. */
 function shareInfo(values) {
   return { ...values, CFBundleDisplayName: "Håfa Baby", UIAppFonts: shareFonts.map((font) => path.basename(font)) };
 }
@@ -434,6 +440,8 @@ function addShareFonts(project, root) {
     fs.copyFileSync(require.resolve(font), path.join(root, "ShareExtension", name));
     project.addResourceFile(name, { target, lastKnownFileType: "file" }, group);
   }
+  fs.copyFileSync(shareMark, path.join(root, "ShareExtension", "HafaMark.png"));
+  project.addResourceFile("HafaMark.png", { target, lastKnownFileType: "image.png" }, group);
 }
 module.exports = (config) => {
   for (const extension of config.extra?.eas?.build?.experimental?.ios?.appExtensions ?? [])

@@ -29,8 +29,11 @@ private final class TestContext {
   var completed = 0
   func completeRequest(returningItems: [Any], completionHandler: ((Bool) -> Void)?) { completed += 1 }
 }
+private enum TestPresentation { case automatic, overFullScreen }
 private class TestViewController {
   var loaded = 0, appeared = 0
+  var modalPresentationStyle = TestPresentation.automatic
+  func awakeFromNib() {}
   func viewDidLoad() { loaded += 1 }
   func viewDidAppear(_ animated: Bool) { appeared += 1 }
 }
@@ -52,6 +55,11 @@ private final class GeneratedController: TestViewController {
     return storage
   }
   func dismissWithError(message: String) { errors += 1 }
+  var cardClosed = 0
+  func closeBabyCard(then done: @escaping () -> Void) { cardClosed += 1; done() }
+  var babyPayload: Any?
+  // The generator test checks that staging never publishes; here it only needs to hold the payload.
+  func stageBabyPayload(_ raw: Any) throws { babyPayload = raw }
   func handleViewLoad() {
     guard prepareBabyShare() else { return }
     providerStarts += 1
@@ -148,14 +156,25 @@ private struct BabyShareLifecycleTests {
       slow.viewDidLoad(); slow.viewDidAppear(true)
       let slowCapture = slow.babyProducer!.capture
       turn(0.08)
-      try store.publish(["slow but fine"], capture: slowCapture)
-      slow.babyPublished = true
+      try slow.stageBabyPayload(["slow but fine"])
+      slow.babyStaged = true
       turn(0.1)
       try check(slow.shown == [.saving, .stillWorking], "a slow provider that does answer isn't cut off")
-      try check(try store.pending()?.token.hasPrefix(slowCapture.id) == true, "and what it saved is kept")
+      try check(try store.pending() == nil, "staged isn't saved: nothing's in the queue before Save")
       slow.finishConfirmation()
-      try check(FileManager.default.fileExists(atPath: slowCapture.directory.path), "closing after publication keeps it")
-      try check(slow.extensionContext!.completed == 1, "and completes once")
+      try check(!FileManager.default.fileExists(atPath: slowCapture.directory.path), "closing before Save keeps nothing")
+      try check(slow.extensionContext!.completed == 1 && slow.cardClosed == 1, "and the card closes once")
+
+      let kept = GeneratedController(hideView: true, storage: store)
+      kept.viewDidLoad(); kept.viewDidAppear(true)
+      let keptCapture = kept.babyProducer!.capture
+      try kept.stageBabyPayload(["saved"])
+      kept.babyStaged = true
+      try store.publish(kept.babyPayload!, capture: keptCapture)
+      kept.finishConfirmation()
+      try check(try store.pending()?.token.hasPrefix(keptCapture.id) == true, "Save is what keeps it")
+      try check(FileManager.default.fileExists(atPath: keptCapture.directory.path), "and closing after Save leaves it for the app")
+      try check(kept.extensionContext!.completed == 1, "and completes once")
     }
     print("\(checks) native generated lifecycle cases passed")
   }

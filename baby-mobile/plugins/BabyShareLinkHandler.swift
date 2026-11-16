@@ -29,7 +29,7 @@
       guard rows.contains(where: { $0["url"] != nil || $0["text"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }) else {
         return dismissWithError(message: "Nothing to save.")
       }
-      try publishBabyPayload(JSONSerialization.data(withJSONObject: rows))
+      try stageBabyPayload(JSONSerialization.data(withJSONObject: rows))
       redirectToHostApp(type: .weburl)
     } catch {
       dismissWithError(message: "Could not save this link and text. Try sharing one source again.")

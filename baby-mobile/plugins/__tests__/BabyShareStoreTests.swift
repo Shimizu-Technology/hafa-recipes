@@ -898,6 +898,44 @@ struct BabyShareStoreTests {
       try check(try store.removalCount() == 0 && store.pending() == nil, "explicit warned sign-out clears lapsed captures too")
       try check(!FileManager.default.fileExists(atPath: original.directory.path), "explicit sign-out removes lapsed original bytes")
     }
+    do {
+      // Her category travels with the capture it was chosen for, and only one with an owner can carry it.
+      let (_, defaults, store, suite) = try fixture("category")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1:personal")
+      let sleep = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+      let filed = try store.begin()
+      try store.publish(["https://example.com/a"], capture: filed, collection: sleep)
+      let capture = try BabySharePayload.decode(try store.pending()!)
+      try check(capture["collection_id"] as? String == sleep.lowercased(), "the category is read back with the capture")
+      let body = try JSONSerialization.jsonObject(with: BabySharePayload.requestBody(capture)) as! [String: Any]
+      try check(body["collection_id"] as? String == sleep.lowercased(), "and sent with it")
+      try check(try store.acknowledge(capture["token"] as! String), "acknowledged as before")
+      let later = try store.begin()
+      try store.publish(["https://example.com/b"], capture: later)
+      let plain = try BabySharePayload.decode(try store.pending()!)
+      let plainBody = try JSONSerialization.jsonObject(with: BabySharePayload.requestBody(plain)) as! [String: Any]
+      try check(plain["collection_id"] == nil && plainBody["collection_id"] == nil, "Organize later sends exactly what older builds did")
+      try check(try store.acknowledge(plain["token"] as! String), "acknowledged")
+      for bad in ["not-a-uuid", "../x"] {
+        let capture = try store.begin()
+        do { try store.publish(["x"], capture: capture, collection: bad); throw NSError(domain: "bad category kept", code: 1) }
+        catch BabyShareStore.Failure.invalid { try store.abort(capture) }
+      }
+      try store.clear()
+      let nobody = try store.begin()
+      do { try store.publish(["x"], capture: nobody, collection: sleep); throw NSError(domain: "no-owner capture filed", code: 1) }
+      catch BabyShareStore.Failure.invalid { try store.abort(nobody) }
+      try check(try store.pending() == nil, "a refused category keeps nothing")
+    }
+    let cleaned = BabyShareCategories.clean([
+      ["id": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", "title": "  Sleep\nand naps "], ["id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "title": "Again"],
+      ["id": "nope", "title": "Bad id"], ["id": "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB", "title": "   "],
+      ["id": "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC", "title": String(repeating: "a", count: 60)],
+    ] + (0..<10).map { ["id": UUID().uuidString, "title": "C\($0)"] })
+    try check(cleaned.first == ["id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "title": "Sleep and naps"], "one line, trimmed, one per id")
+    try check(cleaned.count == BabyShareCategories.maxCount && !cleaned.contains { $0["title"] == "Bad id" || $0["title"] == "Again" }, "bad rows dropped, and at most a handful")
+    try check(cleaned[1]["title"]?.count == 40 && cleaned[1]["title"]?.hasSuffix("…") == true, "a long name fits a chip")
     print("\(count) native capture store cases passed")
   }
 }

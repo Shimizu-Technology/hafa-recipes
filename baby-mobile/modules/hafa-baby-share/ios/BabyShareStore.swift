@@ -49,6 +49,7 @@ final class BabyShareStore {
     let receipt: [String: String]?
     var claimed = false
     var recordID: String? = nil
+    var collection: String? = nil
   }
   struct Waiting {
     let snapshot: Snapshot
@@ -76,6 +77,8 @@ final class BabyShareStore {
     // A lapsed login retains this owner tag, but only for the original 30-day window.
     var lapsed: Bool? = nil
     var recordID: String? = nil
+    // The category she chose on the share sheet, in the space this capture was tagged for. Set once, at publication.
+    var collection: String? = nil
     var token: String? {
       payload.map { id + ":" + SHA256.hash(data: $0 + Data((recordID ?? "").utf8)).map { String(format: "%02x", $0) }.joined() }
     }
@@ -197,11 +200,13 @@ final class BabyShareStore {
       (try? JSONSerialization.jsonObject(with: data)) is [[String: Any]] { return (data, false) }
     throw Failure.invalid
   }
-  private func publishLocked(_ raw: Any, capture: Capture) throws {
+  private func publishLocked(_ raw: Any, capture: Capture, collection: String? = nil) throws {
     guard capture.epoch == (try epoch()), capture.lease != nil else { throw Failure.stale }
+    // Only a capture with an owner can be filed: no one's category fits one shared under no account.
+    guard collection == nil || (UUID(uuidString: collection!) != nil && capture.scope != nil) else { throw Failure.invalid }
     let (payload, text) = try bytes(raw)
     let original = try manifest(capture.id)
-    let value = Manifest(id: capture.id, epoch: capture.epoch, createdAt: capture.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: capture.automaticEpoch, heldSince: original.scope == nil ? capture.createdAt : nil)
+    let value = Manifest(id: capture.id, epoch: capture.epoch, createdAt: capture.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: capture.automaticEpoch, heldSince: original.scope == nil ? capture.createdAt : nil, collection: collection?.lowercased())
     try write(value, to: capture.directory.appendingPathComponent("manifest.json"))
     try write(capture.id, to: root.appendingPathComponent("current.json"))
     // Keep the stock share-intent reader compatible. The native bridge uses the
@@ -211,7 +216,9 @@ final class BabyShareStore {
     // acknowledge; only host read leases may now protect this capture.
     capture.lease = nil
   }
-  func publish(_ raw: Any, capture: Capture) throws { try locked { try publishLocked(raw, capture: capture) } }
+  func publish(_ raw: Any, capture: Capture, collection: String? = nil) throws {
+    try locked { try publishLocked(raw, capture: capture, collection: collection) }
+  }
   func publish(_ raw: Any, id: String) throws {
     let capture = try begin(id: id)
     do { try publish(raw, capture: capture) }
@@ -231,7 +238,7 @@ final class BabyShareStore {
       consumers[token] = try Lease(directory(value.id).appendingPathComponent("lease.lock"), exclusive: false)
     }
     return Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: value.automaticEpoch ?? 0,
-      receipt: try? read([String: String].self, directory(value.id).appendingPathComponent("receipt.json")), claimed: value.claimed == true, recordID: value.recordID)
+      receipt: try? read([String: String].self, directory(value.id).appendingPathComponent("receipt.json")), claimed: value.claimed == true, recordID: value.recordID, collection: value.collection)
   }
   func published(_ id: String) throws -> Snapshot? {
     try locked {
@@ -427,7 +434,7 @@ final class BabyShareStore {
         var value = try? manifest(id), value.token == token, value.claimed == true,
         value.scope.map({ Self.tag($0).owner == owner }) == true,
         scope().map({ Self.tag($0).owner == owner }) == true else { return false }
-      value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
+      value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil; value.collection = nil
       value.recordID = UUID().uuidString
       try? FileManager.default.removeItem(at: directory(id).appendingPathComponent("receipt.json"))
       consumers.removeValue(forKey: token)
@@ -484,7 +491,7 @@ final class BabyShareStore {
                   value.recordID = UUID().uuidString
                   try? FileManager.default.removeItem(at: folder.appendingPathComponent("receipt.json"))
                 }
-                value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil
+                value.scope = nil; value.claimed = nil; value.automaticEpoch = 0; value.blocked = nil; value.collection = nil
               }
               // Retire all live producers while retaining quarantined originals.
               value.epoch = generation

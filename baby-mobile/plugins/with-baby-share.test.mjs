@@ -100,7 +100,7 @@ describe("generated Safari preprocessing", () => {
     expect(body).toContain("try await BabyShareImageBatch.process");
     expect(body).toContain("try await self.loadBabyImage(provider, directory: capture.directory)");
     expect(body).toContain("guard let producer = self.babyProducer");
-    expect(body).toContain("try self.publishBabyPayload(encoded)");
+    expect(body).toContain("try self.stageBabyPayload(encoded)");
     expect(body).toContain("if !published { try? storage.abort(capture) }");
     expect(body).toContain("BabyShareImageNormalization.normalize(fileURL: url)");
     expect(body).toContain("BabyShareImageNormalization.normalize(bytes: bytes)");
@@ -137,8 +137,8 @@ describe("generated Safari preprocessing", () => {
       "utf8"
     ).trim();
     expect(output).toContain(store);
-    expect(output.match(/guard self.publishBabyShare\(/g)).toHaveLength(4);
-    expect(method(output)).toContain("try publishBabyPayload(encoded)");
+    expect(output.match(/guard self.stageBabyShare\(/g)).toHaveLength(4);
+    expect(method(output)).toContain("try stageBabyPayload(encoded)");
     const entry = output.slice(
       output.indexOf("  private func handleViewLoad()"),
       output.indexOf("  private func handleVCard(")
@@ -146,7 +146,12 @@ describe("generated Safari preprocessing", () => {
     expect(entry).toContain("guard prepareBabyShare() else { return }");
     expect(entry.indexOf("guard prepareBabyShare()")).toBeLessThan(entry.indexOf("Task {"));
     expect(output.match(/storage.begin\(id: self.babyCaptureId\)/g)).toHaveLength(1);
-    expect(output).toContain("try producer.storage.publish(payload, capture: producer.capture)");
+    // Staging only holds what the share brought. Save is the one place it's published, with her category.
+    const stage = output.slice(output.indexOf("  private func stageBabyPayload("), output.indexOf("  private func babyShareStore("));
+    expect(stage).not.toContain(".publish(");
+    expect(output.match(/storage\.publish\(/g)).toHaveLength(1);
+    const save = output.slice(output.indexOf("  private func saveBabyShare("), output.indexOf("  private func submitBabyShare("));
+    expect(save).toContain("try producer.storage.publish(payload, capture: producer.capture, collection: collection)");
     expect(output).not.toContain("publish(raw, id: self.babyCaptureId)");
     expect(output).not.toContain("publish(encoded, id: self.babyCaptureId)");
     // Retained SDK video, file and screenshot writes use the pre-await namespace;
@@ -162,7 +167,7 @@ describe("generated Safari preprocessing", () => {
     ).toThrow("thumbnail staging changed");
     expect(output).not.toMatch(/userDefaults\??\.set\([^\n]+forKey: self\.sharedKey\)/);
     expect(() =>
-      patchShareController(output.replace("publishBabyShare(self.sharedText)", "publishBabyShare([])"))
+      patchShareController(output.replace("stageBabyShare(self.sharedText)", "stageBabyShare([])"))
     ).toThrow("partial generation");
   });
   it("keeps link and caption together and confirms inside the originating app", () => {
@@ -207,7 +212,7 @@ describe("generated Safari preprocessing", () => {
       const before = body.indexOf("self.babyFileFits(name: fileName, mimeType: mimeType, size: fileSize)"),
         copy = body.indexOf("Self.copyFile(at: url, to: newPath)"),
         after = body.indexOf("size: self.getFileSize(from: newPath)"),
-        publish = body.indexOf("publishBabyShare(");
+        publish = body.indexOf("stageBabyShare(");
       expect(before).toBeGreaterThan(-1);
       expect(before).toBeLessThan(copy);
       expect(copy).toBeLessThan(after);
@@ -248,8 +253,9 @@ describe("generated Safari preprocessing", () => {
   it("paints Baby Soft at load, with the app's real tokens and no blank or clear view", () => {
     const output = patchShareController(upstream);
     const lifecycle = output.slice(output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1"), output.indexOf("  private func handleViewLoad()"));
-    expect(lifecycle).not.toContain(".clear");
     expect(lifecycle.indexOf("showBabySheet(.saving)")).toBeLessThan(lifecycle.indexOf("_ = prepareBabyShare()"));
+    // A card over the app she shared from, which iOS 18 honours.
+    expect(lifecycle).toContain("modalPresentationStyle = .overFullScreen");
     expect(output).not.toContain("preferredContentSize");
     const theme = readFileSync(new URL("./BabyShareTheme.swift", import.meta.url), "utf8");
     const ui = readFileSync(new URL("../components/ui.tsx", import.meta.url), "utf8");
@@ -258,20 +264,21 @@ describe("generated Safari preprocessing", () => {
       return (token) => block.match(new RegExp(`\\b${token}: "#([0-9A-Fa-f]{6})"`))?.[1].toUpperCase();
     };
     const light = palette("light"), dark = palette("dark");
-    const tokens = { background: "background", title: "text", detail: "muted", action: "action", onAction: "onAction", tile: "hero", glyph: "accentText", problemTile: "errorBg", problemGlyph: "error" };
+    const tokens = { card: "tabBar", surface: "tile", ink: "text", secondary: "muted", accent: "action", onAccent: "onAction",
+      accentText: "accentText", accentSoft: "accentTint", problem: "error", problemSoft: "errorBg" };
     for (const [role, token] of Object.entries(tokens)) {
       expect(light(token), token).toBeTruthy();
-      expect(theme).toContain(`${role}: colour(0x${light(token)}, 0x${dark(token)})`);
+      expect(theme).toContain(`${role}: colour(0x${light(token)}, 0x${dark(token)}, (1, 1))`);
     }
-    // The view is meant to be carried to the other apps, so it says nothing about this one.
-    const view = readFileSync(new URL("./HafaShareSheetView.swift", import.meta.url), "utf8");
-    expect(view).not.toMatch(/Baby|BabyShareStore|BabyShareSession|"Done"|"Stop"/);
+    // The card is shared with the other Håfa apps, so it says nothing about this one.
+    for (const file of ["./HafaShareKit.swift", "./HafaShareContent.swift"])
+      expect(readFileSync(new URL(file, import.meta.url), "utf8")).not.toMatch(/BabyShare|Håfa Baby|"Done"|"Stop"/);
   });
   it("bounds a provider that never answers, and closes through one path that keeps nothing unpublished", () => {
     const output = patchShareController(upstream);
     const lifecycle = output.slice(output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1"), output.indexOf("  // END HAFA BABY PRESENTED SHARE v1"));
     expect(lifecycle.indexOf("babyWatchProvider()")).toBeLessThan(lifecycle.indexOf("    handleViewLoad()"));
-    expect(lifecycle).toContain("abortBabyShare()\n    extensionContext?.completeRequest");
+    expect(lifecycle).toContain("abortBabyShare()\n    closeBabyCard {");
     expect(output.match(/completeRequest\(/g)).toHaveLength(1);
   });
   it("names the share row Håfa Baby and lists the fonts it copies", () => {
@@ -361,7 +368,9 @@ describe("generated Safari preprocessing", () => {
         execFileSync(
           "swiftc",
           [
+            fileURLToPath(new URL("./HafaShareContent.swift", import.meta.url)),
             fileURLToPath(new URL("./BabyShareSheetState.swift", import.meta.url)),
+            fileURLToPath(new URL("./BabyShareWords.swift", import.meta.url)),
             fileURLToPath(new URL("./__tests__/BabyShareSheetStateTests.swift", import.meta.url)),
             "-o",
             executable,
@@ -378,7 +387,7 @@ describe("generated Safari preprocessing", () => {
         );
         const preparation = output.slice(
           output.indexOf("  private func prepareBabyShare()"),
-          output.indexOf("  private func publishBabyPayload(")
+          output.indexOf("  private func stageBabyPayload(")
         );
         const lifecycleTest = join(directory, "GeneratedLifecycleTests.swift");
         writeFileSync(

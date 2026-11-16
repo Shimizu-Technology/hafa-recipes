@@ -1,44 +1,115 @@
+  // Everything this share brought is staged on the phone, and none of it is saved yet. The card shows what it is and
+  // offers her categories. Save publishes it, which is the moment it's kept; closing before then keeps nothing.
   private func redirectToHostApp(type: RedirectType) {
+    guard let producer = babyProducer, let payload = babyPayload, !captureConfirmationFinished else { return }
+    babyStaged = true
+    let card = babyCard()
+    let share = BabyShareWords.describe(payload)
+    card.preview = HafaSharePreview(title: share.title, subtitle: share.subtitle, symbol: share.symbol)
+    if let link = share.link {
+      let fromPage = share.title != BabyShareWords.fallbackTitle(site: HafaSharePreviewText.site(link))
+      card.loadPreview(link) { title in
+        // A page title only replaces what the share already said when it says more.
+        guard !fromPage, let title else { return nil }
+        let fetched = HafaSharePreviewText.describe(url: link, pageTitle: title, fallback: BabyShareWords.fallbackTitle)
+        return (fetched.title, fetched.subtitle)
+      }
+    }
+    if let photo = share.photo { card.loadThumbnail(photo) }
+    babyCategories = BabyShareSession.categories(for: producer.capture.scope)
+    card.notice = BabyShareWords.notice(scope: producer.capture.scope, signedIn: producer.capture.signedIn)
+    refreshBabyCard()
+    card.isBusy = false
+    card.canSave = true
+  }
+  private func refreshBabyCard() {
     guard let producer = babyProducer else { return }
-    babyPublished = true
-    // It's safely on the phone now, so closing is safe too: what this doesn't deliver, the app will.
-    showBabySheet(.saving)
-    babySheet?.showAction(BabyShareSheetState.saving.buttonTitle)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.completeConfirmation(status: nil) }
+    babyCard().choices = [BabyShareWords.categoryChoice(babyCategories, selected: babyCategory)].compactMap { $0 }
+    babyCard().note = BabyShareWords.note(scope: producer.capture.scope, category: babyCategoryTitle)
+  }
+  private var babyCategoryTitle: String? {
+    babyCategories.first { $0["id"] == babyCategory }?["title"]
+  }
+  private func saveBabyShare() {
+    guard let producer = babyProducer, let payload = babyPayload, !babySaving, !captureConfirmationFinished, !babySheetClosed else { return }
+    babySaving = true
+    babyCard().isBusy = true
+    let collection = babyCategoryTitle == nil ? nil : babyCategory
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      do { try producer.storage.publish(payload, capture: producer.capture, collection: collection) }
+      catch { DispatchQueue.main.async { self?.showBabyProblem(.failed) }; return }
+      DispatchQueue.main.async { self?.submitBabyShare(producer) }
+    }
+  }
+  // It's safely on the phone now, so closing is safe too: what this doesn't deliver, the app will.
+  private func submitBabyShare(_ producer: (storage: BabyShareStore, capture: BabyShareStore.Capture)) {
+    babySaved = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.completeConfirmation(status: nil, filed: false) }
     DispatchQueue.global(qos: .utility).async { [weak self] in
-      BabyShareSession.enqueue(producer.capture.id, storage: producer.storage) { status in
-        DispatchQueue.main.async { [weak self] in self?.completeConfirmation(status: status) }
+      BabyShareSession.enqueue(producer.capture.id, storage: producer.storage) { status, filed in
+        DispatchQueue.main.async { [weak self] in self?.completeConfirmation(status: status, filed: filed) }
       }
     }
   }
   private var captureConfirmationFinished = false
-  private func completeConfirmation(status: String?) {
-    guard !captureConfirmationFinished, let producer = babyProducer else { return }
+  private func completeConfirmation(status: String?, filed: Bool) {
+    guard !captureConfirmationFinished, !babySheetClosed, let producer = babyProducer else { return }
     captureConfirmationFinished = true
-    showBabySheet(.after(scope: producer.capture.scope, signedIn: producer.capture.signedIn, status: status))
+    let state = BabyShareSheetState.after(scope: producer.capture.scope, signedIn: producer.capture.signedIn, status: status)
+    guard let outcome = state.outcome(category: babyCategoryTitle, filed: filed) else { return }
+    babyCard().finish(outcome)
   }
-  private var babySheet: HafaShareSheetView?
-  private func showBabySheet(_ state: BabyShareSheetState) {
-    let first = babySheet == nil
-    if first {
-      let sheet = HafaShareSheetView(theme: BabyShareTheme.value)
-      sheet.onDone = { [weak self] in self?.finishConfirmation() }
-      sheet.translatesAutoresizingMaskIntoConstraints = false
-      view.backgroundColor = BabyShareTheme.value.background
-      view.isOpaque = true
-      view.addSubview(sheet)
-      NSLayoutConstraint.activate([sheet.leadingAnchor.constraint(equalTo: view.leadingAnchor), sheet.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-        sheet.topAnchor.constraint(equalTo: view.topAnchor), sheet.bottomAnchor.constraint(equalTo: view.bottomAnchor)])
-      babySheet = sheet
+  private var babyCardModel: HafaShareModel?
+  private var babyPayload: Any?
+  private var babyCategories: [[String: String]] = []
+  private var babyCategory = BabyShareWords.later
+  private var babySaving = false
+  private var babySaved = false
+  private func babyCard() -> HafaShareModel {
+    if let card = babyCardModel { return card }
+    let card = HafaShareModel(preview: HafaSharePreview(title: BabyShareWords.loading, symbol: "tray.and.arrow.down"), action: BabyShareWords.action)
+    card.onSelect = { [weak self] _, option in self?.babyCategory = option; self?.refreshBabyCard() }
+    card.onSave = { [weak self] in self?.saveBabyShare() }
+    card.onCancel = { [weak self] in self?.finishConfirmation() }
+    card.onOutcome = { [weak self] button in
+      guard let self else { return }
+      if button != .close, button == self.babyCardModel?.outcome?.opens { self.openBabyApp() }
+      self.finishConfirmation()
     }
-    babySheet?.show(BabyShareTheme.content(state), animated: !first)
-    guard state != .saving else { return }
-    babySheet?.showAction(state.buttonTitle)
-    let words = state.words
-    UIAccessibility.post(notification: .announcement, argument: [words.title, words.detail].compactMap { $0 }.joined(separator: ". "))
-    // With VoiceOver or Switch Control on, it waits to be read and for Done.
-    if words.closesItself, !UIAccessibility.isVoiceOverRunning, !UIAccessibility.isSwitchControlRunning {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finishConfirmation() }
+    babyCardModel = card
+    view.backgroundColor = .clear
+    view.isOpaque = false
+    let host = HafaShareHostingController(model: card, theme: BabyShareTheme.value)
+    addChild(host)
+    host.view.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(host.view)
+    NSLayoutConstraint.activate([
+      host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor), host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      host.view.topAnchor.constraint(equalTo: view.topAnchor), host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    host.didMove(toParent: self)
+    return card
+  }
+  // The card's busy states, and every answer it can end with.
+  private func showBabySheet(_ state: BabyShareSheetState) {
+    let card = babyCard()
+    switch state {
+    case .saving: card.isBusy = true
+    case .stillWorking: card.note = [state.words.title, state.words.detail].compactMap { $0 }.joined(separator: ". ")
+    default: if let outcome = state.outcome() { card.finish(outcome) }
+    }
+  }
+  private func closeBabyCard(then done: @escaping () -> Void) {
+    guard let card = babyCardModel else { return done() }
+    card.dismiss(then: done)
+  }
+  // Håfa Baby picks up whatever's waiting on the phone as soon as it opens.
+  private func openBabyApp() {
+    guard let url = URL(string: "\(shareProtocol)://") else { return }
+    var responder: UIResponder? = self
+    while let current = responder {
+      if let application = current as? UIApplication { application.open(url, options: [:], completionHandler: nil); return }
+      responder = current.next
     }
   }
   private func dismissWithError(message: String? = nil) {

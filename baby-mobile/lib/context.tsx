@@ -87,6 +87,7 @@ import { forgetInvite } from "./family";
 import { nativePushDevice } from "./push-native";
 import { refreshDue, refreshUpcoming, sendDismissals } from "./reminder-due";
 import { wantedCopies } from "./reminder-copies";
+import { changeCategory } from "./categories";
 import { accessKey, remindersOn, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
@@ -599,6 +600,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
                 },
               };
               result = await api.save(feedEdit(value), fenceOf(next));
+              // Chosen on the share sheet. A category that's gone, full or in another space leaves the post unfiled in Saved.
+              if (next.file_into) await changeCategory(api, next.file_into, [result.id], next.generation).catch(() => undefined);
             } else {
               // Persist before the request: a lost admission response can replay
               // an already-completed job after a relaunch.

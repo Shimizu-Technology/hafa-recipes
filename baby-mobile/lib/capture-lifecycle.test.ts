@@ -1,7 +1,7 @@
 import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyState, type DeviceState, type EditorDraft, type LocalFile } from "./models";
+import { emptyState, type DeviceState, type EditorDraft, type LocalFile, type Mutation } from "./models";
 import { ApiError } from "./api";
 import { keepInPersonal, notSentMessage } from "./outbox";
 const scope = vi.hoisted(() => ({
@@ -285,6 +285,14 @@ it("drains every queued native capture in order", async () => {
   await mount(ShareCapture);
   expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:A", "share-save:B"]);
   expect(scope.acknowledge.mock.calls.map(call => call[0])).toEqual(["A", "B"]);
+});
+it("carries the category chosen on the share sheet to the save, and nothing when she chose Organize later", async () => {
+  const account = setup();
+  scope.pending.mockResolvedValueOnce({ ...payload("A"), collection_id: "sleep" }).mockResolvedValueOnce(payload("B"));
+  await mount(ShareCapture);
+  const [filed, later] = account.state.outbox as Extract<Mutation, { type: "save" }>[];
+  expect(filed.file_into).toBe("sleep");
+  expect(later).not.toHaveProperty("file_into");
 });
 it.each([[true, false, 1], [false, true, 1], [true, true, 2]])(
   "requires both AI permission %s and share opt-in %s before adding automatic work", async (ai, auto, count) => {

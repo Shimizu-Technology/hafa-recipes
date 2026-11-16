@@ -14,6 +14,7 @@ import {
   sharesChanged,
 } from "./share-session-state";
 import { sessionScope, shareDestination, shareOwner } from "./share-scope";
+import { shareCategories } from "./share-categories";
 import { accessKey, generationOf, spaceFence, spacesLive } from "./spaces";
 export { revokeShareSession } from "./share-session-state";
 
@@ -61,6 +62,8 @@ export function useShareSession() {
         });
         if (!current()) return;
         const bootstrap = b.state.bootstrap!, destination = shareDestination(bootstrap);
+        // Asked alongside the credential. A list that can't be had leaves the last one, which the sheet only shows for the same tag.
+        const categories = Promise.resolve().then(() => b.api.records({ kind: "collection", limit: 100 })).catch(() => null);
         const session = await b.api.request<Share.ShareSession>("/share/session", "POST",
           { installation_id: await Share.installationId() }, spaceFence(bootstrap, destination));
         await serializeShareSession(async () => {
@@ -70,6 +73,11 @@ export function useShareSession() {
           // same-account captures. Account cleanup is serialized separately.
           if (!current() && (isShareSessionSuspended() || !b.current())) await Share.suspendSession();
         });
+        // Native refuses a list for any credential but the one that's there now.
+        const page = await categories;
+        if (page && current()) await serializeShareSession(() => Share.publishCategories(
+          shareCategories(page.items, spacesLive(bootstrap) ? session.space_id : undefined),
+          b.owner, session.generation, sessionScope(bootstrap, session))).catch(() => undefined);
         // Connected, so whatever's waiting can be offered to this account now.
         if (current()) sharesChanged();
       } catch {

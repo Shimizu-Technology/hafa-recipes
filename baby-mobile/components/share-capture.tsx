@@ -113,6 +113,7 @@ export function ShareCapture() {
             const occurred_at = native?.occurred_at ?? new Date().toISOString();
             const profile = bootstrap.profile as Profile & { auto_process_shares?: boolean };
             const save: Mutation = { id: saveId, generation, type: "save", files: copied,
+              ...(native?.collection_id ? { file_into: native.collection_id } : {}),
               record: { id, kind: "source", title: sharedSourceTitle(text),
                 body: "", child_id: null, occurred_at,
                 data: { url, source_text: text, status: "saved", topics: [] } } };

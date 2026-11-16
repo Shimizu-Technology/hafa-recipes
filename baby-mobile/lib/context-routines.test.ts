@@ -237,6 +237,20 @@ describe("from the review of #543: when the queue meets a failure", () => {
     await mount(); await flush();
     expect(baby.state.outbox.map((m) => m.id)).toEqual(["m"]);
   });
+  it("files a share into the category chosen on its share sheet once it lands, and a category that's gone leaves it saved", async () => {
+    const write = (id: string, file_into?: string) => ({ id: `share-save:${id}`, generation: 1, type: "save" as const, files: [], ...(file_into ? { file_into } : {}),
+      record: { id, kind: "source" as const, title: id, body: "", child_id: null, occurred_at: "2026-11-04T02:00:00.000Z", data: { status: "saved", topics: [] } } });
+    const sleep = { id: "sleep", kind: "collection", title: "Sleep", body: "", child_id: null, occurred_at: "2026-11-01T00:00:00.000Z", revision: 4, data: { record_ids: ["old"] } };
+    mock.api = { ...base(),
+      save: vi.fn(async (value: any) => value.kind === "collection" ? { ...value, revision: value.revision + 1 } : { ...optimisticRecord(value), revision: 1 }),
+      record: vi.fn(async (id: string) => { if (id === "sleep") return sleep; throw new ApiError("Item unavailable", 404); }) };
+    mock.saved = { ...emptyState(), bootstrap, records: [], outbox: [write("a", "sleep"), write("b", "gone"), write("c")] } as unknown as DeviceState;
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.records.map((row) => row.id).sort()).toEqual(["a", "b", "c"]);
+    expect(mock.api.save).toHaveBeenCalledWith(expect.objectContaining({ id: "sleep", data: { record_ids: ["old", "a"] } }), 1);
+    expect(mock.api.record.mock.calls.map((call: unknown[]) => call[0])).toEqual(["sleep", "gone"]);
+  });
 });
 describe("a What shows switch with no signal", () => {
   const child = { id: "baby", name: "Mia", revision: 3, birth_date: "2026-11-01", details: { sex: "girl", tracking: { kicks: true } } },

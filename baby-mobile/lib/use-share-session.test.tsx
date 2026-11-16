@@ -3,13 +3,14 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mock = vi.hoisted(() => ({ signedIn: true, baby: null as any, foreground: null as null | ((state: string) => void), previous: null as string | null,
-  suspendSession: vi.fn(async () => undefined), clearSession: vi.fn(async () => undefined), configureSession: vi.fn(async () => undefined), noteSignedIn: vi.fn(async () => undefined) }));
+  suspendSession: vi.fn(async () => undefined), clearSession: vi.fn(async () => undefined), configureSession: vi.fn(async () => undefined), noteSignedIn: vi.fn(async () => undefined),
+  publishCategories: vi.fn(async () => undefined) }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" }, AppState: { addEventListener: (_: string, fn: (state: string) => void) => { mock.foreground = fn; return { remove() {} }; } } }));
 vi.mock("@clerk/expo", () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: mock.signedIn }) }));
 vi.mock("./context", () => ({ useBaby: () => mock.baby }));
 vi.mock("./config", () => ({ configuration: { apiBase: "https://api.test" } }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, sessionOwner: async () => mock.previous, clearSession: mock.clearSession, suspendSession: mock.suspendSession,
-  installationId: async () => "install", configureSession: mock.configureSession, noteSignedIn: mock.noteSignedIn }));
+  installationId: async () => "install", configureSession: mock.configureSession, noteSignedIn: mock.noteSignedIn, publishCategories: mock.publishCategories }));
 vi.mock("./share-session-state", async (original) => ({ ...(await original<object>()) }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearSession: mock.clearSession, suspendSession: mock.suspendSession }));
 import { askForShareSession } from "./share-session-state";
@@ -42,6 +43,25 @@ describe("the share sheet's sign-in note", () => {
     expect(mock.noteSignedIn).toHaveBeenCalledTimes(1);
     await act(async () => { mock.foreground?.("inactive"); });
     expect(mock.noteSignedIn).toHaveBeenCalledTimes(2);
+  });
+});
+describe("the share sheet's categories", () => {
+  const category = (id: string, space_id: string, updated_at: string) => ({ id, kind: "collection", title: id, space_id, updated_at });
+  it("are the session's own space's, sent for the credential just configured", async () => {
+    const baby: any = account({ personal_space_id: personal, spaces: [own, shared] }, { space_id: family });
+    baby.api.records = vi.fn(async () => ({ items: [category("mine", personal, "2026-11-03T00:00:00Z"),
+      category("ours", family, "2026-11-02T00:00:00Z")] }));
+    await mount(baby);
+    expect(baby.api.records).toHaveBeenCalledWith({ kind: "collection", limit: 100 });
+    expect(mock.publishCategories).toHaveBeenCalledWith([{ id: "ours", title: "ours" }], "owner", 1, family);
+    expect(mock.configureSession.mock.invocationCallOrder[0]).toBeLessThan(mock.publishCategories.mock.invocationCallOrder[0]);
+  });
+  it("leave the last list alone when they can't be had, and never hold up the credential", async () => {
+    const baby: any = account({});
+    baby.api.records = vi.fn(async () => { throw Error("offline"); });
+    await mount(baby);
+    expect(mock.configureSession).toHaveBeenCalledTimes(1);
+    expect(mock.publishCategories).not.toHaveBeenCalled();
   });
 });
 describe("the share credential", () => {
