@@ -172,3 +172,23 @@ describe("class runner (Nov 17)", () => {
     expect(renderer!.root.findByType("Screen" as never).props.pinned).toBeUndefined();
   });
 });
+
+it("reviews a part auto-started while locked from the resolved run", async () => {
+  const workout = { ...w, blocks: [w.blocks[0], w.blocks[1]] };
+  s = store(); await s.load();
+  await s.start(workout, { workout_id: w.id, workout_revision: 1 }, "locked", 0);
+  await s.classAct(startPart, 0); await render(34 * min);
+  const editors = renderer!.root.findAll((n) => typeof n.props.onChange === "function" && n.props.result?.block_id);
+  expect(editors.map((n) => n.props.result.block_id)).toEqual(["a", "b"]);
+  expect(control("Save class")!.props.disabled).toBe(true);
+});
+it("typing an explicit load uses the kg unit already displayed", async () => {
+  const { ScoreEditor } = await import("../components/training/score-editor");
+  const { scoreProblem } = await import("./class-scores");
+  const change = vi.fn();
+  await act(async () => { renderer = create(createElement(ScoreEditor, { block: w.blocks[3],
+    result: { block_id: "d", kind: "load", origin: "manual", scaling: "rx" }, onChange: change })); });
+  await act(async () => renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "Weight")!.props.onChange("100"));
+  expect(change.mock.calls[0][0]).toMatchObject({ load: 100, load_unit: "kg" });
+  expect(scoreProblem(change.mock.calls[0][0])).toBeNull();
+});

@@ -176,3 +176,34 @@ describe("review fixes", () => {
     expect(item.unsent_results).toBeUndefined();
   });
 });
+
+it("retains feature-gated scores and splits through a successful correction", async () => {
+  const { store } = await classDay();
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  const original = store.snapshot().history[0].request;
+  const transport = vi.fn(async (url: string, init?: RequestInit) => new Response(JSON.stringify(url.endsWith("/enrollment")
+    ? { enrolled: true, generation: 1 }
+    : { id: "saved", generation: 1, client_session_id: original.client_session_id, content: { ...JSON.parse(String(init!.body)), prescription_snapshot: w } })));
+  const api = createWorkoutsApi("https://example.test", async () => "token", transport as typeof fetch);
+  await api.enrollment(); await store.sync(api.saveSession);
+  const retained = store.snapshot().history[0];
+  expect(retained).toMatchObject({ state: "synced", problem: unsentProblem, unsent_results: { results: original.results, segments: original.segments } });
+  expect(retained.request.results).toBeUndefined();
+  const saved = { id: "saved", generation: 1, content: { ...retained.request, prescription_snapshot: w } } as TrainingSession;
+  await store.correct(saved, [], "", "correction", retained.unsent_results!.results, retained.unsent_results!.segments);
+  const send = vi.fn(async (request: SessionRequest) => ({ ...saved, id: "corrected", content: { ...request, prescription_snapshot: w } }));
+  await store.sync(send);
+  expect(send.mock.calls[0][0]).toMatchObject({ results: original.results, segments: original.segments, supersedes_session_id: "saved" });
+});
+it("keeps End class partial during the final timed part", async () => {
+  let now = T0;
+  const store = createTrainingStore(device(), "owner", 1, () => now);
+  await store.load();
+  const workout = { ...w, blocks: [w.blocks[0], w.blocks[1]] };
+  await store.start(workout, { workout_id: w.id, workout_revision: 1 }, "final", now);
+  await store.classAct(startPart); now += 20 * min; await store.classAct(endClass);
+  expect(store.snapshot().active!.class_run).toMatchObject({ ended_early: true });
+  await expect(store.finish("completed", undefined, "keep", "general_fitness")).rejects.toThrow("partial");
+  await store.finish("partial", undefined, "keep", "general_fitness");
+  expect(store.snapshot().history[0].request.status).toBe("partial");
+});

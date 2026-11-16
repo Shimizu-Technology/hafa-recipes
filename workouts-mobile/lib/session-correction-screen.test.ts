@@ -137,3 +137,15 @@ it("scores a timed session only when this device recorded it on the clock, and k
   await act(async () => button("Save correction").props.onPress()); await settle();
   expect(fixture.store!.snapshot().history[0]).toMatchObject({ timed_format: true, request: { supersedes_session_id: "saved" } });
 });
+
+it("copies and corrects locally retained splits alongside locally retained scores", async () => {
+  const result = { block_id: "main", kind: "time" as const, time_seconds: 60, capped: false, origin: "timer" as const, scaling: "rx" as const };
+  const segments = [{ block_id: "main", kind: "round" as const, index: 1, started_at: saved.content.started_at, ended_at: saved.content.finished_at }];
+  await fixture.store!.correct(saved, saved.content.actuals, "", "retained", [result], segments);
+  await fixture.store!.sync(async () => ({ ...saved, unsent_results: { results: [result], segments } }));
+  await act(async () => button("Keep original results").props.onPress());
+  expect(renderer!.root.findByType("CopyForWodUp" as never).props).toMatchObject({ results: [result], segments });
+  await act(async () => button("Correct these results").props.onPress());
+  await act(async () => button("Save correction").props.onPress()); await settle();
+  expect(fixture.store!.snapshot().history[0].request).toMatchObject({ results: [result], segments });
+});
