@@ -444,7 +444,7 @@ def test_load_option_value_unit_pairs(units, options, accepted):
 def test_unsupported_clock_clears_buy_in_and_preserves_source_evidence():
     raw = response()
     raw["blocks"][0]["evidence"] = []
-    source = extraction.SourceBundle(extraction.SourceMetadata(), [SourcePart("provided_text", TEXT)])
+    source = extraction.SourceBundle(extraction.SourceMetadata(), [SourcePart("provided_text", TEXT.replace("A. AMRAP 15 min", "A. Conditioning"))])
     workout, warnings, _ = extraction.ground_workout(raw, source, class_parts=True)
     assert workout.blocks[0].execution is None
     assert all(item.segment is None for item in workout.blocks[0].exercises)
@@ -507,3 +507,63 @@ async def test_wodup_full_wording_keeps_amrap_buy_in_benchmark_and_accessory_hea
     assert workout.blocks[3].rounds == 2
     # The printed "D. ACCESSORIES" heading names the role, whatever the model calls the part.
     assert workout.blocks[3].role == "accessory"
+
+@pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
+@pytest.mark.parametrize("fixture", ["18-pdf", "26-text"])
+@pytest.mark.parametrize("send_workout", [False, True])
+async def test_qa678_unchanged_repeated_movements_accept_once(data_api, fixture, send_workout):  # noqa: F811
+    import importlib
+
+    from app.domains.workouts.automation_models import WorkoutImport
+    from app.domains.workouts.automation_router import router
+    from app.domains.workouts.lifecycle import now
+
+    await enroll(data_api)
+    await importlib.import_module("migrations.035_add_workouts_automation").run_migration(
+        configured=settings(), migration_engine=data_api.engine)
+    data_api.app.include_router(router)
+    content = json.loads((Path(__file__).parent / f"fixtures/qa678-{fixture}.json").read_text())
+    identifier = uuid4()
+    async with data_api.sessions.begin() as db:
+        db.add(WorkoutImport(id=identifier, app_user_id="owner", generation=1,
+            request_id=uuid4(), request_hash="a" * 64, payload={}, status="ready",
+            result={"workout": content, "warnings": []}, ai_accepted_at=now(),
+            expires_at=now() + timedelta(days=1)))
+    body = {"workout": content} if send_workout else {}
+    path = f"/api/v1/workouts/imports/{identifier}/accept"
+    accepted = await data_api.client.post(path, json=body, headers=GENERATION)
+    assert accepted.status_code == 200, accepted.text
+    runs = [e for e in accepted.json()["content"]["blocks"][0]["exercises"] if e["name"] == "Run"]
+    assert len(runs) == 2 and runs[0].get("instructions") and not runs[1].get("instructions")
+    assert (await data_api.client.post(path, json=body, headers=GENERATION)).json() == accepted.json()
+
+
+@pytest.mark.parametrize("missing_hold", [False, True])
+async def test_qa678_text_prescriptions_golden(missing_hold):
+    text = (Path(__file__).parent / "fixtures/qa678-class-text.txt").read_text()
+    raw = json.loads((Path(__file__).parent / "fixtures/qa678-26-text.json").read_text())
+    if missing_hold:
+        raw["blocks"][3]["exercises"][0].pop("duration_seconds", None)
+        raw["blocks"][3]["exercises"][0].pop("duration_seconds_max", None)
+    provider = FakeProvider(raw)
+    result = await WorkoutExtractor(provider).extract(ExtractionRequest(
+        kind="text", text=text, class_parts=True, ai_consent=True))
+    assert result.workout is not None, result
+    blocks = result.workout.blocks
+    assert len(blocks) == 4
+    for block in blocks[:2]:
+        assert block.execution and block.execution.mode == "amrap", result
+        assert block.execution.time_cap_seconds == 900
+        runs = [e for e in block.exercises if e.name.lower() == "run"]
+        assert runs[0].segment == "buy_in"
+        assert (runs[0].distance_meters_min, runs[0].distance_meters) == (800, 1000)
+        assert (runs[1].distance_meters_min, runs[1].distance_meters) == (300, 400)
+    assert [(o.load, o.load_unit) for o in blocks[1].exercises[1].load_options] == [(20, "lb"), (14, "lb")]
+    hold = blocks[3].exercises[0]
+    assert (hold.duration_seconds, hold.duration_seconds_max) == (30, 40)
+    press = blocks[3].exercises[1]
+    assert "12 or 15 reps" in press.effort
+    assert press.reps_min is None and press.reps_max is None
+    sent = provider.calls[0].parts[0].text
+    assert "800 to 1000m" in sent and "12 or 15 reps" in sent
+    assert "Jane Doe" not in sent and "Mike R" not in sent

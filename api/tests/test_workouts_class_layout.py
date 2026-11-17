@@ -331,3 +331,16 @@ C. Jones: great job today"""
     workout, warnings, _ = ground(page, raw)
     assert [block.label for block in workout.blocks] == ["A", "B"]
     assert "Jones" not in dump(workout, warnings)
+
+
+def test_review_warning_cannot_be_cleared_by_another_complete_occurrence():
+    from app.domains.workouts.class_outline import stale_warnings
+    from app.domains.workouts.schemas import WorkoutContent
+
+    workout = WorkoutContent.model_validate({"title": "Repeated class", "blocks": [{
+        "id": "a", "label": "A", "exercises": [
+            {"name": "Run or row", "distance_meters": 700},
+            {"name": "Run", "distance_meters_min": 200, "distance_meters": 350},
+            {"name": "Squat"}, {"name": "Squat", "reps_min": 8, "reps_max": 10}]}]})
+    warnings = ["Unsupported distance_meters_min removed from Run.", "Unsupported reps_max removed from Squat."]
+    assert stale_warnings(workout, warnings, False) == warnings

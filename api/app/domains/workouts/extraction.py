@@ -69,7 +69,7 @@ MAX_ACQUISITION_SECONDS = 90
 MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_CLASS_DOCUMENT_BYTES = 10 * 1024 * 1024
-PROMPT_VERSION = "workout-extraction-evidence-v10"
+PROMPT_VERSION = "workout-extraction-evidence-v11"
 # A five-part class with evidence quotes needs more room than one reel; the
 # smaller limit truncated real classes and paid for a second model.
 OUTPUT_TOKENS = 6000

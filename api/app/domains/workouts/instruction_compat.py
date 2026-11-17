@@ -5,7 +5,7 @@ from collections import Counter
 from fastapi import HTTPException
 
 
-def preserve_instructions(workout, original):
+def preserve_instructions(workout, original, *, protect_saved=True):
     updates = {}
     if "instructions" not in workout.model_fields_set and "instructions" in original:
         updates["instructions"] = original["instructions"]
@@ -29,7 +29,12 @@ def preserve_instructions(workout, original):
                 if any(old.get("instructions") for old in matches):
                     count = name_counts[key[1]] if key[0] is None else counts[key]
                     if len(matches) != 1 or count != 1:
-                        raise HTTPException(409, "Refresh before editing repeated exercises with saved instructions")
+                        if protect_saved:
+                            raise HTTPException(409, "Refresh before editing repeated exercises with saved instructions")
+                        # A first save has no stored instructions to recover. Do not
+                        # guess which repeated movement an omitted cue belongs to.
+                        exercises.append(exercise)
+                        continue
                     exercise = exercise.model_copy(update={"instructions": matches[0]["instructions"]})
             exercises.append(exercise)
         blocks.append(block.model_copy(update={"exercises": exercises}))
