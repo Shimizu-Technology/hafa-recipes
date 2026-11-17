@@ -272,7 +272,7 @@ FORMAT_ROW = re.compile(r"^(?:every\b|emom\b|amrap\b|as many rounds|for time\b|m
 def _movement_name(row):
     name = re.sub(r"^(?:\d+(?:\s*[-–]\s*\d+)?\s+|max\s+)", "", row, flags=re.I)
     name = re.sub(r"\s*\([^)]*\)\s*$", "", name)
-    name = re.split(r"\s+(?:for\s+\d|for\s+max|@|\d+(?:\.\d+)?\s*/\s*\d|\d+(?:\s*[-–]\s*\d+)?\s*(?:cal|calories|meters?|m)\b|max\s+\w+$)", name, flags=re.I)[0]
+    name = re.split(r"\s+(?:for\s+\d|for\s+max|@|\d+(?:\.\d+)?\s*%\s*(?:bodyweight|bw)\b|\d+(?:\.\d+)?\s*/\s*\d|\d+(?:\s*[-–]\s*\d+)?\s*(?:cal|calories|meters?|m)\b|max\s+\w+$)", name, flags=re.I)[0]
     return name.strip(" :-")[:200]
 
 

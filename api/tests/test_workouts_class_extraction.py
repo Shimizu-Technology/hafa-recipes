@@ -567,3 +567,26 @@ async def test_qa678_text_prescriptions_golden(missing_hold):
     sent = provider.calls[0].parts[0].text
     assert "800 to 1000m" in sent and "12 or 15 reps" in sent
     assert "Jane Doe" not in sent and "Mike R" not in sent
+
+
+@pytest.mark.parametrize("wording", ["75% bodyweight", "75% BW", "62.5% bw"])
+@pytest.mark.parametrize("rows", [False, True])
+async def test_pasted_class_restores_omitted_bodyweight_load_from_its_own_row(wording, rows):
+    page = (Path(__file__).parent / "fixtures/qa678-class-text.txt").read_text()
+    page = page.replace("75% bodyweight", wording)
+    raw = json.loads((Path(__file__).parent / "fixtures/qa678-26-text.json").read_text())
+    for block in raw["blocks"]:
+        for item in block["exercises"]:
+            item.pop("relative_load", None)
+            item["evidence"] = [entry for entry in item.get("evidence", []) if entry["field"] != "relative_load"]
+    provider, acquirer = FakeProvider(raw), FakeAcquirer()
+    result = await WorkoutExtractor(provider, acquirer).extract(ExtractionRequest(
+        kind="text", text=page, class_parts=True, class_rows=rows, typed_formats=True, ai_consent=True))
+    assert len(provider.calls) == 1 and not acquirer.calls
+    items = [item for block in result.workout.blocks for item in block.exercises]
+    deadlift = next(item for item in items if "deadlift" in item.name.lower())
+    assert deadlift.relative_load.model_dump(exclude_none=True) == {
+        "basis": "bodyweight", "percent": float(wording.split("%")[0])}
+    assert (deadlift.reps_min, deadlift.reps_max) == (15, 15)
+    assert deadlift.load is None and deadlift.load_options is None
+    assert all(item.relative_load is None for item in items if item is not deadlift)
