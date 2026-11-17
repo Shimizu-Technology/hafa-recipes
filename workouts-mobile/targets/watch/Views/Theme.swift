@@ -18,12 +18,15 @@ enum Theme {
 
 /// One treatment for peers: full-width, 60 pt targets, one-line type, no mixed icon placement.
 struct WatchButton: ButtonStyle {
+  enum Role { case primary, secondary, destructive }
+  var role: Role = .primary
+  var compact = false
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.system(.headline, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
-      .frame(maxWidth: .infinity, minHeight: 60)
-      .foregroundStyle(Theme.onAccent)
-      .background(Theme.accent.opacity(configuration.isPressed ? 0.65 : 1),
+      .frame(maxWidth: .infinity, minHeight: compact ? 36 : 60)
+      .foregroundStyle(role == .primary ? Theme.onAccent : role == .destructive ? Color.red : Theme.text)
+      .background((role == .primary ? Theme.accent : Theme.surface).opacity(configuration.isPressed ? 0.65 : 1),
         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
   }
 }

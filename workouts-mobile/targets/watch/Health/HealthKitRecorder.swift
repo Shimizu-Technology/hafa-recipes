@@ -6,6 +6,9 @@ import HealthKit
 final class HealthKitRecorder: NSObject, WorkoutRecorder {
   enum RecorderError: Error { case noSession, busy }
 
+  var isRecording: Bool { session != nil && builder != nil }
+  var onCollectionEnded: (() -> Void)?
+  func restoreCollectionEnded(_ ended: Bool) { collectionEnded = collectionEnded || ended; ending = collectionEnded }
   var onSessionLost: (() -> Void)?
 
   var metrics: LiveMetrics {
@@ -24,7 +27,7 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
   private var partOpen = false
   /// Set once finish or discard starts, so the session's own end isn't reported as a loss.
   private var ending = false
-  private var collectionEnded = false
+  private(set) var collectionEnded = false
   private var eventsAdded = false
 
   init(store: HKHealthStore = HKHealthStore()) {
@@ -40,7 +43,9 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
     attach(session)
     session.startActivity(with: date)
     do {
-      try await builder?.beginCollection(at: date)
+      guard self.session === session, let builder else { throw RecorderError.noSession }
+      try await builder.beginCollection(at: date)
+      guard self.session === session, session.state != .ended else { throw RecorderError.noSession }
     } catch {
       ending = true
       session.end()
@@ -83,6 +88,7 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
       session.stopActivity(with: date)
       try await builder.endCollection(at: date)
       collectionEnded = true
+      onCollectionEnded?()
     }
     if !eventsAdded {
       // A wall clock moved backwards could put a tap before its start; never build a negative interval.
@@ -119,7 +125,8 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
     self.builder = builder
     partOpen = false
     ending = false
-    collectionEnded = false
+    collectionEnded = builder.endDate != nil
+    ending = collectionEnded
     eventsAdded = false
   }
 
@@ -131,6 +138,7 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
 
   private func lost(_ workoutSession: HKWorkoutSession) {
     guard workoutSession === session, !ending else { return }
+    workoutSession.end()
     detach()
     onSessionLost?()
   }
@@ -168,6 +176,11 @@ extension HealthKitRecorder: HKWorkoutSessionDelegate {
   }
 
   nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-    Task { @MainActor in self.lost(workoutSession) }
+    Task { @MainActor in
+      guard workoutSession === self.session else { return }
+      workoutSession.end()
+      self.detach()
+      self.onSessionLost?()
+    }
   }
 }

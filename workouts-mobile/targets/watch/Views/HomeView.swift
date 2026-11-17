@@ -27,7 +27,7 @@ struct HomeView: View {
         }
         Button("Open timer") { start(PlanLibrary.openTimer) }.buttonStyle(WatchButton())
         #if DEBUG
-        Button("Sample class") { start(SamplePlan.plan) }.buttonStyle(WatchButton())
+        Button("Sample class") { start(SamplePlan.plan) }.buttonStyle(WatchButton(role: .secondary))
         Text("DEBUG · synthetic plan").font(.caption2).foregroundStyle(Theme.muted)
         #endif
       }
@@ -38,6 +38,7 @@ struct HomeView: View {
 
   private func start(_ plan: WatchPlan) {
     Task {
+      await engine.recover()
       await health.refresh()
       if health.status == .notAsked || health.status == .failed { await health.request() }
       guard health.status == .answered else { engine.startError = "Allow Health before starting a class."; return }
@@ -74,12 +75,9 @@ struct HealthCard: View {
             .font(.system(.headline))
             .frame(maxWidth: .infinity, minHeight: 60)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.onAccent)
-        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .buttonStyle(WatchButton())
       }
     }
-    .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
   }

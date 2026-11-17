@@ -49,6 +49,7 @@ const config: ExpoConfig = {
     ["expo-build-properties", { ios: { deploymentTarget: "17.0" }, android: { minSdkVersion: 26 } }],
     "./plugins/with-workouts-health.cjs",
     // Apple Watch app in targets/watch (bundle ...hafaworkouts.watchkitapp, watchOS 11).
+    "./plugins/with-watch-swift.cjs",
     "@bacons/apple-targets",
   ],
   experiments: { typedRoutes: true },

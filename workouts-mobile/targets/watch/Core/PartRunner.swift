@@ -18,6 +18,12 @@ enum RunnerEvent: Equatable {
   case paused(Date)
   case resumed(Date)
   case finished(Date)
+
+  var date: Date {
+    switch self {
+    case .partBegan(_, let date), .partEnded(_, let date), .paused(let date), .resumed(let date), .finished(let date): return date
+    }
+  }
 }
 
 /// Pure state machine for one class: lead-in, each part's clock, and rest between parts.
@@ -121,9 +127,9 @@ struct PartRunner: Codable, Equatable {
   mutating func advance(at now: Date) -> (AdvanceResult, [RunnerEvent]) {
     let events = tick(at: now)
     // The clock just moved the class on (cap reached, rest over), so this press was meant for the old screen.
-    if !events.isEmpty { return (.ignored(.stateChanged), events) }
-    if pausedAt != nil { return (.ignored(.paused), []) }
-    if let last = lastAdvanceAt, now.timeIntervalSince(last) < Self.debounce { return (.ignored(.tooSoon), []) }
+    if let latest = events.map(\.date).max(), now.timeIntervalSince(latest) < Self.debounce { return (.ignored(.stateChanged), events) }
+    if pausedAt != nil { return (.ignored(.paused), events) }
+    if let last = lastAdvanceAt, now.timeIntervalSince(last) < Self.debounce { return (.ignored(.tooSoon), events) }
     var applied: [RunnerEvent] = []
     let result: AdvanceResult
     switch phase {
@@ -139,7 +145,7 @@ struct PartRunner: Codable, Equatable {
       result = .ignored(.nothingToAdvance)
     }
     if case .applied = result { lastAdvanceAt = now }
-    return (result, applied)
+    return (result, events + applied)
   }
 
   /// Takes back the latest buy-in, round or set within 10 seconds while its part is still running.
@@ -179,6 +185,17 @@ struct PartRunner: Codable, Equatable {
     case .ready, .finished: break
     }
     return [.resumed(now)] + tick(at: now)
+  }
+
+  /// An open part has no prescribed rounds. For-time completes on Action; sets complete
+  /// after the last movement of one pass. Part done can also finish a longer open effort.
+  var isOpenPart: Bool { part?.rounds == nil && (part?.kind == .forTime || part?.kind == .sets) }
+
+  mutating func completePart(at now: Date) -> [RunnerEvent] {
+    var events = tick(at: now)
+    guard phase == .running, isOpenPart, pausedAt == nil else { return events }
+    close(at: now, &events)
+    return events
   }
 
   /// Ends the running part now, or skips the part whose lead-in or rest is showing.
@@ -242,7 +259,7 @@ struct PartRunner: Codable, Equatable {
       runs[cursor].taps.append(now)
       lastTapAt = now
       let count = runs[cursor].taps.count
-      if let rounds = part.rounds, count >= rounds * max(1, part.moves.filter { $0.segment != "buy_in" }.count) {
+      if count >= (part.rounds ?? 1) * max(1, part.moves.filter { $0.segment != "buy_in" }.count) {
         close(at: now, &events)
         return .applied(.partDone)
       }
@@ -251,7 +268,7 @@ struct PartRunner: Codable, Equatable {
       runs[cursor].taps.append(now)
       lastTapAt = now
       let count = runs[cursor].taps.count
-      if part.kind == .forTime, let rounds = part.rounds, count >= rounds {
+      if part.kind == .forTime, count >= (part.rounds ?? 1) {
         close(at: now, &events)
         return .applied(.partDone)
       }

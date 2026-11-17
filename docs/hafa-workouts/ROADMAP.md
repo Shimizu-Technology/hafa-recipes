@@ -274,3 +274,5 @@ Phase 0 ─► Phase 1 ─► Phase 2 ─► Phase 3 (Discover, built in the new
                          └─ Design D0–D3 (brand, logo, tokens) ┘
 Phase 4 (dogfood) runs from Phase 2 onward; Phase 5 slots in whenever.
 ```
+
+**Open watch parts:** a for-time or sets part with no `rounds` is open. “Part done” completes the current effort successfully. Action completes an open for-time part; in open sets, Action advances each movement and completes the part after the last movement of one pass. Use Part done for a longer open effort. Only confirmed Skip marks a part skipped; skipped scored parts keep `skipped: true` and no generated zero score in the outbox. End class and Skip require confirmation. Health summaries and collection-ended progress are checkpointed for save retry.

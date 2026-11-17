@@ -11,7 +11,8 @@ struct WatchRootView: View {
       case .saved:
         ScrollView {
           VStack(spacing: 12) {
-            Text("Saved · sending to iPhone").font(Theme.display(28))
+            Text("Saved").font(Theme.display(32))
+            Text("Sending to iPhone…").font(.footnote).foregroundStyle(Theme.muted)
             Text("Queued on your watch until iPhone sync is available.")
               .font(.footnote).foregroundStyle(Theme.muted)
             Button("Done") { Task { await engine.discard() } }.buttonStyle(WatchButton())
@@ -60,9 +61,9 @@ struct ClassView: View {
                 VStack(spacing: 8) {
                   Button(runner.pausedAt == nil ? "Pause" : "Resume") {
                     runner.pausedAt == nil ? engine.pause() : engine.resume()
-                  }
-                  Button("End") { engine.stop() }
-                  Button("Skip part") { engine.endPart(); page = 1 }
+                  }.buttonStyle(WatchButton(role: .secondary))
+                  Button("End class") { engine.request(.end) }.buttonStyle(WatchButton(role: .destructive))
+                  Button("Skip part") { engine.request(.skip) }.buttonStyle(WatchButton(role: .destructive))
                 }.buttonStyle(WatchButton())
               }.tag(2)
             }.tabViewStyle(.page(indexDisplayMode: .never))
@@ -70,7 +71,7 @@ struct ClassView: View {
         }
         .onChange(of: context.date) { _, _ in
           engine.tick()
-          cue(runner, now: now)
+          cue(runner, now: Date())
         }
         .onChange(of: runner.phase) { _, phase in
           if case .running = phase { page = 1 }
@@ -78,11 +79,19 @@ struct ClassView: View {
         }
       }
     }
+    .confirmationDialog("End this class?", isPresented: Binding(get: { engine.pendingControl == .end }, set: { if !$0 { engine.pendingControl = nil } })) {
+      Button("End class", role: .destructive) { engine.confirmControl() }
+      Button("Keep going", role: .cancel) {}
+    }
+    .confirmationDialog("Skip this part?", isPresented: Binding(get: { engine.pendingControl == .skip }, set: { if !$0 { engine.pendingControl = nil } })) {
+      Button("Skip part", role: .destructive) { engine.confirmControl(); page = 1 }
+      Button("Keep going", role: .cancel) {}
+    }
     .sheet(isPresented: $capSheet) { RepSheet(index: capIndex) }
     .onChange(of: engine.runner) { old, new in
       guard let old, let new, old.phase == .running,
         new.cursor != old.cursor || new.phase != old.phase,
-        let cap = old.part?.timeLimit, old.part?.kind == .forTime,
+        let cap = old.part?.timeLimit, (old.part?.kind == .forTime || old.part?.kind == .amrap),
         new.runs[old.cursor].span?.end != nil,
         new.activeSeconds(of: old.cursor, at: Date()) >= cap else { return }
       capIndex = old.cursor; capSheet = true
@@ -104,8 +113,10 @@ struct ClassView: View {
           Text(watchTime(until.timeIntervalSince(now))).font(Theme.display(68)).monospacedDigit()
           Text("Next: \(runner.part?.label ?? "") · \(title(runner))").font(.footnote).lineLimit(1)
           if runner.part?.hasBuyIn == true { Text("\(runner.part?.moves.first?.text ?? "") first").font(.footnote) }
-          Button("+15 s") { engine.extendRest() }
-          Button("Start next") { advance() }
+          HStack(spacing: 8) {
+            Button("+15 s") { engine.extendRest() }.buttonStyle(WatchButton(role: .secondary))
+            Button("Start next") { advance() }.buttonStyle(WatchButton())
+          }
         }.buttonStyle(WatchButton())
       }
     case .running:
@@ -134,7 +145,7 @@ struct ClassView: View {
               } else {
                 Text("ROUND").font(.system(size: 13)).foregroundStyle(Theme.muted)
                 Text("\(runner.runs[runner.cursor].taps.count)").font(Theme.display(52)).monospacedDigit()
-                Text("+1 round").font(.footnote).foregroundStyle(Theme.accent)
+                Text(runner.part?.kind == .forTime && runner.isOpenPart ? "Part done" : "+1 round").font(.footnote).foregroundStyle(Theme.accent)
                 Text("Up: \(runner.part?.moves.filter { $0.segment != "buy_in" }.map(\.text).joined(separator: " · ") ?? "")")
                   .font(.system(size: 14)).lineLimit(1).foregroundStyle(Theme.muted)
               }
@@ -142,6 +153,9 @@ struct ClassView: View {
           }.buttonStyle(.plain).frame(maxHeight: .infinity)
             .accessibilityLabel("Advance \(title(runner))")
             .handGestureShortcut(.primaryAction)
+          if runner.isOpenPart {
+            Button("Part done") { engine.completePart() }.buttonStyle(WatchButton(compact: true))
+          }
         }
       }
     case .ready, .finished: EmptyView()

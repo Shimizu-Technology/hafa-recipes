@@ -14,7 +14,15 @@ final class WorkoutEngine: ObservableObject {
     }
   }
 
-  enum StartError: Error { case emptyPlan }
+  enum StartError: Error { case emptyPlan, sessionLost }
+  enum Control { case end, skip }
+  @Published var pendingControl: Control?
+  func request(_ control: Control) { pendingControl = control }
+  func confirmControl() {
+    let action = pendingControl
+    pendingControl = nil
+    switch action { case .end: stop(); case .skip: endPart(); case nil: break }
+  }
   @Published var startError: String?
   @Published private(set) var runner: PartRunner?
   @Published private(set) var state: State = .idle
@@ -30,6 +38,9 @@ final class WorkoutEngine: ObservableObject {
   private let clock: Clock
   private var sessionID = UUID()
   private var startedAt = Date.distantPast
+  private var recordedSummary: RecordedSummary?
+  private var recovery: Task<Void, Never>?
+  var canSaveScoresOnly: Bool { !recorder.collectionEnded }
   private var lastCheckpoint = Date.distantPast
 
   init(recorder: WorkoutRecorder, store: CheckpointStore, outbox: ClassOutbox, clock: Clock = SystemClock()) {
@@ -37,11 +48,13 @@ final class WorkoutEngine: ObservableObject {
     self.store = store
     self.outbox = outbox
     self.clock = clock
+    recorder.onCollectionEnded = { [weak self] in self?.checkpoint(force: true) }
     recorder.onSessionLost = { [weak self] in self?.sessionLost() }
   }
 
   /// Only from idle or after a saved class, never over one that is running or failed to save.
   func start(_ plan: WatchPlan, leadIn: TimeInterval) async throws {
+    await recover()
     switch state {
     case .idle, .saved: break
     case .starting, .running, .saving, .failed: return
@@ -55,6 +68,7 @@ final class WorkoutEngine: ObservableObject {
     let now = clock.now
     do {
       try await recorder.begin(activityType: plan.activityType, at: now)
+      guard recorder.isRecording else { throw StartError.sessionLost }
     } catch {
       startError = "Couldn’t start. Check Health access, then try again."
       state = .idle
@@ -62,7 +76,8 @@ final class WorkoutEngine: ObservableObject {
     }
     sessionID = UUID()
     startedAt = now
-    isRecording = true
+    isRecording = recorder.isRecording
+    recordedSummary = nil
     var runner = PartRunner(plan: plan, leadIn: leadIn)
     let events = runner.start(at: now)
     self.runner = runner
@@ -107,6 +122,7 @@ final class WorkoutEngine: ObservableObject {
 
   func pause() { mutate { $0.pause(at: $1) } }
   func resume() { mutate { $0.resume(at: $1) } }
+  func completePart() { mutate { $0.completePart(at: $1) } }
   func endPart() { mutate { $0.endPart(at: $1) } }
 
   /// Ends the class and saves it to Health. After a failure the class is kept: try again, or save the
@@ -119,8 +135,8 @@ final class WorkoutEngine: ObservableObject {
     guard case .finished(let end) = runner.phase else { return }
     state = .saving
     checkpoint(force: true)
-    var summary = RecordedSummary.none
-    if isRecording && withoutHealth {
+    var summary = recordedSummary ?? .none
+    if isRecording && withoutHealth && canSaveScoresOnly {
       await recorder.discard()
       isRecording = false
     } else if isRecording {
@@ -132,6 +148,8 @@ final class WorkoutEngine: ObservableObject {
         return
       }
       isRecording = false
+      recordedSummary = summary
+      checkpoint(force: true)
     }
     let record = record(runner, end: end, summary: summary)
     do {
@@ -155,6 +173,13 @@ final class WorkoutEngine: ObservableObject {
   /// On launch, or when watchOS relaunches the app to recover a workout: bring back a class that
   /// outlived a crash, catching up on any part changes since.
   func recover() async {
+    if let recovery { await recovery.value; return }
+    let task = Task { await self.performRecovery() }
+    recovery = task
+    await task.value
+  }
+
+  private func performRecovery() async {
     guard state == .idle else { return }
     state = .starting
     let saved = store.load()
@@ -162,12 +187,17 @@ final class WorkoutEngine: ObservableObject {
     guard let saved else {
       // HealthKit kept a session the checkpoint never saw. Save what it recorded rather than drop it.
       if live {
-        _ = try? await recorder.finish(
-          at: clock.now, segments: [], syncIdentifier: "hafa-workouts:\(UUID().uuidString.lowercased())")
+        do {
+          _ = try await recorder.finish(
+            at: clock.now, segments: [], syncIdentifier: "hafa-workouts:\(UUID().uuidString.lowercased())")
+        } catch { await recorder.discard() }
       }
       state = .idle
       return
     }
+    if live && !saved.isRecording { await recorder.discard() }
+    recorder.restoreCollectionEnded(saved.collectionEnded ?? false)
+    recordedSummary = saved.recordedSummary
     sessionID = saved.sessionID
     startedAt = saved.startedAt
     runner = saved.runner
@@ -207,7 +237,7 @@ final class WorkoutEngine: ObservableObject {
     let now = clock.now
     guard let runner, force || now.timeIntervalSince(lastCheckpoint) >= Self.checkpointInterval else { return }
     // A failed write is retried on the next tick; the class keeps running either way.
-    guard (try? store.save(Checkpoint(sessionID: sessionID, startedAt: startedAt, runner: runner, isRecording: isRecording))) != nil
+    guard (try? store.save(Checkpoint(sessionID: sessionID, startedAt: startedAt, runner: runner, isRecording: isRecording, recordedSummary: recordedSummary, collectionEnded: recorder.collectionEnded))) != nil
     else { return }
     lastCheckpoint = now
   }
