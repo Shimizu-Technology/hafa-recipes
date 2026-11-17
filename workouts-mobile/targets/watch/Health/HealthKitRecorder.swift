@@ -10,6 +10,7 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
   var onCollectionEnded: (() -> Void)?
   func restoreCollectionEnded(_ ended: Bool) { collectionEnded = collectionEnded || ended; ending = collectionEnded }
   var onSessionLost: (() -> Void)?
+  var onSessionBegan: (() -> Void)?
   var beforeCollection: (() async -> Void)?
   var onCollectionBegan: (() -> Void)?
 
@@ -46,6 +47,7 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
     let session = try HKWorkoutSession(healthStore: store, configuration: configuration)
     attach(session)
     session.startActivity(with: date)
+    onSessionBegan?()
     await beforeCollection?()
     do {
       guard self.session === session, let builder else { throw RecorderError.noSession }

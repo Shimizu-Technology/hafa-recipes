@@ -39,6 +39,22 @@ struct FinishView: View {
       Button("Discard class", role: .destructive) { Task { await engine.discard() } }
     }
   }
+
+  private func save(withoutHealth: Bool = false) {
+    guard let runner = engine.runner else { return }
+    for index in runner.plan.parts.indices where runner.plan.parts[index].scored {
+      engine.setScore(watchScore(runner, index: index), for: index)
+    }
+    Task { await engine.finish(withoutHealth: withoutHealth) }
+  }
+}
+
+private func watchScore(_ runner: PartRunner, index: Int) -> PartScore {
+  var value = PartScore.initial(runner, index: index, at: Date())
+  if runner.runs[index].score == nil {
+    value.scaled = UserDefaults.standard.bool(forKey: "scaled-\(runner.plan.planKey)-\(runner.plan.parts[index].blockId)")
+  }
+  return value
 }
 
 private struct ScoreCard: View {
@@ -50,13 +66,7 @@ private struct ScoreCard: View {
   var body: some View {
     if let runner = engine.runner {
       let part = runner.plan.parts[index]
-      var score: PartScore {
-        var value = PartScore.initial(runner, index: index, at: Date())
-        if runner.runs[index].score == nil {
-          value.scaled = UserDefaults.standard.bool(forKey: "scaled-\(runner.plan.planKey)-\(part.blockId)")
-        }
-        return value
-      }
+      let score = watchScore(runner, index: index)
       let capped = score.isCapped(for: part)
       Button { editing = true } label: {
         HStack(spacing: 8) {
@@ -138,11 +148,11 @@ struct RepSheet: View {
       }
     }
     .onAppear {
-      if let runner = engine.runner { reps = Double(PartScore.initial(runner, index: index, at: Date()).reps) }
+      if let runner = engine.runner { reps = Double(watchScore(runner, index: index).reps) }
     }
     .onChange(of: reps) { _, value in
       guard let runner = engine.runner else { return }
-      var score = PartScore.initial(runner, index: index, at: Date())
+      var score = watchScore(runner, index: index)
       score.reps = Int(value); engine.setScore(score, for: index)
     }
   }

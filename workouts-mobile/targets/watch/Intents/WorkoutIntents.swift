@@ -15,12 +15,15 @@ enum WorkoutStyle: String, AppEnum {
   static let shared = WatchRuntime()
   let health = HealthAuthorization()
   let engine: WorkoutEngine
+  private let recorder: HealthKitRecorder
+  private var startingAction = false
   @Published var donationFailed = false
   @Published var notice: String?
   private var recovery: Task<Void, Never>?
 
   private init() {
     let recorder = HealthKitRecorder()
+    self.recorder = recorder
     engine = WorkoutEngine(recorder: recorder, store: .standard(), outbox: .standard())
     recorder.beforeCollection = { [weak self] in
       await self?.health.refresh()
@@ -42,9 +45,25 @@ enum WorkoutStyle: String, AppEnum {
 
   func start(_ style: WorkoutStyle) async {
     await recover()
+    switch engine.state { case .idle, .saved: break; default: return }
+    guard !startingAction else { return }
+    startingAction = true
     let plan = style == .todaysClass ? PlanLibrary.todaysPlan() ?? PlanLibrary.openTimer : PlanLibrary.openTimer
-    do { try await engine.start(plan, leadIn: 3) }
-    catch { /* Engine retains a start error for the root alert. */ }
+    let started = AsyncStream<Void> { continuation in
+      recorder.onSessionBegan = { continuation.yield(()); continuation.finish() }
+      Task { @MainActor in
+        defer {
+          startingAction = false
+          recorder.onSessionBegan = nil
+          continuation.finish()
+        }
+        do { try await engine.start(plan, leadIn: 3) }
+        catch { /* Engine retains a start error for the root alert. */ }
+      }
+    }
+    // Wait only for HKWorkoutSession.startActivity, never for the permission prompt.
+    for await _ in started { break }
+
   }
 
   func advance() {
@@ -68,9 +87,8 @@ struct StartClassIntent: StartWorkoutIntent {
   var displayRepresentation: DisplayRepresentation { WorkoutStyle.caseDisplayRepresentations[workoutStyle]! }
 
   @MainActor func perform() async throws -> some IntentResult {
-    // Return before an authorization prompt can block the intent. Recorder.begin starts the
-    // HK session first, then asks for Health access and begins collection (Apple's Action guide).
-    Task { await runtime.start(workoutStyle) }
+    // Session starts before returning; authorization/collection continue in a scheduled task.
+    await runtime.start(workoutStyle)
     return .result()
   }
 }
