@@ -152,7 +152,11 @@ struct ClassView: View {
     let seconds: TimeInterval
     switch runner.phase {
     case .leadIn(let until), .resting(let until): seconds = max(0, until.timeIntervalSince(now))
-    default: seconds = runner.remaining(at: now) ?? runner.activeSeconds(of: runner.cursor, at: now)
+    default:
+      let inBuyIn = runner.part?.hasBuyIn == true && runner.runs.indices.contains(runner.cursor)
+        && runner.runs[runner.cursor].buyInDoneAt == nil
+      seconds = inBuyIn ? runner.activeSeconds(of: runner.cursor, at: now)
+        : runner.remaining(at: now) ?? runner.activeSeconds(of: runner.cursor, at: now)
     }
     return Text(watchTime(seconds)).font(Theme.display(76)).monospacedDigit().minimumScaleFactor(0.6)
       .foregroundStyle(runner.remaining(at: now).map { $0 <= 10 } == true ? Theme.accent : Theme.text)
@@ -162,7 +166,9 @@ struct ClassView: View {
   private func title(_ runner: PartRunner) -> String {
     if runner.plan.planKey == "open-timer" { return "OPEN TIMER" }
     switch runner.part?.kind {
-    case .amrap: return "AMRAP"
+    case .amrap:
+      guard let cap = runner.part?.capSeconds else { return "AMRAP" }
+      return "AMRAP \(cap % 60 == 0 ? String(cap / 60) : watchTime(TimeInterval(cap)))"
     case .forTime: return "FOR TIME"
     case .emom: return "EMOM"
     case .workRest: return "INTERVAL"
