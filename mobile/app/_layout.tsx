@@ -22,6 +22,7 @@ import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
 import { AccountHeaderButton } from '@/components/TabChrome';
+import { ImportCloseButton } from '@/components/ImportCloseButton';
 import { headerRightOptions } from '@/components/chrome/HeaderButton';
 import Colors, { fontFamily } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -317,7 +318,9 @@ function RootLayoutNav() {
                   >
                     <Stack.Screen name="(auth)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                    <Stack.Screen name="index" options={{ title: 'Import', ...headerRightOptions(() => <AccountHeaderButton />) }} />
+                    <Stack.Screen name="index" options={{ title: 'Import', headerBackVisible: false,
+                      headerLeft: () => <ImportCloseButton />,
+                      ...headerRightOptions(() => <AccountHeaderButton />) }} />
                     <Stack.Screen name="history" options={{ headerShown: false }} />
                     <Stack.Screen name="search" options={{ title: 'Search' }} />
                     <Stack.Screen name="pantry" options={{ headerTitle: 'My Pantry' }} />

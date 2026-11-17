@@ -17,6 +17,10 @@ describe('tab shell', () => {
     expect(readFileSync(new URL('../app/index.tsx', import.meta.url), 'utf8')).toContain('consumePendingShareCapture');
     expect(readFileSync(new URL('../app/history.tsx', import.meta.url), 'utf8')).toContain("pathname: '/(tabs)/recipes'");
   });
+  it('gives every root Import entry an exit independent of Back history', () => {
+    const root = readFileSync(new URL('../app/_layout.tsx', import.meta.url), 'utf8');
+    expect(root).toMatch(/name="index" options=\{\{[^]*?headerLeft: \(\) => <ImportCloseButton \/>/);
+  });
 });
 
 describe('tab header', () => {

@@ -10,12 +10,10 @@ export default function NotFoundScreen() {
   const colors = useColors();
   const { hasShareIntent } = useShareIntentContext();
 
-  // If we landed here due to a share intent, redirect to home immediately
-  // The share intent handler will pick up the URL there
+  // Unknown share URLs recover to Library; background intake owns the queue.
   useEffect(() => {
     if (hasShareIntent) {
-      console.log('Share intent detected on not-found, redirecting to home...');
-      router.replace('/');
+      router.replace('/(tabs)/recipes');
     }
   }, [hasShareIntent, router]);
 
@@ -34,7 +32,7 @@ export default function NotFoundScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>This screen doesn't exist.</Text>
 
-        <Link href="/" style={styles.link}>
+        <Link href="/(tabs)/recipes" style={styles.link}>
           <Text style={[styles.linkText, { color: colors.actionText }]}>Go to home screen!</Text>
         </Link>
       </View>
