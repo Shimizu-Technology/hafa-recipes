@@ -10,6 +10,14 @@ export type HafaWidgetSessionStatus = {
   requiresReconnect: boolean;
 };
 
+/** Sections folded on the widget, for the list it currently shows. */
+export type HafaWidgetCollapsedSections = {
+  listId: string | null;
+  keys: string[];
+  /** Milliseconds since 1970, or null when the widget never recorded a change. */
+  updatedAt: number | null;
+};
+
 type HafaWidgetBridgeNativeModule = {
   configureSession(token: string, apiBaseUrl: string, snapshotJson: string): Promise<void>;
   updateSnapshot(snapshotJson: string): Promise<void>;
@@ -19,6 +27,9 @@ type HafaWidgetBridgeNativeModule = {
   restorePending(owner: string): Promise<void>;
   discardPending(owner: string): Promise<void>;
   clearSession(revoke: boolean): Promise<boolean>;
+  // Added after the first widget release; older binaries lack them.
+  getCollapsedSections?(): Promise<HafaWidgetCollapsedSections>;
+  setCollapsedSections?(listId: string, keys: string[], updatedAt: number): Promise<boolean>;
 };
 
 const nativeModule =
@@ -60,5 +71,14 @@ export const HafaWidgetBridge = {
 
   async clearSession(revoke = true): Promise<boolean> {
     return (await nativeModule?.clearSession(revoke)) ?? false;
+  },
+
+  async getCollapsedSections(): Promise<HafaWidgetCollapsedSections | null> {
+    return (await nativeModule?.getCollapsedSections?.()) ?? null;
+  },
+
+  /** Returns false when the widget shows another list or none. */
+  async setCollapsedSections(listId: string, keys: string[], updatedAt: number): Promise<boolean> {
+    return (await nativeModule?.setCollapsedSections?.(listId, keys, updatedAt)) ?? false;
   },
 };

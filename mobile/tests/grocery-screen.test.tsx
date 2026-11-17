@@ -8,6 +8,7 @@ import { createRoot } from 'test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { GroceryItem } from '@/types/recipe';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -41,7 +42,18 @@ const mocks = vi.hoisted(() => ({
   focusCallback: vi.fn() as () => void,
   routerPush: vi.fn(),
   routerSetParams: vi.fn(),
+  configureNext: vi.fn(),
+  toggleItem: vi.fn(),
+  toast: vi.fn(),
+  reduceMotion: false,
+  widgetCollapsed: null as null | { listId: string | null; keys: string[]; updatedAt: number | null },
+  setWidgetCollapsed: vi.fn(async () => true),
 }));
+vi.mock('@/lib/toast', () => ({ showToast: mocks.toast }));
+vi.mock('hafa-widget-bridge', () => ({ HafaWidgetBridge: {
+  getCollapsedSections: async () => mocks.widgetCollapsed,
+  setCollapsedSections: mocks.setWidgetCollapsed,
+} }));
 
 function host(name: string) {
   return (props: Record<string, unknown>) =>
@@ -57,6 +69,9 @@ vi.mock('react-native', () => ({
   Alert: { alert: mocks.alert },
   ActionSheetIOS: { showActionSheetWithOptions: (options: any, callback: any) => mocks.alert('Actions', undefined, options.options.map((text: string, index: number) => ({ text, onPress: () => callback(index) }))) },
   Keyboard: { dismiss: vi.fn() },
+  AppState: { addEventListener: () => ({ remove: vi.fn() }) },
+  AccessibilityInfo: { addEventListener: () => ({ remove: vi.fn() }), isReduceMotionEnabled: async () => mocks.reduceMotion },
+  LayoutAnimation: { create: () => ({}), configureNext: mocks.configureNext, Types: {}, Properties: {} },
   Platform: { OS: 'ios' },
   RefreshControl: host('RefreshControl'),
   SectionList: ({
@@ -94,6 +109,7 @@ vi.mock('react-native', () => ({
 }));
 
 vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.headerSearchBarOptions ? React.createElement('NativeSearch', props.options.headerSearchBarOptions) : null, props.options?.title ? React.createElement('Text', null, props.options.title) : null) },
+  // The screen registers its own focus callback after the collapse hook's.
   useFocusEffect: (callback: () => void) => { mocks.focusCallback = callback; },
   useLocalSearchParams: () => ({}),
   useRouter: () => ({ push: mocks.routerPush, setParams: mocks.routerSetParams }),
@@ -165,20 +181,6 @@ vi.mock('@/lib/groceryFilters', () => ({
       : [...items];
   },
 }));
-vi.mock('@/lib/grocerySections', () => ({
-  OTHER_GROCERY_SECTION_KEY: 'other-items',
-  groupGroceryItems: (items: GroceryItem[]) => {
-    if (items.length === 0) return [];
-    return [{
-      key: 'recipe:recipe-1',
-      title: 'Chicken Kelaguen',
-      recipeId: 'recipe-1',
-      data: items,
-      checkedCount: items.filter((entry) => entry.checked).length,
-      totalCount: items.length,
-    }];
-  },
-}));
 vi.mock('@/lib/routes', () => ({
   appRoutes: {
     discover: '/(tabs)/discover',
@@ -226,10 +228,10 @@ vi.mock('@/hooks/useGrocery', () => ({
       refetch: mocks.refetch,
     };
   },
-  useGroceryListInfo: () => ({ data: mocks.listInfoState }),
+  useGroceryListInfo: () => ({ data: { id: 'list-1', ...mocks.listInfoState } }),
   usePendingGrocerySync: () => ({ data: mocks.queued }),
   useGrocerySync: () => ({ lastSyncResult: null, clearSyncResult: vi.fn() }),
-  useToggleGroceryItem: mutation,
+  useToggleGroceryItem: () => ({ ...mutation(), mutate: mocks.toggleItem }),
   useUpdateGroceryItem: mutation,
 }));
 
@@ -680,4 +682,188 @@ describe('GroceryScreen shopping views', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 
+});
+
+describe('GroceryScreen collapsible recipe sections', () => {
+  const checkboxes = (renderer: ReturnType<typeof createRoot>) => renderer.container.queryAll(
+    (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox',
+  );
+  const header = (renderer: ReturnType<typeof createRoot>, key: string) => renderer.container.queryAll(
+    (instance) => instance.type === 'GrocerySectionHeader' && instance.props.section.key === key,
+  )[0];
+  const button = (renderer: ReturnType<typeof createRoot>, label: string) => renderer.container.queryAll(
+    (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityLabel === label,
+  )[0];
+
+  beforeEach(() => {
+    mocks.authState.isLoaded = true;
+    mocks.authState.isSignedIn = true;
+    mocks.listInfoState.is_shared = false;
+    mocks.collapsedSections = '[]';
+    mocks.widgetCollapsed = null;
+    mocks.reduceMotion = false;
+    mocks.setWidgetCollapsed.mockClear();
+    mocks.configureNext.mockClear();
+    vi.mocked(AsyncStorage.setItem).mockClear();
+    mocks.groceryState.items = [
+      item({ id: 'lemons', name: 'Lemons' }),
+      item({ id: 'coconut', name: 'Coconut' }),
+      item({ id: 'pork', name: 'Pork belly', recipe_id: 'recipe-2', recipe_title: 'Adobo' }),
+      item({ id: 'rice', name: 'Rice', recipe_id: null, recipe_title: null }),
+    ];
+  });
+
+  it('folds a recipe with one tap, saves it for this list and tells the widget', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(checkboxes(renderer)).toHaveLength(4);
+
+      await act(async () => header(renderer, 'recipe:recipe-1').props.onToggle());
+      expect(checkboxes(renderer)).toHaveLength(2);
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
+      expect(mocks.configureNext).toHaveBeenCalledOnce();
+      const [storageKey, stored] = vi.mocked(AsyncStorage.setItem).mock.calls.at(-1)!;
+      expect(storageKey).toBe('grocery_collapsed_sections:v2:list-1');
+      expect(JSON.parse(stored).keys).toEqual(['recipe:recipe-1']);
+      expect(mocks.setWidgetCollapsed).toHaveBeenLastCalledWith('list-1', ['recipe:recipe-1'], expect.any(Number));
+
+      await act(async () => header(renderer, 'recipe:recipe-1').props.onToggle());
+      expect(checkboxes(renderer)).toHaveLength(4);
+      expect(mocks.setWidgetCollapsed).toHaveBeenLastCalledWith('list-1', [], expect.any(Number));
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('shows section counts from the whole list while To buy hides checked items', async () => {
+    mocks.groceryState.items = [...mocks.groceryState.items!, item({ id: 'garlic', name: 'Garlic', checked: true })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      const section = header(renderer, 'recipe:recipe-1').props.section;
+      expect(section.totalCount).toBe(3);
+      expect(section.checkedCount).toBe(1);
+      expect(checkboxes(renderer)).toHaveLength(4);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('adopts a newer fold made on the widget for the same list', async () => {
+    mocks.collapsedSections = JSON.stringify({ keys: [], updatedAt: 1 });
+    mocks.widgetCollapsed = { listId: 'list-1', keys: ['recipe:recipe-2'], updatedAt: 5 };
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(header(renderer, 'recipe:recipe-2').props.isCollapsed).toBe(true);
+      expect(checkboxes(renderer)).toHaveLength(3);
+      expect(mocks.setWidgetCollapsed).not.toHaveBeenCalled();
+      // No fold animation for a change made elsewhere.
+      expect(mocks.configureNext).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps its own fold and updates a widget that is behind or another list', async () => {
+    mocks.collapsedSections = JSON.stringify({ keys: ['recipe:recipe-1'], updatedAt: 9 });
+    mocks.widgetCollapsed = { listId: 'list-1', keys: [], updatedAt: null };
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
+      expect(mocks.setWidgetCollapsed).toHaveBeenCalledWith('list-1', ['recipe:recipe-1'], 9);
+
+      mocks.setWidgetCollapsed.mockClear();
+      mocks.widgetCollapsed = { listId: 'list-from-another-account', keys: ['recipe:recipe-2'], updatedAt: 99 };
+      await act(async () => mocks.focusCallback());
+      expect(header(renderer, 'recipe:recipe-2').props.isCollapsed).toBe(false);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('collapses and expands every section from the summary row', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(renderedText(renderer)).toContain('4 items left');
+      await act(async () => button(renderer, 'Collapse all recipes').props.onPress());
+      expect(checkboxes(renderer)).toHaveLength(0);
+      expect(header(renderer, 'other-items').props.isCollapsed).toBe(true);
+
+      await act(async () => button(renderer, 'Expand all recipes').props.onPress());
+      expect(checkboxes(renderer)).toHaveLength(4);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('skips the fold animation when Reduce Motion is on', async () => {
+    mocks.reduceMotion = true;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      await act(async () => header(renderer, 'recipe:recipe-1').props.onToggle());
+      expect(mocks.configureNext).not.toHaveBeenCalled();
+      expect(checkboxes(renderer)).toHaveLength(2);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('unfolds "Other" when adding an item so it appears', async () => {
+    mocks.collapsedSections = JSON.stringify({ keys: ['other-items'], updatedAt: 1 });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(header(renderer, 'other-items').props.isCollapsed).toBe(true);
+      await act(async () => renderer.container.queryAll(n => n.type === 'TextInput')[0].props.onChangeText('Eggs'));
+      await act(async () => renderer.container.queryAll(n => n.type === 'TextInput')[0].props.onSubmitEditing());
+      expect(header(renderer, 'other-items').props.isCollapsed).toBe(false);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('offers Undo after checking off an item that To buy then hides', async () => {
+    mocks.toggleItem.mockReset();
+    mocks.toast.mockReset();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      await act(async () => checkboxes(renderer)[0].props.onPress());
+      const [variables, callbacks] = mocks.toggleItem.mock.calls[0];
+      expect(variables).toEqual({ id: 'pork', checked: true });
+      await act(async () => callbacks.onSuccess());
+      const toast = mocks.toast.mock.calls[0][0];
+      expect(toast).toMatchObject({ message: 'Checked off Pork belly', actionLabel: 'Undo' });
+
+      await act(async () => toast.onAction());
+      const [undo, undoCallbacks] = mocks.toggleItem.mock.calls[1];
+      expect(undo).toEqual({ id: 'pork', checked: false });
+      await act(async () => undoCallbacks.onSuccess());
+      expect(mocks.toast).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('shows hand-added items as a plain list with no "Other" header or fold control', async () => {
+    mocks.collapsedSections = JSON.stringify({ keys: ['other-items'], updatedAt: 1 });
+    mocks.groceryState.items = [
+      item({ id: 'rice', name: 'Rice', recipe_id: null, recipe_title: null }),
+      item({ id: 'eggs', name: 'Eggs', recipe_id: null, recipe_title: null }),
+    ];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(renderer.container.queryAll((instance) => instance.type === 'GrocerySectionHeader')).toHaveLength(0);
+      expect(checkboxes(renderer)).toHaveLength(2);
+      expect(button(renderer, 'Collapse all recipes')).toBeUndefined();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
 });

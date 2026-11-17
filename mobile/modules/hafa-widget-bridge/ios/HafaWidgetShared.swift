@@ -150,7 +150,11 @@ struct HafaWidgetState: Codable, Hashable {
   // Section-aware paging and collapse state are optional for compatibility
   // with snapshots written by older app and widget versions.
   var pageIndices: [String: Int]?
+  /// Sections folded in the app or on the widget, for the snapshot's list.
   var collapsedSectionKeys: [String]?
+  /// When the fold last changed, in milliseconds since 1970, so the app and
+  /// the widget can keep whichever change is newer.
+  var collapsedSectionsUpdatedAt: Double?
   // Interactive timeline reloads should render the state that was just written
   // to the app-group container instead of blocking on another network request.
   // The short expiry keeps scheduled timeline refreshes server-backed.
@@ -163,11 +167,17 @@ struct HafaWidgetState: Codable, Hashable {
     case pageOffsets = "page_offsets"
     case pageIndices = "page_indices"
     case collapsedSectionKeys = "collapsed_section_keys"
+    case collapsedSectionsUpdatedAt = "collapsed_sections_updated_at"
     case timelineCacheValidUntil = "timeline_cache_valid_until"
     case apiBaseURL = "api_base_url"
     case accountScopeID = "account_scope_id"
     case lastError = "last_error"
     case requiresReconnect = "requires_reconnect"
+  }
+
+  /// Keys left by the retired paging widget carry no time and are ignored.
+  var currentCollapsedSectionKeys: [String] {
+    collapsedSectionsUpdatedAt == nil ? [] : collapsedSectionKeys ?? []
   }
 
   mutating func markTimelineCacheFresh(now: Date = Date()) {
@@ -345,6 +355,7 @@ final class HafaWidgetStore {
         state.pageOffsets = nil
         state.pageIndices = nil
         state.collapsedSectionKeys = nil
+        state.collapsedSectionsUpdatedAt = nil
       }
       state.snapshot = merging(snapshot, into: state)
       state.lastError = nil
@@ -363,6 +374,7 @@ final class HafaWidgetStore {
         state.pageOffsets = nil
         state.pageIndices = nil
         state.collapsedSectionKeys = nil
+        state.collapsedSectionsUpdatedAt = nil
         state.accountScopeID = nil
         state.apiBaseURL = nil
         state.requiresReconnect = true
@@ -382,6 +394,39 @@ final class HafaWidgetStore {
     }
     if scopeChanged {
       try? HafaWidgetCredentialStore.shared.delete()
+    }
+  }
+
+  /// Records the app's fold for the list the widget shows. A newer fold made
+  /// on the widget is kept; the app adopts it on its next foreground instead.
+  @discardableResult
+  func setCollapsedSections(listID: String, keys: [String], updatedAt: Double) throws -> Bool {
+    try mutateState { state in
+      guard state.snapshot?.list.id == listID else { return false }
+      if let current = state.collapsedSectionsUpdatedAt, current > updatedAt { return false }
+      state.collapsedSectionKeys = keys
+      state.collapsedSectionsUpdatedAt = updatedAt
+      state.markTimelineCacheFresh()
+      return true
+    }
+  }
+
+  /// Folds or unfolds one section from the widget.
+  @discardableResult
+  func toggleCollapsedSection(listID: String, key: String, now: Date = Date()) throws -> Bool {
+    try mutateState { state in
+      guard state.snapshot?.list.id == listID else { return false }
+      var keys = state.currentCollapsedSectionKeys
+      if let index = keys.firstIndex(of: key) {
+        keys.remove(at: index)
+      } else {
+        keys.append(key)
+      }
+      state.collapsedSectionKeys = keys
+      state.collapsedSectionsUpdatedAt = now.timeIntervalSince1970 * 1000
+      // Redraw from this file instead of waiting on the network.
+      state.markTimelineCacheFresh(now: now)
+      return true
     }
   }
 
@@ -442,6 +487,7 @@ final class HafaWidgetStore {
         state.pageOffsets = nil
         state.pageIndices = nil
         state.collapsedSectionKeys = nil
+        state.collapsedSectionsUpdatedAt = nil
         state.accountScopeID = nil
         state.apiBaseURL = nil
       }

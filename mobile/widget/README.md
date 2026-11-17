@@ -11,13 +11,17 @@ EAS builds.
   deep-reef accent, 1pt hairlines and Figtree, which the config plugin copies
   from `@expo-google-fonts/figtree` into the extension at prebuild.
 - Small: items left, plus a preview of the next few. Tapping opens the list.
-- Medium/large: what is left to buy comes first, in the app's recipe order.
-  Large adds recipe headers like the app's sections. Tapping anywhere on a row
+- Medium/large: what is left to buy comes first, in the app's recipe order,
+  under recipe headers like the app's sections. Tapping anywhere on a row
   checks it off (iOS 17 App Intent); the next item moves up into view.
   Checked items only fill leftover space, newest first, so a mistaken tap can
   be undone. When the list is longer than the widget, large ends with "N more on
-  your list", which opens the app. There is no paging or collapsing: the
-  layout in `HafaWidgetListLayout.swift` sizes the list to the space.
+  your list", which opens the app. There is no paging: the layout in
+  `HafaWidgetListLayout.swift` sizes the list to the space.
+- Folding: tapping a recipe header folds or unfolds its items
+  (`ToggleGrocerySectionIntent`). A folded group shows its name, a chevron and
+  how many items are left, and frees its rows for the next group. A list of
+  only hand-added items has no headers and cannot fold, in the app or here.
 - Add: opens `hafarecipes://grocery?focusAdd=1` and focuses the app's text input.
   WidgetKit does not provide free-form text entry inside a home-screen widget.
   Editing and deleting stay in the app.
@@ -37,6 +41,15 @@ The extension never receives a Clerk token. The signed-in app provisions a
 grocery list and set an item's desired checked state. The bearer is stored in a
 dedicated shared Keychain access group; the grocery snapshot and mutation queue
 live in the existing app-group container.
+
+Folded groups are display state, not list data. They never reach the server.
+The app and the widget share one copy in the app-group state file
+(`collapsed_section_keys` plus `collapsed_sections_updated_at`), scoped to the
+snapshot's list and cleared with it on an account or list change. The widget
+writes it when a header is tapped. The app also saves its own copy per list,
+publishes each change, and compares copies when it returns to the foreground;
+the newer change wins. Keys without a time were left by the retired paging
+widget and are ignored.
 
 Widget check-off is durable and replay-safe:
 

@@ -26,7 +26,9 @@ func item(
 func describe(_ layout: HafaWidgetListLayout) -> [String] {
   layout.rows.map { row in
     switch row {
-    case let .header(_, title): return "# \(title)"
+    case let .header(header):
+      guard header.isCollapsible else { return "# \(header.title)" }
+      return "\(header.isCollapsed ? ">" : "v") \(header.title) (\(header.remaining))"
     case let .item(item): return item.checked ? "x \(item.id)" : "o \(item.id)"
     }
   }
@@ -52,7 +54,7 @@ let leonsList = [
 ]
 expect(
   describe(.make(items: leonsList, availableHeight: 300, metrics: large, showsHeaders: true)),
-  ["# Lasagna My Way", "o Tony's seasoning", "o cumin", "# Other", "o onion",
+  ["v Lasagna My Way (2)", "o Tony's seasoning", "o cumin", "v Other (1)", "o onion",
    "# Checked", "x mozzarella", "x Eggplant", "x garlic powder"],
   "unchecked first, grouped like the app, checked newest first"
 )
@@ -83,7 +85,7 @@ let tight = HafaWidgetListLayout.make(
   metrics: large,
   showsHeaders: true
 )
-expect(describe(tight), ["# Adobo", "o a"], "no orphaned header")
+expect(describe(tight), ["v Adobo (1)", "o a"], "no orphaned header")
 precondition(tight.hiddenUncheckedCount == 1)
 
 // A lone "Other" group needs no header.
@@ -108,5 +110,99 @@ precondition(HafaWidgetListLayout.preview(items: leonsList, limit: 3).map(\.id) 
 precondition(item("x", quantity: "2", unit: "cups").amountText == "2 cups")
 precondition(item("x", quantity: " ", unit: nil).amountText == nil)
 precondition(item("x", quantity: "3", unit: "null").amountText == "3")
+
+// Folding: a folded group keeps its header and count, frees its rows for the
+// next group, and is not counted as hidden by the "more" line.
+let folded = HafaWidgetListLayout.make(
+  items: leonsList,
+  collapsedKeys: ["recipe:id-Lasagna My Way"],
+  availableHeight: 300,
+  metrics: large,
+  showsHeaders: true
+)
+expect(
+  describe(folded),
+  ["> Lasagna My Way (2)", "v Other (1)", "o onion", "# Checked", "x mozzarella", "x Eggplant", "x garlic powder"],
+  "folded group shows only its header"
+)
+precondition(folded.hiddenUncheckedCount == 0)
+
+// Medium groups too, so a group folded anywhere reads the same in medium.
+let foldedLong = (1...12).map { item("a\($0)", recipe: "Adobo") } + [item("b1", recipe: "Kelaguen"), item("b2", recipe: "Kelaguen")]
+expect(
+  describe(.make(items: foldedLong, collapsedKeys: ["recipe:id-Adobo"], availableHeight: 104, metrics: medium, showsHeaders: true)),
+  ["> Adobo (12)", "v Kelaguen (2)", "o b1", "o b2"],
+  "medium shows the folded group's count and the next group's items"
+)
+let unfoldedMedium = HafaWidgetListLayout.make(items: foldedLong, availableHeight: 104, metrics: medium, showsHeaders: true)
+expect(describe(unfoldedMedium), ["v Adobo (12)", "o a1", "o a2", "o a3"], "medium unfolded fills with the first group")
+precondition(unfoldedMedium.hiddenUncheckedCount == 11)
+
+// When every group is folded, recent checks still fill the space for undo.
+let allFolded = HafaWidgetListLayout.make(
+  items: leonsList,
+  collapsedKeys: ["recipe:id-Lasagna My Way", "other-items"],
+  availableHeight: 300,
+  metrics: large,
+  showsHeaders: true
+)
+expect(Array(describe(allFolded).prefix(3)), ["> Lasagna My Way (2)", "> Other (1)", "# Checked"], "all folded")
+
+// A lone "Other" list has no header, so a stale fold cannot hide it.
+expect(
+  describe(.make(items: [item("rice")], collapsedKeys: ["other-items"], availableHeight: 300, metrics: large, showsHeaders: true)),
+  ["o rice"],
+  "ungrouped items ignore a fold"
+)
+
+// A folded header that does not fit counts its items as hidden.
+let noRoom = HafaWidgetListLayout.make(
+  items: [item("a", recipe: "Adobo"), item("b", recipe: "Kelaguen")],
+  collapsedKeys: ["recipe:id-Kelaguen"],
+  availableHeight: 24 + 30 + 20,
+  metrics: HafaWidgetRowMetrics(item: 30, header: 24, overflow: nil),
+  showsHeaders: true
+)
+expect(describe(noRoom), ["v Adobo (1)", "o a"], "folded header needs room too")
+precondition(noRoom.hiddenUncheckedCount == 1)
+
+// Too short for a header and an item: plain rows instead of an empty widget.
+expect(
+  describe(.make(items: foldedLong, availableHeight: 60, metrics: HafaWidgetRowMetrics(item: 40, header: 45, overflow: nil), showsHeaders: true)),
+  ["o a1"],
+  "header-less fallback at the largest sizes"
+)
+
+// Store: the widget toggles a fold for its own list only, records when, and
+// an older app copy never overwrites a newer widget fold.
+let storeDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+try! FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: storeDirectory) }
+let store = HafaWidgetStore(directory: storeDirectory)
+let storeSnapshot = HafaWidgetSnapshot(
+  accountScopeID: "scope",
+  list: HafaWidgetList(id: "list-1", name: "Grocery List", isShared: false, revision: 1, createdAt: "", updatedAt: ""),
+  items: leonsList, total: leonsList.count, unchecked: 3, checked: 3, serverTime: ""
+)
+try! store.mutateState { state in
+  state.snapshot = storeSnapshot
+  // Left by the retired paging widget, without a time.
+  state.collapsedSectionKeys = ["recipe:id-Old"]
+}
+precondition(try! store.readState().currentCollapsedSectionKeys.isEmpty, "untimed keys are ignored")
+precondition(try! store.toggleCollapsedSection(listID: "other-list", key: "other-items") == false)
+let foldTime = Date(timeIntervalSince1970: 1_000)
+precondition(try! store.toggleCollapsedSection(listID: "list-1", key: "recipe:id-Lasagna My Way", now: foldTime))
+var foldState = try! store.readState()
+precondition(foldState.currentCollapsedSectionKeys == ["recipe:id-Lasagna My Way"])
+precondition(foldState.collapsedSectionsUpdatedAt == 1_000_000)
+precondition(foldState.shouldUseCachedTimeline(at: foldTime), "a fold redraws from the cache")
+precondition(try! store.setCollapsedSections(listID: "list-1", keys: [], updatedAt: 999_999) == false, "older app copy is ignored")
+precondition(try! store.setCollapsedSections(listID: "list-1", keys: ["other-items"], updatedAt: 1_000_001))
+precondition(try! store.setCollapsedSections(listID: "other-list", keys: [], updatedAt: 2_000_000) == false)
+foldState = try! store.readState()
+precondition(foldState.currentCollapsedSectionKeys == ["other-items"])
+precondition(try! store.toggleCollapsedSection(listID: "list-1", key: "other-items", now: Date(timeIntervalSince1970: 1_001)))
+precondition(try! store.readState().currentCollapsedSectionKeys.isEmpty)
 
 print("Grocery widget layout fixtures passed")

@@ -35,6 +35,13 @@ The server locks the grocery-list row, checks for a prior receipt, applies the o
 
 The response includes `replayed` and the full post-mutation snapshot. Clients replace their local cache with that snapshot before removing the queue entry.
 
+## Device-only display state
+
+Which recipe groups are folded on the Grocery tab and the home-screen widget is
+device-local display state. It is never sent to the API, never part of a
+snapshot, and never affects the list revision. The app and widget share it
+through the app group as described in `mobile/widget/README.md`.
+
 ## Compatibility
 
 The original grocery endpoints remain available for old mobile versions. Their item writes now acquire the same list lock and increment the same revision. The legacy toggle endpoint remains non-idempotent and must not be used by the new offline queue or widget.

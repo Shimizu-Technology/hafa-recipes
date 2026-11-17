@@ -25,15 +25,17 @@ import {
   Share,
   ActivityIndicator,
   ActionSheetIOS,
+  LayoutAnimation,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { useAuth } from '@clerk/expo';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { usePantrySnapshot, useTransferGroceriesToPantry } from '@/hooks/usePantry';
+import { useGroceryCollapse } from '@/hooks/useGroceryCollapse';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
@@ -58,7 +60,6 @@ import { GroceryItem } from '@/types/recipe';
 import { layout, spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
-import { Chip } from '@/components/chrome/Chips';
 import { HeaderIconButton, headerRightOptions } from '@/components/chrome/HeaderButton';
 import { SegmentedControl } from '@/components/chrome/SegmentedControl';
 import { AccountHeaderButton } from '@/components/TabChrome';
@@ -69,16 +70,19 @@ import {
   GrocerySection,
   groupGroceryItems,
   OTHER_GROCERY_SECTION_KEY,
+  OTHER_GROCERY_SECTION_TITLE,
 } from '@/lib/grocerySections';
 import { appRoutes } from '@/lib/routes';
 import { filterGroceryItems } from '@/lib/groceryFilters';
+import { showsSectionHeaders } from '@/lib/groceryCollapse';
 import {
   hasStatedIngredientAmount,
   MISSING_AMOUNT_LABEL,
   normalizeIngredientUnit,
 } from '@/lib/recipeTrust';
 
-const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
+/** A quick fold that settles before the next tap; Reduce Motion skips it. */
+const SECTION_FOLD_ANIMATION = LayoutAnimation.create(200, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity);
 
 function GroceryItemRow({
   item,
@@ -158,6 +162,9 @@ export default function GroceryScreen() {
 
 function GroceryScreenContent() {
   const { fontScale } = useWindowDimensions();
+  // At accessibility text sizes the view switch and Pantry get their own rows
+  // so neither squeezes the other.
+  const stackToolbar = fontScale * useContext(TextScaleContext) >= 1.35;
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const endPadding = useTabScrollEndPadding(spacing.xl);
@@ -180,7 +187,6 @@ function GroceryScreenContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showChecked, setShowChecked] = useState(false);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
   const [overflowActions, setOverflowActions] = useState<{ text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] | null>(null);
 
@@ -224,6 +230,8 @@ function GroceryScreenContent() {
   const transferredIds = new Set(pantry.data?.transferred_grocery_item_ids ?? []);
   const readyForPantry = (allGroceryItems ?? []).filter((item) => item.checked && !transferredIds.has(item.id));
   const isSharedList = listInfo?.is_shared === true;
+  const collapse = useGroceryCollapse(listInfo?.id);
+  const reduceMotion = useReduceMotion();
 
   // Shared lists may change elsewhere. Quietly revalidate only after the
   // cached snapshot has aged; tab switches should never trigger pull UI.
@@ -280,30 +288,6 @@ function GroceryScreenContent() {
     showChecked,
   ]);
 
-  // Load collapsed sections from AsyncStorage on mount
-  useEffect(() => {
-    const loadCollapsedSections = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(COLLAPSED_SECTIONS_KEY);
-        if (stored) {
-          setCollapsedSections(new Set(JSON.parse(stored)));
-        }
-      } catch (error) {
-        console.warn('Failed to load collapsed sections:', error);
-      }
-    };
-    loadCollapsedSections();
-  }, []);
-
-  // Save collapsed sections to AsyncStorage
-  const saveCollapsedSections = async (sections: Set<string>) => {
-    try {
-      await AsyncStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify([...sections]));
-    } catch (error) {
-      console.warn('Failed to save collapsed sections:', error);
-    }
-  };
-
   const normalizedSearchQuery = searchQuery.trim();
   const isSearching = normalizedSearchQuery.length > 0;
   const visibleItems = useMemo(
@@ -312,36 +296,50 @@ function GroceryScreenContent() {
   );
   const sections = useMemo(() => groupGroceryItems(visibleItems), [visibleItems]);
   const fullSections = useMemo(() => groupGroceryItems(allGroceryItems ?? groceryItems ?? []), [allGroceryItems, groceryItems]);
-
-  // Title lookup keeps collapse choices saved by older app versions working.
+  const showHeaders = showsSectionHeaders(sections);
+  // Searching shows every match, so folding pauses until the search clears.
+  const canCollapse = showHeaders && !isSearching;
   const isSectionCollapsed = useCallback(
-    (section: GrocerySection) =>
-      !isSearching
-      && (collapsedSections.has(section.key) || collapsedSections.has(section.title)),
-    [collapsedSections, isSearching],
+    (section: GrocerySection) => canCollapse && collapse.isCollapsed(section),
+    [canCollapse, collapse],
   );
+  // A folded section keeps its header and hands the list no rows.
+  const shownSections = useMemo(
+    () => sections.map(section => isSectionCollapsed(section) ? { ...section, data: [] } : section),
+    [isSectionCollapsed, sections],
+  );
+  const anyExpanded = canCollapse && sections.some(section => !isSectionCollapsed(section));
 
+  const animateFold = () => {
+    if (!reduceMotion) LayoutAnimation.configureNext(SECTION_FOLD_ANIMATION);
+  };
   const toggleSection = (section: GrocerySection) => {
     haptics.light();
-    setCollapsedSections(prev => {
-      const next = new Set(prev);
-      if (next.has(section.key) || next.has(section.title)) {
-        next.delete(section.key);
-        next.delete(section.title);
-      } else {
-        next.add(section.key);
-      }
-      saveCollapsedSections(next);
-      return next;
-    });
+    animateFold();
+    collapse.toggle(section);
+  };
+  const setAllSectionsCollapsed = (collapsed: boolean) => {
+    haptics.light();
+    animateFold();
+    collapse.setAll(sections, collapsed);
   };
 
   const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);
   
-  const handleToggle = (item: GroceryItem) => {
+  const handleToggle = (item: GroceryItem, undoable = true) => {
     toggleMutation.mutate(
       { id: item.id, checked: !item.checked },
-      { onSuccess: () => haptics.light(), onError: () => Alert.alert('Couldn’t update item', 'Your change wasn’t saved. Please try again.') },
+      {
+        onSuccess: () => {
+          haptics.light();
+          // To buy hides a checked row at once, so offer the way back that the
+          // widget gives with its recently checked rows.
+          if (undoable && !item.checked && !showChecked) {
+            showToast({ message: `Checked off ${item.name}`, actionLabel: 'Undo', onAction: () => handleToggle({ ...item, checked: true }, false) });
+          }
+        },
+        onError: () => Alert.alert('Couldn’t update item', 'Your change wasn’t saved. Please try again.'),
+      },
     );
   };
 
@@ -459,19 +457,9 @@ function GroceryScreenContent() {
     if (!newItemName.trim() || addItemMutation.isPending) return;
     
     
-    // Auto-expand "Other Items" section since that's where new items go
-    if (
-      collapsedSections.has(OTHER_GROCERY_SECTION_KEY) ||
-      collapsedSections.has('Other Items')
-    ) {
-      setCollapsedSections(prev => {
-        const next = new Set(prev);
-        next.delete(OTHER_GROCERY_SECTION_KEY);
-        next.delete('Other Items');
-        saveCollapsedSections(next);
-        return next;
-      });
-    }
+    // New items land in "Other", so unfold it to show them arriving.
+    const otherSection = { key: OTHER_GROCERY_SECTION_KEY, title: OTHER_GROCERY_SECTION_TITLE };
+    if (collapse.isCollapsed(otherSection)) collapse.setAll([otherSection], false);
     
     addItemMutation.mutate(
       { name: newItemName.trim() },
@@ -566,14 +554,11 @@ function GroceryScreenContent() {
   };
 
   const renderItem = ({ item, index, section }: { item: GroceryItem; index: number; section: GrocerySection }) => {
-    // Don't render if section is collapsed
-    if (isSectionCollapsed(section)) {
-      return null;
-    }
-
+    const firstOfSheet = !showHeaders && index === 0 && section.key === shownSections[0]?.key;
+    const lastOfSheet = index === section.data.length - 1 && section.key === shownSections[shownSections.length - 1]?.key;
     return (
-      // Every section shares one sheet; only the list's very last row rounds the bottom.
-      <RNView style={{ overflow: 'hidden', ...(index === section.data.length - 1 && section === sections[sections.length - 1] ? { borderBottomLeftRadius: 16, borderBottomRightRadius: 16 } : null) }}>
+      // Every section shares one sheet; only its outermost rows round their corners.
+      <RNView style={{ overflow: 'hidden', ...(firstOfSheet ? { borderTopLeftRadius: 16, borderTopRightRadius: 16 } : null), ...(lastOfSheet ? { borderBottomLeftRadius: 16, borderBottomRightRadius: 16 } : null) }}>
       <GroceryItemRow
         item={item}
         colors={colors}
@@ -590,15 +575,16 @@ function GroceryScreenContent() {
   };
 
   const renderSectionHeader = ({ section }: { section: GrocerySection }) => {
+    if (!showHeaders) return null;
     const fullSection = fullSections.find(candidate => candidate.key === section.key) ?? section;
     return <GrocerySectionHeader
       onShowMenu={setOverflowActions}
       section={fullSection}
       isCollapsed={isSectionCollapsed(section)}
-      isCollapsible={!isSearching}
+      isCollapsible={canCollapse}
       onToggle={() => toggleSection(section)}
-      first={section === sections[0]}
-      last={section === sections[sections.length - 1]}
+      first={section.key === shownSections[0]?.key}
+      last={section.key === shownSections[shownSections.length - 1]?.key}
       onOpenRecipe={(recipeId) => router.push(appRoutes.recipe(recipeId))}
       onClearSection={section.recipeId ? () => handleClearRecipeSection(fullSection) : undefined}
     />;
@@ -803,17 +789,31 @@ function GroceryScreenContent() {
         </Text>}
 
         {/* Focus the shopping view while keeping completed items close by. */}
-        <RNView style={styles.viewRow}>
-          {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && <RNView style={{ flex: 1 }}>
+        <RNView style={[styles.viewRow, stackToolbar && styles.viewRowStacked]}>
+          {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && <RNView style={stackToolbar ? undefined : { flex: 1 }}>
             <SegmentedControl accessibilityLabel="Grocery view" value={showChecked ? 'all' : 'toBuy'} onChange={value => setShowChecked(value === 'all')}
               options={[{ value: 'toBuy', label: 'To buy' }, { value: 'all', label: 'All' }]} />
           </RNView>}
-          <Chip label="Pantry" icon="basket-outline" onPress={() => router.push(appRoutes.pantry)} accessibilityLabel="Open my pantry" />
+          {/* Same height, fill and corners as the view switch beside it. */}
+          <TouchableOpacity onPress={() => router.push(appRoutes.pantry)} accessibilityRole="button" accessibilityLabel="Open my pantry" style={styles.toolbarTarget}>
+            <RNView style={[styles.toolbarButton, stackToolbar && styles.toolbarButtonStacked, { backgroundColor: colors.surface2 }]}>
+              <Ionicons name="basket-outline" size={17} color={colors.textSecondary} />
+              <Text numberOfLines={1} style={[styles.toolbarLabel, { color: colors.text }]}>Pantry</Text>
+            </RNView>
+          </TouchableOpacity>
         </RNView>
+
+        {(groceryItems?.length ?? 0) > 0 && <RNView style={styles.summaryRow}>
+          <Text style={[styles.summaryText, { color: colors.textSecondary }]}>{isSearching ? `${visibleItems.length} match${visibleItems.length === 1 ? '' : 'es'}` : getSubtitleText()}</Text>
+          {canCollapse && sections.length > 1 && <TouchableOpacity onPress={() => setAllSectionsCollapsed(anyExpanded)} accessibilityRole="button"
+            accessibilityLabel={anyExpanded ? 'Collapse all recipes' : 'Expand all recipes'} style={styles.summaryAction}>
+            <Text style={[styles.summaryActionText, { color: colors.actionText }]}>{anyExpanded ? 'Collapse all' : 'Expand all'}</Text>
+          </TouchableOpacity>}
+        </RNView>}
           </>
         )}
       </RNView>}
-        sections={isAuthenticated ? sections : []}
+        sections={isAuthenticated ? shownSections : []}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
@@ -886,8 +886,9 @@ function GroceryScreenContent() {
 
 const styles = StyleSheet.create({
   pantryLink: {
-    minHeight: 44,
-    borderRadius: radius.md,
+    minHeight: 48,
+    // Matches the grocery sheet above it.
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -912,6 +913,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 8,
   },
+  // 44pt target around the 36pt control, like the segmented track.
+  toolbarTarget: { minHeight: 44, marginVertical: -4, justifyContent: 'center' },
+  toolbarButton: { minHeight: 36, borderRadius: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  viewRowStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 12 },
+  toolbarButtonStacked: { justifyContent: 'center', paddingVertical: 6 },
+  toolbarLabel: { fontSize: 15, lineHeight: 20, fontWeight: '600' },
+  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', columnGap: 12, marginTop: 12, marginBottom: -8, paddingLeft: 4 },
+  summaryText: { fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  summaryAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  summaryActionText: { fontSize: 15, lineHeight: 20, fontWeight: '600' },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -95,7 +95,11 @@ struct HafaGroceryWidget: Widget {
 
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: kind, provider: HafaGroceryWidgetProvider()) { entry in
+      // Capped outside the view so its @ScaledMetric row heights see the same
+      // text size as its text. Inside the body they read the uncapped size and
+      // left no room for rows at the largest sizes.
       HafaGroceryWidgetView(entry: entry)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .containerBackground(for: .widget) {
           HafaWidgetBackground()
         }
@@ -119,7 +123,8 @@ private struct HafaGroceryWidgetView: View {
   @Environment(\.widgetRenderingMode) private var widgetRenderingMode
   @ScaledMetric(relativeTo: .subheadline) private var largeItemHeight: CGFloat = 30
   @ScaledMetric(relativeTo: .subheadline) private var mediumItemHeight: CGFloat = 25
-  @ScaledMetric(relativeTo: .footnote) private var sectionHeaderHeight: CGFloat = 24
+  // Group headers are tap targets, so they get a little more room than a label.
+  @ScaledMetric(relativeTo: .footnote) private var sectionHeaderHeight: CGFloat = 28
   @ScaledMetric(relativeTo: .footnote) private var overflowHeight: CGFloat = 24
   let entry: HafaGroceryWidgetEntry
 
@@ -144,7 +149,6 @@ private struct HafaGroceryWidgetView: View {
       }
     }
     .widgetURL(entry.state.snapshot?.items.isEmpty == true ? HafaWidgetLinks.addItem : HafaWidgetLinks.grocery)
-    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
   }
 
   // MARK: Small
@@ -214,7 +218,8 @@ private struct HafaGroceryWidgetView: View {
       item: Double(isLarge ? largeItemHeight : mediumItemHeight),
       header: Double(sectionHeaderHeight),
       // Medium's header already counts what is left, so its rows use all the
-      // space instead of sharing it with a "more" line.
+      // space instead of sharing it with a "more" line. Folded groups still
+      // show their own counts.
       overflow: isLarge ? Double(overflowHeight) : nil
     )
   }
@@ -226,12 +231,15 @@ private struct HafaGroceryWidgetView: View {
         emptyList
       } else {
         GeometryReader { proxy in
+          // Medium groups by recipe too, so a group folded in the app or on
+          // a large widget reads the same here.
           let layout = HafaWidgetListLayout.make(
             items: snapshot.items,
             pendingItemIDs: Set(entry.state.pending.map(\.itemID)),
+            collapsedKeys: Set(entry.state.currentCollapsedSectionKeys),
             availableHeight: Double(proxy.size.height),
             metrics: rowMetrics,
-            showsHeaders: isLarge
+            showsHeaders: true
           )
           rows(layout, listID: snapshot.list.id, showsOverflow: isLarge && layout.showsOverflow)
         }
@@ -306,8 +314,8 @@ private struct HafaGroceryWidgetView: View {
     VStack(alignment: .leading, spacing: 0) {
       ForEach(Array(layout.rows.enumerated()), id: \.element.id) { index, row in
         switch row {
-        case let .header(_, title):
-          sectionHeader(title)
+        case let .header(header):
+          sectionHeader(header, listID: listID)
         case let .item(item):
           let followsItem: Bool = {
             guard index > 0, case .item = layout.rows[index - 1] else { return false }
@@ -334,14 +342,49 @@ private struct HafaGroceryWidgetView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
 
-  private func sectionHeader(_ title: String) -> some View {
-    Text(title)
-      .font(HafaWidgetFont.semibold(13, relativeTo: .footnote))
-      .foregroundStyle(palette.secondaryText)
-      .lineLimit(1)
-      .frame(maxWidth: .infinity, minHeight: sectionHeaderHeight, maxHeight: sectionHeaderHeight, alignment: .bottomLeading)
-      .padding(.bottom, 2)
-      .accessibilityAddTraits(.isHeader)
+  /// A recipe header folds or unfolds its items with one tap, like the app.
+  @ViewBuilder
+  private func sectionHeader(_ header: HafaWidgetGroupHeader, listID: String) -> some View {
+    if header.isCollapsible {
+      let count = "\(header.remaining) left"
+      Button(intent: ToggleGrocerySectionIntent(listID: listID, sectionKey: header.key)) {
+        sectionHeaderLabel(header, count: count)
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("\(header.title), \(count)")
+      .accessibilityValue(header.isCollapsed ? "Collapsed" : "Expanded")
+      .accessibilityHint(header.isCollapsed ? "Shows these items" : "Hides these items")
+    } else {
+      sectionHeaderLabel(header, count: nil)
+        .accessibilityAddTraits(.isHeader)
+    }
+  }
+
+  private func sectionHeaderLabel(_ header: HafaWidgetGroupHeader, count: String?) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      // The chevron sits in the checkbox column so titles line up with items.
+      Image(systemName: "chevron.down")
+        .font(.system(size: 11, weight: .bold))
+        .foregroundStyle(palette.secondaryText)
+        .rotationEffect(.degrees(header.isCollapsed ? -90 : 0))
+        .frame(width: 22)
+        .opacity(header.isCollapsible ? 1 : 0)
+      Text(header.title)
+        .font(HafaWidgetFont.semibold(13, relativeTo: .footnote))
+        .foregroundStyle(header.isCollapsible ? palette.text : palette.secondaryText)
+        .lineLimit(1)
+        .layoutPriority(1)
+      Spacer(minLength: 4)
+      if let count {
+        Text(count)
+          .font(HafaWidgetFont.medium(12, relativeTo: .caption))
+          .foregroundStyle(palette.secondaryText)
+          .lineLimit(1)
+          .contentTransition(.numericText())
+      }
+    }
+    .frame(maxWidth: .infinity, minHeight: sectionHeaderHeight, maxHeight: sectionHeaderHeight, alignment: .leading)
+    .contentShape(Rectangle())
   }
 
   private func itemRow(_ item: HafaWidgetItem, listID: String, showsSeparator: Bool) -> some View {
