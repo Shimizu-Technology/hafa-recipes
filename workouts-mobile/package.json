@@ -12,6 +12,7 @@
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:watch": "scripts/test-watch.sh",
     "doctor": "expo-doctor",
     "export:web": "expo export --platform web",
     "audit:runtime": "node scripts/audit-runtime.mjs",

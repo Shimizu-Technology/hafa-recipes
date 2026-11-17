@@ -55,6 +55,11 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
   npx -y -p node@22.22.2 -c 'npm test && npm run typecheck && npm run doctor && npm run audit:runtime && npm run export:all && npm run check:native-bundles'
 )
 
+# Swift tests for the Workouts watch app need Xcode; CI runs on Linux and skips them.
+if [[ "$(uname)" == "Darwin" ]]; then
+  "$repository_root/workouts-mobile/scripts/test-watch.sh"
+fi
+
 (
   cd "$repository_root/baby-mobile"
   npx -y -p node@22.22.2 -c 'npm test && npm run typecheck && npm run doctor && npm run audit:runtime && npm run export:all && npm run check:native-bundles'
