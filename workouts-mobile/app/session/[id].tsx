@@ -1,3 +1,4 @@
+import { WatchSessionSummary } from "@/components/watch-session-summary";
 import { HealthExport } from "@/components/health-export";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -108,8 +109,9 @@ export default function SessionDetail() {
             {!editing && !!local?.unsent_results && !q.data.content.results?.length && <Notice error>{unsentProblem}</Notice>}
             {editing && scores?.map((r, i) => blockOf(r.block_id) && <ScoreEditor key={r.block_id} block={blockOf(r.block_id)!} result={r}
               onChange={(next) => setScores((old) => old?.map((x, j) => (j === i ? next : x)) ?? null)} />)}
+            {!editing && <WatchSessionSummary details={local?.watch} workout={q.data.content.prescription_snapshot} segments={q.data.content.segments ?? local?.unsent_results?.segments} />}
             {!editing && <SessionTable actuals={q.data.content.actuals} workout={q.data.content.prescription_snapshot} units={units} />}
-            {!editing && <HealthExport sessionId={q.data.id} />}
+            {!editing && (q.data.content.recorded_on === "watch" ? <Notice>Recorded by Apple Watch. Manage this workout in the Health app.</Notice> : <HealthExport sessionId={q.data.id} />)}
             {editing?.map((a, index) => (
               <Card key={`${actualIdentity(a)}:${index}`}>
                 <Copy kind="heading">

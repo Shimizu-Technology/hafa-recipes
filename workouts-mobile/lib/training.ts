@@ -124,7 +124,7 @@ export function ranFormatTimer(history: readonly SavedLocalSession[], clientSess
 }
 export function pruneHistory(history: SavedLocalSession[]) {
   let synced = 0;
-  return history.filter((item) => item.state !== "synced" || !!item.unsent_results || ++synced <= syncedHistoryLimit);
+  return history.filter((item) => item.state !== "synced" || !!item.watch || !!item.unsent_results || ++synced <= syncedHistoryLimit);
 }
 function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
   state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
@@ -1241,6 +1241,7 @@ export function createTrainingStore(
           supersedes_session_id: saved.id,
         };
         s.history.unshift({ request, workout: saved.content.prescription_snapshot, generation, state: "queued",
+          ...(s.history.find(h => h.synced_id === saved.id)?.watch ? { watch: clone(s.history.find(h => h.synced_id === saved.id)!.watch!) } : {}),
           // A corrected result was still recorded on the clock the original ran on.
           ...(ranFormatTimer(s.history, saved.content.client_session_id) ? { timed_format: true as const } : {}) });
         return s;

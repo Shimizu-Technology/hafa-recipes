@@ -1,3 +1,4 @@
+import { WatchSessionSummary } from "@/components/watch-session-summary";
 import { ActivityWeek } from "@/components/activity-week";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
@@ -170,6 +171,7 @@ export default function Progress() {
               when={[friendlyDate(h.request.started_at), sessionStatusLabel(h.request.status),
                 h.state === "synced" ? null : h.state === "blocked" ? "Needs review" : "Saved on this device"].filter(Boolean).join(" · ")}
               onOpen={h.synced_id ? () => openSession(h.synced_id!) : undefined} />
+            <WatchSessionSummary embedded details={h.watch} workout={h.workout} segments={h.request.segments ?? h.unsent_results?.segments} />
             {!!h.problem && <Notice error>{h.problem}</Notice>}
             {!!h.request.supersedes_session_id && <Notice>
               {selected.conflictingQueued.includes(h.request.client_session_id) ?
@@ -230,6 +232,8 @@ export default function Progress() {
           <SessionSummary title={s.title} request={s.content} workout={s.content.prescription_snapshot}
             ranTimer={ranFormatTimer(offline.state.history, s.content.client_session_id)}
             when={`${friendlyDate(s.started_at)} · ${sessionStatusLabel(s.status)}`} onOpen={() => openSession(s.id)} />
+          <WatchSessionSummary embedded details={offline.state.history.find(h => h.request.client_session_id === s.content.client_session_id)?.watch}
+            workout={s.content.prescription_snapshot} segments={s.content.segments} />
           {!!s.content.supersedes_session_id && <Button title="View previous saved result" variant="ghost" inline
             onPress={() => openSession(s.content.supersedes_session_id!)} />}
         </Card>

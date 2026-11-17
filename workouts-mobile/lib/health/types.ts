@@ -1,4 +1,5 @@
 export const WORKOUTS_APP_ID = "com.shimizutechnology.hafaworkouts";
+export const WORKOUTS_WATCH_APP_ID = `${WORKOUTS_APP_ID}.watchkitapp`;
 export const SYNC_PREFIX = "hafa-workouts:";
 export type HealthPlatform = "apple_health" | "health_connect" | "unavailable";
 export type AiEligibility = "unknown" | "restricted" | "eligible";
@@ -49,7 +50,9 @@ export interface ActualWorkout {
   ended_at: string;
   active_seconds: number;
   active_intervals?: Array<{ started_at: string; ended_at: string }>;
-  activity: "running" | "walking" | "strength" | "basketball" | "other";
+  activity: "running" | "walking" | "strength" | "basketball" | "other" | "cross_training" | "hiit" | "functional_strength";
+  recorded_on?: "phone" | "watch";
+  apple_workout_uuid?: string;
 }
 export interface ExportReceipt {
   status: "written" | "already_written" | "unsupported";

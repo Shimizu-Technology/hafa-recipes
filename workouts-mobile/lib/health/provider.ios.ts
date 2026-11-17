@@ -14,6 +14,7 @@ import {
   HealthError,
   SYNC_PREFIX,
   WORKOUTS_APP_ID,
+  WORKOUTS_WATCH_APP_ID,
   type ActualWorkout,
   type HealthCursor,
   type HealthProvider,
@@ -33,6 +34,7 @@ const WORKOUT_TYPE = "HKWorkoutTypeIdentifier";
 const SYNC_KEY = "HKSyncIdentifier"; // Native value of HKMetadataKeySyncIdentifier.
 const VERSION_KEY = "HKSyncVersion";
 const PAGE_SIZE = 100;
+const isOwnedSource = (id: string) => id === WORKOUTS_APP_ID || id === WORKOUTS_WATCH_APP_ID;
 
 export function createHealthKitProvider(
   bridge: HealthKitBridge,
@@ -81,7 +83,7 @@ export function createHealthKitProvider(
         const sample = proxy.toJSON();
         const origin = sample.sourceRevision.source.bundleIdentifier;
         const canonical = sample.metadata[SYNC_KEY];
-        if (origin === WORKOUTS_APP_ID || (typeof canonical === "string" && canonical.startsWith(SYNC_PREFIX)))
+        if (isOwnedSource(origin) || (typeof canonical === "string" && canonical.startsWith(SYNC_PREFIX)))
           return [];
         // No route, heart-rate, calories, body measurements or unbounded metadata projection.
         const seconds =
@@ -127,6 +129,11 @@ export function createHealthKitProvider(
       };
     },
     exportActual: async (workout) => {
+      if (workout.recorded_on === "watch") return {
+        status: "already_written", canonical_session_id: workout.canonical_session_id, revision: workout.revision,
+        ...(workout.apple_workout_uuid ? { source_id: `apple_health:${workout.apple_workout_uuid}` } : {}),
+        message: "Recorded by Apple Watch. Manage the workout in the Health app.",
+      };
       const reason = validateActual(workout);
       if (reason)
         return {
@@ -143,7 +150,7 @@ export function createHealthKitProvider(
       });
       const same = existing.find(
         (sample) =>
-          sample.sourceRevision.source.bundleIdentifier === WORKOUTS_APP_ID &&
+          isOwnedSource(sample.sourceRevision.source.bundleIdentifier) &&
           Number(sample.metadata[VERSION_KEY]) >= workout.revision
       );
       if (same)
@@ -153,7 +160,7 @@ export function createHealthKitProvider(
           canonical_session_id: workout.canonical_session_id,
           revision: workout.revision,
         };
-      const activity = ({ running: 37, walking: 52, strength: 50, basketball: 6, other: 3000 } as const)[
+      const activity = ({ running: 37, walking: 52, strength: 50, basketball: 6, other: 3000, cross_training: 11, hiit: 63, functional_strength: 20 } as const)[
         workout.activity
       ];
       if (pausedIntervals(workout).length) {
@@ -195,7 +202,7 @@ export function createHealthKitProvider(
     deleteOwned: async (id) => {
       const records = await bridge.queryWorkoutSamples({ limit: PAGE_SIZE, filter: ownFilter(id) });
       const uuids = records
-        .filter((sample) => sample.sourceRevision.source.bundleIdentifier === WORKOUTS_APP_ID)
+        .filter((sample) => isOwnedSource(sample.sourceRevision.source.bundleIdentifier))
         .map((sample) => sample.uuid);
       if (uuids.length) await bridge.deleteObjects(WORKOUT_TYPE, { uuids });
     },

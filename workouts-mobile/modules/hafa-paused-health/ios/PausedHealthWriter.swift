@@ -29,7 +29,7 @@ final class PausedHealthWriter {
     guard payload.canonical_session_id.range(of: "^[A-Za-z0-9_-]{1,100}$", options: .regularExpression) != nil,
           payload.revision > 0, ["completed", "partial"].contains(payload.status),
           let activity = HKWorkoutActivityType(rawValue: payload.activity_type),
-          [UInt(37), 52, 50, 6, 3000].contains(payload.activity_type),
+          [UInt(37), 52, 50, 6, 3000, 11, 63, 20].contains(payload.activity_type),
           !payload.active_intervals.isEmpty, payload.active_intervals.count <= 1000 else { throw invalid("Invalid actual workout") }
     let start = try date(payload.started_at), end = try date(payload.ended_at)
     guard end > start, payload.active_seconds > 0 else { throw invalid("Invalid actual workout duration") }

@@ -636,7 +636,7 @@ export function createWorkoutsApi(
         await request<ExportIntent>(
           `/health/${provider}/exports`,
           "POST",
-          { session_id, expected_revision },
+          { session_id, expected_revision, supports_class_activity_types: true },
           { generation }
         )
       ).data;

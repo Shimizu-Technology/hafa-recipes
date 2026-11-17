@@ -7,6 +7,7 @@ import { eligibility, reconcileObservations, validateActual, validateWindow, pau
 import {
   SYNC_PREFIX,
   WORKOUTS_APP_ID,
+  WORKOUTS_WATCH_APP_ID,
   type ActualWorkout,
   type HealthObservation,
   type HealthPage,
@@ -173,6 +174,7 @@ describe("minimal Apple Health adapter", () => {
       workouts: [
         hkSample(),
         hkSample("own", WORKOUTS_APP_ID),
+        hkSample("watch-own", WORKOUTS_WATCH_APP_ID),
         hkSample("echo", "external", { HKSyncIdentifier: `${SYNC_PREFIX}session_1` }),
         hkSample("strava", "com.strava.app"),
       ],
@@ -207,11 +209,28 @@ describe("minimal Apple Health adapter", () => {
     expect((await provider.exportActual(ACTUAL)).status).toBe("already_written");
     expect(fake.saveWorkoutSample).toHaveBeenCalledTimes(1);
   });
+  it("never writes a watch recording, even without Health write permission", async () => {
+    const { fake, bridge } = hkBridge(); fake.authorizationStatusFor.mockReturnValue(0);
+    const receipt = await createHealthKitProvider(bridge, async () => {}).exportActual({ ...ACTUAL, recorded_on: "watch", apple_workout_uuid: "watch-uuid" });
+    expect(receipt.status).toBe("already_written"); expect(receipt.source_id).toBe("apple_health:watch-uuid");
+    expect(fake.queryWorkoutSamples).not.toHaveBeenCalled(); expect(fake.saveWorkoutSample).not.toHaveBeenCalled();
+  });
+  it("recognizes the watch source in duplicate checks", async () => {
+    const { fake, bridge } = hkBridge();
+    fake.queryWorkoutSamples.mockResolvedValueOnce([hkSample("watch", WORKOUTS_WATCH_APP_ID, { HKSyncIdentifier: `${SYNC_PREFIX}session_1`, HKSyncVersion: 1 })] as never);
+    expect((await createHealthKitProvider(bridge, async () => {}).exportActual(ACTUAL)).status).toBe("already_written");
+    expect(fake.saveWorkoutSample).not.toHaveBeenCalled();
+  });
+  it.each([["cross_training", 11], ["hiit", 63], ["functional_strength", 20]] as const)("writes %s with its HealthKit activity type", async (activity, value) => {
+    const { fake, bridge } = hkBridge();
+    await createHealthKitProvider(bridge, async () => {}).exportActual({ ...ACTUAL, activity });
+    expect(fake.saveWorkoutSample).toHaveBeenCalledWith(value, [], new Date(START), new Date(END), undefined, expect.any(Object));
+  });
   it("deletes only records owned by this app", async () => {
     const { fake, bridge } = hkBridge();
-    fake.queryWorkoutSamples.mockResolvedValueOnce([hkSample("ours", WORKOUTS_APP_ID), hkSample("theirs")] as never);
+    fake.queryWorkoutSamples.mockResolvedValueOnce([hkSample("ours", WORKOUTS_APP_ID), hkSample("watch", WORKOUTS_WATCH_APP_ID), hkSample("theirs")] as never);
     await createHealthKitProvider(bridge, async () => {}).deleteOwned("session_1");
-    expect(fake.deleteObjects).toHaveBeenCalledWith("HKWorkoutTypeIdentifier", { uuids: ["ours"] });
+    expect(fake.deleteObjects).toHaveBeenCalledWith("HKWorkoutTypeIdentifier", { uuids: ["ours", "watch"] });
   });
   it("does not guess active time when paused intervals cannot be represented", async () => {
     const { fake, bridge } = hkBridge();

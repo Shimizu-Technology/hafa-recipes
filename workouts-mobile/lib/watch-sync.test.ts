@@ -77,6 +77,12 @@ describe("watch sync", () => {
     expect(store.snapshot().history[0].watch_quick).toBe(true);
     expect(store.snapshot().history[0].workout.title).toContain("watch, Nov 17"); expect(marked).toBe(1);
   });
+  it("preserves the phone's selected activity in recent watch plans", () => {
+    const state: TrainingState = { version: 1, generation: 1, active: null, history: [{ generation: 1, workout, state: "synced",
+      request: { ...source, client_session_id: "recent", started_at: start, finished_at: end, status: "completed", actuals: [], activity_type: "hiit" } }] };
+    const context = JSON.parse(planContext({ account, units: "metric", today: "2026-11-17", leadIn: 3, state, library: [], programs: [] }).json);
+    expect(context.plans[0].activity_type).toBe(63);
+  });
   it("retains invalid cells and overlapping intervals in the inbox without importing", async () => {
     const store = setup(); await store.load(); let marked = 0;
     const invalid = result(); invalid.actuals = [{ ...invalid.actuals[0], block_id: "missing" }];
