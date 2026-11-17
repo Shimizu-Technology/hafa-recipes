@@ -2,13 +2,14 @@ import { ImportList } from "@/components/import-list";
 import { updateNativeSharingConsent } from "@/lib/native-share-session";
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { View, type ScrollView } from "react-native";
+import { Alert, View, type ScrollView } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { usePreventRemove } from "expo-router/react-navigation";
-import { useQuery } from "@tanstack/react-query";
+import { classDate, classText } from "@/lib/class-import";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccountButton, Button, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, useColors, useReducedMotion } from "@/components/ui";
 import { RecentImports } from "@/components/recent-imports";
 import { importSettingsSummary, linkLooksComplete } from "@/lib/add-composer";
@@ -21,9 +22,25 @@ import { DECLINED, defaultShareToDiscover } from "@/lib/discover";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { setNativeShareVisibility } from "@/lib/native-share-session";
 export default function Capture() {
-  const { shared, request_id: sharedRequest } = useLocalSearchParams<{ shared?: string; request_id?: string }>();
+  const { shared, request_id: sharedRequest, class: classRoute } = useLocalSearchParams<{ shared?: string; request_id?: string; class?: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const navigation = useNavigation();
+  const cache = useQueryClient();
+  async function classDefaults() {
+    const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 })
+      .catch(() => { throw Object.assign(Error("Could not load your training profile timezone. Retry loading the class form."), { classProfileError: true }); });
+    currentScope();
+    if (!profile) throw Object.assign(Error("Set up your training profile timezone before importing a class."), { classProfileError: true });
+    return classDate(profile.timezone);
+  }
+  async function applyClassDefaults(value: CaptureDraft, hasSavedSource: boolean) {
+    if (classRoute !== "1" || hasSavedSource) return value;
+    const date = await classDefaults();
+    const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`);
+    currentScope();
+    return { ...value, kind: "text" as const, class_parts: true, is_public: false,
+      programming: { source_kind: "gym" as const, gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK", date } };
+  }
   const [leaving, setLeaving] = useState(false);
   const afterSave = useRef<(() => void) | null>(null);
   const leavingBusy = useRef(false);
@@ -186,10 +203,10 @@ export default function Capture() {
     setSubmittedId(null);
     void slot
       .load(currentScope)
-      .then((value) => {
+      .then(async (value) => {
         if (!active) return;
         saved.current = value;
-        const next =
+        let next: CaptureDraft =
           value.value?.generation === generation
             ? value.value
             : {
@@ -201,14 +218,16 @@ export default function Capture() {
                 files: [],
                 created_at: new Date().toISOString()
               };
+        next = await applyClassDefaults(next, !!value.value);
+        if (!active) return;
         draftRef.current = next;
         setDraft(next);
         readyRef.current = true;
         setReady(true);
         if (next.job_id) void startAnother().catch(() => undefined);
       })
-      .catch(() => {
-        if (active) setError("Could not restore your source. Retry loading it before editing.");
+      .catch((e) => {
+        if (active) setError(e.classProfileError ? e.message : "Could not restore your source. Retry loading it before editing.");
       });
     return () => {
       active = false;
@@ -245,7 +264,7 @@ export default function Capture() {
     });
     return () => { active = false; };
   }, [slot, generation, shared, sharedRequest, ready, busy]);
-  function update(patch: Partial<Pick<CaptureDraft, "text" | "source_url">>) {
+  function update(patch: Partial<Pick<CaptureDraft, "text" | "source_url" | "class_parts" | "programming" | "kind" | "is_public">>) {
     // Once the stable queue is saved, reject late native input events during
     // the render that releases usePreventRemove and dispatches the departure.
     if (leaving || afterSave.current || guard.current || draftRef.current.pending_import || !readyRef.current || stale) return;
@@ -256,7 +275,7 @@ export default function Capture() {
       setError((e as Error).message);
       return;
     }
-    if (patch.source_url !== undefined && draftRef.current.kind !== "url") return;
+    if (patch.source_url !== undefined && patch.class_parts !== true && draftRef.current.kind !== "url") return;
     const value = { ...draftRef.current, ...patch, request_id: Crypto.randomUUID(), job_id: undefined };
     draftRef.current = value;
     setDraft(value);
@@ -302,7 +321,7 @@ export default function Capture() {
     const prior = saved.current.value;
     const next = { ...value, cleanup_files: [...(prior?.cleanup_files ?? []), ...(prior?.files ?? [])] };
     const registered = await persist(next);
-    await cleanupCaptureFiles(next.cleanup_files, true);
+    await cleanupCaptureFiles(next.cleanup_files ?? [], true);
     await persist({ ...registered, cleanup_files: [] });
   }
   async function reloadSaved() {
@@ -315,7 +334,7 @@ export default function Capture() {
       const next = await slot.load(currentScope);
       saved.current = next;
       current();
-      const value = next.value ?? {
+      const value = await applyClassDefaults(next.value ?? {
         request_id: Crypto.randomUUID(),
         generation,
         kind: "url" as const,
@@ -323,7 +342,7 @@ export default function Capture() {
         source_url: "",
         files: [],
         created_at: new Date().toISOString()
-      };
+      }, !!next.value);
       view.current++;
       draftRef.current = value;
       setDraft(value);
@@ -365,16 +384,39 @@ export default function Capture() {
       if (mounted.current) setBusy(false);
     }
   }
+  async function chooseClass() {
+    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import) return;
+    guard.current = true; setBusy(true); setError("");
+    try {
+      await flush();
+      const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`); current();
+      await persist({ ...draftRef.current, request_id: Crypto.randomUUID(), class_parts: true,
+        kind: draftRef.current.kind === "url" ? "text" : draftRef.current.kind, source_url: "", is_public: false,
+        programming: { source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK", date: await classDefaults() } });
+    } catch (e) { if (mounted.current) setError((e as Error).message); }
+    finally { guard.current = false; if (mounted.current) setBusy(false); }
+  }
   async function choose(kind: CaptureKind) {
-    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import || kind === draft.kind) return;
+    if (guard.current || !readyRef.current || stale || draftRef.current.pending_import) return false;
+    if (kind === draftRef.current.kind) return true;
     guard.current = true;
     setBusy(true);
     setError("");
     setPasteNote("");
     try {
+      if (kind === "text" && draftRef.current.files.length) {
+        const confirmed = await new Promise<boolean>(resolve => Alert.alert("Replace your selected files?",
+          "Switching to pasted text removes the selected screenshots or document from this draft.",
+          [{ text: "Keep selected files", style: "cancel", onPress: () => resolve(false) },
+            { text: "Use pasted text", onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) }));
+        if (!confirmed) return false;
+        current();
+      }
       await replace({ ...draftRef.current, request_id: Crypto.randomUUID(), kind, files: [], job_id: undefined });
+      return true;
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
+      return false;
     } finally {
       guard.current = false;
       if (mounted.current) setBusy(false);
@@ -395,10 +437,10 @@ export default function Capture() {
         slot.assertCurrent(original.revision);
       };
       files =
-        kind === "images" ? await pickImages(camera, pickerCurrent, owner) : await pickDocument(pickerCurrent, owner);
+        kind === "images" ? await pickImages(camera, pickerCurrent, owner, draftRef.current.class_parts ? 8 : 4) : await pickDocument(pickerCurrent, owner, draftRef.current.class_parts);
       if (files.length) {
         current();
-        const next = {
+        let next: CaptureDraft = {
           ...draftRef.current,
           request_id: Crypto.randomUUID(),
           kind,
@@ -409,7 +451,7 @@ export default function Capture() {
         const registeredDraft = await persist(next, () => {
           registered = true;
         });
-        await cleanupCaptureFiles(next.cleanup_files, true);
+        await cleanupCaptureFiles(next.cleanup_files ?? [], true);
         await persist({ ...registeredDraft, cleanup_files: [] });
       }
     } catch (e) {
@@ -467,8 +509,8 @@ export default function Capture() {
         current();
       }
       const original = draftRef.current;
-      const serverSave = original.pending_import ? original.server_auto_save === true : capabilities.data?.server_auto_save === true;
-      let isPublic = original.is_public ?? defaultShareToDiscover(original.kind);
+      const serverSave = !original.class_parts && (original.pending_import ? original.server_auto_save === true : capabilities.data?.server_auto_save === true);
+      let isPublic = !original.class_parts && (original.is_public ?? defaultShareToDiscover(original.kind));
       isPublic = isPublic && capabilities.data?.discover === true;
       if (serverSave && isPublic) {
         const allowed = await disclosure.run(async () => {
@@ -493,7 +535,10 @@ export default function Capture() {
       // Persist original UUID/fields before any transport; retries stay frozen.
       const frozen = await persist(pending);
       const source = await sourceFor(frozen, current);
-      const job = frozen.server_auto_save
+      if (frozen.class_parts) {
+        await localDrafts.save(owner, `class-preferences:${generation}`, frozen.programming); current();
+      }
+      const job = frozen.server_auto_save || frozen.class_parts
         ? await api.startImport(frozen.request_id, source, frozen.generation, { auto_save: frozen.auto_save === true, is_public: frozen.is_public === true })
         : await api.startImport(frozen.request_id, source, frozen.generation);
       await persist({ ...frozen, job_id: job.id });
@@ -522,7 +567,7 @@ export default function Capture() {
       const blank: CaptureDraft = { request_id: Crypto.randomUUID(), generation, kind: "url", source_url: "", text: "", files: [], created_at: new Date().toISOString() };
       draftRef.current = blank; setDraft(blank); setSubmittedId(job.id);
       setStale(false); setPanel(null); setPasteNote("");
-      router.push({ pathname: "/import/[id]", params: { id: job.id, auto: "1" } });
+      router.push({ pathname: "/import/[id]", params: { id: job.id, auto: frozen.class_parts ? "0" : "1" } });
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -531,26 +576,35 @@ export default function Capture() {
     }
   }
   useEffect(() => {
-    if (shared !== "1" || !sharedRequest || automatic.current === sharedRequest || !ready || stale ||
+    if (draft.class_parts || shared !== "1" || !sharedRequest || automatic.current === sharedRequest || !ready || stale ||
       draft.request_id !== sharedRequest || draft.pending_import || draft.job_id || !capabilities.data?.imports ||
       !aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1) return;
     automatic.current = sharedRequest;
     void submit(true);
-  }, [shared, sharedRequest, ready, stale, draft.request_id, draft.pending_import, draft.job_id,
+  }, [draft.class_parts, shared, sharedRequest, ready, stale, draft.request_id, draft.pending_import, draft.job_id,
     capabilities.data?.imports, aiConsent.data]);
   const locked = busy || stale || !ready || !!draft.pending_import;
   async function paste() {
-    if (locked || guard.current || draftRef.current.kind !== "url") return;
+    if (locked || guard.current || (!draftRef.current.class_parts && draftRef.current.kind !== "url")) return;
     const before = draftRef.current;
     setPasteNote("");
     try {
       const text = await Clipboard.getStringAsync();
       if (!mounted.current || draftRef.current !== before) return;
+      if (draftRef.current.class_parts) {
+        const instructions = classText(text);
+        if (!instructions) {
+          setPasteNote(text.trim() ? "Paste the class instructions, not just its WodUp link." : "Your clipboard is empty. Copy the class instructions first.");
+          return;
+        }
+        if (await choose("text")) update({ text: instructions });
+        return;
+      }
       const link = sharedWorkoutURL(null, text);
       if (link) update({ source_url: link });
       else setPasteNote(text.trim() ? "No link found on your clipboard. To import text, choose Paste workout text below." : "Nothing to paste. Copy a workout link first, and allow pasting if your phone asks.");
     } catch {
-      if (mounted.current) setPasteNote("Could not read your clipboard. Try pasting into the link field.");
+      if (mounted.current) setPasteNote(draftRef.current.class_parts ? "Could not read your clipboard. Try pasting into the workout text field." : "Could not read your clipboard. Try pasting into the link field.");
     }
   }
   async function visibility(value: boolean) {
@@ -562,14 +616,14 @@ export default function Capture() {
     } catch (e) { if (mounted.current) setError((e as Error).message); }
     finally { guard.current = false; if (mounted.current) setBusy(false); }
   }
-  const discoverOn = capabilities.data?.server_auto_save === true && capabilities.data.discover === true;
+  const discoverOn = !draft.class_parts && capabilities.data?.server_auto_save === true && capabilities.data.discover === true;
   const isPublic = draft.is_public ?? defaultShareToDiscover(draft.kind);
   const notesApply = draft.kind !== "text";
   const consentOk = !!aiConsent.data?.accepted && aiConsent.data.disclosure_version === 1;
   const submittable = draft.kind === "url" ? linkLooksComplete(draft.source_url) : !captureErrors(draft).length;
   const limits = capabilities.data?.limits;
   return (
-    <Screen back title="Add workout" subtitle="Save a workout from a link, text, photos or a PDF." action={<AccountButton />} scrollRef={scrollRef}>
+    <Screen back title={draft.class_parts ? "Today’s class" : "Add workout"} subtitle={draft.class_parts ? "Paste the class, add screenshots or a Safari Full Page PDF. Review each part before saving." : "Save a workout from a link, text, photos or a PDF."} action={<AccountButton />} scrollRef={scrollRef}>
       {(draft.job_id || submittedId) && <Card compact>
         <Row gap={10} align="flex-start">
           <Ionicons name="checkmark-circle" size={22} color={colors.success} />
@@ -589,6 +643,22 @@ export default function Capture() {
         <Notice>Automatic importing is not on for this build. You can still write a workout yourself.</Notice>
       )}
       <Card>
+        {ready && classRoute === "1" && !draft.class_parts && <Notice>Your other source draft is still here. Switch it to Today’s class, or finish that import first.</Notice>}
+        {!draft.class_parts && <Button title="Today’s class" secondary disabled={locked} onPress={() => { void chooseClass(); }} />}
+        {draft.class_parts && <>
+          <Button title="Start a different import" size="sm" variant="ghost" disabled={locked} onPress={() => setAbandon(true)} />
+          <Notice>Gym programming stays private. Crop screenshots to leave out the leaderboard and comments.</Notice>
+          <Row gap={8} wrap>
+            <Button title="Paste" secondary inline disabled={locked} onPress={() => { void paste(); }} />
+            <Button title="Screenshots" secondary inline disabled={locked} onPress={() => { void pick("images"); }} />
+            <Button title="PDF" secondary inline disabled={locked} onPress={() => { void pick("document"); }} />
+          </Row>
+          {!!pasteNote && <Copy kind="small" tone="warning">{pasteNote}</Copy>}
+          <Field label="Gym" optional disabled={locked} value={draft.programming?.gym_name ?? ""} onChange={gym_name => update({ programming: { ...draft.programming, source_kind: "gym", gym_name } })} />
+          <Field label="Track" optional disabled={locked} value={draft.programming?.track ?? ""} onChange={track => update({ programming: { ...draft.programming, source_kind: "gym", track } })} />
+          <Field label="Class date (YYYY-MM-DD)" optional disabled={locked} value={draft.programming?.date ?? ""} onChange={date => update({ programming: { ...draft.programming, source_kind: "gym", date: date || null } })} />
+          <Copy kind="small">In Safari, use Share → Håfa Workouts on the open class page. Or save a Full Page screenshot as a PDF and choose it here.</Copy>
+        </>}
         {draft.kind === "url" ? (
           <>
             <Row gap={8} align="flex-end">
@@ -608,7 +678,7 @@ export default function Capture() {
         ) : (
           <Row gap={8}>
             <Grow><Copy kind="label">{modeTitles[draft.kind]}</Copy></Grow>
-            <Button title="Use a link instead" size="sm" variant="ghost" inline disabled={locked} onPress={() => { void choose("url"); }} />
+            {!draft.class_parts && <Button title="Use a link instead" size="sm" variant="ghost" inline disabled={locked} onPress={() => { void choose("url"); }} />}
           </Row>
         )}
         {draft.kind === "url" && duplicateUrl === draft.source_url.trim() && !!duplicateHint.data?.matches.length && (
@@ -629,7 +699,7 @@ export default function Capture() {
           <>
             <Row gap={8}>
               <Grow>
-                <Button title="Choose up to four images" size="sm" variant="secondary" icon="images-outline" busy={busy} disabled={locked}
+                <Button title={draft.class_parts ? "Choose up to eight screenshots" : "Choose up to four images"} size="sm" variant="secondary" icon="images-outline" busy={busy} disabled={locked}
                   onPress={() => { void pick("images"); }} />
               </Grow>
               <Grow>
@@ -716,7 +786,7 @@ export default function Capture() {
         <Copy>If an import can’t finish, open it from In progress to retry or add the caption.</Copy>
       </Sheet>
       <Sheet visible={abandon} onClose={() => setAbandon(false)} title="Start a separate source?">
-        <Copy>This source may still be processing. Starting over discards this draft and may create a second import.</Copy>
+        <Copy>{draft.pending_import ? "This source may still be processing. Starting over discards this draft and may create a second import." : "Starting over discards this class draft and opens a regular import."}</Copy>
         <Button title="Keep this source" secondary disabled={busy} onPress={() => setAbandon(false)} />
         <Button
           title="Start a separate source and discard this draft"

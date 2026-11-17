@@ -6,7 +6,7 @@ const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share
 function transformController(source, confirmation, store, loader) {
   if (!source.includes('let sharedKey: String = "<SCHEME>ShareKey"') && !source.includes('let sharedKey: String = "hafaworkoutsShareKey"'))
     throw Error("Workouts share capture requires the verified expo-share-intent 8.0.1 template.");
-  source = source.replace(/let sharedKey: String = "[^"\n]+"/, 'let sharedKey: String = "hafaworkoutsShareKey.\\(UUID().uuidString)"');
+  source = source.replace(/let sharedKey: String = "[^"\n]+"/, String.raw`let sharedKey: String = "hafaworkoutsShareKey.\(UUID().uuidString)"`);
   const loadingStart = source.indexOf("  private func handleViewLoad() {");
   const loadingEnd = source.indexOf("  private func dismissWithError", loadingStart);
   if (loadingStart < 0 || loadingEnd < 0 || !loader)
@@ -41,6 +41,7 @@ module.exports = function withWorkoutsShare(config) {
       await fs.readFile(path.join(native, "CaptureConfirmation.swift"), "utf8"),
       await fs.readFile(path.join(native, "HafaWorkoutsShareStore.swift"), "utf8"),
       await fs.readFile(path.join(native, "CaptureProviderLoader.swift"), "utf8")));
+    await fs.copyFile(path.join(native, "ClassPagePreprocessor.js"), path.join(extension, "ShareExtensionPreprocessor.js"));
     // Remove resources left by an earlier prebuild; the share UI uses system type.
     const fonts = ["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"];
     const target = mod.modResults.findTargetKey("ShareExtension") ?? mod.modResults.findTargetKey('"ShareExtension"');

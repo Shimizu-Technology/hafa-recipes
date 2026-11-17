@@ -56,7 +56,7 @@ async function normalized(
   lease: CaptureCleanupLease
 ): Promise<CaptureFile[]> {
   guard();
-  if (inputs.length > 4) throw Error("Choose up to four images.");
+  if (inputs.length > 8) throw Error("Choose up to eight images.");
   const output: CaptureFile[] = [];
   const { requireOptionalNativeModule } = await import("expo-modules-core");
   const writer = Platform.OS === "ios" ? requireOptionalNativeModule<{
@@ -127,7 +127,7 @@ export async function normalizeImages(inputs: ImageInputs, guard: CaptureGuard, 
     throw error;
   }
 }
-export async function pickImages(camera: boolean, guard: CaptureGuard, owner: string, limit: 1 | 4 = 4): Promise<CaptureFile[]> {
+export async function pickImages(camera: boolean, guard: CaptureGuard, owner: string, limit: 1 | 4 | 8 = 4): Promise<CaptureFile[]> {
   guard();
   const lease = await journal.begin(owner, Crypto.randomUUID());
   try {
@@ -185,7 +185,7 @@ export async function pickImages(camera: boolean, guard: CaptureGuard, owner: st
     throw error;
   }
 }
-export async function pickDocument(guard: CaptureGuard, owner: string): Promise<CaptureFile[]> {
+export async function pickDocument(guard: CaptureGuard, owner: string, classParts = false): Promise<CaptureFile[]> {
   guard();
   const lease = await journal.begin(owner, Crypto.randomUUID());
   try {
@@ -216,8 +216,8 @@ export async function pickDocument(guard: CaptureGuard, owner: string): Promise<
     }
     guard();
     const file = result.assets[0];
-    if ((file.size ?? 0) > 128 * 1024)
-      throw Error("Use a document under 128 KB, paste the text, or choose screenshots of the workout.");
+    if ((file.size ?? 0) > (classParts ? 10 * 1024 * 1024 : 128 * 1024))
+      throw Error("Choose a smaller document (class PDFs up to 10 MiB), paste text, or use screenshots.");
     const uri = await ownFile(file.uri, file.mimeType === "application/pdf" ? "pdf" : "txt", guard, lease);
     await lease.finish();
     await lease.cleanup(sdkKinds);
@@ -233,13 +233,13 @@ export async function pickDocument(guard: CaptureGuard, owner: string): Promise<
   }
 }
 /** Copy the shared document into the account-owned cleanup journal before acknowledging the extension. */
-export async function normalizeDocument(file: { uri: string; mimeType: string; name: string }, guard: CaptureGuard, owner: string): Promise<CaptureFile[]> {
+export async function normalizeDocument(file: { uri: string; mimeType: string; name: string }, guard: CaptureGuard, owner: string, classParts = false): Promise<CaptureFile[]> {
   guard();
   if (!["application/pdf", "text/plain", "text/markdown"].includes(file.mimeType) || !/^(file|content):\/\//.test(file.uri))
     throw Error("Share a PDF or text document, or choose clear screenshots instead.");
   const info = await FileSystem.getInfoAsync(file.uri); guard();
-  if (!info.exists || info.isDirectory || info.size > 128 * 1024)
-    throw Error("Use an available document under 128 KB, paste its text, or share screenshots.");
+  if (!info.exists || info.isDirectory || info.size > (classParts ? 10 * 1024 * 1024 : 128 * 1024))
+    throw Error(classParts ? "Use an available class PDF under 10 MiB, paste its text, or share screenshots." : "Use an available document under 128 KB, paste its text, or share screenshots.");
   const lease = await journal.begin(owner, Crypto.randomUUID());
   try {
     const uri = await ownFile(file.uri, file.mimeType === "application/pdf" ? "pdf" : "txt", guard, lease);
@@ -250,6 +250,10 @@ export async function normalizeDocument(file: { uri: string; mimeType: string; n
 export async function sourceFor(draft: CaptureDraft, guard: CaptureGuard): Promise<ExtractionRequest> {
   guard();
   const source: ExtractionRequest = { kind: draft.kind, ai_consent: true, ...(draft.typed_formats === false ? {} : { typed_formats: true }) };
+  if (draft.class_parts) {
+    source.class_parts = true; source.programming = draft.programming;
+    if (draft.source_url) source.source_url = draft.source_url;
+  }
   if (draft.text.trim()) source.text = draft.text.trim();
   if (draft.kind === "url") source.source_url = draft.source_url.trim();
   if (draft.kind === "images")
@@ -265,7 +269,7 @@ export async function sourceFor(draft: CaptureDraft, guard: CaptureGuard): Promi
     const file = draft.files[0];
     const info = await FileSystem.getInfoAsync(file.uri);
     guard();
-    if (!info.exists || info.isDirectory || info.size > 128 * 1024)
+    if (!info.exists || info.isDirectory || info.size > (draft.class_parts ? 10 * 1024 * 1024 : 128 * 1024))
       throw Error("The document is unavailable or too large. Choose it again or paste its text.");
     source.document_base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
     source.document_mime = file.mime_type;

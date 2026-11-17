@@ -506,6 +506,8 @@ export function Notice({
   tone,
 }: PropsWithChildren<{ error?: boolean; tone?: NoticeTone }>) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
+  const stacked = largeText(fontScale);
   const kind: NoticeTone = tone ?? (error ? "error" : "info");
   const fg = { info: c.muted, error: c.error, success: c.success, warning: c.warning }[kind];
   return (
@@ -517,12 +519,12 @@ export function Notice({
         gap: 10,
         borderRadius: radii.md,
         backgroundColor: kind === "error" ? c.errorSoft : c.sunken,
-        flexDirection: "row",
+        flexDirection: stacked ? "column" : "row",
         alignItems: "flex-start",
       }}
     >
       <Ionicons name={noticeIcons[kind]} size={20} color={fg} style={{ marginTop: 1 }} />
-      <Copy kind="small" color={kind === "info" ? c.text : fg} style={{ flex: 1 }}>
+      <Copy kind="small" color={kind === "info" ? c.text : fg} style={{ flex: stacked ? undefined : 1, alignSelf: stacked ? "stretch" : undefined }}>
         {children}
       </Copy>
     </View>

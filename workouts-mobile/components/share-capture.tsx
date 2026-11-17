@@ -9,11 +9,13 @@ import { archiveCapturedImport, sharedWorkoutURL, updateImportReferences, type C
 import { createPrivateDraftSlot } from "@/lib/private-form";
 import { normalizeImages, normalizeDocument, cleanupCaptureFiles } from "@/lib/capture-io";
 import * as NativeShare from "@/modules/hafa-workouts-share/src";
+import * as FileSystem from "expo-file-system/legacy";
+import { isClassPage, classText, classDate } from "@/lib/class-import";
 import { useNativeShareSession } from "./native-share-session";
 export function ShareCapture() {
   const stock = useShareIntentContext();
   const cache = useQueryClient();
-  const { owner, enrollment, storage, localDrafts, isCurrentAccount } = useTraining();
+  const { api, owner, enrollment, storage, localDrafts, isCurrentAccount } = useTraining();
   const [native, setNative] = useState<NativeShare.NativeCapture | null>(null);
   const [queueVersion, setQueueVersion] = useState(0);
   useNativeShareSession();
@@ -45,6 +47,7 @@ export function ShareCapture() {
     else stock.resetShareIntent();
   };
   const sourceURL = sharedWorkoutURL(shareIntent.webUrl, shareIntent.text, shareIntent.meta?.url);
+  const classPage = isClassPage(sourceURL);
   const fingerprint = JSON.stringify([native?.captureId, sourceURL, shareIntent.text, shareIntent.files?.map((f) => f.path)]);
   const live = useRef({ owner, generation: enrollment?.generation, storage, fingerprint, hasShareIntent, active: false });
   useLayoutEffect(() => {
@@ -87,12 +90,19 @@ export function ShareCapture() {
         request_id: native?.captureId ?? Crypto.randomUUID(),
         generation,
         created_at: new Date().toISOString(),
-        kind: sourceURL ? "url" : "text",
-        source_url: sourceURL ?? "",
-        text: shareIntent.text ?? "",
+        kind: classPage ? "text" : sourceURL ? "url" : "text",
+        source_url: classPage ? (() => { const url = new URL(sourceURL!); url.search = ""; url.hash = ""; return url.href; })() : sourceURL ?? "",
+        text: classPage ? classText(shareIntent.text ?? "") : shareIntent.text ?? "",
         files: [],
-        ...(native ? { is_public: native.isPublic } : {})
+        ...(native ? { is_public: native.isPublic } : {}),
+        ...(classPage ? { class_parts: true, is_public: false, auto_save: false, programming: { source_kind: "gym" as const, app_name: "WodUp" } } : {})
       };
+      async function prepareClass() {
+        const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 }); guard();
+        if (!profile) throw Error("Set up your training profile timezone before importing a class.");
+        const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`); guard();
+        draft = { ...draft, class_parts: true, is_public: false, auto_save: false, programming: { ...draft.programming, date: classDate(profile.timezone), source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK" } };
+      }
       async function preserveNativeSource(saved: Awaited<ReturnType<typeof slot.load>>) {
         const prior = saved.value;
         if (!native || !prior) return false;
@@ -130,6 +140,7 @@ export function ShareCapture() {
         return true;
       }
       try {
+        if (classPage) await prepareClass();
         if (native?.jobId) {
           guard();
           await localDrafts.save(owner, `import-source-visibility:${generation}:${native.jobId}`, native.isPublic); guard();
@@ -147,7 +158,18 @@ export function ShareCapture() {
           if (shareIntent.files.some((f) => !f.mimeType.startsWith("image/"))) {
             if (shareIntent.files.length !== 1) throw Error("Share one PDF or text document, or up to four images together.");
             const file = shareIntent.files[0];
-            draft = { ...draft, kind: "document", files: await normalizeDocument({ uri: file.path, mimeType: file.mimeType, name: file.fileName }, guard, owner) };
+            if (file.mimeType === "application/pdf" && !draft.class_parts) {
+              const info = await FileSystem.getInfoAsync(file.path); guard();
+              if (info.exists && !info.isDirectory && info.size > 128 * 1024) {
+                const confirmed = await new Promise<boolean>(resolve => Alert.alert("Is this a class?",
+                  "Class PDFs can be up to 10 MiB and stay private. You’ll confirm the date and review the parts before saving.",
+                  [{ text: "Not a class", style: "cancel", onPress: () => resolve(false) }, { text: "Yes, a class", onPress: () => resolve(true) }],
+                  { cancelable: true, onDismiss: () => resolve(false) }));
+                guard(); if (!confirmed) throw Error("Use an available document under 128 KB, paste its text, or share screenshots.");
+                await prepareClass();
+              }
+            }
+            draft = { ...draft, kind: "document", files: await normalizeDocument({ uri: file.path, mimeType: file.mimeType, name: file.fileName }, guard, owner, draft.class_parts) };
           } else {
           draft = {
             ...draft,
@@ -209,7 +231,7 @@ export function ShareCapture() {
         if (native && !(await NativeShare.acknowledge(native.captureKey))) throw Error("Your source is saved. Reopen Workouts to reconnect this share.");
         guard();
         resetShareIntent();
-        if (mounted) router.push({ pathname: "/capture", params: { shared: "1", request_id: draft.request_id } });
+        if (mounted) router.push({ pathname: "/capture", params: { shared: "1", request_id: draft.request_id, ...(draft.class_parts ? { class: "1" } : {}) } });
       } catch (e) {
         if ((e as { captureRegistrationUncertain?: boolean }).captureRegistrationUncertain) registered = true;
         let current = true;

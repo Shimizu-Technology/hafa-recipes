@@ -14,7 +14,7 @@ const fixture = vi.hoisted(() => ({
   map: new Map<string, string>(),
   owner: "owner-initial",
   run: 0,
-  params: {} as { id?: string; shared?: string; request_id?: string; auto?: string },
+  params: {} as { class?: string; id?: string; shared?: string; request_id?: string; auto?: string },
   revision: 1,
   generation: 1,
   saveWorkout: vi.fn(),
@@ -3284,4 +3284,227 @@ it("Extract Back drains edits entered after Back while storage is delayed", asyn
   expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(action);
   await unmount(); await mount(Capture);
   expect(field().props.value).toBe("https://example.test/after-back");
+});
+
+it("Today's class starts private, remembers gym/track and requires review even with server auto-save", async () => {
+  fixture.params = { class: "1" };
+  fixture.map.set(draftKey(fixture.owner, "class-preferences:1"), JSON.stringify({ gym_name: "My gym", track: "BUILD | BRIK" }));
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.startImport.mockResolvedValue({ id: "class-job" });
+  await mount(Capture);
+  expect(nodes("Field").find(n => n.props.label === "Gym")!.props.value).toBe("My gym");
+  await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("A. 15 minute AMRAP: 10 squats"));
+  await click("Import workout");
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: false, is_public: false });
+  expect(fixture.sourceFor.mock.calls[0][0]).toMatchObject({ class_parts: true, is_public: false, programming: { gym_name: "My gym", track: "BUILD | BRIK" } });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "class-job", auto: "0" } });
+});
+it("a class review never offers Discover or saves automatically and preserves all class parts", async () => {
+  fixture.params = { id: "class-job", auto: "1" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "class-job", generation: 1, status: "ready", result: {
+    status: "ready", workout: nov17Class, source: { platform: "text", channels: [], coverage_notes: [] }, warnings: [], evidence: [] } });
+  fixture.importSource.mockResolvedValue({ kind: "text", class_parts: true, text: "class" });
+  fixture.acceptImport.mockResolvedValue({ ...nov17Class, id: "saved-class" });
+  await mount(ImportReview);
+  expect(fixture.acceptImport).not.toHaveBeenCalled();
+  expect(nodes("Choice").some(n => n.props.label === "Share to Discover")).toBe(false);
+  await click("Save workout");
+  expect(fixture.acceptImport).toHaveBeenCalledWith("class-job", nov17Class, 1, false, true);
+  expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "saved-class" } });
+});
+
+it("Safari WodUp visible text becomes a private class draft rather than a URL import", async () => {
+  fixture.share = true;
+  fixture.intent = { webUrl: "https://wodup.com/gym?token=private#scores", text: "Coach notes\nA. 15 minute AMRAP: 10 squats", files: [] };
+  await mount(ShareCapture);
+  const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  expect(captured).toMatchObject({ kind: "text", class_parts: true, is_public: false, auto_save: false,
+    source_url: "https://wodup.com/gym", text: fixture.intent.text, programming: { source_kind: "gym", app_name: "WodUp" } });
+  expect(fixture.startImport).not.toHaveBeenCalled();
+});
+it("leaving class mode clears its source instead of making gym programming publishable", async () => {
+  fixture.params = { class: "1" };
+  await mount(Capture);
+  await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("Private gym class"));
+  await click("Start a different import");
+  await click("Start a separate source and discard this draft");
+  const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  expect(captured).toMatchObject({ kind: "url", text: "", source_url: "", files: [] });
+  expect(captured.class_parts).toBeUndefined();
+  expect(captured.programming).toBeUndefined();
+});
+it("a Safari class waits on the form, uses profile-local today, removes copied WodUp URLs and sends an edited date only after confirmation", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
+  try {
+    fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+    const incoming = { request_id: "safari-class", generation: 1, class_parts: true, kind: "text", source_url: "https://wodup.com/gym", text: "A. Squats", files: [], created_at: new Date().toISOString() };
+    fixture.params = { shared: "1", request_id: incoming.request_id, class: "1" };
+    fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ ...incoming, programming: { source_kind: "gym", date: "2026-11-17" } }));
+    fixture.capabilities.mockResolvedValue(serverCaps);
+    fixture.startImport.mockResolvedValue({ id: "confirmed-class" });
+    await mount(Capture);
+    expect(fixture.startImport).not.toHaveBeenCalled();
+    await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-11-18"));
+    await click("Import workout");
+    expect(fixture.sourceFor.mock.calls[0][0].programming.date).toBe("2026-11-18");
+  } finally { vi.useRealTimers(); }
+});
+it("a URL-only Safari share opens an empty class form with profile-local today", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
+  try {
+    fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+    fixture.share = true;
+    fixture.intent = { webUrl: "https://wodup.com/gym?secret=1#scores", text: "https://wodup.com/gym?secret=1#scores", files: [] };
+    await mount(ShareCapture);
+    const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+    expect(captured).toMatchObject({ kind: "text", class_parts: true, text: "", source_url: "https://wodup.com/gym", programming: { date: "2026-11-17" } });
+    fixture.params = { shared: "1", request_id: captured.request_id, class: "1" };
+    await unmount(); await mount(Capture);
+    expect(fixture.startImport).not.toHaveBeenCalled();
+    expect(button("Import workout").props.disabled).toBe(true);
+  } finally { vi.useRealTimers(); }
+});
+it("shared WodUp PDFs use class limits; unknown large PDFs require class confirmation", async () => {
+  const file = { path: "file:///shared/class.pdf", mimeType: "application/pdf", fileName: "Class.pdf" };
+  fixture.share = true;
+  fixture.intent = { webUrl: "https://wodup.com/gym", text: "", files: [file] };
+  fixture.normalizeDocument.mockResolvedValue([{ uri: "file:///cache/class.pdf", mime_type: "application/pdf", owned: true, name: "Class.pdf" }]);
+  await mount(ShareCapture);
+  expect(fixture.normalizeDocument).toHaveBeenCalledWith(expect.anything(), expect.any(Function), fixture.owner, true);
+  await unmount(); fixture.map.clear(); fixture.normalizeDocument.mockClear(); fixture.resetIntent.mockClear();
+  fixture.photoInfo.mockResolvedValue({ exists: true, isDirectory: false, size: 1024 * 1024 });
+  fixture.intent = { webUrl: "", text: "", files: [file] };
+  await mount(ShareCapture);
+  expect(fixture.alert.mock.calls.at(-1)![0]).toBe("Is this a class?");
+  expect(fixture.normalizeDocument).not.toHaveBeenCalled();
+  await act(async () => fixture.alert.mock.calls.at(-1)![2][1].onPress());
+  expect(fixture.normalizeDocument).toHaveBeenCalledWith(expect.anything(), expect.any(Function), fixture.owner, true);
+});
+it("class route offers to switch an existing source, keeps its content and uses profile-local today", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-16T15:00:00Z"));
+  try {
+    fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+    fixture.params = { class: "1" };
+    fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ request_id: "other", generation: 1, kind: "text", text: "10 squats", source_url: "", files: [] }));
+    await mount(Capture);
+    expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
+    await click("Today’s class");
+    expect(nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.value).toBe("2026-11-17");
+    expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
+    expect(button("Paste")).toBeTruthy(); expect(button("Screenshots")).toBeTruthy(); expect(button("PDF")).toBeTruthy();
+  } finally { vi.useRealTimers(); }
+});
+it("the parsed class review accepts an edited date and rejects invalid dates without saving", async () => {
+  fixture.params = { id: "class-review" };
+  fixture.importJob.mockResolvedValue({ id: "class-review", generation: 1, status: "ready", result: { workout: nov17Class, warnings: [], evidence: [], source: { platform: "text", channels: [], coverage_notes: [] } } });
+  fixture.importSource.mockResolvedValue({ kind: "text", class_parts: true });
+  fixture.acceptImport.mockResolvedValue({ ...nov17Class, id: "saved" });
+  await mount(ImportReview);
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-02-30"));
+  await click("Save workout"); expect(fixture.acceptImport).not.toHaveBeenCalled();
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-11-18"));
+  await click("Save workout");
+  expect(fixture.acceptImport.mock.calls[0][1].programming.date).toBe("2026-11-18");
+});
+it("expired WodUp retries never auto-save, even when no workout or local source remains", async () => {
+  fixture.params = { id: "expired-class" };
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.importJob.mockResolvedValue({ id: "expired-class", generation: 1, status: "expired", result: { workout: null, warnings: [], evidence: [], source: { url: "https://wodup.com/gym", platform: "text", channels: [], coverage_notes: [] } } });
+  fixture.importSource.mockRejectedValue(new ApiError("Expired", 410));
+  fixture.startImport.mockResolvedValue({ id: "retried", generation: 1 });
+  await mount(ImportReview);
+  await click("Retry this source");
+  expect(fixture.startImport).not.toHaveBeenCalled();
+  await act(async () => nodes("Field").find(n => n.props.label === "Caption or source instructions")!.props.onChange("A. 10 squats"));
+  await click("Retry with this caption");
+  expect(fixture.startImport.mock.calls[0][1]).toMatchObject({ kind: "text", class_parts: true });
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: false, is_public: false });
+});
+it("native class preference read failures show recovery and retain the capture", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true; fixture.readFailure = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "class-key", captureId: "class-id", ownerId: fixture.owner,
+    generation: 1, url: "https://wodup.com/gym", text: "A. 10 squats", files: [], isPublic: false }]);
+  await mount(ShareCapture);
+  expect(fixture.alert.mock.calls.at(-1)![0]).toBe("Could not save shared source");
+  expect(fixture.nativeAck).not.toHaveBeenCalled(); expect(fixture.startImport).not.toHaveBeenCalled();
+});
+it.each(["ios", "android"])("Not a class on %s reports the ordinary PDF limit instead of silently cancelling", async os => {
+  fixture.photoInfo.mockResolvedValue({ exists: true, isDirectory: false, size: 1024 * 1024 });
+  const file = { path: "file:///shared/ordinary.pdf", mimeType: "application/pdf", fileName: "Ordinary.pdf" };
+  fixture.os = os;
+  if (os === "ios") {
+    fixture.nativeSharing = true;
+    fixture.nativeCaptures.mockResolvedValueOnce([{ captureKey: "pdf-key", captureId: "pdf-id", ownerId: fixture.owner, generation: 1, text: "", files: [file], isPublic: false }]);
+  } else {
+    fixture.share = true; fixture.intent = { webUrl: "", text: "", files: [file] };
+  }
+  await mount(ShareCapture);
+  const prompt = fixture.alert.mock.calls.at(-1)!;
+  expect(prompt[0]).toBe("Is this a class?"); expect(prompt[2][0].text).toBe("Not a class");
+  await act(async () => prompt[2][0].onPress());
+  const error = fixture.alert.mock.calls.at(-1)!;
+  expect(error[0]).toBe("Could not save shared source"); expect(error[1]).toContain("under 128 KB");
+  expect(fixture.normalizeDocument).not.toHaveBeenCalled();
+  if (os === "ios") {
+    expect(error[2].map((b: any) => b.text)).toEqual(["Later", "Discard shared source"]);
+    expect(fixture.nativeAck).not.toHaveBeenCalled();
+    await act(async () => error[2][1].onPress()); await settle();
+    expect(fixture.nativeAck).toHaveBeenCalledWith("pdf-key");
+    await act(async () => { for (const listener of fixture.foreground) listener("active"); }); await settle();
+    expect(fixture.alert.mock.calls.filter(call => call[0] === "Is this a class?")).toHaveLength(1);
+  }
+});
+it.each(["", "https://wodup.com/gym?secret=1", "denied"])("class Paste preserves existing instructions when clipboard is %s", async clipboard => {
+  fixture.params = { class: "1" };
+  await mount(Capture);
+  const textField = () => nodes("Field").find(n => n.props.label === "Workout text")!;
+  await act(async () => textField().props.onChange("Keep these class instructions"));
+  if (clipboard === "denied") fixture.clipboard.mockRejectedValue(Error("Permission denied"));
+  else fixture.clipboard.mockResolvedValue(clipboard);
+  await click("Paste");
+  expect(textField().props.value).toBe("Keep these class instructions");
+  const copy = JSON.stringify(nodes("Copy").map(n => n.props.children));
+  expect(copy).toContain(clipboard === "" ? "Your clipboard is empty" : clipboard === "denied" ? "Could not read your clipboard" : "not just its WodUp link");
+});
+it("class Paste asks before replacing screenshots and preserves them on cancellation or an empty clipboard", async () => {
+  fixture.params = { class: "1" };
+  const file = { uri: "file:///cache/screenshots.jpg", name: "Class", mime_type: "image/jpeg", owned: true };
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ request_id: "images", generation: 1, class_parts: true, kind: "images", text: "Class caption", source_url: "", files: [file] }));
+  await mount(Capture);
+  fixture.clipboard.mockResolvedValue(""); await click("Paste");
+  expect(fixture.alert).not.toHaveBeenCalled(); expect(nodes("SourceImage")).toHaveLength(1);
+  fixture.clipboard.mockResolvedValue("A. 10 squats");
+  await click("Paste");
+  expect(fixture.alert.mock.calls.at(-1)![0]).toBe("Replace your selected files?");
+  await act(async () => fixture.alert.mock.calls.at(-1)![2][0].onPress());
+  expect(nodes("SourceImage")).toHaveLength(1); expect(fixture.cleanup).not.toHaveBeenCalled();
+  await click("Paste");
+  await act(async () => fixture.alert.mock.calls.at(-1)![2][1].onPress());
+  expect(nodes("SourceImage")).toHaveLength(0);
+  expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("A. 10 squats");
+  expect(fixture.cleanup).toHaveBeenCalledWith([file], true);
+});
+it("class route profile failure is recoverable by loading the saved source with class defaults", async () => {
+  fixture.params = { class: "1" };
+  fixture.profile.mockRejectedValueOnce(Error("Offline"));
+  await mount(Capture);
+  expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).toContain("Could not load your training profile timezone");
+  expect(fixture.startImport).not.toHaveBeenCalled();
+  fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
+  await click("Load saved source");
+  expect(nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")).toBeTruthy();
+  expect(nodes("Field").find(n => n.props.label === "Workout text")).toBeTruthy();
+  expect(nodes("Field").find(n => n.props.label === "Gym")!.props.value).toBe("Unified");
+  expect(button("Import workout").props.disabled).toBe(true);
+  expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).not.toContain("Your other source draft");
+});
+it("an ambiguous class date is blocked locally before transport", async () => {
+  fixture.params = { class: "1" };
+  await mount(Capture);
+  await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("A. Squats"));
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("11/17"));
+  expect(button("Import workout").props.disabled).toBe(true);
+  await click("Import workout"); expect(fixture.startImport).not.toHaveBeenCalled();
+  expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).toContain("Use a class date like");
 });

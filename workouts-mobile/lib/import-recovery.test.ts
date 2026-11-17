@@ -33,3 +33,43 @@ it("distinguishes a processing failure from workout details that still need revi
   job.result!.workout!.blocks = [];
   expect(importPresentation(job).label).toBe("No exercises extracted");
 });
+
+it("retains class mode and programming on retry and never falls back to fetching WodUp", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", track: "BUILD | BRIK" };
+  expect(recoverySource({ kind: "text", text: "A. Squats", class_parts: true, programming, ai_consent: true }, null, "10 reps"))
+    .toMatchObject({ kind: "text", class_parts: true, programming, text: "A. Squats\n\n10 reps" });
+  expect(recoverySource(null, "https://wodup.com/gym?token=private#scores", "A. Squats"))
+    .toMatchObject({ kind: "text", class_parts: true, source_url: "https://wodup.com/gym" });
+});
+it("asks for class instructions before transport when an expired WodUp source has no text", () => {
+  expect(() => recoverySource(null, "https://wodup.com/gym?session=secret", "")).toThrow("Paste the class instructions");
+  expect(() => recoverySource({ kind: "text", class_parts: true, ai_consent: true }, null, "")).toThrow("Paste the class instructions");
+});
+it("keeps the parsed gym, track and date when the temporary upload is unavailable", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", track: "BUILD | BRIK", date: "2026-11-18" };
+  expect(recoverySource(null, "https://wodup.com/gym", "A. 10 squats", programming))
+    .toMatchObject({ kind: "text", class_parts: true, programming });
+});
+it("gym attribution alone does not turn an ordinary expired source into a class", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", date: "2026-11-17" };
+  const ordinary = recoverySource(null, "https://example.test/workout", "10 squats", programming);
+  expect(ordinary).toMatchObject({ kind: "url", source_url: "https://example.test/workout" });
+  expect(ordinary.class_parts).toBeUndefined(); expect(ordinary.programming).toBeUndefined();
+  const caption = recoverySource(null, null, "10 squats", programming);
+  expect(caption).toMatchObject({ kind: "text", text: "10 squats" }); expect(caption.class_parts).toBeUndefined();
+});
+
+it.each(["screenshot", "PDF"])("recovers an expired URL-less %s class with explicit context", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", track: "BUILD", date: "2026-11-18" };
+  expect(recoverySource(null, null, "A. 10 squats", programming, true))
+    .toMatchObject({ kind: "text", class_parts: true, programming, text: "A. 10 squats" });
+  expect(() => recoverySource(null, null, "", programming, true)).toThrow("Paste the class instructions");
+});
+it("uses edited programming over retained class programming without changing source material", () => {
+  const source = { kind: "images" as const, images: [{ base64_data: "aW1hZ2U=", mime_type: "image/png" }], class_parts: true, ai_consent: true,
+    programming: { source_kind: "gym" as const, gym_name: "Unified", date: "2026-11-17" } };
+  const programming = { ...source.programming, date: "2026-11-18" };
+  expect(recoverySource(source, null, "10 squats", programming, true))
+    .toMatchObject({ kind: "images", images: [{ base64_data: "aW1hZ2U=", mime_type: "image/png" }], class_parts: true, programming });
+  expect(source.programming.date).toBe("2026-11-17");
+});

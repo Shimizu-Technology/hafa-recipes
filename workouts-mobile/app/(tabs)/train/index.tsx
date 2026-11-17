@@ -27,6 +27,7 @@ import { radii } from "@/constants/theme";
 import { Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { CalendarDate } from "@/components/calendar-date";
+import { TodaysClass } from "@/components/todays-class";
 import { TrainToday } from "@/components/train-today";
 import { PrescriptionPreview } from "@/components/program-preview";
 import { isISODate } from "@/lib/sharing";
@@ -381,6 +382,7 @@ export default function Plan() {
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
     >
       <Copy kind="caption" tone="muted">{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: profile.data?.timezone }).format(new Date())}</Copy>
+      <TodaysClass />
       <TrainToday />
       {loaded && (!!shownPrograms?.length || view === "archived" || archivedCount > 0) && (
         <SectionHeader

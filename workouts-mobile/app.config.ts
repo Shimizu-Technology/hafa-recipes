@@ -1,4 +1,5 @@
 import type { ExpoConfig } from "expo/config";
+const workoutsShareActivation = require("./plugins/share-activation.cjs") as string;
 
 // Splash backgrounds; lib/theme.test.ts asserts these equal constants/theme.ts (config can't import TS modules).
 const cream = "#FFF7EC";
@@ -38,7 +39,7 @@ const config: ExpoConfig = {
     "expo-image",
     ["@kingstinct/react-native-healthkit", { background: false }],
     "react-native-health-connect",
-    ["expo-share-intent", { iosActivationRules: { NSExtensionActivationSupportsWebURLWithMaxCount: 1, NSExtensionActivationSupportsWebPageWithMaxCount: 1, NSExtensionActivationSupportsText: true, NSExtensionActivationSupportsImageWithMaxCount: 4, NSExtensionActivationSupportsFileWithMaxCount: 1 }, androidIntentFilters: ["text/*", "image/*", "application/pdf"] }],
+    ["expo-share-intent", { iosActivationRules: workoutsShareActivation, androidIntentFilters: ["text/*", "image/*", "application/pdf"] }],
     "./plugins/with-workouts-share.cjs",
     ["expo-image-picker", { photosPermission: "Choose workout screenshots or photos to review and import.", cameraPermission: "Photograph workout instructions for an optional private import.", microphonePermission: "Dictate an optional coach message to review before sending." }],
     ["expo-speech-recognition", { microphonePermission: "Dictate an optional coach message to review before sending.", speechRecognitionPermission: "Convert your speech into an editable coach message. Speech recognition may use your device’s speech service." }],

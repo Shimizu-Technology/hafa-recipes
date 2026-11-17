@@ -17,6 +17,7 @@ export default function Add() {
   return <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ backgroundColor: c.groupedBackground }} contentContainerStyle={{ padding: 16, gap: 24 }}>
     {Platform.OS === "android" && <Row justify="space-between"><Copy kind="heading">Add a workout</Copy><IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /></Row>}
     <ListGroup grouped>
+      <ListRow icon="today-outline" title="Today’s class" detail="WodUp text, screenshots or Full Page PDF" onPress={() => open("/extract?class=1")} />
       <ListRow icon="link-outline" title="Paste a link" onPress={() => open("/extract")} />
       <ListRow icon="camera-outline" title="Record/upload" detail="Photos, screenshots, documents or text" onPress={() => open("/capture")} />
       <ListRow icon="barbell-outline" title="Build a workout" onPress={() => open("/add-workout")} />

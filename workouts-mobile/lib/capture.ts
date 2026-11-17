@@ -1,3 +1,4 @@
+import { isISODate } from "./sharing";
 import type { AuthoredWorkout } from "./models";
 import { drafts } from "./drafts";
 import type { Storage } from "./drafts";
@@ -38,6 +39,8 @@ export interface CaptureFile {
   owned: boolean;
 }
 export interface CaptureDraft {
+  class_parts?: boolean;
+  programming?: AuthoredWorkout["programming"];
   request_id: string;
   generation: number;
   kind: CaptureKind;
@@ -61,6 +64,8 @@ export interface CaptureDraft {
 /** Supplied by the original account/enrollment/screen; native helpers stay UI-free. */
 export type CaptureGuard = () => void;
 export interface ExtractionRequest {
+  class_parts?: boolean;
+  programming?: AuthoredWorkout["programming"];
   kind: CaptureKind;
   text?: string;
   source_url?: string;
@@ -131,6 +136,7 @@ export interface Capabilities {
 }
 export function captureErrors(draft: CaptureDraft): string[] {
   const errors: string[] = [];
+  if (draft.class_parts && draft.programming?.date && !isISODate(draft.programming.date)) errors.push("Use a class date like 2026-11-17.");
   if (draft.kind === "url") {
     try {
       const url = new URL(draft.source_url.trim());
@@ -143,12 +149,17 @@ export function captureErrors(draft: CaptureDraft): string[] {
     errors.push("Paste workout text between 1 and 30,000 characters.");
   if ((draft.kind === "images" || draft.kind === "document") && !draft.files.length)
     errors.push("Choose a source file first.");
-  if (draft.kind === "images" && draft.files.length > 4) errors.push("Choose up to four clear images.");
+  if (draft.kind === "images" && draft.files.length > (draft.class_parts ? 8 : 4)) errors.push("Choose fewer clear images (up to eight for a class, four for other workouts).");
   return errors;
 }
 export function boundedSource(source: ExtractionRequest): ExtractionRequest {
+  if (source.class_parts && source.images) {
+    const sizes = source.images.map(i => i.base64_data.length * 0.75 - (i.base64_data.match(/=+$/)?.[0].length ?? 0));
+    if (sizes.length > 8 || sizes.some(s => s > 4 * 1024 * 1024) || sizes.reduce((a, b) => a + b, 0) > 12 * 1024 * 1024)
+      throw Error("Use up to eight screenshots, 4 MiB each and 12 MiB together. Crop out the leaderboard.");
+  }
   const bytes = new TextEncoder().encode(JSON.stringify(source)).byteLength;
-  if (bytes > 3 * 1024 * 1024)
+  if (bytes > (source.class_parts ? 18 : 3) * 1024 * 1024)
     throw Error("These files are too large together. Use fewer images or paste the workout text.");
   return source;
 }
@@ -157,7 +168,7 @@ export function importIsTerminal(status: ImportJob["status"]) {
 }
 /** Only an unchanged complete extraction can skip the missing-details review. */
 export function canSaveAutomatically(job: ImportJob) {
-  return !job.replace_target && !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
+  return job.result?.workout?.programming?.source_kind !== "gym" && !job.replace_target && !job.accepted_workout_id && job.status === "ready" && job.result?.status === "ready" &&
     !!job.result.workout && job.result.warnings.length === 0;
 }
 const sourceLifecycles = new Map<string, Promise<unknown>>();

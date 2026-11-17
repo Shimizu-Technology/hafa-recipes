@@ -2,10 +2,10 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { light } from "../constants/theme";
-const f = vi.hoisted(() => ({ segments: ["(tabs)", "library"], listeners: new Set<(value: string) => void>(), start: vi.fn(), stop: vi.fn(), announce: vi.fn(), reduced: false, appState: "active" }));
+const f = vi.hoisted(() => ({ segments: ["(tabs)", "library"], listeners: new Set<(value: string) => void>(), start: vi.fn(), stop: vi.fn(), announce: vi.fn(), reduced: false, fontScale: 1, appState: "active" }));
 vi.mock("react-native", () => {
   class Value { constructor(public value: number) {} setValue(v: number) { this.value = v; } }
-  return { useWindowDimensions: () => ({ fontScale: 1, width: 390 }), View: "View", Pressable: "Pressable", ScrollView: "ScrollView", Modal: "Modal", KeyboardAvoidingView: "KeyboardAvoidingView", Platform: { OS: "ios" }, RefreshControl: "RefreshControl",
+  return { useWindowDimensions: () => ({ fontScale: f.fontScale, width: 390 }), View: "View", Pressable: "Pressable", ScrollView: "ScrollView", Modal: "Modal", KeyboardAvoidingView: "KeyboardAvoidingView", Platform: { OS: "ios" }, RefreshControl: "RefreshControl",
     AccessibilityInfo: { announceForAccessibility: f.announce },
     AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, fn: (value: string) => void) => { f.listeners.add(fn); return { remove: () => f.listeners.delete(fn) }; } },
     Animated: { View: "AnimatedView", Value, timing: () => ({ start() {} }), sequence: () => ({}), loop: () => ({ start: f.start, stop: f.stop }) } };
@@ -19,10 +19,10 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34 }) }));
 vi.mock("expo-router", () => ({ router: {}, useSegments: () => f.segments }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
-import { Skeleton, ToastProvider, useToast, ListRow } from "../components/design/surfaces";
+import { Skeleton, ToastProvider, useToast, ListRow, Notice } from "../components/design/surfaces";
 import { reportTabScreenBottomInset } from "./bottom-overlay";
 let view: ReactTestRenderer | undefined;
-beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.listeners.clear(); f.start.mockClear(); f.stop.mockClear(); f.announce.mockClear(); f.reduced = false; f.appState = "active"; vi.useFakeTimers(); });
+beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.listeners.clear(); f.start.mockClear(); f.stop.mockClear(); f.announce.mockClear(); f.reduced = false; f.fontScale = 1; f.appState = "active"; vi.useFakeTimers(); });
 afterEach(() => { act(() => view?.unmount()); vi.useRealTimers(); });
 it("stops skeleton loops while backgrounded and resumes only when active", () => {
   act(() => { view = create(createElement(Skeleton)); }); expect(f.start).toHaveBeenCalledOnce();
@@ -72,4 +72,16 @@ it("preserves ordinary ListRow VoiceOver labels without appending every visual v
   act(() => { view = create(createElement(ListRow, { title: "Saved sessions", detail: "View history", value: "12", onPress() {} })); });
   expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toBe("Saved sessions. View history");
   expect(view!.root.findAllByType("Copy" as never).some((n) => n.props.children === "12")).toBe(true);
+});
+
+it.each([1, 3.1])("gives notice prose the full width at accessibility scale %s", fontScale => {
+  f.fontScale = fontScale;
+  const text = "Review each class part before saving. Check all reps, loads, distances and times. Your gym class stays private.";
+  act(() => { view = create(createElement(Notice, {}, text)); });
+  const container = view!.root.findByProps({ accessibilityLiveRegion: "polite" });
+  expect(container.props.style.flexDirection).toBe(fontScale === 1 ? "row" : "column");
+  const copy = view!.root.findByType("Copy" as never);
+  expect(copy.props.children).toBe(text);
+  expect(copy.props.numberOfLines).toBeUndefined();
+  if (fontScale > 1) expect(copy.props.style).toMatchObject({ flex: undefined, alignSelf: "stretch" });
 });

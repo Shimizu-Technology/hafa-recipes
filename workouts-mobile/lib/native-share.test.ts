@@ -18,7 +18,7 @@ describe("Workouts native share generation", () => {
     const stock = require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
       .getShareExtensionViewControllerContent("hafaworkouts", "group.com.shimizutechnology.hafaworkouts", true);
     const source = transform(stock);
-    expect(source).toContain('"hafaworkoutsShareKey.\\(UUID().uuidString)"');
+    expect(source).toContain(String.raw`"hafaworkoutsShareKey.\(UUID().uuidString)"`);
     expect(source).toContain("private func handleText");
     expect(source).toContain("private func handleImages");
     expect(source).not.toContain("application.open(url)");
@@ -157,6 +157,7 @@ describe("Workouts native share generation", () => {
       expect(readFileSync(join(extension, "ShareViewController.swift"), "utf8")).toContain("completeRequest(returningItems: []");
       const info = plist.parse(readFileSync(join(extension, "ShareExtension-Info.plist"), "utf8"));
       expect(info.UIAppFonts).toBeUndefined();
+      expect(readFileSync(join(extension, "ShareExtensionPreprocessor.js"), "utf8")).toContain("document.body.innerText");
       for (const font of legacyFonts) expect(existsSync(join(extension, font))).toBe(false);
       expect(removeResourceFile.mock.calls).toEqual(legacyFonts.map(font => [font, { target: "extension-target" }, "extension-group"]));
       const controller = readFileSync(join(extension, "ShareViewController.swift"), "utf8");
@@ -426,3 +427,76 @@ print("Bounded off-main capture contention and ordered retry passed")
     expect(execFileSync(binary, { encoding: "utf8", timeout: 10000 })).toContain("Bounded off-main capture contention and ordered retry passed");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90000);
+it.skipIf(process.platform !== "darwin")("generated native captures receive distinct interpolated UUID keys", () => {
+  const stock = require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
+    .getShareExtensionViewControllerContent("hafaworkouts", "group.com.shimizutechnology.hafaworkouts", true);
+  const declaration = transform(stock).split("\n").find((line: string) => line.includes("let sharedKey:"));
+  const directory = mkdtempSync(join(tmpdir(), "hafa-share-keys-"));
+  try {
+    const main = join(directory, "main.swift"), binary = join(directory, "test");
+    writeFileSync(main, `import Foundation\nstruct Capture { ${declaration} }\nlet a = Capture(), b = Capture()\nassert(a.sharedKey != b.sharedKey)\nprint("Distinct capture keys passed")`);
+    execFileSync("xcrun", ["swiftc", main, "-o", binary], { timeout: 60000 });
+    expect(execFileSync(binary, { encoding: "utf8" })).toContain("Distinct capture keys passed");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 90000);
+
+it.skipIf(process.platform !== "darwin")("accepts Safari PDF and webpage providers while refusing five shared photos", () => {
+  const config = require("@expo/config").getConfig(new URL("..", import.meta.url).pathname).exp;
+  const share = config.plugins.find((entry: unknown) => Array.isArray(entry) && entry[0] === "expo-share-intent");
+  const info = require("@expo/plist").default.parse(require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
+    .getShareExtensionInfoContent("Workouts", "com.example.workouts", share[1]));
+  expect(info.NSExtension.NSExtensionAttributes.NSExtensionJavaScriptPreprocessingFile).toBe("ShareExtensionPreprocessor");
+  const rule = info.NSExtension.NSExtensionAttributes.NSExtensionActivationRule;
+  expect(typeof rule).toBe("string");
+  expect(rule).not.toContain("TRUEPREDICATE");
+  const directory = mkdtempSync(join(tmpdir(), "workouts-share-activation-"));
+  try {
+    writeFileSync(join(directory, "rule.txt"), rule);
+    writeFileSync(join(directory, "main.swift"), `import Foundation
+let rule = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
+let predicate = NSPredicate(format: rule)
+func payload(_ providers: [[String]], items: Int = 1) -> [String: Any] {
+  ["extensionItems": Array(repeating: ["attachments": providers.map {
+    ["registeredTypeIdentifiers": $0]
+  }], count: items)]
+}
+func items(_ providers: [[[String]]]) -> [String: Any] {
+  ["extensionItems": providers.map { ["attachments": $0.map { ["registeredTypeIdentifiers": $0] }] }]
+}
+let image = ["public.heic", "public.file-url"]
+let cases: [([String: Any], Bool)] = [
+  (items([[["com.adobe.pdf"]], [["public.url"]]]), true),
+  (items([[["public.url"]], [["com.adobe.pdf", "public.file-url"]]]), true),
+  (items([[["com.adobe.pdf"]], [["com.adobe.pdf"]]]), false),
+  (items([[["com.adobe.pdf"]], [image]]), false),
+  (items([[["com.adobe.pdf"]], [["public.url"]], [["public.url"]]]), false),
+  (payload([["com.adobe.pdf", "public.file-url"]]), true),
+  (payload([["com.apple.property-list"]]), true),
+  (payload([["public.url", "public.plain-text"]]), true),
+  (payload([["public.plain-text"]]), true),
+  (payload(Array(repeating: image, count: 4)), true),
+  (payload(Array(repeating: image, count: 5)), false),
+  (payload([image, ["com.adobe.pdf"]]), false),
+  (payload([["com.adobe.pdf"], ["com.adobe.pdf"]]), false),
+  (payload([["public.data"]]), false),
+  (payload([["public.movie"]]), false),
+  (payload([image], items: 2), false),
+  (payload([]), false),
+]
+for (input, expected) in cases { precondition(predicate.evaluate(with: input) == expected) }
+print("Bounded PDF, webpage and four-photo activation passed")
+`);
+    const binary = join(directory, "test");
+    execFileSync("xcrun", ["swiftc", join(directory, "main.swift"), "-o", binary], { timeout: 60000 });
+    expect(execFileSync(binary, [join(directory, "rule.txt")], { encoding: "utf8" }))
+      .toContain("Bounded PDF, webpage and four-photo activation passed");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 90000);
+it("rejects a preprocessed PDF before saving a URL-only capture, but keeps delivered PDF bytes", () => {
+  const loader = native("CaptureProviderLoader.swift");
+  expect(loader).toContain('if results["contentType"] as? String == "application/pdf"');
+  expect(loader.indexOf('sharedPDFPage = true')).toBeLessThan(loader.indexOf('let source = results["baseURI"]'));
+  expect(loader).toContain('sharedPDFPage && !sharedMedia.contains(where: { $0.mimeType == "application/pdf" })');
+  expect(loader).toContain("Save this PDF to Files, then share or pick it in Håfa Workouts.");
+  expect(loader.indexOf('if sharedPDFPage &&')).toBeLessThan(loader.indexOf('try redirectToHostApp(type: .media)'));
+});
