@@ -19,6 +19,7 @@ from app.domains.baby.access import SpaceAccess, _stamp
 from app.domains.baby.lifecycle import now
 from app.domains.baby.models import BabyImport, BabyRecord, BabySpace
 from app.domains.baby.processing import missing_reason
+from app.domains.baby.provider import AI_UNAVAILABLE_MESSAGE, DAILY_LIMIT_MESSAGE
 
 # The worker's own words when her edit won over a reread; that reread was thrown away, so it stays a retry.
 EDIT_CONFLICT = "You edited this source while it processed."
@@ -32,6 +33,9 @@ async def latest_import(db, record_id, *, lock=False):
 def why_incomplete(data, job):
     if job is not None and (job.error or "").startswith(EDIT_CONFLICT):
         return "edited_while_processing"
+    # AI stopped partway; the import keeps that message even when the capped notes dropped it.
+    if job is not None and any(stop in (job.error or "") for stop in (DAILY_LIMIT_MESSAGE, AI_UNAVAILABLE_MESSAGE)):
+        return "ai_stopped"
     return missing_reason(data, ai_expected=True)
 
 

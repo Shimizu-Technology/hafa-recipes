@@ -53,6 +53,14 @@ LOST_NOTES = (
     DAILY_LIMIT_MESSAGE,
     AI_UNAVAILABLE_MESSAGE,
 )
+# The note written when an image is rejected before reading (stored on existing posts, so matched as written).
+UNREADABLE_IMAGE = re.compile(r"Image \S+ could not be read; its details may be missing\.")
+
+
+def lost_note(note):
+    return note.startswith(LOST_NOTES) or UNREADABLE_IMAGE.fullmatch(note) is not None
+
+
 MEDIA_PLATFORMS_EXCLUDED = {None, "", "web", "text", "upload"}
 
 
@@ -72,7 +80,7 @@ def missing_reason(data, *, ai_expected):
     notes = [note for note in data.get("coverage_notes") or [] if isinstance(note, str)]
     if not read:
         return "nothing_read_from_post"
-    if any(note.startswith(LOST_NOTES) for note in notes):
+    if any(lost_note(note) for note in notes):
         return "attachment_unread_or_ai_stopped"
     if not ai_expected:
         return None
@@ -526,7 +534,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     # Read from the full lists: the saved notes are capped at 30 and could drop a limit message.
     incomplete = (missing_content(data, ai_expected=ai_expected) or bool(source.images and not ai_expected)
                   or budget_failure is not None
-                  or any(note.startswith(LOST_NOTES) for note in [*source.metadata.coverage_notes, *failures]))
+                  or any(lost_note(note) for note in [*source.metadata.coverage_notes, *failures]))
     status = data["status"] = "incomplete" if incomplete else "ready"
     # Attachment membership belongs to the editable record, never a processing result.
     data.pop("attachment_ids", None)

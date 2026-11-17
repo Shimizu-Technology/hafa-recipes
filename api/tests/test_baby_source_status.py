@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.domains.baby import processing
-from app.domains.baby.provider import IMAGE_READING_DISCLOSURE, ExtractionOutput
+from app.domains.baby.provider import (
+    DAILY_LIMIT_MESSAGE,
+    IMAGE_READING_DISCLOSURE,
+    ExtractionOutput,
+)
 from app.domains.baby.runtime import keep_user_decisions
 from app.domains.workouts.extraction import SourceBundle, SourceImage, SourceMetadata, SourcePart
 from app.services.source_acquisition import AcquisitionFailure
@@ -108,6 +112,12 @@ async def test_only_her_own_note_is_incomplete(monkeypatch):
       "coverage_notes": ["Image attachment:0 could not be read; its details may be missing."]}, True, True),
     ({"summary": "s", "platform": "upload", "url": "u", "evidence": [{"location": "attachment:0", "text": "t"}],
       "coverage_notes": ["The linked source could not be read. The original link remains saved."]}, True, True),
+    # One image rejected before reading, another read: still missing. Both read: ready.
+    ({"summary": "s", "platform": "instagram", "url": "u", "evidence": [{"location": "image:1", "text": "t"}],
+      "coverage_notes": ["Image image:0 could not be read; its details may be missing.", IMAGE_READING_DISCLOSURE]}, True, True),
+    ({"summary": "s", "platform": "instagram", "url": "u",
+      "evidence": [{"location": "image:0", "text": "t"}, {"location": "image:1", "text": "u"}],
+      "coverage_notes": [IMAGE_READING_DISCLOSURE]}, True, False),
     # Without AI there is no summary to expect, and only a caption is ever read.
     ({"platform": "tiktok", "url": "u", "evidence": [{"location": "caption", "text": "c"}]}, False, False),
 ])
@@ -151,26 +161,28 @@ async def test_recompute_is_dry_run_first_and_promotes_only_readable_posts(baby_
                 "evidence": [{"location": "caption", "text": "Caption"}, {"location": "transcript", "text": "Pack a long cable."}]}
     unread = {**readable, "summary": None, "evidence": [{"location": "user_note", "text": "Mine"}]}
     ids = {}
-    for name, data in (("readable", readable), ("unread", unread), ("edited", readable)):
+    for name, data in (("readable", readable), ("unread", unread), ("edited", readable), ("capped", readable)):
         made = await c.post("/api/v1/baby/imports", headers=shared.GEN, json={"id": str(uuid4()), "url": data["url"]})
         ids[name] = made.json()["record_id"]
-        error = ("You edited this source while it processed. Your edits were kept; retry to organize it again."
-                 if name == "edited" else "Some linked source content could not be read.")
+        error = {"edited": "You edited this source while it processed. Your edits were kept; retry to organize it again.",
+                 # The daily-limit stop lives only on the import when 30 capped notes left it out.
+                 "capped": DAILY_LIMIT_MESSAGE}.get(name, "Some linked source content could not be read.")
         processor = AsyncMock(return_value={"status": "incomplete", "title": name, "data": data, "error": error})
         assert await BabyWorker(baby_api.sessions, processor=processor).tick()
     before = {name: (await c.get(f"/api/v1/baby/records/{rid}")).json() for name, rid in ids.items()}
 
     report = await recompute(migration_engine=baby_api.engine)
-    assert report == {"mode": "dry_run", "incomplete": 3, "promote": 1, "promoted": 0, "skipped_changed": 0, "stay_incomplete": 2}
+    assert report == {"mode": "dry_run", "incomplete": 4, "promote": 1, "promoted": 0, "skipped_changed": 0, "stay_incomplete": 3}
     printed = capsys.readouterr().out
-    assert "nothing_read_from_post" in printed and "edited_while_processing" in printed and "Pack a long cable" not in printed
+    assert "nothing_read_from_post" in printed and "edited_while_processing" in printed and "ai_stopped" in printed
+    assert "Pack a long cable" not in printed
     async with baby_api.sessions() as db:
         stamped = {str(job.record_id): job.updated_at for job in await db.scalars(select(BabyImport))}
     for name, rid in ids.items():
         assert (await c.get(f"/api/v1/baby/records/{rid}")).json() == before[name]
 
     report = await recompute(apply=True, migration_engine=baby_api.engine)
-    assert report["promoted"] == 1 and report["stay_incomplete"] == 2
+    assert report["promoted"] == 1 and report["stay_incomplete"] == 3
     after = (await c.get(f"/api/v1/baby/records/{ids['readable']}")).json()
     assert after["data"] == {**before["readable"]["data"], "status": "ready"}
     assert after["revision"] == before["readable"]["revision"] + 1
@@ -180,7 +192,8 @@ async def test_recompute_is_dry_run_first_and_promotes_only_readable_posts(baby_
     assert (jobs[ids["readable"]].status, jobs[ids["readable"]].error) == ("ready", None)
     # No fresh updated_at, so no days-late "is ready" push.
     assert jobs[ids["readable"]].updated_at == stamped[ids["readable"]]
-    assert jobs[ids["unread"]].status == jobs[ids["edited"]].status == "incomplete"
+    assert jobs[ids["unread"]].status == jobs[ids["edited"]].status == jobs[ids["capped"]].status == "incomplete"
+    assert jobs[ids["capped"]].error == DAILY_LIMIT_MESSAGE
 
     again = await recompute(apply=True, migration_engine=baby_api.engine)
-    assert again["incomplete"] == 2 and again["promoted"] == 0
+    assert again["incomplete"] == 3 and again["promoted"] == 0
