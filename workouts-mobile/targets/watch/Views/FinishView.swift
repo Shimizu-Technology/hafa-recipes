@@ -50,7 +50,13 @@ private struct ScoreCard: View {
   var body: some View {
     if let runner = engine.runner {
       let part = runner.plan.parts[index]
-      let score = PartScore.initial(runner, index: index, at: Date())
+      var score: PartScore {
+        var value = PartScore.initial(runner, index: index, at: Date())
+        if runner.runs[index].score == nil {
+          value.scaled = UserDefaults.standard.bool(forKey: "scaled-\(runner.plan.planKey)-\(part.blockId)")
+        }
+        return value
+      }
       let capped = score.isCapped(for: part)
       Button { editing = true } label: {
         HStack(spacing: 8) {
@@ -87,12 +93,6 @@ private struct ScoreCard: View {
               Button("Done") { editing = false }.buttonStyle(WatchButton())
             }
           }.sheet(isPresented: $repsSheet) { RepSheet(index: index) }
-        }
-        .onAppear {
-          guard !runner.runs[index].skipped, runner.runs[index].score == nil else { return }
-          var initial = score
-          initial.scaled = UserDefaults.standard.bool(forKey: "scaled-\(runner.plan.planKey)-\(part.blockId)")
-          engine.setScore(initial, for: index)
         }
     }
   }

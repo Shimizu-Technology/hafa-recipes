@@ -25,6 +25,9 @@ struct HomeView: View {
         ForEach(PlanLibrary.plans, id: \.planKey) { plan in
           Button(plan.title) { start(plan) }.buttonStyle(WatchButton())
         }
+        if health.status == .answered {
+          ActionHelp()
+        }
         Button("Open timer") { start(PlanLibrary.openTimer) }.buttonStyle(WatchButton())
         #if DEBUG
         Button("Sample class") { start(SamplePlan.plan) }.buttonStyle(WatchButton(role: .secondary))
@@ -87,5 +90,24 @@ struct HealthCard: View {
       .font(.footnote)
       .foregroundStyle(Theme.muted)
       .fixedSize(horizontal: false, vertical: true)
+  }
+}
+
+private struct ActionHelp: View {
+  @EnvironmentObject private var runtime: WatchRuntime
+  @State private var showing = false
+  var body: some View {
+    Button("Action button help") { showing = true }.buttonStyle(WatchButton())
+      .sheet(isPresented: $showing) {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 12) {
+            Text("Action button").font(Theme.display(28))
+            Text("Settings > Action Button > Workout > App > Håfa Workouts. Choose Today's class or Open timer.")
+            Text("Press to advance. Action + side button pauses or resumes. Tap Undo within 10 seconds to correct an advance.")
+            Text("If presses stop working, restart your watch")
+            if runtime.donationFailed { Text("Action setup didn't finish. Restart your watch and start a new class.") }
+          }.font(.footnote)
+        }
+      }
   }
 }

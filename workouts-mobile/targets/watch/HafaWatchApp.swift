@@ -1,30 +1,36 @@
 import SwiftUI
+import AppIntents
 import WatchKit
 
 @main
 struct HafaWatchApp: App {
   @WKApplicationDelegateAdaptor private var delegate: AppDelegate
-  @StateObject private var health = HealthAuthorization()
+  @StateObject private var runtime = WatchRuntime.shared
+
+  init() {
+    let shared = WatchRuntime.shared
+    AppDependencyManager.shared.add(dependency: shared)
+  }
 
   var body: some Scene {
     WindowGroup {
       WatchRootView()
-        .environmentObject(health)
+        .environmentObject(runtime)
+        .environmentObject(runtime.health)
         .environmentObject(delegate.engine)
         .task {
-          // A class that outlived a crash comes back before anything else starts.
-          await delegate.engine.recover()
-          await health.refresh()
+          await runtime.recover()
+          await runtime.health.refresh()
         }
     }
   }
 }
 
 final class AppDelegate: NSObject, WKApplicationDelegate {
-  let engine = WorkoutEngine(recorder: HealthKitRecorder(), store: .standard(), outbox: .standard())
+  let engine = WatchRuntime.shared.engine
 
   /// watchOS can relaunch the app in the background after a crash mid-workout, with no window yet.
   func handleActiveWorkoutRecovery() {
-    Task { await engine.recover() }
+    Task { await WatchRuntime.shared.recover() }
   }
 }

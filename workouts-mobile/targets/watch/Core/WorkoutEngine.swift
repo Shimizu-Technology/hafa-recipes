@@ -79,6 +79,8 @@ final class WorkoutEngine: ObservableObject {
   private var recordedSummary: RecordedSummary?
   private var recovery: Task<Void, Never>?
   var canSaveScoresOnly: Bool { !recorder.collectionEnded }
+  private var deferredEvents: [RunnerEvent] = []
+  private var deferredUntil: Date?
   private var lastCheckpoint = Date.distantPast
 
   init(recorder: WorkoutRecorder, store: CheckpointStore, outbox: ClassOutbox, clock: Clock = SystemClock()) {
@@ -133,21 +135,46 @@ final class WorkoutEngine: ObservableObject {
 
   @discardableResult
   func advance() -> PartRunner.AdvanceResult {
-    var result = PartRunner.AdvanceResult.ignored(.nothingToAdvance)
-    mutate { runner, now in
-      let (outcome, events) = runner.advance(at: now)
-      result = outcome
-      return events
+    guard state == .running, var runner else { return .ignored(.nothingToAdvance) }
+    flushDeferred()
+    let (result, events) = runner.advance(at: clock.now)
+    if case .applied = result {
+      flushDeferred(force: true)
+      deferredUntil = clock.now.addingTimeInterval(PartRunner.undoWindow)
     }
+    self.runner = runner
+    deliver(events)
+    checkpoint(force: true)
     return result
   }
 
   @discardableResult
   func undo() -> Bool {
-    guard state == .running, var runner, runner.undo(at: clock.now) else { return false }
+    guard state == .running, var runner, let events = runner.undoWithEvents(at: clock.now) else { return false }
+    deferredEvents = []; deferredUntil = nil
     self.runner = runner
+    apply(events.filter { event in
+      switch event { case .paused, .resumed: return false; default: return true }
+    })
     checkpoint(force: true)
     return true
+  }
+
+  private func flushDeferred(force: Bool = false) {
+    guard let until = deferredUntil, force || clock.now > until else { return }
+    apply(deferredEvents)
+    deferredEvents = []; deferredUntil = nil
+    runner?.clearUndo()
+  }
+
+  private func deliver(_ events: [RunnerEvent]) {
+    for event in events {
+      switch event {
+      case .paused, .resumed: apply([event])
+      default:
+        if deferredUntil != nil { deferredEvents.append(event) } else { apply([event]) }
+      }
+    }
   }
 
   func setScore(_ score: PartScore, for index: Int) {
@@ -174,6 +201,7 @@ final class WorkoutEngine: ObservableObject {
   /// scores without a Health workout.
   func finish(withoutHealth: Bool = false) async {
     guard state == .running || state.isFailure, var runner else { return }
+    flushDeferred(force: true)
     let events = runner.finish(at: clock.now)
     self.runner = runner
     apply(events)
@@ -210,6 +238,7 @@ final class WorkoutEngine: ObservableObject {
   func discard() async {
     if isRecording { await recorder.discard() }
     store.clear()
+    deferredEvents = []; deferredUntil = nil
     runner = nil
     isRecording = false
     state = .idle
@@ -228,7 +257,7 @@ final class WorkoutEngine: ObservableObject {
     guard state == .idle else { return }
     state = .starting
     let saved = store.load()
-    let live = (try? await recorder.recover(inPart: saved?.runner.phase == .running)) ?? false
+    let live = (try? await recorder.recover(inPart: saved?.healthPartOpen ?? false)) ?? false
     guard let saved else {
       // HealthKit kept a session the checkpoint never saw. Save what it recorded rather than drop it.
       if live {
@@ -247,6 +276,8 @@ final class WorkoutEngine: ObservableObject {
     sessionID = saved.sessionID
     startedAt = saved.startedAt
     runner = saved.runner
+    deferredEvents = saved.deferredEvents ?? []
+    deferredUntil = saved.deferredUntil
     isRecording = live && saved.isRecording
     state = .running
     mutate { $0.tick(at: $1) }
@@ -259,10 +290,13 @@ final class WorkoutEngine: ObservableObject {
   }
 
   private func mutate(force: Bool = true, _ change: (inout PartRunner, Date) -> [RunnerEvent]) {
-    guard state == .running, var runner else { return }
+    guard state == .running else { return }
+    flushDeferred()
+    guard var runner else { return }
     let events = change(&runner, clock.now)
     if runner != self.runner { self.runner = runner }
-    apply(events)
+    if !runner.canUndo(at: clock.now) { flushDeferred(force: true) }
+    deliver(events)
     if case .finished = runner.phase { pendingControl = nil }
     checkpoint(force: force || !events.isEmpty)
   }
@@ -284,7 +318,7 @@ final class WorkoutEngine: ObservableObject {
     let now = clock.now
     guard let runner, force || now.timeIntervalSince(lastCheckpoint) >= Self.checkpointInterval else { return }
     // A failed write is retried on the next tick; the class keeps running either way.
-    guard (try? store.save(Checkpoint(sessionID: sessionID, startedAt: startedAt, runner: runner, isRecording: isRecording, recordedSummary: recordedSummary, collectionEnded: recorder.collectionEnded, eventsAdded: recorder.eventsAdded))) != nil
+    guard (try? store.save(Checkpoint(sessionID: sessionID, startedAt: startedAt, runner: runner, isRecording: isRecording, recordedSummary: recordedSummary, collectionEnded: recorder.collectionEnded, eventsAdded: recorder.eventsAdded, deferredEvents: deferredEvents, deferredUntil: deferredUntil))) != nil
     else { return }
     lastCheckpoint = now
   }

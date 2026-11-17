@@ -182,6 +182,74 @@ final class PartRunnerTests: XCTestCase {
     XCTAssertEqual(PartRunner(plan: plan(), leadIn: 0).activeSeconds(of: 0, at: t0), 0)
   }
 
+  func testUndoLeadInRestAndFinalSetTransitions() throws {
+    var runner = PartRunner(plan: plan(part("A", .forTime, rounds: 1, restAfter: 30), part("B", .sets, rounds: 1)), leadIn: 3)
+    _ = runner.start(at: t0)
+    _ = runner.advance(at: at(1))
+    XCTAssertTrue(runner.undo(at: at(2)))
+    XCTAssertEqual(runner.phase, .leadIn(until: at(3)))
+    _ = runner.tick(at: at(3))
+    _ = runner.advance(at: at(10))
+    XCTAssertEqual(runner.cursor, 1)
+    XCTAssertTrue(runner.undo(at: at(12)))
+    XCTAssertEqual(runner.cursor, 0)
+    XCTAssertEqual(runner.phase, .running)
+    _ = runner.advance(at: at(15))
+    _ = runner.advance(at: at(16)) // skip rest
+    XCTAssertTrue(runner.undo(at: at(17)))
+    XCTAssertEqual(runner.phase, .resting(until: at(45)))
+    _ = runner.tick(at: at(48))
+    _ = runner.advance(at: at(49))
+    guard case .finished = runner.phase else { return XCTFail("last set didn't finish") }
+    let data = try JSONEncoder().encode(runner)
+    var relaunched = try JSONDecoder().decode(PartRunner.self, from: data)
+    XCTAssertTrue(relaunched.undo(at: at(59)))
+    XCTAssertEqual(relaunched.phase, .running)
+    XCTAssertEqual(relaunched.runs[1].taps.count, 0)
+  }
+
+  func testUndoAfterCapReplaysTheUnadvancedTimeline() {
+    var runner = PartRunner(plan: plan(part("A", .amrap, cap: 20, restAfter: 30), part("B", .sets)), leadIn: 0)
+    _ = runner.start(at: t0)
+    _ = runner.advance(at: at(15))
+    _ = runner.tick(at: at(22))
+    XCTAssertTrue(runner.undo(at: at(24)))
+    XCTAssertEqual(runner.phase, .resting(until: at(50)))
+    XCTAssertEqual(runner.runs[0].taps.count, 0)
+  }
+
+  func testDebounceBoundaryExpiryAndClockDrivenPressHaveNoUndo() {
+    var runner = PartRunner(plan: plan(part("A", .amrap, cap: 600)), leadIn: 0)
+    _ = runner.start(at: t0)
+    _ = runner.advance(at: at(10))
+    XCTAssertEqual(runner.advance(at: at(10.599)).0, .ignored(.tooSoon))
+    XCTAssertEqual(runner.advance(at: at(10.601)).0, .applied(.round(2)))
+    XCTAssertFalse(runner.undo(at: at(20.602)))
+    var emom = part("B", .emom); emom.intervalSeconds = 10; emom.intervals = 2
+    var timed = PartRunner(plan: plan(emom), leadIn: 0)
+    _ = timed.start(at: t0)
+    XCTAssertEqual(timed.advance(at: at(1)).0, .ignored(.clockDriven))
+    XCTAssertFalse(timed.canUndo(at: at(1)))
+  }
+
+  func testIgnoredPauseAtFinishDoesNotPauseTheUndoTimeline() {
+    var runner = PartRunner(plan: plan(part("A", .forTime, rounds: 1)), leadIn: 0)
+    _ = runner.start(at: t0)
+    _ = runner.advance(at: at(10))
+    XCTAssertEqual(runner.pause(at: at(11)), [])
+    XCTAssertTrue(runner.undo(at: at(12)))
+    XCTAssertNil(runner.pausedAt)
+    XCTAssertEqual(runner.activeSeconds(of: 0, at: at(12)), 12)
+  }
+
+  func testTodaysPlanRequiresLocalDateRatherThanFirstOrStalePlan() {
+    let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"
+    var today = plan(part("A", .sets)); today.date = formatter.string(from: t0)
+    var stale = today; stale.date = "2000-01-01"
+    XCTAssertEqual(PlanLibrary.todaysPlan(in: [stale, today], at: t0), today)
+    XCTAssertNil(PlanLibrary.todaysPlan(in: [stale], at: t0))
+  }
+
   func testSkippingAndFinishingEarlyMarksUnreachedParts() {
     var runner = PartRunner(plan: plan(part("C", .sets), part("D", .sets, rounds: 2), part("E", .sets)), leadIn: 3)
     _ = runner.start(at: t0)

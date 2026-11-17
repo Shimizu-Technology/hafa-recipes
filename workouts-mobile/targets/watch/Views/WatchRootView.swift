@@ -33,6 +33,7 @@ struct WatchRootView: View {
 
 struct ClassView: View {
   @EnvironmentObject private var engine: WorkoutEngine
+  @EnvironmentObject private var runtime: WatchRuntime
   @Environment(\.isLuminanceReduced) private var dimmed
   @State private var page = 1
   @State private var lastCue = ""
@@ -89,6 +90,16 @@ struct ClassView: View {
             .buttonStyle(WatchButton(role: .destructive))
           Button("Keep going") { engine.pendingControl = nil }.buttonStyle(WatchButton(role: .secondary))
         }
+      }
+    }
+    .overlay(alignment: .bottom) {
+      VStack(spacing: 4) {
+      if !dimmed {
+        if let runner = engine.runner, runner.canUndo(at: Date()) {
+          Button("Undo") { _ = engine.undo() }.buttonStyle(WatchButton())
+        }
+        if let notice = runtime.notice { Text(notice).font(.footnote).padding(8).background(Theme.surface) }
+      }
       }
     }
     .onChange(of: engine.runner) { old, new in
@@ -179,7 +190,7 @@ struct ClassView: View {
       .foregroundStyle(runner.remaining(at: now).map { $0 <= 10 } == true ? Theme.accent : Theme.text)
       .lineLimit(1)
   }
-  private func advance() { _ = engine.advance(); WKInterfaceDevice.current().play(.click) }
+  private func advance() { runtime.advance() }
   private func title(_ runner: PartRunner) -> String {
     if runner.plan.planKey == "open-timer" { return "OPEN TIMER" }
     switch runner.part?.kind {

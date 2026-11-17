@@ -171,6 +171,9 @@ final class WorkoutEngineTests: XCTestCase {
     engine.tick()  // B's lead-in ended at 96.
     clock.advance(4)
     XCTAssertEqual(engine.advance(), .applied(.partDone))
+    XCTAssertFalse(recorder.calls.contains("end part 104"), "boundary stays reversible for ten seconds")
+    clock.advance(11)
+    engine.tick()
     XCTAssertEqual(recorder.calls, ["recover inPart=false", "begin 11 0", "part A 3", "end part 63", "part B 96", "end part 104"])
   }
 
@@ -321,6 +324,50 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertEqual(engine.state, .idle)
     XCTAssertNotNil(engine.startError)
     XCTAssertNil(engine.runner)
+  }
+
+  func testUndoFinalRoundAfterRelaunchDoesNotCloseOrDuplicateHealthActivities() async throws {
+    let first = engine()
+    try await first.start(plan(part("A", .forTime, rounds: 1), part("B", .sets)), leadIn: 0)
+    clock.advance(20)
+    first.advance()
+    XCTAssertEqual(recorder.calls, ["begin 11 0", "part A 0"])
+    recorder.liveSession = true
+    let second = engine()
+    await second.recover()
+    clock.advance(2)
+    XCTAssertTrue(second.undo())
+    XCTAssertEqual(second.runner?.cursor, 0)
+    XCTAssertEqual(second.runner?.runs[0].taps.count, 0)
+    XCTAssertEqual(recorder.calls, ["begin 11 0", "part A 0", "recover inPart=true"])
+    await second.finish()
+    XCTAssertEqual(recorder.finishedSegments, [])
+    XCTAssertEqual(recorder.calls.filter { $0.hasPrefix("end part") }, ["end part 22"])
+  }
+
+  func testUndoRestAdvanceUsesOriginalClockAndKeepsImmediatePause() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    clock.advance(60); engine.tick()
+    clock.advance(5); engine.advance()
+    clock.advance(1); engine.pause()
+    XCTAssertEqual(recorder.calls.last, "pause")
+    clock.advance(2)
+    XCTAssertTrue(engine.undo())
+    XCTAssertEqual(engine.runner?.phase, .resting(until: at(90)))
+    XCTAssertNotNil(engine.runner?.pausedAt)
+    engine.resume()
+    XCTAssertEqual(engine.runner?.phase, .resting(until: at(92)))
+    XCTAssertFalse(recorder.calls.contains("part B 65"))
+  }
+
+  func testSavingCommitsDeferredBoundaryOnce() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .forTime, rounds: 1)), leadIn: 0)
+    clock.advance(20); engine.advance()
+    await engine.finish()
+    XCTAssertEqual(recorder.calls.filter { $0.hasPrefix("end part") }, ["end part 20"])
+    XCTAssertEqual(outbox.records().first?.parts[0].rounds, 1)
   }
 
   func testStartingTwiceAtOnceBeginsOneSession() async throws {

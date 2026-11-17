@@ -12,7 +12,7 @@ struct Segment: Codable, Equatable {
 
 /// What the Health recording must follow. Dates are when it happened, which can be in the past
 /// after the runner catches up from a suspended or relaunched app.
-enum RunnerEvent: Equatable {
+enum RunnerEvent: Codable, Equatable {
   case partBegan(Int, Date)
   case partEnded(Int, Date)
   case paused(Date)
@@ -73,11 +73,13 @@ struct PartRunner: Codable, Equatable {
   mutating func setScore(_ score: PartScore, for index: Int) {
     guard runs.indices.contains(index), plan.parts[index].scored else { return }
     runs[index].score = score
+    updateUndo { $0.setScore(score, for: index); return [] }
   }
 
   mutating func extendRest(by seconds: TimeInterval) {
     guard case .resting(let until) = phase, seconds > 0 else { return }
     phase = .resting(until: until.addingTimeInterval(seconds))
+    updateUndo { $0.extendRest(by: seconds); return [] }
   }
 
   func setRestRemaining(at now: Date) -> TimeInterval {
@@ -105,6 +107,7 @@ struct PartRunner: Codable, Equatable {
   }
 
   mutating func tick(at now: Date) -> [RunnerEvent] {
+    updateUndo { $0.tick(at: now) }
     guard pausedAt == nil else { return [] }
     var events: [RunnerEvent] = []
     defer {
@@ -134,6 +137,7 @@ struct PartRunner: Codable, Equatable {
     if let latest = lastTransitionAt, now.timeIntervalSince(latest) < Self.debounce { return (.ignored(.stateChanged), events) }
     if pausedAt != nil { return (.ignored(.paused), events) }
     if let last = lastAdvanceAt, now.timeIntervalSince(last) < Self.debounce { return (.ignored(.tooSoon), events) }
+    let baseline = UndoBaseline(phase: phase, cursor: cursor, runs: runs, pausedAt: pausedAt, lastTapAt: lastTapAt)
     var applied: [RunnerEvent] = []
     let result: AdvanceResult
     switch phase {
@@ -148,22 +152,54 @@ struct PartRunner: Codable, Equatable {
     case .ready, .finished:
       result = .ignored(.nothingToAdvance)
     }
-    if case .applied = result { lastAdvanceAt = now }
+    if case .applied = result { lastAdvanceAt = now; undoBaseline = baseline }
     return (result, events + applied)
   }
 
-  /// Takes back the latest buy-in, round or set within 10 seconds while its part is still running.
-  mutating func undo(at now: Date) -> Bool {
-    guard phase == .running, let at = lastTapAt, now.timeIntervalSince(at) <= Self.undoWindow else { return false }
-    if runs[cursor].taps.last == at {
-      runs[cursor].taps.removeLast()
-    } else if runs[cursor].buyInDoneAt == at {
-      runs[cursor].buyInDoneAt = nil
-    } else {
-      return false
-    }
-    lastTapAt = nil
-    return true
+  /// Restore the timeline that would have run without the latest press, including clock catch-up.
+  mutating func undoWithEvents(at now: Date) -> [RunnerEvent]? {
+    guard canUndo(at: now) else { return nil }
+    updateUndo { $0.tick(at: now) }
+    guard let baseline = undoBaseline, let restored = undoRunner else { return nil }
+    self = restored
+    return baseline.events
+  }
+
+  mutating func undo(at now: Date) -> Bool { undoWithEvents(at: now) != nil }
+
+  func canUndo(at now: Date) -> Bool {
+    guard undoBaseline != nil, let at = lastAdvanceAt else { return false }
+    return (0...Self.undoWindow).contains(now.timeIntervalSince(at))
+  }
+
+  mutating func clearUndo() { undoBaseline = nil }
+
+  /// The alternate timeline has no undo of its own. It advances with the same clock and pauses,
+  /// so undo never rewinds elapsed time or loses a pause, even across a cap or part transition.
+  private struct UndoBaseline: Codable, Equatable {
+    var phase: Phase
+    var cursor: Int
+    var runs: [PartRun]
+    var pausedAt: Date?
+    var lastTapAt: Date?
+    var events: [RunnerEvent] = []
+  }
+  private var undoBaseline: UndoBaseline?
+
+  private var undoRunner: PartRunner? {
+    guard let saved = undoBaseline else { return nil }
+    var copy = self
+    copy.undoBaseline = nil
+    copy.phase = saved.phase; copy.cursor = saved.cursor; copy.runs = saved.runs
+    copy.pausedAt = saved.pausedAt; copy.lastTapAt = saved.lastTapAt
+    return copy
+  }
+
+  private mutating func updateUndo(_ change: (inout PartRunner) -> [RunnerEvent]) {
+    guard var baseline = undoRunner else { return }
+    let events = (undoBaseline?.events ?? []) + change(&baseline)
+    undoBaseline = UndoBaseline(phase: baseline.phase, cursor: baseline.cursor, runs: baseline.runs,
+      pausedAt: baseline.pausedAt, lastTapAt: baseline.lastTapAt, events: events)
   }
 
   mutating func pause(at now: Date) -> [RunnerEvent] {
@@ -174,6 +210,7 @@ struct PartRunner: Codable, Equatable {
     case .running: runs[cursor].span?.pauses.append(.init(at: now))
     case .leadIn, .resting: break
     }
+    updateUndo { $0.pause(at: now) }
     pausedAt = now
     events.append(.paused(now))
     return events
@@ -181,6 +218,7 @@ struct PartRunner: Codable, Equatable {
 
   mutating func resume(at now: Date) -> [RunnerEvent] {
     guard let pausedAt else { return [] }
+    updateUndo { $0.resume(at: now) }
     self.pausedAt = nil
     switch phase {
     case .running: runs[cursor].span?.closePause(at: now)
@@ -204,6 +242,7 @@ struct PartRunner: Codable, Equatable {
 
   /// Ends the running part now, or skips the part whose lead-in or rest is showing.
   mutating func endPart(at now: Date) -> [RunnerEvent] {
+    clearUndo()
     var events = tick(at: now) + resume(at: now)
     switch phase {
     case .running:
@@ -218,6 +257,7 @@ struct PartRunner: Codable, Equatable {
   }
 
   mutating func finish(at now: Date) -> [RunnerEvent] {
+    clearUndo()
     var events = tick(at: now)
     if case .finished = phase { return events }
     events += resume(at: now)
