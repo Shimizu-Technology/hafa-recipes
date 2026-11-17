@@ -107,7 +107,8 @@ export function SourceHero({ record, title, topic, distance }: { record: BabyRec
       {!!timing && <Pill icon="calendar-outline" label={[timing, distance].filter(Boolean).join(" · ")} />}
       {!!topic && <Pill icon="folder-outline" label={topic} />}
     </View>}
-    <Text key={fontScale} accessibilityRole="header" maxFontSizeMultiplier={0}
+    {/* Capped like a section heading: at the largest sizes an unlimited title splits words, "Referenc/e". */}
+    <Text key={fontScale} accessibilityRole="header" maxFontSizeMultiplier={2}
       style={{ fontFamily: fonts.display, fontSize: 28, lineHeight: 34, color: c.text }}>{title}</Text>
     {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
   </View>;
