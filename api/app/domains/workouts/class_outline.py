@@ -451,17 +451,23 @@ STALE = (re.compile(r"^Unsupported (\w+|relative load) removed from (.+)\.$"), r
 def stale_warnings(workout, warnings, notes_placed):
     """Drop review warnings about values the layout restored or parts it removed."""
     blocks = {block.label: block for block in workout.blocks}
-    items = {item.name: item for block in workout.blocks for item in block.exercises}
+    items = {}
+    for block in workout.blocks:
+        for item in block.exercises:
+            # Grounding can restore "Run" to "Run or row". A warning under
+            # the earlier name must not be cleared by a different, complete Run.
+            for name in {item.name, *re.split(r"\s+or\s+", item.name, flags=re.I)}:
+                items.setdefault(name, []).append(item)
     kept = []
     for warning in warnings:
         field_match, role, notes, named = (pattern.match(warning) for pattern in STALE)
         if field_match and field_match[2] in items:
-            item = items[field_match[2]]
-            if getattr(item, field_match[1].replace("relative load", "relative_load"), None) not in (None, []):
+            matches = items[field_match[2]]
+            if all(getattr(item, field_match[1].replace("relative load", "relative_load"), None) not in (None, []) for item in matches):
                 continue
-            if getattr(item, "set_prescriptions", None) and field_match[1] in {"reps_min", "reps_max", "rep_scheme", "sets", "effort"}:
+            if all(getattr(item, "set_prescriptions", None) for item in matches) and field_match[1] in {"reps_min", "reps_max", "rep_scheme", "sets", "effort"}:
                 continue  # The listed sets carry the reps and the AMRAP set.
-            if getattr(item, "value_options", None) and field_match[1] in {"duration_seconds", "load_options"}:
+            if all(getattr(item, "value_options", None) for item in matches) and field_match[1] in {"duration_seconds", "load_options"}:
                 continue
         elif field_match and field_match[2] not in blocks:
             continue
