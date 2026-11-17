@@ -1,3 +1,4 @@
+import { nativeWatchBridge, clearWatchPlans } from "./watch-native";
 import { cleanupPrivateExportFiles } from "./export-file";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createPrivateStorageRegistry } from "./private-storage";
@@ -6,7 +7,10 @@ import type { CaptureFile } from "./capture";
 import { nativeNotifications } from "./notifications-adapter";
 export const privateRegistry = createPrivateStorageRegistry(AsyncStorage);
 const markerPrefix = "hafa-workouts:device-cleanup:v1:";
-async function clean(owner: string) {
+async function clean(owner: string, purgeWatch = false) {
+  const watch = await nativeWatchBridge();
+  await clearWatchPlans();
+  if (purgeWatch) await watch?.purgeResults(owner);
   await cleanupPrivateExportFiles(owner);
   const adapter = await nativeNotifications();
   for (const notification of await adapter.list()) {
@@ -35,11 +39,11 @@ async function clean(owner: string) {
   });
   await recoverCaptureCleanup(owner);
 }
-export async function erasePrivateDeviceData(owner: string, binding: string) {
+export async function erasePrivateDeviceData(owner: string, binding: string, purgeWatch = false) {
   privateRegistry.retire(owner);
   const key = markerPrefix + encodeURIComponent(owner);
-  await AsyncStorage.setItem(key, JSON.stringify({ owner, binding }));
-  await clean(owner);
+  await AsyncStorage.setItem(key, JSON.stringify({ owner, binding, purgeWatch }));
+  await clean(owner, purgeWatch);
   await AsyncStorage.removeItem(`hafa-workouts:v1:${encodeURIComponent(binding)}:verified-identity`);
   await AsyncStorage.removeItem(key);
 }
@@ -65,7 +69,7 @@ export async function recoverPrivateDeviceCleanup(options: { repairDamaged?: boo
     if (!key.startsWith(markerPrefix)) continue;
     const raw = await AsyncStorage.getItem(key);
     if (!raw) continue;
-    let entry: { owner?: unknown; binding?: unknown } | null = null;
+    let entry: { owner?: unknown; binding?: unknown; purgeWatch?: unknown } | null = null;
     try {
       entry = JSON.parse(raw);
     } catch {
@@ -76,7 +80,7 @@ export async function recoverPrivateDeviceCleanup(options: { repairDamaged?: boo
       typeof entry.binding === "string" &&
       key === markerPrefix + encodeURIComponent(entry.owner)
     ) {
-      await erasePrivateDeviceData(entry.owner, entry.binding);
+      await erasePrivateDeviceData(entry.owner, entry.binding, entry.purgeWatch === true);
       continue;
     }
     if (!options.repairDamaged)

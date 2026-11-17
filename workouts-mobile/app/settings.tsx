@@ -1,3 +1,4 @@
+import { clearWatchPlans } from "@/lib/watch-native";
 import { useRef, useState } from "react";
 import { Alert, Linking, Text, View } from "react-native";
 import Constants from "expo-constants";
@@ -75,6 +76,7 @@ export default function Settings() {
     const sharing = suspendNativeSharing();
     try {
       await sharing.clear;
+      await clearWatchPlans();
       await clerk.signOut({ sessionId: originalSession });
       // Clear cached account data only once sign-out succeeded; a failed attempt keeps the screen usable.
       cache.removeQueries({ predicate: query => query.queryKey[0] === owner ||

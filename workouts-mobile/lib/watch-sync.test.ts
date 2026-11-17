@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { createTrainingStore, type TrainingState } from "./training";
-import { drainWatch, planContext, watchPlan, type WatchResult } from "./watch-sync";
+import { drainWatch, planContext, watchPlan, pruneWatchCatalog, stablePlans, watchCollisions, type WatchResult } from "./watch-sync";
 import { roundActuals } from "./class-training";
 import { nov17Class } from "./fixtures/nov17-class";
 const account = "synthetic:1";
@@ -111,4 +111,61 @@ describe("watch sync", () => {
     expect(store.snapshot().active?.id).toBe("phone-session");
     expect(store.snapshot().history[0].watch?.duplicate_phone_id).toBe("phone-session");
   });
+  it("deduplicates dated classes from recents and excludes pending and saved Open timers", async () => {
+    const store = setup(); await store.load();
+    await store.start(workout, source, "phone", Date.parse(start));
+    const options = { account, units: "metric", today: "2026-11-17", leadIn: 3, state: store.snapshot(), programs: [],
+      library: [{ ...workout, programming: { source_kind: "gym" as const, date: "2026-11-17" } }] };
+    expect(JSON.parse(planContext(options).json).plans).toHaveLength(1);
+    const r = result(); r.plan = { ...plan, title: "Open timer", source: undefined }; r.plan_key = "open-timer";
+    r.parts = [{ ...r.parts[0], block_id: "timer" }]; r.actuals = [];
+    const timers = setup(async () => ({ ...workout, id: "saved-timer", blocks: [{ id: "timer", label: "Open timer", grouping: "circuit", score_kind: "none", exercises: [{ name: "Open timer" }] }] }));
+    await timers.load();
+    await drainWatch({ store: timers, account, generation: 1, catalog: {}, current: () => true,
+      pendingResults: async () => [JSON.stringify(r)], markImported: async () => {} });
+    const plans = () => JSON.parse(planContext({ ...options, state: timers.snapshot(), library: [] }).json).plans;
+    expect(plans()).toHaveLength(0);
+    await timers.sync(async () => { throw Error("offline"); });
+    expect(timers.snapshot().history[0].watch_quick).toBeUndefined(); expect(plans()).toHaveLength(0);
+  });
+  it("ignores generated_at when comparing plans and expires old catalog snapshots except pending references", () => {
+    expect(stablePlans('{"v":1,"generated_at":"a","plans":[]}')).toBe(stablePlans('{"v":1,"generated_at":"b","plans":[]}'));
+    const now = Date.parse(end), old = now - 15 * 86400000;
+    const catalog = pruneWatchCatalog({ expired: { ...workout, watch_cached_at: old }, pending: { ...workout, watch_cached_at: old },
+      recent: { ...workout, watch_cached_at: now - 86400000 } }, { sent: workout }, [JSON.stringify({ plan_key: "pending" })], now);
+    expect(Object.keys(catalog).sort()).toEqual(["pending", "recent", "sent"]);
+    expect(catalog.sent.watch_cached_at).toBe(now);
+  });
+  it("reports account/generation, nil-account timer, missing snapshot and invalid actuals without acking", async () => {
+    const store = setup(); await store.load(); const other = result(), nil = result(), invalid = result();
+    other.plan = { ...plan, account_key: "synthetic:2" }; nil.plan = { ...plan, source: undefined, account_key: undefined! };
+    invalid.actuals = [{ ...invalid.actuals[0], block_id: "missing" }];
+    let marks = 0;
+    const options = { store, account, generation: 1, current: () => true, markImported: async () => { marks++; } };
+    const issues = await drainWatch({ ...options, catalog: {}, pendingResults: async () => [other, nil, result()].map(r => JSON.stringify(r)) });
+    expect(issues.map(i => i.reason).join(" ")).toMatch(/another account.*no account.*snapshot/s);
+    expect(issues.every(i => i.discardable)).toBe(true);
+    const validation = await drainWatch({ ...options, catalog: { [plan.plan_key]: workout }, pendingResults: async () => [JSON.stringify(invalid)] });
+    expect(validation[0].reason).toContain("actuals"); expect(marks).toBe(0);
+  });
+  it("expires collision notices at the account's local midnight", async () => {
+    const store = setup(); await store.load(); await store.start(workout, source, "phone", Date.parse(start));
+    await drainWatch({ store, account, generation: 1, catalog: { [plan.plan_key]: workout }, current: () => true,
+      pendingResults: async () => [JSON.stringify(result())], markImported: async () => {} });
+    expect(watchCollisions(store.snapshot(), "2026-11-17", "Pacific/Guam")).toHaveLength(1);
+    expect(watchCollisions(store.snapshot(), "2026-11-18", "Pacific/Guam")).toHaveLength(0);
+  });
+  it("keeps scores and the Open timer source when workout creation returns 422", async () => {
+    const store = setup(async () => { throw Object.assign(Error("Workout rejected"), { status: 422 }); });
+    await store.load(); const r = result(); r.plan = { ...plan, source: undefined, title: "Open timer" };
+    r.parts = [{ ...r.parts[0], block_id: "timer" }]; r.actuals = []; r.results = [{ block_id: "timer", kind: "rounds_reps", origin: "watch", rounds: 2 }];
+    await drainWatch({ store, account, generation: 1, catalog: {}, current: () => true,
+      pendingResults: async () => [JSON.stringify(r)], markImported: async () => {} });
+    let sent = 0; await store.sync(async () => { sent++; throw Error("must not upload"); });
+    const item = store.snapshot().history[0];
+    expect(sent).toBe(0); expect(item.state).toBe("queued"); expect(item.watch_quick).toBe(true);
+    expect(item.request.results).toEqual(r.results); expect(item.unsent_results).toBeUndefined();
+    expect(item.problem).toContain("Could not create this Open timer workout");
+  });
+
 });

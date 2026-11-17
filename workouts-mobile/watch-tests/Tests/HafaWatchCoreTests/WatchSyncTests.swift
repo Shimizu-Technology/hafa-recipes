@@ -16,6 +16,53 @@ final class WatchSyncTests: XCTestCase {
     XCTAssertEqual(plan.parts[0].moves.first?.segment, "buy_in")
     XCTAssertEqual(plan.parts.last?.actuals?.count, 6)
   }
+  func testClearPlansDeletesRetryFileAndClearsWatchAccountOnRestart() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let cache = WatchPlanCache(url: dir.appendingPathComponent("outgoing-plans.json"))
+    let valid = "{\"v\":1,\"plans\":[],\"account_key\":\"synthetic:1\"}"
+    try cache.save(valid)
+    XCTAssertEqual(try cache.read(), valid)
+    try cache.clear()
+    XCTAssertFalse(FileManager.default.fileExists(atPath: cache.url.path))
+    let empty = try WatchPlanCache(url: cache.url).read()
+    XCTAssertEqual(empty, "{\"v\":1,\"plans\":[]}")
+    let url = dir.appendingPathComponent("watch-context.json")
+    try PlanLibrary.receive(Data(valid.utf8), at: url)
+    try PlanLibrary.receive(Data(empty.utf8), at: url)
+    let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let context = try decoder.decode(PlanLibrary.Context.self, from: Data(contentsOf: url))
+    XCTAssertNil(context.accountKey); XCTAssertTrue(context.plans.isEmpty)
+  }
+  func testDeletingAnAccountPurgesOnlyItsInboxAndKeepsReplayReceipts() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let inbox = WatchInbox(directory: dir)
+    func result(_ id: String, _ account: String) -> String {
+      "{\"v\":1,\"recorded_on\":\"watch\",\"client_session_id\":\"\(id)\",\"plan\":{\"account_key\":\"\(account)\"}}"
+    }
+    let a = UUID().uuidString, b = UUID().uuidString
+    let own = result(a, "synthetic:2"), other = result(b, "synthetic-other:2")
+    _ = try inbox.receive(own); _ = try inbox.receive(other)
+    try inbox.purge(owner: "synthetic")
+    XCTAssertEqual(try inbox.pending(), [other])
+    _ = try inbox.receive(own)
+    XCTAssertEqual(try inbox.pending(), [other])
+  }
+  func testObserverReplacementAndDeliveryUseOneQueue() {
+    let changes = WatchChanges()
+    let received = expectation(description: "ordered callbacks"); received.expectedFulfillmentCount = 2
+    changes.observe { received.fulfill() }; changes.notify()
+    changes.observe(nil); changes.notify()
+    changes.observe { received.fulfill() }; changes.notify()
+    changes.flush()
+    wait(for: [received], timeout: 1)
+    changes.observe(nil)
+    DispatchQueue.concurrentPerform(iterations: 100) { i in
+      if i % 2 == 0 { changes.observe(nil) } else { changes.notify() }
+    }
+    changes.flush()
+  }
   func testInboxSurvivesRelaunchAndReplaysWithoutOverwriting() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: dir) }

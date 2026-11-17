@@ -1,3 +1,4 @@
+import { useFirstForeground } from "@/lib/use-first-foreground";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { fonts } from "@/constants/theme";
@@ -128,6 +129,7 @@ function Routes() {
         <Stack.Screen name="ai-preferences" />
         <Stack.Screen name="session/[id]" />
         <Stack.Screen name="history-progress" />
+        <Stack.Screen name="watch-recording" />
         <Stack.Screen name="best-scores" />
         <Stack.Screen name="heart-rate-summaries" />
       </Stack.Protected>
@@ -147,11 +149,7 @@ function Routes() {
   );
 }
 export default function Root() {
-  const [foregrounded, setForegrounded] = useState(Platform.OS === "web" || AppState.currentState === "active");
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", state => { if (state === "active") setForegrounded(true); });
-    return () => sub.remove();
-  }, []);
+  const foregrounded = useFirstForeground();
   return foregrounded ? <ForegroundRoot /> : null;
 }
 function ForegroundRoot() {

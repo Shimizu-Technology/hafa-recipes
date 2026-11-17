@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useTraining } from "./context";
 import type { TrainingStore } from "./training";
 import { dateInTimezone } from "./training";
-import { drainWatch, planContext, watchAccountKey } from "./watch-sync";
-import { nativeWatchBridge, type WatchBridge } from "./watch-native";
+import { drainWatch, planContext, watchAccountKey, stablePlans, pruneWatchCatalog, type WatchAttention, type WatchCatalog } from "./watch-sync";
+import { nativeWatchBridge, watchPlansEpoch, type WatchBridge } from "./watch-native";
 
 export function useWatchSync(store: TrainingStore | null, ready: boolean) {
   const { api, owner, enrollment, units, localDrafts, isCurrentAccount, storage } = useTraining();
   const [watchBridge, setBridge] = useState<WatchBridge | null>(null);
   useEffect(() => { let active = true; void nativeWatchBridge().then(b => { if (active) setBridge(b); }); return () => { active = false; }; }, []);
+  const [attention, setAttention] = useState<{ account: string; items: WatchAttention[] }>({ account: "", items: [] });
+  const lastPlans = useRef("");
+  const epoch = useRef(watchPlansEpoch());
+  const refresh = useRef(() => {});
   const generation = enrollment?.generation;
   const enabled = !!watchBridge && !!generation && !!enrollment?.enrolled;
   const library = useQuery({ queryKey: [owner, "library", "search", generation], queryFn: api.library, enabled });
@@ -20,30 +24,45 @@ export function useWatchSync(store: TrainingStore | null, ready: boolean) {
     if (!enabled || !watchBridge || !store || !ready || !generation) return;
     const bridge = watchBridge, account = watchAccountKey(owner, generation);
     let disposed = false, running = false, again = false;
-    const current = () => !disposed && AppState.currentState === "active" && isCurrentAccount() && storage.isCurrent();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => { clearTimeout(timer); timer = setTimeout(() => { void pass(); }, 300); };
+    refresh.current = schedule;
+    const current = () => !disposed && epoch.current === watchPlansEpoch() && AppState.currentState === "active" && isCurrentAccount() && storage.isCurrent();
     async function pass() {
       if (!current()) return;
       if (running) { again = true; return; }
       running = true;
       try {
-        const prior = await localDrafts.load<Record<string, import("./models").Workout>>(owner, `watch-catalog:${generation}`) ?? {};
+        const prior = await localDrafts.load<WatchCatalog>(owner, `watch-catalog:${generation}`) ?? {};
         if (!current()) return;
-        await drainWatch({ pendingResults: () => bridge.pendingResults(), markImported: id => bridge.markImported(id),
+        const pending = await bridge.pendingResults();
+        const items = await drainWatch({ pendingResults: async () => pending, markImported: id => bridge.markImported(id),
           current, account, generation: generation!, catalog: prior, store: store! });
+        if (current()) setAttention({ account, items });
         if (library.data && programs.data && profile.data && current()) {
           const context = planContext({ account, units, today: dateInTimezone(new Date(), profile.data.timezone),
             library: library.data, programs: programs.data, state: store!.snapshot(), leadIn: store!.getLeadIn() });
           // Pin snapshots durably before any plan leaves this phone.
-          await localDrafts.save(owner, `watch-catalog:${generation}`, { ...prior, ...context.catalog });
-          if (current()) await bridge.setPlans(context.json);
+          await localDrafts.save(owner, `watch-catalog:${generation}`, pruneWatchCatalog(prior, context.catalog, pending));
+          const fingerprint = stablePlans(context.json);
+          if (current() && lastPlans.current !== fingerprint) {
+            await bridge.setPlans(context.json);
+            if (current()) lastPlans.current = fingerprint;
+          }
         }
       } catch { /* Connectivity can be unavailable. Keep the native inbox and cached watch plans. */ }
-      finally { running = false; if (again) { again = false; queueMicrotask(() => { void pass(); }); } }
+      finally { running = false; if (again) { again = false; schedule(); } }
     }
-    const results = bridge.addListener("onResults", () => { void pass(); });
-    const app = AppState.addEventListener("change", s => { if (s === "active") void pass(); });
-    const unsubscribe = store.subscribe(() => { void pass(); });
-    void pass();
-    return () => { disposed = true; results.remove(); app.remove(); unsubscribe(); };
+    const results = bridge.addListener("onResults", schedule);
+    const app = AppState.addEventListener("change", s => { if (s === "active") schedule(); });
+    const unsubscribe = store.subscribe(schedule);
+    schedule();
+    return () => { disposed = true; clearTimeout(timer); refresh.current = () => {}; results.remove(); app.remove(); unsubscribe(); };
   }, [watchBridge, enabled, store, ready, generation, owner, units, localDrafts, storage, api, library.data, programs.data, profile.data, isCurrentAccount]);
+  const account = generation ? watchAccountKey(owner, generation) : "";
+  return { attention: attention.account === account ? attention.items : [],
+    async discard(id: string) {
+      if (!watchBridge || !isCurrentAccount() || !storage.isCurrent() || AppState.currentState !== "active") return;
+      await watchBridge.markImported(id); refresh.current();
+    } };
 }

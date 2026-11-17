@@ -1,5 +1,5 @@
 import type { ActualSet, Program, SessionRequest, Workout } from "./models";
-import { stepsFor, actualIdentity, actualErrors, type SavedLocalSession, type SessionSource, type TrainingState } from "./training";
+import { dateInTimezone, stepsFor, actualIdentity, actualErrors, type SavedLocalSession, type SessionSource, type TrainingState } from "./training";
 import { isRun, partKind, type PartResult, type Segment } from "./class-session";
 import { moveText, repsFor } from "./timed-execution";
 
@@ -61,8 +61,14 @@ export function planContext(options: { account: string; units: string; today: st
   entries.sort((a, b) => (a.plan.date ?? "").localeCompare(b.plan.date ?? ""));
   const recent = [...(options.state.active ? [options.state.active] : []), ...options.state.history.map(h => ({ ...h.request, workout: h.workout, source: sourceOf(h.request) }))]
     .sort((a, b) => b.started_at.localeCompare(a.started_at));
-  const used = new Set<string>();
-  for (const s of recent) { const key = sourceKey(s.source); if (!used.has(key) && used.size < 5) { used.add(key); add(s.workout, s.source); } }
+  const used = new Set(entries.flatMap(e => e.plan.source ? [sourceKey(e.plan.source)] : []));
+  let recentCount = 0;
+  for (const s of recent) {
+    const key = sourceKey(s.source);
+    if (s.workout.blocks.some(b => b.id === "timer" && b.exercises.some(e => e.name === "Open timer")) ||
+      options.state.history.some(h => h.watch_quick && h.request.client_session_id === ("id" in s ? s.id : s.client_session_id))) continue;
+    if (!used.has(key) && recentCount < 5) { used.add(key); recentCount++; add(s.workout, s.source); }
+  }
   const context = { v: 1, generated_at: new Date().toISOString(), account_key: options.account, units: options.units,
     lead_in_seconds: options.leadIn, plans: [] as WatchPlan[] };
   const catalog: Record<string, Workout> = {};
@@ -134,24 +140,52 @@ export function quickWorkout(r: WatchResult, generation: number): Workout {
       execution: { mode: "amrap", time_cap_seconds: Math.max(1, Math.floor((Date.parse(r.finished_at) - Date.parse(r.started_at)) / 1000)) },
       exercises: [{ name: "Open timer", duration_seconds: Math.max(1, Math.floor((Date.parse(r.finished_at) - Date.parse(r.started_at)) / 1000)) }] }] };
 }
+export interface WatchAttention { id: string; title: string; reason: string; discardable: boolean }
+export type WatchCatalog = Record<string, Workout & { watch_cached_at?: number }>;
+export function pruneWatchCatalog(prior: WatchCatalog, sent: Record<string, Workout>, pending: string[], now = Date.now()): WatchCatalog {
+  const keys = new Set(pending.flatMap(raw => { try { return [JSON.parse(raw).plan_key]; } catch { return []; } }));
+  const catalog: WatchCatalog = {};
+  for (const [key, workout] of Object.entries(prior)) {
+    // Pre-timestamp catalogs get one migration grace period.
+    const cached = workout.watch_cached_at ?? now;
+    if (keys.has(key) || cached >= now - 14 * 86400000) catalog[key] = { ...workout, watch_cached_at: cached };
+  }
+  for (const [key, workout] of Object.entries(sent)) catalog[key] = { ...workout, watch_cached_at: now };
+  return catalog;
+}
+export function stablePlans(json: string): string { const { generated_at: _, ...context } = JSON.parse(json); return JSON.stringify(context); }
+export function watchCollisions(state: TrainingState, today: string, timezone: string) {
+  return state.history.filter(h => h.watch?.duplicate_phone_id && dateInTimezone(new Date(h.request.started_at), timezone) === today &&
+    (state.active?.id === h.watch.duplicate_phone_id || state.history.some(p => p.request.client_session_id === h.watch?.duplicate_phone_id)));
+}
 export async function drainWatch(options: { pendingResults(): Promise<string[]>; markImported(id: string): Promise<void>;
   current(): boolean; account: string; generation: number; catalog: Record<string, Workout>;
-  store: { snapshot(): TrainingState; importWatch(item: SavedLocalSession): Promise<void> } }) {
+  store: { snapshot(): TrainingState; importWatch(item: SavedLocalSession): Promise<void> } }): Promise<WatchAttention[]> {
+  const attention: WatchAttention[] = [];
   for (const raw of await options.pendingResults()) {
-    if (!options.current()) return;
+    if (!options.current()) return attention;
+    let r: WatchResult | undefined;
     try {
-      const r = JSON.parse(raw) as WatchResult;
-      if (r.v !== 1 || r.recorded_on !== "watch" || r.plan?.account_key !== options.account) continue;
+      r = JSON.parse(raw) as WatchResult;
+      if (r?.v !== 1 || r.recorded_on !== "watch") throw Error("This watch result uses an unsupported format.");
+      if (!r.plan?.account_key) throw Error("This timer has no account. It cannot be assigned safely. Discard it and open Håfa on your phone before starting again.");
+      if (r.plan.account_key !== options.account) throw Error("This result belongs to another account or an earlier training setup. Sign in to its original account to import it.");
       const state = options.store.snapshot();
       if (!state.watch_imported?.includes(r.client_session_id.toLowerCase())) {
         const workout = r.plan.source ? options.catalog[r.plan_key] : quickWorkout(r, options.generation);
-        if (!workout) continue; // Retain the inbox until its pinned prescription can be restored.
+        if (!workout) throw Error("The saved class snapshot is missing. Keep this result while restoring this phone's training data, or discard it.");
         const item = watchSession(r, workout, options.generation, state);
         if (!r.plan.source) item.watch_quick = true;
-        if (!options.current()) return;
+        if (!options.current()) return attention;
         await options.store.importWatch(item);
       }
       if (options.current()) await options.markImported(r.client_session_id);
-    } catch { /* Preserve malformed or currently unavailable records for recovery; continue other results. */ }
+    } catch (error) {
+      const id = typeof r?.client_session_id === "string" ? r.client_session_id : "";
+      attention.push({ id, title: r?.plan?.account_key === options.account ? r.plan.title : "Watch result",
+        reason: error instanceof Error && !(error instanceof TypeError) && !(error instanceof SyntaxError) ? error.message : "This result could not be validated. Keep it for recovery or discard it.",
+        discardable: /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id) });
+    }
   }
+  return attention;
 }

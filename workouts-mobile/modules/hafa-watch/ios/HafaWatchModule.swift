@@ -1,24 +1,28 @@
 import ExpoModulesCore
-import WatchConnectivity
+@preconcurrency import WatchConnectivity
 
-final class PhoneWatchLink: NSObject, WCSessionDelegate {
+final class PhoneWatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
   static let shared = PhoneWatchLink()
   let inbox = WatchInbox(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("hafa-watch/inbox"))
   // All inbox operations use this queue, including JS calls.
   let queue = DispatchQueue(label: "hafa-watch.inbox")
-  var changed: (() -> Void)?
+  private let changes = WatchChanges()
+  func observe(_ callback: (() -> Void)?) { changes.observe(callback) }
   private var plansURL: URL { inbox.directory.deletingLastPathComponent().appendingPathComponent("outgoing-plans.json") }
+  private var plans: WatchPlanCache { WatchPlanCache(url: plansURL) }
+  func clearPlans() throws {
+    try queue.sync { try plans.clear(); try pushPlans() }
+  }
   func setPlans(_ json: String) throws {
     try queue.sync {
-      try FileManager.default.createDirectory(at: plansURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-      try Data(json.utf8).write(to: plansURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+      try plans.save(json)
       try pushPlans()
     }
   }
   private func pushPlans() throws {
-    guard WCSession.default.activationState == .activated, WCSession.default.isPaired,
-      let json = try? String(contentsOf: plansURL, encoding: .utf8) else { return }
+    guard WCSession.default.activationState == .activated, WCSession.default.isPaired else { return }
+    let json = try plans.read()
     try WCSession.default.updateApplicationContext(["plans": json])
   }
   func activate() {
@@ -39,7 +43,7 @@ final class PhoneWatchLink: NSObject, WCSessionDelegate {
         let id = try self.inbox.receive(json)
         // Ack only after the atomic durable write. No RN, token or network dependency.
         session.transferUserInfo(["ack": id])
-        DispatchQueue.main.async { self.changed?() }
+        self.changes.notify()
       } catch { /* Leave the watch outbox intact for a later delivery. */ }
     }
   }
@@ -56,11 +60,15 @@ public final class HafaWatchModule: Module {
   public func definition() -> ModuleDefinition {
     Name("HafaWatch")
     Events("onResults")
-    OnStartObserving { PhoneWatchLink.shared.changed = { [weak self] in self?.sendEvent("onResults", [:]) } }
-    OnStopObserving { PhoneWatchLink.shared.changed = nil }
+    OnStartObserving { PhoneWatchLink.shared.observe { [weak self] in self?.sendEvent("onResults", [:]) } }
+    OnStopObserving { PhoneWatchLink.shared.observe(nil) }
     AsyncFunction("setPlans") { (json: String) in
       guard json.utf8.count < 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
       try PhoneWatchLink.shared.setPlans(json)
+    }
+    AsyncFunction("clearPlans") { try PhoneWatchLink.shared.clearPlans() }
+    AsyncFunction("purgeResults") { (owner: String) in
+      try PhoneWatchLink.shared.queue.sync { try PhoneWatchLink.shared.inbox.purge(owner: owner) }
     }
     AsyncFunction("pendingResults") { () -> [String] in
       try PhoneWatchLink.shared.queue.sync { try PhoneWatchLink.shared.inbox.pending() }

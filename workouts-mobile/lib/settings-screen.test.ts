@@ -1,3 +1,5 @@
+const clearPlans = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: clearPlans, nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
 import { createElement, type PropsWithChildren } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -60,6 +62,7 @@ it("keeps cached account data after a failed sign-out and clears it only after s
   await act(async () => { signOut().props.onClick(); });
   expect(revoke).toHaveBeenCalled();
   expect(revoke.mock.invocationCallOrder[0]).toBeLessThan(clerk.signOut.mock.invocationCallOrder[0]);
+  expect(clearPlans.mock.invocationCallOrder[0]).toBeLessThan(clerk.signOut.mock.invocationCallOrder[0]);
   expect(cache.getQueryData(["owner", "profile", 1])).toBe("PRIVATE");
   expect(resume).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(tree!.toJSON())).toContain("Could not sign out");

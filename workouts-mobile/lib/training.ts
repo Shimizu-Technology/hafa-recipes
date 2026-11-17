@@ -483,7 +483,11 @@ export function createTrainingStore(
         let request = clone(item.request);
         if (item.watch_quick) {
           if (!saveWatchWorkout) throw Object.assign(Error("Wait for the phone to prepare this watch workout."), { local: true });
-          const workout = await saveWatchWorkout(item.workout, `watch-${request.client_session_id}`, generation);
+          let workout: Workout;
+          try { workout = await saveWatchWorkout(item.workout, `watch-${request.client_session_id}`, generation); }
+          catch (error) {
+            throw Object.assign(Error(`Could not create this Open timer workout. Your watch result is still saved on this device. ${error instanceof Error ? error.message : "Retry when available."}`), { local: true });
+          }
           if (workout.generation !== generation) throw Object.assign(Error("The account changed."), { local: true });
           await update(s => {
             const local = s.history.find(h => h.request.client_session_id === request.client_session_id)!;

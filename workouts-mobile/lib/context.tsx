@@ -1,3 +1,4 @@
+import { clearWatchPlans } from "@/lib/watch-native";
 import { ActivityIndicator } from "react-native";
 import { Screen, Notice, Button, Copy } from "@/components/ui";
 import {
@@ -46,7 +47,7 @@ interface ContextValue {
   setUnits(value: UnitSystem): Promise<void>;
 }
 const Context = createContext<ContextValue | null>(null);
-const OfflineContext = createContext<{ store: TrainingStore | null; ready: boolean; error: string; retry(): void }>({
+const OfflineContext = createContext<{ store: TrainingStore | null; ready: boolean; error: string; retry(): void; watchSync?: ReturnType<typeof useWatchSync> }>({
   store: null,
   ready: false,
   error: "",
@@ -80,7 +81,7 @@ function OfflineProvider({
   const currentTraining = useRef(training);
   currentTraining.current = training;
   const cache = useQueryClient();
-  useWatchSync(store, ready);
+  const watchSync = useWatchSync(store, ready);
   useEffect(() => {
     if (!ready || !store) return;
     const current = () => currentTraining.current.owner === owner &&
@@ -115,7 +116,7 @@ function OfflineProvider({
     };
   }, [store, attempt]);
   return (
-    <OfflineContext.Provider value={{ store, ready, error, retry: () => setAttempt((x) => x + 1) }}>
+    <OfflineContext.Provider value={{ store, ready, error, watchSync, retry: () => setAttempt((x) => x + 1) }}>
       {children}
     </OfflineContext.Provider>
   );
@@ -224,6 +225,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
     try {
       await cache.cancelQueries({ predicate: scoped });
       if (currentAuth.current.binding !== binding || currentAuth.current.sessionId !== sessionId) return;
+      await clearWatchPlans();
       await clerk.signOut({ sessionId });
       signedOut = true;
       cache.removeQueries({ predicate: scoped });

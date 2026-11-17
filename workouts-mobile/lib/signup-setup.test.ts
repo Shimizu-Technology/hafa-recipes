@@ -1,3 +1,4 @@
+vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: vi.fn(async () => undefined), nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
 import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";

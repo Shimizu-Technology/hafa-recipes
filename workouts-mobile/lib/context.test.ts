@@ -1,3 +1,4 @@
+vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: vi.fn(async () => undefined), nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
 import { createElement, useEffect, StrictMode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
