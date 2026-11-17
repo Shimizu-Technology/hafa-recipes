@@ -272,7 +272,7 @@ export default function ImportReview() {
           if (originalSource) retained = await sourceFor(originalSource, current);
         }
         current();
-        const recovered = recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption, q.data.result?.workout?.programming);
+        const recovered = recoverySource(retained, q.data.result?.source.url ?? q.data.result?.workout?.source_url, caption, edited?.programming ?? q.data.result?.workout?.programming, !!isClass);
         command = { request_id: Crypto.randomUUID(),
           source: recovered,
           auto_save: recovered.class_parts || isClass || q.data.replace_target ? false : capabilities.data.server_auto_save === true,

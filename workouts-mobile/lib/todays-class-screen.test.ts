@@ -38,9 +38,12 @@ it("shows a saved gym class on its profile-local day and opens the shared workou
   }
 });
 it("keeps classes hidden when the profile timezone fails and offers a retry", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-17T05:00:00Z"));
   f.profile.mockReset(); f.library.mockReset(); f.push.mockClear();
   f.profile.mockRejectedValueOnce(Error("Offline"));
-  f.library.mockResolvedValue([{ ...nov17Class, id: "class" }]);
+  f.library.mockResolvedValue([{ ...nov17Class, id: "class" },
+    { ...nov17Class, id: "undated", programming: { ...nov17Class.programming, date: null } }]);
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   let tree: ReturnType<typeof create> | undefined;
   try {
@@ -51,9 +54,13 @@ it("keeps classes hidden when the profile timezone fails and offers a retry", as
     f.profile.mockResolvedValue({ timezone: "Pacific/Guam" });
     const retry = tree!.root.findAllByType("Button" as any).find(n => n.props.title === "Retry timezone")!;
     await act(async () => retry.props.onPress());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(f.profile).toHaveBeenCalledTimes(2);
+    const rows = tree!.root.findAllByType("ListRow" as any);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].props.title).toBe(nov17Class.title);
   } finally {
     if (tree) await act(async () => tree!.unmount());
-    cache.clear();
+    cache.clear(); vi.useRealTimers();
   }
 });

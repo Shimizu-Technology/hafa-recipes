@@ -13,7 +13,7 @@ export function TodaysClass() {
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled });
   useFocusRefresh([library, profile], { enabled });
   const today = profile.data ? dateInTimezone(new Date(), profile.data.timezone) : null;
-  const classes = library.data?.filter(w => w.programming?.source_kind === "gym" && w.programming.date === today) ?? [];
+  const classes = library.data?.filter(w => today !== null && w.programming?.source_kind === "gym" && w.programming.date === today) ?? [];
   return <ListGroup>
     {(profile.error || profile.data === null) && <><Notice error>Could not load your training timezone. Retry before choosing today’s class.</Notice><Button title="Retry timezone" secondary onPress={() => { void profile.refetch(); }} /></>}
     {library.error && <><Notice error>Could not load today’s classes.</Notice><Button title="Retry classes" secondary onPress={() => { void library.refetch(); }} /></>}

@@ -58,3 +58,18 @@ it("gym attribution alone does not turn an ordinary expired source into a class"
   const caption = recoverySource(null, null, "10 squats", programming);
   expect(caption).toMatchObject({ kind: "text", text: "10 squats" }); expect(caption.class_parts).toBeUndefined();
 });
+
+it.each(["screenshot", "PDF"])("recovers an expired URL-less %s class with explicit context", () => {
+  const programming = { source_kind: "gym" as const, gym_name: "Unified", track: "BUILD", date: "2026-11-18" };
+  expect(recoverySource(null, null, "A. 10 squats", programming, true))
+    .toMatchObject({ kind: "text", class_parts: true, programming, text: "A. 10 squats" });
+  expect(() => recoverySource(null, null, "", programming, true)).toThrow("Paste the class instructions");
+});
+it("uses edited programming over retained class programming without changing source material", () => {
+  const source = { kind: "images" as const, images: [{ base64_data: "aW1hZ2U=", mime_type: "image/png" }], class_parts: true, ai_consent: true,
+    programming: { source_kind: "gym" as const, gym_name: "Unified", date: "2026-11-17" } };
+  const programming = { ...source.programming, date: "2026-11-18" };
+  expect(recoverySource(source, null, "10 squats", programming, true))
+    .toMatchObject({ kind: "images", images: [{ base64_data: "aW1hZ2U=", mime_type: "image/png" }], class_parts: true, programming });
+  expect(source.programming.date).toBe("2026-11-17");
+});
