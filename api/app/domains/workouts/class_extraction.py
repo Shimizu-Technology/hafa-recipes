@@ -12,6 +12,12 @@ BLOCK_KEYS = ("role", "rest_after_seconds", "score_kind", "instructions", "time_
 EXERCISE_KEYS = ("segment", "distance_meters_min", "duration_seconds_max", "load_options", "relative_load",
                  "set_prescriptions", "value_options", "calories", "calories_min")
 CLASS_PROMPT = """
+Class mode: preserve a spelled-out "As Many Rounds and Reps as possible in
+15 minutes" as execution.mode=amrap,time_cap_seconds=900, never an untimed circuit.
+Keep "12 or 15 reps" as discrete alternatives in effort, with reps_min/reps_max
+null; never convert "or" to an inclusive range or "up to". "800 to 1000m" is
+ distance_meters_min=800,distance_meters=1000. Keep a "30-40 seconds" hold typed
+as duration_seconds=30,duration_seconds_max=40, not just instructions.
 Class mode: A./B./Part A/A) headings are ordered parts; A1/A2 or D1/D2/D3
 under one heading form one superset. REST N MINS between parts is the previous
 part's rest_after_seconds; never put it on the last part. Buy-in/then before

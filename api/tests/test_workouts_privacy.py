@@ -252,3 +252,20 @@ def test_legacy_missing_exercise_id_preserves_only_unambiguous_name_cues():
         with pytest.raises(HTTPException) as error:
             preserve_instructions(submitted(incoming), stored)
         assert error.value.status_code == 409
+
+
+def test_first_save_does_not_guess_cues_for_repeated_movements():
+    import pytest
+    from fastapi import HTTPException
+
+    from app.domains.workouts.instruction_compat import preserve_instructions
+    from app.domains.workouts.schemas import WorkoutContent
+
+    original = {"title": "New class", "blocks": [{"id": "a", "label": "A", "exercises": [
+        {"name": "Run", "instructions": "Buy in"}, {"name": "Run"}]}]}
+    workout = WorkoutContent.model_validate(original)
+    result = preserve_instructions(workout, original, protect_saved=False)
+    assert [e.instructions for e in result.blocks[0].exercises] == ["Buy in", None]
+    with pytest.raises(HTTPException) as error:
+        preserve_instructions(workout, original)
+    assert error.value.status_code == 409

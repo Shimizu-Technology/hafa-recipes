@@ -367,7 +367,7 @@ async def accept_import(
     workout = request.workout or WorkoutContent.model_validate(row.result["workout"])
     from app.domains.workouts.instruction_compat import preserve_instructions
 
-    workout = preserve_instructions(workout, row.result["workout"])
+    workout = preserve_instructions(workout, row.result["workout"], protect_saved=False)
     workout = preserve_source_context(workout, row.result["workout"])
     # Older installed clients do not send these server-owned source fields.
     # Preserve them when absent so accepting or editing cannot erase source context.

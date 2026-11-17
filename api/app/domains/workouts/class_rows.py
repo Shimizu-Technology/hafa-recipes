@@ -51,6 +51,13 @@ def _enrich_from_row(item, row, part_notes, warnings):
         n = int(single[1])
         if item.reps_min is None and item.reps_max is None or (item.reps_min == n and item.reps_max is None):
             item.reps_min = item.reps_max = n
+    alternatives = re.search(r"\b(\d+)\s+or\s+(\d+)\s+reps?\b", row, re.I)
+    if alternatives:
+        # Discrete choices are not an inclusive range or an upper bound.
+        item.reps_min = item.reps_max = None
+        choice = alternatives[0]
+        if choice.lower() not in (item.effort or "").lower():
+            item.effort = "; ".join(filter(None, [item.effort, choice]))[:500]
     calories = re.search(r"(\d+)\s*(?:[-–]\s*(\d+)\s*)?cal(?:orie)?s?\b", row, re.I)
     if calories:
         low, high = int(calories[1]), int(calories[2] or calories[1])
@@ -88,7 +95,7 @@ def _enrich_from_row(item, row, part_notes, warnings):
             tops = {item.reps_min, item.reps_max} | ({int(printed[1])} if printed else set())
             if words(named) and words(named) <= words(item.name) | words(row) and int(high) in tops:
                 item.reps_min, item.reps_max = int(low), int(high)
-    pair = re.search(r"@\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*(kg|lbs?)\b", row, re.I)
+    pair = re.search(r"@\s*(\d+(?:\.\d+)?)\s*(?:/|\bor\b)\s*(\d+(?:\.\d+)?)\s*(kg|lbs?)\b", row, re.I)
     if pair:
         unit = pair[3].lower().rstrip("s")
         item.load = item.load_unit = item.load_convention = item.relative_load = None
@@ -101,7 +108,7 @@ def _enrich_from_row(item, row, part_notes, warnings):
     if meters:
         # "RUN DISTANCE 800-1000m" in the part's notes is the range for "Run 1000 meters".
         top = float(meters[1])
-        for low, high in re.findall(r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*m\b", "\n".join(part_notes)):
+        for low, high in re.findall(r"(\d+(?:\.\d+)?)\s*(?:[-–]|\bto\b)\s*(\d+(?:\.\d+)?)\s*m\b", "\n".join(part_notes)):
             if float(high) == top and float(low) < top:
                 item.distance_meters, item.distance_meters_min = top, float(low)
         if item.distance_meters is None:
@@ -266,6 +273,16 @@ def _segments(block, part, rows):
 
 def enrich_part(block, part, context, warnings, keep_new=False):
     """Apply the part's printed rows to the block the import matched to it."""
+    from app.domains.workouts.extraction import _amrap_cap_supported
+    from app.domains.workouts.schemas import AmrapExecution
+
+    # Read only this printed part's heading, never a movement/rest duration.
+    caps = {int(float(n) * (60 if unit.lower().startswith("m") else 1))
+            for n, unit in re.findall(r"(\d+)\s*(minutes?|mins?|seconds?|secs?)\b", part.heading, re.I)}
+    caps = {cap for cap in caps if _amrap_cap_supported(cap, part.heading)}
+    if len(caps) == 1 and block.execution is None:
+        block.execution = AmrapExecution(mode="amrap", time_cap_seconds=caps.pop())
+        block.grouping, block.rounds = "circuit", None
     rows = _rows_for(block, part)
     _segments(block, part, rows)
     for item, row in zip(block.exercises, rows):
