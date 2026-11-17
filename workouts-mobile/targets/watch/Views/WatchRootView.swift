@@ -74,8 +74,8 @@ struct ClassView: View {
         }
         .onChange(of: runner.phase) { _, phase in
           if case .running = phase { page = 1 }
-          if case .finished = phase { return }
         }
+        .onChange(of: runner.cursor) { _, _ in page = 1 }
       }
     }
     .sheet(item: Binding(get: { engine.sheet }, set: { if $0 == nil { engine.dismissSheet() } }), onDismiss: {
@@ -150,9 +150,14 @@ struct ClassView: View {
                 Text(interval(runner, now: now)).font(Theme.display(28)).lineLimit(1)
                 Text("Clock advances").font(.footnote).foregroundStyle(Theme.muted)
               } else {
-                Text("ROUND").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                Text("\(runner.runs[runner.cursor].taps.count)").font(Theme.display(52)).monospacedDigit()
-                Text(runner.part?.kind == .forTime && runner.isOpenPart ? "Part done" : "+1 round").font(.footnote).foregroundStyle(Theme.accent)
+                if runner.part?.kind == .forTime && runner.isOpenPart {
+                  Text("OPEN EFFORT").font(.caption).foregroundStyle(Theme.muted)
+                  Text("Finish when ready").font(.headline)
+                } else {
+                  Text("ROUND").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                  Text("\(runner.runs[runner.cursor].taps.count)").font(Theme.display(52)).monospacedDigit()
+                  Text("+1 round").font(.footnote).foregroundStyle(Theme.accent)
+                }
                 Text("Up: \(runner.part?.moves.filter { $0.segment != "buy_in" }.map(\.text).joined(separator: " · ") ?? "")")
                   .font(.system(size: 14)).lineLimit(1).foregroundStyle(Theme.muted)
               }
@@ -163,7 +168,7 @@ struct ClassView: View {
           if runner.isOpenPart {
             Button("Part done") { engine.completePart() }.buttonStyle(WatchButton(compact: true))
           }
-        }
+        }.padding(.bottom, 4)
       }
     case .ready, .finished: EmptyView()
     }

@@ -98,10 +98,10 @@ struct ScoreEditor: View {
       let part = runner.plan.parts[index]
       let score = watchScore(runner, index: index)
       ScrollView {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
           Text("\(part.label) · \(part.kind == .forTime ? "Time · mm:ss" : "Rounds")").font(.headline)
           Text(part.kind == .forTime ? watchTime(TimeInterval(score.seconds)) : "\(score.rounds)")
-            .font(Theme.display(44)).monospacedDigit()
+            .font(Theme.display(36)).monospacedDigit()
           HStack(spacing: 8) {
             adjustment("−", by: -1, score: score, timed: part.kind == .forTime)
             adjustment("+", by: 1, score: score, timed: part.kind == .forTime)
@@ -113,7 +113,7 @@ struct ScoreEditor: View {
             scale("Scaled", scaled: true, score: score)
           }
           Button("Done") { dismiss() }.buttonStyle(WatchButton(compact: true))
-        }
+        }.padding(.vertical, 4)
       }.sheet(isPresented: $repsSheet) { RepSheet(index: index) }
     }
   }

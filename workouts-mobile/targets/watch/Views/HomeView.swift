@@ -23,12 +23,14 @@ struct HomeView: View {
             .font(.footnote).foregroundStyle(Theme.muted)
         }
         ForEach(PlanLibrary.plans, id: \.planKey) { plan in
-          Button(plan.title) { start(plan) }.buttonStyle(WatchButton(role: .secondary))
+          Button(plan.title) { start(plan) }
+            .buttonStyle(WatchButton(role: health.status == .answered && PlanLibrary.plans.first?.planKey == plan.planKey ? .primary : .secondary))
         }
+        Button("Open timer") { start(PlanLibrary.openTimer) }
+          .buttonStyle(WatchButton(role: health.status == .answered && PlanLibrary.plans.isEmpty ? .primary : .secondary))
         if health.status == .answered {
           ActionHelp()
         }
-        Button("Open timer") { start(PlanLibrary.openTimer) }.buttonStyle(WatchButton())
         #if DEBUG
         Button("Sample class") { start(SamplePlan.plan) }.buttonStyle(WatchButton(role: .secondary))
         Text("DEBUG · synthetic plan").font(.caption2).foregroundStyle(Theme.muted)
