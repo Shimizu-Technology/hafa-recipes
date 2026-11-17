@@ -6,11 +6,12 @@ type Block = Workout["blocks"][number];
 export function validTimeCap(seconds: unknown): seconds is number {
   return typeof seconds === "number" && Number.isInteger(seconds) && seconds >= 1 && seconds <= 86400;
 }
+export const ROTATION_CHOICE_MESSAGE = "Choose whether to alternate the moves or do every move each interval.";
 export function executionError(block: Block) {
   if (!block.execution) return null;
   // One move per interval and every move each interval are different workouts, so the person chooses.
   if (block.execution.mode === "emom" && block.execution.rotation == null && block.exercises.length > 1)
-    return "Choose whether to alternate the moves or do every move each interval.";
+    return ROTATION_CHOICE_MESSAGE;
   if (isTimedFormat(block.execution)) return formatError(block.execution, block);
   // A mode from a newer server stays readable and never blocks saving.
   if (block.execution.mode !== "amrap") return null;

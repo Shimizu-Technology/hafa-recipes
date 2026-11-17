@@ -1,17 +1,18 @@
-import { workoutErrors } from "@/lib/library";
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef } from "react";
-import { ActivityIndicator, AppState, Image, Linking } from "react-native";
+import { AppState, Linking, type ScrollView, View } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, Field, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
+import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, Field, ListRow, Notice, Screen, SectionHeader, useReducedMotion } from "@/components/ui";
+import { CalendarDate } from "@/components/calendar-date";
+import { ClassPartReview } from "@/components/class-part-review";
+import { ReviewChecklist } from "@/components/review-checklist";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, updateImportReferences, loadCapturedImport, retireCapturedImport, type CaptureDraft, type ImportReference } from "@/lib/capture";
-import { isISODate } from "@/lib/sharing";
-import { keepPrescriptionTokens, partTags, restAfterText, segmentLabel } from "@/lib/class-parts";
+import { inferRotation, problemSummary, retryHelp, reviewNotices, reviewProblems, setPartRotation, setPartRounds, withReviewDefaults, type ReviewProblem } from "@/lib/import-review";
 import { cleanupCaptureFiles, sourceFor } from "@/lib/capture-io";
 import { recoverySource } from "@/lib/import-recovery";
 import type { ExtractionRequest, ImportJob } from "@/lib/capture";
@@ -19,10 +20,9 @@ import * as Crypto from "expo-crypto";
 import { type PrivateDraftSnapshot } from "@/lib/private-form";
 import type { AuthoredWorkout } from "@/lib/models";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
-import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine, formatSeconds } from "@/lib/discover";
+import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable } from "@/lib/discover";
 import { WorkoutSource } from "@/components/workout-source";
 import { ImportProgress } from "@/components/import-progress";
-import { amrapCap, blockSummary, timedBlock } from "@/lib/amrap-editor";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -65,6 +65,12 @@ export default function ImportReview() {
   const reconciledSave = useRef<object | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** Save was tried and found problems: show them on their parts until they are fixed. */
+  const [attempted, setAttempted] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const reduced = useReducedMotion();
+  const spots = useRef<Record<string, number>>({});
+  const pendingSpot = useRef<string | null>(null);
   const [attemptedUpdate, setAttemptedUpdate] = useState<boolean | null>(null);
   const [updateConflict, setUpdateConflict] = useState(false);
   /** null = the default for this source (link imports public, everything else private). */
@@ -107,6 +113,7 @@ export default function ImportReview() {
     setAutoAllowed(false);
     setBusy(false);
     setError("");
+    setAttempted(false);
     setAttemptedUpdate(null);
     setUpdateConflict(false);
     setShareChoice(null);
@@ -159,6 +166,25 @@ export default function ImportReview() {
       if (isCurrent()) setError("Could not keep your corrections on this device. Stay here until saved.");
     });
   }
+  /** Scrolls to a spot on the page (a part, the class date, the problem list), and again if its layout settles after. */
+  function scrollToSpot(key: string) {
+    const y = spots.current[key];
+    if (y != null) scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: !reduced });
+  }
+  function spot(key: string) {
+    return (y: number) => {
+      spots.current[key] = y;
+      if (pendingSpot.current === key) scrollToSpot(key);
+    };
+  }
+  function goTo(key: string) {
+    pendingSpot.current = key;
+    scrollToSpot(key);
+    setTimeout(() => { if (pendingSpot.current === key) pendingSpot.current = null; }, 800);
+  }
+  function reveal(problem: ReviewProblem) {
+    goTo(problem.scope === "date" ? "date" : problem.scope === "part" && !editing ? problem.blockId! : "problems");
+  }
   function chooseVisibility(value: boolean, fromDisclosure = false) {
     if (!routeReady || !restored || !isCurrent()) return Promise.resolve();
     if (saving.current && !fromDisclosure) return Promise.resolve();
@@ -181,13 +207,13 @@ export default function ImportReview() {
     if (saving.current || !routeReady || !restored || !isCurrent() || !q.data?.result?.workout) return;
     if (automatic && (edited || !canSaveAutomatically(q.data))) return;
     setUpdateConflict(false);
-    const content = edited ?? q.data.result.workout;
-    const errors = content.blocks.some(block => block.exercises.length)
-      ? workoutErrors(content, q.data.status === "incomplete" && !sharing)
-      : ["Add at least one exercise before saving this workout."];
-    if (content.programming?.date && !isISODate(content.programming.date)) errors.push("Use a class date like 2026-11-17.");
-    if (errors.length) {
-      setError(errors.join(" "));
+    const content = withReviewDefaults(edited ?? q.data.result.workout);
+    const found = reviewProblems(content, { allowIncomplete: q.data.status === "incomplete" && !sharing, isClass: !!isClass });
+    if (found.length) {
+      // Show each problem on its part and take the person to the first one; the banner only summarises.
+      setAttempted(true);
+      setError("");
+      reveal(found[0]);
       return;
     }
     saving.current = true;
@@ -199,7 +225,6 @@ export default function ImportReview() {
       current();
       await visibilityWrites.current;
       current();
-      const content = edited ?? q.data.result.workout;
       const importGeneration = q.data.generation;
       let accepted = sharing
         ? await disclosure.run(() => {
@@ -334,7 +359,7 @@ export default function ImportReview() {
     staleTime: 60000,
   });
   const result = q.data?.result;
-  const workout = (routeReady ? edited : null) ?? result?.workout;
+  const workout = withReviewDefaults((routeReady ? edited : null) ?? result?.workout);
   const hasExercises = !!workout?.blocks.some(block => block.exercises.length);
   const savedId = q.data?.accepted_workout_id;
   const reviewAction = savedId
@@ -349,13 +374,15 @@ export default function ImportReview() {
       ? savedId
         ? `We couldn’t finish checking this source. Your workout is saved. ${reviewAction}`
         : "We couldn’t finish checking this source. Your source stays saved. Try again later, or add the exercises manually."
-      : q.data?.status === "incomplete"
-        ? hasExercises ? `We couldn’t confirm all workout details. ${reviewAction}` : "No exercises were imported. Check the source, retry with instructions, or add exercises manually."
-        : result?.warnings.length
-          ? `Some workout details may need checking. ${reviewAction}`
-          : null;
+      : q.data?.status === "incomplete" && !hasExercises
+        ? "No exercises were imported. Check the source, retry with instructions, or add exercises manually."
+        : null;
+  // The API's warnings, each linked to its part. Purely informational ones stay in Source details.
+  const notices = reviewNotices(result?.warnings ?? [], workout);
+  const checks = notices.filter(notice => notice.kind === "check");
+  const showChecklist = hasExercises && !result?.error_code && (checks.length > 0 || q.data?.status === "incomplete");
   const diagnostics = [...new Set([...(result?.warnings ?? []), ...(result?.source.coverage_notes ?? [])])];
-  const isClass = originalSource?.class_parts || result?.workout?.programming?.source_kind === "gym";
+  const isClass = originalSource?.class_parts || source.data?.class_parts || result?.workout?.programming?.source_kind === "gym";
   const discoverOn = !isClass && capabilities.data?.discover === true;
   // The server refuses to publish an incomplete extraction accepted unchanged.
   const shareable =
@@ -380,12 +407,31 @@ export default function ImportReview() {
       if (isCurrent()) setError("Your workout is saved. Try loading again to finish clearing its temporary source.");
     });
   }, [q.data?.accepted_workout_id, routeReady, restored, epoch, id]);
+  const problems = attempted && workout && result
+    ? reviewProblems(workout, { allowIncomplete: q.data?.status === "incomplete" && !sharing, isClass: !!isClass }) : [];
+  const banner = error || problemSummary(problems);
   const savedDraft = savedId && q.data?.status === "incomplete";
+  const retryCard = q.data && ["incomplete", "failed", "expired"].includes(q.data.status) && <Card compact>
+          <Copy kind="heading">Try reading the source again</Copy>
+          <Copy kind="small">{retryHelp(originalSource?.kind ?? source.data?.kind, !!isClass)}</Copy>
+          <Field label={isClass ? "Class instructions" : "Caption or source instructions"} multiline optional value={caption} onChange={value => {
+            if (!routeReady || !restored || saving.current || retryCommand || !isCurrent()) return;
+            setCaption(value);
+            const next = captionWrites.current.catch(() => undefined).then(async () => {
+              current(); await localDrafts.save(owner, `import-retry-caption:${generation}:${id}`, value); current();
+            });
+            captionWrites.current = next;
+            void next.catch(() => { if (isCurrent()) setError("Could not keep this caption on your device. Stay here until the retry is saved."); });
+          }} disabled={!restored || busy || !!retryCommand} />
+          {!!retryCommand && <Copy kind="small">{retryCommand.saved_id ? "This retry is already saved. Open its import to continue." : "Retrying the same saved request. Its source and caption stay unchanged until the request is recovered."}</Copy>}
+          <Button title={retryCommand?.saved_id ? "Open retry import" : retryCommand ? "Reconnect retry" : caption.trim() ? "Retry with this caption" : "Retry this source"} secondary busy={busy}
+            disabled={!restored || !routeReady || (!retryCommand?.saved_id && !capabilities.data?.imports)} onPress={() => { void retryExtraction(); }} />
+        </Card>;
   return (
-    <Screen back title={savedDraft ? "Draft saved" : savedId ? "Workout saved" : "Workout"}
+    <Screen back scrollRef={scrollRef} title={savedDraft ? "Draft saved" : savedId ? "Workout saved" : "Workout"}
       subtitle={savedDraft ? "Saved privately in your library. Review the workout before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : q.data && ["queued", "processing"].includes(q.data.status) ? "Reading your source. You can leave and check back in Add." : "Check the result and choose your next step."}
-      footer={!!error && <>
-        <Notice error>{error}</Notice>
+      footer={!!banner && <>
+        <Notice error>{banner}</Notice>
         {q.data?.replace_target && attemptedUpdate !== null && hasExercises && !editing && !savedId && <Button
           title={updateConflict ? "Save as a separate private workout" : attemptedUpdate ? "Retry updating saved workout" : "Retry saving private workout"}
           secondary busy={busy} disabled={!routeReady || !restored}
@@ -436,13 +482,20 @@ export default function ImportReview() {
         {result && (
           <>
             {!hasExercises && reviewMessage && <Notice tone="warning">{reviewMessage}</Notice>}
-            {isClass && workout && !savedId && <Field label="Class date" placeholder="YYYY-MM-DD" optional
-              disabled={busy || !routeReady || !restored} value={workout.programming?.date ?? ""}
-              onChange={date => update({ ...workout, programming: { ...workout.programming, source_kind: "gym", date: date || null } })} />}
+            {isClass && workout && !savedId && <View onLayout={event => spot("date")(event.nativeEvent.layout.y)}><Card compact>
+              <CalendarDate label="Class date" optional disabled={busy || !routeReady || !restored} value={workout.programming?.date ?? null}
+                onChange={date => update({ ...workout, programming: { ...workout.programming, source_kind: "gym", date } })} />
+              {problems.filter(problem => problem.scope === "date").map(problem => <Copy key={problem.key} kind="small" tone="error">{problem.message}</Copy>)}
+            </Card></View>}
             {workout && (
               <>
                 {routeReady && editing && !savedId ? (
-                  <WorkoutEditor value={workout} onChange={update} disabled={busy} />
+                  <>
+                    {problems.length > 0 && <View onLayout={event => spot("problems")(event.nativeEvent.layout.y)}>
+                      <Notice error>{problems.map(problem => `${problem.part ? `${problem.part}: ` : ""}${problem.message}`).join("\n")}</Notice>
+                    </View>}
+                    <WorkoutEditor value={workout} onChange={update} disabled={busy} />
+                  </>
                 ) : (
                   <>
                     {isClass && <Notice>Review each class part before saving. Check all reps, loads, distances and times. Your gym class stays private.</Notice>}
@@ -455,26 +508,21 @@ export default function ImportReview() {
                         <Chip label="Equipment not specified" tone="accent" />
                       )}
                     </ChipRow>}
-                    {workout.blocks.map((block) => (
-                      <Card key={block.id}>
-                        <Copy kind="subheading">{block.label}</Copy>
-                        {block.instructions?.map((line, index) => <Copy key={index} kind="small">{line}</Copy>)}
-                        {!!partTags(block).length && <Copy kind="small">{partTags(block).join(" · ")}</Copy>}
-                        <Copy kind="small" tone={block.rounds == null ? "accent" : "muted"}>
-                          {blockSummary(block, block.label)}{block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? " · Rounds not specified" : ""}
-                          {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
-                        </Copy>
-                        {block.exercises.map((e, index) => (
-                          <Copy key={index}>
-                            <Copy kind="label">{segmentLabel(e) ? `${segmentLabel(e)} · ` : ""}{e.name}</Copy>
-                            {" · "}
-                            <Copy>{keepPrescriptionTokens(prescriptionLine(e))}</Copy>
-                            {e.instructions ? <Copy kind="small">{"\n"}{e.instructions}</Copy> : null}
-                      {e.notes ? <Copy kind="small">{"\n"}Private note · {e.notes}</Copy> : null}
-                          </Copy>
-                        ))}
-                        {!!restAfterText(block) && <Copy kind="label">{restAfterText(block)} before the next part</Copy>}
-                      </Card>
+                    {showChecklist && <ReviewChecklist notices={checks} onOpen={goTo}
+                      fallback={savedId ? reviewAction : "Some details were not confirmed. Compare each part with your source before saving."} />}
+                    {problems.some(problem => problem.scope === "workout") && <View onLayout={event => spot("problems")(event.nativeEvent.layout.y)}>
+                      <Notice error>{problems.filter(problem => problem.scope === "workout").map(problem => problem.message).join("\n")}</Notice>
+                    </View>}
+                    {workout.blocks.map(block => (
+                      <ClassPartReview key={block.id} block={block}
+                        notices={checks.filter(notice => notice.blockId === block.id)}
+                        problems={problems.filter(problem => problem.blockId === block.id)}
+                        inferred={block.execution?.mode === "emom" && block.execution.rotation === "alternating" && inferRotation(block) != null}
+                        disabled={busy || !routeReady || !restored || !!savedId}
+                        onRotation={rotation => update(setPartRotation(workout, block.id, rotation))}
+                        onRounds={rounds => update(setPartRounds(workout, block.id, rounds))}
+                        onEdit={() => setEditing(true)}
+                        onLayout={spot(block.id)} />
                     ))}
                   </>
                 )}
@@ -586,25 +634,11 @@ export default function ImportReview() {
                 ))}
               </Card>
             )}
+            {hasExercises && retryCard}
             </>}
           </>
         )}
-        {q.data && ["incomplete", "failed", "expired"].includes(q.data.status) && <Card compact>
-          <Copy kind="heading">Try reading the source again</Copy>
-          <Copy kind="small">Paste the creator’s caption or instructions if the video could not be read. This creates a separate private import. Your saved workouts stay unchanged.</Copy>
-          <Field label="Caption or source instructions" multiline optional value={caption} onChange={value => {
-            if (!routeReady || !restored || saving.current || retryCommand || !isCurrent()) return;
-            setCaption(value);
-            const next = captionWrites.current.catch(() => undefined).then(async () => {
-              current(); await localDrafts.save(owner, `import-retry-caption:${generation}:${id}`, value); current();
-            });
-            captionWrites.current = next;
-            void next.catch(() => { if (isCurrent()) setError("Could not keep this caption on your device. Stay here until the retry is saved."); });
-          }} disabled={!restored || busy || !!retryCommand} />
-          {!!retryCommand && <Copy kind="small">{retryCommand.saved_id ? "This retry is already saved. Open its import to continue." : "Retrying the same saved request. Its source and caption stay unchanged until the request is recovered."}</Copy>}
-          <Button title={retryCommand?.saved_id ? "Open retry import" : retryCommand ? "Reconnect retry" : caption.trim() ? "Retry with this caption" : "Retry this source"} secondary busy={busy}
-            disabled={!restored || !routeReady || (!retryCommand?.saved_id && !capabilities.data?.imports)} onPress={() => { void retryExtraction(); }} />
-        </Card>}
+        {!hasExercises && retryCard}
         {q.data && importIsTerminal(q.data.status) && <>
           <Copy kind="small" tone="muted">Dismiss clears this import and its temporary source. Saved workouts stay in your library.</Copy>
           <Button title="Dismiss import" variant="ghost" busy={busy} onPress={() => { void cancel(true); }} />

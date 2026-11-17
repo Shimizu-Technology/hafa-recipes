@@ -9,6 +9,7 @@ import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { classDate, classText } from "@/lib/class-import";
+import { CalendarDate } from "@/components/calendar-date";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccountButton, Button, ButtonRow, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, Stack, useColors, useReducedMotion } from "@/components/ui";
 import { RecentImports } from "@/components/recent-imports";
@@ -658,7 +659,7 @@ export default function Capture() {
           {!!pasteNote && <Copy kind="small" tone="warning">{pasteNote}</Copy>}
           <Field label="Gym" optional disabled={locked} value={draft.programming?.gym_name ?? ""} onChange={gym_name => update({ programming: { ...draft.programming, source_kind: "gym", gym_name } })} />
           <Field label="Track" optional disabled={locked} value={draft.programming?.track ?? ""} onChange={track => update({ programming: { ...draft.programming, source_kind: "gym", track } })} />
-          <Field label="Class date" placeholder="YYYY-MM-DD" optional disabled={locked} value={draft.programming?.date ?? ""} onChange={date => update({ programming: { ...draft.programming, source_kind: "gym", date: date || null } })} />
+          <CalendarDate label="Class date" optional disabled={locked} value={draft.programming?.date ?? null} onChange={date => update({ programming: { ...draft.programming, source_kind: "gym", date } })} />
           <Copy kind="small" tone="muted">In Safari, use Share → Håfa Workouts on the open class page. Or save a Full Page screenshot as a PDF and choose it here.</Copy>
         </>}
         {draft.kind === "url" ? (

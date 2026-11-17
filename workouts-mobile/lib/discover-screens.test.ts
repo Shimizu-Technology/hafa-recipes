@@ -152,7 +152,7 @@ vi.mock("@/components/ui", () => {
   return { ...Object.fromEntries(names.map((name) => [name, name])),
     Screen: ({ children, footer, list, ...props }: PropsWithChildren<{ footer?: ReactNode; list?: (body: object) => ReactNode; [key: string]: unknown }>) =>
       createElement("Screen", props, createElement("ScreenAction", null, props.action as ReactNode), list?.({ header: null, contentContainerStyle: {} }), children, footer),
-    haptics: { tick() {} }, useColors: () => new Proxy({}, { get: (_target, key) => String(key) }),
+    haptics: { tick() {} }, useColors: () => new Proxy({}, { get: (_target, key) => String(key) }), useReducedMotion: () => false,
     useToast: () => fixture.toast };
 });
 vi.mock("@/components/discover-card", () => ({
@@ -1789,8 +1789,10 @@ it("puts the workout before one accurate review summary and keeps raw diagnostic
   const collapsed = JSON.stringify(renderer!.toJSON());
   expect(collapsed).not.toContain(warning); expect(collapsed).not.toContain(coverage);
   expect(collapsed).not.toContain("not in the source");
-  expect(nodes("Notice").filter(n => n.children.join("").includes("confirm all workout details"))).toHaveLength(1);
-  expect(collapsed.indexOf(job.result.workout.title)).toBeLessThan(collapsed.indexOf("confirm all workout details"));
+  // Warnings that only say what was left out stay in Source details; the review shows one short prompt, not the old vague banner.
+  expect(collapsed.split("Some details were not confirmed").length - 1).toBe(1);
+  expect(collapsed).not.toContain("confirm all workout details");
+  expect(collapsed.indexOf(job.result.workout.title)).toBeLessThan(collapsed.indexOf("Some details were not confirmed"));
   expect(button("Correct workout details")).toBeDefined();
   expect(choice("Share to Discover")!.props.disabled).toBe(true);
   await act(async () => button("Source details")!.props.onPress());
@@ -1829,7 +1831,7 @@ it.each([undefined, "workouts_ai_budget_unavailable", "workouts_ai_budget_exceed
   const view = JSON.stringify(renderer!.toJSON());
   expect(view).toContain("Open the saved workout to check or edit those details.");
   expect(view).not.toContain("before saving");
-  expect(nodes("Notice").filter(n => n.children.join("").includes("Open the saved workout"))).toHaveLength(1);
+  expect(view.split("Open the saved workout to check or edit those details.").length - 1).toBe(1);
   expect(button("Open saved workout")).toBeDefined(); expect(button("Check details")).toBeDefined();
   expect(button("Save workout")).toBeUndefined();
   await act(async () => button("Check details")!.props.onPress());

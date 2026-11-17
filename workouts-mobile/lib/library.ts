@@ -17,8 +17,12 @@ export function editedContent(workout: Workout | AuthoredWorkout): AuthoredWorko
     })),
   };
 }
-export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
-  const errors: string[] = [];
+/** One validation problem, with the part it belongs to when it is about a single part. */
+export interface WorkoutProblem { message: string; blockId?: string }
+export function workoutProblems(workout: AuthoredWorkout,allowIncomplete=false): WorkoutProblem[] {
+  const problems: WorkoutProblem[] = [];
+  let blockId: string | undefined;
+  const errors = { push: (message: string) => { problems.push({ message, blockId }); } };
   if (!workout.title.trim() || workout.title.length > 200) errors.push("Use a workout title from 1 to 200 characters.");
   if (workout.estimated_minutes != null && (!Number.isInteger(workout.estimated_minutes) || workout.estimated_minutes < 1 || workout.estimated_minutes > 1440))
     errors.push("Estimated duration must be whole minutes from 1 to 1440, or blank.");
@@ -37,6 +41,7 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
   if (!workout.blocks.length && !allowIncomplete) errors.push("Add at least one workout block.");
   if (workout.blocks.length > 100) errors.push("Use 100 workout blocks or fewer.");
   for (const block of workout.blocks) {
+    blockId = block.id;
     const executionProblem = executionError(block);
     if (executionProblem) errors.push(executionProblem);
     if (!block.label.trim()) errors.push("Name each workout block.");
@@ -75,6 +80,7 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
       if(e.rest_seconds!=null && e.rest_seconds>7200)errors.push(`${e.name}: rest must be no more than 7200 seconds.`);
     }
   }
+  blockId = undefined;
   // Include the server's expanded empty fields before freezing a creation command.
   // Pretty JSON also reserves space for its separators and record metadata.
   const expanded = { instructions: [], notes: [], ...workout, blocks: workout.blocks.map(block => ({
@@ -87,7 +93,11 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
   })) };
   if (new TextEncoder().encode(JSON.stringify(expanded, null, 1)).byteLength > 240 * 1024 - 1024)
     errors.push("This workout is too large to save. Shorten its instructions or split it into smaller workouts.");
-  return [...new Set(errors)];
+  const seen = new Set<string>();
+  return problems.filter(({ message, blockId }) => !seen.has(`${blockId}|${message}`) && !!seen.add(`${blockId}|${message}`));
+}
+export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
+  return [...new Set(workoutProblems(workout, allowIncomplete).map(problem => problem.message))];
 }
 export function filterLibrary(workouts: Workout[], search: string, equipment: string | null, kind: string | null) {
   const needle = search.toLocaleLowerCase().trim();
