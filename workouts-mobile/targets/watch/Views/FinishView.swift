@@ -10,9 +10,9 @@ struct FinishView: View {
         Text("Class done").font(Theme.display(28))
         if case .failed(let message) = engine.state {
           Text(message).font(.footnote).foregroundStyle(Color.red)
-          Button("Retry") { Task { await engine.finish() } }.buttonStyle(WatchButton())
+          Button("Retry") { save() }.buttonStyle(WatchButton())
           if engine.canSaveScoresOnly {
-            Button("Save scores only") { Task { await engine.finish(withoutHealth: true) } }
+            Button("Save scores only") { save(withoutHealth: true) }
               .buttonStyle(WatchButton(role: .secondary))
           }
         }
@@ -24,7 +24,7 @@ struct FinishView: View {
         HStack(spacing: 8) {
           Button("Discard") { discard = true }.buttonStyle(WatchButton(role: .destructive))
           if !engine.state.isFailure {
-            Button("Save") { Task { await engine.finish() } }.buttonStyle(WatchButton())
+            Button("Save") { save() }.buttonStyle(WatchButton())
           }
         }
         if let average = engine.metrics.average, let maximum = engine.metrics.maximum {
@@ -39,18 +39,33 @@ struct FinishView: View {
       Button("Discard class", role: .destructive) { Task { await engine.discard() } }
     }
   }
+
+  private func save(withoutHealth: Bool = false) {
+    guard let runner = engine.runner else { return }
+    for index in runner.plan.parts.indices where runner.plan.parts[index].scored && !runner.runs[index].skipped {
+      engine.setScore(watchScore(runner, index: index), for: index)
+    }
+    Task { await engine.finish(withoutHealth: withoutHealth) }
+  }
+}
+
+private func watchScore(_ runner: PartRunner, index: Int) -> PartScore {
+  var value = PartScore.initial(runner, index: index, at: Date())
+  if runner.runs[index].score == nil {
+    value.scaled = UserDefaults.standard.bool(forKey: "scaled-\(runner.plan.planKey)-\(runner.plan.parts[index].blockId)")
+  }
+  return value
 }
 
 private struct ScoreCard: View {
   @EnvironmentObject private var engine: WorkoutEngine
   let index: Int
-  @State private var repsSheet = false
   @State private var editing = false
 
   var body: some View {
     if let runner = engine.runner {
       let part = runner.plan.parts[index]
-      let score = PartScore.initial(runner, index: index, at: Date())
+      let score = watchScore(runner, index: index)
       let capped = score.isCapped(for: part)
       Button { editing = true } label: {
         HStack(spacing: 8) {
@@ -68,32 +83,38 @@ private struct ScoreCard: View {
       }.buttonStyle(WatchButton(role: .secondary))
         .disabled(runner.runs[index].skipped)
         .accessibilityLabel("\(part.label), \(runner.runs[index].skipped ? "Skipped" : "Edit score")")
-        .sheet(isPresented: $editing) {
-          ScrollView {
-            VStack(spacing: 8) {
-              Text("\(part.label) · \(part.kind == .forTime ? "Time · mm:ss" : "Rounds")").font(.headline)
-              Text(part.kind == .forTime ? watchTime(TimeInterval(score.seconds)) : "\(score.rounds)")
-                .font(Theme.display(44)).monospacedDigit()
-              HStack(spacing: 8) {
-                adjustment("−", by: -1, score: score, timed: part.kind == .forTime)
-                adjustment("+", by: 1, score: score, timed: part.kind == .forTime)
-              }
-              Button("Extra reps: \(score.reps)") { repsSheet = true }
-                .buttonStyle(WatchButton(role: .secondary, compact: true))
-              HStack(spacing: 8) {
-                scale("Rx", scaled: false, score: score)
-                scale("Scaled", scaled: true, score: score)
-              }
-              Button("Done") { editing = false }.buttonStyle(WatchButton())
-            }
-          }.sheet(isPresented: $repsSheet) { RepSheet(index: index) }
-        }
-        .onAppear {
-          guard !runner.runs[index].skipped, runner.runs[index].score == nil else { return }
-          var initial = score
-          initial.scaled = UserDefaults.standard.bool(forKey: "scaled-\(runner.plan.planKey)-\(part.blockId)")
-          engine.setScore(initial, for: index)
-        }
+        .sheet(isPresented: $editing) { ScoreEditor(index: index) }
+    }
+  }
+}
+
+struct ScoreEditor: View {
+  @EnvironmentObject private var engine: WorkoutEngine
+  @Environment(\.dismiss) private var dismiss
+  let index: Int
+  @State private var repsSheet = false
+  var body: some View {
+    if let runner = engine.runner {
+      let part = runner.plan.parts[index]
+      let score = watchScore(runner, index: index)
+      ScrollView {
+        VStack(spacing: 6) {
+          Text("\(part.label) · \(part.kind == .forTime ? "Time · mm:ss" : "Rounds")").font(.headline)
+          Text(part.kind == .forTime ? watchTime(TimeInterval(score.seconds)) : "\(score.rounds)")
+            .font(Theme.display(36)).monospacedDigit()
+          HStack(spacing: 8) {
+            adjustment("−", by: -1, score: score, timed: part.kind == .forTime)
+            adjustment("+", by: 1, score: score, timed: part.kind == .forTime)
+          }
+          Button("Extra reps: \(score.reps)") { repsSheet = true }
+            .buttonStyle(WatchButton(role: .secondary, compact: true))
+          HStack(spacing: 8) {
+            scale("Rx", scaled: false, score: score)
+            scale("Scaled", scaled: true, score: score)
+          }
+          Button("Done") { dismiss() }.buttonStyle(WatchButton(compact: true))
+        }.padding(.vertical, 4)
+      }.sheet(isPresented: $repsSheet) { RepSheet(index: index) }
     }
   }
   private func adjustment(_ label: String, by amount: Int, score: PartScore, timed: Bool) -> some View {
@@ -138,11 +159,11 @@ struct RepSheet: View {
       }
     }
     .onAppear {
-      if let runner = engine.runner { reps = Double(PartScore.initial(runner, index: index, at: Date()).reps) }
+      if let runner = engine.runner { reps = Double(watchScore(runner, index: index).reps) }
     }
     .onChange(of: reps) { _, value in
       guard let runner = engine.runner else { return }
-      var score = PartScore.initial(runner, index: index, at: Date())
+      var score = watchScore(runner, index: index)
       score.reps = Int(value); engine.setScore(score, for: index)
     }
   }

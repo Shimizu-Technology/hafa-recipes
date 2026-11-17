@@ -123,6 +123,52 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertEqual(outbox.records().count, 1)
   }
 
+  func testActionIsIgnoredWhileEitherConfirmationIsOpen() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    clock.advance(2)
+    for control in [WorkoutEngine.Control.end, .skip] {
+      engine.request(control)
+      let before = engine.runner
+      let calls = recorder.calls
+      XCTAssertEqual(engine.advance(), .ignored(.confirmationOpen))
+      XCTAssertEqual(engine.runner, before)
+      XCTAssertEqual(recorder.calls, calls)
+      XCTAssertEqual(engine.pendingControl, control)
+      engine.pendingControl = nil; engine.sheetDismissed()
+    }
+    XCTAssertEqual(engine.advance(), .applied(.round(1)))
+  }
+
+  func testPartDoneIsUndoableAfterRelaunchAndIgnoredWhilePaused() async throws {
+    for kind in [WatchPlan.Part.Kind.forTime, .sets] {
+      let first = engine()
+      try await first.start(plan(part("A", kind), part("B", .amrap, cap: 60)), leadIn: 0)
+      clock.advance(2)
+      first.pause()
+      let paused = first.runner
+      first.completePart()
+      XCTAssertEqual(first.runner, paused)
+      first.resume()
+      first.completePart()
+      XCTAssertEqual(first.runner?.cursor, 1)
+      XCTAssertTrue(first.runner!.canUndo(at: clock.now))
+      XCTAssertFalse(recorder.calls.contains { $0.hasPrefix("end part") })
+      XCTAssertFalse(store.load()!.deferredEvents!.isEmpty)
+      recorder.liveSession = true
+      let recovered = engine()
+      await recovered.recover()
+      XCTAssertTrue(recovered.undo())
+      XCTAssertEqual(recovered.runner?.cursor, 0)
+      XCTAssertEqual(recovered.runner?.phase, .running)
+      XCTAssertNil(recovered.runner?.runs[0].span?.end)
+      XCTAssertFalse(recovered.runner!.runs[0].skipped)
+      XCTAssertTrue(store.load()!.deferredEvents!.isEmpty)
+      await recovered.discard()
+      recorder.calls = []
+    }
+  }
+
   func testHealthSummarySurvivesOutboxFailureAndRelaunch() async throws {
     let engine = engine()
     try await engine.start(twoParts, leadIn: 0)
@@ -158,6 +204,54 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertFalse(recorder.calls.contains("discard"))
   }
 
+  func testExpiredDeferredBoundaryIsCheckpointedBeforeFiveSecondInterval() async throws {
+    let first = engine()
+    try await first.start(plan(part("A", .forTime, rounds: 1), part("B", .amrap, cap: 600)), leadIn: 0)
+    clock.advance(20); first.advance()
+    clock.advance(9); first.pause() // a checkpoint just before undo expiry
+    XCTAssertFalse(store.load()!.deferredEvents!.isEmpty)
+    clock.advance(1.1); first.tick()
+    XCTAssertEqual(store.load()?.deferredEvents, [])
+    XCTAssertNil(store.load()?.deferredUntil)
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 20" }.count, 1)
+    recorder.liveSession = true
+    let recovered = engine()
+    await recovered.recover()
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 20" }.count, 1, "crash must not replay an applied boundary")
+  }
+
+  func testUndoAfterOldCatchUpKeepsHealthOnNewPart() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .amrap, cap: 60), part("B", .amrap, cap: 600)), leadIn: 0)
+    clock.advance(200)
+    XCTAssertEqual(engine.advance(), .applied(.round(1)))
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 60" }.count, 1)
+    clock.advance(1)
+    XCTAssertTrue(engine.undo())
+    XCTAssertEqual(engine.runner?.runs[1].taps.count, 0)
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 60" }.count, 1)
+  }
+
+  func testPressEventsRemainDeferredWhenClockAdvancesBetweenReads() async throws {
+    let engine = WorkoutEngine(recorder: recorder, store: store, outbox: outbox, clock: ReadAdvancingClock())
+    try await engine.start(plan(part("A", .forTime, rounds: 1)), leadIn: 0)
+    XCTAssertEqual(engine.advance(), .applied(.partDone))
+    XCTAssertFalse(recorder.calls.contains { $0.hasPrefix("end part") }, "the press's own boundary must remain undoable")
+    XCTAssertFalse(store.load()!.deferredEvents!.isEmpty)
+    XCTAssertTrue(engine.undo())
+  }
+
+  func testSkipConfirmationCannotSkipThePartReachedWhileItWasOpen() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .amrap, cap: 1), part("B", .amrap, cap: 600)), leadIn: 0)
+    engine.request(.skip)
+    clock.advance(2); engine.tick()
+    engine.confirmControl()
+    XCTAssertEqual(engine.runner?.cursor, 1)
+    XCTAssertFalse(engine.runner!.runs[1].skipped)
+    XCTAssertEqual(engine.runner?.phase, .running)
+  }
+
   func testRecordingFollowsTheParts() async throws {
     let engine = engine()
     try await engine.start(twoParts, leadIn: 3)
@@ -171,6 +265,9 @@ final class WorkoutEngineTests: XCTestCase {
     engine.tick()  // B's lead-in ended at 96.
     clock.advance(4)
     XCTAssertEqual(engine.advance(), .applied(.partDone))
+    XCTAssertFalse(recorder.calls.contains("end part 104"), "boundary stays reversible for ten seconds")
+    clock.advance(11)
+    engine.tick()
     XCTAssertEqual(recorder.calls, ["recover inPart=false", "begin 11 0", "part A 3", "end part 63", "part B 96", "end part 104"])
   }
 
@@ -323,6 +420,50 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertNil(engine.runner)
   }
 
+  func testUndoFinalRoundAfterRelaunchDoesNotCloseOrDuplicateHealthActivities() async throws {
+    let first = engine()
+    try await first.start(plan(part("A", .forTime, rounds: 1), part("B", .sets)), leadIn: 0)
+    clock.advance(20)
+    first.advance()
+    XCTAssertEqual(recorder.calls, ["recover inPart=false", "begin 11 0", "part A 0"])
+    recorder.liveSession = true
+    let second = engine()
+    await second.recover()
+    clock.advance(2)
+    XCTAssertTrue(second.undo())
+    XCTAssertEqual(second.runner?.cursor, 0)
+    XCTAssertEqual(second.runner?.runs[0].taps.count, 0)
+    XCTAssertEqual(recorder.calls, ["recover inPart=false", "begin 11 0", "part A 0", "recover inPart=true"])
+    await second.finish()
+    XCTAssertEqual(recorder.finishedSegments, [])
+    XCTAssertEqual(recorder.calls.filter { $0.hasPrefix("end part") }, ["end part 22"])
+  }
+
+  func testUndoRestAdvanceUsesOriginalClockAndKeepsImmediatePause() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    clock.advance(60); engine.tick()
+    clock.advance(5); engine.advance()
+    clock.advance(1); engine.pause()
+    XCTAssertEqual(recorder.calls.last, "pause")
+    clock.advance(2)
+    XCTAssertTrue(engine.undo())
+    XCTAssertEqual(engine.runner?.phase, .resting(until: at(90)))
+    XCTAssertNotNil(engine.runner?.pausedAt)
+    engine.resume()
+    XCTAssertEqual(engine.runner?.phase, .resting(until: at(92)))
+    XCTAssertFalse(recorder.calls.contains("part B 65"))
+  }
+
+  func testSavingCommitsDeferredBoundaryOnce() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .forTime, rounds: 1)), leadIn: 0)
+    clock.advance(20); engine.advance()
+    await engine.finish()
+    XCTAssertEqual(recorder.calls.filter { $0.hasPrefix("end part") }, ["end part 20"])
+    XCTAssertEqual(outbox.records().first?.parts[0].rounds, 1)
+  }
+
   func testStartingTwiceAtOnceBeginsOneSession() async throws {
     let engine = engine()
     async let first: Void = engine.start(twoParts, leadIn: 0)
@@ -401,3 +542,11 @@ final class FakeRecorder: WorkoutRecorder {
   private func offset(_ date: Date) -> Int { Int(date.timeIntervalSince(t0).rounded()) }
 }
 
+
+final class ReadAdvancingClock: Clock {
+  private var current = t0
+  var now: Date {
+    defer { current = current.addingTimeInterval(0.001) }
+    return current
+  }
+}

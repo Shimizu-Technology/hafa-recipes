@@ -33,6 +33,7 @@ struct WatchRootView: View {
 
 struct ClassView: View {
   @EnvironmentObject private var engine: WorkoutEngine
+  @EnvironmentObject private var runtime: WatchRuntime
   @Environment(\.isLuminanceReduced) private var dimmed
   @State private var page = 1
   @State private var lastCue = ""
@@ -73,7 +74,10 @@ struct ClassView: View {
         }
         .onChange(of: runner.phase) { _, phase in
           if case .running = phase { page = 1 }
-          if case .finished = phase { return }
+        }
+        .onChange(of: runner.cursor) { _, _ in
+          page = 1
+          if engine.pendingControl == .skip { engine.pendingControl = nil }
         }
       }
     }
@@ -82,12 +86,15 @@ struct ClassView: View {
     }) { sheet in
       switch sheet {
       case .capReps(let index): RepSheet(index: index)
-      case .confirmation(let control):
-        VStack(spacing: 12) {
-          Text(control == .end ? "End this class?" : "Skip this part?").font(Theme.display(26))
-          Button(control == .end ? "End class" : "Skip part") { engine.confirmControl(); page = 1 }
-            .buttonStyle(WatchButton(role: .destructive))
-          Button("Keep going") { engine.pendingControl = nil }.buttonStyle(WatchButton(role: .secondary))
+      case .confirmation: ControlConfirmation()
+      }
+    }
+    .safeAreaInset(edge: .bottom, spacing: 2) {
+      if !dimmed {
+        if let runner = engine.runner, runner.canUndo(at: Date()) {
+          UndoPill { _ = engine.undo() }
+        } else if let notice = runtime.notice {
+          Text(notice).font(.caption).padding(6).background(Theme.surface, in: Capsule())
         }
       }
     }
@@ -146,9 +153,14 @@ struct ClassView: View {
                 Text(interval(runner, now: now)).font(Theme.display(28)).lineLimit(1)
                 Text("Clock advances").font(.footnote).foregroundStyle(Theme.muted)
               } else {
-                Text("ROUND").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                Text("\(runner.runs[runner.cursor].taps.count)").font(Theme.display(52)).monospacedDigit()
-                Text(runner.part?.kind == .forTime && runner.isOpenPart ? "Part done" : "+1 round").font(.footnote).foregroundStyle(Theme.accent)
+                if runner.part?.kind == .forTime && runner.isOpenPart {
+                  Text("OPEN EFFORT").font(.caption).foregroundStyle(Theme.muted)
+                  Text("Finish when ready").font(.headline)
+                } else {
+                  Text("ROUND").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                  Text("\(runner.runs[runner.cursor].taps.count)").font(Theme.display(52)).monospacedDigit()
+                  Text("+1 round").font(.footnote).foregroundStyle(Theme.accent)
+                }
                 Text("Up: \(runner.part?.moves.filter { $0.segment != "buy_in" }.map(\.text).joined(separator: " · ") ?? "")")
                   .font(.system(size: 14)).lineLimit(1).foregroundStyle(Theme.muted)
               }
@@ -158,8 +170,10 @@ struct ClassView: View {
             .handGestureShortcut(.primaryAction)
           if runner.isOpenPart {
             Button("Part done") { engine.completePart() }.buttonStyle(WatchButton(compact: true))
+              .disabled(runner.pausedAt != nil)
+              .opacity(runner.pausedAt == nil ? 1 : 0.4)
           }
-        }
+        }.padding(.bottom, 4)
       }
     case .ready, .finished: EmptyView()
     }
@@ -179,7 +193,7 @@ struct ClassView: View {
       .foregroundStyle(runner.remaining(at: now).map { $0 <= 10 } == true ? Theme.accent : Theme.text)
       .lineLimit(1)
   }
-  private func advance() { _ = engine.advance(); WKInterfaceDevice.current().play(.click) }
+  private func advance() { runtime.advance() }
   private func title(_ runner: PartRunner) -> String {
     if runner.plan.planKey == "open-timer" { return "OPEN TIMER" }
     switch runner.part?.kind {
@@ -213,6 +227,34 @@ struct ClassView: View {
     let key = "\(runner.cursor)-\(seconds)"
     if (1...3).contains(seconds), lastCue != key {
       lastCue = key; WKInterfaceDevice.current().play(.click)
+    }
+  }
+}
+
+struct UndoPill: View {
+  var undo: () -> Void
+  var body: some View {
+    Button("Undo", action: undo)
+      .font(.system(size: 14, weight: .semibold))
+      .buttonStyle(.plain)
+      .foregroundStyle(Theme.text)
+      .frame(width: 96, height: 32)
+      .background(Theme.surface, in: Capsule())
+  }
+}
+
+struct ControlConfirmation: View {
+  @EnvironmentObject private var engine: WorkoutEngine
+  @EnvironmentObject private var runtime: WatchRuntime
+  var body: some View {
+    VStack(spacing: 8) {
+      Text(engine.pendingControl == .end ? "End this class?" : "Skip this part?")
+        .font(Theme.display(26))
+      Button("Keep going") { engine.pendingControl = nil }.buttonStyle(WatchButton())
+      Button(engine.pendingControl == .end ? "End class" : "Skip part") {
+        engine.confirmControl()
+      }.buttonStyle(WatchButton(role: .destructive))
+      if let notice = runtime.notice { Text(notice).font(.caption).foregroundStyle(Theme.muted) }
     }
   }
 }

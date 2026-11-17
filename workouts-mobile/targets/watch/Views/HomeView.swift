@@ -23,9 +23,14 @@ struct HomeView: View {
             .font(.footnote).foregroundStyle(Theme.muted)
         }
         ForEach(PlanLibrary.plans, id: \.planKey) { plan in
-          Button(plan.title) { start(plan) }.buttonStyle(WatchButton())
+          Button(plan.title) { start(plan) }
+            .buttonStyle(WatchButton(role: health.status == .answered && PlanLibrary.plans.first?.planKey == plan.planKey ? .primary : .secondary))
         }
-        Button("Open timer") { start(PlanLibrary.openTimer) }.buttonStyle(WatchButton())
+        Button("Open timer") { start(PlanLibrary.openTimer) }
+          .buttonStyle(WatchButton(role: health.status == .answered && PlanLibrary.plans.isEmpty ? .primary : .secondary))
+        if health.status == .answered {
+          ActionHelp()
+        }
         #if DEBUG
         Button("Sample class") { start(SamplePlan.plan) }.buttonStyle(WatchButton(role: .secondary))
         Text("DEBUG · synthetic plan").font(.caption2).foregroundStyle(Theme.muted)
@@ -42,6 +47,7 @@ struct HomeView: View {
       await health.refresh()
       if health.status == .notAsked || health.status == .failed { await health.request() }
       guard health.status == .answered else { engine.startError = "Allow Health before starting a class."; return }
+      WatchRuntime.shared.startedStyle = plan.planKey == "open-timer" ? .openTimer : .todaysClass
       do { try await engine.start(plan, leadIn: 3) }
       catch { /* Engine retains the error across the loading transition. */ }
     }
@@ -87,5 +93,24 @@ struct HealthCard: View {
       .font(.footnote)
       .foregroundStyle(Theme.muted)
       .fixedSize(horizontal: false, vertical: true)
+  }
+}
+
+private struct ActionHelp: View {
+  @EnvironmentObject private var runtime: WatchRuntime
+  @State private var showing = false
+  var body: some View {
+    Button("Action button help") { showing = true }.buttonStyle(WatchButton(role: .secondary))
+      .sheet(isPresented: $showing) {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 12) {
+            Text("Action button").font(Theme.display(28))
+            Text("Settings > Action Button > Workout > App > Håfa Workouts. Choose Today's class or Open timer.")
+            Text("Press to advance. Action + side button pauses or resumes. Tap Undo within 10 seconds to correct an advance.")
+            Text("If presses stop working, restart your watch")
+            if runtime.donationFailed { Text("Action setup didn't finish. Restart your watch and start a new class.") }
+          }.font(.footnote)
+        }
+      }
   }
 }

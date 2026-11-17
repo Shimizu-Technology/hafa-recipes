@@ -14,6 +14,15 @@ struct Checkpoint: Codable, Equatable {
   var recordedSummary: RecordedSummary? = nil
   var collectionEnded: Bool? = nil
   var eventsAdded: Bool? = nil
+  var deferredEvents: [RunnerEvent]?
+  var deferredUntil: Date?
+
+  var healthPartOpen: Bool {
+    guard let first = deferredEvents?.first else { return runner.phase == .running }
+    // These boundaries haven't reached Health yet: invert the first pending boundary.
+    if case .partBegan = first { return false }
+    return true
+  }
 }
 
 struct CheckpointStore {
