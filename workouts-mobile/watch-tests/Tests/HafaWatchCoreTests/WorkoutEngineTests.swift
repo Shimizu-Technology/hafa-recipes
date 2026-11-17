@@ -145,6 +145,21 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertEqual(outbox.records().count, 1)
   }
 
+  func testScoreCorrectionsSurviveRelaunchAndOutboxSave() async throws {
+    let first = engine()
+    try await first.start(twoParts, leadIn: 0)
+    clock.advance(20)
+    first.advance()
+    let score = PartScore(rounds: 4, reps: 7, seconds: 20, scaled: true)
+    first.setScore(score, for: 0)
+    XCTAssertEqual(store.load()?.runner.runs[0].score, score)
+    let second = engine()
+    await second.recover()
+    await second.finish()
+    XCTAssertEqual(outbox.records().first?.parts[0].score, score)
+    XCTAssertEqual(outbox.records().first?.parts[0].rounds, 1, "recorded taps stay intact")
+  }
+
   func testStartingTwiceAtOnceBeginsOneSession() async throws {
     let engine = engine()
     async let first: Void = engine.start(twoParts, leadIn: 0)

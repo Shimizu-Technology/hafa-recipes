@@ -8,7 +8,7 @@ struct HafaWatchApp: App {
 
   var body: some Scene {
     WindowGroup {
-      HomeView()
+      WatchRootView()
         .environmentObject(health)
         .environmentObject(delegate.engine)
         .task {

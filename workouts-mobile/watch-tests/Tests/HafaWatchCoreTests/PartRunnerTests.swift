@@ -104,6 +104,22 @@ final class PartRunnerTests: XCTestCase {
     XCTAssertEqual(runner.phase, .leadIn(until: at(34)))
   }
 
+  func testRestExtensionAndSetsRestRespectPause() {
+    var sets = part("B", .sets, rounds: 2)
+    sets.restSeconds = 20
+    var runner = PartRunner(plan: plan(part("A", .amrap, cap: 10, restAfter: 30), sets), leadIn: 0)
+    _ = runner.start(at: t0)
+    _ = runner.tick(at: at(10))
+    runner.extendRest(by: 15)
+    XCTAssertEqual(runner.phase, .resting(until: at(55)))
+    _ = runner.tick(at: at(55))
+    _ = runner.advance(at: at(60))
+    _ = runner.pause(at: at(65))
+    _ = runner.resume(at: at(85))
+    XCTAssertEqual(runner.setRestRemaining(at: at(90)), 10)
+    XCTAssertEqual(runner.advance(at: at(100)).0, .applied(.partDone))
+  }
+
   func testSkippingAndFinishingEarlyMarksUnreachedParts() {
     var runner = PartRunner(plan: plan(part("C", .sets), part("D", .sets), part("E", .sets)), leadIn: 3)
     _ = runner.start(at: t0)

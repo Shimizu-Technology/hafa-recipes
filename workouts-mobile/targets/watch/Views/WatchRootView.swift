@@ -1,0 +1,192 @@
+import SwiftUI
+import WatchKit
+
+struct WatchRootView: View {
+  @EnvironmentObject private var engine: WorkoutEngine
+  var body: some View {
+    Group {
+      switch engine.state {
+      case .idle: HomeView()
+      case .starting, .saving: ProgressView()
+      case .saved:
+        ScrollView {
+          VStack(spacing: 12) {
+            Text("Saved · sending to iPhone").font(Theme.display(28))
+            Text("Queued on your watch until iPhone sync is available.")
+              .font(.footnote).foregroundStyle(Theme.muted)
+            Button("Done") { Task { await engine.discard() } }.buttonStyle(WatchButton())
+          }
+        }
+      case .running, .failed:
+        if engine.runner != nil {
+          ClassView()
+        }
+      }
+    }
+    .foregroundStyle(Theme.text).background(Theme.background)
+  }
+}
+
+struct ClassView: View {
+  @EnvironmentObject private var engine: WorkoutEngine
+  @Environment(\.isLuminanceReduced) private var dimmed
+  @State private var page = 1
+  @State private var capSheet = false
+  @State private var capIndex = 0
+  @State private var lastCue = ""
+
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 1)) { context in
+      if let runner = engine.runner {
+        let now = runner.pausedAt ?? context.date
+        Group {
+          if case .finished = runner.phase {
+            FinishView()
+          } else if dimmed {
+            clock(runner, now: now)
+          } else {
+            TabView(selection: $page) {
+              ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                  Text("Movements").font(Theme.display(26))
+                  ForEach(runner.part?.moves ?? [], id: \.index) { Text($0.text).font(.body) }
+                }
+              }.tag(0)
+              live(runner, now: now).tag(1)
+              ScrollView {
+                VStack(spacing: 8) {
+                  Button(runner.pausedAt == nil ? "Pause" : "Resume") {
+                    runner.pausedAt == nil ? engine.pause() : engine.resume()
+                  }
+                  Button("End") { engine.stop() }
+                  Button("Skip part") { engine.endPart(); page = 1 }
+                }.buttonStyle(WatchButton())
+              }.tag(2)
+            }.tabViewStyle(.page(indexDisplayMode: .never))
+          }
+        }
+        .onChange(of: context.date) { _, _ in
+          engine.tick()
+          cue(runner, now: now)
+        }
+        .onChange(of: runner.phase) { _, phase in
+          if case .running = phase { page = 1 }
+          if case .finished = phase { return }
+        }
+      }
+    }
+    .sheet(isPresented: $capSheet) { RepSheet(index: capIndex) }
+    .onChange(of: engine.runner) { old, new in
+      guard let old, let new, old.phase == .running,
+        new.cursor != old.cursor || new.phase != old.phase,
+        let cap = old.part?.timeLimit, old.part?.kind == .forTime,
+        new.runs[old.cursor].span?.end != nil,
+        new.activeSeconds(of: old.cursor, at: Date()) >= cap else { return }
+      capIndex = old.cursor; capSheet = true
+    }
+  }
+
+  @ViewBuilder private func live(_ runner: PartRunner, now: Date) -> some View {
+    switch runner.phase {
+    case .leadIn(let until):
+      VStack {
+        Text("GET READY").font(.headline).foregroundStyle(Theme.accent)
+        Text("\(max(1, Int(ceil(until.timeIntervalSince(now)))))").font(Theme.display(80))
+        Button("Start now") { advance() }.buttonStyle(WatchButton())
+      }
+    case .resting(let until):
+      ScrollView {
+        VStack(spacing: 6) {
+          Text("REST").foregroundStyle(Theme.muted)
+          Text(watchTime(until.timeIntervalSince(now))).font(Theme.display(68)).monospacedDigit()
+          Text("Next: \(runner.part?.label ?? "") · \(title(runner))").font(.footnote).lineLimit(1)
+          if runner.part?.hasBuyIn == true { Text("\(runner.part?.moves.first?.text ?? "") first").font(.footnote) }
+          Button("+15 s") { engine.extendRest() }
+          Button("Start next") { advance() }
+        }.buttonStyle(WatchButton())
+      }
+    case .running:
+      GeometryReader { geometry in
+        VStack(spacing: 0) {
+          HStack {
+            Text(runner.pausedAt != nil ? "PAUSED" : title(runner)).foregroundStyle(Theme.accent)
+            Spacer()
+            Text(engine.metrics.heartRate.map { "♥ \(Int($0))" } ?? "♥ —").foregroundStyle(Theme.muted)
+          }.font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+          clock(runner, now: now).frame(height: geometry.size.height * 0.32)
+          Button { advance() } label: {
+            VStack(spacing: 2) {
+              if runner.part?.hasBuyIn == true && runner.runs[runner.cursor].buyInDoneAt == nil {
+                Text("BUY-IN").font(.caption).foregroundStyle(Theme.accent)
+                Text(runner.part?.moves.first(where: { $0.segment == "buy_in" })?.text ?? "").font(.headline).lineLimit(1)
+                Text("Buy-in done").font(.footnote)
+              } else if runner.part?.kind == .sets {
+                Text(setMove(runner)).font(.footnote).lineLimit(2)
+                Text("Set \(runner.runs[runner.cursor].taps.count / max(1, runner.part?.moves.count ?? 1) + 1) of \(runner.part?.rounds ?? 1)").font(.headline)
+                Text(runner.setRestRemaining(at: now) > 0
+                  ? "Rest \(watchTime(runner.setRestRemaining(at: now)))" : "Set done").font(.footnote)
+              } else if runner.part?.kind == .emom || runner.part?.kind == .workRest {
+                Text(interval(runner, now: now)).font(Theme.display(28)).lineLimit(1)
+                Text("Clock advances").font(.footnote).foregroundStyle(Theme.muted)
+              } else {
+                Text("ROUND").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text("\(runner.runs[runner.cursor].taps.count)").font(Theme.display(52)).monospacedDigit()
+                Text("+1 round").font(.footnote).foregroundStyle(Theme.accent)
+                Text("Up: \(runner.part?.moves.filter { $0.segment != "buy_in" }.map(\.text).joined(separator: " · ") ?? "")")
+                  .font(.system(size: 14)).lineLimit(1).foregroundStyle(Theme.muted)
+              }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
+          }.buttonStyle(.plain).frame(maxHeight: .infinity)
+            .accessibilityLabel("Advance \(title(runner))")
+            .handGestureShortcut(.primaryAction)
+        }
+      }
+    case .ready, .finished: EmptyView()
+    }
+  }
+
+  private func clock(_ runner: PartRunner, now: Date) -> some View {
+    let seconds: TimeInterval
+    switch runner.phase {
+    case .leadIn(let until), .resting(let until): seconds = max(0, until.timeIntervalSince(now))
+    default: seconds = runner.remaining(at: now) ?? runner.activeSeconds(of: runner.cursor, at: now)
+    }
+    return Text(watchTime(seconds)).font(Theme.display(76)).monospacedDigit().minimumScaleFactor(0.6)
+      .foregroundStyle(runner.remaining(at: now).map { $0 <= 10 } == true ? Theme.accent : Theme.text)
+      .lineLimit(1)
+  }
+  private func advance() { _ = engine.advance(); WKInterfaceDevice.current().play(.click) }
+  private func title(_ runner: PartRunner) -> String {
+    if runner.plan.planKey == "open-timer" { return "OPEN TIMER" }
+    switch runner.part?.kind {
+    case .amrap: return "AMRAP"
+    case .forTime: return "FOR TIME"
+    case .emom: return "EMOM"
+    case .workRest: return "INTERVAL"
+    case .sets: return "SETS"
+    case nil: return "CLASS"
+    }
+  }
+  private func setMove(_ runner: PartRunner) -> String {
+    let moves = runner.part?.moves ?? []
+    guard !moves.isEmpty else { return "Set done" }
+    return moves[runner.runs[runner.cursor].taps.count % moves.count].text
+  }
+  private func interval(_ runner: PartRunner, now: Date) -> String {
+    let elapsed = Int(runner.activeSeconds(of: runner.cursor, at: now))
+    let part = runner.part!
+    let cycle = max(1, part.intervalSeconds ?? ((part.workSeconds ?? 1) + (part.restSeconds ?? 0)))
+    let rest = part.kind == .workRest && elapsed % cycle >= (part.workSeconds ?? cycle)
+    return "\(rest ? "REST" : "WORK") \(elapsed / cycle + 1)/\(part.intervals ?? part.rounds ?? 1)"
+  }
+  private func cue(_ runner: PartRunner, now: Date) {
+    guard runner.pausedAt == nil else { return }
+    let seconds: Int
+    if case .leadIn(let until) = runner.phase { seconds = Int(ceil(until.timeIntervalSince(now))) }
+    else { seconds = Int(ceil(runner.remaining(at: now) ?? 99)) }
+    let key = "\(runner.cursor)-\(seconds)"
+    if (1...3).contains(seconds), lastCue != key {
+      lastCue = key; WKInterfaceDevice.current().play(.click)
+    }
+  }
+}

@@ -16,6 +16,23 @@ enum Theme {
   }
 }
 
+/// One treatment for peers: full-width, 60 pt targets, one-line type, no mixed icon placement.
+struct WatchButton: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.system(.headline, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+      .frame(maxWidth: .infinity, minHeight: 60)
+      .foregroundStyle(Theme.onAccent)
+      .background(Theme.accent.opacity(configuration.isPressed ? 0.65 : 1),
+        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+  }
+}
+
+func watchTime(_ seconds: TimeInterval) -> String {
+  let value = max(0, Int(seconds.rounded(.up)))
+  return String(format: "%d:%02d", value / 60, value % 60)
+}
+
 extension Color {
   init(hex: UInt32) {
     self.init(

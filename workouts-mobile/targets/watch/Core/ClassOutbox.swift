@@ -11,6 +11,7 @@ struct ClassRecord: Codable, Equatable {
     var buyInDoneAt: Date?
     var skipped: Bool
     var heartRate: HeartRateSummary?
+    var score: PartScore?
   }
 
   var clientSessionId: UUID

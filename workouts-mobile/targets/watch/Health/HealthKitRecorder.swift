@@ -8,6 +8,16 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
 
   var onSessionLost: (() -> Void)?
 
+  var metrics: LiveMetrics {
+    let heart = builder?.statistics(for: HKQuantityType(.heartRate))
+    let bpm = HKUnit.count().unitDivided(by: .minute())
+    return LiveMetrics(
+      heartRate: heart?.mostRecentQuantity()?.doubleValue(for: bpm),
+      average: heart?.averageQuantity()?.doubleValue(for: bpm),
+      maximum: heart?.maximumQuantity()?.doubleValue(for: bpm),
+      kilocalories: builder?.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie()))
+  }
+
   private let store: HKHealthStore
   private var session: HKWorkoutSession?
   private var builder: HKLiveWorkoutBuilder?

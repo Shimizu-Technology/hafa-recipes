@@ -59,15 +59,17 @@ How it's built:
 
 | PR | Work | State |
 |---|---|---|
-| X1 | Watch target, hello-world app in the Athletic look, Health authorization, local EAS build with the watch app embedded and signed | In review |
-| X2 | `WorkoutEngine`, `PartRunner`, `Clock`, checkpoint and crash recovery, one Health workout per class with an activity per part, segment events, heart-rate summaries, XCTest | Next |
-| X3 | Watch screens: plan list, lead-in, buy-in, AMRAP, for time, intervals, sets, rest between parts, finish and score | Planned |
+| X1 | Watch target, hello-world app in the Athletic look, Health authorization, local EAS build with the watch app embedded and signed | Merged |
+| X2 | `WorkoutEngine`, `PartRunner`, `Clock`, checkpoint and crash recovery, one Health workout per class with an activity per part, segment events, heart-rate summaries, XCTest | Merged |
+| X3 | Watch screens: plan list, lead-in, buy-in, AMRAP, for time, intervals, sets, rest between parts, finish and score | Implemented; held for simulator QA and Leon’s screen approval |
 | X4 | Action button: start today's class, one "advance" press, pause and resume, mis-press guard and undo | Planned |
 | X5 | Phone ↔ watch sync (`modules/hafa-watch`): plans to the watch, results back through a durable inbox, no background React Native launch | Planned |
 | X6 | Health dedupe for watch-recorded classes, heart rate and splits on the phone's session card | Planned |
 | X7 | Optional: GPS for outdoor run legs, simple run mode | Later |
 
-**X1 exit gate (not yet met):** two TestFlight builds in a row install and launch on Leon's Ultra. One report says TestFlight can drop watch provisioning profiles after an update, so a single good install isn't enough.
+**X1 exit gate:** passed per Leon’s build 1.1.0 (47) test on his Ultra 1 (watchOS 11, iPhone iOS 18): install, launch and Health prompt work. X1 and X2 are merged.
+
+**X3 local plans:** before X5, `Application Support/hafa-watch/plans.json` accepts an array of snake_case `WatchPlan` objects; an active checkpoint takes precedence. Open timer works without a plan. Debug builds also offer a synthetic Sample class covering every part kind; Release excludes it. Score corrections are checkpointed and saved alongside taps in `ClassOutbox`. Sync and Health dedupe remain X5/X6 work.
 
 ## The goal
 

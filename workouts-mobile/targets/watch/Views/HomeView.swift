@@ -4,6 +4,8 @@ import SwiftUI
 /// an honest empty state and the one setup step the watch needs: Health access.
 struct HomeView: View {
   @EnvironmentObject private var health: HealthAuthorization
+  @EnvironmentObject private var engine: WorkoutEngine
+  @State private var error: String?
 
   var body: some View {
     ScrollView {
@@ -17,18 +19,39 @@ struct HomeView: View {
           .foregroundStyle(Theme.text)
         // Health comes first: it's the one setup step, and it must be visible without scrolling.
         HealthCard()
-        Text("Classes you plan on your iPhone will show here.")
-          .font(.footnote)
-          .foregroundStyle(Theme.muted)
-          .fixedSize(horizontal: false, vertical: true)
+        if PlanLibrary.plans.isEmpty {
+          Text("No class on your watch yet. Open Today's class on your iPhone.")
+            .font(.footnote).foregroundStyle(Theme.muted)
+        }
+        ForEach(PlanLibrary.plans, id: \.planKey) { plan in
+          Button(plan.title) { start(plan) }.buttonStyle(WatchButton())
+        }
+        Button("Open timer") { start(PlanLibrary.openTimer) }.buttonStyle(WatchButton())
+        #if DEBUG
+        Button("Sample class") { start(SamplePlan.plan) }.buttonStyle(WatchButton())
+        Text("DEBUG · synthetic plan").font(.caption2).foregroundStyle(Theme.muted)
+        #endif
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .background(Theme.background)
+    .alert("Couldn't start", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+      Button("OK") { error = nil }
+    } message: { Text(error ?? "") }
+  }
+
+  private func start(_ plan: WatchPlan) {
+    Task {
+      await health.refresh()
+      if health.status == .notAsked || health.status == .failed { await health.request() }
+      guard health.status == .answered else { error = "Allow Health before starting a class."; return }
+      do { try await engine.start(plan, leadIn: 3) }
+      catch { self.error = "Try again. Your class hasn't started." }
+    }
   }
 }
 
-private struct HealthCard: View {
+struct HealthCard: View {
   @EnvironmentObject private var health: HealthAuthorization
 
   var body: some View {

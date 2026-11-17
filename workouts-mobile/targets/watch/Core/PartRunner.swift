@@ -36,6 +36,7 @@ struct PartRunner: Codable, Equatable {
     var taps: [Date] = []
     var buyInDoneAt: Date?
     var skipped = false
+    var score: PartScore?
   }
 
   enum Advance: Equatable { case startedPart, buyInDone, round(Int), setDone(Int), partDone }
@@ -61,6 +62,22 @@ struct PartRunner: Codable, Equatable {
   }
 
   var part: WatchPlan.Part? { plan.parts.indices.contains(cursor) ? plan.parts[cursor] : nil }
+
+  mutating func setScore(_ score: PartScore, for index: Int) {
+    guard runs.indices.contains(index), plan.parts[index].scored else { return }
+    runs[index].score = score
+  }
+
+  mutating func extendRest(by seconds: TimeInterval) {
+    guard case .resting(let until) = phase, seconds > 0 else { return }
+    phase = .resting(until: until.addingTimeInterval(seconds))
+  }
+
+  func setRestRemaining(at now: Date) -> TimeInterval {
+    guard phase == .running, part?.kind == .sets, let tap = runs[cursor].taps.last else { return 0 }
+    let elapsed = activeSeconds(of: cursor, at: now) - activeSeconds(of: cursor, at: tap)
+    return max(0, TimeInterval(part?.restSeconds ?? 0) - elapsed)
+  }
 
   func activeSeconds(of index: Int, at now: Date) -> TimeInterval { runs[index].span?.active(at: now) ?? 0 }
 
@@ -220,7 +237,12 @@ struct PartRunner: Codable, Equatable {
     case .sets:
       runs[cursor].taps.append(now)
       lastTapAt = now
-      return .applied(.setDone(runs[cursor].taps.count))
+      let count = runs[cursor].taps.count
+      if let rounds = part.rounds, count >= rounds * max(1, part.moves.count) {
+        close(at: now, &events)
+        return .applied(.partDone)
+      }
+      return .applied(.setDone(count))
     case .amrap, .forTime:
       runs[cursor].taps.append(now)
       lastTapAt = now

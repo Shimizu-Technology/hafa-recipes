@@ -18,6 +18,7 @@ final class WorkoutEngine: ObservableObject {
   @Published private(set) var state: State = .idle
   /// False when HealthKit lost the session. The class still runs and saves its scores.
   @Published private(set) var isRecording = false
+  @Published private(set) var metrics = LiveMetrics()
 
   static let checkpointInterval: TimeInterval = 5
 
@@ -63,7 +64,10 @@ final class WorkoutEngine: ObservableObject {
   }
 
   /// Called about once a second while a class screen is visible.
-  func tick() { mutate(force: false) { $0.tick(at: $1) } }
+  func tick() {
+    metrics = recorder.metrics
+    mutate(force: false) { $0.tick(at: $1) }
+  }
 
   @discardableResult
   func advance() -> PartRunner.AdvanceResult {
@@ -83,6 +87,10 @@ final class WorkoutEngine: ObservableObject {
     checkpoint(force: true)
     return true
   }
+
+  func setScore(_ score: PartScore, for index: Int) { mutate { runner, _ in runner.setScore(score, for: index); return [] } }
+  func extendRest() { mutate { runner, _ in runner.extendRest(by: 15); return [] } }
+  func stop() { mutate { $0.finish(at: $1) } }
 
   func pause() { mutate { $0.pause(at: $1) } }
   func resume() { mutate { $0.resume(at: $1) } }
@@ -197,7 +205,7 @@ final class WorkoutEngine: ObservableObject {
       return ClassRecord.Part(
         blockId: runner.plan.parts[index].blockId, start: run.span?.start, end: run.span?.end,
         activeSeconds: runner.activeSeconds(of: index, at: end), rounds: run.taps.count,
-        buyInDoneAt: run.buyInDoneAt, skipped: run.skipped, heartRate: summary.parts[runner.plan.parts[index].blockId])
+        buyInDoneAt: run.buyInDoneAt, skipped: run.skipped, heartRate: summary.parts[runner.plan.parts[index].blockId], score: run.score)
     }
     return ClassRecord(
       clientSessionId: sessionID, planKey: runner.plan.planKey, startedAt: startedAt, finishedAt: end, parts: parts,

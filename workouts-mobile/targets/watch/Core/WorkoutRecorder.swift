@@ -14,9 +14,17 @@ struct RecordedSummary: Equatable {
   static let none = RecordedSummary(workoutUUID: nil, heartRate: nil, parts: [:])
 }
 
+struct LiveMetrics: Equatable {
+  var heartRate: Double?
+  var average: Double?
+  var maximum: Double?
+  var kilocalories: Double?
+}
+
 /// The Health side of a class. HealthKitRecorder implements it on the watch; tests use a fake.
 @MainActor
 protocol WorkoutRecorder: AnyObject {
+  var metrics: LiveMetrics { get }
   /// Called when the system ends or fails the session outside finish and discard.
   var onSessionLost: (() -> Void)? { get set }
   func begin(activityType: UInt, at date: Date) async throws
@@ -30,4 +38,8 @@ protocol WorkoutRecorder: AnyObject {
   /// Safe to call again after it throws: steps that already succeeded are skipped.
   func finish(at date: Date, segments: [Segment], syncIdentifier: String) async throws -> RecordedSummary
   func discard() async
+}
+
+extension WorkoutRecorder {
+  var metrics: LiveMetrics { LiveMetrics() }
 }
