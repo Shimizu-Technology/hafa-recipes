@@ -1,0 +1,627 @@
+{
+  "id": null,
+  "kind": "session",
+  "notes": [],
+  "title": "Everest \u2014 BUILD",
+  "blocks": [
+    {
+      "id": "A",
+      "role": "main",
+      "label": "A - AMRAP 15 minutes",
+      "rounds": null,
+      "evidence": [
+        {
+          "field": "execution.mode",
+          "wording": "A - AMRAP 15 minutes",
+          "location": "document_page:1"
+        },
+        {
+          "field": "execution.time_cap_seconds",
+          "wording": "A - AMRAP 15 minutes",
+          "location": "document_page:1"
+        },
+        {
+          "field": "workout_instructions",
+          "wording": "Deadlifts unbroken. 1000 m buy-in under 6:30.",
+          "location": "document_page:1"
+        },
+        {
+          "field": "rest_after_seconds",
+          "wording": "Rest 3 minutes before B.",
+          "location": "document_page:1"
+        },
+        {
+          "field": "role",
+          "wording": "A - AMRAP 15 minutes",
+          "location": "document_page:1"
+        }
+      ],
+      "grouping": "circuit",
+      "execution": {
+        "mode": "amrap",
+        "time_cap_seconds": 900
+      },
+      "exercises": [
+        {
+          "load": null,
+          "name": "Run",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "segment": "buy_in",
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "Run 800-1000m",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters_min",
+              "wording": "Run 800-1000m",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters",
+              "wording": "Run 800-1000m",
+              "location": "document_page:1"
+            },
+            {
+              "field": "instructions",
+              "wording": "1000 m buy-in under 6:30.",
+              "location": "document_page:1"
+            },
+            {
+              "field": "segment",
+              "wording": "Buy-in: Run 800-1000m.",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": null,
+          "reps_min": null,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "instructions": "1000 m buy-in under 6:30.",
+          "rest_seconds": null,
+          "distance_meters": 1000.0,
+          "load_convention": null,
+          "duration_seconds": null,
+          "distance_meters_min": 800.0
+        },
+        {
+          "load": null,
+          "name": "Deadlifts",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": "unbroken",
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "15 deadlifts at 75% bodyweight, unbroken",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_min",
+              "wording": "15 deadlifts at 75% bodyweight, unbroken",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_max",
+              "wording": "15 deadlifts at 75% bodyweight, unbroken",
+              "location": "document_page:1"
+            },
+            {
+              "field": "relative_load",
+              "wording": "15 deadlifts at 75% bodyweight, unbroken",
+              "location": "document_page:1"
+            },
+            {
+              "field": "effort",
+              "wording": "15 deadlifts at 75% bodyweight, unbroken",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": 15,
+          "reps_min": 15,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": null,
+          "relative_load": {
+            "basis": "bodyweight",
+            "percent": 75.0
+          },
+          "distance_meters": null,
+          "load_convention": null,
+          "duration_seconds": null
+        },
+        {
+          "load": null,
+          "name": "Burpees",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "20 burpees",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_min",
+              "wording": "20 burpees",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_max",
+              "wording": "20 burpees",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": 20,
+          "reps_min": 20,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": null,
+          "distance_meters": null,
+          "load_convention": null,
+          "duration_seconds": null
+        },
+        {
+          "load": null,
+          "name": "Run",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "300-400m run",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters_min",
+              "wording": "300-400m run",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters",
+              "wording": "300-400m run",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": null,
+          "reps_min": null,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": null,
+          "distance_meters": 400.0,
+          "load_convention": null,
+          "duration_seconds": null,
+          "distance_meters_min": 300.0
+        }
+      ],
+      "score_kind": "rounds_reps",
+      "instructions": [
+        "Deadlifts unbroken. 1000 m buy-in under 6:30."
+      ],
+      "rest_after_seconds": 180,
+      "rest_between_rounds_seconds": null
+    },
+    {
+      "id": "B",
+      "role": "main",
+      "label": "B - AMRAP 15 minutes",
+      "rounds": null,
+      "evidence": [
+        {
+          "field": "execution.mode",
+          "wording": "B - AMRAP 15 minutes",
+          "location": "document_page:1"
+        },
+        {
+          "field": "execution.time_cap_seconds",
+          "wording": "B - AMRAP 15 minutes",
+          "location": "document_page:1"
+        },
+        {
+          "field": "workout_instructions",
+          "wording": "Hold a pace you can repeat in B.",
+          "location": "document_page:1"
+        },
+        {
+          "field": "role",
+          "wording": "B - AMRAP 15 minutes",
+          "location": "document_page:1"
+        }
+      ],
+      "grouping": "circuit",
+      "execution": {
+        "mode": "amrap",
+        "time_cap_seconds": 900
+      },
+      "exercises": [
+        {
+          "load": null,
+          "name": "Run",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "segment": "buy_in",
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "Run 800-1000m",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters_min",
+              "wording": "Run 800-1000m",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters",
+              "wording": "Run 800-1000m",
+              "location": "document_page:1"
+            },
+            {
+              "field": "segment",
+              "wording": "Buy-in: Run 800-1000m.",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": null,
+          "reps_min": null,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": null,
+          "distance_meters": 1000.0,
+          "load_convention": null,
+          "duration_seconds": null,
+          "distance_meters_min": 800.0
+        },
+        {
+          "load": null,
+          "name": "Wall balls",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "30 wall balls, 20/14 lb",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_min",
+              "wording": "30 wall balls, 20/14 lb",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_max",
+              "wording": "30 wall balls, 20/14 lb",
+              "location": "document_page:1"
+            },
+            {
+              "field": "load_options",
+              "wording": "30 wall balls, 20/14 lb",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": 30,
+          "reps_min": 30,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "load_options": [
+            {
+              "load": 20.0,
+              "load_unit": "lb",
+              "load_convention": "total"
+            },
+            {
+              "load": 14.0,
+              "load_unit": "lb",
+              "load_convention": "total"
+            }
+          ],
+          "rest_seconds": null,
+          "distance_meters": null,
+          "load_convention": null,
+          "duration_seconds": null
+        },
+        {
+          "load": null,
+          "name": "Burpees",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "20 burpees",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_min",
+              "wording": "20 burpees",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_max",
+              "wording": "20 burpees",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": 20,
+          "reps_min": 20,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": null,
+          "distance_meters": null,
+          "load_convention": null,
+          "duration_seconds": null
+        },
+        {
+          "load": null,
+          "name": "Run",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "300-400m run",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters_min",
+              "wording": "300-400m run",
+              "location": "document_page:1"
+            },
+            {
+              "field": "distance_meters",
+              "wording": "300-400m run",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": null,
+          "reps_min": null,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": null,
+          "distance_meters": 400.0,
+          "load_convention": null,
+          "duration_seconds": null,
+          "distance_meters_min": 300.0
+        }
+      ],
+      "score_kind": "rounds_reps",
+      "instructions": [
+        "Hold a pace you can repeat in B."
+      ],
+      "rest_between_rounds_seconds": null
+    },
+    {
+      "id": "C",
+      "role": "cool_down",
+      "label": "C - Cooldown",
+      "rounds": null,
+      "evidence": [
+        {
+          "field": "workout_instructions",
+          "wording": "10 minutes easy Bike Erg. Low damper, nasal breathing only.",
+          "location": "document_page:1"
+        },
+        {
+          "field": "role",
+          "wording": "C - Cooldown",
+          "location": "document_page:1"
+        }
+      ],
+      "grouping": "sequential",
+      "exercises": [
+        {
+          "load": null,
+          "name": "Bike Erg",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "Bike Erg",
+              "location": "document_page:1"
+            },
+            {
+              "field": "duration_seconds",
+              "wording": "10 minutes easy Bike Erg.",
+              "location": "document_page:1"
+            },
+            {
+              "field": "effort",
+              "wording": "10 minutes easy Bike Erg.",
+              "location": "document_page:1"
+            },
+            {
+              "field": "instructions",
+              "wording": "Low damper, nasal breathing only.",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": null,
+          "reps_min": null,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "instructions": "Low damper, nasal breathing only.",
+          "rest_seconds": null,
+          "distance_meters": null,
+          "load_convention": null,
+          "duration_seconds": 600
+        }
+      ],
+      "score_kind": "none",
+      "instructions": [
+        "10 minutes easy Bike Erg. Low damper, nasal breathing only."
+      ],
+      "rest_between_rounds_seconds": null
+    },
+    {
+      "id": "D",
+      "role": "accessory",
+      "label": "D - Accessory, 2 rounds",
+      "rounds": 2,
+      "evidence": [
+        {
+          "field": "rounds",
+          "wording": "D - Accessory, 2 rounds",
+          "location": "document_page:1"
+        },
+        {
+          "field": "role",
+          "wording": "D - Accessory, 2 rounds",
+          "location": "document_page:1"
+        }
+      ],
+      "grouping": "sequential",
+      "exercises": [
+        {
+          "load": null,
+          "name": "GHD side-lying Pallof hold",
+          "sets": null,
+          "notes": null,
+          "tempo": null,
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "GHD side-lying Pallof hold: 30-40s, rest 30 seconds",
+              "location": "document_page:1"
+            },
+            {
+              "field": "duration_seconds",
+              "wording": "GHD side-lying Pallof hold: 30-40s, rest 30 seconds",
+              "location": "document_page:1"
+            },
+            {
+              "field": "duration_seconds_max",
+              "wording": "GHD side-lying Pallof hold: 30-40s, rest 30 seconds",
+              "location": "document_page:1"
+            },
+            {
+              "field": "rest_seconds",
+              "wording": "GHD side-lying Pallof hold: 30-40s, rest 30 seconds",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": null,
+          "reps_min": null,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": 30,
+          "distance_meters": null,
+          "load_convention": null,
+          "duration_seconds": 30,
+          "duration_seconds_max": 40
+        },
+        {
+          "load": null,
+          "name": "Cable Cuban press",
+          "sets": null,
+          "notes": null,
+          "tempo": "3010",
+          "effort": null,
+          "evidence": [
+            {
+              "field": "name",
+              "wording": "Cable Cuban press: 10-12 reps, tempo 3010",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_min",
+              "wording": "Cable Cuban press: 10-12 reps, tempo 3010",
+              "location": "document_page:1"
+            },
+            {
+              "field": "reps_max",
+              "wording": "Cable Cuban press: 10-12 reps, tempo 3010",
+              "location": "document_page:1"
+            },
+            {
+              "field": "tempo",
+              "wording": "Cable Cuban press: 10-12 reps, tempo 3010",
+              "location": "document_page:1"
+            }
+          ],
+          "per_side": null,
+          "reps_max": 12,
+          "reps_min": 10,
+          "load_unit": null,
+          "provenance": "source",
+          "exercise_id": null,
+          "rest_seconds": null,
+          "distance_meters": null,
+          "load_convention": null,
+          "duration_seconds": null
+        }
+      ],
+      "score_kind": "reps",
+      "rest_between_rounds_seconds": null
+    }
+  ],
+  "version": 1,
+  "benchmark": {
+    "key": "everest",
+    "name": "Everest",
+    "stage": 2,
+    "stages": 3,
+    "block_ids": [
+      "A",
+      "B"
+    ]
+  },
+  "provenance": "source",
+  "source_url": null,
+  "capture_kind": "document",
+  "instructions": [
+    "Progression 2/3 for benchmark Everest. Hold a pace you can repeat in B."
+  ],
+  "source_title": null,
+  "source_creator": null,
+  "estimated_minutes": null,
+  "parent_version_id": null,
+  "equipment_optional": [],
+  "equipment_required": [],
+  "extraction_warnings": [
+    "Unsupported notes removed from Deadlifts.",
+    "Unsupported notes removed from Wall balls.",
+    "Per-side details for GHD side-lying Pallof hold are unspecified; review the source."
+  ],
+  "source_thumbnail_url": null
+}
