@@ -100,6 +100,10 @@ def _enrich_from_row(item, row, part_notes, warnings):
         unit = pair[3].lower().rstrip("s")
         item.load = item.load_unit = item.load_convention = item.relative_load = None
         item.load_options = [LoadOption(load=float(value), load_unit=unit) for value in pair.group(1, 2)]
+    bodyweight = re.search(r"(?<![\w.\-])(\d+(?:\.\d+)?)\s*%\s*(?:bodyweight|bw)\b", row, re.I)
+    if bodyweight and 0 < float(bodyweight[1]) <= 300 and item.relative_load is None:
+        item.load = item.load_unit = item.load_convention = item.load_options = None
+        item.relative_load = RelativeLoad(basis="bodyweight", percent=float(bodyweight[1]))
     meters = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:meters?|m)\b", row, re.I)
     if not meters and item.distance_meters is not None and not re.search(r"\d\s*(?:km|mi|miles?|yards?|yd)\b", row, re.I):
         # "12 Kettlebell Swings @ 24/16 kg" prints no distance; a quoted "Row 250 meters" belongs to the row.

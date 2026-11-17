@@ -205,3 +205,26 @@ def test_the_page_marks_the_buy_in_and_a_borrowed_distance_is_removed():
     first, kettlebell, last = workout.blocks[0].exercises
     assert (first.segment, kettlebell.segment, last.segment) == ("buy_in", None, None)
     assert kettlebell.distance_meters is None and "A distance from another row was removed from Kettlebell Swings." in warnings
+
+
+@pytest.mark.parametrize("row", ["15 Deadlifts @ 75%", "15 Deadlifts @ 75% 1RM",
+                                  "15 Deadlifts @ 0% BW", "15 Deadlifts @ 301% bodyweight"])
+def test_bodyweight_recovery_requires_an_explicit_valid_basis_and_percent(row):
+    workout, _, _ = one_part(f"A. For Time:\n{row}", move("Deadlifts", row))
+    assert workout.blocks[0].exercises[0].relative_load is None
+
+
+@pytest.mark.parametrize("load", ["@ 75% BW", "75% bodyweight"])
+def test_bodyweight_load_is_also_restored_when_the_provider_omits_the_entire_part(load):
+    workout, _, _ = ground(f"A. For Time:\n15 Deadlifts {load}",
+                           {"title": "Class", "kind": "session", "blocks": []})
+    item = workout.blocks[0].exercises[0]
+    assert item.name == "Deadlifts"
+    assert item.relative_load == RelativeLoad(basis="bodyweight", percent=75)
+
+
+def test_bodyweight_recovery_keeps_an_already_grounded_relative_load():
+    row = "15 Deadlifts @ 75% bodyweight"
+    workout, _, _ = one_part(f"A. For Time:\n{row}", move(
+        "Deadlifts", row, relative_load={"basis": "bodyweight", "percent": 75}))
+    assert workout.blocks[0].exercises[0].relative_load == RelativeLoad(basis="bodyweight", percent=75)
