@@ -8,6 +8,7 @@ import { importFinished } from "../lib/import-status";
 import { type BabyRecord, messageFor } from "@/lib/models";
 import { isCaregiver } from "@/lib/spaces";
 import { Button, Copy, Notice, Section, useToast } from "./ui";
+import { Disclosure } from "./disclosure";
 
 export function SourceRecovery({ record, onError }: { record: BabyRecord; onError: (error: string) => void }) {
   const b = useBaby(), toast = useToast(), reading = useRef(false), [busy, setBusy] = useState(false);
@@ -47,7 +48,7 @@ export function SourceRecovery({ record, onError }: { record: BabyRecord; onErro
       void b.sync();
     } catch (error) { onError(messageFor(error)); }
   }
-  return <Section title={data.status === "ready" ? "Read again" : "Read this post"}>
+  const actions = <>
     {refused.map((item) => <Notice error key={item.id}>{item.error}</Notice>)}
     {!!refused.length && <Button variant="ghost" title="Clear processing request" onPress={() => void clearRefusal()} />}
     {hasSource && <Button secondary title={queued ? "Waiting to process" : label} icon="sparkles-outline"
@@ -58,5 +59,9 @@ export function SourceRecovery({ record, onError }: { record: BabyRecord; onErro
     <Copy kind="small" tone="muted">{hasSource
       ? `Add screenshots or notes, choose Save changes, then return here and tap ${label}. This updates the same saved post. Some posts may still be unreadable.`
       : "Add screenshots or source text and choose Save changes. You can then read it here."}</Copy>
-  </Section>;
+  </>;
+  // A readable post keeps this shut below its content; only missing content puts it up top.
+  // A refusal that arrives while the page is open remounts it open, so the notice is never shut away.
+  return data.status === "ready" ? <Disclosure key={refused.length ? "refused" : "quiet"} title="Read this post again" startOpen={!!refused.length}>{actions}</Disclosure>
+    : <Section title="Read this post">{actions}</Section>;
 }

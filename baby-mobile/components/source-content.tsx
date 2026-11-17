@@ -7,7 +7,9 @@ import { Disclosure } from "./disclosure";
 export function SourceContent({ data, onError }: { data: RecordData; onError: (message: string) => void }) {
   const notes = sourceProcessingNotes(data.coverage_notes), evidence = sourceEvidenceItems(data.evidence);
   const points = data.key_points ?? [], steps = data.steps ?? [];
-  const needsHelp = ["incomplete", "failed"].includes(data.status ?? "");
+  const needsHelp = ["incomplete", "failed"].includes(data.status ?? ""),
+    // Sampling is said everywhere; anything else about how it was read is worth a line.
+    worthSaying = notes.filter(note => !note.includes("sampled") && !note.includes("samples")).slice(0, 2).join(" ");
   async function openOriginal() {
     try {
       const url = new URL(data.url!);
@@ -31,10 +33,9 @@ export function SourceContent({ data, onError }: { data: RecordData; onError: (m
       {steps.length > 0 && <Section title="Steps from this source">
         {steps.map((step, index) => <Copy key={index}>{index + 1}. {step}</Copy>)}
       </Section>}
-      {needsHelp && <Notice>
-        {notes.filter(note => !note.includes("sampled") && !note.includes("samples")).slice(0, 2).join(" ") ||
-          "We couldn’t read all of this post. The link and anything already read are saved."}
-      </Notice>}
+      {needsHelp ? <Notice>
+        {worthSaying || "We couldn’t read all of this post. The link and anything already read are saved."}
+      </Notice> : !!worthSaying && data.status === "ready" && <Copy kind="small" tone="muted">{worthSaying}</Copy>}
       {!!data.url && <>
         <Copy kind="small" tone="muted">{data.url}</Copy>
         <Button secondary title="Open original post" icon="open-outline" onPress={() => void openOriginal()} />

@@ -29,7 +29,7 @@ from app.domains.baby.models import (
     BabySpace,
     BabySpaceMember,
 )
-from app.domains.baby.processing import process_capture
+from app.domains.baby.processing import fully_read, process_capture
 from app.domains.baby.provider import BabyProvider
 from app.domains.baby.schema import ALLOWED_FORMS
 from app.domains.baby.schema import schema_complete as check_schema
@@ -446,7 +446,7 @@ def keep_user_decisions(current, organized):
               or any(text not in latest.get(location, "") for location, text in earlier.items())
               or bool(current.get("source_text") and (not latest or (not earlier
                   and current["source_text"] not in (organized.get("source_text") or "")))))
-    if organized.get("status") != "ready" and weaker and (current.get("url") or current.get("attachment_ids")):
+    if not fully_read(organized) and weaker and (current.get("url") or current.get("attachment_ids")):
         # A partial reread must not turn a saved image reading into caption-only
         # evidence. Retain the earlier reading together, never reuse it as input.
         for key in ("source_text", "summary", "evidence", "key_points", "steps", "creator",

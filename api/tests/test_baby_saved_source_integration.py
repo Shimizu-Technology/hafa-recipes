@@ -246,7 +246,8 @@ async def test_repeated_url_reads_do_not_multiply_evidence_or_promote_parent_not
         enabled=True
         def __init__(self, **kwargs): pass
         async def extract(self, source, categories=None):
-            return ExtractionOutput(title="Packing", relevance={"stage":"pregnancy","pregnancy_week_min":37,"quote":"At 37 weeks"})
+            return ExtractionOutput(title="Packing", summary="The creator lists packing items.",
+                relevance={"stage":"pregnancy","pregnancy_week_min":37,"quote":"At 37 weeks"})
     worker=BabyWorker(baby_api.sessions,provider_factory=Provider)
     identifier=str(uuid4())
     first=(await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":identifier,"url":"https://example.com/post","text":note})).json()
@@ -299,7 +300,10 @@ async def test_failed_reread_preserves_prior_read_without_using_it_as_fresh_evid
     worker=BabyWorker(baby_api.sessions,provider_factory=Provider)
     assert await worker.tick()
     before=(await c.get(f"/api/v1/baby/records/{made['record_id']}")).json()
-    assert (await c.post(f"/api/v1/baby/imports/{identifier}/retry",headers=shared.GEN)).status_code==200
+    # A summary and the caption make the first read ready, so reading again is a new import, as on the phone.
+    assert before["data"]["status"]=="ready"
+    assert (await c.post("/api/v1/baby/imports",headers=shared.GEN,json={"id":str(uuid4()),"record_id":made["record_id"],
+        "url":"https://example.com/post","text":"My own note"})).status_code==200
     assert await worker.tick()
     after=(await c.get(f"/api/v1/baby/records/{made['record_id']}")).json()
     assert after["data"]["status"]=="incomplete"
@@ -481,7 +485,7 @@ async def test_weaker_retry_keeps_saved_reading_as_one_unit(baby_api, monkeypatc
     class Acquirer:
         def __init__(self, **kwargs): pass
         async def acquire(self, *args, **kwargs):
-            return SourceBundle(SourceMetadata(coverage_notes=["Slide 2 could not be read; its details may be missing."]),
+            return SourceBundle(SourceMetadata(platform="tiktok", coverage_notes=["Slide 2 could not be read; its details may be missing."]),
                                 parts=[SourcePart("caption", "Caption")])
     class Provider:
         enabled = True

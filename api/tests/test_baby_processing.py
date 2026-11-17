@@ -171,7 +171,7 @@ async def test_attachment_read_failure_preserves_text_and_other_attachments(monk
 
 
 @pytest.mark.parametrize("acquisition_failed", [True, False])
-async def test_partial_acquisition_is_retryable_but_sampling_notes_are_not_errors(monkeypatch, acquisition_failed):
+async def test_partial_acquisition_is_a_note_on_a_readable_post_not_an_error(monkeypatch, acquisition_failed):
     from app.services.source_acquisition import AcquisitionFailure
 
     source = SourceBundle(
@@ -196,9 +196,10 @@ async def test_partial_acquisition_is_retryable_but_sampling_notes_are_not_error
         {"url": "https://example.com/video", "text": "User annotation"},
         [], SimpleNamespace(enabled=False), may_use_ai=False, gate=gate,
     )
-    assert result["status"] == ("incomplete" if acquisition_failed else "ready")
+    # Without AI only the caption is ever read, and it was: the gap is a note, not a retry.
+    assert result["status"] == "ready" and result["error"] is None
     assert result["data"]["source_text"] == "User annotation\n\nCreator caption"
-    assert bool(result["error"]) is acquisition_failed
+    assert any("could not be read" in note for note in result["data"]["coverage_notes"]) is acquisition_failed
     assert "TIMEOUT" not in str(result)
 
 
@@ -283,11 +284,12 @@ async def test_uploaded_video_sampling_retains_missing_frame_warning(monkeypatch
     monkeypatch.setattr(media, "frame", frame)
     monkeypatch.setattr(processing, "read_bytes", AsyncMock(return_value=b"video fixture"))
     provider = SimpleNamespace(enabled=True, transcribe=AsyncMock(return_value="Creator's spoken words"),
-                               extract=AsyncMock(return_value=ExtractionOutput(title="Video")))
+                               extract=AsyncMock(return_value=ExtractionOutput(title="Video", summary="The creator explains swaddling.")))
     result = await processing.process_capture(
         {}, [SimpleNamespace(mime_type="video/mp4")], provider, may_use_ai=True, gate=AsyncMock(),
     )
-    assert result["status"] == ("incomplete" if frame_failure else "ready")
+    # Speech and at least one frame were read and summarized; a missing frame is a note.
+    assert result["status"] == "ready" and result["error"] is None
     notes = result["data"]["coverage_notes"]
     assert any("Video frames are samples" in note for note in notes)
     assert any("Some visual frames could not be read" in note for note in notes) is frame_failure
@@ -346,7 +348,7 @@ async def test_labelled_slide_lists_survive_source_schema_and_image_cap(monkeypa
     assert saved["data"]["suggested_category"]["name"] == "Hospital Bag"
     assert saved["data"]["relevance"]["stage"] == "postpartum"
     assert "omitted image" not in saved["data"]["source_text"]
-    assert saved["status"] == "incomplete" and any("35 of 36" in n for n in saved["data"]["coverage_notes"])
+    assert saved["status"] == "ready" and any("35 of 36" in n for n in saved["data"]["coverage_notes"])
 
 
 @pytest.mark.parametrize("hashtag", ["#thirdtrimester", "#37weekspregnant"])
@@ -481,10 +483,12 @@ async def test_partial_read_explains_safe_cause_without_losing_caption(monkeypat
     class Acquirer:
         def __init__(self, **kwargs): pass
         async def acquire(self, *args, **kwargs):
-            return SourceBundle(SourceMetadata(),parts=[SourcePart("caption","Readable creator caption")],
+            return SourceBundle(SourceMetadata(platform="tiktok"),parts=[SourcePart("caption","Readable creator caption")],
                                 acquisition_failures=[AcquisitionFailure("metadata",code)])
     monkeypatch.setattr(processing,"ProductionSourceAcquirer",Acquirer)
-    result=await processing.process_capture({"url":"https://example.com/post"},[],SimpleNamespace(enabled=False),may_use_ai=False,gate=AsyncMock())
+    provider=SimpleNamespace(enabled=True,extract=AsyncMock(return_value=ExtractionOutput(title="Post",summary="The creator's caption.")))
+    result=await processing.process_capture({"url":"https://example.com/post"},[],provider,may_use_ai=True,gate=AsyncMock())
+    # Only the caption of a video post was read, so its speech and pictures are missing.
     assert result["status"]=="incomplete" and phrase in result["error"]
     assert result["data"]["source_text"]=="Readable creator caption" and result["data"]["url"]=="https://example.com/post"
 
@@ -583,7 +587,7 @@ async def test_intermediate_legacy_reader_never_silently_claims_all_slides(monke
 
 
 @pytest.mark.parametrize("unreadable", [False, True])
-async def test_condensed_and_textless_slides_are_ready_unless_reading_has_gaps(monkeypatch, unreadable):
+async def test_condensed_textless_and_partly_unreadable_slides_are_ready_with_notes(monkeypatch, unreadable):
     from app.domains.baby import processing
     from app.domains.baby.provider import BabyProvider
     source = SourceBundle(SourceMetadata(platform="tiktok", url="https://www.tiktok.com/@synthetic/photo/123"),
@@ -598,7 +602,8 @@ async def test_condensed_and_textless_slides_are_ready_unless_reading_has_gaps(m
     monkeypatch.setattr(BabyProvider, "enabled", property(lambda self: True))
     monkeypatch.setattr(processing.public_video_service, "fetch_photo_post", AsyncMock(), raising=False)
     result = await processing.process_capture({"url":source.metadata.url}, [], BabyProvider(), may_use_ai=True, gate=AsyncMock())
-    assert result["status"] == ("incomplete" if unreadable else "ready")
+    assert result["status"] == "ready" and result["error"] is None
+    assert any("could not read some details" in note for note in result["data"]["coverage_notes"]) is unreadable
     assert "Literal label" in result["data"]["source_text"]
     assert any("condensed" in note for note in result["data"]["coverage_notes"])
 
