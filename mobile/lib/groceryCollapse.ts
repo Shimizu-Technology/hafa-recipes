@@ -104,6 +104,16 @@ function serialized<T>(operation: () => Promise<T>): Promise<T> {
   return result;
 }
 
+// Clearing private grocery data bumps this, so a save queued before the clear
+// cannot write the cleared record back.
+let storageGeneration = 0;
+
+/** Removes every saved fold, after any save already running has finished. */
+export function clearCollapsedSections(): Promise<void> {
+  storageGeneration += 1;
+  return serialized(() => AsyncStorage.multiRemove([COLLAPSED_SECTIONS_STORAGE_KEY, LEGACY_COLLAPSED_SECTIONS_KEY]));
+}
+
 async function writeRecord(scope: CollapseScope, value: CollapsedSections): Promise<void> {
   const key = collapseScopeKey(scope);
   const records = { ...(await readRecords()), [key]: value };
@@ -116,8 +126,10 @@ async function writeRecord(scope: CollapseScope, value: CollapsedSections): Prom
  * account or list inherits it.
  */
 export function loadCollapsedSections(scope: CollapseScope): Promise<CollapsedSections> {
+  const generation = storageGeneration;
   return serialized(async () => {
     try {
+      if (generation !== storageGeneration) return EMPTY_COLLAPSED_SECTIONS;
       const stored = (await readRecords())[collapseScopeKey(scope)];
       if (stored) return stored;
       const legacy = parseCollapsedSections(await AsyncStorage.getItem(LEGACY_COLLAPSED_SECTIONS_KEY));
@@ -132,9 +144,10 @@ export function loadCollapsedSections(scope: CollapseScope): Promise<CollapsedSe
 }
 
 export function saveCollapsedSections(scope: CollapseScope, value: CollapsedSections): Promise<void> {
+  const generation = storageGeneration;
   return serialized(async () => {
     try {
-      await writeRecord(scope, value);
+      if (generation === storageGeneration) await writeRecord(scope, value);
     } catch {
       // Folding is a convenience; the list still works if it cannot be saved.
     }

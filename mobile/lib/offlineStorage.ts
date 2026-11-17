@@ -1,5 +1,5 @@
 import { groceryAccountScope } from './groceryAccountScope';
-import { COLLAPSED_SECTIONS_STORAGE_KEY, LEGACY_COLLAPSED_SECTIONS_KEY } from './groceryCollapse';
+import { COLLAPSED_SECTIONS_STORAGE_KEY, LEGACY_COLLAPSED_SECTIONS_KEY, clearCollapsedSections } from './groceryCollapse';
 import { offlineRecipes } from './offlineRecipes';
 /** Account-scoped grocery snapshots and durable mutation queue. */
 
@@ -119,6 +119,7 @@ async function privateGroceryKeys(): Promise<string[]> {
 }
 
 async function clearPrivateGroceryStorage(deletedOwner?: string): Promise<void> {
+  await clearCollapsedSections();
   const keys = await privateGroceryKeys();
   const remove = keys.filter(key => !key.startsWith(SCOPE_PREFIX) || !key.endsWith(':queue'));
   if (deletedOwner) {

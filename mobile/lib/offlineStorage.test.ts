@@ -132,6 +132,23 @@ describe('account-scoped offline grocery storage', () => {
     expect(forgotten()).toBe(true);
   });
 
+  it('does not let a fold save that was waiting during sign-out bring the folds back', async () => {
+    const { COLLAPSED_SECTIONS_STORAGE_KEY, saveCollapsedSections } = await import('./groceryCollapse');
+    await bindOfflineGroceryIdentity('clerk-user-a');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const getItem = storage.api.getItem.getMockImplementation()!;
+    storage.api.getItem.mockImplementationOnce(async (key: string) => { await gate; return getItem(key); });
+
+    const save = saveCollapsedSections({ accountScopeId: 'account-a', listId: 'shared' }, { keys: ['recipe:a'], updatedAt: 1 });
+    const late = saveCollapsedSections({ accountScopeId: 'account-a', listId: 'shared' }, { keys: ['recipe:b'], updatedAt: 2 });
+    const signOut = bindOfflineGroceryIdentity(null);
+    release();
+    await Promise.all([save, late, signOut]);
+
+    expect(storage.values.has(COLLAPSED_SECTIONS_STORAGE_KEY)).toBe(false);
+  });
+
   it('drops the previous list queue when server membership changes scope', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
     const lease = getGroceryStorageLease();
