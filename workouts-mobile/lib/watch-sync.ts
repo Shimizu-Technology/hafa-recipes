@@ -96,6 +96,8 @@ export interface WatchResult {
   segments: Segment[];
 }
 export interface WatchDetails { heart_rate?: HR; parts: WatchResult["parts"]; duplicate_phone_id?: string }
+const doseless = (exercise: Workout["blocks"][number]["exercises"][number], round: number) =>
+  repsFor(exercise, round) == null && exercise.duration_seconds == null && exercise.distance_meters == null;
 /** Reconstruct doses from the exact snapshot sent to the watch, never a newly edited prescription. */
 export function watchSession(r: WatchResult, workout: Workout, generation: number, state: TrainingState): SavedLocalSession {
   const source = r.plan?.source ?? { workout_id: workout.id, workout_revision: workout.revision };
@@ -109,11 +111,13 @@ export function watchSession(r: WatchResult, workout: Workout, generation: numbe
       !Number.isInteger(a.set_index) || a.set_index < 1 || a.set_index > (exercise.sets ?? 1) ||
       (exercise.segment === "buy_in" && a.round_index !== 1) ||
       (exercise.per_side ? a.side !== "left" && a.side !== "right" : a.side != null && a.side !== "both") ||
-      typeof a.completed !== "boolean" || actualErrors(a).length > 0;
+      // A move printed without reps, time or distance completes as-is, like a phone round tap.
+      typeof a.completed !== "boolean" || actualErrors(doseless(exercise, a.round_index) ? { ...a, completed: false } : a).length > 0;
   }) || results.some(result => !workout.blocks.some(b => b.id === result.block_id)) ||
     segments.some(segment => !workout.blocks.some(b => b.id === segment.block_id)))
     throw Error("Watch actuals do not match their pinned workout.");
-  const intervals = r.active_intervals;
+  // The watch writes whole seconds, so a sub-second pause/resume span arrives empty; it adds no active time.
+  const intervals = (r.active_intervals ?? []).filter(i => Date.parse(i.ended_at) !== Date.parse(i.started_at));
   const start = Date.parse(r.started_at), end = Date.parse(r.finished_at);
   let previous = start;
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || intervals.length > 100 ||

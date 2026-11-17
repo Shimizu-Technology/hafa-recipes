@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { createTrainingStore, trainingKey, type TrainingState } from "./training";
-import { drainWatch, planContext, watchPlan, pruneWatchCatalog, stablePlans, watchCollisions, type WatchResult } from "./watch-sync";
+import { drainWatch, planContext, watchPlan, watchSession, pruneWatchCatalog, stablePlans, watchCollisions, type WatchResult } from "./watch-sync";
 import { roundActuals } from "./class-training";
 import { nov17Class } from "./fixtures/nov17-class";
 const account = "synthetic:1";
@@ -75,7 +75,21 @@ describe("watch sync", () => {
     r.parts = [{ ...r.parts[0], block_id: "timer" }]; r.actuals = [];
     await drainWatch({ ...options, current: () => true, pendingResults: async () => [JSON.stringify(r)] });
     expect(store.snapshot().history[0].watch_quick).toBe(true);
-    expect(store.snapshot().history[0].workout.title).toContain("watch, Nov 17"); expect(marked).toBe(1);
+    expect(store.snapshot().history[0].workout.title).toContain(`watch, ${new Date(r.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`); expect(marked).toBe(1);
+  });
+  it("imports moves printed without a dose and sub-second pauses, but still rejects a missing prescribed dose", () => {
+    const [first, ...rest] = workout.blocks;
+    const bare = { ...first, exercises: first.exercises.map((e, i) => i === 1 ? { ...e, reps_min: null, reps_max: null, rep_scheme: null, ladder: null, duration_seconds: null, distance_meters: null } : e) };
+    const doseless = { ...workout, blocks: [bare, ...rest] };
+    const r = result(); r.plan = watchPlan(doseless, source, account, "2026-11-17");
+    r.actuals = [...roundActuals(bare, 1), ...roundActuals(bare, 2)];
+    r.active_intervals = [{ started_at: start, ended_at: "2026-11-17T00:05:00Z" }, { started_at: "2026-11-17T00:05:00Z", ended_at: "2026-11-17T00:05:00Z" },
+      { started_at: "2026-11-17T00:05:00Z", ended_at: end }];
+    const saved = watchSession(r, doseless, 1, setup().snapshot());
+    expect(saved.request.actuals.filter(a => a.exercise_index === 1 && a.reps == null)).toHaveLength(2);
+    expect(saved.request.active_intervals).toHaveLength(2); expect(saved.request.active_seconds).toBe(900);
+    const dosed = result(); dosed.actuals = roundActuals(first, 1).map(a => a.exercise_index === 1 ? { ...a, reps: null } : a);
+    expect(() => watchSession(dosed, workout, 1, setup().snapshot())).toThrow("pinned workout");
   });
   it("retains invalid cells and overlapping intervals in the inbox without importing", async () => {
     const store = setup(); await store.load(); let marked = 0;
