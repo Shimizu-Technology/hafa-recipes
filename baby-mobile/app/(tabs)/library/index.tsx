@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
@@ -22,6 +22,8 @@ import { HeaderPill, TabActions, headerActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
 import { SuggestionLine } from "@/components/tips";
 import { byStart, profileToday, timingChild, timingContext } from "@/lib/timing";
+import { nowShelfTitle, savedSections } from "../../../lib/saved-sections";
+import { NowShelf, SavedSections } from "../../../components/saved-sections";
 import { acceptMessage, acceptSuggestions, createsCategory, decidable, decisionError, dismissMessage, dismissSuggestion, needsAnotherCategory,
   restoreSuggestion, undoAccepted, undoMessage, type AcceptOutcome } from "@/lib/suggestions";
 
@@ -46,9 +48,16 @@ export default function Library() {
   const rows = timed?.mode === "upcoming" ? [...history.rows].sort(byStart(timed.context.stage)) : history.rows,
     // A post with an unsynced save keeps its suggestion until the save reaches the server.
     suggested = view === "inbox" && !collection ? rows.filter((row) => decidable(b.state, row)) : [];
+  // All saved reads as shelves: what's for this week, then each category, then what isn't sorted. Search, Select and the
+  // other chips keep the flat list.
+  const shelves = view === "all" && !collection && !q && !selecting && !!rows.length,
+    now = useLibraryHistory({ kind: "source", childId: b.state.selectedChild, query: "",
+      timing: tipsChild && context ? { mode: "now", childId: tipsChild.id, context } : undefined }, shelves && !!context);
   const categories = useLibraryHistory({ kind: "collection", childId: null, query: "" }),
     knownCategories = [...categories.rows, ...b.records.filter((row) => row.kind === "collection")];
   const category = categories.rows.find((r) => r.id === collection);
+  const grouped = useMemo(() => savedSections(b.records, categories.rows, b.state.selectedChild), [b.records, categories.rows, b.state.selectedChild]),
+    pendingIds = new Set(b.state.outbox.flatMap((m) => m.type === "save" ? [m.record.id] : [])), pending = (id: string) => pendingIds.has(id);
   const drafts = Object.entries(b.state.drafts).filter(([, d]) => d.kind === "source" &&
     (d.title.trim() || d.body.trim() || d.data.url || d.files.length));
   function chooseView(value: string) {
@@ -160,8 +169,15 @@ export default function Library() {
       {suggested.length > 0 && !selecting && <Button secondary icon="checkmark-done-outline" busy={deciding === "all"} disabled={!!deciding}
         title={suggested.length === 1 ? "Accept suggestion" : `Accept all ${suggested.length} suggestions`}
         onPress={() => void accept(suggested, "all")} />}
-      {history.loading && !rows.length ? <Loading label="Loading saved posts…" /> : rows.length ? (
-        <Grouped separatorInset={selecting ? 52 : 84}>
+      {shelves && !!context && <NowShelf title={nowShelfTitle(context, tipsChild, today)} rows={now.rows} count={now.rows.length} pending={pending}
+        onSeeAll={() => chooseView("now")} />}
+      {history.loading && !rows.length ? <Loading label="Loading saved posts…" /> : shelves && grouped.sections.length ? (
+        <SavedSections sections={grouped.sections} unsorted={grouped.unsorted} pending={pending} onOpenCategory={openCategory}
+          onSeeUnsorted={() => chooseView("inbox")} extra={(record) => decidable(b.state, record) && <SuggestionLine record={record} busy={!!deciding}
+            isNew={createsCategory(record.data.suggested_category!, knownCategories)}
+            onAccept={() => void accept([record], record.id)} onDismiss={() => void dismiss(record)} />} />
+      ) : rows.length ? (
+        <Grouped separatorInset={selecting ? 52 : 94}>
           {rows.map((record) => selecting ? <View key={record.id} style={{ paddingHorizontal: 16 }}><Choice label={sourceTitle(record)}
             detail={record.data.creator || record.data.summary?.slice(0, 100)} selected={selected.includes(record.id)} onPress={() => toggle(record.id)} />
             </View>
@@ -181,7 +197,7 @@ export default function Library() {
           : "Share a post from another app or paste a link. You can organize it later."}
         action={<Button secondary title={view === "inbox" ? "See all saved posts" : "Save a post"}
           onPress={() => view === "inbox" ? chooseView("all") : router.push({ pathname: "/edit", params: { kind: "source" } })} />} />}
-      {history.more && !history.error && <Button secondary title="Load more posts" busy={history.loading} onPress={() => void history.loadMore()} />}
+      {history.more && !history.error && !(shelves && grouped.sections.length) && <Button secondary title="Load more posts" busy={history.loading} onPress={() => void history.loadMore()} />}
       {selecting && <Copy kind="small" tone="muted">Select up to 100 posts. Your selection stays while you choose a category.</Copy>}
     </>}
     <ImportUpdates />

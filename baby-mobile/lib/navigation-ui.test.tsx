@@ -74,7 +74,7 @@ vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
 vi.mock("@/components/visit-sections", () => ({ LinkQuestions: "LinkQuestions", RecordVisit: "RecordVisit" }));
 vi.mock("../components/visit-sections", () => ({ RecordVisit: "RecordVisit" }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
-vi.mock("@/lib/use-library-history", () => ({ useLibraryHistory: (view: { kind: string }) => (mock.views.push(view), {
+vi.mock("@/lib/use-library-history", () => ({ useLibraryHistory: (view: { kind: string }, enabled = true) => (enabled && mock.views.push(view), {
   rows: mock.baby.records.filter((record: any) => record.kind === view.kind), loading: false, error: "", more: false,
   refresh: () => {}, loadMore: async () => {},
 }) }));
@@ -691,6 +691,27 @@ it("shows a cleared timing marker exactly like no timing, and 'Set by you' only 
   mock.baby = { ...mock.baby, records: [set], state: { ...mock.baby.state, records: [set] } };
   await act(async () => renderer!.update(<RecordDetail />));
   expect(labels()).toContain("From 36 weeks. Set by you");
+});
+it("shows All saved as category sections and Not sorted yet; a heading opens its chip, and search goes back to one list", async () => {
+  const folder = { ...optimisticRecord({ id: "bag", kind: "collection", title: "Hospital bag", body: "", child_id: null,
+    occurred_at: "2026-10-30T00:00:00Z", data: { record_ids: ["Bag"] } }), revision: 1 };
+  const records = [tip("Bag", { summary: "Pack light. Really." }), tip("Loose", { suggested_category: labor }), folder];
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records } };
+  await mount(<Library />);
+  const text = () => renderer!.root.findAllByType("Text" as React.ElementType).map((t) => [t.props.children].flat().join("")).join("|");
+  const headings = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => String(n.props.accessibilityLabel))
+    .filter(label => label.includes(" post"));
+  expect(headings()).toEqual(["Hospital bag, 1 post. See all", "Not sorted yet, 1 post. Sort"]);
+  expect(text()).toContain("Pack light.");
+  expect(text()).toContain("Suggested: Labor prep");
+  await press("Hospital bag, 1 post. See all");
+  expect(checked()).toEqual(["Hospital bag"]);
+  expect(sourceView()).toMatchObject({ collectionId: "bag" });
+  await press("All saved");
+  const search = renderer!.root.findAllByType("TextInput" as React.ElementType).find(n => n.props.placeholder === "Search saved posts")!;
+  await act(async () => search.props.onChangeText("bag"));
+  expect(headings()).toEqual([]);
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).length).toBeGreaterThan(0);
 });
 it("orders Saved's chips All saved, For now, Coming up, Uncategorized, then her topics, and opens a topic in one tap", async () => {
   const due = new Date(Date.now() + 39 * 86400000), iso = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;

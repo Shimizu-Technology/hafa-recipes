@@ -6,6 +6,7 @@ import { router } from "expo-router";
 import type { BabyRecord } from "@/lib/models";
 import { timingLabel } from "@/lib/timing";
 import { savedWhen } from "../lib/source-reading";
+import { takeaway } from "../lib/saved-sections";
 import { Copy, Icon, PressTarget, fonts, radii, typeScale, useColors, type IconName } from "./ui";
 
 const labels: Record<string, string> = {
@@ -53,32 +54,48 @@ export function Monogram({ title, size, fill }: { title: string; size: number; f
     </Text>
   </View>;
 }
-/** `meta` replaces the default "timing · creator · platform" line, for example with a topic on Today. */
+/**
+ * A blush cover with the post's title in Newsreader italic, for a post without a photo; it also sits under a loading
+ * or broken photo, so the cover is never empty. Decorative: the row or card around it is labelled.
+ */
+export function Cover({ title, size }: { title: string; size: number }) {
+  const c = useColors(), fontSize = Math.max(9, Math.round(size * 0.14)), lineHeight = Math.round(fontSize * 1.2);
+  return <View accessible={false} importantForAccessibility="no-hide-descendants"
+    style={{ position: "absolute", top: 0, left: 0, width: size, height: size, backgroundColor: c.placeholder, padding: Math.round(size * 0.1) }}>
+    <Text allowFontScaling={false} numberOfLines={Math.max(2, Math.floor((size * 0.62) / lineHeight))}
+      style={{ fontFamily: fonts.displayItalic, fontSize, lineHeight, color: c.placeholderInk }}>{title}</Text>
+  </View>;
+}
+/** `meta` replaces the timing and creator line, for example with a topic on Today. */
 export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pending: boolean; meta?: string }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), title = sourceTitle(record),
     // At accessibility sizes the thumbnail sits above the text so long words keep the full width.
-    stacked = fontScale >= 2,
+    stacked = fontScale >= 2, wraps = fontScale >= 1.3,
     status = pending ? "Saved on this device" : labels[record.data.status ?? ""] ?? "Saved",
-    update = pending ? status : updates[record.data.status ?? ""];
+    update = pending ? status : updates[record.data.status ?? ""],
+    gist = takeaway(record.data.summary), timing = timingLabel(record.data.relevance);
   const identity = platformName(record);
   const thumbnail = safeThumbnail(record);
   const [failed, setBroken] = useState<string>(), broken = !!thumbnail && failed === thumbnail;
-  return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
+  return <PressTarget accessibilityRole="button" accessibilityLabel={[title, gist.replace(/[.!?]$/, ""), update || meta || timing, record.data.creator || identity, !update && status].filter(Boolean).join(". ")}
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
-    style={({ pressed }) => ({ minHeight: 80, flexDirection: stacked ? "column" : "row", gap: 12, alignItems: "flex-start",
-      paddingVertical: 12, paddingHorizontal: 16, backgroundColor: c.surface })}>
-    <View style={{ width: 56, height: 56, borderRadius: radii.thumb, overflow: "hidden" }}>
-      <Monogram title={title} size={56} />
-      {thumbnail && !broken && <Image source={{ uri: thumbnail }} style={{ position: "absolute", width: 56, height: 56 }}
+    style={({ pressed }) => ({ minHeight: 88, flexDirection: stacked ? "column" : "row", gap: 14, alignItems: "flex-start",
+      paddingVertical: 14, paddingHorizontal: 16, backgroundColor: c.surface })}>
+    <View style={{ width: 64, height: 64, borderRadius: radii.thumb, overflow: "hidden" }}>
+      <Cover title={title} size={64} />
+      {thumbnail && !broken && <Image source={{ uri: thumbnail }} style={{ position: "absolute", width: 64, height: 64 }}
         cachePolicy="memory" contentFit="cover" transition={150} onError={() => setBroken(thumbnail)} />}
     </View>
     <View style={{ flex: stacked ? undefined : 1, minWidth: 0, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
-      <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
-      <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={fontScale >= 1.3 ? undefined : 1}>
-        {update || meta || [timingLabel(record.data.relevance), record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
-      </Copy>
+      <Copy kind="label" lines={wraps ? undefined : 2}>{title}</Copy>
+      {!!gist && <Copy kind="small" tone="muted" lines={wraps ? undefined : 2}>{gist}</Copy>}
+      {update || meta || !timing ? <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={wraps ? undefined : 1}>
+        {update || meta || [record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
+      </Copy> : <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, paddingTop: 2 }}>
+        <Pill icon="calendar-outline" label={timing} />
+        {!!(record.data.creator || identity) && <Copy kind="small" tone="muted" lines={wraps ? undefined : 1}>{record.data.creator || identity}</Copy>}
+      </View>}
     </View>
-    {!stacked && <View style={{ paddingTop: 3 }}><Icon name="chevron-forward" size={16} color={c.muted} /></View>}
   </PressTarget>;
 }
 
