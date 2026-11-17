@@ -8,6 +8,7 @@ struct HafaWatchApp: App {
   @StateObject private var runtime = WatchRuntime.shared
 
   init() {
+    PhoneLink.shared.activate()
     let shared = WatchRuntime.shared
     AppDependencyManager.shared.add(dependency: shared)
   }
@@ -19,6 +20,7 @@ struct HafaWatchApp: App {
         .environmentObject(runtime.health)
         .environmentObject(delegate.engine)
         .task {
+          PhoneLink.shared.flush()
           await runtime.recover()
           await runtime.health.refresh()
         }

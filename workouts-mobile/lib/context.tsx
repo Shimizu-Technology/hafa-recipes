@@ -23,6 +23,8 @@ import { commitTrainingSetup, activeTrainingGeneration } from "./onboarding-stat
 import { createEnrollmentBootstrap, createVerifiedIdentityCache, type BootstrapState, type EnrollmentSetupLease } from "./enrollment-bootstrap";
 import type { Enrollment, TrainingProfile } from "./models";
 import { createTrainingStore, type TrainingStore, type UnitSystem } from "./training";
+import { useWatchSync } from "./use-watch-sync";
+import { authoredWorkout } from "./api";
 import { createTrainingSync } from "./training-sync";
 interface ContextValue {
   api: WorkoutsApi;
@@ -79,12 +81,22 @@ function OfflineProvider({
   const currentTraining = useRef(training);
   currentTraining.current = training;
   const cache = useQueryClient();
+  useWatchSync(store, ready);
   useEffect(() => {
     if (!ready || !store) return;
     const current = () => currentTraining.current.owner === owner &&
       currentTraining.current.enrollment?.enrolled === true && currentTraining.current.enrollment.generation === generation &&
       currentTraining.current.isCurrentAccount() && storage.isCurrent();
-    const sync = createTrainingSync({ store, send: training.api.saveSession, current,
+    const sync = createTrainingSync({ store, send: async (request, epoch) => {
+      const item = store.snapshot().history.find(h => h.request.client_session_id === request.client_session_id);
+      if (item?.watch_quick) {
+        const workout = await training.api.saveWorkout(authoredWorkout(item.workout), `watch-${request.client_session_id}`, epoch);
+        if (!current()) throw Error("Account changed before saving the watch workout.");
+        await store.prepareWatchWorkout(request.client_session_id, workout);
+        request = { ...request, workout_id: workout.id, workout_revision: workout.revision };
+      }
+      return training.api.saveSession(request, epoch);
+    }, current,
       foreground: AppState.currentState === "active", online: onlineManager.isOnline(),
       onSaved: () => cache.invalidateQueries({ queryKey: [owner, "sessions", generation] }),
     });

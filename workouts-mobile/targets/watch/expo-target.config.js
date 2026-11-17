@@ -8,7 +8,7 @@ module.exports = () => ({
   bundleIdentifier: ".watchkitapp",
   deploymentTarget: "11.0",
   icon: "../../assets/icon.png",
-  frameworks: ["HealthKit"],
+  frameworks: ["HealthKit", "WatchConnectivity"],
   entitlements: { "com.apple.developer.healthkit": true },
   colors: { $accent: "#FF7A50" },
 });

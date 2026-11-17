@@ -63,7 +63,7 @@ How it's built:
 | X2 | `WorkoutEngine`, `PartRunner`, `Clock`, checkpoint and crash recovery, one Health workout per class with an activity per part, segment events, heart-rate summaries, XCTest | Merged |
 | X3 | Watch screens: plan list, lead-in, buy-in, AMRAP, for time, intervals, sets, rest between parts, finish and score | Implemented; held for simulator QA and Leon’s screen approval |
 | X4 | Action button: start today's class, one "advance" press, pause and resume, mis-press guard and undo | Implemented on X3; held for simulator/real-watch QA |
-| X5 | Phone ↔ watch sync (`modules/hafa-watch`): plans to the watch, results back through a durable inbox, no background React Native launch | Planned |
+| X5 | Phone ↔ watch sync (`modules/hafa-watch`): plans to the watch, results back through a durable inbox, foreground-only Clerk and JS intake | Implemented; held for lead integration, paired-device QA and Leon’s UI approval |
 | X6 | Health dedupe for watch-recorded classes, heart rate and splits on the phone's session card | Planned |
 | X7 | Optional: GPS for outdoor run legs, simple run mode | Later |
 
@@ -278,3 +278,7 @@ Phase 4 (dogfood) runs from Phase 2 onward; Phase 5 slots in whenever.
 ```
 
 **Open watch parts:** a for-time or sets part with no `rounds` is open. “Part done” completes the current effort successfully. Action completes an open for-time part; in open sets, Action advances each movement and completes the part after the last movement of one pass. Use Part done for a longer open effort. Only confirmed Skip marks a part skipped; skipped scored parts keep `skipped: true` and no generated zero score in the outbox. End class and Skip require confirmation. Health summaries and collection-ended progress are checkpointed for save retry.
+
+**X5 local acceptance (2026-11-17, base `fe0b03ac`):** Phone plans include today through two days ahead and five recent starts, bounded below 16 KiB in UTF-8. Pinned snapshots precede transmission. Results carry the stable application account ID plus enrollment generation, so another account cannot import them. The native inbox atomically persists before ack; content-free imported receipts and training-store IDs survive replay. Watch files are removed only by ack. Source-less Open timer sessions queue offline and create a private workout before session sync. HR stays outside the upload request. The phone delays all Clerk mounting until its first active AppState, defensively, without claiming that background delivery was reproduced. The watch keeps Debug-only sample plans.
+
+X5 verification uses synthetic fixtures: core tests, JS mapping/store replay, background/account refusal, collision preservation, plan selection/UTF-8 budget, durable inbox restart and outbox ack. Debug and Release watch targets compile with Swift 6 complete concurrency. Paired WCSession transport, lock/relaunch credentials and design §8 cases 7, 8 and 10 are **not run**; Leon runs them on Ultra 1/watchOS 11 plus iOS 18. Render approximations do not establish watch interaction acceptance. All PRs remain held; no TestFlight or production access.

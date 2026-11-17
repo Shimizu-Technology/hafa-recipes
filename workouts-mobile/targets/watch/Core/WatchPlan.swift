@@ -8,6 +8,16 @@ struct WatchPlan: Codable, Equatable {
   var activityType: UInt
   var parts: [Part]
   var date: String?
+  var source: Source?
+  var accountKey: String?
+  var leadInSeconds: Int?
+  struct Source: Codable, Equatable {
+    var workoutId: String?
+    var workoutRevision: Int?
+    var programId: String?
+    var programRevision: Int?
+    var programSessionId: String?
+  }
 
   struct Part: Codable, Equatable {
     enum Kind: String, Codable { case amrap, forTime = "for_time", emom, workRest = "work_rest", sets }
@@ -24,6 +34,25 @@ struct WatchPlan: Codable, Equatable {
     var restAfterSeconds: Int?
     var scored: Bool
     var moves: [Move]
+    var actuals: [Actual]?
+    struct Actual: Codable, Equatable {
+      var blockId: String
+      var exerciseIndex: Int
+      var roundIndex: Int
+      var setIndex: Int
+      var side: String?
+      var completed: Bool
+      var reps: Int?
+      var repScheme: [Int]?
+      var ladderStart: Int?
+      var ladderStep: Int?
+      var ladderEnd: Int?
+      var durationSeconds: Double?
+      var distanceMeters: Double?
+      var load: Double?
+      var loadUnit: String?
+      var loadConvention: String?
+    }
 
     /// How long the clock runs before the part ends by itself; nil for open for-time and sets.
     var timeLimit: TimeInterval? {

@@ -27,7 +27,7 @@ const rawStorage = vi.hoisted(() => ({
 }));
 vi.mock("@react-native-async-storage/async-storage", () => ({ default: rawStorage }));
 vi.mock("react-native", () => ({
-  ActivityIndicator: "ActivityIndicator",
+  ActivityIndicator: "ActivityIndicator", Platform: { OS: "web" },
   AppState: { currentState: "active", addEventListener: (_: string, listener: (state: string) => void) => {
     fixture.foreground.add(listener);
     return { remove: () => fixture.foreground.delete(listener) };

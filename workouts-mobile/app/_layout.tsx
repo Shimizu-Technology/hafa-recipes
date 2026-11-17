@@ -15,7 +15,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, View, Platform } from "react-native";
+import { ActivityIndicator, View, Platform, AppState } from "react-native";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
 import { Screen, Copy, Notice, Button, IconButton, ToastProvider, useColors } from "@/components/ui";
@@ -147,6 +147,14 @@ function Routes() {
   );
 }
 export default function Root() {
+  const [foregrounded, setForegrounded] = useState(Platform.OS === "web" || AppState.currentState === "active");
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", state => { if (state === "active") setForegrounded(true); });
+    return () => sub.remove();
+  }, []);
+  return foregrounded ? <ForegroundRoot /> : null;
+}
+function ForegroundRoot() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular: require("@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf"),
     Inter_600SemiBold: require("@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf"),

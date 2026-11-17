@@ -17,7 +17,7 @@ struct WatchRootView: View {
               .font(.footnote).foregroundStyle(Theme.muted)
             Button("Done") { Task { await engine.discard() } }.buttonStyle(WatchButton())
           }
-        }
+        }.task { PhoneLink.shared.flush() }
       case .running, .failed:
         if engine.runner != nil {
           ClassView()
