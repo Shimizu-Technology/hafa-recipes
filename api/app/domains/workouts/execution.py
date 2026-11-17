@@ -1,5 +1,7 @@
 """Typed workout execution shared by source extraction and personal planning."""
 
+import re
+
 from app.domains.workouts.formats import FOR_TIME_PHRASE
 from app.domains.workouts.schemas import WorkoutBlock, WorkoutContent
 
@@ -60,11 +62,14 @@ def timed_duration_minutes(workout: WorkoutContent) -> int | None:
 
 
 def has_dose(block: WorkoutBlock, exercise) -> bool:
-    """Reps, a rep scheme/ladder, time or distance; a work interval times each move."""
+    """Reps, a rep scheme/ladder, time, distance or calories; a work interval times
+    each move, and an EMOM minute bounds a "Max" effort."""
     return any(value is not None for value in (
         exercise.reps_min, exercise.reps_max, exercise.duration_seconds, exercise.distance_meters,
-        exercise.rep_scheme, exercise.ladder,
-    )) or (block.execution is not None and block.execution.mode == "work_rest")
+        exercise.rep_scheme, exercise.ladder, getattr(exercise, "calories", None),
+    )) or (block.execution is not None and block.execution.mode == "work_rest") or (
+        block.execution is not None and block.execution.mode == "emom" and block.execution.intervals is not None
+        and bool(re.search(r"\bmax\b", exercise.effort or "", re.I)))
 
 
 def format_complete(block: WorkoutBlock) -> bool:

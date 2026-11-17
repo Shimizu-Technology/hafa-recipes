@@ -3,6 +3,7 @@
 import logging
 import re
 from copy import deepcopy
+from functools import cache
 
 logger = logging.getLogger(__name__)
 LAYOUT_WARNING = "The page layout could not be read; review every part against the source."
@@ -39,6 +40,62 @@ Movement Prep" is a link, never a block. One exercise per movement, even when
 "Set 1 - 5 reps ... Set 4 - Max reps" lists its sets. Quote the shortest exact
 phrase as evidence.
 """
+# Screenshots are copied to text first, so the class is grounded like a paste.
+TRANSCRIPT_LOCATION = "screenshot_text"
+TRANSCRIPT_PROMPT = """Copy the workout programming printed in these class screenshots, one printed line per entry.
+The screenshots are in scrolling order and may overlap: write each printed line once.
+Copy words, numbers, ranges, slashes and punctuation exactly. Join a line the screen wrapped; never fix,
+reword, summarize, explain or add anything.
+Keep the class title and day heading, part letters (A., B., C1.), group lines ("3 alternating sets ... of:"),
+format lines, "Minute 1" lines, section headings such as ACCESSORIES, every movement row and every coach note.
+Start each coach-note bullet with "- ". Keep a linked heading such as "Workout Specific Movement Prep" once,
+without its "View ..." link.
+Leave out the phone status bar, icons, buttons and links (Log Result, Leaderboard, View, Show more/less), app
+menus, and anything after the programming. Leave out leaderboards, results, member names, comments and reactions.
+Return no lines when the screenshots show no workout programming."""
+SCREENSHOT_NOTICE = "This class was read from screenshots; check it against the class."
+TRANSCRIPT_FAILED = "The screenshots could not be copied as text first; check every part against the class."
+
+
+def transcript_messages(source):
+    """Untrusted screenshots sit inside one user message, never a role."""
+    content = [{"type": "text", "text": "Class screenshots, in scrolling order:"}]
+    for image in source.images:
+        content.append({"type": "text", "text": f"Source location {image.location}"})
+        content.append({"type": "image_url", "image_url": {"url": image.data_url, "detail": "high"}})
+    return [{"role": "system", "content": TRANSCRIPT_PROMPT}, {"role": "user", "content": content}]
+
+
+def transcript_response_format():
+    schema = {"type": "object", "additionalProperties": False, "required": ["lines"],
+              "properties": {"lines": {"type": "array", "items": {"type": "string"}}}}
+    return {"type": "json_schema", "json_schema": {"name": "class_transcript", "schema": schema, "strict": True}}
+
+
+def transcript_text(raw, limit):
+    lines = raw["lines"]
+    if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
+        raise ValueError("transcript lines")
+    # "⟳ 3 alternating sets", "⏱ B. Every minute" and "▪ Rower" lose their icons so the layout reads them.
+    lines = [re.sub(r"^[^\w\s\-–(\"'“‘]+\s*", "", line.strip()) for line in lines]
+    return "\n".join(line for line in lines if line)[:limit]
+
+
+@cache
+def _prompt_clauses():
+    from app.domains.workouts.extraction import SYSTEM_PROMPT
+
+    prompts = " ".join([SYSTEM_PROMPT, CLASS_PROMPT, TRANSCRIPT_PROMPT])
+    return [set(re.findall(r"[a-z0-9]+", clause.lower())) for clause in re.split(r"[.;!?]\s|\n\s*\n", prompts)]
+
+
+def prompt_echo(note, text):
+    """A note that restates an instruction ("Movement Prep is a link, not a block")
+    rather than the class. Wording the class itself prints always stays."""
+    if note in text:
+        return False
+    said = set(re.findall(r"[a-z0-9]+", note.lower()))
+    return len(said) >= 4 and any(len(said & clause) >= 0.8 * len(said) for clause in _prompt_clauses())
 
 
 def apply_layout(workout, text, warnings, rows=False):
@@ -153,8 +210,11 @@ def ground_class(workout, raw, source, warnings):
         return [e.wording for e in item.evidence if e.field == field and _quote_is_supported(e, source)]
     def quoted(value, item, field):
         return image_only or value in text or value in quotes(item, field)
-    workout.instructions = [v for v in raw.get("instructions", []) if quoted(v, workout.blocks[0], "workout_instructions")] if workout.blocks else []
-    if len(workout.instructions) < len(raw.get("instructions", [])):
+    printed_notes = {re.sub(r"^-\s+", "", line.strip()) for line in text.splitlines() if line.strip()}
+    # An echoed instruction is not the class; it goes without a review warning.
+    raw_notes = [v for v in raw.get("instructions", []) if not prompt_echo(v, text)]
+    workout.instructions = [v for v in raw_notes if quoted(v, workout.blocks[0], "workout_instructions")] if workout.blocks else []
+    if len(workout.instructions) < len(raw_notes):
         warnings.append("Unquoted coach notes removed; review the source.")
     benchmark = workout.benchmark
     if benchmark:
@@ -170,8 +230,9 @@ def ground_class(workout, raw, source, warnings):
     if workout.benchmark:
         workout.benchmark.key = re.sub(r"[^a-z0-9]+", "-", workout.benchmark.name.lower()).strip("-")[:60] or workout.benchmark.key
     for block, original in zip(workout.blocks, raw.get("blocks", [])):
-        block.instructions = [v for v in original.get("instructions") or [] if quoted(v, block, "instructions")] or None
-        if len(block.instructions or []) < len(original.get("instructions") or []):
+        notes = [v for v in original.get("instructions") or [] if not prompt_echo(v, text)]
+        block.instructions = [v for v in notes if quoted(v, block, "instructions")] or None
+        if len(block.instructions or []) < len(notes):
             warnings.append(f"Unquoted coach notes removed from {block.label}.")
         count = original.get("rounds")
         if count and block.rounds is None and any(re.search(rf"\b{count}\s+alternating sets\b", q, re.I) for q in quotes(block, "rounds")):
@@ -180,15 +241,30 @@ def ground_class(workout, raw, source, warnings):
         if block.rest_after_seconds is not None and not any(_numeric_supported("rest_seconds", block.rest_after_seconds, q) for q in quotes(block, "rest_after_seconds")):
             block.rest_after_seconds = None
             warnings.append(f"Unsupported rest after {block.label} removed.")
-        role_words = {"warm_up": r"warm[ -]?up", "cool_down": r"cool[ -]?down|active recovery", "accessory": r"accessor"}
+        # "Workout Specific Movement Prep" heads the part that opens the class.
+        role_words = {"warm_up": r"warm[ -]?up|movement prep", "cool_down": r"cool[ -]?down|active recovery", "accessory": r"accessor"}
         # A part heading copied verbatim ("D. ACCESSORIES") is its own role evidence.
         heading = [block.label] if block.label and re.search(rf"^\s*{re.escape(block.label)}\s*:?\s*$", text, re.I | re.M) else []
-        if block.role and block.role != "main" and not any(re.search(role_words[block.role], q, re.I) for q in quotes(block, "role") + heading):
+        if block.role and block.role != "main" and not any(re.search(role_words[block.role], q, re.I) for q in quotes(block, "role") + quotes(block, "label") + heading):
             block.role = block.score_kind = None
             warnings.append(f"Unsupported role for {block.label} removed.")
         if block.score_kind == "none" and block.role not in {"warm_up", "cool_down", "accessory"}:
             block.score_kind = None
         for item, old in zip(block.exercises, original["exercises"]):
+            if item.instructions and prompt_echo(item.instructions, text):
+                item.instructions = None
+            note = old.get("instructions")
+            if item.instructions is None and note in printed_notes:
+                # A coach note the class prints is its own quote; the page layout places it.
+                item.instructions = note
+                warnings[:] = [w for w in warnings if w != f"Unsupported notes removed from {item.name}."]
+            rest = old.get("duration_seconds")
+            if re.fullmatch(r"rest", item.name.strip(), re.I) and item.duration_seconds is None and rest and any(
+                    _numeric_supported("duration_seconds", rest, re.sub(r"^\W*rest\s+(?:for\s+)?", "", q, flags=re.I))
+                    for q in quotes(item, "duration_seconds")):
+                # A "Rest for 1 minute" station is the rest itself, not a rest after a movement.
+                item.duration_seconds = rest
+                warnings[:] = [w for w in warnings if w != f"Unsupported duration_seconds removed from {item.name}."]
             if item.per_side is None and re.search(r"\bside[ -]lying|\bunilateral\b", item.name, re.I):
                 warnings.append(f"Per-side details for {item.name} are unspecified; review the source.")
             for field, base, unit in (("distance_meters_min", "distance_meters", "distance"), ("duration_seconds_max", "duration_seconds", "duration")):
