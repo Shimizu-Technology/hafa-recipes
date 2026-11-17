@@ -3,7 +3,7 @@ import { TextInput } from '@/components/Themed';
  * Modal for editing a grocery item
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -26,6 +26,8 @@ interface EditGroceryItemModalProps {
   onSave: (updates: { name: string; quantity: string; unit: string; notes: string }) => void;
   item: GroceryItem | null;
   isLoading?: boolean;
+  /** Deletes the item; the list offers Undo. */
+  onDelete?: () => void;
 }
 
 export default function EditGroceryItemModal({
@@ -34,6 +36,7 @@ export default function EditGroceryItemModal({
   onSave,
   item,
   isLoading = false,
+  onDelete,
 }: EditGroceryItemModalProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -44,6 +47,10 @@ export default function EditGroceryItemModal({
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('');
   const [notes, setNotes] = useState('');
+  // Return moves through the fields in order.
+  const quantityRef = useRef<TextInput>(null);
+  const unitRef = useRef<TextInput>(null);
+  const notesRef = useRef<TextInput>(null);
 
   // Reset form when modal opens with new item
   useEffect(() => {
@@ -74,19 +81,22 @@ export default function EditGroceryItemModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
+      {/* On iOS the scroll view insets itself for the keyboard; padding here
+          miscounts inside a page sheet and hides the bottom of the form. */}
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? undefined : 'height'}
       >
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        {/* A page sheet already starts below the status bar, so no top inset. */}
+        <View style={styles.container}>
           {/* Remeasure native text when Dynamic Type changes inside an open sheet. */}
           <RNView key={fontScale} style={[styles.header, largeText && styles.stackedHeader, { borderBottomColor: colors.border }]}>
-            {largeText && <Text accessibilityRole="header" style={styles.headerTitle}>Edit Item</Text>}
+            {largeText && <Text accessibilityRole="header" style={styles.headerTitle}>Edit item</Text>}
             <RNView style={[styles.headerActions, { minHeight: Math.max(44, Math.ceil(22 * fontScale)) }]}>
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel editing item" onPress={onClose} style={styles.headerButton}>
                 <Text style={[styles.headerButtonText, { color: colors.actionText }]}>Cancel</Text>
               </TouchableOpacity>
-              {!largeText && <Text accessibilityRole="header" style={[styles.headerTitle, { color: colors.text }]}>Edit Item</Text>}
+              {!largeText && <Text accessibilityRole="header" style={[styles.headerTitle, { color: colors.text }]}>Edit item</Text>}
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel="Save item"
@@ -98,18 +108,18 @@ export default function EditGroceryItemModal({
                   styles.headerButtonText,
                   { color: canSave ? colors.actionText : colors.textMuted }
                 ]}>
-                  {isLoading ? 'Saving...' : 'Save'}
+                  {isLoading ? 'Saving…' : 'Save'}
                 </Text>
               </TouchableOpacity>
             </RNView>
           </RNView>
 
           {/* Form */}
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.form, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive" contentContainerStyle={[styles.form, { paddingBottom: insets.bottom + spacing.lg }]}>
             {/* Name (Required) */}
             <RNView style={styles.inputGroup}>
               <Text key={fontScale} style={[styles.label, { color: colors.textSecondary }]}>
-                Item Name *
+                Name
               </Text>
               <TextInput
                 style={[
@@ -124,6 +134,10 @@ export default function EditGroceryItemModal({
                 onChangeText={setName}
                 placeholder="e.g., Chicken breast"
                 placeholderTextColor={colors.textMuted}
+                accessibilityLabel="Name"
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={() => quantityRef.current?.focus()}
                 autoFocus
               />
             </RNView>
@@ -143,11 +157,16 @@ export default function EditGroceryItemModal({
                       borderColor: colors.border,
                     }
                   ]}
+                  ref={quantityRef}
                   value={quantity}
                   onChangeText={setQuantity}
                   placeholder="e.g., 2"
                   placeholderTextColor={colors.textMuted}
                   keyboardType="default"
+                  accessibilityLabel="Quantity"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => unitRef.current?.focus()}
                 />
               </RNView>
 
@@ -164,10 +183,15 @@ export default function EditGroceryItemModal({
                       borderColor: colors.border,
                     }
                   ]}
+                  ref={unitRef}
                   value={unit}
                   onChangeText={setUnit}
                   placeholder="e.g., lbs"
                   placeholderTextColor={colors.textMuted}
+                  accessibilityLabel="Unit"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => notesRef.current?.focus()}
                 />
               </RNView>
             </RNView>
@@ -187,8 +211,10 @@ export default function EditGroceryItemModal({
                     borderColor: colors.border,
                   }
                 ]}
+                ref={notesRef}
                 value={notes}
                 onChangeText={setNotes}
+                accessibilityLabel="Notes"
                 placeholder="e.g., organic, boneless"
                 placeholderTextColor={colors.textMuted}
                 multiline
@@ -200,12 +226,24 @@ export default function EditGroceryItemModal({
             {item?.recipe_title && (
               <RNView style={styles.inputGroup}>
                 <Text key={fontScale} style={[styles.label, { color: colors.textSecondary }]}>
-                  From Recipe
+                  From recipe
                 </Text>
                 <Text style={[styles.recipeTitle, { color: colors.textMuted }]}>
                   {item.recipe_title}
                 </Text>
               </RNView>
+            )}
+
+            {onDelete && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Delete item"
+                onPress={onDelete}
+                disabled={isLoading}
+                style={[styles.deleteButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <Text style={[styles.deleteText, { color: colors.destructive }]}>Delete item</Text>
+              </TouchableOpacity>
             )}
           </ScrollView>
         </View>
@@ -270,6 +308,20 @@ const styles = StyleSheet.create({
   },
   halfWidth: {
     flex: 1,
+  },
+  // Shaped like the fields above so the sheet stays uniform.
+  deleteButton: {
+    minHeight: 50,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
   },
   recipeTitle: {
     fontSize: fontSize.md,
