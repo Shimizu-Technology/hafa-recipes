@@ -10,6 +10,7 @@ describe('parseGroceryItemInput', () => {
     expect(parseGroceryItemInput('½ cup soy sauce')).toEqual({ name: 'soy sauce', quantity: '½', unit: 'cup' });
     expect(parseGroceryItemInput('2 cans of coconut milk')).toEqual({ name: 'coconut milk', quantity: '2', unit: 'cans' });
     expect(parseGroceryItemInput('1 Tbsp. fish sauce')).toEqual({ name: 'fish sauce', quantity: '1', unit: 'Tbsp' });
+    expect(parseGroceryItemInput('1 ½ cups rice')).toEqual({ name: 'rice', quantity: '1 ½', unit: 'cups' });
   });
 
   it('keeps a count without a unit', () => {
@@ -26,5 +27,9 @@ describe('parseGroceryItemInput', () => {
     // A word that only starts like a unit is part of the name.
     expect(parseGroceryItemInput('2 lemons')).toEqual({ name: 'lemons', quantity: '2', unit: null });
     expect(parseGroceryItemInput('3 green onions')).toEqual({ name: 'green onions', quantity: '3', unit: null });
+    // An "amount" longer than the server allows stays in the name.
+    const long = `${'9'.repeat(51)} eggs`;
+    expect(parseGroceryItemInput(long)).toEqual({ name: long, quantity: null, unit: null });
+    expect(parseGroceryItemInput(`${'9'.repeat(51)} lb rice`).quantity).toBeNull();
   });
 });

@@ -282,12 +282,21 @@ export function useDeleteGroceryItem() {
   ]);
 }
 
+/** Undo was asked for on a list this phone is no longer using. */
+export class GroceryListChangedError extends Error {
+  constructor() {
+    super('grocery_list_changed');
+  }
+}
+
 /**
  * Undo for a deleted item. Deletes are final on the server, so the item comes
- * back as a new one with the same details, recipe and checked state.
+ * back as a new one with the same details, recipe and checked state. It only
+ * comes back to the account and list it was deleted from.
  */
 export function useRestoreGroceryItem() {
-  return useDurableMutation<GroceryItem>((snapshot, item) => {
+  return useDurableMutation<{ item: GroceryItem; accountScopeId: string; listId: string }>((snapshot, { item, accountScopeId, listId }) => {
+    if (snapshot.account_scope_id !== accountScopeId || snapshot.list.id !== listId) throw new GroceryListChangedError();
     const add = createAddMutation(snapshot.list.id, {
       name: item.name,
       quantity: item.quantity,

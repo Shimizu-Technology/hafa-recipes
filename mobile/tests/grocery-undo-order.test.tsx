@@ -66,7 +66,7 @@ vi.mock('@/lib/offlineStorage', () => ({
 vi.mock('@/lib/groceryWidget', () => ({ publishConfirmedGrocerySnapshot: vi.fn(async () => {}), requestGroceryWidgetRefresh: vi.fn() }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => `synthetic-${++state.ids}` }));
 
-import { useGrocerySync, useRestoreGroceryItem, useToggleGroceryItem } from '@/hooks/useGrocery';
+import { GroceryListChangedError, useGrocerySync, useRestoreGroceryItem, useToggleGroceryItem } from '@/hooks/useGrocery';
 
 beforeEach(() => {
   state.queue = [];
@@ -135,7 +135,7 @@ it('brings a deleted item back with its details, recipe and check', async () => 
     const restore = state.mutationOptions[0];
     state.offline = true;
     const deleted = { id: 'gone', name: 'Vinegar', quantity: '1/3', unit: 'cup', notes: 'cane', checked: true, recipe_id: 'recipe-2', recipe_title: 'Adobo', added_by_name: 'Kami', created_at: '', updated_at: '' };
-    const restored = await restore.mutationFn(deleted);
+    const restored = await restore.mutationFn({ item: deleted, accountScopeId: 'gacct_synthetic', listId: 'list-1' });
     expect(restored.syncStatus).toBe('queued');
 
     // Deletes are final on the server, so it returns as a new item, then is checked.
@@ -144,5 +144,19 @@ it('brings a deleted item back with its details, recipe and check', async () => 
     expect(add.item_id).not.toBe('gone');
     expect(check).toMatchObject({ operation: 'set_checked', item_id: add.item_id, checked: true });
     expect(restored.items.find((entry: any) => entry.id === add.item_id)).toMatchObject({ name: 'Vinegar', checked: true });
+  } finally { await act(async () => root.unmount()); }
+});
+
+it('does not bring a deleted item back on a different list or account', async () => {
+  function Probe() { useRestoreGroceryItem(); return null; }
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<Probe />));
+    const restore = state.mutationOptions[0];
+    state.offline = true;
+    const deleted = { id: 'gone', name: 'Vinegar', quantity: null, unit: null, notes: null, checked: false, recipe_id: null, recipe_title: null, added_by_name: null, created_at: '', updated_at: '' };
+    await expect(restore.mutationFn({ item: deleted, accountScopeId: 'gacct_synthetic', listId: 'list-other' })).rejects.toBeInstanceOf(GroceryListChangedError);
+    await expect(restore.mutationFn({ item: deleted, accountScopeId: 'gacct_other', listId: 'list-1' })).rejects.toBeInstanceOf(GroceryListChangedError);
+    expect(state.queue).toEqual([]);
   } finally { await act(async () => root.unmount()); }
 });

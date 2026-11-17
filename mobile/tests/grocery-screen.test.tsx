@@ -1136,11 +1136,12 @@ describe('GroceryScreen editing', () => {
       const [id, callbacks] = mocks.deleteItem.mock.calls[0];
       expect(id).toBe('lemons');
       expect(find(renderer, 'Delete Lemons')).toBeUndefined();
-      await act(async () => callbacks.onSuccess());
+      await act(async () => callbacks.onSuccess({ account_scope_id: 'gacct_a', list: { id: 'list-a' } }));
       const toast = mocks.toast.mock.calls[0][0];
       expect(toast).toMatchObject({ message: 'Deleted Lemons', actionLabel: 'Undo' });
       await act(async () => toast.onAction());
-      expect(mocks.restoreItem.mock.calls[0][0]).toBe(lemons);
+      // Undo names the list the item was deleted from, so it can't land on another one.
+      expect(mocks.restoreItem.mock.calls[0][0]).toEqual({ item: lemons, accountScopeId: 'gacct_a', listId: 'list-a' });
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -1184,6 +1185,12 @@ describe('GroceryScreen editing', () => {
       const list = renderer.container.queryAll((instance) => instance.type === 'SectionList')[0];
       await act(async () => list.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: 0 } } }));
       expect(find(renderer, 'Delete Rice')).toBeUndefined();
+      // Switching To buy / All closes it.
+      await act(async () => swipeRow(renderer, 'Rice', -60));
+      const view = renderer.container.queryAll((instance) => instance.type === 'SegmentedControl')[0];
+      await act(async () => view.props.onChange('all'));
+      expect(find(renderer, 'Delete Rice')).toBeUndefined();
+      await act(async () => view.props.onChange('toBuy'));
       // A short swipe right closes it too.
       await act(async () => swipeRow(renderer, 'Rice', -60));
       await act(async () => swipeRow(renderer, 'Rice', 30));

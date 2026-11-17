@@ -56,6 +56,7 @@ import {
   useDeleteGroceryItems,
   useUpdateGroceryItem,
   useRestoreGroceryItem,
+  GroceryListChangedError,
 } from '@/hooks/useGrocery';
 import { parseGroceryItemInput } from '@/lib/groceryItemInput';
 import { GroceryItem } from '@/types/recipe';
@@ -388,11 +389,14 @@ function GroceryScreenContent() {
     setOpenSwipeId(null);
     haptics.medium();
     deleteMutation.mutate(item.id, {
-      onSuccess: () => showToast({
+      // Undo returns the item only to the list it was deleted from.
+      onSuccess: (deleted) => showToast({
         message: `Deleted ${item.name}`,
         actionLabel: 'Undo',
-        onAction: () => restoreItemMutation.mutate(item, {
-          onError: () => Alert.alert('Couldn’t bring the item back', 'Add it again from the top of your list.'),
+        onAction: () => restoreItemMutation.mutate({ item, accountScopeId: deleted.account_scope_id, listId: deleted.list.id }, {
+          onError: (error) => error instanceof GroceryListChangedError
+            ? Alert.alert('Your list changed', `${item.name} was on a different list, so it can’t come back here.`)
+            : Alert.alert('Couldn’t bring the item back', 'Add it again from the top of your list.'),
         }),
       }),
       onError: () => Alert.alert('Couldn’t delete item', 'The item is still on your list. Please try again.'),
@@ -842,7 +846,7 @@ function GroceryScreenContent() {
         {/* Focus the shopping view while keeping completed items close by. */}
         <RNView style={[styles.viewRow, stackToolbar && styles.viewRowStacked]}>
           {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && <RNView style={stackToolbar ? undefined : { flex: 1 }}>
-            <SegmentedControl accessibilityLabel="Grocery view" value={showChecked ? 'all' : 'toBuy'} onChange={value => setShowChecked(value === 'all')}
+            <SegmentedControl accessibilityLabel="Grocery view" value={showChecked ? 'all' : 'toBuy'} onChange={value => { setOpenSwipeId(null); setShowChecked(value === 'all'); }}
               options={[{ value: 'toBuy', label: 'To buy' }, { value: 'all', label: 'All' }]} />
           </RNView>}
           {/* Same height, fill and corners as the view switch beside it. */}
