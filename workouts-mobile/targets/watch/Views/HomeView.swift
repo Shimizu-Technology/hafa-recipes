@@ -5,7 +5,6 @@ import SwiftUI
 struct HomeView: View {
   @EnvironmentObject private var health: HealthAuthorization
   @EnvironmentObject private var engine: WorkoutEngine
-  @State private var error: String?
 
   var body: some View {
     ScrollView {
@@ -35,18 +34,15 @@ struct HomeView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .background(Theme.background)
-    .alert("Couldn't start", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-      Button("OK") { error = nil }
-    } message: { Text(error ?? "") }
   }
 
   private func start(_ plan: WatchPlan) {
     Task {
       await health.refresh()
       if health.status == .notAsked || health.status == .failed { await health.request() }
-      guard health.status == .answered else { error = "Allow Health before starting a class."; return }
+      guard health.status == .answered else { engine.startError = "Allow Health before starting a class."; return }
       do { try await engine.start(plan, leadIn: 3) }
-      catch { self.error = "Try again. Your class hasn't started." }
+      catch { /* Engine retains the error across the loading transition. */ }
     }
   }
 }

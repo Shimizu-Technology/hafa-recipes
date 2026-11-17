@@ -120,6 +120,24 @@ final class PartRunnerTests: XCTestCase {
     XCTAssertEqual(runner.advance(at: at(100)).0, .applied(.partDone))
   }
 
+  func testCorrectedTimeChangesCapStatus() {
+    let timed = part("A", .forTime, cap: 300)
+    var score = PartScore(seconds: 300)
+    XCTAssertTrue(score.isCapped(for: timed))
+    score.seconds -= 1
+    XCTAssertFalse(score.isCapped(for: timed))
+  }
+
+  func testSetsWithBuyInCountOnlyWorkingMoves() {
+    var runner = PartRunner(plan: plan(part("A", .sets, rounds: 2, buyIn: true)), leadIn: 0)
+    _ = runner.start(at: t0)
+    XCTAssertEqual(runner.advance(at: at(1)).0, .applied(.buyInDone))
+    XCTAssertEqual(runner.advance(at: at(2)).0, .applied(.setDone(1)))
+    XCTAssertEqual(runner.advance(at: at(3)).0, .applied(.partDone))
+    XCTAssertEqual(runner.segments().map(\.kind), [.buyIn, .set, .set])
+    XCTAssertEqual(PartRunner(plan: plan(), leadIn: 0).activeSeconds(of: 0, at: t0), 0)
+  }
+
   func testSkippingAndFinishingEarlyMarksUnreachedParts() {
     var runner = PartRunner(plan: plan(part("C", .sets), part("D", .sets), part("E", .sets)), leadIn: 3)
     _ = runner.start(at: t0)

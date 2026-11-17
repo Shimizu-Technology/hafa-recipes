@@ -43,7 +43,7 @@ private struct ScoreCard: View {
     if let runner = engine.runner {
       let part = runner.plan.parts[index]
       let score = PartScore.initial(runner, index: index, at: Date())
-      let capped = part.kind == .forTime && part.timeLimit.map { runner.activeSeconds(of: index, at: Date()) >= $0 } == true
+      let capped = score.isCapped(for: part)
       VStack(spacing: 8) {
         Text("\(part.label) · \(part.kind == .forTime ? "For time" : "AMRAP")").font(.headline)
         if runner.runs[index].skipped { Text("Skipped").font(.footnote).foregroundStyle(Theme.muted) }

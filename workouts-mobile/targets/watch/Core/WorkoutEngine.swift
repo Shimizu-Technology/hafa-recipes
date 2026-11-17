@@ -14,6 +14,8 @@ final class WorkoutEngine: ObservableObject {
     }
   }
 
+  enum StartError: Error { case emptyPlan }
+  @Published var startError: String?
   @Published private(set) var runner: PartRunner?
   @Published private(set) var state: State = .idle
   /// False when HealthKit lost the session. The class still runs and saves its scores.
@@ -44,11 +46,17 @@ final class WorkoutEngine: ObservableObject {
     case .idle, .saved: break
     case .starting, .running, .saving, .failed: return
     }
+    guard !plan.parts.isEmpty else {
+      startError = "This class has no parts. Open Today's class on your iPhone."
+      throw StartError.emptyPlan
+    }
+    startError = nil
     state = .starting
     let now = clock.now
     do {
       try await recorder.begin(activityType: plan.activityType, at: now)
     } catch {
+      startError = "Couldn’t start. Check Health access, then try again."
       state = .idle
       throw error
     }
@@ -88,7 +96,12 @@ final class WorkoutEngine: ObservableObject {
     return true
   }
 
-  func setScore(_ score: PartScore, for index: Int) { mutate { runner, _ in runner.setScore(score, for: index); return [] } }
+  func setScore(_ score: PartScore, for index: Int) {
+    guard state == .running || state.isFailure, var runner else { return }
+    runner.setScore(score, for: index)
+    self.runner = runner
+    checkpoint(force: true)
+  }
   func extendRest() { mutate { runner, _ in runner.extendRest(by: 15); return [] } }
   func stop() { mutate { $0.finish(at: $1) } }
 

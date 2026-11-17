@@ -160,6 +160,32 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertEqual(outbox.records().first?.parts[0].rounds, 1, "recorded taps stay intact")
   }
 
+  func testEditsAfterFailedSavePersistAndSkipRemainsMarked() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    clock.advance(20); engine.endPart()
+    recorder.failFinish = true
+    await engine.finish()
+    let score = PartScore(rounds: 3, reps: 9, seconds: 19, scaled: true)
+    engine.setScore(score, for: 0)
+    XCTAssertEqual(store.load()?.runner.runs[0].score, score)
+    await engine.finish(withoutHealth: true)
+    XCTAssertEqual(outbox.records().first?.parts[0].score, score)
+    XCTAssertEqual(outbox.records().first?.parts[0].skipped, true)
+  }
+
+  func testEmptyPlanAndBeginFailureRetainStartErrorWithoutStartingRunner() async {
+    let engine = engine()
+    do { try await engine.start(plan(), leadIn: 0); XCTFail("empty plan accepted") } catch {}
+    XCTAssertNotNil(engine.startError)
+    XCTAssertTrue(recorder.calls.isEmpty)
+    recorder.failBegin = true
+    do { try await engine.start(twoParts, leadIn: 0); XCTFail("begin should fail") } catch {}
+    XCTAssertEqual(engine.state, .idle)
+    XCTAssertNotNil(engine.startError)
+    XCTAssertNil(engine.runner)
+  }
+
   func testStartingTwiceAtOnceBeginsOneSession() async throws {
     let engine = engine()
     async let first: Void = engine.start(twoParts, leadIn: 0)
@@ -191,10 +217,12 @@ final class FakeRecorder: WorkoutRecorder {
   var onSessionLost: (() -> Void)?
   var liveSession = false
   var failFinish = false
+  var failBegin = false
   var finishedSegments: [Segment] = []
   var syncIdentifier: String?
 
   func begin(activityType: UInt, at date: Date) async throws {
+    if failBegin { throw CocoaError(.fileReadUnknown) }
     calls.append("begin \(activityType) \(offset(date))")
     await Task.yield()
   }

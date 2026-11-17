@@ -79,7 +79,10 @@ struct PartRunner: Codable, Equatable {
     return max(0, TimeInterval(part?.restSeconds ?? 0) - elapsed)
   }
 
-  func activeSeconds(of index: Int, at now: Date) -> TimeInterval { runs[index].span?.active(at: now) ?? 0 }
+  func activeSeconds(of index: Int, at now: Date) -> TimeInterval {
+    guard runs.indices.contains(index) else { return 0 }
+    return runs[index].span?.active(at: now) ?? 0
+  }
 
   /// Time left on the current part's clock, or nil when it counts up.
   func remaining(at now: Date) -> TimeInterval? {
@@ -183,6 +186,7 @@ struct PartRunner: Codable, Equatable {
     var events = tick(at: now) + resume(at: now)
     switch phase {
     case .running:
+      runs[cursor].skipped = true
       close(at: now, &events)
     case .leadIn, .resting:
       runs[cursor].skipped = true
@@ -238,7 +242,7 @@ struct PartRunner: Codable, Equatable {
       runs[cursor].taps.append(now)
       lastTapAt = now
       let count = runs[cursor].taps.count
-      if let rounds = part.rounds, count >= rounds * max(1, part.moves.count) {
+      if let rounds = part.rounds, count >= rounds * max(1, part.moves.filter { $0.segment != "buy_in" }.count) {
         close(at: now, &events)
         return .applied(.partDone)
       }

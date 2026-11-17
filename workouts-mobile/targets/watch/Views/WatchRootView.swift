@@ -24,6 +24,9 @@ struct WatchRootView: View {
       }
     }
     .foregroundStyle(Theme.text).background(Theme.background)
+    .alert("Couldn't start", isPresented: Binding(get: { engine.startError != nil }, set: { if !$0 { engine.startError = nil } })) {
+      Button("OK") { engine.startError = nil }
+    } message: { Text(engine.startError ?? "") }
   }
 }
 
@@ -122,7 +125,7 @@ struct ClassView: View {
                 Text("Buy-in done").font(.footnote)
               } else if runner.part?.kind == .sets {
                 Text(setMove(runner)).font(.footnote).lineLimit(2)
-                Text("Set \(runner.runs[runner.cursor].taps.count / max(1, runner.part?.moves.count ?? 1) + 1) of \(runner.part?.rounds ?? 1)").font(.headline)
+                Text("Set \(runner.runs[runner.cursor].taps.count / max(1, runner.part?.moves.filter { $0.segment != "buy_in" }.count ?? 1) + 1) of \(runner.part?.rounds ?? 1)").font(.headline)
                 Text(runner.setRestRemaining(at: now) > 0
                   ? "Rest \(watchTime(runner.setRestRemaining(at: now)))" : "Set done").font(.footnote)
               } else if runner.part?.kind == .emom || runner.part?.kind == .workRest {
@@ -168,7 +171,7 @@ struct ClassView: View {
     }
   }
   private func setMove(_ runner: PartRunner) -> String {
-    let moves = runner.part?.moves ?? []
+    let moves = runner.part?.moves.filter { $0.segment != "buy_in" } ?? []
     guard !moves.isEmpty else { return "Set done" }
     return moves[runner.runs[runner.cursor].taps.count % moves.count].text
   }
