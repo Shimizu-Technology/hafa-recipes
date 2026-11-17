@@ -4,8 +4,8 @@ import WatchKit
 
 enum WorkoutStyle: String, AppEnum {
   case todaysClass, openTimer
-  static var typeDisplayRepresentation: TypeDisplayRepresentation = "Workout"
-  static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+  static let typeDisplayRepresentation: TypeDisplayRepresentation = "Workout"
+  static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
     .todaysClass: "Today's class", .openTimer: "Open timer"
   ]
 }
@@ -17,6 +17,7 @@ enum WorkoutStyle: String, AppEnum {
   let engine: WorkoutEngine
   private let recorder: HealthKitRecorder
   private var startingAction = false
+  var startedStyle: WorkoutStyle = .todaysClass
   @Published var donationFailed = false
   @Published var notice: String?
   private var recovery: Task<Void, Never>?
@@ -32,7 +33,7 @@ enum WorkoutStyle: String, AppEnum {
     recorder.onCollectionBegan = { [weak self] in
       self?.donationFailed = false
       Task { @MainActor in
-        do { try await StartClassIntent().donate(result: .result(actionButtonIntent: AdvanceIntent())) }
+        do { try await StartClassIntent(style: self?.startedStyle ?? .todaysClass).donate(result: .result(actionButtonIntent: AdvanceIntent())) }
         catch { self?.donationFailed = true }
       }
     }
@@ -49,6 +50,7 @@ enum WorkoutStyle: String, AppEnum {
     guard !startingAction else { return }
     startingAction = true
     let plan = style == .todaysClass ? PlanLibrary.todaysPlan() ?? PlanLibrary.openTimer : PlanLibrary.openTimer
+    startedStyle = plan.planKey == "open-timer" ? .openTimer : .todaysClass
     let started = AsyncStream<Void> { continuation in
       recorder.onSessionBegan = { continuation.yield(()); continuation.finish() }
       Task { @MainActor in
@@ -78,7 +80,7 @@ enum WorkoutStyle: String, AppEnum {
 }
 
 struct StartClassIntent: StartWorkoutIntent {
-  static var title: LocalizedStringResource = "Start Håfa workout"
+  static let title: LocalizedStringResource = "Start Håfa workout"
   @Parameter(title: "Workout") var workoutStyle: WorkoutStyle
   @AppDependency private var runtime: WatchRuntime
   static var suggestedWorkouts: [Self] { [Self(style: .todaysClass), Self(style: .openTimer)] }
@@ -94,7 +96,7 @@ struct StartClassIntent: StartWorkoutIntent {
 }
 
 struct AdvanceIntent: AppIntent {
-  static var title: LocalizedStringResource = "Advance Håfa workout"
+  static let title: LocalizedStringResource = "Advance Håfa workout"
   @AppDependency private var runtime: WatchRuntime
   @MainActor func perform() async throws -> some IntentResult {
     await runtime.recover(); runtime.advance(); return .result()
@@ -102,7 +104,7 @@ struct AdvanceIntent: AppIntent {
 }
 
 struct PauseWorkoutIntent: AppIntents.PauseWorkoutIntent {
-  static var title: LocalizedStringResource = "Pause Håfa workout"
+  static let title: LocalizedStringResource = "Pause Håfa workout"
   @AppDependency private var runtime: WatchRuntime
   @MainActor func perform() async throws -> some IntentResult {
     await runtime.recover(); runtime.engine.pause(); return .result()
@@ -110,7 +112,7 @@ struct PauseWorkoutIntent: AppIntents.PauseWorkoutIntent {
 }
 
 struct ResumeWorkoutIntent: AppIntents.ResumeWorkoutIntent {
-  static var title: LocalizedStringResource = "Resume Håfa workout"
+  static let title: LocalizedStringResource = "Resume Håfa workout"
   @AppDependency private var runtime: WatchRuntime
   @MainActor func perform() async throws -> some IntentResult {
     await runtime.recover(); runtime.engine.resume(); return .result()

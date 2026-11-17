@@ -158,6 +158,34 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertFalse(recorder.calls.contains("discard"))
   }
 
+  func testExpiredDeferredBoundaryIsCheckpointedBeforeFiveSecondInterval() async throws {
+    let first = engine()
+    try await first.start(plan(part("A", .forTime, rounds: 1), part("B", .amrap, cap: 600)), leadIn: 0)
+    clock.advance(20); first.advance()
+    clock.advance(9); first.pause() // a checkpoint just before undo expiry
+    XCTAssertFalse(store.load()!.deferredEvents!.isEmpty)
+    clock.advance(1.1); first.tick()
+    XCTAssertEqual(store.load()?.deferredEvents, [])
+    XCTAssertNil(store.load()?.deferredUntil)
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 20" }.count, 1)
+    recorder.liveSession = true
+    let recovered = engine()
+    await recovered.recover()
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 20" }.count, 1, "crash must not replay an applied boundary")
+  }
+
+  func testUndoAfterOldCatchUpKeepsHealthOnNewPart() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .amrap, cap: 60), part("B", .amrap, cap: 600)), leadIn: 0)
+    clock.advance(200)
+    XCTAssertEqual(engine.advance(), .applied(.round(1)))
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 60" }.count, 1)
+    clock.advance(1)
+    XCTAssertTrue(engine.undo())
+    XCTAssertEqual(engine.runner?.runs[1].taps.count, 0)
+    XCTAssertEqual(recorder.calls.filter { $0 == "part B 60" }.count, 1)
+  }
+
   func testRecordingFollowsTheParts() async throws {
     let engine = engine()
     try await engine.start(twoParts, leadIn: 3)
@@ -331,7 +359,7 @@ final class WorkoutEngineTests: XCTestCase {
     try await first.start(plan(part("A", .forTime, rounds: 1), part("B", .sets)), leadIn: 0)
     clock.advance(20)
     first.advance()
-    XCTAssertEqual(recorder.calls, ["begin 11 0", "part A 0"])
+    XCTAssertEqual(recorder.calls, ["recover inPart=false", "begin 11 0", "part A 0"])
     recorder.liveSession = true
     let second = engine()
     await second.recover()
@@ -339,7 +367,7 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertTrue(second.undo())
     XCTAssertEqual(second.runner?.cursor, 0)
     XCTAssertEqual(second.runner?.runs[0].taps.count, 0)
-    XCTAssertEqual(recorder.calls, ["begin 11 0", "part A 0", "recover inPart=true"])
+    XCTAssertEqual(recorder.calls, ["recover inPart=false", "begin 11 0", "part A 0", "recover inPart=true"])
     await second.finish()
     XCTAssertEqual(recorder.finishedSegments, [])
     XCTAssertEqual(recorder.calls.filter { $0.hasPrefix("end part") }, ["end part 22"])

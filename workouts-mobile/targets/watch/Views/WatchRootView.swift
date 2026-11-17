@@ -83,23 +83,16 @@ struct ClassView: View {
     }) { sheet in
       switch sheet {
       case .capReps(let index): RepSheet(index: index)
-      case .confirmation(let control):
-        VStack(spacing: 12) {
-          Text(control == .end ? "End this class?" : "Skip this part?").font(Theme.display(26))
-          Button(control == .end ? "End class" : "Skip part") { engine.confirmControl(); page = 1 }
-            .buttonStyle(WatchButton(role: .destructive))
-          Button("Keep going") { engine.pendingControl = nil }.buttonStyle(WatchButton(role: .secondary))
-        }
+      case .confirmation: ControlConfirmation()
       }
     }
-    .overlay(alignment: .bottom) {
-      VStack(spacing: 4) {
+    .safeAreaInset(edge: .bottom, spacing: 2) {
       if !dimmed {
         if let runner = engine.runner, runner.canUndo(at: Date()) {
-          Button("Undo") { _ = engine.undo() }.buttonStyle(WatchButton())
+          UndoPill { _ = engine.undo() }
+        } else if let notice = runtime.notice {
+          Text(notice).font(.caption).padding(6).background(Theme.surface, in: Capsule())
         }
-        if let notice = runtime.notice { Text(notice).font(.footnote).padding(8).background(Theme.surface) }
-      }
       }
     }
     .onChange(of: engine.runner) { old, new in
@@ -224,6 +217,32 @@ struct ClassView: View {
     let key = "\(runner.cursor)-\(seconds)"
     if (1...3).contains(seconds), lastCue != key {
       lastCue = key; WKInterfaceDevice.current().play(.click)
+    }
+  }
+}
+
+struct UndoPill: View {
+  var undo: () -> Void
+  var body: some View {
+    Button("Undo", action: undo)
+      .font(.system(size: 14, weight: .semibold))
+      .buttonStyle(.plain)
+      .foregroundStyle(Theme.text)
+      .frame(width: 96, height: 32)
+      .background(Theme.surface, in: Capsule())
+  }
+}
+
+struct ControlConfirmation: View {
+  @EnvironmentObject private var engine: WorkoutEngine
+  var body: some View {
+    VStack(spacing: 8) {
+      Text(engine.pendingControl == .end ? "End this class?" : "Skip this part?")
+        .font(Theme.display(26))
+      Button("Keep going") { engine.pendingControl = nil }.buttonStyle(WatchButton())
+      Button(engine.pendingControl == .end ? "End class" : "Skip part") {
+        engine.confirmControl()
+      }.buttonStyle(WatchButton(role: .destructive))
     }
   }
 }

@@ -234,6 +234,7 @@ struct PartRunner: Codable, Equatable {
   var isOpenPart: Bool { part?.rounds == nil && (part?.kind == .forTime || part?.kind == .sets) }
 
   mutating func completePart(at now: Date) -> [RunnerEvent] {
+    clearUndo()
     var events = tick(at: now)
     guard phase == .running, isOpenPart, pausedAt == nil else { return events }
     close(at: now, &events)

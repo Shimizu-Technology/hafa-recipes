@@ -23,7 +23,7 @@ struct HomeView: View {
             .font(.footnote).foregroundStyle(Theme.muted)
         }
         ForEach(PlanLibrary.plans, id: \.planKey) { plan in
-          Button(plan.title) { start(plan) }.buttonStyle(WatchButton())
+          Button(plan.title) { start(plan) }.buttonStyle(WatchButton(role: .secondary))
         }
         if health.status == .answered {
           ActionHelp()
@@ -45,6 +45,7 @@ struct HomeView: View {
       await health.refresh()
       if health.status == .notAsked || health.status == .failed { await health.request() }
       guard health.status == .answered else { engine.startError = "Allow Health before starting a class."; return }
+      WatchRuntime.shared.startedStyle = plan.planKey == "open-timer" ? .openTimer : .todaysClass
       do { try await engine.start(plan, leadIn: 3) }
       catch { /* Engine retains the error across the loading transition. */ }
     }
@@ -97,7 +98,7 @@ private struct ActionHelp: View {
   @EnvironmentObject private var runtime: WatchRuntime
   @State private var showing = false
   var body: some View {
-    Button("Action button help") { showing = true }.buttonStyle(WatchButton())
+    Button("Action button help") { showing = true }.buttonStyle(WatchButton(role: .secondary))
       .sheet(isPresented: $showing) {
         ScrollView {
           VStack(alignment: .leading, spacing: 12) {
