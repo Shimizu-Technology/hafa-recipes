@@ -16,9 +16,11 @@ from app.domains.workouts.class_extraction import (
     SCREENSHOT_NOTICE,
     TRANSCRIPT_FAILED,
     TRANSCRIPT_LOCATION,
+    TranscriptTooLong,
     prompt_echo,
     transcript_text,
 )
+from app.domains.workouts.class_outline import add_rest_stations
 from app.domains.workouts.execution import has_dose
 from app.domains.workouts.extraction import (
     OUTPUT_TOKENS,
@@ -29,8 +31,10 @@ from app.domains.workouts.extraction import (
     SourceBundle,
     SourceImage,
     SourceMetadata,
+    SourcePart,
     WorkoutExtractor,
     _numeric_supported,
+    _time_evidence_supported,
     ground_workout,
 )
 from app.domains.workouts.schemas import ExercisePrescription, WorkoutBlock
@@ -187,8 +191,9 @@ async def test_the_minute_rows_restore_a_missing_rotation_or_rest_station(rest_s
 
 
 @pytest.mark.asyncio
-async def test_a_failed_copy_falls_back_to_reading_the_images():
-    provider = Provider(failure=ExtractionFailure("provider_invalid_response"))
+@pytest.mark.parametrize("code", ["provider_invalid_response", "class_transcript_too_long"])
+async def test_a_failed_copy_falls_back_to_reading_the_images(code):
+    provider = Provider(failure=ExtractionFailure(code))
     result = await run(provider)
     assert provider.calls == ["transcribe", "extract"]
     assert provider.seen.parts == [] and len(provider.seen.images) == 2
@@ -248,12 +253,64 @@ def test_no_rest_grounds_zero_rest_only():
     assert not _numeric_supported("rest_seconds", 30, "no rest")
 
 
+def test_a_copy_over_the_text_limit_is_rejected_not_cut():
+    assert transcript_text({"lines": LINES}, len(TRANSCRIPT)) == TRANSCRIPT
+    with pytest.raises(TranscriptTooLong):
+        transcript_text({"lines": LINES}, len(TRANSCRIPT) - 1)
+
+
+def emom_block(label, *names):
+    return {"id": label, "label": label, "execution": {"mode": "emom", "interval_seconds": 60},
+            "exercises": [{"name": name} for name in names]}
+
+
+def rest_slots(raw):
+    return [[(item["name"], item.get("duration_seconds")) for item in block["exercises"]] for block in raw["blocks"]]
+
+
+def test_a_rest_minute_goes_only_to_its_own_part():
+    page = SourcePart(TRANSCRIPT_LOCATION, "A. Every minute for 10 minutes:\nMinute 1\nRow 10 calories\n"
+                      "Minute 2\nRest for 1 minute\nB. Every minute for 10 minutes:\nMinute 1\nRest for 30 seconds\n"
+                      "Minute 2\nRow 12 calories")
+    raw = {"blocks": [emom_block("A", "Row", "Rest"), emom_block("B", "Row")]}
+    assert rest_slots(add_rest_stations(raw, [page])) == [
+        [("Row", None), ("Rest", None)], [("Rest", 30), ("Row", None)]]
+    # Unlettered blocks naming a movement both parts list are left as they are.
+    raw = {"blocks": [emom_block("Every minute", "Row", "Rest"), emom_block("Every minute", "Row")]}
+    assert add_rest_stations(raw, [page]) == raw
+
+
+def test_every_emom_part_missing_its_rest_minute_gets_one():
+    page = SourcePart(TRANSCRIPT_LOCATION, "A. Every minute for 9 minutes:\nMinute 1\n10 Burpees\nMinute 2\n"
+                      "12 Air Squats\nMinute 3\nRest\nB. Every minute for 12 minutes:\nMinute 1\n"
+                      "Bike 10 calories\nMinute 2\nRest for 1 minute")
+    raw = {"blocks": [emom_block("A", "Burpees", "Air Squats"), emom_block("B", "Bike")]}
+    assert rest_slots(add_rest_stations(raw, [page])) == [
+        [("Burpees", None), ("Air Squats", None), ("Rest", None)], [("Bike", None), ("Rest", 60)]]
+
+
+def test_no_rest_between_exercises_leaves_the_round_rest():
+    source = SourceBundle(SourceMetadata(), [SourcePart(TRANSCRIPT_LOCATION, "3 rounds, no rest between exercises, "
+                                                        "rest 60 seconds between rounds")], [])
+
+    def supported(field, value, wording):
+        entry = SimpleNamespace(wording=wording, location=TRANSCRIPT_LOCATION)
+        return _time_evidence_supported(field, value, entry, source)
+    assert not supported("rest_between_rounds_seconds", 0, "no rest between exercises")
+    assert supported("rest_seconds", 0, "no rest between exercises")
+    assert supported("rest_between_rounds_seconds", 60, "rest 60 seconds between rounds")
+    assert not _numeric_supported("rest_seconds", 0, "no rest between rounds")
+
+
 def test_calories_and_an_emom_max_effort_are_doses():
     emom = WorkoutBlock(id="b", label="B", execution={"mode": "emom", "interval_seconds": 60, "intervals": 20})
     plain = WorkoutBlock(id="c", label="C")
     assert has_dose(plain, ExercisePrescription(name="Rower", calories=15, calories_min=12))
     assert has_dose(emom, ExercisePrescription(name="Plank Hold", effort="Max"))
+    assert has_dose(emom, ExercisePrescription(name="Push-Ups", effort="max reps"))
     assert not has_dose(plain, ExercisePrescription(name="Plank Hold", effort="Max"))
+    # A percentage of a max is a load, not how much to do.
+    assert not has_dose(emom, ExercisePrescription(name="Back Squat", effort="80% of max"))
     open_ended = WorkoutBlock(id="d", label="D", execution={"mode": "emom", "interval_seconds": 60})
     assert not has_dose(open_ended, ExercisePrescription(name="Plank Hold", effort="Max"))
 
@@ -288,12 +345,12 @@ async def test_the_copy_is_one_primary_model_call_with_its_own_budget_reservatio
             pass
 
     monkeypatch.setattr(app.ai_governance, "AIInvocationTracker", Tracker)
-    payloads, replies = [], []
+    payloads, replies, body = [], [], list(LINES)
 
     def respond(request):
         payloads.append(json.loads(request.content))
         return httpx.Response(200, json={"choices": [{"finish_reason": replies.pop(0), "message": {
-            "content": json.dumps({"lines": LINES})}}]})
+            "content": json.dumps({"lines": body})}}]})
 
     actual = httpx.AsyncClient
     monkeypatch.setattr(module.httpx, "AsyncClient",
@@ -313,3 +370,8 @@ async def test_the_copy_is_one_primary_model_call_with_its_own_budget_reservatio
     with pytest.raises(ExtractionFailure, match="provider_incomplete_response"):
         await ProductionExtractionProvider(budget_guard=budget, development_api_key="k").transcribe_class(source)
     assert len(payloads) == 2 and budget.outcomes == ["success", "failed"]
+    replies.append("stop")
+    body.append("x" * module.MAX_TEXT_CHARS)  # Never cut to the limit with the later parts gone.
+    with pytest.raises(ExtractionFailure, match="class_transcript_too_long"):
+        await ProductionExtractionProvider(budget_guard=budget, development_api_key="k").transcribe_class(source)
+    assert budget.outcomes == ["success", "failed", "failed"]

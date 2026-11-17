@@ -307,30 +307,48 @@ def _minute_slots(part):
 
 def add_rest_stations(raw, parts):
     """A "Minute 5 / Rest for 1 minute" slot is a station the rotation counts.
-    Add it when the import left it out, so 25 minutes stays 5 rounds of 5."""
+    Add it when the import left it out, so 25 minutes stays 5 rounds of 5.
+
+    A block takes only its own part's rest: one labelled with that part's letter,
+    or an unlettered one whose movements no other part lists. Two candidates, or
+    movements two parts share, leave the block as it is."""
+    original = raw
     try:
+        raw = deepcopy(raw)
+        blocks = raw.get("blocks") or []
         for source in parts:
-            for part in read_outline(source.text).parts:
+            outline = read_outline(source.text).parts
+            printed = {id(part): words(part.text()) for part in outline}
+            for part in outline:
                 slots = _minute_slots(part)
                 if not any(rest for rest, _ in slots) or _mixed_minutes(part):
                     continue
-                printed = words(part.text())
-                for index, block in enumerate(raw.get("blocks") or []):
+                candidates = []
+                for block in blocks:
                     moves = block.get("exercises") or []
                     if ((block.get("execution") or {}).get("mode") != "emom" or not moves
                             or any(re.fullmatch(r"\s*rest\s*", move.get("name") or "", re.I) for move in moves)
-                            or not all(words(move.get("name") or "") and words(move["name"]) <= printed for move in moves)
+                            or not all(words(move.get("name") or "") and words(move["name"]) <= printed[id(part)]
+                                       for move in moves)
                             or len(moves) != sum(not rest for rest, _ in slots)):
                         continue
-                    raw = deepcopy(raw)
-                    moves = raw["blocks"][index]["exercises"]
-                    for position, (rest, row) in enumerate(slots):
-                        if rest:
-                            moves.insert(position, _rest_station(row, source.location))
-                    return raw
+                    letter = re.match(r"\s*([A-Z])(?:\d|\b)", block.get("label") or "")
+                    if letter:
+                        if letter[1] == part.key:
+                            candidates.append(block)
+                    elif not any(other is not part and all(words(move["name"]) <= printed[id(other)] for move in moves)
+                                 for other in outline):
+                        candidates.append(block)
+                if len(candidates) != 1:
+                    continue
+                moves = candidates[0]["exercises"]
+                for position, (rest, row) in enumerate(slots):
+                    if rest:
+                        moves.insert(position, _rest_station(row, source.location))
+        return raw
     except Exception:  # noqa: BLE001 - a heuristic reader must never fail the import
         logger.exception("workouts_class_rest_station_failed")
-    return raw
+    return original
 
 
 def _rest_station(row, location):

@@ -57,6 +57,10 @@ SCREENSHOT_NOTICE = "This class was read from screenshots; check it against the 
 TRANSCRIPT_FAILED = "The screenshots could not be copied as text first; check every part against the class."
 
 
+class TranscriptTooLong(ValueError):
+    """The copy is longer than a pasted class may be; the images are read instead."""
+
+
 def transcript_messages(source):
     """Untrusted screenshots sit inside one user message, never a role."""
     content = [{"type": "text", "text": "Class screenshots, in scrolling order:"}]
@@ -73,12 +77,17 @@ def transcript_response_format():
 
 
 def transcript_text(raw, limit):
+    """The copied lines as one text. A copy over the text limit raises instead of
+    being cut, so a part past the cut cannot go missing from a ready class."""
     lines = raw["lines"]
     if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
         raise ValueError("transcript lines")
     # "⟳ 3 alternating sets", "⏱ B. Every minute" and "▪ Rower" lose their icons so the layout reads them.
     lines = [re.sub(r"^[^\w\s\-–(\"'“‘]+\s*", "", line.strip()) for line in lines]
-    return "\n".join(line for line in lines if line)[:limit]
+    text = "\n".join(line for line in lines if line)
+    if len(text) > limit:
+        raise TranscriptTooLong(len(text))
+    return text
 
 
 @cache

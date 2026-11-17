@@ -690,6 +690,7 @@ class ProductionExtractionProvider:
         from app.ai_governance import AIInvocationTracker
         from app.config import get_settings
         from app.domains.workouts.class_extraction import (
+            TranscriptTooLong,
             transcript_messages,
             transcript_response_format,
             transcript_text,
@@ -735,7 +736,10 @@ class ProductionExtractionProvider:
                     choice = data["choices"][0]
                     if choice.get("finish_reason") != "stop" or choice["message"].get("refusal"):
                         raise ExtractionFailure("provider_incomplete_response")
-                    text = transcript_text(json.loads(choice["message"]["content"]), MAX_TEXT_CHARS)
+                    try:
+                        text = transcript_text(json.loads(choice["message"]["content"]), MAX_TEXT_CHARS)
+                    except TranscriptTooLong:
+                        raise ExtractionFailure("class_transcript_too_long") from None
                     paid.complete(outcome="success")
                     invocation.succeed(data)
                     return text
@@ -1187,6 +1191,13 @@ def _affirmative_side_counts(wording: str):
         yield from counts
 
 
+# What "no rest between ___" can zero: a round's rest, or a movement's rest after its sets.
+ZERO_REST_SCOPES = {
+    "rest_between_rounds_seconds": {"set", "round", "circuit"},
+    "rest_seconds": {"set", "exercise", "movement", "move", "station", "rep"},
+}
+
+
 def _numeric_supported(field_name: str, value: int | float, wording: str, exercise_name: str | None = None) -> bool:
     numbers = [float(number) for number in re.findall(r"(?<!\w)\d+(?:\.\d+)?", wording)]
     if field_name in {"duration_seconds", "rest_seconds", "rest_between_rounds_seconds", "estimated_minutes"}:
@@ -1200,8 +1211,11 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
         trailing_role = role.replace("|every|", r"|every(?=\s+(?:\d+\s*)?(?:minutes?|mins?|intervals?)\b)|")
         unit_pattern = r"(\d+(?:\.\d+)?)\s*-?\s*(seconds?|secs?|s\b|minutes?|mins?|m\b)"
         if value == 0 and field_name in {"rest_seconds", "rest_between_rounds_seconds"}:
-            # "3 alternating sets, with no rest between sets of:" states zero rest.
-            return bool(re.search(r"\b(?:no|without)\s+rest\b", wording, re.I))
+            # "3 alternating sets, with no rest between sets of:" states zero rest. A
+            # named scope must fit: "no rest between exercises" says nothing about rounds.
+            scopes = ZERO_REST_SCOPES[field_name]
+            return any(not found[1] or found[1].lower().rstrip("s") in scopes for found in re.finditer(
+                r"\b(?:no|without)\s+rest\b(?:\s+(?:between|after)\s+(?:the\s+|each\s+)?([a-z]+))?", wording, re.I))
         for clause in re.split(r"[;,\n]|[.!?](?:\s|$)", scalar_wording):
             if field_name != "estimated_minutes" and _overall_minutes_supported(value / 60, clause):
                 continue

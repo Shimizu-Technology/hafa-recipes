@@ -61,6 +61,10 @@ def timed_duration_minutes(workout: WorkoutContent) -> int | None:
     return None if seconds is None else (seconds + 59) // 60
 
 
+# "Max", "Max Distance", "max reps": the effort is the movement's target. "80% of max" is a load.
+MAX_EFFORT = re.compile(r"\s*max(?:imum)?(?:\s+(?:effort|reps?|distance|hold|calories|cals?))?\s*", re.I)
+
+
 def has_dose(block: WorkoutBlock, exercise) -> bool:
     """Reps, a rep scheme/ladder, time, distance or calories; a work interval times
     each move, and an EMOM minute bounds a "Max" effort."""
@@ -69,7 +73,7 @@ def has_dose(block: WorkoutBlock, exercise) -> bool:
         exercise.rep_scheme, exercise.ladder, getattr(exercise, "calories", None),
     )) or (block.execution is not None and block.execution.mode == "work_rest") or (
         block.execution is not None and block.execution.mode == "emom" and block.execution.intervals is not None
-        and bool(re.search(r"\bmax\b", exercise.effort or "", re.I)))
+        and bool(MAX_EFFORT.fullmatch(exercise.effort or "")))
 
 
 def format_complete(block: WorkoutBlock) -> bool:
