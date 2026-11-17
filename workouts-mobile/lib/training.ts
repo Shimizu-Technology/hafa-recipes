@@ -417,7 +417,8 @@ export function createTrainingStore(
   storage: Storage,
   owner: string,
   generation: number,
-  clock: () => number = Date.now
+  clock: () => number = Date.now,
+  saveWatchWorkout?: (workout: AuthoredWorkout, key: string, generation: number) => Promise<Workout>
 ) {
   let state: TrainingState = { version: 1, generation, active: null, history: [] };
   let loaded = false;
@@ -479,7 +480,18 @@ export function createTrainingStore(
     let previousRejection: number | null = null;
     for (const item of queue) {
       try {
-        const saved = await send(clone(item.request), item.generation);
+        let request = clone(item.request);
+        if (item.watch_quick) {
+          if (!saveWatchWorkout) throw Object.assign(Error("Wait for the phone to prepare this watch workout."), { local: true });
+          const workout = await saveWatchWorkout(item.workout, `watch-${request.client_session_id}`, generation);
+          if (workout.generation !== generation) throw Object.assign(Error("The account changed."), { local: true });
+          await update(s => {
+            const local = s.history.find(h => h.request.client_session_id === request.client_session_id)!;
+            local.workout = workout; local.request.workout_id = workout.id; local.request.workout_revision = workout.revision;
+            delete local.watch_quick; request = clone(local.request); return s;
+          });
+        }
+        const saved = await send(request, item.generation);
         if (item.recovered_with && (saved.generation !== item.generation ||
           saved.client_session_id?.toLowerCase() !== item.request.client_session_id.toLowerCase()))
           throw Object.assign(Error("The saved recovery response changed. Retry after refreshing your account."), { local: true });
@@ -627,14 +639,6 @@ export function createTrainingStore(
         if (!s.watch_imported?.includes(id) && !s.history.some(h => h.request.client_session_id.toLowerCase() === id)) s.history.unshift(clone(item));
         s.watch_imported = [...new Set([...(s.watch_imported ?? []), id])];
         return s;
-      });
-    },
-    prepareWatchWorkout(id: string, workout: Workout) {
-      return update(s => {
-        const item = s.history.find(h => h.request.client_session_id === id);
-        if (!item?.watch_quick) return s;
-        item.workout = workout; item.request.workout_id = workout.id; item.request.workout_revision = workout.revision;
-        delete item.watch_quick; return s;
       });
     },
     subscribe(fn: () => void) {

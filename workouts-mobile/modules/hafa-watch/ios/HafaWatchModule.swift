@@ -8,12 +8,28 @@ final class PhoneWatchLink: NSObject, WCSessionDelegate {
   // All inbox operations use this queue, including JS calls.
   let queue = DispatchQueue(label: "hafa-watch.inbox")
   var changed: (() -> Void)?
+  private var plansURL: URL { inbox.directory.deletingLastPathComponent().appendingPathComponent("outgoing-plans.json") }
+  func setPlans(_ json: String) throws {
+    try queue.sync {
+      try FileManager.default.createDirectory(at: plansURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data(json.utf8).write(to: plansURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+      try pushPlans()
+    }
+  }
+  private func pushPlans() throws {
+    guard WCSession.default.activationState == .activated, WCSession.default.isPaired,
+      let json = try? String(contentsOf: plansURL, encoding: .utf8) else { return }
+    try WCSession.default.updateApplicationContext(["plans": json])
+  }
   func activate() {
     guard WCSession.isSupported() else { return }
     WCSession.default.delegate = self
     WCSession.default.activate()
   }
-  func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
+  func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
+    queue.async { try? self.pushPlans() }
+  }
+  func sessionWatchStateDidChange(_ session: WCSession) { queue.async { try? self.pushPlans() } }
   func sessionDidBecomeInactive(_ session: WCSession) {}
   func sessionDidDeactivate(_ session: WCSession) { session.activate() }
   func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
@@ -44,7 +60,7 @@ public final class HafaWatchModule: Module {
     OnStopObserving { PhoneWatchLink.shared.changed = nil }
     AsyncFunction("setPlans") { (json: String) in
       guard json.utf8.count < 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
-      try WCSession.default.updateApplicationContext(["plans": json])
+      try PhoneWatchLink.shared.setPlans(json)
     }
     AsyncFunction("pendingResults") { () -> [String] in
       try PhoneWatchLink.shared.queue.sync { try PhoneWatchLink.shared.inbox.pending() }

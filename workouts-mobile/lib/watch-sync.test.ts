@@ -13,9 +13,9 @@ const result = (): WatchResult => ({ v: 1, recorded_on: "watch", client_session_
   actuals: [...roundActuals(workout.blocks[0], 1), ...roundActuals(workout.blocks[0], 2), { block_id: workout.blocks[0].id,
     exercise_index: 0, round_index: 1, set_index: 1, side: null, completed: true, distance_meters: 1000 }], results: [],
   parts: [{ block_id: workout.blocks[0].id, start, end, active_seconds: 900, rounds: 2, buy_in_done_at: "2026-11-17T00:03:00Z", skipped: false }], segments: [] });
-function setup() {
+function setup(saveWorkout?: Parameters<typeof createTrainingStore>[4]) {
   const memory = new Map<string, string>();
-  return createTrainingStore({ getItem: async k => memory.get(k) ?? null, setItem: async (k, v) => { memory.set(k, v); }, removeItem: async k => { memory.delete(k); } }, "synthetic", 1);
+  return createTrainingStore({ getItem: async k => memory.get(k) ?? null, setItem: async (k, v) => { memory.set(k, v); }, removeItem: async k => { memory.delete(k); } }, "synthetic", 1, Date.now, saveWorkout);
 }
 describe("watch sync", () => {
   it("selects dated plans plus five recent starts within the UTF-8 budget", () => {
@@ -56,6 +56,24 @@ describe("watch sync", () => {
     await drainWatch({ ...options, current: () => true, pendingResults: async () => [JSON.stringify(r)] });
     expect(store.snapshot().history[0].watch_quick).toBe(true);
     expect(store.snapshot().history[0].workout.title).toContain("watch, Nov 17"); expect(marked).toBe(1);
+  });
+  it("manual sync creates a private quick workout before the session and persists its source", async () => {
+    let creations = 0;
+    const store = setup(async (_workout, key, generation) => {
+      expect(key).toBe(`watch-${result().client_session_id}`); creations++;
+      return { ...workout, id: "saved-private-timer", generation };
+    });
+    await store.load(); const r = result(); r.plan = { ...plan, title: "Open timer", source: undefined }; r.plan_key = "open-timer";
+    r.parts = [{ ...r.parts[0], block_id: "timer" }]; r.actuals = [];
+    await drainWatch({ store, account, generation: 1, catalog: {}, current: () => true,
+      pendingResults: async () => [JSON.stringify(r)], markImported: async () => {} });
+    await store.sync(async request => {
+      expect(creations).toBe(1); expect(request.workout_id).toBe("saved-private-timer");
+      expect(store.snapshot().history[0].watch_quick).toBeUndefined();
+      return { id: "saved-session", generation: 1, client_session_id: request.client_session_id, title: "Open timer",
+        started_at: request.started_at, status: request.status, content: { ...request, prescription_snapshot: workout } };
+    });
+    expect(store.snapshot().history[0].request.workout_id).toBe("saved-private-timer");
   });
   it("keeps an active phone session and flags the collision", async () => {
     const store = setup(); await store.load();

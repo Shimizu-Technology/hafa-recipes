@@ -24,7 +24,6 @@ import { createEnrollmentBootstrap, createVerifiedIdentityCache, type BootstrapS
 import type { Enrollment, TrainingProfile } from "./models";
 import { createTrainingStore, type TrainingStore, type UnitSystem } from "./training";
 import { useWatchSync } from "./use-watch-sync";
-import { authoredWorkout } from "./api";
 import { createTrainingSync } from "./training-sync";
 interface ContextValue {
   api: WorkoutsApi;
@@ -70,14 +69,14 @@ function OfflineProvider({
   generation: number | null;
   storage: ReturnType<typeof privateRegistry.capture>;
 }>) {
+  const training = useContext(Context)!;
   const store = useMemo(
-    () => (generation == null ? null : createTrainingStore(storage, owner, generation)),
-    [owner, generation, storage]
+    () => (generation == null ? null : createTrainingStore(storage, owner, generation, Date.now, training.api.saveWorkout)),
+    [owner, generation, storage, training.api]
   );
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const training = useContext(Context)!;
   const currentTraining = useRef(training);
   currentTraining.current = training;
   const cache = useQueryClient();
@@ -87,16 +86,7 @@ function OfflineProvider({
     const current = () => currentTraining.current.owner === owner &&
       currentTraining.current.enrollment?.enrolled === true && currentTraining.current.enrollment.generation === generation &&
       currentTraining.current.isCurrentAccount() && storage.isCurrent();
-    const sync = createTrainingSync({ store, send: async (request, epoch) => {
-      const item = store.snapshot().history.find(h => h.request.client_session_id === request.client_session_id);
-      if (item?.watch_quick) {
-        const workout = await training.api.saveWorkout(authoredWorkout(item.workout), `watch-${request.client_session_id}`, epoch);
-        if (!current()) throw Error("Account changed before saving the watch workout.");
-        await store.prepareWatchWorkout(request.client_session_id, workout);
-        request = { ...request, workout_id: workout.id, workout_revision: workout.revision };
-      }
-      return training.api.saveSession(request, epoch);
-    }, current,
+    const sync = createTrainingSync({ store, send: training.api.saveSession, current,
       foreground: AppState.currentState === "active", online: onlineManager.isOnline(),
       onSaved: () => cache.invalidateQueries({ queryKey: [owner, "sessions", generation] }),
     });
