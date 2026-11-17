@@ -9,6 +9,8 @@ from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import MAX_BYTES, read_bytes
 from app.domains.baby.provider import (
+    AI_UNAVAILABLE_MESSAGE,
+    DAILY_LIMIT_MESSAGE,
     IMAGE_READING_DISCLOSURE,
     MAX_SOURCE_IMAGES,
     budget_failure_message,
@@ -40,6 +42,56 @@ def sampling_disclosure(note):
     ) is not None or re.fullmatch(
         r"Some (key points|steps|topics) were left out of the organized view; read the saved slide text and originals for more\.", note
     ) is not None
+
+
+SAMPLED_FRAME = re.compile(r"image:\d+ sampled at [0-9.e+-]+s; samples do not cover every frame\.")
+# A whole thing she supplied went unread, or AI stopped partway. Never just a note.
+LOST_NOTES = (
+    "An attachment could not be read.",
+    DAILY_LIMIT_MESSAGE,
+    AI_UNAVAILABLE_MESSAGE,
+)
+MEDIA_PLATFORMS_EXCLUDED = {None, "", "web", "text", "upload"}
+
+
+def missing_reason(data, *, ai_expected):
+    """What a parent needs that is missing, or None. Only this makes a post "incomplete".
+
+    A readable post has text read from the post itself and, when AI was asked to
+    organize it, a summary. A video or photo post also needs more than its
+    caption: its speech or its pictures. Sampling, condensing and a partly read
+    channel stay in coverage_notes as notes, not as a failure to retry.
+    """
+    read = {
+        str(entry.get("location") or "")
+        for entry in data.get("evidence") or []
+        if isinstance(entry, dict) and str(entry.get("text") or "").strip()
+    } - {"user_note"}
+    notes = [note for note in data.get("coverage_notes") or [] if isinstance(note, str)]
+    if not read:
+        return "nothing_read_from_post"
+    if any(note.startswith(LOST_NOTES) for note in notes):
+        return "attachment_unread_or_ai_stopped"
+    if not ai_expected:
+        return None
+    if not data.get("summary"):
+        return "no_summary"
+    media_post = data.get("url") and data.get("platform") not in MEDIA_PLATFORMS_EXCLUDED
+    pictures_read = any(note == IMAGE_READING_DISCLOSURE or SAMPLED_FRAME.fullmatch(note) for note in notes)
+    if media_post and read <= {"caption"} and not pictures_read:
+        return "only_caption_of_media_post"
+    return None
+
+
+def missing_content(data, *, ai_expected):
+    return missing_reason(data, ai_expected=ai_expected) is not None
+
+
+def fully_read(data):
+    """Ready with nothing but sampling notes: a reread this good may replace an earlier reading."""
+    return data.get("status") == "ready" and all(
+        sampling_disclosure(note) for note in data.get("coverage_notes") or []
+    )
 
 
 def safe_metadata(metadata):
@@ -454,10 +506,6 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     notes = list(dict.fromkeys([*source.metadata.coverage_notes, *failures]))
     if len(notes) > 30:
         notes = notes[:29] + [f"{len(notes) - 29} additional processing notes were left out; source coverage is incomplete."]
-    incomplete = failures or not text or any(
-        not sampling_disclosure(note) for note in source.metadata.coverage_notes
-    )
-    status = "incomplete" if incomplete else "ready"
     data = SourceData(
         url=request.get("url"),
         topics=topics,
@@ -467,18 +515,24 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         steps=steps,
         **safe_metadata(source.metadata),
         evidence=evidence,
-        status=status,
         coverage_notes=notes,
         relevance=relevance,
         suggested_category=suggestion,
     ).model_dump(mode="json")
+    ai_expected = may_use_ai and provider.enabled and bool(source.parts or source.images)
+    # Images that no AI looked at are unread content, whatever else was read.
+    incomplete = missing_content(data, ai_expected=ai_expected) or bool(source.images and not ai_expected)
+    status = data["status"] = "incomplete" if incomplete else "ready"
     # Attachment membership belongs to the editable record, never a processing result.
     data.pop("attachment_ids", None)
     return {
         "title": title,
         "data": data,
         "status": status,
-        "error": budget_failure_message(budget_failure)
+        # A readable post's notes are not an error to show on its import.
+        "error": None
+        if not incomplete
+        else budget_failure_message(budget_failure)
         if budget_failure
         else (failures[0] if failures else None),
     }

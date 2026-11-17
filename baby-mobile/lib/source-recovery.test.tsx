@@ -115,6 +115,9 @@ it("keeps older saved text separate from a new read and never resubmits it", asy
 it("keeps a quiet re-read action on a ready source", async () => {
   const view = await recovery(source("ready"));
   expect(JSON.stringify(view.toJSON())).toContain("Process this post again");
+  // Shut, under the post, not a "Read again" section above what it says.
+  expect(view.root.findByType("Disclosure" as React.ElementType).props.title).toBe("Read this post again");
+  expect(view.root.findAllByType("Section" as React.ElementType)).toHaveLength(0);
   await act(async () => view.root.findAllByType("Button" as React.ElementType)[0].props.onPress());
   expect(mock.baby.queue).toHaveBeenCalledTimes(1);
 });
@@ -144,4 +147,20 @@ it.each(Object.values(sourceRefusalMessages))("Library retry shows the refusal: 
   await act(async () => button.props.onPress());
   expect(JSON.stringify(recoveryView!.toJSON())).toContain(error);
   expect(mock.baby.api.retryJob).toHaveBeenCalledTimes(1);
+});
+
+it("says how a readable post was read as a calm line, and a missing read as a notice", async () => {
+  vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const notes = ["image:0 sampled at 1.5s; samples do not cover every frame.",
+    "AI condensed details in image batch 1; read the saved text and originals for full wording."];
+  let view!: ReturnType<typeof create>;
+  await act(async () => { view = create(<SourceContent data={{ status: "ready", summary: "The creator's charts.", source_text: "Charts",
+    coverage_notes: notes }} onError={vi.fn()} />); });
+  expect(view.root.findAllByType("Notice" as React.ElementType)).toHaveLength(0);
+  const calm = view.root.findAllByType("Copy" as React.ElementType).find((item) => String(item.props.children).startsWith("AI condensed"));
+  expect(calm?.props).toMatchObject({ kind: "small", tone: "muted" });
+  expect(String(calm?.props.children)).not.toContain("sampled");
+  await act(async () => view.update(<SourceContent data={{ status: "incomplete", source_text: "Charts", coverage_notes: notes }} onError={vi.fn()} />));
+  expect(view.root.findByType("Notice" as React.ElementType).props.children).toContain("AI condensed");
+  await act(async () => view.unmount());
 });

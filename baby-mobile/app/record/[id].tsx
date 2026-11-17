@@ -129,8 +129,9 @@ export default function RecordDetail() {
         <Notice>This device has a partial offline copy. Reconnect to load the complete source before editing.</Notice>
       )}
       {pending && <Notice>Saved on this device. Your latest changes will sync when a connection is available.</Notice>}
-      <SourceRecovery record={record} onError={setError} />
+      {data.status !== "ready" && <SourceRecovery record={record} onError={setError} />}
       {record.kind === "source" && <SourceContent data={data} onError={setError} />}
+      {data.status === "ready" && <SourceRecovery record={record} onError={setError} />}
       {/* When a tip shows up on Today belongs with the post, not under the page's other controls. */}
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
         onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
