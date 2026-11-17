@@ -26,6 +26,7 @@ enum WorkoutStyle: String, AppEnum {
     let recorder = HealthKitRecorder()
     self.recorder = recorder
     engine = WorkoutEngine(recorder: recorder, store: .standard(), outbox: .standard())
+    engine.onQueued = { PhoneLink.shared.flush() }
     recorder.beforeCollection = { [weak self] in
       await self?.health.refresh()
       await self?.health.request()
@@ -59,7 +60,7 @@ enum WorkoutStyle: String, AppEnum {
           recorder.onSessionBegan = nil
           continuation.finish()
         }
-        do { try await engine.start(plan, leadIn: 3) }
+        do { try await engine.start(plan, leadIn: TimeInterval(plan.leadInSeconds ?? 3)) }
         catch { /* Engine retains a start error for the root alert. */ }
       }
     }

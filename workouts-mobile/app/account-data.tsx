@@ -1,3 +1,5 @@
+import { nativeWatchBridge } from "@/lib/watch-native";
+import { watchAccountKey } from "@/lib/watch-sync";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/expo";
 import { useQueryClient } from "@tanstack/react-query";
@@ -28,7 +30,7 @@ export default function AccountData() {
   const exportBusy = busy || exportView.busy;
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [pendingCleanup, setPendingCleanup] = useState<"workouts" | null>(null);
+  const [pendingCleanup, setPendingCleanup] = useState<number | null>(null);
   const lock = useRef(false);
   const mounted = useRef(true);
   const legacySave = useRef<AbortController | null>(null);
@@ -105,8 +107,13 @@ export default function AccountData() {
       if (mounted.current && isCurrentAccount() && storage.isCurrent()) setBusy(false);
     }
   }
-  async function finishCleanup() {
+  async function finishCleanup(retiredGeneration: number) {
     const failures: string[] = [];
+    try {
+      await (await nativeWatchBridge())?.purgeResults(owner, watchAccountKey(owner, retiredGeneration));
+    } catch {
+      failures.push("Watch results still need cleanup.");
+    }
     try {
       await reminders.controller?.cleanupOwned();
     } catch {
@@ -135,7 +142,7 @@ export default function AccountData() {
     setError("");
     try {
       if (pendingCleanup) {
-        await finishCleanup();
+        await finishCleanup(pendingCleanup);
         return;
       }
       await eraseLocalData();
@@ -146,8 +153,8 @@ export default function AccountData() {
         const tombstone = await api.removeWorkoutsData(generation);
         cache.removeQueries({ predicate: (q) => q.queryKey[0] === owner && q.queryKey[1] !== "enrollment" });
         cache.setQueryData([owner, "enrollment"], tombstone);
-        setPendingCleanup("workouts");
-        await finishCleanup();
+        setPendingCleanup(generation);
+        await finishCleanup(generation);
       } else {
         if (!userId || !sessionId) throw Error("Verify your current sign-in before deleting the account.");
         const acknowledgement = { version: 1 as const, owner, subject: userId, sessionId,

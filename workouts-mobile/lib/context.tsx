@@ -1,3 +1,4 @@
+import { clearWatchPlans, resumeWatchSync } from "@/lib/watch-native";
 import { ActivityIndicator } from "react-native";
 import { Screen, Notice, Button, Copy } from "@/components/ui";
 import {
@@ -23,6 +24,7 @@ import { commitTrainingSetup, activeTrainingGeneration } from "./onboarding-stat
 import { createEnrollmentBootstrap, createVerifiedIdentityCache, type BootstrapState, type EnrollmentSetupLease } from "./enrollment-bootstrap";
 import type { Enrollment, TrainingProfile } from "./models";
 import { createTrainingStore, type TrainingStore, type UnitSystem } from "./training";
+import { useWatchSync } from "./use-watch-sync";
 import { createTrainingSync } from "./training-sync";
 interface ContextValue {
   api: WorkoutsApi;
@@ -45,7 +47,7 @@ interface ContextValue {
   setUnits(value: UnitSystem): Promise<void>;
 }
 const Context = createContext<ContextValue | null>(null);
-const OfflineContext = createContext<{ store: TrainingStore | null; ready: boolean; error: string; retry(): void }>({
+const OfflineContext = createContext<{ store: TrainingStore | null; ready: boolean; error: string; retry(): void; watchSync?: ReturnType<typeof useWatchSync> }>({
   store: null,
   ready: false,
   error: "",
@@ -68,17 +70,18 @@ function OfflineProvider({
   generation: number | null;
   storage: ReturnType<typeof privateRegistry.capture>;
 }>) {
+  const training = useContext(Context)!;
   const store = useMemo(
-    () => (generation == null ? null : createTrainingStore(storage, owner, generation)),
-    [owner, generation, storage]
+    () => (generation == null ? null : createTrainingStore(storage, owner, generation, Date.now, training.api.saveWorkout)),
+    [owner, generation, storage, training.api]
   );
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const training = useContext(Context)!;
   const currentTraining = useRef(training);
   currentTraining.current = training;
   const cache = useQueryClient();
+  const watchSync = useWatchSync(store, ready);
   useEffect(() => {
     if (!ready || !store) return;
     const current = () => currentTraining.current.owner === owner &&
@@ -113,7 +116,7 @@ function OfflineProvider({
     };
   }, [store, attempt]);
   return (
-    <OfflineContext.Provider value={{ store, ready, error, retry: () => setAttempt((x) => x + 1) }}>
+    <OfflineContext.Provider value={{ store, ready, error, watchSync, retry: () => setAttempt((x) => x + 1) }}>
       {children}
     </OfflineContext.Provider>
   );
@@ -194,7 +197,9 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   const storage = useMemo(() => privateRegistry.capture(owner), [owner, enrollment?.generation, localEpoch]);
   const localDrafts = useMemo(() => drafts(storage), [storage]);
   async function eraseLocalData() {
-    await erasePrivateDeviceData(owner, binding);
+    try { await erasePrivateDeviceData(owner, binding); }
+    // The account stays signed in after a local erase, even a failed one, so its watch sync resumes.
+    finally { if (currentOwner.current === owner && bindingRef.current === binding) resumeWatchSync(); }
     if (currentOwner.current !== owner || bindingRef.current !== binding) return;
     setPrivateError("");
     setBoot((old) => old?.scope === scope ? { ...old, value: { ...old.value, units: "imperial" } } : old);
@@ -222,6 +227,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
     try {
       await cache.cancelQueries({ predicate: scoped });
       if (currentAuth.current.binding !== binding || currentAuth.current.sessionId !== sessionId) return;
+      try { await clearWatchPlans(); } catch { /* Watch connectivity must not block sign-out. */ }
       await clerk.signOut({ sessionId });
       signedOut = true;
       cache.removeQueries({ predicate: scoped });
@@ -229,7 +235,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
       if (currentAuth.current.binding === binding && currentAuth.current.sessionId === sessionId)
         setRecovery({ binding, sessionId, busy: false, error: "Could not sign out. Your private drafts remain saved for this account. Try again." });
     } finally {
-      if (!signedOut && signingOut.current === captured) signingOut.current = null;
+      if (!signedOut && signingOut.current === captured) { signingOut.current = null; resumeWatchSync(); }
       // The SDK may settle before its hooks publish. Keep private consumers closed until the captured session leaves.
       if (!signedOut && currentAuth.current.binding === binding && currentAuth.current.sessionId === sessionId)
         setRecovery((value) => ({ ...value, busy: false }));

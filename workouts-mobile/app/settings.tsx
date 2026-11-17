@@ -1,3 +1,4 @@
+import { clearWatchPlans, resumeWatchSync } from "@/lib/watch-native";
 import { useRef, useState } from "react";
 import { Alert, Linking, Text, View } from "react-native";
 import Constants from "expo-constants";
@@ -75,12 +76,14 @@ export default function Settings() {
     const sharing = suspendNativeSharing();
     try {
       await sharing.clear;
+      try { await clearWatchPlans(); } catch { /* Watch connectivity must not block sign-out. */ }
       await clerk.signOut({ sessionId: originalSession });
       // Clear cached account data only once sign-out succeeded; a failed attempt keeps the screen usable.
       cache.removeQueries({ predicate: query => query.queryKey[0] === owner ||
         (query.queryKey[0] === "identity" && query.queryKey[1] === originalBinding) });
     } catch {
       sharing.resume();
+      resumeWatchSync();
       setError("Could not sign out. Your private drafts remain saved for this account. Try again.");
     } finally {
       signingOut.current = false;

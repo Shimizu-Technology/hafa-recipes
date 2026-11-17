@@ -2,6 +2,8 @@ import { beforeEach, it, expect, vi } from "vitest";
 const f = vi.hoisted(() => ({
   map: new Map<string, string>(),
   files: vi.fn(),
+  clearPlans: vi.fn(),
+  purgeResults: vi.fn(),
   journals: vi.fn(),
   exports: vi.fn(),
   cancel: vi.fn(),
@@ -19,6 +21,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
     getAllKeys: async () => [...f.map.keys()]
   }
 }));
+vi.mock("./watch-native", () => ({ nativeWatchBridge: async () => ({ purgeResults: f.purgeResults }), clearWatchPlans: f.clearPlans }));
 vi.mock("./export-file", () => ({ cleanupPrivateExportFiles: f.exports }));
 vi.mock("./capture-io", () => ({ cleanupCaptureFiles: f.files, recoverCaptureCleanup: f.journals }));
 vi.mock("./notifications-adapter", () => ({
@@ -27,6 +30,7 @@ vi.mock("./notifications-adapter", () => ({
 import { DamagedCleanupRecordError, erasePrivateDeviceData, recoverPrivateDeviceCleanup } from "./private-device";
 beforeEach(() => {
   f.map.clear();
+  f.clearPlans.mockReset(); f.purgeResults.mockReset();
   f.files.mockReset();
   f.journals.mockReset();
   f.exports.mockReset();
@@ -92,4 +96,29 @@ it.each([
     "hafa-workouts:v1:binding-B:verified-identity",
   ]);
   await recoverPrivateDeviceCleanup();
+});
+
+it("erasing the device clears watch plans and retains the inbox unless deleting the account", async () => {
+  await erasePrivateDeviceData("A", "binding");
+  expect(f.clearPlans).toHaveBeenCalledOnce(); expect(f.purgeResults).not.toHaveBeenCalled();
+  await erasePrivateDeviceData("A", "binding", true);
+  expect(f.purgeResults).toHaveBeenCalledExactlyOnceWith("A");
+});
+it("recovers a failed account-deletion watch purge before clearing the durable cleanup marker", async () => {
+  f.purgeResults.mockRejectedValueOnce(Error("disk locked"));
+  await expect(erasePrivateDeviceData("A", "binding", true)).rejects.toThrow("disk locked");
+  expect(f.map.has("hafa-workouts:device-cleanup:v1:A")).toBe(true);
+  await recoverPrivateDeviceCleanup();
+  expect(f.purgeResults).toHaveBeenCalledTimes(2); expect(f.map.size).toBe(0);
+});
+
+it("watch push failures do not block erasure or account-deletion recovery", async () => {
+  f.map.set("hafa-workouts:v1:A:profile%3A2", "PRIVATE");
+  f.clearPlans.mockRejectedValue(Error("watchAppNotInstalled"));
+  await erasePrivateDeviceData("A", "binding");
+  expect(f.map.size).toBe(0);
+  f.map.set("hafa-workouts:device-cleanup:v1:A", JSON.stringify({ owner: "A", binding: "binding", purgeWatch: true }));
+  await recoverPrivateDeviceCleanup();
+  expect(f.purgeResults).toHaveBeenCalledWith("A");
+  expect(f.map.size).toBe(0);
 });

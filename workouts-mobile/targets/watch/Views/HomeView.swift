@@ -5,6 +5,7 @@ import SwiftUI
 struct HomeView: View {
   @EnvironmentObject private var health: HealthAuthorization
   @EnvironmentObject private var engine: WorkoutEngine
+  @ObservedObject private var link = PhoneLink.shared
 
   var body: some View {
     ScrollView {
@@ -18,16 +19,18 @@ struct HomeView: View {
           .foregroundStyle(Theme.text)
         // Health comes first: it's the one setup step, and it must be visible without scrolling.
         HealthCard()
-        if PlanLibrary.plans.isEmpty {
+        if link.plans.isEmpty {
           Text("No class on your watch yet. Open Today's class on your iPhone.")
             .font(.footnote).foregroundStyle(Theme.muted)
         }
-        ForEach(PlanLibrary.plans, id: \.planKey) { plan in
-          Button(plan.title) { start(plan) }
-            .buttonStyle(WatchButton(role: health.status == .answered && PlanLibrary.plans.first?.planKey == plan.planKey ? .primary : .secondary))
+        ForEach(link.plans, id: \.planKey) { plan in
+          Button { start(plan) } label: {
+            VStack { Text(plan.title); if let age = PlanLibrary.ageLabel(plan) { Text(age).font(.caption) } }
+          }
+            .buttonStyle(WatchButton(role: health.status == .answered && link.plans.first?.planKey == plan.planKey ? .primary : .secondary))
         }
         Button("Open timer") { start(PlanLibrary.openTimer) }
-          .buttonStyle(WatchButton(role: health.status == .answered && PlanLibrary.plans.isEmpty ? .primary : .secondary))
+          .buttonStyle(WatchButton(role: health.status == .answered && link.plans.isEmpty ? .primary : .secondary))
         if health.status == .answered {
           ActionHelp()
         }
@@ -48,7 +51,7 @@ struct HomeView: View {
       if health.status == .notAsked || health.status == .failed { await health.request() }
       guard health.status == .answered else { engine.startError = "Allow Health before starting a class."; return }
       WatchRuntime.shared.startedStyle = plan.planKey == "open-timer" ? .openTimer : .todaysClass
-      do { try await engine.start(plan, leadIn: 3) }
+      do { try await engine.start(plan, leadIn: TimeInterval(plan.leadInSeconds ?? 3)) }
       catch { /* Engine retains the error across the loading transition. */ }
     }
   }

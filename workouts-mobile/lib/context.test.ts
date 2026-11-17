@@ -1,3 +1,5 @@
+const watch = vi.hoisted(() => ({ clear: vi.fn(async () => undefined), resume: vi.fn() }));
+vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: watch.clear, resumeWatchSync: watch.resume, subscribeWatchResync: () => () => {}, watchResyncToken: () => 0, watchSyncSuspended: () => false, nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
 import { createElement, useEffect, StrictMode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -27,7 +29,7 @@ const rawStorage = vi.hoisted(() => ({
 }));
 vi.mock("@react-native-async-storage/async-storage", () => ({ default: rawStorage }));
 vi.mock("react-native", () => ({
-  ActivityIndicator: "ActivityIndicator",
+  ActivityIndicator: "ActivityIndicator", Platform: { OS: "web" },
   AppState: { currentState: "active", addEventListener: (_: string, listener: (state: string) => void) => {
     fixture.foreground.add(listener);
     return { remove: () => fixture.foreground.delete(listener) };
@@ -235,6 +237,7 @@ it("repeated recovery taps sign out one captured session, clear only its cache a
   cache.setQueryData(["B", "private-record"], "account B cache");
   cache.setQueryData(["identity", "other-binding"], { id: "B" });
   let complete!: () => void;
+  watch.clear.mockRejectedValueOnce(Error("watchAppNotInstalled"));
   fixture.signOut.mockImplementation(() => new Promise<void>((done) => { complete = done; }));
   await act(async () => { renderer = create(tree()); }); await settle();
   const press = button("Sign out and choose account").props.onPress;

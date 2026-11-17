@@ -1,0 +1,1 @@
+../../../modules/hafa-watch/ios/WatchInbox.swift

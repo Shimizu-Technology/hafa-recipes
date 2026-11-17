@@ -1,3 +1,4 @@
+import { useFirstForeground } from "@/lib/use-first-foreground";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { fonts } from "@/constants/theme";
@@ -15,7 +16,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, View, Platform } from "react-native";
+import { ActivityIndicator, View, Platform, AppState } from "react-native";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
 import { Screen, Copy, Notice, Button, IconButton, ToastProvider, useColors } from "@/components/ui";
@@ -128,6 +129,7 @@ function Routes() {
         <Stack.Screen name="ai-preferences" />
         <Stack.Screen name="session/[id]" />
         <Stack.Screen name="history-progress" />
+        <Stack.Screen name="watch-recording" />
         <Stack.Screen name="best-scores" />
         <Stack.Screen name="heart-rate-summaries" />
       </Stack.Protected>
@@ -147,6 +149,10 @@ function Routes() {
   );
 }
 export default function Root() {
+  const foregrounded = useFirstForeground();
+  return foregrounded ? <ForegroundRoot /> : null;
+}
+function ForegroundRoot() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular: require("@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf"),
     Inter_600SemiBold: require("@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf"),

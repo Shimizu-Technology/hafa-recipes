@@ -1,0 +1,1 @@
+{"platforms":["apple"],"apple":{"modules":["HafaWatchModule"],"appDelegateSubscribers":["HafaWatchSubscriber"]}}

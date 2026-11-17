@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
 import { nov17Class } from "./fixtures/nov17-class";
 const f = vi.hoisted(() => ({ library: vi.fn(), profile: vi.fn(), push: vi.fn() }));
-vi.mock("@/lib/context", () => ({ useTraining: () => ({ api: f, owner: "owner", enrollment: { enrolled: true, generation: 1 } }) }));
+vi.mock("@/lib/context", () => ({ useOfflineTraining: () => ({ state: { history: [] } }), useTraining: () => ({ api: f, owner: "owner", enrollment: { enrolled: true, generation: 1 } }) }));
 vi.mock("@/lib/use-focus-refresh", () => ({ useFocusRefresh: () => {} }));
 vi.mock("expo-router", () => ({ router: { push: f.push } }));
 vi.mock("@/components/ui", () => ({ ListGroup: "ListGroup", ListRow: "ListRow", Notice: "Notice", Button: "Button" }));

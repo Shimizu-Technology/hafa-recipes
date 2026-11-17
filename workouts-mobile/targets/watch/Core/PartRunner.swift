@@ -54,6 +54,7 @@ struct PartRunner: Codable, Equatable {
 
   let plan: WatchPlan
   let leadIn: TimeInterval
+  private(set) var endedEarly: Bool?
   private(set) var phase: Phase = .ready
   private(set) var cursor = 0
   private(set) var runs: [PartRun]
@@ -271,6 +272,7 @@ struct PartRunner: Codable, Equatable {
     clearUndo()
     var events = tick(at: now)
     if case .finished = phase { return events }
+    endedEarly = true
     events += resume(at: now)
     if phase == .running {
       runs[cursor].span?.end = now

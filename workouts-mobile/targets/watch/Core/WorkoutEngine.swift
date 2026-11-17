@@ -72,6 +72,7 @@ final class WorkoutEngine: ObservableObject {
 
   private let recorder: WorkoutRecorder
   private let store: CheckpointStore
+  var onQueued: (() -> Void)?
   private let outbox: ClassOutbox
   private let clock: Clock
   private var sessionID = UUID()
@@ -237,6 +238,7 @@ final class WorkoutEngine: ObservableObject {
     let record = record(runner, end: end, summary: summary)
     do {
       try outbox.add(record)
+      onQueued?()
     } catch {
       state = .failed("Couldn't save your class on this watch.")
       return
@@ -343,6 +345,17 @@ final class WorkoutEngine: ObservableObject {
     }
     return ClassRecord(
       clientSessionId: sessionID, planKey: runner.plan.planKey, startedAt: startedAt, finishedAt: end, parts: parts,
-      segments: runner.segments(), heartRate: summary.heartRate, healthWorkoutUUID: summary.workoutUUID)
+      segments: runner.segments(), heartRate: summary.heartRate, healthWorkoutUUID: summary.workoutUUID, status: runner.endedEarly == true || runner.runs.contains(where: { $0.skipped }) ? "partial" : "completed", plan: runner.plan,
+      activeIntervals: runner.runs.compactMap(\.span).flatMap { span in
+        let stop = span.end ?? end
+        var cursor = span.start
+        var intervals: [ClassRecord.ActiveInterval] = []
+        for pause in span.pauses {
+          if pause.at > cursor { intervals.append(.init(startedAt: cursor, endedAt: min(stop, pause.at))) }
+          cursor = min(stop, pause.until ?? stop)
+        }
+        if stop > cursor { intervals.append(.init(startedAt: cursor, endedAt: stop)) }
+        return intervals
+      })
   }
 }

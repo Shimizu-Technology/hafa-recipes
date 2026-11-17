@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ExportJob } from "./export-jobs";
 import type { ExportSaveOptions } from "./export-save";
-const f = vi.hoisted(() => ({ map: new Map<string, string>(), active: "active", current: true, generation: 3, next: 0, finishHeld: null as (() => void) | null,
+const f = vi.hoisted(() => ({ purge: vi.fn(), erase: vi.fn(), map: new Map<string, string>(), active: "active", current: true, generation: 3, next: 0, finishHeld: null as (() => void) | null,
   changes: new Set<(state: string) => void>(), capabilities: vi.fn(), createJob: vi.fn(), job: vi.fn(), byRequest: vi.fn(),
   cancel: vi.fn(), page: vi.fn(), manifest: vi.fn(), oldCreate: vi.fn(), oldDelete: vi.fn(), save: vi.fn(), remove: vi.fn() }));
 vi.mock("react-native", () => ({ AppState: {
@@ -23,12 +23,13 @@ vi.mock("@/lib/context", () => {
     cancelExportJob: f.cancel, exportSnapshotPage: f.page, createExportSnapshot: f.oldCreate,
     deleteExportSnapshot: f.oldDelete, exportSnapshotManifest: f.manifest, removeWorkoutsData: f.remove };
   return { useTraining: () => ({ owner: "screen-owner", enrollment: { ...enrollment, generation: f.generation }, storage, api, isCurrentAccount: () => f.current,
-    eraseLocalData: vi.fn(), invalidateAccount: vi.fn() }) };
+    eraseLocalData: f.erase, invalidateAccount: vi.fn() }) };
 });
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button", Choice: "Choice" }));
 vi.mock("@/components/reminders-provider", () => ({ useReminders: () => ({ controller: null }) }));
 vi.mock("@/lib/logout-recovery-native", () => ({ logoutRecovery: {} }));
 vi.mock("@/lib/export-file", () => ({ savePrivateExport: f.save }));
+vi.mock("@/lib/watch-native", () => ({ nativeWatchBridge: async () => ({ purgeResults: f.purge }) }));
 import AccountData from "../app/account-data";
 
 const manifest = { id: "screen-snapshot", generation: 3, schema_version: 1 as const, created_at: "2026-10-11T00:00:00Z",
@@ -222,4 +223,23 @@ it("legacy post-picker privacy rejection cleans its snapshot and retains interru
   await render(); await press("Export private Workouts JSON");
   expect(f.oldDelete).toHaveBeenCalledWith("screen-snapshot", 3); expect(f.createJob).not.toHaveBeenCalled();
   expect([...f.map.values()]).toContain("pending"); expect(JSON.stringify(renderer!.toJSON())).not.toContain("was saved");
+});
+
+it("Workouts-only deletion purges the retired generation and retries cleanup without repeating server deletion", async () => {
+  f.remove.mockResolvedValue({ enrolled: false, generation: 4 });
+  f.purge.mockRejectedValueOnce(Error("disk locked")).mockResolvedValue(undefined);
+  await render();
+  await press("Review Workouts-only removal");
+  const choice = renderer!.root.findAll(node => String(node.type) === "Choice")[0];
+  await act(async () => choice.props.onPress());
+  await press("Erase my Workouts data");
+  expect(f.remove).toHaveBeenCalledExactlyOnceWith(3);
+  expect(f.purge).toHaveBeenCalledWith("screen-owner", "screen-owner:3");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("Watch results still need cleanup");
+  // Enrollment may have advanced before a device-only cleanup retry.
+  f.generation = 4;
+  await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(AccountData))); });
+  await press("Retry device cleanup");
+  expect(f.remove).toHaveBeenCalledOnce();
+  expect(f.purge).toHaveBeenLastCalledWith("screen-owner", "screen-owner:3");
 });

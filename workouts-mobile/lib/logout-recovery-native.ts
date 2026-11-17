@@ -8,6 +8,6 @@ import { discardCaptures } from "@/modules/hafa-workouts-share/src";
 const identities = createVerifiedIdentityCache(AsyncStorage);
 export const logoutRecovery = createLogoutRecovery({
   storage: AsyncStorage,
-  cleanup: async (owner, binding) => { await revokeNativeSharing(); await discardCaptures(owner); await erasePrivateDeviceData(owner, binding); },
+  cleanup: async (owner, binding) => { await revokeNativeSharing(); await discardCaptures(owner); await erasePrivateDeviceData(owner, binding, true); },
   owner: async (binding) => (await identities.load(binding))?.id ?? null,
 });
