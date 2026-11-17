@@ -66,7 +66,7 @@ vi.mock('@/lib/offlineStorage', () => ({
 vi.mock('@/lib/groceryWidget', () => ({ publishConfirmedGrocerySnapshot: vi.fn(async () => {}), requestGroceryWidgetRefresh: vi.fn() }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => `synthetic-${++state.ids}` }));
 
-import { useGrocerySync, useToggleGroceryItem } from '@/hooks/useGrocery';
+import { useGrocerySync, useRestoreGroceryItem, useToggleGroceryItem } from '@/hooks/useGrocery';
 
 beforeEach(() => {
   state.queue = [];
@@ -124,5 +124,25 @@ it('queues Undo behind a pending check while still offline, then replays both in
     await act(async () => { await sync!.syncPendingChanges(); });
     expect(state.queue).toEqual([]);
     expect(state.server.checked).toBe(false);
+  } finally { await act(async () => root.unmount()); }
+});
+
+it('brings a deleted item back with its details, recipe and check', async () => {
+  function Probe() { useRestoreGroceryItem(); return null; }
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<Probe />));
+    const restore = state.mutationOptions[0];
+    state.offline = true;
+    const deleted = { id: 'gone', name: 'Vinegar', quantity: '1/3', unit: 'cup', notes: 'cane', checked: true, recipe_id: 'recipe-2', recipe_title: 'Adobo', added_by_name: 'Kami', created_at: '', updated_at: '' };
+    const restored = await restore.mutationFn(deleted);
+    expect(restored.syncStatus).toBe('queued');
+
+    // Deletes are final on the server, so it returns as a new item, then is checked.
+    const [add, check] = state.queue.map((entry) => entry.mutation);
+    expect(add).toMatchObject({ operation: 'add', item: { name: 'Vinegar', quantity: '1/3', unit: 'cup', notes: 'cane', recipe_id: 'recipe-2', recipe_title: 'Adobo' } });
+    expect(add.item_id).not.toBe('gone');
+    expect(check).toMatchObject({ operation: 'set_checked', item_id: add.item_id, checked: true });
+    expect(restored.items.find((entry: any) => entry.id === add.item_id)).toMatchObject({ name: 'Vinegar', checked: true });
   } finally { await act(async () => root.unmount()); }
 });

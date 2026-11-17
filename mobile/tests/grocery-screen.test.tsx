@@ -44,6 +44,9 @@ const mocks = vi.hoisted(() => ({
   routerSetParams: vi.fn(),
   configureNext: vi.fn(),
   toggleItem: vi.fn(),
+  deleteItem: vi.fn(),
+  restoreItem: vi.fn(),
+  blurInput: vi.fn(),
   toast: vi.fn(),
   reduceMotion: false,
   widgetCollapsed: null as null | { accountScopeId: string | null; listId: string | null; keys: string[]; updatedAt: number | null },
@@ -88,15 +91,17 @@ vi.mock('react-native', () => ({
     renderSectionHeader,
     ListEmptyComponent,
     ListFooterComponent, ListHeaderComponent,
+    onScrollBeginDrag,
   }: {
     sections: Array<{ key: string; data: GroceryItem[] }>;
     renderItem: (info: { item: GroceryItem; index: number; section: unknown }) => React.ReactNode;
     renderSectionHeader: (info: { section: unknown }) => React.ReactNode;
     ListEmptyComponent: React.ComponentType;
     ListFooterComponent: React.ReactNode; ListHeaderComponent: React.ReactNode;
+    onScrollBeginDrag?: unknown;
   }) => React.createElement(
     'SectionList',
-    null, ListHeaderComponent,
+    { onScrollBeginDrag }, ListHeaderComponent,
     sections.length === 0
       ? React.createElement(ListEmptyComponent)
       : sections.flatMap((section) => [
@@ -144,7 +149,13 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     removeItem: vi.fn(async (key: string) => { mocks.storage.delete(key); }),
   },
 }));
-vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
+vi.mock('@/components/Themed', async () => ({
+  // A ref with the focus methods the screen calls on its quick-entry field.
+  TextInput: React.forwardRef((props: Record<string, unknown>, ref) => {
+    React.useImperativeHandle(ref, () => ({ focus: vi.fn(), blur: mocks.blurInput }));
+    return React.createElement('TextInput', props);
+  }),
+  TextScaleContext: (await import('react')).createContext(1),
   Button: ({ title, ...props }: { title: string }) => React.createElement('Button', { title, ...props }),
   Text: host('Text'),
   View: host('ThemedView'),
@@ -226,7 +237,8 @@ vi.mock('@/hooks/useGrocery', () => ({
   useAddGroceryItem: () => ({ ...mutation(), mutate: mocks.addItem }),
   useClearAllItems: mutation,
   useClearCheckedItems: mutation,
-  useDeleteGroceryItem: mutation,
+  useDeleteGroceryItem: () => ({ ...mutation(), mutate: mocks.deleteItem }),
+  useRestoreGroceryItem: () => ({ ...mutation(), mutate: mocks.restoreItem }),
   useDeleteGroceryItems: () => ({ ...mutation(), mutate: mocks.deleteItems }),
   useGroceryCount: (isSignedIn: boolean) => {
     mocks.countEnabledArgs.push(isSignedIn);
@@ -1049,6 +1061,133 @@ describe('GroceryScreen collapsible recipe sections', () => {
       expect(renderer.container.queryAll((instance) => instance.type === 'GrocerySectionHeader')).toHaveLength(0);
       expect(checkboxes(renderer)).toHaveLength(2);
       expect(button(renderer, 'Collapse all recipes')).toBeUndefined();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+});
+
+describe('GroceryScreen editing', () => {
+  const find = (renderer: ReturnType<typeof createRoot>, label: string) => renderer.container.queryAll(
+    (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityLabel === label,
+  )[0];
+  const swipeRow = (renderer: ReturnType<typeof createRoot>, name: string, dx: number) => {
+    const row = renderer.container.queryAll((instance) => instance.type === 'NativeView'
+      && typeof instance.props.onPanResponderRelease === 'function'
+      && instance.queryAll((child) => child.props.accessibilityLabel === `Edit ${name}`).length > 0)[0];
+    row.props.onPanResponderRelease({}, { dx, dy: 0 });
+  };
+  const editSheet = (renderer: ReturnType<typeof createRoot>) => renderer.container.queryAll((instance) => instance.type === 'EditGroceryItemModal')[0];
+  const lemons = item({ id: 'lemons', name: 'Lemons', quantity: '4' });
+
+  beforeEach(() => {
+    mocks.authState.isLoaded = true;
+    mocks.authState.isSignedIn = true;
+    mocks.listInfoState.is_shared = false;
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [lemons, item({ id: 'rice', name: 'Rice', recipe_id: null, recipe_title: null })];
+    mocks.alert.mockReset();
+    mocks.addItem.mockReset();
+    mocks.deleteItem.mockReset();
+    mocks.restoreItem.mockReset();
+    mocks.toast.mockReset();
+    mocks.configureNext.mockClear();
+  });
+
+  it('splits an amount and unit from a quick entry', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      const input = () => renderer.container.queryAll((instance) => instance.type === 'TextInput')[0];
+      await act(async () => input().props.onChangeText('2 lb chicken thighs'));
+      await act(async () => input().props.onSubmitEditing());
+      expect(mocks.addItem.mock.calls[0][0]).toEqual({ name: 'chicken thighs', quantity: '2', unit: 'lb' });
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('lets the keyboard go: Return on an empty field, and before the editor opens', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      mocks.blurInput.mockClear();
+      const input = () => renderer.container.queryAll((instance) => instance.type === 'TextInput')[0];
+      await act(async () => input().props.onSubmitEditing());
+      expect(mocks.addItem).not.toHaveBeenCalled();
+      expect(mocks.blurInput).toHaveBeenCalledOnce();
+      // Otherwise iOS refocuses "Add an item" when the sheet closes.
+      await act(async () => find(renderer, 'Edit Rice').props.onPress());
+      expect(mocks.blurInput).toHaveBeenCalledTimes(2);
+      expect(editSheet(renderer).props.item.id).toBe('rice');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('deletes at once and brings the item back with Undo', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      await act(async () => swipeRow(renderer, 'Lemons', -60));
+      await act(async () => find(renderer, 'Delete Lemons').props.onPress());
+      // No confirmation: the delete goes out and the toast offers the way back.
+      expect(mocks.alert).not.toHaveBeenCalled();
+      const [id, callbacks] = mocks.deleteItem.mock.calls[0];
+      expect(id).toBe('lemons');
+      expect(find(renderer, 'Delete Lemons')).toBeUndefined();
+      await act(async () => callbacks.onSuccess());
+      const toast = mocks.toast.mock.calls[0][0];
+      expect(toast).toMatchObject({ message: 'Deleted Lemons', actionLabel: 'Undo' });
+      await act(async () => toast.onAction());
+      expect(mocks.restoreItem.mock.calls[0][0]).toBe(lemons);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('deletes from the long-press menu and the edit sheet the same way', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      await act(async () => find(renderer, 'Edit Rice').props.onLongPress());
+      const menu = mocks.alert.mock.calls[0][2] as { text: string; onPress?: () => void }[];
+      await act(async () => menu.find((action) => action.text === 'Delete item')!.onPress!());
+      expect(mocks.deleteItem.mock.calls[0][0]).toBe('rice');
+
+      await act(async () => find(renderer, 'Edit Lemons').props.onPress());
+      expect(editSheet(renderer).props.item.id).toBe('lemons');
+      await act(async () => editSheet(renderer).props.onDelete());
+      expect(editSheet(renderer).props.visible).toBe(false);
+      expect(mocks.deleteItem.mock.calls[1][0]).toBe('lemons');
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps one row open, and a tap elsewhere or a scroll closes it', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      await act(async () => swipeRow(renderer, 'Lemons', -60));
+      expect(find(renderer, 'Delete Lemons')).toBeDefined();
+      await act(async () => swipeRow(renderer, 'Rice', -60));
+      expect(find(renderer, 'Delete Lemons')).toBeUndefined();
+      expect(find(renderer, 'Delete Rice')).toBeDefined();
+
+      // The tap only closes the open row; it doesn't also open the editor.
+      await act(async () => find(renderer, 'Edit Lemons').props.onPress());
+      expect(find(renderer, 'Delete Rice')).toBeUndefined();
+      expect(editSheet(renderer).props.visible).toBe(false);
+
+      await act(async () => swipeRow(renderer, 'Rice', -60));
+      const list = renderer.container.queryAll((instance) => instance.type === 'SectionList')[0];
+      await act(async () => list.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: 0 } } }));
+      expect(find(renderer, 'Delete Rice')).toBeUndefined();
+      // A short swipe right closes it too.
+      await act(async () => swipeRow(renderer, 'Rice', -60));
+      await act(async () => swipeRow(renderer, 'Rice', 30));
+      expect(find(renderer, 'Delete Rice')).toBeUndefined();
     } finally {
       await act(async () => renderer.unmount());
     }

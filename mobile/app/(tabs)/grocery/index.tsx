@@ -55,7 +55,9 @@ import {
   useGroceryListInfo,
   useDeleteGroceryItems,
   useUpdateGroceryItem,
+  useRestoreGroceryItem,
 } from '@/hooks/useGrocery';
+import { parseGroceryItemInput } from '@/lib/groceryItemInput';
 import { GroceryItem } from '@/types/recipe';
 import { layout, spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
@@ -90,6 +92,8 @@ function GroceryItemRow({
   onToggle,
   onDelete,
   onEdit,
+  swiped,
+  onSwipe,
   showRecipeLabel = false,
   isSharedList = false,
   scaleFontSize,
@@ -99,6 +103,9 @@ function GroceryItemRow({
   onToggle: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  /** Whether the Delete button is showing. */
+  swiped: boolean;
+  onSwipe: (open: boolean) => void;
   showRecipeLabel?: boolean;
   isSharedList?: boolean;
   scaleFontSize: (size: number) => number;
@@ -125,11 +132,16 @@ function GroceryItemRow({
     .filter(Boolean)
     .join(', ');
 
-  const [swiped, setSwiped] = useState(false);
-  const swipe = PanResponder.create({
+  // The screen keeps one row open at a time, so a scroll or any other tap
+  // closes it. The responder reads the latest handler through a ref.
+  const onSwipeRef = useRef(onSwipe);
+  onSwipeRef.current = onSwipe;
+  const swipe = useRef(PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 20 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 2,
-    onPanResponderRelease: (_, gesture) => setSwiped(gesture.dx < -40),
-  });
+    // Once a sideways swipe has started, the list doesn't take it over.
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderRelease: (_, gesture) => onSwipeRef.current(gesture.dx < -40),
+  })).current;
   const openMenu = () => {
     const actions = [{ text: 'Edit item', onPress: onEdit }, { text: 'Delete item', style: 'destructive' as const, onPress: onDelete }, { text: 'Cancel', style: 'cancel' as const }];
     if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title: item.name, options: actions.map(action => action.text), cancelButtonIndex: 2, destructiveButtonIndex: 1 }, index => actions[index]?.onPress?.());
@@ -141,17 +153,24 @@ function GroceryItemRow({
         accessibilityRole="checkbox" accessibilityState={{ checked: item.checked }} accessibilityLabel={spokenQuantity(itemLabel)}>
         <Ionicons name={item.checked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={item.checked ? colors.actionText : colors.textSecondary} />
       </TouchableOpacity>
-      <TouchableOpacity onPress={onEdit} onLongPress={openMenu} style={{ flex: 1, minHeight: 44, justifyContent: 'flex-start' }}
+      <TouchableOpacity onPress={onEdit} onLongPress={openMenu} style={styles.itemBody}
         accessibilityRole="button" accessibilityLabel={`Edit ${item.name}`}
         accessibilityActions={[{ name: 'remove', label: `Remove ${item.name}` }]}
         onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onDelete(); }}>
-        <Text style={[styles.itemName, { fontSize: scaleFontSize(17), lineHeight: scaleFontSize(22), color: item.checked ? colors.textSecondary : colors.text }, item.checked && styles.itemNameChecked]}>{item.name}</Text>
-        {(hasAmount || showMissingAmount || hasNotes || (isSharedList && item.added_by_name)) && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(21), marginTop: 4 }}>
-          {[hasAmount && displayedAmount, showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
-        </Text>}
+        <RNView style={styles.itemText}>
+          <Text style={[styles.itemName, { fontSize: scaleFontSize(17), lineHeight: scaleFontSize(22), color: item.checked ? colors.textSecondary : colors.text }, item.checked && styles.itemNameChecked]}>{item.name}</Text>
+          {(hasAmount || showMissingAmount || hasNotes || (isSharedList && item.added_by_name)) && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(21), marginTop: 4 }}>
+            {[hasAmount && displayedAmount, showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
+          </Text>}
+        </RNView>
+        {/* A quiet hint that the name opens the editor; centred on the first line. */}
+        {!swiped && <Ionicons name="pencil" size={15} color={colors.textSecondary} style={[styles.editHint, { marginTop: (firstLineHeight - 15) / 2 }]} />}
       </TouchableOpacity>
     </RNView>
-    {swiped && <TouchableOpacity onPress={onDelete} accessibilityRole="button" accessibilityLabel={`Delete ${item.name}`} style={{ backgroundColor: colors.destructive, paddingHorizontal: 16, justifyContent: 'center' }}><Text style={{ color: colors.onError }}>Delete</Text></TouchableOpacity>}
+    {swiped && <TouchableOpacity onPress={onDelete} accessibilityRole="button" accessibilityLabel={`Delete ${item.name}`} style={[styles.swipeDelete, { backgroundColor: colors.destructive }]}>
+      <Ionicons name="trash-outline" size={19} color={colors.onError} />
+      <Text style={[styles.swipeDeleteLabel, { color: colors.onError }]}>Delete</Text>
+    </TouchableOpacity>}
   </RNView>;
 }
 
@@ -187,6 +206,8 @@ function GroceryScreenContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showChecked, setShowChecked] = useState(false);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
+  // The one row whose Delete button is showing.
+  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [overflowActions, setOverflowActions] = useState<{ text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] | null>(null);
 
@@ -257,6 +278,7 @@ function GroceryScreenContent() {
   const addItemMutation = useAddGroceryItem();
   const deleteItemsMutation = useDeleteGroceryItems();
   const updateItemMutation = useUpdateGroceryItem();
+  const restoreItemMutation = useRestoreGroceryItem();
 
   // Widget rows can open the existing edit sheet for one specific item. Wait
   // for the authenticated snapshot so a cold-start deep link is reliable.
@@ -350,19 +372,31 @@ function GroceryScreenContent() {
     );
   };
 
-  const handleDelete = (id: string, name: string) => {
-    haptics.warning();
-    Alert.alert('Delete Item', `Remove "${name}" from your list?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          deleteMutation.mutate(id, {
-            onError: () => Alert.alert('Couldn’t delete item', 'The item is still on your list. Please try again.'),
-          }),
-      },
-    ]);
+  const setSwipeOpen = (id: string | null) => {
+    if (id === openSwipeId) return;
+    if (!reduceMotion) LayoutAnimation.configureNext(SECTION_FOLD_ANIMATION);
+    setOpenSwipeId(id);
+  };
+  // While a row shows Delete, a tap anywhere else only closes it, as in iOS lists.
+  const unlessSwipeOpen = (action: () => void) => () => {
+    if (openSwipeId) setSwipeOpen(null);
+    else action();
+  };
+
+  // One item goes at once, with Undo in place of a confirmation.
+  const handleDelete = (item: GroceryItem) => {
+    setOpenSwipeId(null);
+    haptics.medium();
+    deleteMutation.mutate(item.id, {
+      onSuccess: () => showToast({
+        message: `Deleted ${item.name}`,
+        actionLabel: 'Undo',
+        onAction: () => restoreItemMutation.mutate(item, {
+          onError: () => Alert.alert('Couldn’t bring the item back', 'Add it again from the top of your list.'),
+        }),
+      }),
+      onError: () => Alert.alert('Couldn’t delete item', 'The item is still on your list. Please try again.'),
+    });
   };
 
   const handleClearChecked = () => {
@@ -469,7 +503,7 @@ function GroceryScreenContent() {
     if (collapse.isCollapsed(otherSection)) collapse.setAll([otherSection], false);
     
     addItemMutation.mutate(
-      { name: newItemName.trim() },
+      parseGroceryItemInput(newItemName),
       {
         onSuccess: (result) => {
           if (result.syncStatus === 'confirmed') {
@@ -479,8 +513,8 @@ function GroceryScreenContent() {
           setAddPendingSync(result.syncStatus === 'queued');
           setNewItemName(draft => draft.trim() === newItemName.trim() ? '' : draft);
           if (keepInputFocused) {
-            // The visible add button supports rapid, repeated entry. The
-            // keyboard's Done key intentionally ends entry and stays blurred.
+            // Return adds and stays ready for the next item; Return on an
+            // empty field ends entry.
             setTimeout(() => {
               addItemInputRef.current?.focus();
             }, 100);
@@ -538,6 +572,10 @@ function GroceryScreenContent() {
   };
 
   const handleEdit = (item: GroceryItem) => {
+    // Otherwise iOS hands focus back to "Add an item" when the sheet closes
+    // and the keyboard covers the list.
+    addItemInputRef.current?.blur();
+    Keyboard.dismiss();
     setEditingItem(item);
   };
 
@@ -569,9 +607,11 @@ function GroceryScreenContent() {
       <GroceryItemRow
         item={item}
         colors={colors}
-        onToggle={() => handleToggle(item)}
-        onDelete={() => handleDelete(item.id, item.name)}
-        onEdit={() => handleEdit(item)}
+        onToggle={unlessSwipeOpen(() => handleToggle(item))}
+        onDelete={() => handleDelete(item)}
+        onEdit={unlessSwipeOpen(() => handleEdit(item))}
+        swiped={openSwipeId === item.id}
+        onSwipe={open => setSwipeOpen(open ? item.id : null)}
         showRecipeLabel={false}
         isSharedList={listInfo?.is_shared ?? false}
         scaleFontSize={scaleFontSize}
@@ -589,7 +629,7 @@ function GroceryScreenContent() {
       section={fullSection}
       isCollapsed={isSectionCollapsed(section)}
       isCollapsible={canCollapse}
-      onToggle={() => toggleSection(section)}
+      onToggle={unlessSwipeOpen(() => toggleSection(section))}
       first={section.key === shownSections[0]?.key}
       last={section.key === shownSections[shownSections.length - 1]?.key}
       onOpenRecipe={(recipeId) => router.push(appRoutes.recipe(recipeId))}
@@ -773,6 +813,10 @@ function GroceryScreenContent() {
       <SectionList
         ref={listRef}
         {...tabScroll}
+        onScrollBeginDrag={event => {
+          tabScroll.onScrollBeginDrag(event);
+          if (openSwipeId) setSwipeOpen(null);
+        }}
         style={[styles.container, { backgroundColor: colors.groupedBackground }]}
         key={fontScale}
         contentInsetAdjustmentBehavior="automatic"
@@ -785,7 +829,7 @@ function GroceryScreenContent() {
           <Ionicons name="add-circle-outline" size={24} color={colors.actionText} />
           <TextInput ref={addItemInputRef} style={[styles.addItemInput, { color: colors.text, lineHeight: 22 }]}
             placeholder="Add an item" placeholderTextColor={colors.textSecondary} value={newItemName} onChangeText={setNewItemName}
-            onSubmitEditing={() => handleAddItem(true)} returnKeyType="done" submitBehavior="submit" maxLength={255} accessibilityLabel="Add an item" />
+            onSubmitEditing={() => newItemName.trim() ? handleAddItem(true) : addItemInputRef.current?.blur()} returnKeyType="done" submitBehavior="submit" maxLength={255} accessibilityLabel="Add an item" />
         </RNView>
 
         {Platform.OS === 'web' && <TextInput accessibilityLabel="Search grocery list" placeholder="Search grocery list" placeholderTextColor={colors.textSecondary}
@@ -877,6 +921,11 @@ function GroceryScreenContent() {
         visible={!!editingItem}
         onClose={() => setEditingItem(null)}
         onSave={handleSaveEdit}
+        onDelete={() => {
+          if (!editingItem) return;
+          setEditingItem(null);
+          handleDelete(editingItem);
+        }}
         item={editingItem}
         isLoading={updateItemMutation.isPending}
       />}
@@ -1028,6 +1077,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   // Item styles
+  itemBody: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  itemText: { flex: 1 },
+  editHint: { opacity: 0.6 },
+  swipeDelete: { minWidth: 88, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  swipeDeleteLabel: { fontSize: 15, lineHeight: 20, fontWeight: '600' },
   itemCheck: { position: 'absolute', left: 6, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   itemRow: {
     minHeight: 68,

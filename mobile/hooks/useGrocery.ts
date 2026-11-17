@@ -35,6 +35,7 @@ import {
   requestGroceryWidgetRefresh,
 } from '@/lib/groceryWidget';
 import type {
+  GroceryItem,
   GroceryItemChanges,
   GroceryItemCreate,
   GroceryMutationRequest,
@@ -279,6 +280,24 @@ export function useDeleteGroceryItem() {
   return useDurableMutation<string>((snapshot, id) => [
     createDeleteMutation(snapshot.list.id, id),
   ]);
+}
+
+/**
+ * Undo for a deleted item. Deletes are final on the server, so the item comes
+ * back as a new one with the same details, recipe and checked state.
+ */
+export function useRestoreGroceryItem() {
+  return useDurableMutation<GroceryItem>((snapshot, item) => {
+    const add = createAddMutation(snapshot.list.id, {
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      notes: item.notes,
+      recipe_id: item.recipe_id,
+      recipe_title: item.recipe_title,
+    });
+    return item.checked ? [add, createCheckedMutation(snapshot.list.id, add.item_id, true)] : [add];
+  });
 }
 
 export function useDeleteGroceryItems() {
