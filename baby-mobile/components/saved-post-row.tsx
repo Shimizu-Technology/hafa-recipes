@@ -5,7 +5,8 @@ import { Image } from "expo-image";
 import { router } from "expo-router";
 import type { BabyRecord } from "@/lib/models";
 import { timingLabel } from "@/lib/timing";
-import { Copy, Icon, PressTarget, fonts, radii, useColors } from "./ui";
+import { savedWhen } from "../lib/source-reading";
+import { Copy, Icon, PressTarget, fonts, radii, typeScale, useColors, type IconName } from "./ui";
 
 const labels: Record<string, string> = {
   saved: "Original saved", queued: "Waiting to process", processing: "Processing…",
@@ -22,6 +23,17 @@ export function safeThumbnail(record: BabyRecord) {
   try {
     const url = new URL(record.data.thumbnail_url ?? "");
     return url.protocol === "https:" && !url.username && !url.password ? url.toString() : undefined;
+  } catch { return undefined; }
+}
+/** Where a post came from: its stated platform, or one read from its link. A private note has none. */
+export function platformName(record: Pick<BabyRecord, "data">) {
+  if (record.data.platform) return record.data.platform;
+  try {
+    const url = new URL(record.data.url ?? ""), host = url.hostname.toLowerCase();
+    if (!["https:", "http:"].includes(url.protocol)) return undefined;
+    return host === "youtu.be" || host === "youtube.com" || host.endsWith(".youtube.com") ? "YouTube"
+      : host === "instagram.com" || host.endsWith(".instagram.com") ? "Instagram"
+      : host === "tiktok.com" || host.endsWith(".tiktok.com") ? "TikTok" : "Website";
   } catch { return undefined; }
 }
 /** The first letter or digit of a title, for a monogram tile. */
@@ -48,16 +60,7 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
     stacked = fontScale >= 2,
     status = pending ? "Saved on this device" : labels[record.data.status ?? ""] ?? "Saved",
     update = pending ? status : updates[record.data.status ?? ""];
-  let inferred: string | undefined;
-  try {
-    const url = new URL(record.data.url ?? "");
-    const host = url.hostname.toLowerCase();
-    if (["https:", "http:"].includes(url.protocol))
-      inferred = host === "youtu.be" || host === "youtube.com" || host.endsWith(".youtube.com") ? "YouTube"
-        : host === "instagram.com" || host.endsWith(".instagram.com") ? "Instagram"
-        : host === "tiktok.com" || host.endsWith(".tiktok.com") ? "TikTok" : "Website";
-  } catch { /* A private note has no external platform. */ }
-  const identity = record.data.platform || inferred;
+  const identity = platformName(record);
   const thumbnail = safeThumbnail(record);
   const [failed, setBroken] = useState<string>(), broken = !!thumbnail && failed === thumbnail;
   return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
@@ -79,23 +82,34 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
   </PressTarget>;
 }
 
+/** A small filled tag with an icon, for a tip's timing or category. */
+export function Pill({ icon, label }: { icon: IconName; label: string }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
+    backgroundColor: c.soft, maxWidth: "100%" }}>
+    <Icon name={icon} size={Math.round(14 * Math.min(fontScale, 1.6))} color={c.muted} />
+    <Text key={fontScale} maxFontSizeMultiplier={2} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.text, fontVariant: ["tabular-nums"], flexShrink: 1 }}>{label}</Text>
+  </View>;
+}
+
 /**
- * The top of a saved tip: its photo at full width, or a blush card with the monogram when there is none, then the
- * stated timing and her topic, and the title in Newsreader.
+ * The top of a saved tip: its photo at full width when it has one, then its timing and her topic as pills, the
+ * title in Newsreader, and who posted it where and when she saved it.
  */
-export function SourceHero({ record, title, topic }: { record: BabyRecord; title: string; topic: string }) {
+export function SourceHero({ record, title, topic, distance }: { record: BabyRecord; title: string; topic: string; distance?: string }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), thumbnail = safeThumbnail(record), [broken, setBroken] = useState(false),
-    meta = [timingLabel(record.data.relevance), topic].filter(Boolean).join(" · ");
+    timing = timingLabel(record.data.relevance),
+    meta = [record.data.creator, platformName(record), savedWhen(record.created_at || record.occurred_at)].filter(Boolean).join(" · ");
   return <View style={{ gap: 12 }}>
-    {thumbnail && !broken
-      ? <Image source={{ uri: thumbnail }} accessibilityIgnoresInvertColors contentFit="cover" transition={200} onError={() => setBroken(true)}
-        style={{ width: "100%", aspectRatio: 16 / 10, borderRadius: radii.hero, backgroundColor: c.placeholder }} />
-      : <View accessible={false} style={{ height: Math.round(120 * Math.min(fontScale, 1.3)), borderRadius: radii.hero, backgroundColor: c.hero,
-        alignItems: "center", justifyContent: "center" }}>
-        <Text allowFontScaling={false} style={{ fontFamily: fonts.displayItalic, fontSize: 56, lineHeight: 64, color: c.placeholderInk }}>{initialOf(title)}</Text>
-      </View>}
-    {!!meta && <Copy numeric kind="small" tone="muted">{meta}</Copy>}
-    <Text key={fontScale} accessibilityRole="header" maxFontSizeMultiplier={0}
-      style={{ fontFamily: fonts.display, fontSize: 27, lineHeight: 33, color: c.text }}>{title}</Text>
+    {thumbnail && !broken && <Image source={{ uri: thumbnail }} accessibilityIgnoresInvertColors contentFit="cover" transition={200} onError={() => setBroken(true)}
+      style={{ width: "100%", aspectRatio: 16 / 10, borderRadius: radii.hero, backgroundColor: c.placeholder }} />}
+    {!!(timing || topic) && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {!!timing && <Pill icon="calendar-outline" label={[timing, distance].filter(Boolean).join(" · ")} />}
+      {!!topic && <Pill icon="folder-outline" label={topic} />}
+    </View>}
+    {/* Capped like a section heading: at the largest sizes an unlimited title splits words, "Referenc/e". */}
+    <Text key={fontScale} accessibilityRole="header" maxFontSizeMultiplier={2}
+      style={{ fontFamily: fonts.display, fontSize: 28, lineHeight: 34, color: c.text }}>{title}</Text>
+    {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
   </View>;
 }

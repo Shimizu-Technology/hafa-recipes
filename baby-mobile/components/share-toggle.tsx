@@ -3,14 +3,24 @@ import { Alert } from "react-native";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { replaceRecord } from "@/lib/outbox";
+import { View } from "react-native";
 import { Choice, Copy, Notice, Section, useToast } from "@/components/ui";
 import { canBeJustMe } from "../lib/family";
+import type { Bootstrap } from "../lib/models";
 import { loggedByName } from "../lib/logged-by";
 import { familySpaces, rowFence } from "../lib/spaces";
 import { canMoveEntry, sharedDetail } from "../lib/writing-places";
 
-/** Shared with family, or Just me: moving a saved post, category or journal entry between spaces. */
-export function ShareToggle({ record }: { record: BabyRecord }) {
+/** Who sees an entry, in a few words for a closed row, or null when there's no choice to show (no family yet). */
+export function whoCanSee(record: BabyRecord, bootstrap: Bootstrap | null | undefined, owner: string) {
+  const family = familySpaces(bootstrap)[0];
+  if (!bootstrap || !family || family.role !== "parent" || !canBeJustMe(record.kind) || !bootstrap.personal_space_id) return null;
+  if (record.space_id !== family.id) return "Just you";
+  return canMoveEntry(record, owner) ? "Your family" : `Shared by ${loggedByName(record, bootstrap, owner)}`;
+}
+
+/** Shared with family, or Just me: moving a saved post, category or journal entry between spaces. `plain` drops the heading inside a disclosure. */
+export function ShareToggle({ record, plain = false }: { record: BabyRecord; plain?: boolean }) {
   const b = useBaby(), toast = useToast(), bootstrap = b.state.bootstrap!, family = familySpaces(bootstrap)[0], [busy, setBusy] = useState(false), [error, setError] = useState("");
   if (!family || family.role !== "parent" || !canBeJustMe(record.kind) || !bootstrap.personal_space_id) return null;
   const shared = record.space_id === family.id;
@@ -38,12 +48,12 @@ export function ShareToggle({ record }: { record: BabyRecord }) {
     ]);
   }
   // Someone else's to change: the API would refuse, so it's said rather than offered.
-  if (shared && !canMoveEntry(record, b.owner)) return <Section title="Who can see this">
-    <Copy tone="muted">{`Shared with your family by ${loggedByName(record, bootstrap, b.owner)}. Only they can change who sees it.`}</Copy>
-  </Section>;
-  return <Section title="Who can see this">
+  const wrap = (children: React.ReactNode) => plain ? <View style={{ gap: 12 }}>{children}</View> : <Section title="Who can see this">{children}</Section>;
+  if (shared && !canMoveEntry(record, b.owner)) return wrap(
+    <Copy tone="muted">{`Shared with your family by ${loggedByName(record, bootstrap, b.owner)}. Only they can change who sees it.`}</Copy>);
+  return wrap(<>
     {!!error && <Notice error>{error}</Notice>}
     <Choice label="Shared with family" detail={sharedDetail(record.kind)} selected={shared} disabled={busy} onPress={() => choose(true)} />
     <Choice label="Just me" selected={!shared} disabled={busy} onPress={() => choose(false)} />
-  </Section>;
+  </>);
 }

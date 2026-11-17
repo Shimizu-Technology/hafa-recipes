@@ -52,7 +52,7 @@ vi.mock("@/components/motion", () => ({ Swell: ({ children }: { children: React.
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: {} }));
 vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateAttachment" }));
 vi.mock("@/components/share-toggle", () => ({ ShareToggle: () => null }));
-vi.mock("@/components/source-content", () => ({ SourceContent: "SourceContent" }));
+vi.mock("@/components/source-content", async () => ({ ...(await import("../components/source-content")), SourceContent: "SourceContent" }));
 vi.mock("@/lib/use-ask-session", () => ({ useAskSession: (record_id: string) => ({
   context: { scope: "all", record_id, child_id: null }, focusedTitle: "Saved source", question: "", messages: [],
   history: [], showHistory: false, resolving: false, busy: false, error: "", openHistory() {}, ...mock.ask,
@@ -103,6 +103,12 @@ const row = (id: string, kind: "journal" | "feeding" | "question" | "source" | "
   id, kind, title: id, body: `Observation ${id}`, child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z",
 });
 async function mount(element: React.ReactElement) { await act(async () => { renderer = create(element); }); }
+/** Opens a Disclosure, which is a plain Pressable. */
+async function expand(label: string) {
+  const target = renderer!.root.findAllByType("Pressable" as React.ElementType).find(n => n.props.accessibilityLabel === label);
+  expect(target, label).toBeDefined();
+  await act(async () => target!.props.onPress());
+}
 async function press(label: string) {
   const target = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType)
     .find(n => n.props.accessibilityLabel === label || n.props.accessibilityLabel?.startsWith(label + ". "));
@@ -565,7 +571,8 @@ it("keeps a full saved-source title readable in the entry content", async () => 
   record.title = "A simple hospital bag checklist";
   mock.params = { id: record.id };
   await mount(<RecordDetail />);
-  expect(renderer!.root.findByType(Screen).props.title).toBe("Saved source");
+  // The bar is bare: the post's own title is the page heading.
+  expect(renderer!.root.findByType(Screen).props.title).toBe("");
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === record.title)).toBe(true);
 });
 
@@ -656,6 +663,8 @@ it("shows a saved tip's stated timing with its quote and saves a simple edit thr
   mock.baby = { ...mock.baby, records: [record], state: { ...mock.baby.state, records: [record] }, queue };
   mock.params = { id: "Pregnancy tea" };
   await mount(<RecordDetail />);
+  // Timing lives shut under More about this post.
+  await expand("When this shows up on Today. From 37 weeks");
   await press("From 37 weeks. “When you get to 37 weeks”");
   const from = renderer!.root.findAllByType("TextInput" as React.ElementType).find(n => n.props.accessibilityLabel === "From week")!;
   await act(async () => from.props.onChangeText("36"));
@@ -674,6 +683,7 @@ it("shows a cleared timing marker exactly like no timing, and 'Set by you' only 
   mock.baby = { ...mock.baby, records: [cleared], state: { ...mock.baby.state, records: [cleared] } };
   mock.params = { id: "Pregnancy tea" };
   await mount(<RecordDetail />);
+  await expand("When this shows up on Today. Not set");
   const labels = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => String(n.props.accessibilityLabel));
   expect(labels()).toContain("Add when this is useful. A pregnancy week or baby age");
   expect(labels().some(label => label.includes("Set by you"))).toBe(false);
