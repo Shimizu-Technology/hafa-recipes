@@ -91,6 +91,20 @@ describe("watch sync", () => {
       pendingResults: async () => [JSON.stringify(invalid), JSON.stringify(overlap)], markImported: async () => { marked++; } });
     expect(marked).toBe(0); expect(store.snapshot().history).toHaveLength(0);
   });
+  it("keeps watch provenance when optional scores are refused, without looping on another 422", async () => {
+    const store = setup(); await store.load();
+    const r = result(); r.health_workout_uuid = "5963af29-cd6d-479c-a63d-bf348868f979";
+    await drainWatch({ store, account, generation: 1, catalog: { [plan.plan_key]: workout }, current: () => true,
+      pendingResults: async () => [JSON.stringify(r)], markImported: async () => {} });
+    let attempts = 0;
+    await store.sync(async request => {
+      attempts++; expect(request.recorded_on).toBe("watch"); expect(request.apple_workout_uuid).toBe(r.health_workout_uuid);
+      throw Object.assign(Error("Scores or source rejected"), { status: 422 });
+    });
+    expect(attempts).toBe(2); expect(store.snapshot().history[0].state).toBe("blocked");
+    expect(store.snapshot().history[0].request.recorded_on).toBe("watch");
+    expect(store.snapshot().history[0].request.results).toBeUndefined();
+  });
   it("manual sync creates a private quick workout before the session and persists its source", async () => {
     let creations = 0;
     const store = setup(async (_workout, key, generation) => {

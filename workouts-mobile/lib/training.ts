@@ -1199,6 +1199,8 @@ export function createTrainingStore(
             s.history = s.history.map(h => h !== item ? h : { request: { ...actuals,
               client_session_id: command.client_session_id, workout_id: workout.id, workout_revision: workout.revision },
               workout, generation, state: "queued", cell_identity_version: item.cell_identity_version,
+              ...(item.watch ? { watch: clone(item.watch) } : {}),
+              ...(item.timed_format ? { timed_format: true as const } : {}),
               recovery_origin: { request: item.request, workout: item.workout,
                 ...(item.recovery_origin ? { previous: item.recovery_origin } : {}) }, recovered_with: clone(command) });
             return s;
