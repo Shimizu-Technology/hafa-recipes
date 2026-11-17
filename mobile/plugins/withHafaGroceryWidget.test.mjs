@@ -9,6 +9,7 @@ const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const plugin = require('./withHafaGroceryWidget.js');
 const {
   APP_GROUP,
+  FONT_FILES,
   BUNDLE_SUFFIX,
   KEYCHAIN_GROUP,
   RESOURCE_FILES,
@@ -90,12 +91,27 @@ describe('Håfa grocery widget config plugin', () => {
     expect(RESOURCE_FILES).toEqual(['PrivacyInfo.xcprivacy']);
   });
 
-  it('compiles section grouping, collapse, and paging into the widget target', () => {
-    expect(SOURCE_FILES).toContain('HafaWidgetSections.swift');
-    expect(SOURCE_FILES).toContain('HafaWidgetPalette.swift');
-    expect(SOURCE_FILES).toContain('HafaWidgetPaging.swift');
-    expect(SOURCE_FILES).toContain('ChangeGroceryWidgetPageIntent.swift');
-    expect(SOURCE_FILES).toContain('ToggleGroceryWidgetSectionIntent.swift');
+  it('bundles the app\'s Figtree faces from the package the app loads', () => {
+    const infoPlist = readFileSync(join(mobileRoot, 'widget/ios/Info.plist'), 'utf8');
+    for (const [file, packagePath] of Object.entries(FONT_FILES)) {
+      expect(require.resolve(packagePath, { paths: [mobileRoot] })).toMatch(/\.ttf$/);
+      expect(infoPlist).toContain(`<string>${file}</string>`);
+    }
+  });
+
+  it('compiles the list layout and only the check-off intent into the widget target', () => {
+    expect(SOURCE_FILES).toEqual(expect.arrayContaining([
+      'HafaWidgetSections.swift',
+      'HafaWidgetListLayout.swift',
+      'HafaWidgetPalette.swift',
+      'SetGroceryItemCheckedIntent.swift',
+    ]));
+    expect(SOURCE_FILES).not.toContain('HafaWidgetPaging.swift');
+    expect(SOURCE_FILES).not.toContain('ChangeGroceryWidgetPageIntent.swift');
+    expect(SOURCE_FILES).not.toContain('ToggleGroceryWidgetSectionIntent.swift');
+    for (const file of SOURCE_FILES.filter((name) => name !== 'HafaWidgetShared.swift')) {
+      expect(() => readFileSync(join(mobileRoot, 'widget/ios', file))).not.toThrow();
+    }
   });
 
   it('keeps interactive widget reloads cache-first with immediate feedback', () => {
@@ -107,55 +123,24 @@ describe('Håfa grocery widget config plugin', () => {
       join(mobileRoot, 'modules/hafa-widget-bridge/ios/HafaWidgetShared.swift'),
       'utf8',
     );
-    const pageIntentSource = readFileSync(
-      join(mobileRoot, 'widget/ios/ChangeGroceryWidgetPageIntent.swift'),
-      'utf8',
-    );
     const checkIntentSource = readFileSync(
       join(mobileRoot, 'widget/ios/SetGroceryItemCheckedIntent.swift'),
-      'utf8',
-    );
-    const pagingSource = readFileSync(
-      join(mobileRoot, 'widget/ios/HafaWidgetPaging.swift'),
-      'utf8',
-    );
-    const sectionSource = readFileSync(
-      join(mobileRoot, 'widget/ios/HafaWidgetSections.swift'),
-      'utf8',
-    );
-    const sectionIntentSource = readFileSync(
-      join(mobileRoot, 'widget/ios/ToggleGroceryWidgetSectionIntent.swift'),
-      'utf8',
-    );
-    const sharedSourceText = readFileSync(
-      join(mobileRoot, 'modules/hafa-widget-bridge/ios/HafaWidgetShared.swift'),
       'utf8',
     );
 
     expect(widgetSource).toContain('if cachedState.shouldUseCachedTimeline()');
     expect(widgetSource).toContain('Toggle(');
     expect(widgetSource).toContain('.invalidatableContent()');
+    expect(widgetSource).toContain('HafaWidgetListLayout.make(');
+    expect(widgetSource).toContain('pendingItemIDs: Set(entry.state.pending.map(\\.itemID))');
+    expect(widgetSource).toContain('@ScaledMetric');
+    expect(widgetSource).not.toContain('ChangeGroceryWidgetPageIntent');
+    expect(widgetSource).not.toContain('ToggleGroceryWidgetSectionIntent');
     expect(sharedSource).toContain('state.markTimelineCacheFresh()');
-    expect(pageIntentSource).not.toContain('reloadTimelines');
     expect(checkIntentSource).not.toContain('reloadTimelines');
-    expect(widgetSource).toContain('dynamicTypeSize.isAccessibilitySize');
-    expect(widgetSource).toContain('Text(item.displayName)');
-    expect(pagingSource).toContain('accessibilitySize ? 6 : 8');
-    expect(sharedSourceText).toContain('var displayName: String');
-    expect(sectionSource).toContain('Never leave an expanded section header orphaned');
-    expect(sectionSource).toContain('recipeID');
-    expect(sectionSource).toContain('otherItemsKey');
-    expect(sectionSource).toContain('precomposedStringWithCompatibilityMapping');
-    expect(sectionSource).not.toContain(
-      '.folding(options: [.caseInsensitive, .diacriticInsensitive]',
-    );
-    expect(sectionIntentSource).toContain('state.collapsedSectionKeys = collapsed.sorted()');
-    expect(sectionIntentSource).toContain('state.markTimelineCacheFresh()');
-    expect(widgetSource).toContain('ToggleGroceryWidgetSectionIntent(');
-    expect(widgetSource).toContain('Text("\\(page.index + 1) of \\(page.totalPages)")');
   });
 
-  it('uses adaptive, contrast-aware widget colors instead of legacy fixed foregrounds', () => {
+  it('uses the app\'s Calm colors with contrast and tinted-mode fallbacks', () => {
     const widgetSource = readFileSync(
       join(mobileRoot, 'widget/ios/HafaGroceryWidget.swift'),
       'utf8',
@@ -164,19 +149,21 @@ describe('Håfa grocery widget config plugin', () => {
       join(mobileRoot, 'widget/ios/HafaWidgetPalette.swift'),
       'utf8',
     );
+    const colors = readFileSync(join(mobileRoot, 'constants/Colors.ts'), 'utf8');
 
     expect(widgetSource).toContain('@Environment(\\.colorScheme)');
     expect(widgetSource).toContain('@Environment(\\.colorSchemeContrast)');
     expect(widgetSource).toContain('@Environment(\\.widgetRenderingMode)');
     expect(widgetSource).toContain('.widgetAccentable()');
-    expect(widgetSource).not.toContain('brandGreen');
-    expect(widgetSource).not.toContain('brandOrange');
     expect(paletteSource).toContain('renderingMode == .fullColor');
     expect(paletteSource).toContain('contrast == .increased');
-    expect(paletteSource).toContain('#101411');
-    expect(paletteSource).toContain('#FFF7EC');
-    expect(paletteSource).toContain('#69C8BA');
-    expect(paletteSource).toContain('#155C52');
+    // Each widget color is one of the app's tokens.
+    for (const token of ['1A1D1C', 'ECEEEC', '222222', '6A6A66', '9BA19E', '145E52', '8CCFBE', '17695B', '1B7466', 'E7E7E3', '2A2E2C']) {
+      expect(paletteSource).toContain(`0x${token}`);
+      expect(colors).toContain(`#${token}`);
+    }
+    expect(paletteSource).not.toContain('FFF7EC');
+    expect(paletteSource).not.toContain('69C8BA');
   });
 
   it('keeps the app-private keychain group ahead of the shared widget group', () => {

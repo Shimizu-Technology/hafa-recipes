@@ -16,7 +16,9 @@ struct HafaGroceryWidgetProvider: TimelineProvider {
     completion: @escaping (HafaGroceryWidgetEntry) -> Void
   ) {
     let state = (try? HafaWidgetStore.shared.readState()) ?? previewState
-    completion(HafaGroceryWidgetEntry(date: Date(), state: state))
+    // The widget gallery shows sample items until the app connects a list.
+    let shown = context.isPreview && state.snapshot == nil ? previewState : state
+    completion(HafaGroceryWidgetEntry(date: Date(), state: shown))
   }
 
   func getTimeline(
@@ -45,40 +47,35 @@ struct HafaGroceryWidgetProvider: TimelineProvider {
 
   private var previewState: HafaWidgetState {
     let now = ISO8601DateFormatter().string(from: Date())
+    func item(_ name: String, _ quantity: String?, _ unit: String?, recipe: String?) -> HafaWidgetItem {
+      HafaWidgetItem(
+        id: "preview-\(name)",
+        name: name,
+        quantity: quantity,
+        unit: unit,
+        notes: nil,
+        checked: false,
+        recipeID: nil,
+        recipeTitle: recipe,
+        addedByName: nil,
+        createdAt: now,
+        updatedAt: now
+      )
+    }
     let items = [
-      HafaWidgetItem(
-        id: UUID().uuidString,
-        name: "Rice",
-        quantity: "1",
-        unit: "bag",
-        notes: nil,
-        checked: false,
-        recipeID: nil,
-        recipeTitle: nil,
-        addedByName: nil,
-        createdAt: now,
-        updatedAt: now
-      ),
-      HafaWidgetItem(
-        id: UUID().uuidString,
-        name: "Coconut milk",
-        quantity: "2",
-        unit: "cans",
-        notes: nil,
-        checked: false,
-        recipeID: nil,
-        recipeTitle: "Chicken kelaguen",
-        addedByName: nil,
-        createdAt: now,
-        updatedAt: now
-      ),
+      item("Chicken thighs", "2", "lb", recipe: "Chicken kelaguen"),
+      item("Lemons", "4", nil, recipe: "Chicken kelaguen"),
+      item("Grated coconut", "1", "cup", recipe: "Chicken kelaguen"),
+      item("Green onions", "1", "bunch", recipe: "Chicken kelaguen"),
+      item("Rice", "1", "bag", recipe: nil),
+      item("Eggs", "1", "dozen", recipe: nil),
     ]
     let snapshot = HafaWidgetSnapshot(
       accountScopeID: "preview",
       list: HafaWidgetList(
         id: "preview",
         name: "Grocery List",
-        isShared: true,
+        isShared: false,
         revision: 1,
         createdAt: now,
         updatedAt: now
@@ -103,10 +100,15 @@ struct HafaGroceryWidget: Widget {
           HafaWidgetBackground()
         }
     }
-    .configurationDisplayName("Håfa Grocery List")
-    .description("See your grocery list and check off items without opening the app.")
+    .configurationDisplayName("Grocery List")
+    .description("See what's left to buy and check items off without opening the app.")
     .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
   }
+}
+
+private enum HafaWidgetLinks {
+  static let grocery = URL(string: "hafarecipes://grocery")!
+  static let addItem = URL(string: "hafarecipes://grocery?focusAdd=1")!
 }
 
 private struct HafaGroceryWidgetView: View {
@@ -115,6 +117,10 @@ private struct HafaGroceryWidgetView: View {
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @Environment(\.widgetRenderingMode) private var widgetRenderingMode
+  @ScaledMetric(relativeTo: .subheadline) private var largeItemHeight: CGFloat = 30
+  @ScaledMetric(relativeTo: .subheadline) private var mediumItemHeight: CGFloat = 25
+  @ScaledMetric(relativeTo: .footnote) private var sectionHeaderHeight: CGFloat = 24
+  @ScaledMetric(relativeTo: .footnote) private var overflowHeight: CGFloat = 24
   let entry: HafaGroceryWidgetEntry
 
   private var palette: HafaWidgetPalette {
@@ -126,387 +132,344 @@ private struct HafaGroceryWidgetView: View {
   }
 
   var body: some View {
-    if let snapshot = entry.state.snapshot {
-      switch family {
-      case .systemSmall:
-        smallView(snapshot)
-      case .systemLarge:
-        listView(snapshot, familyKey: HafaWidgetPaging.largeFamily)
-      default:
-        listView(snapshot, familyKey: HafaWidgetPaging.mediumFamily)
+    Group {
+      if let snapshot = entry.state.snapshot {
+        if family == .systemSmall {
+          smallView(snapshot)
+        } else {
+          listView(snapshot)
+        }
+      } else {
+        signedOutView
       }
-    } else {
-      reconnectView
     }
+    .widgetURL(entry.state.snapshot?.items.isEmpty == true ? HafaWidgetLinks.addItem : HafaWidgetLinks.grocery)
+    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
   }
 
+  // MARK: Small
+
   private func smallView(_ snapshot: HafaWidgetSnapshot) -> some View {
-    Link(destination: URL(string: "hafarecipes://grocery")!) {
-      VStack(alignment: .leading, spacing: 8) {
-        Image(systemName: "cart.fill")
-          .font(.title2.weight(.semibold))
-          .foregroundStyle(palette.accent)
-          .widgetAccentable()
-        Spacer(minLength: 0)
-        Text("\(snapshot.unchecked)")
-          .font(.system(size: 42, weight: .bold, design: .rounded))
-          .foregroundStyle(.primary)
-          .contentTransition(.numericText())
-        Text(snapshot.unchecked == 1 ? "item left" : "items left")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-        HStack(spacing: 4) {
-          Text("Open list")
-          Image(systemName: "arrow.up.right")
-        }
-        .font(.caption2.weight(.semibold))
+    let previewLimit = dynamicTypeSize.isAccessibilitySize ? 1 : 3
+    let preview = HafaWidgetListLayout.preview(items: snapshot.items, limit: previewLimit)
+    return VStack(alignment: .leading, spacing: 0) {
+      Text(snapshot.list.name)
+        .font(HafaWidgetFont.semibold(13, relativeTo: .footnote))
         .foregroundStyle(palette.accent)
         .widgetAccentable()
+        .lineLimit(1)
+
+      if snapshot.unchecked > 0 {
+        Text("\(snapshot.unchecked)")
+          .font(HafaWidgetFont.bold(34, relativeTo: .largeTitle))
+          .foregroundStyle(palette.text)
+          .contentTransition(.numericText())
+          .padding(.top, 2)
+        Text(snapshot.unchecked == 1 ? "item left" : "items left")
+          .font(HafaWidgetFont.medium(13, relativeTo: .footnote))
+          .foregroundStyle(palette.secondaryText)
+      } else {
+        Image(systemName: snapshot.total == 0 ? "cart" : "checkmark.circle.fill")
+          .font(.system(size: 30, weight: .semibold))
+          .foregroundStyle(snapshot.total == 0 ? palette.secondaryText : palette.accent)
+          .widgetAccentable()
+          .padding(.top, 8)
+          .padding(.bottom, 4)
+        Text(snapshot.total == 0 ? "Nothing to buy" : "All done")
+          .font(HafaWidgetFont.semibold(15, relativeTo: .subheadline))
+          .foregroundStyle(palette.text)
+        Text(snapshot.total == 0 ? "Tap to add an item" : "Everything is checked off")
+          .font(HafaWidgetFont.medium(12, relativeTo: .caption))
+          .foregroundStyle(palette.secondaryText)
+          .lineLimit(2)
+      }
+
+      Spacer(minLength: 6)
+
+      VStack(alignment: .leading, spacing: 4) {
+        ForEach(preview) { item in
+          HStack(spacing: 6) {
+            Circle()
+              .strokeBorder(palette.secondaryText, lineWidth: 1.25)
+              .frame(width: 9, height: 9)
+            Text(item.name)
+              .font(HafaWidgetFont.medium(13, relativeTo: .footnote))
+              .foregroundStyle(palette.text)
+              .lineLimit(1)
+          }
+        }
       }
       .privacySensitive()
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .accessibilityElement(children: .combine)
   }
 
-  private func listView(_ snapshot: HafaWidgetSnapshot, familyKey: String) -> some View {
-    let pageSize = HafaWidgetPaging.pageSize(
-      for: familyKey,
-      accessibilitySize: dynamicTypeSize.isAccessibilitySize
-    ) ?? 1
-    let page = HafaWidgetPaging.page(
-      state: entry.state,
-      familyKey: familyKey,
-      pageSize: pageSize
+  // MARK: Medium and large
+
+  private var isLarge: Bool { family == .systemLarge }
+
+  private var rowMetrics: HafaWidgetRowMetrics {
+    HafaWidgetRowMetrics(
+      item: Double(isLarge ? largeItemHeight : mediumItemHeight),
+      header: Double(sectionHeaderHeight),
+      // Medium's header already counts what is left, so its rows use all the
+      // space instead of sharing it with a "more" line.
+      overflow: isLarge ? Double(overflowHeight) : nil
     )
+  }
 
-    return VStack(alignment: .leading, spacing: 0) {
+  private func listView(_ snapshot: HafaWidgetSnapshot) -> some View {
+    VStack(alignment: .leading, spacing: isLarge ? 8 : 4) {
       header(snapshot)
-      Divider().padding(.vertical, 7)
-
-      if page.rows.isEmpty {
+      if snapshot.items.isEmpty {
         emptyList
       } else {
-        VStack(spacing: family == .systemLarge ? 5 : 4) {
-          ForEach(page.rows) { row in
-            displayRow(
-              row,
-              listID: snapshot.list.id,
-              familyKey: familyKey,
-              pageSize: pageSize
-            )
-          }
+        GeometryReader { proxy in
+          let layout = HafaWidgetListLayout.make(
+            items: snapshot.items,
+            pendingItemIDs: Set(entry.state.pending.map(\.itemID)),
+            availableHeight: Double(proxy.size.height),
+            metrics: rowMetrics,
+            showsHeaders: isLarge
+          )
+          rows(layout, listID: snapshot.list.id, showsOverflow: isLarge && layout.showsOverflow)
         }
-        .id("\(familyKey)-\(page.index)-\(entry.state.collapsedSectionKeys ?? [])")
-        .transition(.opacity)
-        .animation(.easeOut(duration: 0.18), value: page.index)
-        .invalidatableContent()
-        .layoutPriority(1)
+        .privacySensitive()
       }
-
-      Spacer(minLength: 5)
-      footer(snapshot, page: page, familyKey: familyKey)
     }
-    .privacySensitive()
   }
 
   private func header(_ snapshot: HafaWidgetSnapshot) -> some View {
-    HStack(spacing: 8) {
-      Image(systemName: snapshot.list.isShared ? "person.2.fill" : "cart.fill")
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(palette.accent)
-        .widgetAccentable()
-        .frame(width: 26, height: 26)
-        .background(palette.sectionSurface, in: Circle())
-      VStack(alignment: .leading, spacing: 1) {
-        Text(snapshot.list.name)
-          .font(.headline)
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-        Text("\(snapshot.unchecked) remaining")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
+    HStack(alignment: .center, spacing: 8) {
+      if isLarge {
+        VStack(alignment: .leading, spacing: 1) {
+          Text(snapshot.list.name)
+            .font(HafaWidgetFont.bold(17, relativeTo: .headline))
+            .foregroundStyle(palette.text)
+            .lineLimit(1)
+          statusLine(snapshot)
+        }
+      } else {
+        // Medium keeps the header to one line so four items fit below it.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(snapshot.list.name)
+            .font(HafaWidgetFont.bold(15, relativeTo: .subheadline))
+            .foregroundStyle(palette.text)
+            .lineLimit(1)
+            .layoutPriority(1)
+          statusLine(snapshot)
+        }
       }
       Spacer(minLength: 4)
-      Link(destination: URL(string: "hafarecipes://grocery?focusAdd=1")!) {
+      Link(destination: HafaWidgetLinks.addItem) {
         Image(systemName: "plus")
-          .font(.subheadline.weight(.bold))
+          .font(.system(size: 14, weight: .bold))
           .foregroundStyle(palette.prominentControlForeground)
           .widgetAccentable()
           .frame(width: 30, height: 30)
           .background(palette.prominentControlBackground, in: Circle())
-          .accessibilityLabel("Add grocery item in Håfa Recipes")
       }
+      .accessibilityLabel("Add an item in Håfa Recipes")
     }
     .fixedSize(horizontal: false, vertical: true)
-    .layoutPriority(2)
   }
 
+  /// Counts like the app's grocery subtitle; connection problems take over
+  /// only when they change what the user should do.
   @ViewBuilder
-  private func displayRow(
-    _ row: HafaWidgetDisplayRow,
-    listID: String,
-    familyKey: String,
-    pageSize: Int
-  ) -> some View {
-    switch row {
-    case let .section(section, continuation):
-      sectionRow(
-        section,
-        continuation: continuation,
-        listID: listID,
-        familyKey: familyKey,
-        pageSize: pageSize
-      )
-    case let .item(_, item):
-      itemRow(item, listID: listID)
+  private func statusLine(_ snapshot: HafaWidgetSnapshot) -> some View {
+    let state = entry.state
+    Group {
+      if state.requiresReconnect {
+        Label("Open the app to reconnect", systemImage: "exclamationmark.triangle.fill")
+          .labelStyle(HafaWidgetInlineLabelStyle())
+          .foregroundStyle(palette.warning)
+      } else {
+        let count = snapshot.unchecked == 0
+          ? (snapshot.total == 0 ? "Empty" : "All done")
+          : (snapshot.unchecked == 1 ? "1 item left" : "\(snapshot.unchecked) items left")
+        let detail = !state.pending.isEmpty
+          ? "Syncing"
+          : (state.lastError != nil ? "Showing saved list" : nil)
+        Text([snapshot.list.isShared ? "Shared" : nil, count, detail].compactMap { $0 }.joined(separator: " · "))
+          .foregroundStyle(palette.secondaryText)
+          .contentTransition(.numericText())
+          .invalidatableContent()
+      }
     }
+    .font(HafaWidgetFont.medium(13, relativeTo: .footnote))
+    .lineLimit(1)
   }
 
-  private func sectionRow(
-    _ section: HafaWidgetSection,
-    continuation: Bool,
-    listID: String,
-    familyKey: String,
-    pageSize: Int
-  ) -> some View {
-    let isCollapsed = Set(entry.state.collapsedSectionKeys ?? []).contains(section.key)
-    return Button(
-      intent: ToggleGroceryWidgetSectionIntent(
+  private func rows(_ layout: HafaWidgetListLayout, listID: String, showsOverflow: Bool) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(layout.rows.enumerated()), id: \.element.id) { index, row in
+        switch row {
+        case let .header(_, title):
+          sectionHeader(title)
+        case let .item(item):
+          let followsItem: Bool = {
+            guard index > 0, case .item = layout.rows[index - 1] else { return false }
+            return true
+          }()
+          itemRow(item, listID: listID, showsSeparator: followsItem)
+        }
+      }
+      if showsOverflow {
+        Spacer(minLength: 0)
+        Link(destination: HafaWidgetLinks.grocery) {
+          HStack(spacing: 4) {
+            Text("\(layout.hiddenUncheckedCount) more on your list")
+            Image(systemName: "chevron.right")
+              .font(.system(size: 11, weight: .bold))
+          }
+          .font(HafaWidgetFont.semibold(13, relativeTo: .footnote))
+          .foregroundStyle(palette.accent)
+          .widgetAccentable()
+          .frame(height: overflowHeight, alignment: .bottomLeading)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+  }
+
+  private func sectionHeader(_ title: String) -> some View {
+    Text(title)
+      .font(HafaWidgetFont.semibold(13, relativeTo: .footnote))
+      .foregroundStyle(palette.secondaryText)
+      .lineLimit(1)
+      .frame(maxWidth: .infinity, minHeight: sectionHeaderHeight, maxHeight: sectionHeaderHeight, alignment: .bottomLeading)
+      .padding(.bottom, 2)
+      .accessibilityAddTraits(.isHeader)
+  }
+
+  private func itemRow(_ item: HafaWidgetItem, listID: String, showsSeparator: Bool) -> some View {
+    let height = isLarge ? largeItemHeight : mediumItemHeight
+    return Toggle(
+      isOn: item.checked,
+      intent: SetGroceryItemCheckedIntent(
         listID: listID,
-        sectionKey: section.key,
-        familyKey: familyKey,
-        pageSize: pageSize
+        itemID: item.id,
+        checked: !item.checked
       )
     ) {
-      HStack(spacing: 7) {
-        Image(
-          systemName: continuation
-            ? "arrow.turn.down.right"
-            : (section.isOtherItems ? "list.bullet" : "fork.knife")
-        )
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(palette.accent)
-        .frame(width: 15)
-        .widgetAccentable()
-        Text(section.title)
-          .font(.caption.weight(.medium))
-          .foregroundStyle(.primary)
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(item.name)
+          .font(HafaWidgetFont.medium(15, relativeTo: .subheadline))
+          .foregroundStyle(item.checked ? palette.secondaryText : palette.text)
           .lineLimit(1)
-        Spacer(minLength: 4)
-        Text("\(section.checkedCount)/\(section.items.count)")
-          .font(.caption2.weight(.semibold))
-          .foregroundStyle(palette.accent)
-          .monospacedDigit()
-          .widgetAccentable()
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
-          .background(palette.controlSurface, in: Capsule())
-        Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
-          .font(.caption2.weight(.bold))
-          .foregroundStyle(.secondary)
+          // A drawn line, not Text.strikethrough: WidgetKit drops that
+          // attribute from some rows after an interactive reload.
+          .overlay {
+            if item.checked {
+              palette.secondaryText.frame(height: 1)
+            }
+          }
+          .layoutPriority(1)
+        Spacer(minLength: 0)
+        if let amount = item.amountText {
+          Text(amount)
+            .font(HafaWidgetFont.medium(13, relativeTo: .footnote))
+            .foregroundStyle(palette.secondaryText)
+            .lineLimit(1)
+        }
       }
-      .padding(.horizontal, 8)
-      .frame(maxWidth: .infinity, minHeight: 27)
-      .background(palette.sectionSurface, in: RoundedRectangle(cornerRadius: 8))
-      .overlay {
-        RoundedRectangle(cornerRadius: 8)
-          .stroke(palette.subtleBorder, lineWidth: colorSchemeContrast == .increased ? 1 : 0.5)
-      }
-      .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
-    .invalidatableContent()
-    .accessibilityLabel(
-      "\(isCollapsed ? "Expand" : "Collapse") \(section.title), \(section.checkedCount) of \(section.items.count) checked"
-    )
-  }
-
-  private func itemRow(_ item: HafaWidgetItem, listID: String) -> some View {
-    HStack(spacing: 8) {
-      Toggle(
-        isOn: item.checked,
-        intent: SetGroceryItemCheckedIntent(
-          listID: listID,
-          itemID: item.id,
-          checked: !item.checked
-        )
-      ) {
-        EmptyView()
+    .toggleStyle(HafaWidgetRowToggleStyle(palette: palette, height: height))
+    .overlay(alignment: .top) {
+      if showsSeparator {
+        palette.hairline
+          .frame(height: 1)
+          .padding(.leading, 30)
       }
-      .toggleStyle(HafaWidgetChecklistToggleStyle())
-      .accessibilityLabel(item.checked ? "Mark \(item.name) unchecked" : "Mark \(item.name) checked")
-
-      Link(destination: editURL(itemID: item.id)) {
-        Text(item.displayName)
-          .font(.subheadline.weight(.medium))
-          .foregroundStyle(item.checked ? Color.secondary : Color.primary)
-          .strikethrough(item.checked)
-          .lineLimit(1)
-          .minimumScaleFactor(0.82)
-      }
-      .accessibilityLabel("Edit \(item.name) in Håfa Recipes")
-      Spacer(minLength: 0)
     }
-    .contentTransition(.opacity)
+    .accessibilityLabel([item.name, item.amountText].compactMap { $0 }.joined(separator: ", "))
   }
 
   private var emptyList: some View {
-    Link(destination: URL(string: "hafarecipes://grocery?focusAdd=1")!) {
-      HStack(spacing: 10) {
-        Image(systemName: "checkmark.seal.fill")
-          .font(.title2)
-          .foregroundStyle(palette.accent)
-          .widgetAccentable()
-        VStack(alignment: .leading, spacing: 2) {
-          Text("All done")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-          Text("Tap to add something")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
+    Link(destination: HafaWidgetLinks.addItem) {
+      VStack(spacing: 4) {
+        Image(systemName: "cart")
+          .font(.system(size: isLarge ? 28 : 20, weight: .medium))
+          .foregroundStyle(palette.secondaryText)
+          .padding(.bottom, isLarge ? 6 : 2)
+        Text("Your list is empty")
+          .font(HafaWidgetFont.semibold(15, relativeTo: .subheadline))
+          .foregroundStyle(palette.text)
+        Text("Tap + to add an item, or add ingredients from a recipe.")
+          .font(HafaWidgetFont.medium(13, relativeTo: .footnote))
+          .foregroundStyle(palette.secondaryText)
+          .multilineTextAlignment(.center)
+          .lineLimit(2)
       }
-      .padding(.vertical, 8)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
 
-  private func footer(
-    _ snapshot: HafaWidgetSnapshot,
-    page: HafaWidgetSectionPage,
-    familyKey: String
-  ) -> some View {
-    HStack(spacing: 5) {
-      if !entry.state.pending.isEmpty {
-        ProgressView().controlSize(.mini)
-        Text("\(entry.state.pending.count) syncing")
-      } else if entry.state.requiresReconnect {
-        Image(systemName: "exclamationmark.triangle.fill")
-        Text("Open app to reconnect")
-      } else if entry.state.lastError != nil {
-        Image(systemName: "wifi.exclamationmark")
-        Text("Showing saved list")
-      } else {
-        Image(systemName: "checkmark.icloud.fill")
-        Text("Up to date")
-      }
-      Spacer()
+  // MARK: Signed out
 
-      if page.totalPages > 1 {
-        Button(
-          intent: ChangeGroceryWidgetPageIntent(
-            listID: snapshot.list.id,
-            familyKey: familyKey,
-            direction: -1,
-            pageSize: page.pageSize
-          )
-        ) {
-          Image(systemName: "chevron.left")
-            .font(.caption.weight(.bold))
-            .widgetAccentable(page.canMovePrevious)
-            .frame(width: 28, height: 28)
-            .background(
-              page.canMovePrevious ? palette.controlSurface : Color.clear,
-              in: Circle()
-            )
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(page.canMovePrevious ? palette.accent : Color.secondary)
-        .disabled(!page.canMovePrevious)
-        .accessibilityLabel("Previous grocery items")
-
-        Text("\(page.index + 1) of \(page.totalPages)")
-          .fontWeight(.semibold)
-          .monospacedDigit()
-          .contentTransition(.numericText())
-          .invalidatableContent()
-
-        Button(
-          intent: ChangeGroceryWidgetPageIntent(
-            listID: snapshot.list.id,
-            familyKey: familyKey,
-            direction: 1,
-            pageSize: page.pageSize
-          )
-        ) {
-          Image(systemName: "chevron.right")
-            .font(.caption.weight(.bold))
-            .widgetAccentable(page.canMoveNext)
-            .frame(width: 28, height: 28)
-            .background(
-              page.canMoveNext ? palette.controlSurface : Color.clear,
-              in: Circle()
-            )
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(page.canMoveNext ? palette.accent : Color.secondary)
-        .disabled(!page.canMoveNext)
-        .accessibilityLabel("Next grocery items")
-      }
+  private var signedOutView: some View {
+    let isSmall = family == .systemSmall
+    return VStack(alignment: isSmall ? .leading : .center, spacing: 4) {
+      Text("Grocery List")
+        .font(HafaWidgetFont.semibold(13, relativeTo: .footnote))
+        .foregroundStyle(palette.accent)
+        .widgetAccentable()
+        .frame(maxWidth: .infinity, alignment: .leading)
+      Spacer(minLength: 0)
+      Image(systemName: "cart")
+        .font(.system(size: isSmall ? 24 : 28, weight: .medium))
+        .foregroundStyle(palette.secondaryText)
+        .padding(.bottom, 4)
+      Text(isSmall ? "Sign in" : "Your grocery list will show here")
+        .font(HafaWidgetFont.semibold(15, relativeTo: .subheadline))
+        .foregroundStyle(palette.text)
+        .fixedSize(horizontal: false, vertical: true)
+      Text(isSmall ? "Open Håfa Recipes to see your list." : "Open Håfa Recipes and sign in.")
+        .font(HafaWidgetFont.medium(13, relativeTo: .footnote))
+        .foregroundStyle(palette.secondaryText)
+        .multilineTextAlignment(isSmall ? .leading : .center)
+        .fixedSize(horizontal: false, vertical: true)
+      if !isSmall { Spacer(minLength: 0) }
     }
-    .font(.caption2)
-    .foregroundStyle(.secondary)
-    .fixedSize(horizontal: false, vertical: true)
-    .layoutPriority(2)
-  }
-
-  private func editURL(itemID: String) -> URL {
-    var components = URLComponents()
-    components.scheme = "hafarecipes"
-    components.host = "grocery"
-    components.queryItems = [URLQueryItem(name: "editItem", value: itemID)]
-    return components.url ?? URL(string: "hafarecipes://grocery")!
-  }
-
-  private var reconnectView: some View {
-    Link(destination: URL(string: "hafarecipes://grocery")!) {
-      VStack(alignment: .leading, spacing: 10) {
-        Image(systemName: "cart.fill")
-          .font(.title2.weight(.semibold))
-          .foregroundStyle(palette.accent)
-          .widgetAccentable()
-        Spacer(minLength: 0)
-        Text("Your grocery list, right here")
-          .font(.headline)
-          .foregroundStyle(.primary)
-        Text("Open Håfa Recipes once to connect this widget.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        Text("Open app  →")
-          .font(.caption.weight(.bold))
-          .foregroundStyle(palette.accent)
-          .widgetAccentable()
-      }
-    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isSmall ? .topLeading : .top)
+    .accessibilityElement(children: .combine)
   }
 }
 
-private struct HafaWidgetChecklistToggleStyle: ToggleStyle {
-  @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-  @Environment(\.widgetRenderingMode) private var widgetRenderingMode
-
-  private var palette: HafaWidgetPalette {
-    HafaWidgetPalette(
-      colorScheme: colorScheme,
-      contrast: colorSchemeContrast,
-      renderingMode: widgetRenderingMode
-    )
-  }
+/// The whole row checks an item off: a fingertip anywhere on it counts, which
+/// matters one-handed in a store aisle.
+private struct HafaWidgetRowToggleStyle: ToggleStyle {
+  let palette: HafaWidgetPalette
+  let height: CGFloat
 
   func makeBody(configuration: Configuration) -> some View {
     Button {
       configuration.isOn.toggle()
     } label: {
-      Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
-        .font(.body.weight(.semibold))
-        .foregroundStyle(configuration.isOn ? palette.accent : Color.secondary)
-        .widgetAccentable(configuration.isOn)
-        .frame(width: 28, height: 28)
-        .contentTransition(.symbolEffect)
-        .animation(.easeOut(duration: 0.15), value: configuration.isOn)
+      HStack(spacing: 8) {
+        Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 20, weight: configuration.isOn ? .semibold : .regular))
+          .foregroundStyle(configuration.isOn ? palette.accent : palette.secondaryText)
+          .widgetAccentable(configuration.isOn)
+          .frame(width: 22)
+          .contentTransition(.symbolEffect(.replace))
+        configuration.label
+      }
+      .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .contentShape(Circle())
+  }
+}
+
+private struct HafaWidgetInlineLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 4) {
+      configuration.icon.font(.system(size: 11, weight: .semibold))
+      configuration.title
+    }
   }
 }
 

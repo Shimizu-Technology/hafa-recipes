@@ -18,13 +18,19 @@ const SOURCE_FILES = [
   'HafaGroceryWidget.swift',
   'HafaWidgetPalette.swift',
   'HafaWidgetSections.swift',
-  'HafaWidgetPaging.swift',
-  'ChangeGroceryWidgetPageIntent.swift',
-  'ToggleGroceryWidgetSectionIntent.swift',
+  'HafaWidgetListLayout.swift',
   'SetGroceryItemCheckedIntent.swift',
   'HafaWidgetShared.swift',
 ];
 const RESOURCE_FILES = ['PrivacyInfo.xcprivacy'];
+// The widget uses the app's Figtree faces. They are copied from the same
+// package the app loads at prebuild time, so the repository holds one copy.
+// Info.plist lists them under UIAppFonts.
+const FONT_FILES = {
+  'Figtree-Medium.ttf': '@expo-google-fonts/figtree/500Medium/Figtree_500Medium.ttf',
+  'Figtree-SemiBold.ttf': '@expo-google-fonts/figtree/600SemiBold/Figtree_600SemiBold.ttf',
+  'Figtree-Bold.ttf': '@expo-google-fonts/figtree/700Bold/Figtree_700Bold.ttf',
+};
 const CONFIG_FILES = ['Info.plist', 'HafaGroceryWidget.entitlements'];
 
 function mainAppKeychainGroups(bundleIdentifier, existingGroups = []) {
@@ -141,6 +147,10 @@ async function copyWidgetFiles(projectRoot, platformProjectRoot) {
     sharedSource,
     path.join(destination, 'HafaWidgetShared.swift'),
   );
+  for (const [file, packagePath] of Object.entries(FONT_FILES)) {
+    const source = require.resolve(packagePath, { paths: [projectRoot] });
+    await fs.promises.copyFile(source, path.join(destination, file));
+  }
 }
 
 function withWidgetTarget(config) {
@@ -187,7 +197,7 @@ function withWidgetTarget(config) {
     // expo-share-intent also owns a PrivacyInfo.xcprivacy file. Give node-xcode
     // an explicit target-scoped file reference instead of resolving it by
     // basename, which would otherwise reuse the share extension's manifest.
-    for (const file of RESOURCE_FILES) {
+    for (const file of [...RESOURCE_FILES, ...Object.keys(FONT_FILES)]) {
       addTargetResource(project, group, resourcesPhase, file);
     }
     project.addBuildPhase([], 'PBXFrameworksBuildPhase', 'Frameworks', target.uuid);
@@ -239,6 +249,7 @@ plugin._testing = {
   APP_GROUP,
   BUNDLE_SUFFIX,
   KEYCHAIN_GROUP,
+  FONT_FILES,
   RESOURCE_FILES,
   SOURCE_FILES,
   TARGET_NAME,
