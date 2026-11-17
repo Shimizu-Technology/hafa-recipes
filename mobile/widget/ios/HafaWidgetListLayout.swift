@@ -18,7 +18,7 @@ enum HafaWidgetRow: Identifiable, Hashable {
 struct HafaWidgetRowMetrics: Equatable {
   var item: Double
   var header: Double
-  /// Height of the "N more" line, or nil when the family has no room for one.
+  /// Height of the "N more" line, or nil to leave it out.
   var overflow: Double?
 }
 

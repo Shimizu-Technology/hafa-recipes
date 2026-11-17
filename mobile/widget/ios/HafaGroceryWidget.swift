@@ -213,6 +213,8 @@ private struct HafaGroceryWidgetView: View {
     HafaWidgetRowMetrics(
       item: Double(isLarge ? largeItemHeight : mediumItemHeight),
       header: Double(sectionHeaderHeight),
+      // Medium's header already counts what is left, so its rows use all the
+      // space instead of sharing it with a "more" line.
       overflow: isLarge ? Double(overflowHeight) : nil
     )
   }
@@ -231,7 +233,7 @@ private struct HafaGroceryWidgetView: View {
             metrics: rowMetrics,
             showsHeaders: isLarge
           )
-          rows(layout, listID: snapshot.list.id)
+          rows(layout, listID: snapshot.list.id, showsOverflow: isLarge && layout.showsOverflow)
         }
         .privacySensitive()
       }
@@ -300,7 +302,7 @@ private struct HafaGroceryWidgetView: View {
     .lineLimit(1)
   }
 
-  private func rows(_ layout: HafaWidgetListLayout, listID: String) -> some View {
+  private func rows(_ layout: HafaWidgetListLayout, listID: String, showsOverflow: Bool) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       ForEach(Array(layout.rows.enumerated()), id: \.element.id) { index, row in
         switch row {
@@ -314,7 +316,8 @@ private struct HafaGroceryWidgetView: View {
           itemRow(item, listID: listID, showsSeparator: followsItem)
         }
       }
-      if layout.showsOverflow {
+      if showsOverflow {
+        Spacer(minLength: 0)
         Link(destination: HafaWidgetLinks.grocery) {
           HStack(spacing: 4) {
             Text("\(layout.hiddenUncheckedCount) more on your list")
@@ -355,8 +358,14 @@ private struct HafaGroceryWidgetView: View {
         Text(item.name)
           .font(HafaWidgetFont.medium(15, relativeTo: .subheadline))
           .foregroundStyle(item.checked ? palette.secondaryText : palette.text)
-          .strikethrough(item.checked, color: palette.secondaryText)
           .lineLimit(1)
+          // A drawn line, not Text.strikethrough: WidgetKit drops that
+          // attribute from some rows after an interactive reload.
+          .overlay {
+            if item.checked {
+              palette.secondaryText.frame(height: 1)
+            }
+          }
           .layoutPriority(1)
         Spacer(minLength: 0)
         if let amount = item.amountText {
@@ -401,27 +410,30 @@ private struct HafaGroceryWidgetView: View {
   // MARK: Signed out
 
   private var signedOutView: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    let isSmall = family == .systemSmall
+    return VStack(alignment: isSmall ? .leading : .center, spacing: 4) {
       Text("Grocery List")
         .font(HafaWidgetFont.semibold(13, relativeTo: .footnote))
         .foregroundStyle(palette.accent)
         .widgetAccentable()
+        .frame(maxWidth: .infinity, alignment: .leading)
       Spacer(minLength: 0)
       Image(systemName: "cart")
-        .font(.system(size: family == .systemSmall ? 24 : 28, weight: .medium))
+        .font(.system(size: isSmall ? 24 : 28, weight: .medium))
         .foregroundStyle(palette.secondaryText)
         .padding(.bottom, 4)
-      Text(family == .systemSmall ? "Sign in to see your list" : "Your grocery list will show here")
+      Text(isSmall ? "Sign in" : "Your grocery list will show here")
         .font(HafaWidgetFont.semibold(15, relativeTo: .subheadline))
         .foregroundStyle(palette.text)
-        .lineLimit(2)
-      Text("Open Håfa Recipes and sign in.")
+        .fixedSize(horizontal: false, vertical: true)
+      Text(isSmall ? "Open Håfa Recipes to see your list." : "Open Håfa Recipes and sign in.")
         .font(HafaWidgetFont.medium(13, relativeTo: .footnote))
         .foregroundStyle(palette.secondaryText)
-        .lineLimit(2)
-      if family == .systemLarge { Spacer(minLength: 0) }
+        .multilineTextAlignment(isSmall ? .leading : .center)
+        .fixedSize(horizontal: false, vertical: true)
+      if !isSmall { Spacer(minLength: 0) }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isSmall ? .topLeading : .top)
     .accessibilityElement(children: .combine)
   }
 }

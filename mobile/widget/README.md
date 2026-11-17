@@ -15,7 +15,7 @@ EAS builds.
   Large adds recipe headers like the app's sections. Tapping anywhere on a row
   checks it off (iOS 17 App Intent); the next item moves up into view.
   Checked items only fill leftover space, newest first, so a mistaken tap can
-  be undone. When the list is longer than the widget, large shows "N more on
+  be undone. When the list is longer than the widget, large ends with "N more on
   your list", which opens the app. There is no paging or collapsing: the
   layout in `HafaWidgetListLayout.swift` sizes the list to the space.
 - Add: opens `hafarecipes://grocery?focusAdd=1` and focuses the app's text input.
