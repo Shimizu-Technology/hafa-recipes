@@ -75,7 +75,10 @@ struct ClassView: View {
         .onChange(of: runner.phase) { _, phase in
           if case .running = phase { page = 1 }
         }
-        .onChange(of: runner.cursor) { _, _ in page = 1 }
+        .onChange(of: runner.cursor) { _, _ in
+          page = 1
+          if engine.pendingControl == .skip { engine.pendingControl = nil }
+        }
       }
     }
     .sheet(item: Binding(get: { engine.sheet }, set: { if $0 == nil { engine.dismissSheet() } }), onDismiss: {

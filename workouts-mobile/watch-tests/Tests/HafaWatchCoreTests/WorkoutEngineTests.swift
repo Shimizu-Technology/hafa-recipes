@@ -195,6 +195,17 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertTrue(engine.undo())
   }
 
+  func testSkipConfirmationCannotSkipThePartReachedWhileItWasOpen() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .amrap, cap: 1), part("B", .amrap, cap: 600)), leadIn: 0)
+    engine.request(.skip)
+    clock.advance(2); engine.tick()
+    engine.confirmControl()
+    XCTAssertEqual(engine.runner?.cursor, 1)
+    XCTAssertFalse(engine.runner!.runs[1].skipped)
+    XCTAssertEqual(engine.runner?.phase, .running)
+  }
+
   func testRecordingFollowsTheParts() async throws {
     let engine = engine()
     try await engine.start(twoParts, leadIn: 3)
