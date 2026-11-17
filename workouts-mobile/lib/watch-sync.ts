@@ -148,9 +148,14 @@ export function pruneWatchCatalog(prior: WatchCatalog, sent: Record<string, Work
   for (const [key, workout] of Object.entries(prior)) {
     // Pre-timestamp catalogs get one migration grace period.
     const cached = workout.watch_cached_at ?? now;
-    if (keys.has(key) || cached >= now - 14 * 86400000) catalog[key] = { ...workout, watch_cached_at: cached };
+    if (keys.has(key) || cached >= now - 45 * 86400000) catalog[key] = { ...workout, watch_cached_at: cached };
   }
-  for (const [key, workout] of Object.entries(sent)) catalog[key] = { ...workout, watch_cached_at: now };
+  for (const [key, workout] of Object.entries(sent)) {
+    const { watch_cached_at: cached, ...snapshot } = prior[key] ?? {};
+    // Keep the original timestamp for unchanged snapshots; timestamp-only churn is not a catalog change.
+    const unchanged = JSON.stringify(snapshot) === JSON.stringify(workout);
+    catalog[key] = { ...workout, watch_cached_at: unchanged && cached != null ? cached : now };
+  }
   return catalog;
 }
 export function stablePlans(json: string): string { const { generated_at: _, ...context } = JSON.parse(json); return JSON.stringify(context); }
@@ -165,16 +170,25 @@ export async function drainWatch(options: { pendingResults(): Promise<string[]>;
   for (const raw of await options.pendingResults()) {
     if (!options.current()) return attention;
     let r: WatchResult | undefined;
+    let permanent = false;
     try {
       r = JSON.parse(raw) as WatchResult;
-      if (r?.v !== 1 || r.recorded_on !== "watch") throw Error("This watch result uses an unsupported format.");
-      if (!r.plan?.account_key) throw Error("This timer has no account. It cannot be assigned safely. Discard it and open Håfa on your phone before starting again.");
-      if (r.plan.account_key !== options.account) throw Error("This result belongs to another account or an earlier training setup. Sign in to its original account to import it.");
+      if (r?.v !== 1 || r.recorded_on !== "watch") { permanent = true; throw Error("This watch result uses an unsupported format."); }
+      if (!r.plan?.account_key) { permanent = true; throw Error("This timer has no account. It cannot be assigned safely. Discard it and open Håfa on your phone before starting again."); }
+      if (r.plan.account_key !== options.account) {
+        const owner = options.account.slice(0, options.account.lastIndexOf(":"));
+        const priorOwner = r.plan.account_key.slice(0, r.plan.account_key.lastIndexOf(":"));
+        permanent = owner === priorOwner;
+        throw Error(permanent ? "This result belongs to an earlier training setup and cannot be imported into this one."
+          : "This result belongs to another account. Sign in to its original account to import it.");
+      }
       const state = options.store.snapshot();
       if (!state.watch_imported?.includes(r.client_session_id.toLowerCase())) {
         const workout = r.plan.source ? options.catalog[r.plan_key] : quickWorkout(r, options.generation);
-        if (!workout) throw Error("The saved class snapshot is missing. Keep this result while restoring this phone's training data, or discard it.");
-        const item = watchSession(r, workout, options.generation, state);
+        if (!workout) throw Error("The saved class snapshot is missing. Keep this result while restoring this phone's training data.");
+        let item: SavedLocalSession;
+        try { item = watchSession(r, workout, options.generation, state); }
+        catch (error) { permanent = true; throw error; }
         if (!r.plan.source) item.watch_quick = true;
         if (!options.current()) return attention;
         await options.store.importWatch(item);
@@ -183,8 +197,9 @@ export async function drainWatch(options: { pendingResults(): Promise<string[]>;
     } catch (error) {
       const id = typeof r?.client_session_id === "string" ? r.client_session_id : "";
       attention.push({ id, title: r?.plan?.account_key === options.account ? r.plan.title : "Watch result",
-        reason: error instanceof Error && !(error instanceof TypeError) && !(error instanceof SyntaxError) ? error.message : "This result could not be validated. Keep it for recovery or discard it.",
-        discardable: /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id) });
+        reason: error instanceof Error && !(error instanceof TypeError) && !(error instanceof SyntaxError) ? error.message : "This result could not be validated. Keep it for recovery.",
+        discardable: permanent && (!r?.plan?.account_key || typeof r.plan.account_key === "string" &&
+          r.plan.account_key.slice(0, r.plan.account_key.lastIndexOf(":")) === options.account.slice(0, options.account.lastIndexOf(":"))) && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id) });
     }
   }
   return attention;

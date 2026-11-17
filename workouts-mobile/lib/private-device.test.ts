@@ -111,3 +111,14 @@ it("recovers a failed account-deletion watch purge before clearing the durable c
   await recoverPrivateDeviceCleanup();
   expect(f.purgeResults).toHaveBeenCalledTimes(2); expect(f.map.size).toBe(0);
 });
+
+it("watch push failures do not block erasure or account-deletion recovery", async () => {
+  f.map.set("hafa-workouts:v1:A:profile%3A2", "PRIVATE");
+  f.clearPlans.mockRejectedValue(Error("watchAppNotInstalled"));
+  await erasePrivateDeviceData("A", "binding");
+  expect(f.map.size).toBe(0);
+  f.map.set("hafa-workouts:device-cleanup:v1:A", JSON.stringify({ owner: "A", binding: "binding", purgeWatch: true }));
+  await recoverPrivateDeviceCleanup();
+  expect(f.purgeResults).toHaveBeenCalledWith("A");
+  expect(f.map.size).toBe(0);
+});

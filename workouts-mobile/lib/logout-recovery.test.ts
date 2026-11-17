@@ -12,6 +12,7 @@ import AccountData from "../app/account-data";
 let controller: LogoutRecovery;
 let screenContext: Record<string, unknown>;
 vi.mock("@clerk/expo", () => ({ useAuth: () => ({ userId: "subject-A", sessionId: "session-A" }) }));
+vi.mock("@/lib/watch-native", () => ({ nativeWatchBridge: async () => null }));
 vi.mock("@/lib/context", () => ({ useTraining: () => screenContext }));
 vi.mock("@/lib/logout-recovery-native", () => ({ get logoutRecovery() { return controller; } }));
 vi.mock("@/lib/export-file", () => ({ savePrivateExport: vi.fn() }));

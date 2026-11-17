@@ -18,8 +18,8 @@ export function WatchAttentionRow({ items, discard }: { items: WatchAttention[];
       detail={expanded ? "Hide details" : "Review results saved on this phone"} onPress={() => setExpanded(!expanded)} />
     {expanded && items.map((item, index) => <Card key={`${item.id}:${index}`} compact>
       <Copy kind="label">{item.title}</Copy><Copy kind="small" tone="muted">{item.reason}</Copy>
-      {confirm === item.id ? <>
-        <Copy kind="small">Discard this phone copy? It cannot be imported later. The workout in Health stays there.</Copy>
+      {confirm === item.id && item.discardable ? <>
+        <Copy kind="small">Discard this phone copy? Håfa will stop trying to import it. The workout in Health stays there.</Copy>
         <ButtonRow><Button title="Cancel" variant="secondary" disabled={busy} onPress={() => setConfirm(null)} />
           <Button title="Discard" variant="destructive" busy={busy} onPress={() => { void remove(item.id); }} /></ButtonRow>
       </> : item.discardable && <Button title="Discard result" variant="ghost" onPress={() => setConfirm(item.id)} />}

@@ -49,6 +49,55 @@ final class WatchSyncTests: XCTestCase {
     _ = try inbox.receive(own)
     XCTAssertEqual(try inbox.pending(), [other])
   }
+  func testClearPlansSucceedsWhenWatchPushThrows() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let cache = WatchPlanCache(url: dir.appendingPathComponent("outgoing-plans.json"))
+    try cache.save("private plans")
+    var attempted = false
+    try cache.clear { attempted = true; throw CocoaError(.fileWriteUnknown) }
+    XCTAssertTrue(attempted)
+    XCTAssertEqual(try cache.read(), WatchPlanCache.empty)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: cache.url.path))
+  }
+  func testWorkoutsDeletionPurgesOnlyExactOwnerAndGeneration() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let inbox = WatchInbox(directory: dir)
+    var results: [String] = []
+    for key in ["synthetic:2", "synthetic:3", "synthetic-other:2"] {
+      let json = "{\"v\":1,\"recorded_on\":\"watch\",\"client_session_id\":\"\(UUID().uuidString)\",\"plan\":{\"account_key\":\"\(key)\"}}"
+      _ = try inbox.receive(json); results.append(json)
+    }
+    try inbox.purge(owner: "synthetic", account: "synthetic:2")
+    XCTAssertEqual(Set(try inbox.pending()), Set(results.dropFirst()))
+    _ = try inbox.receive(results[0])
+    XCTAssertEqual(Set(try inbox.pending()), Set(results.dropFirst()))
+  }
+  func testImportedReceiptsAreBoundedWithoutRemovingPendingResults() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let inbox = WatchInbox(directory: dir)
+    let pending = "{\"v\":1,\"recorded_on\":\"watch\",\"client_session_id\":\"\(UUID().uuidString)\"}"
+    _ = try inbox.receive(pending)
+    var newest = ""
+    for n in 0..<510 {
+      let id = UUID().uuidString.lowercased()
+      let file = dir.appendingPathComponent(id + ".json")
+      try Data().write(to: file) // Legacy empty placeholder.
+      let receipt = dir.appendingPathComponent(id + ".json.imported")
+      try Data().write(to: receipt)
+      try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(n))], ofItemAtPath: receipt.path)
+      newest = id
+    }
+    XCTAssertEqual(try inbox.pending(), [pending])
+    let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+    XCTAssertEqual(files.filter { $0.pathExtension == "imported" }.count, 500)
+    XCTAssertEqual(files.filter { $0.pathExtension == "json" }.count, 1)
+    let replay = "{\"v\":1,\"recorded_on\":\"watch\",\"client_session_id\":\"\(newest)\"}"
+    _ = try inbox.receive(replay)
+    XCTAssertEqual(try inbox.pending(), [pending])
+  }
   func testObserverReplacementAndDeliveryUseOneQueue() {
     let changes = WatchChanges()
     let received = expectation(description: "ordered callbacks"); received.expectedFulfillmentCount = 2

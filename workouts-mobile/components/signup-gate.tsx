@@ -1,4 +1,4 @@
-import { clearWatchPlans } from "@/lib/watch-native";
+import { clearWatchPlans, resumeWatchSync } from "@/lib/watch-native";
 import { useEffect, useRef, useState, type PropsWithChildren } from "react";
 import { useAuth, useClerk, useSession } from "@clerk/expo";
 import { ApiError, createWorkoutsApi } from "../lib/api";
@@ -60,10 +60,10 @@ export function SignupGate({ children }: PropsWithChildren) {
       try {
         await revokeNativeSharing();
         if (!current()) return;
-        await clearWatchPlans();
+        try { await clearWatchPlans(); } catch { /* Watch connectivity must not block sign-out. */ }
         await clerk.signOut();
         await signupSetup.clear(sessionId, userId);
-      } catch { if (current()) setError("Sign-out needs another attempt."); }
+      } catch { resumeWatchSync(); if (current()) setError("Sign-out needs another attempt."); }
       finally { working = false; if (active) setBusy(false); }
     };
     void run();

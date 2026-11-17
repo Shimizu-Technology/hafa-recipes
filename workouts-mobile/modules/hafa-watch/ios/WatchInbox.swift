@@ -14,7 +14,7 @@ struct WatchInbox {
       let id = object["client_session_id"] as? String else { throw CocoaError(.fileReadCorruptFile) }
     let file = try url(id)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    if !FileManager.default.fileExists(atPath: file.path) {
+    if !FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: file.path + ".imported") {
       var options: Data.WritingOptions = [.atomic]
       #if os(iOS)
       options.insert(.completeFileProtectionUntilFirstUserAuthentication)
@@ -25,23 +25,47 @@ struct WatchInbox {
   }
   func pending() throws -> [String] {
     guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+    try pruneReceipts()
     return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
       .filter { $0.pathExtension == "json" && !FileManager.default.fileExists(atPath: $0.path + ".imported") }
       .sorted { $0.lastPathComponent < $1.lastPathComponent }.map { try String(contentsOf: $0, encoding: .utf8) }
   }
-  func purge(owner: String) throws {
+  func purge(owner: String, account: String? = nil) throws {
     for json in try pending() {
       guard let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-        let plan = object["plan"] as? [String: Any], let account = plan["account_key"] as? String,
-        let split = account.lastIndex(of: ":"), String(account[..<split]) == owner else { continue }
+        let plan = object["plan"] as? [String: Any], let key = plan["account_key"] as? String,
+        let split = key.lastIndex(of: ":"), String(key[..<split]) == owner,
+        account == nil || key == account else { continue }
       if let id = object["client_session_id"] as? String { try markImported(id) }
     }
   }
   func markImported(_ id: String) throws {
     let file = try url(id)
     // Retain only a content-free receipt, so replay never recreates an imported result.
-    try Data().write(to: URL(fileURLWithPath: file.path + ".imported"), options: .atomic)
-    try Data().write(to: file, options: .atomic)
+    let receipt = URL(fileURLWithPath: file.path + ".imported")
+    if !FileManager.default.fileExists(atPath: receipt.path) { try Data().write(to: receipt, options: .atomic) }
+    if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+    try pruneReceipts()
+  }
+  // Bounded replay protection: keep the latest 500 acknowledgements, never pending results.
+  func pruneReceipts() throws {
+    let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
+    var receipts: [(url: URL, date: Date)] = []
+    for receipt in files where receipt.pathExtension == "imported" {
+      let file = receipt.deletingPathExtension()
+      if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+      let date = try receipt.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? Date.distantPast
+      receipts.append((url: receipt, date: date))
+    }
+    receipts.sort { a, b in
+      if a.date == b.date { return a.url.lastPathComponent > b.url.lastPathComponent }
+      return a.date > b.date
+    }
+    for (receipt, _) in receipts.dropFirst(500) {
+      let file = receipt.deletingPathExtension()
+      if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+      try FileManager.default.removeItem(at: receipt)
+    }
   }
 }
 
@@ -62,8 +86,10 @@ struct WatchPlanCache {
     #endif
     try Data(json.utf8).write(to: url, options: options)
   }
-  func clear() throws {
+  func clear(push: () throws -> Void = {}) throws {
     if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    // The deleted retry file is durable. A watch that is absent/offline must not block cleanup.
+    try? push()
   }
 }
 

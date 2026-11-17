@@ -9,7 +9,7 @@ export const privateRegistry = createPrivateStorageRegistry(AsyncStorage);
 const markerPrefix = "hafa-workouts:device-cleanup:v1:";
 async function clean(owner: string, purgeWatch = false) {
   const watch = await nativeWatchBridge();
-  await clearWatchPlans();
+  try { await clearWatchPlans(); } catch { /* Watch connectivity must not block device cleanup. */ }
   if (purgeWatch) await watch?.purgeResults(owner);
   await cleanupPrivateExportFiles(owner);
   const adapter = await nativeNotifications();

@@ -12,7 +12,7 @@ final class PhoneWatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
   private var plansURL: URL { inbox.directory.deletingLastPathComponent().appendingPathComponent("outgoing-plans.json") }
   private var plans: WatchPlanCache { WatchPlanCache(url: plansURL) }
   func clearPlans() throws {
-    try queue.sync { try plans.clear(); try pushPlans() }
+    try queue.sync { try plans.clear { try pushPlans() } }
   }
   func setPlans(_ json: String) throws {
     try queue.sync {
@@ -21,7 +21,7 @@ final class PhoneWatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
     }
   }
   private func pushPlans() throws {
-    guard WCSession.default.activationState == .activated, WCSession.default.isPaired else { return }
+    guard WCSession.default.activationState == .activated, WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return }
     let json = try plans.read()
     try WCSession.default.updateApplicationContext(["plans": json])
   }
@@ -67,8 +67,8 @@ public final class HafaWatchModule: Module {
       try PhoneWatchLink.shared.setPlans(json)
     }
     AsyncFunction("clearPlans") { try PhoneWatchLink.shared.clearPlans() }
-    AsyncFunction("purgeResults") { (owner: String) in
-      try PhoneWatchLink.shared.queue.sync { try PhoneWatchLink.shared.inbox.purge(owner: owner) }
+    AsyncFunction("purgeResults") { (owner: String, account: String?) in
+      try PhoneWatchLink.shared.queue.sync { try PhoneWatchLink.shared.inbox.purge(owner: owner, account: account) }
     }
     AsyncFunction("pendingResults") { () -> [String] in
       try PhoneWatchLink.shared.queue.sync { try PhoneWatchLink.shared.inbox.pending() }

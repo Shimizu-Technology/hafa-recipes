@@ -1,4 +1,4 @@
-import { clearWatchPlans } from "@/lib/watch-native";
+import { clearWatchPlans, resumeWatchSync } from "@/lib/watch-native";
 import { ActivityIndicator } from "react-native";
 import { Screen, Notice, Button, Copy } from "@/components/ui";
 import {
@@ -225,7 +225,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
     try {
       await cache.cancelQueries({ predicate: scoped });
       if (currentAuth.current.binding !== binding || currentAuth.current.sessionId !== sessionId) return;
-      await clearWatchPlans();
+      try { await clearWatchPlans(); } catch { /* Watch connectivity must not block sign-out. */ }
       await clerk.signOut({ sessionId });
       signedOut = true;
       cache.removeQueries({ predicate: scoped });
@@ -233,7 +233,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
       if (currentAuth.current.binding === binding && currentAuth.current.sessionId === sessionId)
         setRecovery({ binding, sessionId, busy: false, error: "Could not sign out. Your private drafts remain saved for this account. Try again." });
     } finally {
-      if (!signedOut && signingOut.current === captured) signingOut.current = null;
+      if (!signedOut && signingOut.current === captured) { signingOut.current = null; resumeWatchSync(); }
       // The SDK may settle before its hooks publish. Keep private consumers closed until the captured session leaves.
       if (!signedOut && currentAuth.current.binding === binding && currentAuth.current.sessionId === sessionId)
         setRecovery((value) => ({ ...value, busy: false }));

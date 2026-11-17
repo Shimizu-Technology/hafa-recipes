@@ -442,6 +442,7 @@ export function createTrainingStore(
         if (!loaded) throw Error("Wait for your saved training to load.");
         const next = work(clone(state));
         next.history = pruneHistory(next.history);
+        if (next.watch_imported) next.watch_imported = [...new Set(next.watch_imported)].slice(-500);
         if (next.active && !next.active.paused && capRemainingSeconds(next.active, clock()) === 0) {
           freezeTimers(next.active, clock());
           closeActive(next.active, clock());
@@ -486,7 +487,7 @@ export function createTrainingStore(
           let workout: Workout;
           try { workout = await saveWatchWorkout(item.workout, `watch-${request.client_session_id}`, generation); }
           catch (error) {
-            throw Object.assign(Error(`Could not create this Open timer workout. Your watch result is still saved on this device. ${error instanceof Error ? error.message : "Retry when available."}`), { local: true });
+            throw Object.assign(Error(`Could not create this Open timer workout. Your watch result is still saved on this device. ${error instanceof Error ? error.message : "Retry when available."}`), { preparation: true, status: (error as { status?: number } | null)?.status });
           }
           if (workout.generation !== generation) throw Object.assign(Error("The account changed."), { local: true });
           await update(s => {
@@ -508,12 +509,12 @@ export function createTrainingStore(
           return s;
         });
       } catch (e) {
-        const { status, local: stoppedHere } = e as { status?: number; local?: boolean };
+        const { status, local: stoppedHere, preparation } = e as { status?: number; local?: boolean; preparation?: boolean };
         // Two results rejected the same way in a row look like a service-wide problem,
         // not a problem with each result; keep the rest queued for a later retry.
-        const transient = stoppedHere === true || isTransientSyncError(status) || previousRejection === status;
+        const transient = stoppedHere === true || isTransientSyncError(status) || (!preparation && previousRejection === status);
         // A 403 is about the scores only when heart rate went with them (its storage was turned off); otherwise it's the account.
-        if (!transient && (status === 422 || (status === 403 && item.request.heart_rate != null)) && carriesResults(item.request)) {
+        if (!preparation && !transient && (status === 422 || (status === 403 && item.request.heart_rate != null)) && carriesResults(item.request)) {
           // Never strand a session over its optional scores: save it without them now, and keep them on the
           // device so the person can see them and correct the score later.
           await update((s) => {
@@ -671,7 +672,8 @@ export function createTrainingStore(
           value.history.some((h) => h.generation !== generation)
         )
           throw Error("The local training record needs recovery. It has not been overwritten.");
-        state = { ...value, history: pruneHistory(value.history) };
+        state = { ...value, history: pruneHistory(value.history),
+          ...(value.watch_imported ? { watch_imported: [...new Set(value.watch_imported)].slice(-500) } : {}) };
         for (const item of state.history) {
           const warning = historicalStructureWarning(item.workout, item.request.actuals, item.cell_identity_version);
           if (warning) item.problem = warning;

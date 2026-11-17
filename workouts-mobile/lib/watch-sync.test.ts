@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { createTrainingStore, type TrainingState } from "./training";
+import { createTrainingStore, trainingKey, type TrainingState } from "./training";
 import { drainWatch, planContext, watchPlan, pruneWatchCatalog, stablePlans, watchCollisions, type WatchResult } from "./watch-sync";
 import { roundActuals } from "./class-training";
 import { nov17Class } from "./fixtures/nov17-class";
@@ -130,7 +130,7 @@ describe("watch sync", () => {
   });
   it("ignores generated_at when comparing plans and expires old catalog snapshots except pending references", () => {
     expect(stablePlans('{"v":1,"generated_at":"a","plans":[]}')).toBe(stablePlans('{"v":1,"generated_at":"b","plans":[]}'));
-    const now = Date.parse(end), old = now - 15 * 86400000;
+    const now = Date.parse(end), old = now - 46 * 86400000;
     const catalog = pruneWatchCatalog({ expired: { ...workout, watch_cached_at: old }, pending: { ...workout, watch_cached_at: old },
       recent: { ...workout, watch_cached_at: now - 86400000 } }, { sent: workout }, [JSON.stringify({ plan_key: "pending" })], now);
     expect(Object.keys(catalog).sort()).toEqual(["pending", "recent", "sent"]);
@@ -143,10 +143,10 @@ describe("watch sync", () => {
     let marks = 0;
     const options = { store, account, generation: 1, current: () => true, markImported: async () => { marks++; } };
     const issues = await drainWatch({ ...options, catalog: {}, pendingResults: async () => [other, nil, result()].map(r => JSON.stringify(r)) });
-    expect(issues.map(i => i.reason).join(" ")).toMatch(/another account.*no account.*snapshot/s);
-    expect(issues.every(i => i.discardable)).toBe(true);
+    expect(issues.map(i => i.reason).join(" ")).toMatch(/earlier training setup.*no account.*snapshot/s);
+    expect(issues.map(i => i.discardable)).toEqual([true, true, false]);
     const validation = await drainWatch({ ...options, catalog: { [plan.plan_key]: workout }, pendingResults: async () => [JSON.stringify(invalid)] });
-    expect(validation[0].reason).toContain("actuals"); expect(marks).toBe(0);
+    expect(validation[0].reason).toContain("actuals"); expect(validation[0].discardable).toBe(true); expect(marks).toBe(0);
   });
   it("expires collision notices at the account's local midnight", async () => {
     const store = setup(); await store.load(); await store.start(workout, source, "phone", Date.parse(start));
@@ -155,17 +155,61 @@ describe("watch sync", () => {
     expect(watchCollisions(store.snapshot(), "2026-11-17", "Pacific/Guam")).toHaveLength(1);
     expect(watchCollisions(store.snapshot(), "2026-11-18", "Pacific/Guam")).toHaveLength(0);
   });
-  it("keeps scores and the Open timer source when workout creation returns 422", async () => {
+  it("blocks a permanently rejected Open timer without dropping scores or blocking the remaining queue", async () => {
     const store = setup(async () => { throw Object.assign(Error("Workout rejected"), { status: 422 }); });
     await store.load(); const r = result(); r.plan = { ...plan, source: undefined, title: "Open timer" };
     r.parts = [{ ...r.parts[0], block_id: "timer" }]; r.actuals = []; r.results = [{ block_id: "timer", kind: "rounds_reps", origin: "watch", rounds: 2 }];
+    const next = result(); next.client_session_id = "88753900-0192-4f86-879a-7ba599178691";
+    await drainWatch({ store, account, generation: 1, catalog: { [plan.plan_key]: workout }, current: () => true,
+      pendingResults: async () => [JSON.stringify(next)], markImported: async () => {} });
     await drainWatch({ store, account, generation: 1, catalog: {}, current: () => true,
       pendingResults: async () => [JSON.stringify(r)], markImported: async () => {} });
-    let sent = 0; await store.sync(async () => { sent++; throw Error("must not upload"); });
-    const item = store.snapshot().history[0];
-    expect(sent).toBe(0); expect(item.state).toBe("queued"); expect(item.watch_quick).toBe(true);
+    let sent = 0; await store.sync(async request => {
+      sent++; expect(request.client_session_id).toBe(next.client_session_id);
+      return { id: "server", generation: 1, client_session_id: request.client_session_id, title: "Saved", started_at: start,
+        status: request.status, content: { ...request, prescription_snapshot: workout } };
+    });
+    const item = store.snapshot().history.find(h => h.watch_quick)!;
+    expect(sent).toBe(1); expect(item.state).toBe("blocked"); expect(item.rejection_status).toBe(422); expect(item.watch_quick).toBe(true);
     expect(item.request.results).toEqual(r.results); expect(item.unsent_results).toBeUndefined();
     expect(item.problem).toContain("Could not create this Open timer workout");
   });
 
+});
+
+it("offers discard only for permanent refusal categories, never another owner or transient storage failures", async () => {
+  const store = setup(); await store.load();
+  const other = result(); other.plan = { ...plan, account_key: "other:1" };
+  const unsupported = { ...result(), v: 2 };
+  const options = { store, account, generation: 1, current: () => true, catalog: { [plan.plan_key]: workout }, markImported: async () => {} };
+  const issues = await drainWatch({ ...options, pendingResults: async () => [JSON.stringify(other), JSON.stringify(unsupported)] });
+  expect(issues.map(i => i.discardable)).toEqual([false, true]);
+  expect(issues[0].title).toBe("Watch result");
+  const failed = await drainWatch({ ...options, store: { ...store, importWatch: async () => { throw Error("disk locked"); } },
+    pendingResults: async () => [JSON.stringify(result())] });
+  expect(failed[0].discardable).toBe(false);
+});
+it("retains snapshots through day 45 and preserves sent timestamps for unchanged snapshots", () => {
+  const now = Date.parse(end);
+  const prior = { old: { ...workout, watch_cached_at: now - 44 * 86400000 } };
+  expect(pruneWatchCatalog(prior, {}, [], now).old).toEqual(prior.old);
+  const sent = pruneWatchCatalog({}, { sent: workout }, [], now);
+  expect(pruneWatchCatalog(sent, { sent: workout }, [], now + 300)).toEqual(sent);
+  expect(pruneWatchCatalog(sent, { sent: workout }, [], now + 2 * 86400000)).toEqual(sent);
+  expect(pruneWatchCatalog(sent, { sent: { ...workout, title: "Edited" } }, [], now + 2 * 86400000).sent.watch_cached_at).toBe(now + 2 * 86400000);
+});
+it("bounds imported IDs on load and write and still dedupes recent replay after reload", async () => {
+  const disk = new Map<string, string>();
+  const ids = Array.from({ length: 510 }, (_, i) => `receipt-${i}`);
+  disk.set(trainingKey("synthetic", 1), JSON.stringify({ version: 1, generation: 1, active: null, history: [], watch_imported: ids }));
+  const storage = { getItem: async (key: string) => disk.get(key) ?? null, setItem: async (key: string, value: string) => { disk.set(key, value); }, removeItem: async () => {} };
+  const store = createTrainingStore(storage, "synthetic", 1); await store.load();
+  expect(store.snapshot().watch_imported).toEqual(ids.slice(-500));
+  await drainWatch({ store, account, generation: 1, current: () => true, catalog: { [plan.plan_key]: workout },
+    pendingResults: async () => [JSON.stringify(result())], markImported: async () => {} });
+  expect(store.snapshot().watch_imported).toHaveLength(500);
+  const reloaded = createTrainingStore(storage, "synthetic", 1); await reloaded.load();
+  await drainWatch({ store: reloaded, account, generation: 1, current: () => true, catalog: {},
+    pendingResults: async () => [JSON.stringify(result())], markImported: async () => {} });
+  expect(reloaded.snapshot().history).toHaveLength(1);
 });
