@@ -70,6 +70,7 @@ MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_CLASS_DOCUMENT_BYTES = 10 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v11"
+TRANSCRIPT_PROMPT_VERSION = "workout-class-transcript-v1"
 # A five-part class with evidence quotes needs more room than one reel; the
 # smaller limit truncated real classes and paid for a second model.
 OUTPUT_TOKENS = 6000
@@ -682,6 +683,79 @@ class ProductionExtractionProvider:
             return best[1]  # A failed recovery must not erase supported partial facts.
         raise ExtractionFailure(last_error)
 
+    async def transcribe_class(self, source: SourceBundle) -> str:
+        """One primary-model call that copies a class's printed lines from its screenshots."""
+        if not self.enabled:
+            raise ExtractionFailure("paid_provider_disabled")
+        from app.ai_governance import AIInvocationTracker
+        from app.config import get_settings
+        from app.domains.workouts.class_extraction import (
+            TranscriptTooLong,
+            transcript_messages,
+            transcript_response_format,
+            transcript_text,
+        )
+
+        settings = get_settings()
+        async with AIInvocationTracker(
+            capability="workout_extraction",
+            primary_model=settings.workout_extraction_model,
+            prompt_version=TRANSCRIPT_PROMPT_VERSION,
+        ) as invocation:
+            try:
+                async with self._guard(settings).attempt(
+                    capability="workout_extraction",
+                    model=invocation.model,
+                    envelope=ProviderEnvelope(
+                        endpoint="chat_completions",
+                        max_output_tokens=OUTPUT_TOKENS,
+                        includes_images=True,
+                        service_tier="default",
+                        sdk_max_retries=0,
+                    ),
+                ) as paid:
+                    async with httpx.AsyncClient(
+                        timeout=READ_TIMEOUT_SECONDS, transport=httpx.AsyncHTTPTransport(retries=0)
+                    ) as client:
+                        response = await client.post(
+                            "https://api.openai.com/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {self._key(settings)}"},
+                            json={
+                                "model": invocation.model,
+                                "messages": transcript_messages(source),
+                                "response_format": transcript_response_format(),
+                                "max_completion_tokens": OUTPUT_TOKENS,
+                                "store": False,
+                                "service_tier": "default",
+                                "reasoning_effort": settings.openai_reasoning_effort,
+                            },
+                        )
+                    if response.status_code != 200:
+                        raise ExtractionFailure("provider_http_error")
+                    data = response.json()
+                    choice = data["choices"][0]
+                    if choice.get("finish_reason") != "stop" or choice["message"].get("refusal"):
+                        raise ExtractionFailure("provider_incomplete_response")
+                    try:
+                        text = transcript_text(json.loads(choice["message"]["content"]), MAX_TEXT_CHARS)
+                    except TranscriptTooLong:
+                        raise ExtractionFailure("class_transcript_too_long") from None
+                    paid.complete(outcome="success")
+                    invocation.succeed(data)
+                    return text
+            except BudgetError as exc:
+                invocation.fail(exc.code)
+                raise ExtractionFailure(exc.code) from None
+            except asyncio.CancelledError:
+                invocation.fail("cancelled")
+                raise
+            except ExtractionFailure as exc:
+                invocation.fail(exc.code)
+                raise
+            except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
+                invocation.fail("provider_invalid_response")
+                raise ExtractionFailure("provider_invalid_response") from None
+
     async def transcribe(self, path: str) -> str:
         if not self.enabled:
             raise ExtractionFailure("paid_provider_disabled")
@@ -1117,6 +1191,13 @@ def _affirmative_side_counts(wording: str):
         yield from counts
 
 
+# What "no rest between ___" can zero: a round's rest, or a movement's rest after its sets.
+ZERO_REST_SCOPES = {
+    "rest_between_rounds_seconds": {"set", "round", "circuit"},
+    "rest_seconds": {"set", "exercise", "movement", "move", "station", "rep"},
+}
+
+
 def _numeric_supported(field_name: str, value: int | float, wording: str, exercise_name: str | None = None) -> bool:
     numbers = [float(number) for number in re.findall(r"(?<!\w)\d+(?:\.\d+)?", wording)]
     if field_name in {"duration_seconds", "rest_seconds", "rest_between_rounds_seconds", "estimated_minutes"}:
@@ -1129,6 +1210,12 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
         # every round/set" is an ordinary rest or hold.
         trailing_role = role.replace("|every|", r"|every(?=\s+(?:\d+\s*)?(?:minutes?|mins?|intervals?)\b)|")
         unit_pattern = r"(\d+(?:\.\d+)?)\s*-?\s*(seconds?|secs?|s\b|minutes?|mins?|m\b)"
+        if value == 0 and field_name in {"rest_seconds", "rest_between_rounds_seconds"}:
+            # "3 alternating sets, with no rest between sets of:" states zero rest. A
+            # named scope must fit: "no rest between exercises" says nothing about rounds.
+            scopes = ZERO_REST_SCOPES[field_name]
+            return any(not found[1] or found[1].lower().rstrip("s") in scopes for found in re.finditer(
+                r"\b(?:no|without)\s+rest\b(?:\s+(?:between|after)\s+(?:the\s+|each\s+)?([a-z]+))?", wording, re.I))
         for clause in re.split(r"[;,\n]|[.!?](?:\s|$)", scalar_wording):
             if field_name != "estimated_minutes" and _overall_minutes_supported(value / 60, clause):
                 continue
@@ -1807,6 +1894,10 @@ def ground_workout(
 ) -> tuple[WorkoutContent, list[str], list[Evidence]]:
     """Schema validity is insufficient: strip unsupported values, retain the draft."""
     raw = raw if class_parts else legacy_shape(raw)
+    if class_parts:
+        from app.domains.workouts.class_outline import add_rest_stations
+
+        raw = add_rest_stations(raw, source.parts)
     workout = WorkoutContent.model_validate(
         {key: value for key, value in raw.items() if key not in SERVER_CONTENT_FIELDS}
     ).model_copy(deep=True)
@@ -2264,6 +2355,8 @@ class WorkoutExtractor:
                     "insufficient_source",
                     "No accessible instructions were found; complete this source manually.",
                 )
+            if request.class_parts and source.images and not any(part.text.strip() for part in source.parts):
+                await self._transcribe_class(source, deadline)
             try:
                 raw = await extract_provider()
             except ExtractionFailure as exc:
@@ -2353,6 +2446,39 @@ class WorkoutExtractor:
                 "extraction_failed",
                 "Extraction failed; the saved source remains a manual draft.",
             )
+
+    async def _transcribe_class(self, source: SourceBundle, deadline: float):
+        """Class screenshots become one transcript, read and grounded exactly like pasted text.
+
+        The extraction then sees the transcript only. A failed copy (not a budget
+        stop) falls back to reading the images directly.
+        """
+        from app.domains.workouts.class_extraction import (
+            SCREENSHOT_NOTICE,
+            TRANSCRIPT_FAILED,
+            TRANSCRIPT_LOCATION,
+        )
+
+        transcribe = getattr(self.provider, "transcribe_class", None)
+        if transcribe is None:
+            return
+        # Leave the extraction call its full 130 seconds.
+        remaining = max(1, deadline - asyncio.get_running_loop().time() - 130)
+        try:
+            text = await asyncio.wait_for(transcribe(source), timeout=min(75, remaining))
+        except ExtractionFailure as exc:
+            if exc.code.startswith("workouts_ai_") or exc.code == "paid_provider_disabled":
+                raise
+            source.metadata.coverage_notes.append(TRANSCRIPT_FAILED)
+            return
+        except (asyncio.TimeoutError, httpx.HTTPError):
+            source.metadata.coverage_notes.append(TRANSCRIPT_FAILED)
+            return
+        if not text.strip():
+            raise ExtractionFailure("class_workout_section_missing")
+        source.parts = [SourcePart(TRANSCRIPT_LOCATION, text)]
+        source.images = []
+        source.metadata.coverage_notes.append(SCREENSHOT_NOTICE)
 
     @staticmethod
     def _draft(

@@ -7,7 +7,9 @@ part starts, which notes belong to it and which rows it lists, so those facts
 no longer change between model runs.
 """
 
+import logging
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 
 from app.domains.workouts.schemas import (
@@ -18,6 +20,7 @@ from app.domains.workouts.schemas import (
     WorkoutBlock,
 )
 
+logger = logging.getLogger(__name__)
 PART = re.compile(r"^([A-Z])\.\s+(\S.*)$")
 ITEM = re.compile(r"^([A-Z])(\d{1,2})\.\s+(\S.*)$")
 GROUP = re.compile(r"^\d+\s+alternating sets\b.*:$", re.I)
@@ -289,6 +292,75 @@ def _mixed_minutes(part):
         elif counts and not REST_ROW.match(line):
             counts[-1] += 1
     return any(count > 1 for count in counts)
+
+
+def _minute_slots(part):
+    """(is it a rest minute, its first row) for each "Minute N" slot, in order."""
+    slots = []
+    for line in part.rows:
+        if MINUTE_ROW.match(line):
+            slots.append([])
+        elif slots:
+            slots[-1].append(line)
+    return [(all(REST_ROW.match(row) for row in rows), rows[0]) for rows in slots if rows]
+
+
+def add_rest_stations(raw, parts):
+    """A "Minute 5 / Rest for 1 minute" slot is a station the rotation counts.
+    Add it when the import left it out, so 25 minutes stays 5 rounds of 5.
+
+    A block takes only its own part's rest: one labelled with that part's letter,
+    or an unlettered one whose movements no other part lists. Two candidates, or
+    movements two parts share, leave the block as it is."""
+    original = raw
+    try:
+        raw = deepcopy(raw)
+        blocks = raw.get("blocks") or []
+        # Screenshots or PDF pages are separate sources; a movement another page lists is shared too.
+        outlines = [(source, read_outline(source.text).parts) for source in parts]
+        every = [part for _, outline in outlines for part in outline]
+        printed = {id(part): words(part.text()) for part in every}
+        for source, outline in outlines:
+            for part in outline:
+                slots = _minute_slots(part)
+                if not any(rest for rest, _ in slots) or _mixed_minutes(part):
+                    continue
+                candidates = []
+                for block in blocks:
+                    moves = block.get("exercises") or []
+                    if ((block.get("execution") or {}).get("mode") != "emom" or not moves
+                            or any(re.fullmatch(r"\s*rest\s*", move.get("name") or "", re.I) for move in moves)
+                            or not all(words(move.get("name") or "") and words(move["name"]) <= printed[id(part)]
+                                       for move in moves)
+                            or len(moves) != sum(not rest for rest, _ in slots)):
+                        continue
+                    letter = re.match(r"\s*([A-Z])(?:\d|\b)", block.get("label") or "")
+                    if letter:
+                        if letter[1] == part.key:
+                            candidates.append(block)
+                    elif not any(other is not part and all(words(move["name"]) <= printed[id(other)] for move in moves)
+                                 for other in every):
+                        candidates.append(block)
+                if len(candidates) != 1:
+                    continue
+                moves = candidates[0]["exercises"]
+                for position, (rest, row) in enumerate(slots):
+                    if rest:
+                        moves.insert(position, _rest_station(row, source.location))
+        return raw
+    except Exception:  # noqa: BLE001 - a heuristic reader must never fail the import
+        logger.exception("workouts_class_rest_station_failed")
+    return original
+
+
+def _rest_station(row, location):
+    evidence = [{"field": "name", "wording": row, "location": location}]
+    station = {"name": "Rest", "provenance": "source", "evidence": evidence}
+    found = re.search(r"(\d+)\s*(minutes?|mins?|seconds?|secs?)\b", row, re.I)
+    if found:
+        station["duration_seconds"] = int(found[1]) * (60 if found[2].lower().startswith("m") else 1)
+        evidence.append({"field": "duration_seconds", "wording": row, "location": location})
+    return station
 
 
 # A movement row carries a dose: "10 Burpees", "Row 750 meters", "for 30 seconds", "@ 24/16 kg", "Max ...".
