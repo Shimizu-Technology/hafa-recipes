@@ -316,9 +316,11 @@ def add_rest_stations(raw, parts):
     try:
         raw = deepcopy(raw)
         blocks = raw.get("blocks") or []
-        for source in parts:
-            outline = read_outline(source.text).parts
-            printed = {id(part): words(part.text()) for part in outline}
+        # Screenshots or PDF pages are separate sources; a movement another page lists is shared too.
+        outlines = [(source, read_outline(source.text).parts) for source in parts]
+        every = [part for _, outline in outlines for part in outline]
+        printed = {id(part): words(part.text()) for part in every}
+        for source, outline in outlines:
             for part in outline:
                 slots = _minute_slots(part)
                 if not any(rest for rest, _ in slots) or _mixed_minutes(part):
@@ -337,7 +339,7 @@ def add_rest_stations(raw, parts):
                         if letter[1] == part.key:
                             candidates.append(block)
                     elif not any(other is not part and all(words(move["name"]) <= printed[id(other)] for move in moves)
-                                 for other in outline):
+                                 for other in every):
                         candidates.append(block)
                 if len(candidates) != 1:
                     continue

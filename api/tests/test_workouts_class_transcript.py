@@ -278,6 +278,12 @@ def test_a_rest_minute_goes_only_to_its_own_part():
     # Unlettered blocks naming a movement both parts list are left as they are.
     raw = {"blocks": [emom_block("Every minute", "Row", "Rest"), emom_block("Every minute", "Row")]}
     assert add_rest_stations(raw, [page]) == raw
+    # The same holds when each part is on its own page.
+    pages = [SourcePart(TRANSCRIPT_LOCATION, "A. Every minute for 10 minutes:\nMinute 1\nRow 10 calories\n"
+                        "Minute 2\nRest for 1 minute"),
+             SourcePart(TRANSCRIPT_LOCATION, "B. Every minute for 10 minutes:\nMinute 1\nRest for 30 seconds\n"
+                        "Minute 2\nRow 12 calories")]
+    assert add_rest_stations(raw, pages) == raw
 
 
 def test_every_emom_part_missing_its_rest_minute_gets_one():
