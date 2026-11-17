@@ -18,6 +18,10 @@ Acceptance: recognize the same cover and creator from feed to saved detail; brow
 
 Choice uses radio semantics for one selection and checkbox semantics for independent preferences. Choice and Segmented share the 0.97 press response (120ms in, 160ms out); Reduce Motion uses opacity only. Disabled buttons keep readable text and explain material blockers. iOS toasts announce their message; skeleton pulses stop while backgrounded. Sheets use a Close button without a decorative drag handle. Training countdowns use tabular numerals.
 
+## Button uniformity (2026-11-17)
+
+Leon asked for uniform controls, starting from Today's class. `Button` is one height (50pt) with one radius, padding and type, an optional leading 20pt icon, and the variants primary, secondary, ghost, destructive and accent. There is no size prop. A ghost button with `inline` is the one lighter form: a 44pt text button that sizes to its label. A button fills the width it is given. Two or three side by side go in `ButtonRow`: equal width and height, stacking at full width when a label would not fit on one line (long label, narrow phone or larger text). Use an icon on every button in a group or on none. Keep labels short and put detail in a caption below ("Up to 8 screenshots."). Chips and the segmented control share a 36pt height; one-line fields match the 50pt button. Actions that run at once (Paste, Screenshots, PDF) are buttons, not a segmented control; `Segmented` is for choosing a mode. `lib/button-uniformity.test.ts` fails on a `size` prop or on a filled `inline` button. Run-screen footers and floating or overlay controls (`BigTap`, `AskCoachPill`) keep their own sizes on purpose.
+
 ## Athletic selection (2026-11-03)
 
 Leon chose Athletic for every Workouts screen, with a marker under every weekday

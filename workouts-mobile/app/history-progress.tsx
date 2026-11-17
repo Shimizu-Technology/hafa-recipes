@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect } from "expo-router";
-import { AccountButton, Button, Card, Copy, Empty, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton, useColors } from "@/components/ui";
+import { AccountButton, Button, ButtonRow, Card, Copy, Empty, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton, useColors } from "@/components/ui";
 import { useNativeHeader } from "@/components/native-tab-stack";
 import { ProgressRecords } from "@/components/progress-records";
 import { useTraining, useOfflineTraining } from "@/lib/context";
@@ -152,7 +152,7 @@ export default function Progress() {
       )}
       {q.error && <>
         <Notice error>Your training history couldn’t load. Sessions saved on this device are still shown.</Notice>
-        <Button title="Try again" variant="secondary" size="sm" inline icon="refresh" busy={q.isFetching} onPress={() => { void q.refetch(); }} />
+        <Button title="Try again" variant="secondary" icon="refresh" busy={q.isFetching} onPress={() => { void q.refetch(); }} />
       </>}
       {!historyLoading && !q.error && !offline.error && !remote.length && !local.length ? (
         <Empty
@@ -197,12 +197,10 @@ export default function Progress() {
                 </Notice>
                 {(canRecoverResult(h) || !!h.recovery) && <Button title={h.recovery ? "Continue result recovery" : "Recover result"}
                   icon="refresh" secondary disabled={busy} onPress={() => router.push({ pathname: "/recover-result/[id]", params: { id: h.request.client_session_id } })} />}
-                <Row gap={8} wrap>
+                <ButtonRow>
                   <Button
                     title="Try saving again"
                     variant="secondary"
-                    size="sm"
-                    inline
                     icon="refresh"
                     busy={busy}
                     disabled={!!h.recovery}
@@ -213,19 +211,17 @@ export default function Progress() {
                   <Button
                     title="Discard from this device"
                     variant="destructive"
-                    size="sm"
-                    inline
                     icon="trash-outline"
                     disabled={busy || !!h.recovery}
                     onPress={() => discard(h.request.client_session_id)}
                   />
-                </Row>
+                </ButtonRow>
               </>
             )}
             {!!h.recovery_origin && <><Notice>This result was recovered with a private workout copy.</Notice>
-              <Button title="View original recording" variant="ghost" size="sm" inline onPress={() => router.push({
+              <Button title="View original recording" variant="ghost" inline onPress={() => router.push({
                 pathname: "/recover-result/[id]", params: { id: h.recovery_origin!.request.client_session_id } })} /></>}
-            {!!h.request.supersedes_session_id && <Button title="View original saved session" variant="ghost" size="sm" inline
+            {!!h.request.supersedes_session_id && <Button title="View original saved session" variant="ghost" inline
               onPress={() => openSession(h.request.supersedes_session_id!)} />}
           </Card>
         ))}
@@ -234,7 +230,7 @@ export default function Progress() {
           <SessionSummary title={s.title} request={s.content} workout={s.content.prescription_snapshot}
             ranTimer={ranFormatTimer(offline.state.history, s.content.client_session_id)}
             when={`${friendlyDate(s.started_at)} · ${sessionStatusLabel(s.status)}`} onOpen={() => openSession(s.id)} />
-          {!!s.content.supersedes_session_id && <Button title="View previous saved result" variant="ghost" size="sm" inline
+          {!!s.content.supersedes_session_id && <Button title="View previous saved result" variant="ghost" inline
             onPress={() => openSession(s.content.supersedes_session_id!)} />}
         </Card>
       ))}

@@ -3,24 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack as RouterStack, router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
-import {
-  Button,
-  Chip,
-  ChipRow,
-  Copy,
-  Empty,
-  FilterButton,
-  Notice,
-  ListGroup,
-  ListRow,
-  haptics,
-  Row,
-  Screen,
-  SearchField,
-  Sheet,
-  Stack,
-  useToast,
-} from "@/components/ui";
+import { Button, ButtonRow, Chip, ChipRow, Copy, Empty, FilterButton, haptics, ListGroup, ListRow, Notice, Row, Screen, SearchField, Sheet, Stack, useToast } from "@/components/ui";
 import { DiscoverCardSkeleton } from "@/components/discover-card";
 import { DiscoverGrid, DiscoverGridCard, DiscoverGridSkeleton } from "@/components/discover-grid-card";
 import { useTraining } from "@/lib/context";
@@ -252,12 +235,10 @@ export default function Discover() {
                 title="Discover is just getting started"
                 description="Discover shows workouts Håfa members choose to share. Share one from your library, or import a workout from a video or link."
                 action={
-                  <Row gap={8} wrap>
+                  <ButtonRow>
                     <Button
                       title="Share one of yours"
                       icon="globe-outline"
-                      size="sm"
-                      inline
                       disabled={!enrollment?.enrolled}
                       onPress={() => router.push("/discover/share")}
                     />
@@ -265,11 +246,9 @@ export default function Discover() {
                       title="Import a workout"
                       icon="add"
                       variant="secondary"
-                      size="sm"
-                      inline
                       onPress={() => router.navigate("/extract")}
                     />
-                  </Row>
+                  </ButtonRow>
                 }
               />
             )
@@ -278,7 +257,7 @@ export default function Discover() {
               {sections.map(section => <View key={section.title} style={{ gap: 12 }}>
                 <Row justify="space-between" wrap>
                   <Copy kind="subheading">{section.title}</Copy>
-                  {section.more && <Button title={expandedSection === section.title ? "Show less" : "See all"} variant="ghost" textLink size="sm" inline onPress={() => setExpandedSection(expandedSection === section.title ? undefined : section.title)} />}
+                  {section.more && <Button title={expandedSection === section.title ? "Show less" : "See all"} variant="ghost" textLink inline onPress={() => setExpandedSection(expandedSection === section.title ? undefined : section.title)} />}
                 </Row>
                 {view === "list" ? <ListGroup>{section.items.map(card => <ListRow key={card.id} title={card.title} detail={[card.source_creator, platformInfo(card.source_platform).label].filter(Boolean).join(" · ")} onPress={() => open(card)} />)}</ListGroup> : <DiscoverGrid>{section.items.map(card => <DiscoverGridCard key={card.id} card={card} onPress={() => open(card)}
                   onSave={() => enrollment?.enrolled ? void save(card) : router.push("/onboarding")} saving={saving === card.id} />)}</DiscoverGrid>}
@@ -339,17 +318,16 @@ export default function Discover() {
               />
             ))}
           </FilterGroup>
-          <Row gap={8} wrap justify="flex-end">
+          <ButtonRow>
             {active.length > 0 && (
               <Button
                 title="Clear all"
-                variant="ghost"
-                inline
+                variant="secondary"
                 onPress={clearSheetFilters}
               />
             )}
-            <Button title="Show workouts" inline onPress={() => setFiltersOpen(false)} />
-          </Row>
+            <Button title="Show workouts" onPress={() => setFiltersOpen(false)} />
+          </ButtonRow>
         </Stack>
       </Sheet>
     </Screen>

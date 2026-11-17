@@ -7,8 +7,8 @@ vi.mock("react-native", () => ({
   useWindowDimensions: () => ({ width: 393, height: 852, fontScale: 1 }),
 }));
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView" }));
-vi.mock("@/components/ui", () => ({ Button: "Button", Copy: "Copy", useColors: () => ({ background: "#000" }) }));
-vi.mock("../components/ui", () => ({ Button: "Button", Copy: "Copy", useColors: () => ({ background: "#000" }) }));
+vi.mock("@/components/ui", () => ({ Button: "Button", ButtonRow: "ButtonRow", Copy: "Copy", useColors: () => ({ background: "#000" }) }));
+vi.mock("../components/ui", () => ({ Button: "Button", ButtonRow: "ButtonRow", Copy: "Copy", useColors: () => ({ background: "#000" }) }));
 
 const { SourceImage } = await import("../components/source-image");
 

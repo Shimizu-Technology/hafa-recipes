@@ -4,7 +4,7 @@ import { AppState } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect } from "expo-router";
-import { Button, Copy, IconButton, Notice, Row } from "./ui";
+import { Button, ButtonRow, Copy, IconButton, Notice } from "./ui";
 import { useTraining } from "@/lib/context";
 import { cleanupCaptureFiles, pickImages, recoverCaptureCleanup } from "@/lib/capture-io";
 import { createCoachPhotoStore, type CoachPhoto } from "@/lib/coach-photos";
@@ -120,13 +120,13 @@ export function CoachPhotoControl({ state, allowed, disabled, slot }: { state: R
       {!state.photo.discard && !expired && (state.photo.file
         ? <Image cachePolicy="none" source={{ uri: state.photo.file.uri }} style={{ width: 100, height: 100, borderRadius: 12 }} accessibilityLabel="Selected coach photo" />
         : state.photo.attachment_id && <CoachMessagePhoto id={state.photo.attachment_id} generation={state.generation} expires={state.photo.expires_at} removable={false} compact />)}
-      <Row wrap>
-        <Button title={state.photo.discard ? "Retry removing photo" : "Remove photo"} secondary size="sm" inline busy={state.removing}
+      <ButtonRow>
+        <Button title={state.photo.discard ? "Retry removing photo" : "Remove photo"} secondary busy={state.removing}
           onPress={() => void state.remove()} />
-        {!state.photo.attachment_id && !state.photo.discard && !state.busy && <Button title="Retry photo upload" secondary size="sm" inline disabled={disabled || !allowed} onPress={() => void state.retry()} />}
-      </Row>
-    </> : allowed && slot !== "status" && <Button title="Attach a photo" icon="image-outline" secondary size="sm" inline disabled={disabled || !state.loaded} busy={state.busy || !state.loaded} onPress={() => void state.choose()} />}
-    {!state.loaded && !!state.error && <Button title="Retry restoring photo" secondary size="sm" inline busy={state.busy} onPress={() => void state.retry()} />}
+        {!state.photo.attachment_id && !state.photo.discard && !state.busy && <Button title="Retry photo upload" secondary disabled={disabled || !allowed} onPress={() => void state.retry()} />}
+      </ButtonRow>
+    </> : allowed && slot !== "status" && <Button title="Attach a photo" icon="image-outline" secondary disabled={disabled || !state.loaded} busy={state.busy || !state.loaded} onPress={() => void state.choose()} />}
+    {!state.loaded && !!state.error && <Button title="Retry restoring photo" secondary busy={state.busy} onPress={() => void state.retry()} />}
     {!!state.error && <Notice error>{state.error}</Notice>}
   </>;
 }
@@ -163,11 +163,11 @@ export function CoachMessagePhoto({ id, generation, expires, removable = true, c
   }
   const expired = removed || !!expires && Date.parse(expires) <= Date.now();
   return <>{url ? <Image cachePolicy="none" source={{ uri: url }} style={{ width: compact ? 100 : 180, height: compact ? 100 : 180, borderRadius: 12 }} accessibilityLabel="Private coach photo" />
-    : <Button title={expired ? "Photo expired" : "View private photo"} secondary size="sm" inline disabled={expired} busy={busy} onPress={() => void show()} />}
+    : <Button title={expired ? "Photo expired" : "View private photo"} secondary disabled={expired} busy={busy} onPress={() => void show()} />}
     {removable && !expired && (confirm ? <>
       <Copy kind="small">Remove this photo from the chat? Its message and training history stay available.</Copy>
       <Button title="Confirm photo removal" variant="destructive" busy={busy} onPress={() => void remove()} />
       <Button title="Keep photo" secondary disabled={busy} onPress={() => setConfirm(false)} />
-    </> : <Button title="Remove photo from chat" variant="ghost" size="sm" inline onPress={() => setConfirm(true)} />)}
+    </> : <Button title="Remove photo from chat" variant="ghost" inline onPress={() => setConfirm(true)} />)}
     {!!error && <Copy kind="small">{error}</Copy>}</>;
 }

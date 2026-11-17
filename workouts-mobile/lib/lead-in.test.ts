@@ -15,7 +15,7 @@ it("Start now is a full-size button whose label stays on one line beside its ico
   act(() => { renderer = create(createElement(LeadIn, { until: Date.now() + 3_000, label: "AMRAP 15", onSkip, onDone: vi.fn() })); });
   const start = renderer!.root.find((node) => (node.type as unknown) === "Button");
   // A filled, large target (50 pt), not a ghost text link; the label is capped so it doesn't wrap away from the icon.
-  expect(start.props).toMatchObject({ title: "Start now", variant: "secondary", size: "lg", icon: "play-skip-forward", maxScale: 1.3 });
+  expect(start.props).toMatchObject({ title: "Start now", variant: "secondary", icon: "play-skip-forward", maxScale: 1.3 });
   start.props.onPress();
   expect(onSkip).toHaveBeenCalledOnce();
   act(() => renderer!.unmount());

@@ -35,11 +35,11 @@ export function KeptRunningSheet({ d, now, busy, cap, onKeep, onStoppedAt }: {
       {choosing ? (
         <View style={{ gap: 12 }}>
           <Copy kind="label">I stopped at</Copy>
-          <Row gap={12} align="center" justify="center">
-            <Button title="−1 min" variant="secondary" size="sm" inline disabled={busy || stopAt <= left}
+          <Row gap={12} align="center" justify="center" wrap>
+            <Button title="−1 min" variant="secondary" disabled={busy || stopAt <= left}
               accessibilityLabel="One minute earlier" onPress={() => setAt(Math.max(left, stopAt - minute))} />
             <Copy kind="heading" accessibilityLabel={`Stopped at ${timeOfDay(stopAt)}`}>{timeOfDay(stopAt)}</Copy>
-            <Button title="+1 min" variant="secondary" size="sm" inline disabled={busy || stopAt >= now}
+            <Button title="+1 min" variant="secondary" disabled={busy || stopAt >= now}
               accessibilityLabel="One minute later" onPress={() => setAt(Math.min(now, stopAt + minute))} />
           </Row>
           <Copy kind="small" tone="muted" align="center">The clock will read {clockAt(d, stopAt)} and stay paused.</Copy>

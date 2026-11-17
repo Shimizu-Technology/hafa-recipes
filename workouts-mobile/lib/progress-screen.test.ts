@@ -24,7 +24,7 @@ vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", AppState:
 vi.mock("expo-router", () => ({ router: { push: fixture.push, replace: fixture.replace },
   useLocalSearchParams: () => fixture.params, useFocusEffect() {} }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "recovery-uuid" }));
-vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button",
+vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button", ButtonRow: "ButtonRow",
   AccountButton: "AccountButton", Empty: "Empty", IconButton: "IconButton", ListGroup: "ListGroup", ListRow: "ListRow",
   Row: "Row", SectionHeader: "SectionHeader", Skeleton: "Skeleton", useColors: () => ({ muted: "gray" }) }));
 import Progress from "../app/history-progress";

@@ -53,7 +53,7 @@ export function LastLogged({ title, summary, skipped = false, onUndo, disabled }
           <Copy kind="small" tone="muted" numberOfLines={expanded ? undefined : 1}>{summary}</Copy>
         </View>
       </View>
-      {!!onUndo && <Button title="Undo" icon="arrow-undo" variant="ghost" size="sm" inline disabled={disabled} onPress={onUndo} />}
+      {!!onUndo && <Button title="Undo" icon="arrow-undo" variant="ghost" inline disabled={disabled} onPress={onUndo} />}
     </Row>
   );
 }
