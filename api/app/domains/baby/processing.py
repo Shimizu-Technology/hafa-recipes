@@ -48,6 +48,8 @@ SAMPLED_FRAME = re.compile(r"image:\d+ sampled at [0-9.e+-]+s; samples do not co
 # A whole thing she supplied went unread, or AI stopped partway. Never just a note.
 LOST_NOTES = (
     "An attachment could not be read.",
+    "Image attachment:",
+    "The linked source could not be read.",
     DAILY_LIMIT_MESSAGE,
     AI_UNAVAILABLE_MESSAGE,
 )
@@ -521,7 +523,10 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     ).model_dump(mode="json")
     ai_expected = may_use_ai and provider.enabled and bool(source.parts or source.images)
     # Images that no AI looked at are unread content, whatever else was read.
-    incomplete = missing_content(data, ai_expected=ai_expected) or bool(source.images and not ai_expected)
+    # Read from the full lists: the saved notes are capped at 30 and could drop a limit message.
+    incomplete = (missing_content(data, ai_expected=ai_expected) or bool(source.images and not ai_expected)
+                  or budget_failure is not None
+                  or any(note.startswith(LOST_NOTES) for note in [*source.metadata.coverage_notes, *failures]))
     status = data["status"] = "incomplete" if incomplete else "ready"
     # Attachment membership belongs to the editable record, never a processing result.
     data.pop("attachment_ids", None)

@@ -164,3 +164,16 @@ it("says how a readable post was read as a calm line, and a missing read as a no
   expect(view.root.findByType("Notice" as React.ElementType).props.children).toContain("AI condensed");
   await act(async () => view.unmount());
 });
+
+
+it("opens a ready post's re-read section when a refusal arrives while it's open", async () => {
+  const record = source("ready"), view = await recovery(record);
+  const shut = view.root.findByType("Disclosure" as React.ElementType);
+  expect(shut.props.startOpen).toBe(false);
+  mock.baby.state.outbox = [{ id: "refused", type: "import", record_id: record.id, error: "This post reached its processing limit." }];
+  await act(async () => view.update(<SourceRecovery record={record} onError={onError} />));
+  const open = view.root.findByType("Disclosure" as React.ElementType);
+  expect(open.props.startOpen).toBe(true);
+  expect(open).not.toBe(shut); // a fresh mount, so the closed state isn't kept
+  expect(JSON.stringify(view.toJSON())).toContain("This post reached its processing limit.");
+});

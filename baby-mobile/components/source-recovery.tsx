@@ -61,6 +61,7 @@ export function SourceRecovery({ record, onError }: { record: BabyRecord; onErro
       : "Add screenshots or source text and choose Save changes. You can then read it here."}</Copy>
   </>;
   // A readable post keeps this shut below its content; only missing content puts it up top.
-  return data.status === "ready" ? <Disclosure title="Read this post again" startOpen={!!refused.length}>{actions}</Disclosure>
+  // A refusal that arrives while the page is open remounts it open, so the notice is never shut away.
+  return data.status === "ready" ? <Disclosure key={refused.length ? "refused" : "quiet"} title="Read this post again" startOpen={!!refused.length}>{actions}</Disclosure>
     : <Section title="Read this post">{actions}</Section>;
 }

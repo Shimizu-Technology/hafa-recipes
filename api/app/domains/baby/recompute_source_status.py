@@ -18,7 +18,21 @@ from app.db.database import engine
 from app.domains.baby.access import SpaceAccess, _stamp
 from app.domains.baby.lifecycle import now
 from app.domains.baby.models import BabyImport, BabyRecord, BabySpace
-from app.domains.baby.processing import missing_content, missing_reason
+from app.domains.baby.processing import missing_reason
+
+# The worker's own words when her edit won over a reread; that reread was thrown away, so it stays a retry.
+EDIT_CONFLICT = "You edited this source while it processed."
+
+
+async def latest_import(db, record_id, *, lock=False):
+    query = select(BabyImport).where(BabyImport.record_id == record_id).order_by(BabyImport.created_at.desc()).limit(1)
+    return await db.scalar(query.with_for_update() if lock else query)
+
+
+def why_incomplete(data, job):
+    if job is not None and (job.error or "").startswith(EDIT_CONFLICT):
+        return "edited_while_processing"
+    return missing_reason(data, ai_expected=True)
 
 
 async def promote(db, record_id, revision):
@@ -28,8 +42,11 @@ async def promote(db, record_id, revision):
         select(BabySpace).where(BabySpace.id == record.space_id).with_for_update())
     record = await db.get(BabyRecord, record_id, populate_existing=True, with_for_update=True)
     if (record is None or record.deleted_at is not None or record.revision != revision
-            or (record.data or {}).get("status") != "incomplete"
-            or missing_content(record.data, ai_expected=True)):
+            or (record.data or {}).get("status") != "incomplete"):
+        return False
+    # The latest finished import is what an import card shows; it no longer needs attention.
+    job = await latest_import(db, record.id, lock=True)
+    if why_incomplete(record.data, job):
         return False
     grant = SpaceAccess(space, "internal", 0, db, db.get_transaction()) if space else None
     db.info["baby_family_write"] = True
@@ -37,11 +54,9 @@ async def promote(db, record_id, revision):
     record.revision, record.updated_at = record.revision + 1, now()
     if grant:
         await _stamp(record, grant)
-    # The latest finished import is what an import card shows; it no longer needs attention.
-    job = await db.scalar(select(BabyImport).where(BabyImport.record_id == record.id)
-                          .order_by(BabyImport.created_at.desc()).limit(1).with_for_update())
     if job is not None and job.status == "incomplete" and job.space_id == record.space_id:
-        job.status, job.error, job.updated_at = "ready", None, now()
+        # updated_at stays: a fresh one would send a days-old "is ready" push (triggers.plan_imports).
+        job.status, job.error = "ready", None
         if grant:
             await _stamp(job, grant)
     return True
@@ -58,7 +73,7 @@ async def recompute(*, apply=False, migration_engine=None):
             BabyRecord.data["status"].astext == "incomplete").order_by(BabyRecord.created_at))
         for record_id, revision, created_at, data in rows:
             counts["incomplete"] += 1
-            why = missing_reason(data, ai_expected=True)
+            why = why_incomplete(data, await latest_import(db, record_id))
             counts["stay_incomplete" if why else "promote"] += 1
             print({"record": str(record_id), "saved": created_at.date().isoformat(), "platform": data.get("platform"),
                    "decision": "stay_incomplete" if why else "ready", **({"reason": why} if why else {})}, flush=True)
