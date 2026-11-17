@@ -2,6 +2,20 @@ import XCTest
 @testable import HafaWatchCore
 
 final class WatchSyncTests: XCTestCase {
+  func testPhoneEncodedContextDecodesOnTheWatchWithinBudget() throws {
+    let url = try XCTUnwrap(Bundle.module.url(forResource: "watch-plans-v1", withExtension: "json", subdirectory: "Fixtures"))
+    let data = try Data(contentsOf: url)
+    XCTAssertLessThan(data.count, 16 * 1024)
+    let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let context = try decoder.decode(PlanLibrary.Context.self, from: data)
+    let plan = try XCTUnwrap(context.plans.first)
+    XCTAssertEqual(plan.title, "Morning class")
+    XCTAssertEqual(plan.source?.workoutRevision, 1)
+    XCTAssertEqual(plan.accountKey, "synthetic:1")
+    XCTAssertEqual(plan.parts.map(\.kind), [.amrap, .amrap, .sets, .sets])
+    XCTAssertEqual(plan.parts[0].moves.first?.segment, "buy_in")
+    XCTAssertEqual(plan.parts.last?.actuals?.count, 6)
+  }
   func testInboxSurvivesRelaunchAndReplaysWithoutOverwriting() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: dir) }

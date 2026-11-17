@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { createTrainingStore, type TrainingState } from "./training";
 import { drainWatch, planContext, watchPlan, type WatchResult } from "./watch-sync";
@@ -18,6 +19,25 @@ function setup(saveWorkout?: Parameters<typeof createTrainingStore>[4]) {
   return createTrainingStore({ getItem: async k => memory.get(k) ?? null, setItem: async (k, v) => { memory.set(k, v); }, removeItem: async k => { memory.delete(k); } }, "synthetic", 1, Date.now, saveWorkout);
 }
 describe("watch sync", () => {
+  it("matches the same encoded fixture Swift decodes", () => {
+    const fixture = JSON.parse(readFileSync(new URL("../watch-tests/Tests/HafaWatchCoreTests/Fixtures/watch-plans-v1.json", import.meta.url), "utf8"));
+    const w = { ...nov17Class, id: "e830bca7-a32f-4adb-a5aa-6649b536ad98", revision: 1, generation: 1, title: "Morning class" };
+    expect(JSON.parse(JSON.stringify(watchPlan(w, { workout_id: w.id, workout_revision: 1 }, account, "2026-11-17"))))
+      .toEqual(fixture.plans[0]);
+  });
+  it("includes only today and the next two days, plus five distinct recent starts", () => {
+    const history = Array.from({ length: 6 }, (_, i) => ({ generation: 1, state: "synced" as const, workout: { ...workout, id: `recent-${i}` },
+      request: { client_session_id: String(i), workout_id: `recent-${i}`, workout_revision: 1, started_at: `2026-11-0${i + 1}T00:00:00Z`, finished_at: end, status: "completed" as const, actuals: [] } }));
+    const state = { version: 1 as const, generation: 1, active: null, history };
+    const context = JSON.parse(planContext({ account, units: "metric", today: "2026-11-17", leadIn: 3, state, programs: [],
+      library: [16, 17, 18, 19, 20].map(day => ({ ...workout, id: `day-${day}`, blocks: [workout.blocks[2]], programming: { source_kind: "gym", date: `2026-11-${day}` } })) }).json);
+    // Use compact one-part recent workouts to fit all eight under the transport bound.
+    const recent = JSON.parse(planContext({ account, units: "metric", today: "2026-11-17", leadIn: 3,
+      state: { ...state, history: history.map(h => ({ ...h, workout: { ...h.workout, blocks: [workout.blocks[2]] } })) }, programs: [], library: [] }).json);
+    expect(context.plans.filter((p: typeof plan) => p.date).map((p: typeof plan) => p.date)).toEqual(["2026-11-17", "2026-11-18", "2026-11-19"]);
+    expect(recent.plans).toHaveLength(5);
+    expect(recent.plans.some((p: typeof plan) => p.source && "workout_id" in p.source && p.source.workout_id === "recent-0")).toBe(false);
+  });
   it("selects dated plans plus five recent starts within the UTF-8 budget", () => {
     const state: TrainingState = { version: 1, generation: 1, active: null, history: [] };
     const output = planContext({ account, units: "metric", today: "2026-11-17", leadIn: 5, state, programs: [],

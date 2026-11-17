@@ -8,6 +8,6 @@ let package = Package(
   platforms: [.macOS(.v13)],
   targets: [
     .target(name: "HafaWatchCore"),
-    .testTarget(name: "HafaWatchCoreTests", dependencies: ["HafaWatchCore"]),
+    .testTarget(name: "HafaWatchCoreTests", dependencies: ["HafaWatchCore"], resources: [.copy("Fixtures")]),
   ]
 )

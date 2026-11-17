@@ -1,0 +1,295 @@
+{
+  "v": 1,
+  "generated_at": "2026-11-17T00:00:00Z",
+  "units": "metric",
+  "lead_in_seconds": 3,
+  "account_key": "synthetic:1",
+  "plans": [
+    {
+      "plan_key": "[{\"workout_id\":\"e830bca7-a32f-4adb-a5aa-6649b536ad98\",\"workout_revision\":1},\"2026-11-17\"]",
+      "title": "Morning class",
+      "date": "2026-11-17",
+      "source": {
+        "workout_id": "e830bca7-a32f-4adb-a5aa-6649b536ad98",
+        "workout_revision": 1
+      },
+      "activity_type": 11,
+      "runs_outside": false,
+      "account_key": "synthetic:1",
+      "lead_in_seconds": 3,
+      "parts": [
+        {
+          "block_id": "a",
+          "label": "A",
+          "role": "main",
+          "kind": "amrap",
+          "cap_seconds": 900,
+          "actuals": [
+            {
+              "block_id": "a",
+              "exercise_index": 0,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": null,
+              "distance_meters": 1000
+            },
+            {
+              "block_id": "a",
+              "exercise_index": 1,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 15
+            },
+            {
+              "block_id": "a",
+              "exercise_index": 2,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 20
+            },
+            {
+              "block_id": "a",
+              "exercise_index": 3,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": null,
+              "distance_meters": 400
+            }
+          ],
+          "rest_after_seconds": 180,
+          "scored": true,
+          "moves": [
+            {
+              "index": 0,
+              "text": "1000 m Run",
+              "segment": "buy_in",
+              "is_run": true,
+              "distance_m": 1000
+            },
+            {
+              "index": 1,
+              "text": "15 Deadlift",
+              "is_run": false
+            },
+            {
+              "index": 2,
+              "text": "20 Burpee",
+              "is_run": false
+            },
+            {
+              "index": 3,
+              "text": "400 m Run",
+              "is_run": true,
+              "distance_m": 400
+            }
+          ]
+        },
+        {
+          "block_id": "b",
+          "label": "B",
+          "role": "main",
+          "kind": "amrap",
+          "cap_seconds": 900,
+          "actuals": [
+            {
+              "block_id": "b",
+              "exercise_index": 0,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": null,
+              "distance_meters": 1000
+            },
+            {
+              "block_id": "b",
+              "exercise_index": 1,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 30
+            },
+            {
+              "block_id": "b",
+              "exercise_index": 2,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 20
+            },
+            {
+              "block_id": "b",
+              "exercise_index": 3,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": null,
+              "distance_meters": 400
+            }
+          ],
+          "scored": true,
+          "moves": [
+            {
+              "index": 0,
+              "text": "1000 m Run",
+              "segment": "buy_in",
+              "is_run": true,
+              "distance_m": 1000
+            },
+            {
+              "index": 1,
+              "text": "30 Wall Ball",
+              "is_run": false
+            },
+            {
+              "index": 2,
+              "text": "20 Burpee",
+              "is_run": false
+            },
+            {
+              "index": 3,
+              "text": "400 m Run",
+              "is_run": true,
+              "distance_m": 400
+            }
+          ]
+        },
+        {
+          "block_id": "c",
+          "label": "C",
+          "role": "cool_down",
+          "kind": "sets",
+          "actuals": [
+            {
+              "block_id": "c",
+              "exercise_index": 0,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": null,
+              "duration_seconds": 600
+            }
+          ],
+          "scored": false,
+          "moves": [
+            {
+              "index": 0,
+              "text": "10 min Bike Erg",
+              "is_run": false
+            }
+          ]
+        },
+        {
+          "block_id": "d",
+          "label": "D",
+          "role": "accessory",
+          "kind": "sets",
+          "rounds": 1,
+          "actuals": [
+            {
+              "block_id": "d",
+              "exercise_index": 0,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": null,
+              "duration_seconds": 30
+            },
+            {
+              "block_id": "d",
+              "exercise_index": 1,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 10
+            },
+            {
+              "block_id": "d",
+              "exercise_index": 2,
+              "round_index": 1,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 10
+            },
+            {
+              "block_id": "d",
+              "exercise_index": 0,
+              "round_index": 2,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": null,
+              "duration_seconds": 30
+            },
+            {
+              "block_id": "d",
+              "exercise_index": 1,
+              "round_index": 2,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 10
+            },
+            {
+              "block_id": "d",
+              "exercise_index": 2,
+              "round_index": 2,
+              "set_index": 1,
+              "side": null,
+              "completed": true,
+              "reps": 10
+            }
+          ],
+          "scored": false,
+          "moves": [
+            {
+              "index": 0,
+              "text": "30s GHD side-lying Pallof hold",
+              "is_run": false
+            },
+            {
+              "index": 1,
+              "text": "10 Cable Cuban press",
+              "is_run": false
+            },
+            {
+              "index": 2,
+              "text": "10 Incline side-lying DB Powell raise",
+              "is_run": false
+            },
+            {
+              "index": 3,
+              "text": "30s GHD side-lying Pallof hold",
+              "is_run": false
+            },
+            {
+              "index": 4,
+              "text": "10 Cable Cuban press",
+              "is_run": false
+            },
+            {
+              "index": 5,
+              "text": "10 Incline side-lying DB Powell raise",
+              "is_run": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
