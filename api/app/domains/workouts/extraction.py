@@ -24,12 +24,7 @@ from bs4 import BeautifulSoup
 from pydantic import Field, ValidationError, model_validator
 
 from app.domains.workouts.budget import BudgetError, ProviderEnvelope, provider_budget
-from app.domains.workouts.class_extraction import (
-    CLASS_PROMPT,
-    ground_class,
-    legacy_shape,
-    normalize_class,
-)
+from app.domains.workouts.class_extraction import CLASS_PROMPT, ground_class, legacy_shape
 from app.domains.workouts.execution import (
     FORMAT_WORDS,
     format_complete,
@@ -626,8 +621,6 @@ class ProductionExtractionProvider:
                         ):
                             raise ExtractionFailure("provider_incomplete_response")
                         parsed = json.loads(choice["message"]["content"])
-                        if source.class_parts:
-                            parsed = normalize_class(parsed)
                         warnings = _validate_provider_workout(parsed)
                         grounded, _, _ = ground_workout(parsed, source, class_parts=source.class_parts)
                         quality = _prescription_quality(grounded)
@@ -1208,10 +1201,10 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
     if field_name in {"reps_min", "reps_max"}:
         # 21-15-9 and ladder 1-10 are per-round schemes, never one rep range.
         wording = scheme_wording(wording)
-        ranges = re.findall(r"(\d+)\s*(?:[-–]|\bto\b)\s*(\d+)", wording, re.I)
+        ranges = re.findall(r"(\d+)\s*[-–]\s*(\d+)", wording)
         if ranges:
             index = 0 if field_name == "reps_min" else 1
-            return any(sorted(map(float, pair))[index] == value for pair in ranges)
+            return any(float(pair[index]) == value for pair in ranges)
         reps = re.finditer(
             r"(\d+)\s*(?:reps?\b|repetitions?\b)|[x×]\s*(\d+)\b|\breps?\s*[:=]\s*(\d+)\b"
             r"|(?<![\w.])(\d+)\s*[x×](?!\w|\s*\d)",
@@ -1813,7 +1806,7 @@ def ground_workout(
     raw: dict, source: SourceBundle, *, typed_formats: bool = True, class_parts: bool = False
 ) -> tuple[WorkoutContent, list[str], list[Evidence]]:
     """Schema validity is insufficient: strip unsupported values, retain the draft."""
-    raw = normalize_class(raw) if class_parts else legacy_shape(raw)
+    raw = raw if class_parts else legacy_shape(raw)
     workout = WorkoutContent.model_validate(
         {key: value for key, value in raw.items() if key not in SERVER_CONTENT_FIELDS}
     ).model_copy(deep=True)

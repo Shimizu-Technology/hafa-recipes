@@ -752,3 +752,19 @@ the alignment PR.
 
 
 2026-11-17 class QA update: added test-only jsdom 28.1.0 and @types/jsdom 30.0.0. Compared every non-dev lock entry with the prior tree: none changed. The Safari DOM fixture imports jsdom only from its Vitest test; application/native entrypoints do not import it. Existing advisory exceptions and expiry are unchanged. Reviewed lock SHA-256: `ee5052ffa6bfd7ec053c936c82b4f0ed93e8e5a54254856236c33ec70249fbc6`.
+### Apple Watch target plugin (2026-11-17)
+
+`@bacons/apple-targets` 5.0.0 adds the watch app target during `expo prebuild`. It is a config plugin plus a small native
+module, so none of its JavaScript reaches the native bundles. It brings older build tooling with it:
+
+- `@bacons/xcode` pulled `@xmldom/xmldom` 0.7.13 (14 advisories, 12 high) through `@expo/plist` 0.0.18, and `uuid` 8.3.2
+  (`uuid:1119441`). Package overrides pin both to versions already in this lock, `@xmldom/xmldom` 0.8.15 and `uuid` 11.1.1,
+  so neither advisory remains. The plugin only parses the project's own generated Xcode files.
+- Its `glob` 10.5.0 and the nested `@expo/config` / `@expo/config-plugins` 55 copies carry the already reviewed
+  `glob:1244013` and `minimatch:1244623`. They read developer-controlled paths during prebuild, like `@expo/fingerprint`.
+
+No new advisory is accepted and the 2027-01-15 deadline is unchanged. Fresh audit: 15 inherited findings, 7 reviewed
+advisories, zero critical, zero unexpected. Reviewed whole-lock SHA-256:
+`2016b3bed25f1f6919ebca552b93edc491d47258ae9bb6dca52096bebd07fe3c`.
+
+2026-11-17 main integration: regenerated the combined Watch + test-only jsdom lock with npm install. No non-dev lock entries differ from main. Existing advisory exceptions and expiry remain unchanged. Combined lock SHA-256: `d37cc6e070a2f81c4317ed375ac858d8cafee4f38b00706aca983fa3ca6a55d7`.
