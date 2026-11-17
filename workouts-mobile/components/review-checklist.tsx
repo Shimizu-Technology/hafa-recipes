@@ -19,7 +19,7 @@ export function ReviewChecklist({ notices, fallback, onOpen }: { notices: Review
       {!notices.length && !!fallback && <Copy kind="small">{fallback}</Copy>}
       {notices.map((notice, index) => {
         const jump = notice.blockId;
-        const body = <Copy kind="small">{notice.part ? <Copy kind="small" style={{ fontWeight: "600" }}>{notice.part} · </Copy> : null}{notice.text}</Copy>;
+        const body = <Copy kind="small">{notice.part && !notice.named ? <Copy kind="small" style={{ fontWeight: "600" }}>{notice.part} · </Copy> : null}{notice.text}</Copy>;
         return jump ? (
           <Pressable key={index} accessibilityRole="button" accessibilityLabel={`${notice.part}: ${notice.text}`} accessibilityHint="Goes to that part"
             onPress={() => onOpen(jump)} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>

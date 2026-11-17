@@ -79,6 +79,11 @@ describe("notices", () => {
     expect(notices[0]).toMatchObject({ blockId: "c", part: "Part C", kind: "check" });
     expect(notices[1]).toMatchObject({ blockId: "b", part: "Part B", kind: "check" });
   });
+  it("marks a warning that already names its part, so the list does not say it twice", () => {
+    expect(notices[0].named).toBe(true);
+    expect(notices[1].named).toBe(true);
+    expect(reviewNotices(["Per-side details for Side Plank are unspecified; review the source."], workout)[0].named).toBeUndefined();
+  });
   it("keeps a purely informational warning quiet and unlinked", () => {
     expect(notices[2]).toMatchObject({ blockId: null, part: null, kind: "info" });
   });

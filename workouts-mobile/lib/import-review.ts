@@ -79,7 +79,7 @@ export function problemSummary(problems: ReviewProblem[]) {
   return `${lead}. ${first.part ? `${first.part}: ` : ""}${first.message}`;
 }
 
-export interface ReviewNotice { text: string; blockId: string | null; part: string | null; kind: "check" | "info" }
+export interface ReviewNotice { text: string; blockId: string | null; part: string | null; kind: "check" | "info"; /** The text already names its part, so a part prefix would repeat it. */ named?: boolean }
 /** A notice that only says what was left out, with nothing to check. */
 const informational = (text: string) => /\b(removed|left out|truncated|unavailable)\b/i.test(text) && !/\b(review|check|needs|confirm)\b/i.test(text);
 /**
@@ -100,7 +100,8 @@ export function reviewNotices(warnings: readonly string[], workout: AuthoredWork
       const named = blocks.map((block, index) => ({ index, hit: block.exercises.some(e => e.name.trim().length >= 4 && text.toLowerCase().includes(e.name.trim().toLowerCase())) })).filter(item => item.hit);
       if (named.length === 1) at = named[0].index;
     }
-    notices.push({ text, blockId: at >= 0 ? blocks[at].id : null, part: at >= 0 ? partName(blocks[at], at) : null, kind: informational(text) ? "info" : "check" });
+    const named = at >= 0 && (/^Part\s+[A-Z]\b/.test(text) || text.toLowerCase().startsWith(blocks[at].label.trim().toLowerCase()));
+    notices.push({ text, blockId: at >= 0 ? blocks[at].id : null, part: at >= 0 ? partName(blocks[at], at) : null, kind: informational(text) ? "info" : "check", ...(named ? { named } : {}) });
   }
   return notices;
 }
