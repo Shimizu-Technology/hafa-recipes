@@ -7,6 +7,7 @@ struct WatchPlan: Codable, Equatable {
   /// HKWorkoutActivityType raw value: 11 cross training, 20 functional strength, 63 HIIT.
   var activityType: UInt
   var parts: [Part]
+  var date: String?
 
   struct Part: Codable, Equatable {
     enum Kind: String, Codable { case amrap, forTime = "for_time", emom, workRest = "work_rest", sets }

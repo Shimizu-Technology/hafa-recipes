@@ -8,13 +8,13 @@ struct HafaWatchApp: App {
 
   var body: some Scene {
     WindowGroup {
-      HomeView()
+      WatchRootView()
         .environmentObject(health)
         .environmentObject(delegate.engine)
         .task {
-          await health.refresh()
           // A class that outlived a crash comes back before anything else starts.
           await delegate.engine.recover()
+          await health.refresh()
         }
     }
   }

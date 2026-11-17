@@ -11,6 +11,9 @@ struct Checkpoint: Codable, Equatable {
   var runner: PartRunner
   /// False once HealthKit has lost the session; the class then finishes without a Health workout.
   var isRecording: Bool
+  var recordedSummary: RecordedSummary? = nil
+  var collectionEnded: Bool? = nil
+  var eventsAdded: Bool? = nil
 }
 
 struct CheckpointStore {

@@ -2,6 +2,50 @@ import XCTest
 @testable import HafaWatchCore
 
 final class PartRunnerTests: XCTestCase {
+  func testViewTickTransitionStillGuardsTheFollowingPress() throws {
+    for delay in [0.0, 0.3, 0.599] {
+      var runner = PartRunner(plan: plan(part("A", .amrap, cap: 10), part("B", .amrap, cap: 60)), leadIn: 0)
+      _ = runner.start(at: t0)
+      _ = runner.tick(at: at(10))
+      let data = try JSONEncoder().encode(runner)
+      runner = try JSONDecoder().decode(PartRunner.self, from: data)
+      XCTAssertEqual(runner.advance(at: at(10 + delay)).0, .ignored(.stateChanged))
+      XCTAssertEqual(runner.runs[1].taps.count, 0)
+      XCTAssertEqual(runner.advance(at: at(10.61)).0, .applied(.round(1)))
+    }
+  }
+
+  func testOldCatchUpAppliesPressButFreshTransitionIsProtected() {
+    let fixture = plan(part("A", .amrap, cap: 60), part("B", .amrap, cap: 600))
+    var old = PartRunner(plan: fixture, leadIn: 0)
+    _ = old.start(at: t0)
+    let (result, events) = old.advance(at: at(200))
+    XCTAssertEqual(result, .applied(.round(1)))
+    XCTAssertEqual(old.runs[1].taps.count, 1)
+    XCTAssertEqual(events, [.partEnded(0, at(60)), .partBegan(1, at(60))])
+    var fresh = PartRunner(plan: fixture, leadIn: 0)
+    _ = fresh.start(at: t0)
+    XCTAssertEqual(fresh.advance(at: at(60.2)).0, .ignored(.stateChanged))
+    XCTAssertEqual(fresh.runs[1].taps.count, 0)
+  }
+
+  func testOpenPartsCompleteSuccessfullyByActionAndPartDone() {
+    for kind in [WatchPlan.Part.Kind.forTime, .sets] {
+      var runner = PartRunner(plan: plan(part("A", kind)), leadIn: 0)
+      _ = runner.start(at: t0)
+      XCTAssertEqual(runner.advance(at: at(20)).0, .applied(.partDone))
+      XCTAssertFalse(runner.runs[0].skipped)
+      var manual = PartRunner(plan: plan(part("A", kind)), leadIn: 0)
+      _ = manual.start(at: t0)
+      XCTAssertEqual(manual.completePart(at: at(30)), [.partEnded(0, at(30)), .finished(at(30))])
+      XCTAssertFalse(manual.runs[0].skipped)
+      var skip = PartRunner(plan: plan(part("A", kind)), leadIn: 0)
+      _ = skip.start(at: t0)
+      _ = skip.endPart(at: at(30))
+      XCTAssertTrue(skip.runs[0].skipped)
+    }
+  }
+
   func testLeadInIsNotPartTime() {
     var runner = PartRunner(plan: plan(part("A", .amrap, cap: 600)), leadIn: 3)
     XCTAssertEqual(runner.start(at: t0), [])
@@ -99,13 +143,47 @@ final class PartRunnerTests: XCTestCase {
     var runner = PartRunner(plan: plan(part("A", .amrap, cap: 10, restAfter: 180), part("B", .sets)), leadIn: 3)
     _ = runner.start(at: t0)
     XCTAssertEqual(runner.advance(at: at(1)).0, .applied(.startedPart))
-    XCTAssertEqual(runner.advance(at: at(30)).1, [.partEnded(0, at(11))])
+    XCTAssertEqual(runner.advance(at: at(11.2)).1, [.partEnded(0, at(11))])
     XCTAssertEqual(runner.advance(at: at(31)).0, .applied(.startedPart))
     XCTAssertEqual(runner.phase, .leadIn(until: at(34)))
   }
 
+  func testRestExtensionAndSetsRestRespectPause() {
+    var sets = part("B", .sets, rounds: 2)
+    sets.restSeconds = 20
+    var runner = PartRunner(plan: plan(part("A", .amrap, cap: 10, restAfter: 30), sets), leadIn: 0)
+    _ = runner.start(at: t0)
+    _ = runner.tick(at: at(10))
+    runner.extendRest(by: 15)
+    XCTAssertEqual(runner.phase, .resting(until: at(55)))
+    _ = runner.tick(at: at(55))
+    _ = runner.advance(at: at(60))
+    _ = runner.pause(at: at(65))
+    _ = runner.resume(at: at(85))
+    XCTAssertEqual(runner.setRestRemaining(at: at(90)), 10)
+    XCTAssertEqual(runner.advance(at: at(100)).0, .applied(.partDone))
+  }
+
+  func testCorrectedTimeChangesCapStatus() {
+    let timed = part("A", .forTime, cap: 300)
+    var score = PartScore(seconds: 300)
+    XCTAssertTrue(score.isCapped(for: timed))
+    score.seconds -= 1
+    XCTAssertFalse(score.isCapped(for: timed))
+  }
+
+  func testSetsWithBuyInCountOnlyWorkingMoves() {
+    var runner = PartRunner(plan: plan(part("A", .sets, rounds: 2, buyIn: true)), leadIn: 0)
+    _ = runner.start(at: t0)
+    XCTAssertEqual(runner.advance(at: at(1)).0, .applied(.buyInDone))
+    XCTAssertEqual(runner.advance(at: at(2)).0, .applied(.setDone(1)))
+    XCTAssertEqual(runner.advance(at: at(3)).0, .applied(.partDone))
+    XCTAssertEqual(runner.segments().map(\.kind), [.buyIn, .set, .set])
+    XCTAssertEqual(PartRunner(plan: plan(), leadIn: 0).activeSeconds(of: 0, at: t0), 0)
+  }
+
   func testSkippingAndFinishingEarlyMarksUnreachedParts() {
-    var runner = PartRunner(plan: plan(part("C", .sets), part("D", .sets), part("E", .sets)), leadIn: 3)
+    var runner = PartRunner(plan: plan(part("C", .sets), part("D", .sets, rounds: 2), part("E", .sets)), leadIn: 3)
     _ = runner.start(at: t0)
     XCTAssertEqual(runner.endPart(at: at(1)), [])
     XCTAssertTrue(runner.runs[0].skipped)

@@ -5,7 +5,7 @@ struct HeartRateSummary: Codable, Equatable {
   var max: Double?
 }
 
-struct RecordedSummary: Equatable {
+struct RecordedSummary: Codable, Equatable {
   var workoutUUID: UUID?
   var heartRate: HeartRateSummary?
   /// Keyed by the part's block ID, read back from each saved activity's metadata.
@@ -14,9 +14,24 @@ struct RecordedSummary: Equatable {
   static let none = RecordedSummary(workoutUUID: nil, heartRate: nil, parts: [:])
 }
 
+struct LiveMetrics: Equatable {
+  var heartRate: Double?
+  var average: Double?
+  var maximum: Double?
+  var kilocalories: Double?
+}
+
 /// The Health side of a class. HealthKitRecorder implements it on the watch; tests use a fake.
 @MainActor
 protocol WorkoutRecorder: AnyObject {
+  var metrics: LiveMetrics { get }
+  var isRecording: Bool { get }
+  var collectionEnded: Bool { get }
+  var eventsAdded: Bool { get }
+  var onEventsAdded: (() -> Void)? { get set }
+  func restoreEventsAdded(_ added: Bool)
+  var onCollectionEnded: (() -> Void)? { get set }
+  func restoreCollectionEnded(_ ended: Bool)
   /// Called when the system ends or fails the session outside finish and discard.
   var onSessionLost: (() -> Void)? { get set }
   func begin(activityType: UInt, at date: Date) async throws
@@ -30,4 +45,8 @@ protocol WorkoutRecorder: AnyObject {
   /// Safe to call again after it throws: steps that already succeeded are skipped.
   func finish(at date: Date, segments: [Segment], syncIdentifier: String) async throws -> RecordedSummary
   func discard() async
+}
+
+extension WorkoutRecorder {
+  var metrics: LiveMetrics { LiveMetrics() }
 }
