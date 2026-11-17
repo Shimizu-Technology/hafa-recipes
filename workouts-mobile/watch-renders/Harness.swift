@@ -131,7 +131,13 @@ struct RenderScroll<Content: View>: View {
     moves: [.init(index: 0, text: "6 air squats", isRun: false)])]
   var open = PartRunner(plan: openPlan, leadIn: 0); _ = open.start(at: renderNow.addingTimeInterval(-42))
   engine.runner = open; try shot("21-part-done", ClassView())
+  _ = open.pause(at: renderNow); engine.runner = open
+  try shot("21-part-done-paused", ClassView())
+  _ = open.resume(at: renderNow); _ = open.completePart(at: renderNow); engine.runner = open
+  try shot("21-part-done-undo", FinishView().safeAreaInset(edge: .bottom, spacing: 2) { UndoPill {} })
   engine.pendingControl = .end; try shot("22-end-confirmation", ControlConfirmation())
   engine.pendingControl = .skip; try shot("23-skip-confirmation", ControlConfirmation())
+  runtime.notice = "Confirm or cancel first"
+  try shot("24-confirmation-action", ControlConfirmation())
  }
 }
