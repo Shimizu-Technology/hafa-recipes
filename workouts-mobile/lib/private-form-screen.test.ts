@@ -1,7 +1,7 @@
 import { createElement, Fragment, Suspense, startTransition, useLayoutEffect, useState, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initialProfile, type AuthoredWorkout, type Workout } from "./models";
 import { ApiError } from "./api";
 import { draftKey } from "./drafts";
@@ -10,6 +10,7 @@ import { workoutErrors } from "./library";
 import { submittedCaptureScope } from "./capture";
 import type { Measurement } from "./measurements";
 import { nov17Class } from "./fixtures/nov17-class";
+import { importReviewClass, importReviewClassNoRotationClue, importReviewWarnings } from "./fixtures/import-review-class";
 const fixture = vi.hoisted(() => ({
   map: new Map<string, string>(),
   owner: "owner-initial",
@@ -190,10 +191,11 @@ vi.mock("expo-router", () => ({
   useLocalSearchParams: () => fixture.params
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => `command-${++fixture.next}`) }));
+vi.mock("@/components/calendar-date", () => ({ CalendarDate: "CalendarDate" }));
 vi.mock("expo-image", () => ({ Image: "CoachImage" }));
 vi.mock("expo-file-system/legacy", () => ({ cacheDirectory: "file:///cache/", getInfoAsync: fixture.photoInfo, readAsStringAsync: fixture.photoRead, EncodingType: { Base64: "base64" } }));
 vi.mock("@/components/ui", () => ({
-  Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
+  Screen: ({ children, footer, scrollRef }: PropsWithChildren<{ footer?: ReactNode; scrollRef?: unknown }>) => createElement("Screen", { scrollRef }, children, footer),
   useColors: () => ({ background: "#000", success: "#0f0" }),
   useReducedMotion: () => false,
   Sheet: ({ visible, children }: { visible: boolean; children: import("react").ReactNode }) => visible ? createElement("Sheet", null, children) : null,
@@ -3346,7 +3348,7 @@ it("a Safari class waits on the form, uses profile-local today, removes copied W
     fixture.startImport.mockResolvedValue({ id: "confirmed-class" });
     await mount(Capture);
     expect(fixture.startImport).not.toHaveBeenCalled();
-    await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("2026-11-18"));
+    await act(async () => nodes("CalendarDate").find(n => n.props.label === "Class date")!.props.onChange("2026-11-18"));
     await click("Import workout");
     expect(fixture.sourceFor.mock.calls[0][0].programming.date).toBe("2026-11-18");
   } finally { vi.useRealTimers(); }
@@ -3391,7 +3393,7 @@ it("class route offers to switch an existing source, keeps its content and uses 
     await mount(Capture);
     expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
     await click("Today’s class");
-    expect(nodes("Field").find(n => n.props.label === "Class date")!.props.value).toBe("2026-11-17");
+    expect(nodes("CalendarDate").find(n => n.props.label === "Class date")!.props.value).toBe("2026-11-17");
     expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
     expect(button("Paste")).toBeTruthy(); expect(button("Screenshots")).toBeTruthy(); expect(button("PDF")).toBeTruthy();
   } finally { vi.useRealTimers(); }
@@ -3402,11 +3404,115 @@ it("the parsed class review accepts an edited date and rejects invalid dates wit
   fixture.importSource.mockResolvedValue({ kind: "text", class_parts: true });
   fixture.acceptImport.mockResolvedValue({ ...nov17Class, id: "saved" });
   await mount(ImportReview);
-  await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("2026-02-30"));
+  await act(async () => nodes("CalendarDate").find(n => n.props.label === "Class date")!.props.onChange("2026-02-30"));
   await click("Save workout"); expect(fixture.acceptImport).not.toHaveBeenCalled();
-  await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("2026-11-18"));
+  await act(async () => nodes("CalendarDate").find(n => n.props.label === "Class date")!.props.onChange("2026-11-18"));
   await click("Save workout");
   expect(fixture.acceptImport.mock.calls[0][1].programming.date).toBe("2026-11-18");
+});
+describe("class review is never a dead end", () => {
+  type Kind = "images" | "document" | "text";
+  function openClass(content: Workout, extra: { status?: string; sourceKind?: Kind; warnings?: string[]; result?: object } = {}) {
+    fixture.params = { id: "class-review" };
+    fixture.importJob.mockResolvedValue({ id: "class-review", generation: 1, status: extra.status ?? "ready", result: { workout: content, warnings: extra.warnings ?? importReviewWarnings, evidence: [],
+      source: { platform: "text", channels: [], coverage_notes: [] }, ...extra.result } });
+    fixture.importSource.mockResolvedValue({ kind: extra.sourceKind ?? "images", class_parts: true });
+    fixture.acceptImport.mockResolvedValue({ ...content, id: "saved" });
+  }
+  const scrollTo = vi.fn();
+  /** Gives each wrapped spot a position, in page order: the class date, then parts A, B and C. */
+  async function lay() {
+    find("Screen").props.scrollRef.current = { scrollTo };
+    await act(async () => nodes("View").filter(node => node.props.onLayout).forEach((node, index) => node.props.onLayout({ nativeEvent: { layout: { y: (index + 1) * 200 } } })));
+  }
+  const choice = (label: string) => nodes("Choice").find(node => node.props.label === label)!;
+  const text = () => JSON.stringify(renderer!.toJSON());
+  beforeEach(() => scrollTo.mockClear());
+
+  it("preselects Alternate for Minute 1 to N and saves without stopping on it", async () => {
+    openClass(importReviewClass); await mount(ImportReview);
+    expect(choice("Alternate moves each minute").props.selected).toBe(true);
+    expect(choice("Every move each minute").props.selected).toBe(false);
+    expect(text()).toContain("Change it if that is wrong");
+    await click("Save workout");
+    expect(fixture.acceptImport).toHaveBeenCalledTimes(1);
+    expect(fixture.acceptImport.mock.calls[0][1].blocks[1].execution.rotation).toBe("alternating");
+  });
+  it("stops Save on the part with no clue, shows the choice there and scrolls to it", async () => {
+    openClass(importReviewClassNoRotationClue); await mount(ImportReview); await lay();
+    expect(choice("Alternate moves each minute").props.selected).toBe(false);
+    expect(text()).not.toContain("Choose whether to alternate");
+    await click("Save workout");
+    expect(fixture.acceptImport).not.toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith({ y: 588, animated: true }); // part B, 12pt of breathing room
+    // The message sits on the part, and the banner names it.
+    expect(nodes("Copy").some(node => [node.props.children].flat().join("") === "Choose whether to alternate the moves or do every move each interval.")).toBe(true);
+    const banner = nodes("Notice").find(node => node.props.error)!;
+    expect(banner.props.children).toBe("One thing to fix before saving. Part B: Choose whether to alternate the moves or do every move each interval.");
+    // One tap on the part fixes it: the banner and message go, and Save goes through.
+    await act(async () => choice("Every move each minute").props.onPress());
+    expect(nodes("Notice").find(node => node.props.error)).toBeUndefined();
+    await click("Save workout");
+    expect(fixture.acceptImport.mock.calls[0][1].blocks[1].execution.rotation).toBe("together");
+  });
+  it("scrolls to the first problem when a later part is the one at fault", async () => {
+    openClass({ ...importReviewClass, blocks: importReviewClass.blocks.map(block => block.id === "c" ? { ...block, rounds: 500 } : block) } as Workout);
+    await mount(ImportReview); await lay();
+    await click("Save workout");
+    expect(fixture.acceptImport).not.toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith({ y: 788, animated: true }); // part C
+    expect(button("Correct this part")).toBeDefined();
+  });
+  it("lists what to check by part, quiets the informational note, and jumps to a part when tapped", async () => {
+    openClass(importReviewClass); await mount(ImportReview); await lay();
+    const view = text();
+    expect(view).toContain("Check before saving");
+    expect(view).not.toContain("couldn’t confirm all workout details");
+    expect(view).not.toContain("Lines that read like member results"); // informational: kept in Source details
+    const items = nodes("Pressable").filter(node => /^Part [BC]:/.test(node.props.accessibilityLabel ?? ""));
+    expect(items.map(node => node.props.accessibilityLabel)).toEqual([
+      `Part C: ${importReviewWarnings[0]}`, `Part B: ${importReviewWarnings[1]}`]);
+    await act(async () => items[0].props.onPress());
+    expect(scrollTo).toHaveBeenCalledWith({ y: 788, animated: true });
+    await click("Source details");
+    expect(text()).toContain("Lines that read like member results");
+  });
+  it("sets rounds on a part in one tap", async () => {
+    openClass(importReviewClass); await mount(ImportReview);
+    const more = () => nodes("IconButton").find(node => node.props.label === "More rounds for C. Accessories")!;
+    expect(nodes("IconButton").find(node => node.props.label === "Fewer rounds for C. Accessories")!.props.disabled).toBe(true);
+    await act(async () => more().props.onPress());
+    await act(async () => more().props.onPress());
+    expect(text()).toContain('"2 rounds"');
+    await click("Save workout");
+    expect(fixture.acceptImport.mock.calls[0][1].blocks[2].rounds).toBe(2);
+    expect(fixture.acceptImport.mock.calls[0][1].blocks[1].rounds).toBeUndefined();
+  });
+  it.each([
+    ["images" as const, "screenshots could not be read"], ["document" as const, "PDF could not be read"], ["text" as const, "again if something was missed"],
+  ])("words the re-read for a %s source and tucks it under Source details beside a saveable workout", async (sourceKind, phrase) => {
+    openClass(importReviewClass, { status: "incomplete", sourceKind }); await mount(ImportReview);
+    expect(text()).not.toContain("Try reading the source again");
+    await click("Source details");
+    expect(text()).toContain("Try reading the source again");
+    expect(text()).toContain(phrase);
+    expect(text()).not.toMatch(/video/i);
+  });
+  it("shows the re-read straight away when nothing could be read", async () => {
+    openClass(null as unknown as Workout, { status: "failed", sourceKind: "images" }); await mount(ImportReview);
+    const copy = nodes("Copy").map(node => [node.props.children].flat().join("")).join("\n");
+    expect(copy).toContain("Try reading the source again");
+    expect(copy).toContain("screenshots could not be read");
+  });
+  it("lets the class date be cleared and keeps it optional", async () => {
+    openClass(importReviewClass); await mount(ImportReview);
+    const date = () => nodes("CalendarDate").find(node => node.props.label === "Class date")!;
+    expect(date().props.optional).toBe(true);
+    expect(date().props.value).toBe("2026-11-17");
+    await act(async () => date().props.onChange(null));
+    await click("Save workout");
+    expect(fixture.acceptImport.mock.calls[0][1].programming.date).toBeNull();
+  });
 });
 it("expired WodUp retries never auto-save, even when no workout or local source remains", async () => {
   fixture.params = { id: "expired-class" };
@@ -3494,7 +3600,7 @@ it("class route profile failure is recoverable by loading the saved source with 
   expect(fixture.startImport).not.toHaveBeenCalled();
   fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
   await click("Load saved source");
-  expect(nodes("Field").find(n => n.props.label === "Class date")).toBeTruthy();
+  expect(nodes("CalendarDate").find(n => n.props.label === "Class date")).toBeTruthy();
   expect(nodes("Field").find(n => n.props.label === "Workout text")).toBeTruthy();
   expect(nodes("Field").find(n => n.props.label === "Gym")!.props.value).toBe("Unified");
   expect(button("Import workout").props.disabled).toBe(true);
@@ -3504,7 +3610,7 @@ it("an ambiguous class date is blocked locally before transport", async () => {
   fixture.params = { class: "1" };
   await mount(Capture);
   await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("A. Squats"));
-  await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("11/17"));
+  await act(async () => nodes("CalendarDate").find(n => n.props.label === "Class date")!.props.onChange("11/17"));
   expect(button("Import workout").props.disabled).toBe(true);
   await click("Import workout"); expect(fixture.startImport).not.toHaveBeenCalled();
   expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).toContain("Use a class date like");

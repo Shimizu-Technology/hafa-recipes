@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Platform } from "react-native";
 import { DateTimePicker } from "@expo/ui/community/datetime-picker";
-import { Button, Copy } from "./ui";
+import { Button, ButtonRow, Copy } from "./ui";
 import type { CalendarDateProps } from "./calendar-date";
 import { isISODate } from "@/lib/sharing";
+import { toISODate, todayISODate } from "@/lib/calendar-date";
 import { formatPlanDate } from "@/lib/plan-presentation";
 import { useColors } from "./design/foundation";
 function localDate(value: string | null | undefined) {
@@ -18,6 +19,7 @@ function localDate(value: string | null | undefined) {
 export function CalendarDate({ label, value, onChange, optional, disabled, min }: CalendarDateProps) {
   const [open, setOpen] = useState(false);
   const c = useColors();
+  const name = label.toLowerCase();
   return (
     <>
       <Copy kind="label">
@@ -25,28 +27,31 @@ export function CalendarDate({ label, value, onChange, optional, disabled, min }
         {optional ? " · optional" : ""}
       </Copy>
       <Copy>{value ? formatPlanDate(value) : "Not specified"}</Copy>
-      <Button secondary disabled={disabled} title={`Choose ${label.toLowerCase()}`} onPress={() => setOpen(true)} />
-      {optional && !!value && (
-        <Button secondary disabled={disabled} title={`Clear ${label.toLowerCase()}`} onPress={() => onChange(null)} />
-      )}
+      <ButtonRow>
+        <Button secondary icon="calendar-outline" disabled={disabled} title={value ? "Change date" : "Choose date"}
+          accessibilityLabel={`${value ? "Change" : "Choose"} ${name}`} onPress={() => {
+            // The picker opens on today; opening it from empty already picks that day, so Done never leaves it blank.
+            if (!value && !open) onChange(todayISODate(min));
+            setOpen(!open);
+          }} />
+        {value && optional
+          ? <Button secondary disabled={disabled} title="Clear" accessibilityLabel={`Clear ${name}`} onPress={() => { setOpen(false); onChange(null); }} />
+          : !value ? <Button secondary disabled={disabled} title="Use today" accessibilityLabel={`Use today for ${name}`} onPress={() => onChange(todayISODate(min))} /> : null}
+      </ButtonRow>
       {open && !disabled && (
         <>
           <DateTimePicker
-            value={localDate(value)}
+            value={localDate(value ?? todayISODate(min))}
             mode="date"
             accentColor={c.action}
             minimumDate={min && isISODate(min) ? localDate(min) : undefined}
             display={Platform.OS === "ios" ? "inline" : "default"}
             onValueChange={(_event, date) => {
-              if (date) {
-                onChange(
-                  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-                );
-              }
+              if (date) onChange(toISODate(date));
               if (Platform.OS === "android") setOpen(false);
             }}
           />
-          {Platform.OS === "ios" && <Button title="Done choosing date" secondary onPress={() => setOpen(false)} />}
+          {Platform.OS === "ios" && <Button title="Done" secondary onPress={() => setOpen(false)} />}
         </>
       )}
     </>
