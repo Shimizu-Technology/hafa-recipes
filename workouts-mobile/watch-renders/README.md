@@ -1,0 +1,9 @@
+# Watch design renders (test tooling only)
+
+Run `workouts-mobile/scripts/render-watch.sh [output-directory]` on macOS with Xcode/Swift and ImageMagick installed. The default output is Leon's requested watch-renders folder. SwiftPM compiles a temporary executable with two build jobs, writes 410×502 PNGs (205×251 points at 2×), then ImageMagick makes a labelled contact sheet. Temporary source and build products are removed on exit. Nothing is added to any application target, including Debug or Release.
+
+The harness reads current view source, real Theme, bundled Barlow Condensed Bold, SamplePlan, and the real PartRunner core. Health/engine/runtime objects are inert injected state holders; no Health session, storage, phone connection, intent or simulator starts. Live/clock helpers, the saved root, home, finish, score cards, rep sheet and help content come from the source. The movements/controls pages and toast overlays are small harness wrappers matching X4. These copies must be checked if those layouts change.
+
+Limitations: these are **macOS SwiftUI ImageRenderer approximations**, not watchOS simulator screenshots. AppKit ScrollView is blank in ImageRenderer, so temporary generated source substitutes a clipped top viewport. System font metrics, safe areas, corner masking, system sheet chrome, page transitions, crown focus and watch-specific modifiers are not reproduced. Score cards and failure actions have separate detail images because the complete finish screen scrolls. Buttons are inert; rendered states do not establish interaction acceptance. The private watch app views are untouched. Release behavior is unchanged.
+
+Source baseline: X4 `770935d013029702c94a4ab97ab8899c96eae0a2`, atop X3 `a13476e6af210d86579d383da2e2c8a1abff1903`. This is held design-review evidence, not a release gate pass.
