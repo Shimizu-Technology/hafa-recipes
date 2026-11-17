@@ -30,6 +30,15 @@ it("finds the buttons it checks", () => { expect(buttonTags().length).toBeGreate
 it("never sets a button size: every button is one height", () => {
   expect(buttonTags().filter(({ tag }) => /\bsize=/.test(tag)).map(({ where }) => where)).toEqual([]);
 });
+/** True when the tag turns `inline` on: bare `inline`, `inline={true}`, or any expression other than `inline={false}`. */
+const isInline = (tag: string) => /\binline\b(?!\s*=)/.test(tag) || /\binline\s*=\s*\{(?!\s*false\s*\})/.test(tag);
+const isGhostLiteral = (tag: string) => /\bvariant\s*=\s*(?:"ghost"|\{\s*"ghost"\s*\})/.test(tag);
+it("recognises every way of writing a filled inline button", () => {
+  for (const tag of ['<Button title="Save" variant="secondary" inline', '<Button title="Save" variant="secondary" inline={true}', '<Button title="Save" inline={wide}',
+    '<Button title="Save" variant={kind} inline']) expect(isInline(tag) && !isGhostLiteral(tag)).toBe(true);
+  for (const tag of ['<Button title="Save" variant="secondary" inline={false}', '<Button title="Save" variant="secondary"']) expect(isInline(tag)).toBe(false);
+  for (const tag of ['<Button title="Undo" variant="ghost" inline', '<Button title="Undo" variant="ghost" inline={true}']) expect(isInline(tag) && !isGhostLiteral(tag)).toBe(false);
+});
 it("sizes to its label only for a ghost text button, never a filled one", () => {
-  expect(buttonTags().filter(({ tag }) => /\binline\b(?!=)/.test(tag) && !/variant="ghost"/.test(tag)).map(({ where }) => where)).toEqual([]);
+  expect(buttonTags().filter(({ tag }) => isInline(tag) && !isGhostLiteral(tag)).map(({ where }) => where)).toEqual([]);
 });

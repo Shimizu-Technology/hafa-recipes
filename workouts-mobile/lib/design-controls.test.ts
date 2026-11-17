@@ -148,7 +148,14 @@ describe("ButtonRow", () => {
     act(() => { view = create(createElement(ButtonRow, null, ...titles.map(([title, icon]) => createElement(Button, { key: title, title, icon: icon as never, onPress() {} })))); });
     act(() => view!.root.findAllByType("View" as never)[0].props.onLayout({ nativeEvent: { layout: { width } } }));
     const container = view!.root.findAllByType("View" as never)[0];
-    return { direction: flat(container.props.style).flexDirection, cells: view!.root.findAllByType("Pressable" as never).map(node => flat(node.props.style)) };
+    // In a row each button sits in a cell that carries the equal-width flex; stacked, the button itself stretches.
+    const cells = view!.root.findAllByType("Pressable" as never).map(node => {
+      let cell: ReactTestRenderer["root"] | null = node.parent;
+      while (cell && (cell.type as unknown) !== "View") cell = cell.parent;
+      const style: Record<string, unknown> = { ...flat(node.props.style) };
+      return { ...style, flex: cell && cell !== container ? flat(cell.props.style).flex : undefined } as Record<string, unknown>;
+    });
+    return { direction: flat(container.props.style).flexDirection, cells };
   };
   it("puts short labels side by side in equal-width cells", () => {
     const { direction, cells } = row([["Skip set", "close"], ["Undo", "arrow-undo-outline"]], 326);
@@ -162,6 +169,18 @@ describe("ButtonRow", () => {
     const { direction, cells } = row([["Choose screenshots", "images-outline"], ["Take a photo", "camera-outline"]], 326);
     expect(direction).toBe("column");
     expect(cells.every(cell => cell.flex === undefined && cell.alignSelf === "stretch" && cell.minHeight === 50)).toBe(true);
+  });
+  it("keeps a disabled button's explanation inside its own cell", () => {
+    act(() => { view = create(createElement(ButtonRow, null,
+      createElement(Button, { key: "a", title: "Save", disabled: true, disabledReason: "Add a title first", onPress() {} }),
+      createElement(Button, { key: "b", title: "Undo", variant: "secondary", onPress() {} }))); });
+    act(() => view!.root.findAllByType("View" as never)[0].props.onLayout({ nativeEvent: { layout: { width: 326 } } }));
+    const container = view!.root.findAllByType("View" as never)[0];
+    expect(flat(container.props.style).flexDirection).toBe("row");
+    const cells = container.findAllByType("View" as never).filter(node => node !== container);
+    expect(cells).toHaveLength(2);
+    expect(cells.map(cell => flat(cell.props.style).flex)).toEqual([1, 1]);
+    expect(cells[0].findAllByType("Copy" as never).map(node => node.props.children)).toContain("Add a title first");
   });
   it("stacks equal pairs at larger text instead of squeezing the labels", () => {
     expect(row([["Keep it"], ["Remove"]], 326).direction).toBe("row");

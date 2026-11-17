@@ -98,8 +98,7 @@ export function Button({
   const inactive = disabled || busy;
   const press = usePressScale(inactive);
   const AnimatedPressable = animatedPressableComponent();
-  return (
-    <>
+  const pressable = (
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
@@ -131,7 +130,6 @@ export function Button({
         alignItems: "center",
         justifyContent: "center",
         alignSelf: text && !inRow ? "flex-start" : "stretch",
-        ...(inRow ? { flex: 1, minWidth: 0 } : null),
         gap: BUTTON_GAP,
       }}
     >
@@ -149,9 +147,11 @@ export function Button({
         {title}
       </Copy>
     </AnimatedPressable>
-    {disabled && !!disabledReason && <Copy kind="small" tone="muted">{disabledReason}</Copy>}
-    </>
   );
+  const reason = disabled && !!disabledReason ? <Copy kind="small" tone="muted">{disabledReason}</Copy> : null;
+  // In a row the button and its explanation share one cell, so the explanation never becomes another column.
+  if (inRow) return <View style={{ flex: 1, minWidth: 0, gap: 4 }}>{pressable}{reason}</View>;
+  return <>{pressable}{reason}</>;
 }
 
 /** Rough width of a one-line button label at the current text size, for deciding whether a row has room. */
