@@ -86,16 +86,19 @@ def _prompt_clauses():
     from app.domains.workouts.extraction import SYSTEM_PROMPT
 
     prompts = " ".join([SYSTEM_PROMPT, CLASS_PROMPT, TRANSCRIPT_PROMPT])
-    return [set(re.findall(r"[a-z0-9]+", clause.lower())) for clause in re.split(r"[.;!?]\s|\n\s*\n", prompts)]
+    return [words for clause in re.split(r"[.;!?]\s|\n\s*\n", prompts)
+            if (words := set(re.findall(r"[a-z0-9]+", clause.lower())))]
 
 
 def prompt_echo(note, text):
-    """A note that restates an instruction ("Movement Prep is a link, not a block")
-    rather than the class. Wording the class itself prints always stays."""
+    """A note that restates an instruction sentence ("Movement Prep is a link, not a
+    block") rather than the class. The prompts quote short class phrases ("Rest 90
+    seconds between rounds"), so a note must be long and close to one whole sentence.
+    Wording the class itself prints always stays."""
     if note in text:
         return False
     said = set(re.findall(r"[a-z0-9]+", note.lower()))
-    return len(said) >= 4 and any(len(said & clause) >= 0.8 * len(said) for clause in _prompt_clauses())
+    return len(said) >= 6 and any(len(said & clause) >= 0.6 * len(said | clause) for clause in _prompt_clauses())
 
 
 def apply_layout(workout, text, warnings, rows=False):

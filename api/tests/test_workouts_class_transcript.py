@@ -220,9 +220,13 @@ async def test_only_image_only_class_imports_are_copied():
 
 def test_prompt_echoes_are_dropped_without_a_warning_and_printed_lines_stay():
     assert prompt_echo(ECHO, TRANSCRIPT)
-    assert prompt_echo("Return one block per lettered part in source order.", "")
+    assert prompt_echo("Ignore leaderboards, athlete names and results and comments in images.", "")
+    assert prompt_echo("Leave out leaderboards, results, member names, comments and reactions.", "")
     assert not prompt_echo("Perform the lunge reach as 5-7 on one side + 5-7 on the other", "")
     assert not prompt_echo("Rest 2 minutes between parts", "")
+    # The prompts quote class phrases as examples; a coach note saying them is still the class.
+    assert not prompt_echo("Use the remaining time to recover before starting the next exercise", "")
+    assert not prompt_echo("As Many Rounds and Reps as possible in 15 minutes", "")
     page = "Workout Specific Movement Prep is a link, never a block.\nA. 10 Burpees"
     assert not prompt_echo("Workout Specific Movement Prep is a link, never a block.", page)
 
