@@ -33,6 +33,24 @@ public final class HafaWidgetBridgeModule: Module {
       ]
     }
 
+    AsyncFunction("getCollapsedSections") { () throws -> [String: Any?] in
+      let state = try HafaWidgetStore.shared.readState()
+      return [
+        "accountScopeId": state.accountScopeID,
+        "listId": state.snapshot?.list.id,
+        "keys": state.currentCollapsedSectionKeys,
+        "updatedAt": state.collapsedSectionsUpdatedAt,
+      ]
+    }
+
+    AsyncFunction("setCollapsedSections") { (accountScopeId: String, listId: String, keys: [String], updatedAt: Double) throws -> Bool in
+      let changed = try HafaWidgetStore.shared.setCollapsedSections(
+        accountScopeID: accountScopeId, listID: listId, keys: keys, updatedAt: updatedAt
+      )
+      if changed { WidgetCenter.shared.reloadTimelines(ofKind: HafaWidgetConstants.widgetKind) }
+      return changed
+    }
+
     AsyncFunction("flushPending") {
       await HafaWidgetSyncClient.shared.flushPending()
       WidgetCenter.shared.reloadTimelines(ofKind: HafaWidgetConstants.widgetKind)

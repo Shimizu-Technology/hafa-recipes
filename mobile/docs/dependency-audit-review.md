@@ -356,3 +356,9 @@ review deadline of 2027-01-15. Router 57.0.31 still declares query-string 7.1.3;
 the existing decoder reachability and acceptance deadline remain unchanged.
 The exact audit snapshot was refreshed for these changes; no new advisory is
 accepted. Native bundle checks are recorded in the alignment PR.
+
+### picomatch:1247710 (2026-11-18)
+
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), high: ReDoS through single-branch repeated extglobs. It affects every published version up to 4.0.7, and no patched release exists, so no override can fix it. Installed consumers are Expo CLI, `@expo/metro-config`, Metro's `micromatch`/`jest-util` file map, `tinyglobby`/`fdir` (React Native CLI), and test-only Vite/Vitest. They match developer-controlled repository paths during builds and tests. Recipe, workout and Baby content never supplies their patterns, and application source does not import picomatch.
+
+All three apps accept the advisory temporarily until the existing 2027-01-15 deadline, with no lock change. Workouts and Baby keep their whole-lock SHA-256 pins, and their native bundle checks now reject `picomatch`. Recipes pins each installed picomatch copy, its declaring parents and their ranges in `mobile/scripts/audit-policy.mjs`, with the same expiry and drift tests as `minimatch:1244623`. Remove the exception when a patched picomatch can be installed.
