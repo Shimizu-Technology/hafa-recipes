@@ -71,7 +71,7 @@ struct ClassRecord: Codable, Equatable {
           if part.hasBuyIn { result["buy_in_done"] = run.buyInDoneAt != nil }
         case .forTime:
           result["kind"] = "time"; result["time_seconds"] = run.score?.seconds ?? Int(run.activeSeconds)
-          result["capped"] = part.timeLimit.map { run.activeSeconds >= $0 } ?? false
+          result["capped"] = run.score?.isCapped(for: part) ?? (part.timeLimit.map { run.activeSeconds >= $0 } ?? false)
         default: result["kind"] = "completed"
         }
         results.append(result)
@@ -80,8 +80,15 @@ struct ClassRecord: Codable, Equatable {
       for segment in segments where segment.part == index {
         let kind = segment.kind == .set ? "station" : segment.kind.rawValue
         counts[kind, default: 0] += 1
-        splits.append(["block_id": part.blockId, "kind": kind, "index": counts[kind]!,
-          "started_at": Self.iso(segment.start), "ended_at": Self.iso(segment.end)])
+        var split: [String: Any] = ["block_id": part.blockId, "kind": kind, "index": counts[kind]!,
+          "started_at": Self.iso(segment.start), "ended_at": Self.iso(segment.end)]
+        if segment.kind == .buyIn, let move = part.moves.first(where: { $0.segment == "buy_in" && $0.isRun }) {
+          split["run_environment"] = plan?.runsOutside == true ? "outdoor" : "treadmill"
+          if plan?.runsOutside != true, let meters = move.distanceM {
+            split["distance_meters"] = meters; split["distance_source"] = "prescribed"
+          }
+        }
+        splits.append(split)
       }
     }
     object["actuals"] = try JSONSerialization.jsonObject(with: encoder.encode(actuals.map { a in

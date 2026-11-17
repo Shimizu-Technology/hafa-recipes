@@ -77,6 +77,14 @@ describe("watch sync", () => {
     expect(store.snapshot().history[0].watch_quick).toBe(true);
     expect(store.snapshot().history[0].workout.title).toContain("watch, Nov 17"); expect(marked).toBe(1);
   });
+  it("retains invalid cells and overlapping intervals in the inbox without importing", async () => {
+    const store = setup(); await store.load(); let marked = 0;
+    const invalid = result(); invalid.actuals = [{ ...invalid.actuals[0], block_id: "missing" }];
+    const overlap = result(); overlap.active_intervals = [overlap.active_intervals[0], overlap.active_intervals[0]];
+    await drainWatch({ store, account, generation: 1, catalog: { [plan.plan_key]: workout }, current: () => true,
+      pendingResults: async () => [JSON.stringify(invalid), JSON.stringify(overlap)], markImported: async () => { marked++; } });
+    expect(marked).toBe(0); expect(store.snapshot().history).toHaveLength(0);
+  });
   it("manual sync creates a private quick workout before the session and persists its source", async () => {
     let creations = 0;
     const store = setup(async (_workout, key, generation) => {

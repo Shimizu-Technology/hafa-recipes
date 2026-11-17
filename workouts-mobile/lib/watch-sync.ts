@@ -1,5 +1,5 @@
 import type { ActualSet, Program, SessionRequest, Workout } from "./models";
-import { stepsFor, historicalStructureWarning, actualErrors, type SavedLocalSession, type SessionSource, type TrainingState } from "./training";
+import { stepsFor, actualIdentity, actualErrors, type SavedLocalSession, type SessionSource, type TrainingState } from "./training";
 import { isRun, partKind, type PartResult, type Segment } from "./class-session";
 import { moveText, repsFor } from "./timed-execution";
 
@@ -28,7 +28,7 @@ export function watchPlan(workout: Workout, source: SessionSource, account: stri
           duration_seconds: s.exercise.duration_seconds, distance_meters: s.exercise.distance_meters,
           ...(s.exercise.load != null && s.exercise.load_unit ? { load: s.exercise.load, load_unit: s.exercise.load_unit, load_convention: s.exercise.load_convention ?? "total" } : {}) }));
       })(),
-      rest_after_seconds: b.rest_after_seconds, scored: b.score_kind !== "none",
+      rest_after_seconds: b.rest_after_seconds, scored: b.score_kind !== "none" && ["amrap", "for_time"].includes(partKind(b)),
       moves: b.exercises.map((e, index) => ({ index, text: moveText(e, 1), segment: e.segment, is_run: isRun(e), distance_m: e.distance_meters })) })) };
   // The engine advances one movement per tap. Flatten sets in the phone's exact order.
   plan.parts.forEach((part, i) => {
@@ -94,11 +94,30 @@ export interface WatchDetails { heart_rate?: HR; parts: WatchResult["parts"]; du
 export function watchSession(r: WatchResult, workout: Workout, generation: number, state: TrainingState): SavedLocalSession {
   const source = r.plan?.source ?? { workout_id: workout.id, workout_revision: workout.revision };
   const actuals = r.actuals, results = r.results, segments = r.segments;
-  if (!actuals || !results || actuals.length > 1000 || actuals.some(a => actualErrors(a).length) ||
-    historicalStructureWarning(workout, actuals, 2)) throw Error("Watch actuals do not match their pinned workout.");
+  const cells = new Set<string>();
+  if (!actuals || !results || actuals.length > 1000 || actuals.some(a => {
+    const block = workout.blocks.find(b => b.id === a.block_id), exercise = block?.exercises[a.exercise_index];
+    const key = actualIdentity(a), duplicate = cells.has(key); cells.add(key);
+    return duplicate || !block || !exercise || !Number.isInteger(a.exercise_index) ||
+      !Number.isInteger(a.round_index) || a.round_index < 1 || a.round_index > 100 ||
+      !Number.isInteger(a.set_index) || a.set_index < 1 || a.set_index > (exercise.sets ?? 1) ||
+      (exercise.segment === "buy_in" && a.round_index !== 1) ||
+      (exercise.per_side ? a.side !== "left" && a.side !== "right" : a.side != null && a.side !== "both") ||
+      typeof a.completed !== "boolean" || actualErrors(a).length > 0;
+  }) || results.some(result => !workout.blocks.some(b => b.id === result.block_id)) ||
+    segments.some(segment => !workout.blocks.some(b => b.id === segment.block_id)))
+    throw Error("Watch actuals do not match their pinned workout.");
   const intervals = r.active_intervals;
+  const start = Date.parse(r.started_at), end = Date.parse(r.finished_at);
+  let previous = start;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || intervals.length > 100 ||
+    intervals.some(i => {
+      const from = Date.parse(i.started_at), until = Date.parse(i.ended_at);
+      const invalid = !Number.isFinite(from) || !Number.isFinite(until) || from < previous || until <= from || until > end;
+      previous = until; return invalid;
+    })) throw Error("Invalid watch session time.");
   const active = intervals.reduce((n, i) => n + (Date.parse(i.ended_at) - Date.parse(i.started_at)) / 1000, 0);
-  if (!Number.isFinite(active) || active <= 0 || Date.parse(r.finished_at) < Date.parse(r.started_at)) throw Error("Invalid watch session time.");
+  if (active <= 0 || active > 86400) throw Error("Invalid watch session time.");
   const request: SessionRequest = { client_session_id: r.client_session_id.toLowerCase(), ...source,
     started_at: r.started_at, finished_at: r.finished_at, status: r.status ?? (r.parts.some(p => p.skipped || !p.end) ? "partial" : "completed"),
     active_seconds: Math.floor(active), active_intervals: intervals, activity_type: ({ 11: "cross_training", 63: "hiit", 20: "functional_strength" } as Record<number, string>)[r.plan?.activity_type ?? 11] ?? "general_fitness",

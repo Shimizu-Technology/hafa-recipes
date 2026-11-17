@@ -11,6 +11,7 @@ struct WatchPlan: Codable, Equatable {
   var source: Source?
   var accountKey: String?
   var leadInSeconds: Int?
+  var runsOutside: Bool?
   struct Source: Codable, Equatable {
     var workoutId: String?
     var workoutRevision: Int?

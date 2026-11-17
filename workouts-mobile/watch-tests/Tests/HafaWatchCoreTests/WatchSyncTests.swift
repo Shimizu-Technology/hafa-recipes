@@ -53,11 +53,12 @@ final class WatchSyncTests: XCTestCase {
     p.actuals = [
       .init(blockId: p.blockId, exerciseIndex: 0, roundIndex: 1, setIndex: 1, completed: true, distanceMeters: 1000),
       .init(blockId: p.blockId, exerciseIndex: 1, roundIndex: 1, setIndex: 1, completed: true, reps: 15, load: 20, loadUnit: "kg")]
+    p.moves[0].distanceM = 1000
     var plan = plan(p); plan.accountKey = "synthetic:1"
     let run = ClassRecord.Part(blockId: p.blockId, start: at(0), end: at(900), activeSeconds: 900,
       rounds: 2, buyInDoneAt: at(60), skipped: false, score: PartScore(rounds: 2, reps: 3, scaled: true))
     let record = ClassRecord(clientSessionId: UUID(), planKey: plan.planKey, startedAt: at(0), finishedAt: at(900),
-      parts: [run], segments: [], plan: plan, activeIntervals: [.init(startedAt: at(0), endedAt: at(900))])
+      parts: [run], segments: [.init(kind: .buyIn, part: 0, start: at(0), end: at(60))], plan: plan, activeIntervals: [.init(startedAt: at(0), endedAt: at(900))])
     let wire = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(record.payload().utf8)) as? [String: Any])
     let actuals = try XCTUnwrap(wire["actuals"] as? [[String: Any]])
     XCTAssertEqual(actuals.count, 3)
@@ -66,6 +67,7 @@ final class WatchSyncTests: XCTestCase {
     XCTAssertTrue(actuals.allSatisfy { $0["load"] == nil })
     XCTAssertEqual((wire["results"] as? [[String: Any]])?.first?["reps"] as? Int, 3)
     XCTAssertNotNil(wire["active_intervals"])
+    XCTAssertEqual((wire["segments"] as? [[String: Any]])?.first?["run_environment"] as? String, "treadmill")
   }
   func testPlansRejectWrongVersionAndOversizeWithoutReplacingCache() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
