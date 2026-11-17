@@ -47,6 +47,28 @@ These checks do not establish the **25-import physical-phone gate, 80% usability
 
 The API reads EMOM/OTM/E2MOM, alternating minutes, AMRAP N, for time/RFT with caps, Tabata and on/off intervals, 21-15-9 rep schemes, ladders and Death by from quoted source wording. An EMOM or Tabata clock is the workout total, never an exercise duration (`Rest 90 seconds every round` stays rest). `Tabata 8x20/10` or `8x20s/10s` is never sets × reps, while `4x8/8` and `3 x 12/10/8` still are. Typed `emom`, `for_time` and `work_rest` executions plus exercise `rep_scheme`/`ladder` are returned only to imports that send `typed_formats: true`; Workouts 1.1.0 and earlier keep the AMRAP-only shape, with the creator's format wording retained as instructions; work/rest intervals reach them as circuit rounds with each movement's work and rest. Real pages also read: `Minute 1:` header lines and "start the next exercise each minute" wording rotate an EMOM, `21-15-9 reps for time of:` is for time, Rx'd plus Intermediate/Beginner versions import as one workout with the versions as instruction lines, and timer pages that quote `0:20 WORK` / `0:10 REST` / `8 ROUNDS` apart keep a work/rest clock. Planning still schedules one timed block per workout. **Next:** the mobile player for these formats sends `typed_formats` and then lifts the one-timed-block limit.
 
+## Apple Watch app (2026-11-17)
+
+Leon approved a watch app on 2026-11-15, replacing the "no watch companion" line in `EXECUTION_PLAN.md`. He records Unified classes (CrossFit, HYROX, functional) and runs on an Apple Watch Ultra 1 with watchOS 11 and an iPhone on iOS 18. The watch should record one class as one Health workout with a part per block, count AMRAP rounds from the screen or the Action button, and send the scored result to the phone. The full design is `output/hafa-review-2026-11-15/workouts-watch-design.md` (sections 5 to 8).
+
+How it's built:
+
+- `workouts-mobile/targets/watch/` is a single-target SwiftUI watchOS app added by `@bacons/apple-targets` (`type: "watch"`). Bundle `com.shimizutechnology.hafaworkouts.watchkitapp`, deployment target watchOS 11.0, HealthKit entitlement, `workout-processing` background mode. It is embedded under `Watch/` in the iOS app, so it ships with every Workouts build.
+- Builds stay local with EAS (`eas build -p ios --profile production --local`). The Mac needs the watchOS platform in Xcode. EAS signs the watch app with its own App Store profile.
+- Swift unit tests (XCTest) are approved for the watch code. Health, heart rate, the Action button and TestFlight installs can only be checked on Leon's watch.
+
+| PR | Work | State |
+|---|---|---|
+| X1 | Watch target, hello-world app in the Athletic look, Health authorization, local EAS build with the watch app embedded and signed | In review |
+| X2 | `WorkoutEngine`, `PartRunner`, `Clock`, checkpoint and crash recovery, one Health workout per class with an activity per part, segment events, heart-rate summaries, XCTest | Next |
+| X3 | Watch screens: plan list, lead-in, buy-in, AMRAP, for time, intervals, sets, rest between parts, finish and score | Planned |
+| X4 | Action button: start today's class, one "advance" press, pause and resume, mis-press guard and undo | Planned |
+| X5 | Phone ↔ watch sync (`modules/hafa-watch`): plans to the watch, results back through a durable inbox, no background React Native launch | Planned |
+| X6 | Health dedupe for watch-recorded classes, heart rate and splits on the phone's session card | Planned |
+| X7 | Optional: GPS for outdoor run legs, simple run mode | Later |
+
+**X1 exit gate (not yet met):** two TestFlight builds in a row install and launch on Leon's Ultra. One report says TestFlight can drop watch provisioning profiles after an update, so a single good install isn't enough.
+
 ## The goal
 
 > I see a workout video, share it to the app like I do for Recipes, and it

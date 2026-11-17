@@ -19,6 +19,7 @@
     "check:native-bundles": "node scripts/check-native-bundles.mjs"
   },
   "dependencies": {
+    "@bacons/apple-targets": "5.0.0",
     "@believer/react-native-markdown-display": "8.4.1",
     "@clerk/expo": "4.5.2",
     "@expo-google-fonts/barlow-condensed": "0.4.1",
@@ -83,6 +84,10 @@
     },
     "jayson": {
       "uuid": "11.1.1"
+    },
+    "@bacons/xcode": {
+      "uuid": "11.1.1",
+      "@xmldom/xmldom": "0.8.15"
     },
     "markdown-it": "14.3.3",
     "react-native-gesture-handler": "3.2.1",

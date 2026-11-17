@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>WKApplication</key>
+	<true/>
+	<key>WKBackgroundModes</key>
+	<array>
+		<string>workout-processing</string>
+	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Håfa Workouts reads your heart rate and energy during a class you start on your watch.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Håfa Workouts saves the classes you record on your watch to Apple Health.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>BarlowCondensed_700Bold.ttf</string>
+	</array>
+</dict>
+</plist>
