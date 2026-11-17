@@ -101,6 +101,23 @@ describe('AuthProtection', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 
+  it('returns a save started from a Håfa link to the shared view', async () => {
+    const renderer = createRoot();
+    const key = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde';
+    try {
+      guestRecipeIntent.start(key, 'shared-save');
+      mocks.segments = ['(auth)'];
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      mocks.isSignedIn = true;
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      expect(mocks.replace).toHaveBeenCalledWith(`/r/${key}`);
+      mocks.replace.mockClear();
+      mocks.segments = ['r'];
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      expect(mocks.replace).not.toHaveBeenCalled();
+    } finally { guestRecipeIntent.clear(); await act(async () => renderer.unmount()); }
+  });
+
   it('redirects signed-out users away from authenticated capture', async () => {
     mocks.segments = ['paste-recipe'];
     const renderer = createRoot();

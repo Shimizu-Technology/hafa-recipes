@@ -1,12 +1,16 @@
 """Ground opt-in class structure without exposing new shapes to older imports."""
 
+import logging
 import math
 import re
 from copy import deepcopy
 
+logger = logging.getLogger(__name__)
+LAYOUT_WARNING = "The page layout could not be read; review every part against the source."
 WORKOUT_KEYS = ("benchmark", "programming")
-BLOCK_KEYS = ("role", "rest_after_seconds", "score_kind", "instructions")
-EXERCISE_KEYS = ("segment", "distance_meters_min", "duration_seconds_max", "load_options", "relative_load")
+BLOCK_KEYS = ("role", "rest_after_seconds", "score_kind", "instructions", "time_window_seconds")
+EXERCISE_KEYS = ("segment", "distance_meters_min", "duration_seconds_max", "load_options", "relative_load",
+                 "set_prescriptions", "value_options", "calories", "calories_min")
 CLASS_PROMPT = """
 Class mode: A./B./Part A/A) headings are ordered parts; A1/A2 or D1/D2/D3
 under one heading form one superset. REST N MINS between parts is the previous
@@ -30,7 +34,87 @@ quote naming it; preserve progression 2/3 as stage/stages. Supply evidence for
 each class field, including segment, ranges, load options, rest, role and notes.
 Ignore leaderboards, athlete names/results and comments in images; extract only
 the programming and coach instructions. Never copy other members into output.
+Return one block per lettered part (A., B., or an A1/A2 group) in source order,
+however long the class: never merge, split or skip parts. "Workout Specific
+Movement Prep" is a link, never a block. One exercise per movement, even when
+"Set 1 - 5 reps ... Set 4 - Max reps" lists its sets. Quote the shortest exact
+phrase as evidence.
 """
+
+
+def apply_layout(workout, text, warnings, rows=False):
+    """Read the page layout on a copy; a layout the reader cannot follow keeps the model's parts."""
+    from app.domains.workouts.class_outline import apply_outline, stale_warnings
+
+    draft, notes, renames = workout.model_copy(deep=True), [], {}
+    try:
+        apply_outline(draft, text, notes, renames, rows)
+    except Exception:  # noqa: BLE001 - a heuristic reader must never fail the import
+        logger.exception("workouts_class_layout_failed")
+        warnings.append(LAYOUT_WARNING)
+        return
+    for name in type(workout).model_fields:
+        setattr(workout, name, getattr(draft, name))
+    for old_label, new_label in renames.items():
+        # "Unsupported rounds removed from Intervals." follows its part's printed label.
+        pattern = rf"\b(from|for) {re.escape(old_label)}(?=[ .:]| removed)"
+        warnings[:] = [re.sub(pattern, lambda match: f"{match[1]} {new_label}", warning) for warning in warnings]
+    placed = any(block.instructions for block in workout.blocks) or bool(workout.instructions)
+    warnings[:] = stale_warnings(workout, warnings, placed) + notes
+
+
+def screenshot_notes_without_members(workout, warnings):
+    """Screenshot notes have no text to check against, so drop any that read
+    as a member's result or comment ("Jane Doe 12:43 Rx", "Mike R: great job")."""
+    from app.domains.workouts.class_outline import member_comment, member_line
+
+    def member(note):
+        return member_line(note) or member_comment(note)
+
+    removed = False
+    for holder in [workout, *workout.blocks]:
+        notes = holder.instructions or []
+        kept = [note for note in notes if not member(note)]
+        removed |= len(kept) < len(notes)
+        holder.instructions = kept if holder is workout else (kept or None)
+    if removed:
+        warnings.append("Lines that read like member results or comments were left out of the coach notes.")
+
+
+NOTE_ROW = re.compile(r"^(.+?)\s+(?:distances?|ranges?)$", re.I)
+
+
+def review_screenshot_rows(workout, warnings):
+    """A screenshot's "RUN DISTANCE 800-1000m" note is a range, not a movement,
+    and a run read as 100 m beside an 800-1000 m range needs a second look."""
+    for block in workout.blocks:
+        ranges, rows = {}, []
+        for item in block.exercises:
+            note = NOTE_ROW.match(item.name)
+            if note and item.distance_meters_min is not None:
+                ranges.setdefault(note[1].casefold(), []).append((item.distance_meters_min, item.distance_meters))
+            else:
+                rows.append(item)
+        if len(rows) == len(block.exercises):
+            continue
+        block.exercises = rows
+        seen = {}
+        for item in rows:
+            listed = ranges.get(item.name.casefold(), [])
+            index = seen[item.name.casefold()] = seen.get(item.name.casefold(), -1) + 1
+            if index >= len(listed) or item.distance_meters is None:
+                continue
+            low, high = listed[index]
+            if item.distance_meters_min is not None:
+                # The row already has its own range: both ends must agree, or keep it and ask for review.
+                if (item.distance_meters_min, item.distance_meters) != (low, high):
+                    warnings.append(f"{item.name} reads {item.distance_meters_min:g}-{item.distance_meters:g} m but "
+                                    f"{block.label} lists {low:g}-{high:g} m; check the screenshot.")
+            elif low <= item.distance_meters <= high:
+                item.distance_meters, item.distance_meters_min = high, low
+            else:
+                warnings.append(f"{item.name} reads {item.distance_meters:g} m but {block.label} lists "
+                                f"{low:g}-{high:g} m; check the screenshot.")
 
 
 def load_choices(wording):
@@ -95,17 +179,22 @@ def ground_class(workout, raw, source, warnings):
     from app.domains.workouts.schemas import LoadOption
 
     text = "\n".join(p.text for p in source.parts)
+    # Screenshots have no text to quote; their notes are the model's reading of
+    # the page and stay under the visual-review warning.
+    image_only = not text.strip() and bool(source.images)
     def quotes(item, field):
         return [e.wording for e in item.evidence if e.field == field and _quote_is_supported(e, source)]
     def quoted(value, item, field):
-        return value in text or value in quotes(item, field)
+        return image_only or value in text or value in quotes(item, field)
     workout.instructions = [v for v in raw.get("instructions", []) if quoted(v, workout.blocks[0], "workout_instructions")] if workout.blocks else []
     if len(workout.instructions) < len(raw.get("instructions", [])):
         warnings.append("Unquoted coach notes removed; review the source.")
     benchmark = workout.benchmark
     if benchmark:
         evidence_text = text + "\n" + "\n".join(q for b in workout.blocks for q in quotes(b, "benchmark"))
-        if not re.search(rf"\bbenchmark\s+['\"‘’“”]?{re.escape(benchmark.name)}(?:['\"‘’“”]|\b)", evidence_text, re.I):
+        # 'benchmark "Summit"' or WodUp's 'benchmark workout, "Summit"'.
+        named = rf"\bbenchmark(?:\s+(?:workout|wod|test))?(?:\s*[,:–—-]\s*|\s+)['\"‘’“”]?{re.escape(benchmark.name)}(?:['\"‘’“”]|\b)"
+        if not re.search(named, evidence_text, re.I):
             workout.benchmark = None
             warnings.append("Unsupported benchmark removed; review the source.")
         elif benchmark.stage is not None and not re.search(rf"\bprogression\s+{benchmark.stage}\s*/\s*{benchmark.stages}\b", evidence_text, re.I):
@@ -125,7 +214,9 @@ def ground_class(workout, raw, source, warnings):
             block.rest_after_seconds = None
             warnings.append(f"Unsupported rest after {block.label} removed.")
         role_words = {"warm_up": r"warm[ -]?up", "cool_down": r"cool[ -]?down|active recovery", "accessory": r"accessor"}
-        if block.role and block.role != "main" and not any(re.search(role_words[block.role], q, re.I) for q in quotes(block, "role")):
+        # A part heading copied verbatim ("D. ACCESSORIES") is its own role evidence.
+        heading = [block.label] if block.label and re.search(rf"^\s*{re.escape(block.label)}\s*:?\s*$", text, re.I | re.M) else []
+        if block.role and block.role != "main" and not any(re.search(role_words[block.role], q, re.I) for q in quotes(block, "role") + heading):
             block.role = block.score_kind = None
             warnings.append(f"Unsupported role for {block.label} removed.")
         if block.score_kind == "none" and block.role not in {"warm_up", "cool_down", "accessory"}:
@@ -200,7 +291,14 @@ def ground_class(workout, raw, source, warnings):
             for item in block.exercises:
                 item.segment = None
             warnings.append(f"Buy-in/cash-out structure for {block.label} needs review; source quotes were retained.")
+    if image_only:
+        review_screenshot_rows(workout, warnings)
+        screenshot_notes_without_members(workout, warnings)
+        if workout.instructions or any(block.instructions for block in workout.blocks):
+            warnings.append("Coach notes were read from screenshots; check them against the class.")
     workout.programming = None  # Only explicit request hints can supply this private metadata.
+    if text.strip():
+        apply_layout(workout, text, warnings, rows=source.class_rows)
 
 
 # Resume at programming, not at athlete initials inside a leaderboard.

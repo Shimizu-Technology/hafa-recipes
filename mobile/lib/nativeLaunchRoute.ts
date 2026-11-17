@@ -1,5 +1,10 @@
+import { recipeLinkRoute } from './recipeLinkRoute';
+
 /** Preserve capture parameters while moving legacy hidden-tab routes onto the root stack. */
 export function redirectSystemPath({ path, initial }: { path: string; initial: boolean }): string {
+  // hafa-recipes.com/r/<recipe id> opens the recipe; an unlisted key opens the shared view.
+  const recipeLink = recipeLinkRoute(path);
+  if (recipeLink) return recipeLink;
   const legacy = path.match(/^\/\(tabs\)\/(index|history)\/?([?#].*)?$/);
   if (legacy) return `${legacy[1] === 'index' ? '/' : '/history'}${legacy[2] ?? ''}`;
   if (/^\/index\/?([?#].*)?$/.test(path)) return path.replace(/^\/index\/?/, '/');

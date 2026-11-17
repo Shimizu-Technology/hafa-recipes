@@ -27,6 +27,11 @@ export default function Privacy() {
         analytics payloads.
       </Copy>
       <Copy>
+        Heart-rate summaries are off unless you turn them on in Settings. When on, only an average and maximum heart rate
+        per workout and per part are saved with your results, never a heart-rate trace. Turn them off at any time, and
+        choose to delete every saved summary.
+      </Copy>
+      <Copy>
         Deleting your whole Håfa account, from any Håfa app, removes your data in every Håfa app and the shared login.
         Removing only your Workouts data keeps the other apps and your login. System Health records require their own
         on-device controls.

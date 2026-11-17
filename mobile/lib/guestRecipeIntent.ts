@@ -1,8 +1,9 @@
-export type GuestRecipeAction = 'save' | 'collection' | 'plan' | 'chat';
+/** `shared-save` resumes saving a recipe opened from a Håfa link; its ID is the link key (memory only). */
+export type GuestRecipeAction = 'save' | 'collection' | 'plan' | 'chat' | 'shared-save';
 type Intent = { recipeId: string; action: GuestRecipeAction; expiresAt: number; session: string | null; servings?: number };
 const TTL = 15 * 60_000;
 
-/** One short-lived navigation intent; never recipe content, tokens or auth URL data. */
+/** One short-lived, in-memory navigation intent; never recipe content, auth tokens or auth URL data. A shared-save ID is a link key and never leaves memory. */
 export function createGuestRecipeIntent(now = Date.now) {
   let intent: Intent | null = null;
   let generation = 0;

@@ -134,6 +134,7 @@ export default function Progress() {
       <ListGroup>
         <ListRow icon="add-circle-outline" title="Log a completed activity" detail="A run, walk, game or class" onPress={() => router.push("/activity")} />
         <ListRow icon="walk-outline" title="Runs, walks & other activity" onPress={() => router.push("/activity-log")} />
+        <ListRow icon="trophy-outline" title="Best scores" detail="Benchmarks and progressions, such as Everest" onPress={() => router.push("/best-scores")} />
       </ListGroup>
       <ProgressRecords units={units} records={records} active={focused} />
       {!!offline.error && <>

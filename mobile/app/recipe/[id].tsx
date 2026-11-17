@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { RecipeIngredientGroup } from '@/components/RecipeIngredientGroup';
 import { RecipeDetailAction, RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
@@ -8,13 +9,12 @@ import { NutritionPanel } from '@/components/NutritionPanel';
 import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { recipeCost, recipeLoadError, recipeDetailView, recipeFacts, recipeTagLabels } from '@/lib/recipeDetailPresentation';
-import { formatNutritionAsText, type NutritionBasisId } from '@/lib/nutritionPresentation';
+import { type NutritionBasisId } from '@/lib/nutritionPresentation';
 import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
-  Share,
   View as RNView,
   ActivityIndicator,
   ActionSheetIOS,
@@ -42,6 +42,8 @@ import { ASK_PILL_HEIGHT, OVERLAY_GAP } from '@/lib/bottomOverlay';
 import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
+import { ShareRecipeSheet } from '@/components/ShareRecipeSheet';
+import { isSharedCopy, recipeCreditLine, SHARED_COPY_PUBLISH_NOTE } from '@/lib/recipeShare';
 import { 
   useRecipe, 
   useToggleRecipeSharing,
@@ -140,7 +142,7 @@ function SimilarRecipeCard({
 }
 
 /** Render a complete recipe and its connected cooking actions. */
-export default function RecipeDetailScreen() {
+function RecipeDetailScreenRoute() {
   const generation = useRecipeOwnerGeneration();
   return <RecipeDetailScreenContent key={generation} />;
 }
@@ -167,6 +169,7 @@ function RecipeDetailScreenContent() {
   const [showIngredientPicker, setShowIngredientPicker] = useState(false);
   const [showDetailsReview, setShowDetailsReview] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [reportTarget, setReportTarget] = useState<SafetyTargetType | null>(null);
@@ -467,128 +470,6 @@ function RecipeDetailScreenContent() {
     setAndroidMenuActions(actions);
   };
 
-  const formatRecipeAsText = () => {
-    if (!recipe) return '';
-    const { extracted } = recipe;
-    
-    let text = `${extracted.title}\n`;
-    text += '━'.repeat(30) + '\n\n';
-    
-    // Meta info
-    const metaParts: string[] = [];
-    if (extracted.servings) metaParts.push(`${currentServings} servings`);
-    if (extracted.times?.total) metaParts.push(`${extracted.times.total}`);
-    if (costSummary) metaParts.push(`$${costSummary.total.toFixed(2)} estimated total`);
-    if (metaParts.length > 0) {
-      text += metaParts.join('  •  ') + '\n\n';
-    }
-    
-    // Tags
-    if (extracted.tags.length > 0) {
-      text += `Tags: ${extracted.tags.join(', ')}\n\n`;
-    }
-    
-    // Ingredients
-    text += 'INGREDIENTS\n';
-    text += '─'.repeat(20) + '\n';
-    extracted.components.forEach((component, compIndex) => {
-      if (extracted.components.length > 1 && component.name) {
-        text += `\n${component.name}:\n`;
-      }
-      component.ingredients.forEach(ing => {
-        const amount = getIngredientAmount(ing);
-        const qty = scaleQuantity(amount.quantity, scaleFactor, amount.unit) || '';
-        const unit = amount.unit || '';
-        const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
-        const usefulNotes = getCookingNotes(ing.notes);
-        const notes = usefulNotes ? ` (${usefulNotes})` : '';
-        text += `• ${qtyUnit}${ing.name}${amount.isEstimate ? ' (AI estimate)' : ''}${notes}\n`;
-      });
-    });
-    
-    text += '\n';
-    
-    // Steps
-    text += 'INSTRUCTIONS\n';
-    text += '─'.repeat(20) + '\n';
-    let stepNum = 1;
-    extracted.components.forEach((component) => {
-      if (extracted.components.length > 1 && component.name) {
-        text += `\n${component.name}:\n`;
-      }
-      component.steps.forEach(step => {
-        text += `${stepNum}. ${step}\n`;
-        stepNum++;
-      });
-    });
-    
-    const nutritionText = formatNutritionAsText(extracted.nutrition, extracted.derivedData?.nutrition, scaleFactor, nutritionBasis, extracted.servings ?? null);
-    if (nutritionText) text += `\n${nutritionText}\n`;
-    
-    // Equipment
-    if (extracted.equipment && extracted.equipment.length > 0) {
-      text += '\nEQUIPMENT\n';
-      text += '─'.repeat(20) + '\n';
-      text += extracted.equipment.join(', ') + '\n';
-    }
-    
-    // Source
-    text += '\n' + '━'.repeat(30) + '\n';
-    if (hasExternalSource) {
-      text += `Source: ${recipe.source_url}\n`;
-    }
-    text += `${hasExternalSource ? 'Extracted' : 'Created'} with Håfa Recipes`;
-    
-    return text;
-  };
-
-  const handleShare = async () => {
-    if (!recipe) return;
-
-    if (!hasExternalSource) {
-      try {
-        await Share.share({ message: formatRecipeAsText() });
-      } catch {
-        // Share cancelled by user - not an error
-      }
-      return;
-    }
-    
-    Alert.alert(
-      'Share Recipe',
-      'How would you like to share?',
-      [
-        {
-          text: 'Full Recipe',
-          onPress: async () => {
-            try {
-              await Share.share({
-                message: formatRecipeAsText(),
-              });
-            } catch {
-              // Share cancelled by user - not an error
-            }
-          },
-        },
-        {
-          text: 'Just Link',
-          onPress: async () => {
-            try {
-              await Share.share({
-                title: recipe.extracted.title,
-                message: `Check out this recipe: ${recipe.extracted.title}\n\n${recipe.source_url}`,
-                url: recipe.source_url,
-              });
-            } catch {
-              // Share cancelled by user - not an error
-            }
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
-
   const handleOpenSource = async () => {
     if (recipe?.source_url) {
       await openRecipeSource(recipe.source_url);
@@ -607,10 +488,14 @@ function RecipeDetailScreenContent() {
         Alert.alert(presentation.alertTitle, presentation.alertMessage);
       } catch (error: any) {
         const detail = error?.response?.data?.detail;
+        if (error?.response?.status === 409 && detail?.code === 'SHARED_COPY_NOT_PUBLISHABLE') {
+          Alert.alert('Can’t publish this recipe', detail.message || SHARED_COPY_PUBLISH_NOTE);
+          return;
+        }
         if (error?.response?.status === 409 && detail?.code === 'RECIPE_REVIEW_REQUIRED') {
           Alert.alert(
-            'Review before sharing',
-            detail.message || 'Complete and review this recipe before sharing it to Discover.',
+            'Review before publishing',
+            detail.message || 'Complete and review this recipe before publishing it to Discover.',
             [
               { text: 'Not now', style: 'cancel' },
               { text: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
@@ -618,16 +503,16 @@ function RecipeDetailScreenContent() {
           );
           return;
         }
-        Alert.alert('Couldn’t update sharing', 'Your recipe’s visibility didn’t change. Please try again.');
+        Alert.alert('Couldn’t change visibility', 'Your recipe’s visibility didn’t change. Please try again.');
       }
     };
 
     if (recipe.is_public) {
       Alert.alert(
         'Review public recipe',
-        `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private means people who saved it will no longer be able to open it.`,
+        `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private means people who saved it will no longer be able to open it. Public links you’ve sent will stop opening. Previews already in chats may still show the title and photo.`,
         [
-          { text: 'Keep shared', style: 'cancel' },
+          { text: 'Keep public', style: 'cancel' },
           { text: 'Make private', style: 'destructive', onPress: updateSharing },
         ],
       );
@@ -753,7 +638,7 @@ function RecipeDetailScreenContent() {
           title={extracted.title}
           expectHero={Boolean(recipe.thumbnail_url?.trim()) || thumbnailPending}
           actions={[
-            { icon: 'share-outline', accessibilityLabel: 'Share recipe', onPress: handleShare },
+            { icon: 'share-outline', accessibilityLabel: 'Share recipe', onPress: () => setShowShareSheet(true) },
             { icon: 'ellipsis-horizontal', accessibilityLabel: 'More recipe options', onPress: handleMoreOptions },
           ]}
           // Room below the last section so the Ask pill never covers it.
@@ -801,7 +686,7 @@ function RecipeDetailScreenContent() {
             )}
 
             <Text style={[styles.source, { color: colors.textSecondary }]}>
-              {[sourceLabel, recipe.extractor_display_name].filter(Boolean).join(' · ')}
+              {recipeCreditLine(recipe, sourceLabel)}
             </Text>
             {facts.length > 0 && <RNView style={styles.facts}>
               {facts.map((fact) => (
@@ -1087,8 +972,13 @@ function RecipeDetailScreenContent() {
 
             <OfflineRecipeControl recipeId={id} eligible={Boolean(recipe.is_owner || savedStatus?.is_saved)} />
             
+            {/* A copy saved from someone's link stays private; only its cook can publish it. */}
+            {isOwner && isSharedCopy(recipe) && (
+              <RecipeDetailRow icon="lock-closed-outline" title="Private recipe" value={SHARED_COPY_PUBLISH_NOTE} stacked accessory={<></>} />
+            )}
+
             {/* Share to Library Toggle - only show for owner */}
-            {isOwner && (
+            {isOwner && !isSharedCopy(recipe) && (
               <RecipeDetailRow icon={recipe.is_public ? 'globe' : 'globe-outline'}
                 title={toggleSharingMutation.isPending ? 'Updating visibility...' : 'Public in Discover'}
                 onPress={handleToggleSharing} disabled={toggleSharingMutation.isPending}
@@ -1185,6 +1075,9 @@ function RecipeDetailScreenContent() {
           originalServings={originalServings}
         />
       )}
+
+      <ShareRecipeSheet recipe={recipe} isOwner={isOwner} visible={showShareSheet} onClose={() => setShowShareSheet(false)}
+        scaledServings={isScaled ? currentServings : null} />
 
       {/* AI Chat Modal */}
       {recipe && (
@@ -2004,3 +1897,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 });
+
+export default function RecipeDetailScreen() {
+  return <PublishingConfirmationProvider><RecipeDetailScreenRoute /></PublishingConfirmationProvider>;
+}

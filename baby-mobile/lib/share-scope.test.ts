@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureBelongs, captureDestination, captureStale, shareDestination, shareOwner, sessionScope } from "./share-scope";
+import { captureBelongs, captureDestination, captureStale, sessionReachable, shareDestination, shareOwner, sessionScope } from "./share-scope";
 import type { Bootstrap } from "./models";
 
 const family = "11111111-1111-4111-8111-111111111111", personal = "22222222-2222-4222-8222-222222222222";
@@ -66,8 +66,13 @@ describe("where a capture goes", () => {
   it("says when it was made for a family she's since left: it may be there already under this id, so only she can copy it", () => {
     expect(captureDestination(`owner:1:${family}`, live())).toEqual({ space_id: family, left_space: family });
   });
-  it("keeps it hers if she's only a caregiver there now", () => {
-    expect(captureDestination(`owner:1:${family}`, live("caregiver"))).toEqual({ space_id: personal });
+  it("holds it as Not sent if she's only a caregiver there now (parent, then caregiver): never quietly saved to her own space", () => {
+    expect(captureDestination(`owner:1:${family}`, live("caregiver"))).toEqual({ space_id: family, left_space: family });
+  });
+  it("holds every family share she can't write to, and delivers the ones she still can", () => {
+    expect(captureDestination(`owner:1:${family}`, live())).toEqual({ space_id: family, left_space: family });
+    expect(captureDestination(`owner:1:${family}`, live("caregiver")).left_space).toBe(family);
+    expect(captureDestination(`owner:1:${family}`, live("parent"))).toEqual({ space_id: family });
   });
 });
 
@@ -84,5 +89,18 @@ describe("where new captures go", () => {
   it("tags personal by name and a family by id", () => {
     expect(sessionScope(live(), { space_id: personal, generation: 1 })).toBe("personal");
     expect(sessionScope(live("parent"), { space_id: family, generation: 1 })).toBe(family);
+  });
+});
+describe("whether the credential on this phone can still write where it was made for", () => {
+  it("can for its own space and a family it's a parent in, and can't once either is gone or cleared", () => {
+    expect(sessionReachable("owner:1:personal", "owner", live())).toBe(true);
+    expect(sessionReachable("owner:1", "owner", off)).toBe(true);
+    expect(sessionReachable(`owner:1:${family}`, "owner", live("parent"))).toBe(true);
+    expect(sessionReachable(`owner:1:${family}`, "owner", live())).toBe(false);
+    expect(sessionReachable(`owner:1:${family}`, "owner", live("caregiver"))).toBe(false);
+    expect(sessionReachable(`owner:1:${family}`, "owner", off)).toBe(false);
+    expect(sessionReachable("owner:1:personal", "owner", { ...live(), generation: 2 })).toBe(false);
+    expect(sessionReachable("someone:1:personal", "owner", live())).toBe(false);
+    expect(sessionReachable("owner:1:personal", "owner", undefined)).toBe(false);
   });
 });

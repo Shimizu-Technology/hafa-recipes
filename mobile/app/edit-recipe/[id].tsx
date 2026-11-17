@@ -1,7 +1,9 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { TextInput } from '@/components/Themed';
 import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { isSharedCopy, SHARED_COPY_PUBLISH_NOTE } from '@/lib/recipeShare';
 import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
@@ -121,7 +123,7 @@ const UNIT_OPTIONS = [
   'package',
 ];
 
-export default function EditRecipeScreen() {
+function EditRecipeScreenContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { userId } = useAuth();
   const generation = useRecipeOwnerGeneration();
@@ -134,7 +136,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure, didChoosePrivate } = usePublishingDisclosure();
   const alive = useRef(false);
   useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const guard = () => { if (!alive.current || !owner) throw new Error('Account changed; reopen this recipe.'); capture?.guard(); };
@@ -442,6 +444,10 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
         await localDraft.finish(); await privateRecipeDrafts.remove(privateRecipeDrafts.lease(capture.ownerId), capture.recipe.source_type === 'text' ? 'paste' : 'scan'); guard(); router.replace(`/recipe/${updatedRecipe.id}`);
         showToast({ message: 'Recipe saved', tone: 'success' }); return;
       }
+      // Retire reads started before the save, then replace every current-owner
+      // detail variant before navigating. A reopened editor pins this snapshot.
+      await queryClient.cancelQueries({ queryKey: ['recipe', id] });
+      queryClient.setQueriesData<Recipe>({ queryKey: ['recipe', id] }, updatedRecipe);
       // Invalidate recipe queries to refresh
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
@@ -492,6 +498,8 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
     },
   });
 
+  const approvedPublishingPreview = useRef<string | null>(null);
+
   const publishPreview = () => {
     try {
       return createEditSnapshot().publishingPreview;
@@ -511,10 +519,16 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
       return;
     }
 
-    if (snapshot.data.is_public) {
-      if (!snapshot.publishingPreview || !(await requestPublishing(snapshot.publishingPreview))) {
-        if (!recipe?.is_public) setIsPublic(false);
-        return;
+    if (snapshot.data.is_public && (capture || !recipe?.is_public) && (!snapshot.publishingPreview || approvedPublishingPreview.current !== snapshot.publishingPreview)) {
+      if (!snapshot.publishingPreview) return;
+      if (!(await requestPublishing(snapshot.publishingPreview))) {
+        if (!didChoosePrivate()) return;
+        approvedPublishingPreview.current = null;
+        setIsPublic(false);
+        snapshot = { ...snapshot, data: { ...snapshot.data, is_public: false },
+          captureRequest: snapshot.captureRequest ? { ...snapshot.captureRequest, is_public: false } : undefined };
+      } else {
+        approvedPublishingPreview.current = snapshot.publishingPreview;
       }
     }
     if (alive.current) editMutation.mutate(snapshot);
@@ -778,22 +792,25 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
   };
 
   const handlePublicToggle = async () => {
+    if (isSharedCopy(recipe)) return;
     if (isPublic) {
       Alert.alert(
         'Review public recipe',
         recipe
-          ? `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private will remove it from the shared library when you save.`
-          : 'Making it private will remove it from the shared library when you save.',
+          ? `${formatPublishDisclosure(getPublishDisclosure(recipe))}\n\nMaking it private will remove it from Discover when you save.`
+          : 'Making it private will remove it from Discover when you save.',
         [
-          { text: 'Keep shared', style: 'cancel' },
-          { text: 'Make private', style: 'destructive', onPress: () => setIsPublic(false) },
+          { text: 'Keep public', style: 'cancel' },
+          { text: 'Make private', style: 'destructive', onPress: () => { approvedPublishingPreview.current = null; setIsPublic(false); } },
         ],
       );
       return;
     }
 
+    if (!capture && recipe?.is_public) { setIsPublic(true); return; }
     const preview = publishPreview();
     if (preview && await requestPublishing(preview)) {
+      approvedPublishingPreview.current = preview;
       setIsPublic(true);
     }
   };
@@ -1251,12 +1268,24 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
               />
             </RNView>
 
-            {/* Public Toggle */}
+            {/* Public Toggle; a copy saved from someone's link stays private (only its cook can publish it). */}
+            {isSharedCopy(recipe) ? (
+              <RNView style={[styles.toggleRow, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
+                accessible accessibilityLabel={`Private recipe. ${SHARED_COPY_PUBLISH_NOTE}`}>
+                <RNView style={styles.toggleInfo}>
+                  <Ionicons name="lock-closed-outline" size={24} color={colors.textMuted} />
+                  <RNView style={styles.toggleTextContainer}>
+                    <Text style={[styles.toggleTitle, { color: colors.text }]}>Private Recipe</Text>
+                    <Text style={[styles.toggleSubtitle, { color: colors.textMuted }]}>{SHARED_COPY_PUBLISH_NOTE}</Text>
+                  </RNView>
+                </RNView>
+              </RNView>
+            ) : (
             <TouchableOpacity
               style={[styles.toggleRow, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
               onPress={handlePublicToggle}
               accessibilityRole="button"
-              accessibilityLabel={isPublic ? 'Shared to library. Tap to make private.' : 'Private recipe. Tap to publish.'}
+              accessibilityLabel={isPublic ? 'Public in Discover. Tap to make private.' : 'Private recipe. Tap to publish.'}
             >
               <RNView style={styles.toggleInfo}>
                 <Ionicons 
@@ -1266,7 +1295,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                 />
                 <RNView style={styles.toggleTextContainer}>
                   <Text style={[styles.toggleTitle, { color: colors.text }]}>
-                    {isPublic ? 'Shared to Library' : 'Private Recipe'}
+                    {isPublic ? 'Public in Discover' : 'Private Recipe'}
                   </Text>
                   <Text style={[styles.toggleSubtitle, { color: colors.textMuted }]}>
                     {isPublic ? 'Others can discover this recipe' : 'Only you can see this recipe'}
@@ -1279,6 +1308,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                 color={isPublic ? colors.actionText : colors.textMuted}
               />
             </TouchableOpacity>
+            )}
 
             {/* Restore Original Button (for extracted recipes that have been edited) */}
             {originalStatus?.has_original && (
@@ -1772,3 +1802,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
 });
+
+export default function EditRecipeScreen() {
+  return <PublishingConfirmationProvider><EditRecipeScreenContent /></PublishingConfirmationProvider>;
+}

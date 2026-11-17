@@ -1,3 +1,4 @@
+vi.mock('@/contexts/PublishingConfirmation', () => ({ PublishingConfirmationProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => JSON.stringify(['subject', mocks.ownerId, 'fixture', 0]) }));
 const scanFiles = vi.hoisted(() => new Set<string>());
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   back: vi.fn(),
   replace: vi.fn(),
   requestPublishing: vi.fn(async () => true),
+  didChoosePrivate: true,
   save: vi.fn(async (params: { is_public: boolean }) => ({
     id: 'recipe-1',
     is_public: params.is_public,
@@ -126,7 +128,7 @@ vi.mock('@/hooks/useRecipes', () => ({
   useSaveCapturedRecipe: () => ({ mutateAsync: mocks.save }),
 }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
-  usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, isCheckingDisclosure: false }),
+  usePublishingDisclosure: () => ({ requestPublishing: mocks.requestPublishing, didChoosePrivate: () => mocks.didChoosePrivate, isCheckingDisclosure: false }),
 }));
 vi.mock('@/lib/ocrReview', () => ({
   getOcrPublishDisclosure: () => ({
@@ -171,6 +173,7 @@ function confidenceWarnings(renderer: ReactTestRenderer) {
 
 describe('OCRReviewScreen confidence notice', () => {
   beforeEach(() => {
+    mocks.didChoosePrivate = true;
     mocks.ownerId = 'owner-a'; mocks.entries = []; mocks.patchInbox.mockReset();
     mocks.patchInbox.mockImplementation(async (id: string, patch: Record<string, unknown>) => { mocks.entries = mocks.entries.map((entry) => entry.id === id ? { ...entry, ...patch } : entry); });
     mocks.alert.mockClear();
@@ -219,6 +222,7 @@ describe('OCRReviewScreen confidence notice', () => {
 
 describe('OCRReviewScreen visibility', () => {
   beforeEach(() => {
+    mocks.didChoosePrivate = true;
     mocks.ownerId = 'owner-a'; mocks.entries = []; mocks.patchInbox.mockReset();
     mocks.patchInbox.mockImplementation(async (id: string, patch: Record<string, unknown>) => { mocks.entries = mocks.entries.map((entry) => entry.id === id ? { ...entry, ...patch } : entry); });
     mocks.alert.mockClear();
@@ -265,7 +269,7 @@ describe('OCRReviewScreen visibility', () => {
       .find((node) => node.props.children === 'Publish Recipe');
     await act(async () => submit!.props.onPress());
 
-    expect(mocks.requestPublishing).toHaveBeenCalledTimes(2);
+    expect(mocks.requestPublishing).toHaveBeenCalledTimes(1);
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: true }));
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
     expect(mocks.alert).not.toHaveBeenCalled();
@@ -283,6 +287,31 @@ describe('OCRReviewScreen visibility', () => {
     expect(publicOption!.props.accessibilityState.checked).toBe(false);
     expect(renderer.root.findAllByType('Button' as unknown as React.ComponentType)
       .some((node) => node.props.children === 'Save Private Recipe')).toBe(true);
+  });
+
+  it('saves privately on Keep private instead of discarding the save', async () => {
+    mocks.params.isPublic = 'true';
+    mocks.requestPublishing.mockResolvedValueOnce(false);
+    const renderer = await renderRecipe({});
+    const submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Publish Recipe')!;
+    await act(async () => submit.props.onPress());
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: false }));
+    expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+    await act(async () => renderer.unmount());
+  });
+
+  it('keeps the review open without saving when publication is cancelled', async () => {
+    mocks.params.isPublic = 'true'; mocks.didChoosePrivate = false;
+    mocks.requestPublishing.mockResolvedValueOnce(false);
+    const renderer = await renderRecipe({});
+    const submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Publish Recipe')!;
+    await act(async () => submit.props.onPress());
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.back).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
   });
 
   it('hydrates a public route choice before the review is saved', async () => {

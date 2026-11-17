@@ -8,7 +8,7 @@ import { authoredWorkout } from "./api";
 import { keepPrescriptionTokens, benchmarkLine, instructionsTitle, partTags, programmingLine, relativeLoadSuggestion, restAfterText, segmentLabel } from "./class-parts";
 import type { ExercisePrescription, Workout } from "./models";
 import { timedCircuit } from "./timed-circuit";
-import { onceOnlyMovesProblem, timedFormat, timedStartHint } from "./timed-execution";
+import { timedFormat, timedStartHint } from "./timed-execution";
 import { createTrainingStore, trackingPrescriptionWarning } from "./training";
 
 vi.mock("@/components/ui", () => ({ Copy: "Copy", ListGroup: "ListGroup", ListRow: "ListRow" }));
@@ -98,21 +98,23 @@ describe("the single-part timer and once-only moves (Nov 17 part A)", () => {
   const partA: Workout = { ...nov17Class, blocks: [{ ...a, rest_after_seconds: null }] };
   const device = () => { const data = new Map<string, string>();
     return { getItem: async (k: string) => data.get(k) ?? null, setItem: async (k: string, v: string) => { data.set(k, v); }, removeItem: async (k: string) => { data.delete(k); } }; };
-  it("doesn't time a part whose buy-in would repeat every round, and says why", () => {
+  it("runs a part with a buy-in on the class runner, not the single-part timer that would repeat it", () => {
     expect(timedCircuit(partA)).toBeNull();
-    expect(trackingPrescriptionWarning(partA)).toBe(onceOnlyMovesProblem);
+    expect(trackingPrescriptionWarning(partA)).toBeNull();
     expect(timedStartHint(partA)).toBe("This part has a once-only buy-in or cash-out, so it runs without the timer — you’ll choose how to track it.");
     const forTime: Workout = { ...partA, blocks: [{ ...partA.blocks[0], execution: { mode: "for_time", time_cap_seconds: 900 }, rounds: 3 }] };
     expect(timedFormat(forTime)).toBeNull();
-    expect(trackingPrescriptionWarning(forTime)).toBe(onceOnlyMovesProblem);
+    expect(trackingPrescriptionWarning(forTime)).toBeNull();
     // The same AMRAP without the buy-in still runs on the timer.
     const withoutBuyIn: Workout = { ...partA, blocks: [{ ...partA.blocks[0], exercises: partA.blocks[0].exercises.slice(1) }] };
     expect(timedCircuit(withoutBuyIn)).toMatchObject({ time_cap_seconds: 900 });
   });
-  it("refuses a timed start but can be tracked without the timer, with the buy-in once", async () => {
+  it("starts on the class runner, or can be tracked without the timer, with the buy-in once", async () => {
     const store = createTrainingStore(device(), "owner", partA.generation, () => 1_000);
     await store.load();
-    await expect(store.start(partA, { workout_id: partA.id, workout_revision: 1 }, "s1")).rejects.toThrow(onceOnlyMovesProblem);
+    await store.start(partA, { workout_id: partA.id, workout_revision: 1 }, "s0");
+    expect(store.snapshot().active!.class_run?.parts).toHaveLength(1);
+    await store.discard();
     await store.start(partA, { workout_id: partA.id, workout_revision: 1 }, "s1", 1_000, { log_as_you_go: true });
     const d = store.snapshot().active!;
     expect(d.timed_circuit).toBeUndefined();

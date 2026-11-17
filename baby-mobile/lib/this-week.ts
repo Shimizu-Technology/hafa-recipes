@@ -1,3 +1,4 @@
+import type { Voice } from "./labor";
 import type { Bootstrap, Child } from "./models";
 
 /**
@@ -22,23 +23,35 @@ export const sources = {
 
 const everyTwoWeeks: Sourced = { text: "Visits usually come every 2 weeks until week 36.", source: sources.thirdTrimester };
 const weekly: Sourced = { text: "From week 36, visits are usually every week.", source: sources.thirdTrimester };
-const strepTest: Sourced = { text: "A few weeks before your due date, your provider checks for group B strep. You can ask when yours is.", source: sources.thirdTrimester };
 const rearFacing: Sourced = { text: "Babies ride rear-facing from their first ride home. A certified car seat technician can check how it’s installed.", source: sources.carSeat };
 
-const todo = {
-  startBag: { id: "bag", label: "Start your hospital bag list", link: "bag" },
-  packBag: { id: "bag", label: "Pack your hospital bag, and the car seat", link: "bag" },
-  finishBag: { id: "bag", label: "Finish packing your bag", link: "bag" },
-  bagReady: { id: "bag", label: "Keep your bag by the door", link: "bag" },
-  babyDoctor: { id: "baby_doctor", label: "Choose your baby’s doctor", link: "baby_doctor" },
-  delivery: { id: "delivery", label: "Save where you’ll deliver, and their number", link: "delivery" },
-  questions: { id: "question", label: "Write down questions for your next visit", link: "question" },
-  whenToCall: { id: "question", label: "Ask your provider when to call or come in once contractions start", link: "question" },
-} satisfies Record<string, Todo>;
+/**
+ * The lines and to-dos that speak to the pregnant person, in whoever's words fit (see `Voice`): "your" on hers, her
+ * name on her partner's, everyday words until the family has said. Only the person addressed changes.
+ */
+const words = (voice: Voice) => {
+  const name = typeof voice === "object" ? voice.name : "", mine = voice === "mine", them = (own: string, named: string, plain: string) => mine ? own : name ? named : plain;
+  const strepTest: Sourced = { source: sources.thirdTrimester, text: them("A few weeks before your due date, your provider checks for group B strep. You can ask when yours is.",
+    `A few weeks before ${name}’s due date, ${name}’s provider checks for group B strep. You can ask when it is.`,
+    "A few weeks before the due date, the provider checks for group B strep. You can ask when it is.") };
+  const todo = {
+    startBag: { id: "bag", label: them("Start your hospital bag list", "Start the hospital bag list", "Start the hospital bag list"), link: "bag" },
+    packBag: { id: "bag", label: them("Pack your hospital bag, and the car seat", "Pack the hospital bag, and the car seat", "Pack the hospital bag, and the car seat"), link: "bag" },
+    finishBag: { id: "bag", label: them("Finish packing your bag", "Finish packing the bag", "Finish packing the bag"), link: "bag" },
+    bagReady: { id: "bag", label: them("Keep your bag by the door", "Keep the bag by the door", "Keep the bag by the door"), link: "bag" },
+    babyDoctor: { id: "baby_doctor", label: "Choose your baby’s doctor", link: "baby_doctor" },
+    delivery: { id: "delivery", label: them("Save where you’ll deliver, and their number", `Save where ${name} will deliver, and their number`, "Save where the baby will be born, and their number"), link: "delivery" },
+    questions: { id: "question", label: them("Write down questions for your next visit", `Write down questions for ${name}’s next visit`, "Write down questions for the next visit"), link: "question" },
+    whenToCall: { id: "question", label: them("Ask your provider when to call or come in once contractions start", `Ask ${name}’s provider when to call or come in once contractions start`,
+      "Ask the provider when to call or come in once contractions start"), link: "question" },
+  } satisfies Record<string, Todo>;
+  return { strepTest, todo };
+};
 
 /** From week 28, when a bag and visits every two weeks start to matter. Nothing before that, and nothing past 42. */
-export function weekPlan(week: number): { expect: Sourced[]; prepare: Todo[] } | null {
+export function weekPlan(week: number, voice: Voice = "mine"): { expect: Sourced[]; prepare: Todo[] } | null {
   if (week < 28 || week > 42) return null;
+  const { strepTest, todo } = words(voice);
   if (week <= 31) return { expect: [everyTwoWeeks], prepare: [todo.startBag, todo.babyDoctor, todo.questions] };
   if (week <= 33) return { expect: [everyTwoWeeks, rearFacing], prepare: [todo.packBag, todo.babyDoctor, todo.delivery, todo.questions] };
   if (week <= 35) return { expect: [everyTwoWeeks, strepTest, rearFacing], prepare: [todo.packBag, todo.delivery, todo.babyDoctor, todo.questions] };

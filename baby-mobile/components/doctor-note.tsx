@@ -6,17 +6,19 @@ import { doctorNote, doctorNoteTitle } from "@/lib/contractions";
 import { messageFor, type Mutation } from "@/lib/models";
 import { Card, Copy, fonts, radii, useColors, useToast } from "./ui";
 import { doctorNoteWhere } from "../lib/writing-places";
+import type { Voice } from "../lib/labor";
+import { doctorNoteLabel } from "../lib/voice-words";
 
 /**
  * Her own words from her own doctor, at the top of the timer. It's one private journal entry labelled as a clinician
  * instruction, so it syncs and stays findable. We show no examples, so nothing here reads as advice.
  */
-export function DoctorNote({ childId }: { childId: string | null }) {
+export function DoctorNote({ childId, voice = "mine" }: { childId: string | null; voice?: Voice }) {
   // Each baby has their own. Changing baby saves what's typed to the one it was typed for, and starts from the other's.
-  return <ChildNote key={childId} childId={childId} />;
+  return <ChildNote key={childId} childId={childId} voice={voice} />;
 }
-function ChildNote({ childId }: { childId: string | null }) {
-  const b = useBaby(), c = useColors(), toast = useToast(), { fontScale } = useWindowDimensions(), saved = doctorNote(b.records, childId),
+function ChildNote({ childId, voice }: { childId: string | null; voice: Voice }) {
+  const b = useBaby(), c = useColors(), toast = useToast(), { fontScale } = useWindowDimensions(), saved = doctorNote(b.records, childId), label = doctorNoteLabel(voice),
     [text, setText] = useState(saved?.body ?? ""), editing = useRef(false), latest = useRef({ text, saved, b });
   latest.current = { text, saved, b };
   // Another phone's copy arrives while she isn't typing.
@@ -42,8 +44,8 @@ function ChildNote({ childId }: { childId: string | null }) {
   useEffect(() => () => { if (editing.current) save(); }, []);
   return <Card tone="soft">
     <View style={{ gap: 7 }}>
-      <Copy kind="label">{doctorNoteTitle}</Copy>
-      <TextInput key={fontScale} accessibilityLabel={doctorNoteTitle} value={text} multiline maxLength={4000} maxFontSizeMultiplier={0} placeholderTextColor={c.muted} selectionColor={c.accentText} placeholder="Write it here"
+      <Copy kind="label">{label}</Copy>
+      <TextInput key={fontScale} accessibilityLabel={label} value={text} multiline maxLength={4000} maxFontSizeMultiplier={0} placeholderTextColor={c.muted} selectionColor={c.accentText} placeholder="Write it here"
         onChangeText={(value) => { editing.current = true; setText(value); }} onBlur={save}
         style={{ minHeight: 64, padding: 12, borderRadius: radii.field, backgroundColor: c.surface, color: c.text, fontFamily: fonts.regular, fontSize: 16, lineHeight: 22, textAlignVertical: "top" }} />
       <Copy kind="small" tone="muted">{doctorNoteWhere(b.state.bootstrap, saved)}</Copy>

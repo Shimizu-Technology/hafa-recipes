@@ -68,6 +68,9 @@ public final class HafaBabyShareModule: Module {
     AsyncFunction("configureSession") { (token: String, base: String, expires: String, owner: String, generation: Int, automaticEpoch: Int?, destination: String?) throws in
       try BabyShareSession.configure(storage: self.store(), token: token, base: base, expires: expires, owner: owner, generation: generation, automaticEpoch: automaticEpoch ?? 0, destination: destination)
     }
+    AsyncFunction("publishCategories") { (items: [[String: String]], owner: String, generation: Int, destination: String?) throws in
+      try self.safely { try BabyShareSession.publishCategories(storage: self.store(), items, owner: owner, generation: generation, destination: destination) }
+    }
   }
 
   private func snapshot() throws -> [String: Any]? { try BabySharePayload.next(store()) }

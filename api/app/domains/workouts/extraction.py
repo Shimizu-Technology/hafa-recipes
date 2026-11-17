@@ -75,6 +75,15 @@ MAX_EXTRACTION_SECONDS = 210
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_CLASS_DOCUMENT_BYTES = 10 * 1024 * 1024
 PROMPT_VERSION = "workout-extraction-evidence-v10"
+# A five-part class with evidence quotes needs more room than one reel; the
+# smaller limit truncated real classes and paid for a second model.
+OUTPUT_TOKENS = 6000
+CLASS_OUTPUT_TOKENS = 16000
+# Real class answers took 18 s (p50) to 25 s (max) for about 4000 tokens; a
+# full 16000-token answer needs about 90 s. Two attempts stay inside the
+# import's 240 s limit.
+READ_TIMEOUT_SECONDS = 60.0
+CLASS_READ_TIMEOUT_SECONDS = 100.0
 SCHEMA_VERSION = "workout-prescription-v3"
 SERVER_CONTENT_FIELDS = {"extraction_warnings", "source_thumbnail_url", "source_context", "cover_origin"}
 
@@ -112,6 +121,9 @@ class ExtractionRequest(DomainModel):
     # receive AMRAP-only executions; an absent False keeps request digests stable.
     typed_formats: bool = Field(default=False, exclude_if=lambda value: not value)
     class_parts: bool = Field(default=False, exclude_if=lambda value: not value)
+    # Builds that show listed sets and per-athlete values opt in; others keep
+    # the earlier class shape (with those facts summarized in older fields).
+    class_rows: bool = Field(default=False, exclude_if=lambda value: not value)
     programming: Programming | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
@@ -126,6 +138,8 @@ class ExtractionRequest(DomainModel):
             raise ValueError("Paste class text or upload screenshots/a Full Page PDF; WodUp is never fetched")
         if self.programming is not None and not self.class_parts:
             raise ValueError("Programming hints require class_parts")
+        if self.class_rows and not self.class_parts:
+            raise ValueError("class_rows requires class_parts")
         if self.kind == "url" and not self.source_url:
             raise ValueError("A URL import requires source_url")
         if self.document_base64 and not self.class_parts and len(self.document_base64) > 4 * ((MAX_DOCUMENT_BYTES + 2) // 3):
@@ -183,6 +197,7 @@ class SourceImage:
 class SourceBundle:
     metadata: SourceMetadata
     class_parts: bool = field(default=False, kw_only=True)
+    class_rows: bool = field(default=False, kw_only=True)
     parts: list[SourcePart] = field(default_factory=list)
     images: list[SourceImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -360,6 +375,13 @@ field evidence; do not add general exercise instructions.
 """
 
 
+# The server reads these from class source rows; the model never supplies them.
+SERVER_READ_FIELDS = {
+    "ExercisePrescription": ("set_prescriptions", "value_options", "calories", "calories_min"),
+    "WorkoutBlock": ("time_window_seconds",), "LoadOption": ("load_max",), "RelativeLoad": ("percent_max",),
+}
+
+
 def _provider_workout_schema():
     schema = WorkoutContent.model_json_schema()
     for key in SERVER_CONTENT_FIELDS:
@@ -367,8 +389,11 @@ def _provider_workout_schema():
     schema["required"] = [
         key for key in schema.get("required", []) if key not in SERVER_CONTENT_FIELDS
     ]
-    for key in ("SourceContext", "SourceTextPart"):
+    for key in ("SourceContext", "SourceTextPart", "SetPrescription", "ValueOption"):
         schema.get("$defs", {}).pop(key, None)
+    for name, keys in SERVER_READ_FIELDS.items():
+        for key in keys:
+            schema["$defs"][name]["properties"].pop(key, None)
 
     def strict_union(node):
         # Strict structured output accepts anyOf, not a discriminated oneOf.
@@ -441,6 +466,14 @@ def workout_response_format() -> dict:
     }
 
 
+RANGE_REPAIRS = {
+    "Duration range requires a minimum no greater than its maximum": "duration_seconds_max",
+    "Distance range requires a maximum at least equal to its minimum": "distance_meters_min",
+}
+# Class-part slips that do not change any prescription.
+WORKOUT_REPAIRS = {"Benchmark block_ids must reference existing parts", "The last part cannot have rest_after_seconds"}
+
+
 def _validate_provider_workout(raw: dict) -> list[str]:
     """Repair only dependent optional values; core/type/range errors still fail."""
     warnings = []
@@ -453,6 +486,9 @@ def _validate_provider_workout(raw: dict) -> list[str]:
             for issue in error.errors():
                 location = issue["loc"]
                 message = str(issue.get("ctx", {}).get("error", ""))
+                if issue["type"] == "value_error" and not location and message in WORKOUT_REPAIRS:
+                    repairs.append((raw, message))
+                    continue
                 if (
                     issue["type"] != "value_error"
                     or len(location) != 4
@@ -462,12 +498,23 @@ def _validate_provider_workout(raw: dict) -> list[str]:
                     not in {
                         "reps_min cannot exceed reps_max",
                         "load requires a unit and load convention",
+                        *RANGE_REPAIRS,
                     }
                 ):
                     raise
                 repairs.append((raw["blocks"][location[1]]["exercises"][location[3]], message))
             for item, message in repairs:
-                if message == "reps_min cannot exceed reps_max":
+                if message == "Benchmark block_ids must reference existing parts":
+                    ids = {block.get("id") for block in item.get("blocks") or []}
+                    item["benchmark"]["block_ids"] = [value for value in item["benchmark"]["block_ids"] if value in ids]
+                    warnings.append("Benchmark parts that are not in the import were removed; review the benchmark.")
+                elif message == "The last part cannot have rest_after_seconds":
+                    item["blocks"][-1]["rest_after_seconds"] = None
+                elif message in RANGE_REPAIRS:
+                    # One reversed range is a slip in one value, not a reason to pay for another model.
+                    item[RANGE_REPAIRS[message]] = None
+                    warnings.append(f"Reversed range removed from {item['name']}; review the original source evidence.")
+                elif message == "reps_min cannot exceed reps_max":
                     item["reps_min"] = item["reps_max"] = None
                     warnings.append(
                         f"Reversed reps range removed from {item['name']}; review the original source evidence."
@@ -526,6 +573,7 @@ class ProductionExtractionProvider:
         settings = get_settings()
         primary = settings.workout_extraction_model
         fallback = settings.workout_extraction_fallback_model
+        tokens = CLASS_OUTPUT_TOKENS if source.class_parts else OUTPUT_TOKENS
         last_error = "provider_failed"
         best = None
         for index, model in enumerate((primary, fallback)):
@@ -546,14 +594,15 @@ class ProductionExtractionProvider:
                         model=invocation.model,
                         envelope=ProviderEnvelope(
                             endpoint="chat_completions",
-                            max_output_tokens=6000,
+                            max_output_tokens=tokens,
                             includes_images=bool(source.images),
                             service_tier="default",
                             sdk_max_retries=0,
                         ),
                     ) as paid:
                         async with httpx.AsyncClient(
-                            timeout=60.0, transport=httpx.AsyncHTTPTransport(retries=0)
+                            timeout=CLASS_READ_TIMEOUT_SECONDS if source.class_parts else READ_TIMEOUT_SECONDS,
+                            transport=httpx.AsyncHTTPTransport(retries=0)
                         ) as client:
                             response = await client.post(
                                 "https://api.openai.com/v1/chat/completions",
@@ -562,7 +611,7 @@ class ProductionExtractionProvider:
                                     "model": invocation.model,
                                     "messages": provider_messages(source),
                                     "response_format": workout_response_format(),
-                                    "max_completion_tokens": 6000,
+                                    "max_completion_tokens": tokens,
                                     "store": False,
                                     "service_tier": "default",
                                     "reasoning_effort": settings.openai_reasoning_effort,
@@ -586,9 +635,17 @@ class ProductionExtractionProvider:
                             quality > best[0] and _prescription_preserves(grounded, best[3])
                         )):
                             best = (quality, parsed, warnings, grounded)
-                        if (not quality[0] or (grounded.kind != "exercise" and quality[0] != quality[1])
+                        # A class lists "Max" efforts and undosed accessories on purpose, and
+                        # its page layout restores omitted parts; a second model adds cost, not facts.
+                        modelled = any(block.get("exercises") for block in parsed.get("blocks") or [])
+                        if not quality[0] or not modelled or not source.class_parts and (
+                                (grounded.kind != "exercise" and quality[0] != quality[1])
                                 or _missing_source_movements(grounded, source)):
                             raise ExtractionFailure("provider_insufficient_prescription")
+                        if source.class_parts and _missing_source_movements(grounded, source):
+                            # Accepted without a second model; the result still warns that a listed movement is missing.
+                            source.metadata.coverage_notes.append(
+                                "The class answer left out a listed movement; review the source before training.")
                         paid.complete(outcome="success")
                         invocation.succeed(data)
                         if best is not None and not _prescription_preserves(grounded, best[3]):
@@ -1426,7 +1483,7 @@ def _affirmative_execution_prefix(prefix: str) -> bool:
 
 def _amrap_wording(wording: str) -> bool:
     return any(_affirmative_execution_prefix(wording[:match.start()]) for match in re.finditer(
-        r"\bamrap\b|\bas many rounds as (?:possible|you can|you are able)\b"
+        r"\bamrap\b|\bas many rounds(?:\s*(?:and|&|\+)\s*reps)? as (?:possible|you can|you are able)\b"
         r"|\brepeat(?:ing)?\s+(?:(?:this|the)\s+(?:circuit|routine|workout)\s+)?for\s+\d+(?:\.\d+)?\s*(?:minutes?|mins?|seconds?|secs?)\b",
         wording, re.I,
     ))
@@ -1455,7 +1512,7 @@ def _amrap_cap_supported(seconds: int, wording: str) -> bool:
             )
             suffix = re.match(r"\s*\)?\s*(?:amrap|workout|session|circuit)\b", after, re.I)
             loop = re.search(
-                r"\b(?:amrap|as many rounds as (?:possible|you can|you are able)|repeat(?:ing)?)\b"
+                r"\b(?:amrap|as many rounds(?:\s*(?:and|&|\+)\s*reps)? as (?:possible|you can|you are able)|repeat(?:ing)?)\b"
                 r"(?:(?!\b(?:rest|recover|recovery|break|pause|off|hold|work|perform|each|per)\b)[^.!?;\n]){0,160}"
                 r"\b(?:for|in)\s*$", before, re.I,
             )
@@ -2022,7 +2079,7 @@ def _text_prescription_usable(workout, warnings, source):
     # that the creator deliberately left open-ended.
     names, dosed = _prescription_quality(workout)
     return (names > 0 and names == dosed and workout.estimated_minutes is not None
-            and any(re.search(r"\bamrap\b|as many rounds as", note, re.I) for note in workout.instructions)
+            and any(re.search(r"\bamrap\b|as many rounds(?:\s*(?:and|&|\+)\s*reps)? as", note, re.I) for note in workout.instructions)
             and all("open-ended rounds (AMRAP)" in warning for warning in warnings))
 
 
@@ -2076,7 +2133,8 @@ class WorkoutExtractor:
 
     async def extract(self, request: ExtractionRequest) -> WorkoutExtractionResult:
         progress = _current_progress.get()
-        source = SourceBundle(SourceMetadata(platform=request.kind), progress=progress, class_parts=request.class_parts)
+        source = SourceBundle(SourceMetadata(platform=request.kind), progress=progress, class_parts=request.class_parts,
+                              class_rows=request.class_rows)
         staged_media = False
         deadline = asyncio.get_running_loop().time() + MAX_EXTRACTION_SECONDS
 

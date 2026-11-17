@@ -43,7 +43,7 @@ enum BabySharePayload {
   static func requestBody(_ capture: [String: Any]) throws -> Data {
     guard capture["claimed"] as? Bool != true else { throw BabyShareStore.Failure.invalid }
     return try JSONSerialization.data(withJSONObject: capture.filter {
-      ["capture_id", "occurred_at", "url", "text", "automatic_epoch"].contains($0.key)
+      ["capture_id", "occurred_at", "url", "text", "automatic_epoch", "collection_id"].contains($0.key)
     })
   }
   // Enough to recognize a share kept under no account, and nothing more: no caption, no file, no address beyond its website.
@@ -109,9 +109,36 @@ enum BabySharePayload {
       "occurred_at": format.string(from: saved.occurredAt), "files": files, "automatic_epoch": saved.automaticEpoch]
     if saved.claimed { result["claimed"] = true }
     result["scope"] = saved.scope; result["url"] = link; result["text"] = text.isEmpty ? nil : text
+    result["collection_id"] = saved.collection
     if let receipt = saved.receipt {
       result["status"] = receipt["status"]; result["import_id"] = receipt["import_id"]
     }
     return result
+  }
+}
+
+// Foundation only, so the Mac tests can run it.
+enum BabyShareCategories {
+  static let maxCount = 8
+  // Shown only when the list was written for the credential that's here now, and the share was tagged for that same
+  // credential. A family this account has left, or a space since cleared, never shows its names.
+  static func visible(_ cached: [String: Any]?, credentialScope: String?, captureScope: String?) -> [[String: String]] {
+    guard let captureScope, credentialScope == captureScope, cached?["scope"] as? String == captureScope else { return [] }
+    return clean(cached?["items"] as? [[String: String]] ?? [])
+  }
+  // A new credential keeps the list only for the very same account, generation and space.
+  static func survives(_ cached: [String: Any]?, binding scope: String) -> Bool { cached?["scope"] as? String == scope }
+  // At most a handful, each with a real id and a name short enough to sit in a chip.
+  static func clean(_ items: [[String: String]]) -> [[String: String]] {
+    var seen = Set<String>(), rows: [[String: String]] = []
+    for item in items {
+      guard rows.count < maxCount, let id = item["id"].flatMap(UUID.init(uuidString:))?.uuidString.lowercased(),
+        !seen.contains(id) else { continue }
+      let title = (item["title"] ?? "").components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+      guard !title.isEmpty else { continue }
+      seen.insert(id)
+      rows.append(["id": id, "title": title.count > 40 ? String(title.prefix(39)).trimmingCharacters(in: .whitespaces) + "…" : title])
+    }
+    return rows
   }
 }

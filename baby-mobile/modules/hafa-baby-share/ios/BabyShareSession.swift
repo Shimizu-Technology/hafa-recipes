@@ -33,11 +33,46 @@ enum BabyShareSession {
     var query = try query()
     let status = SecItemDelete(query as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else { throw BabyShareStore.Failure.unavailable }
+    // Her category names go with the credential, whenever it goes.
+    if value == nil { try writeCategories(nil) }
     if let value {
       query[kSecValueData as String] = try JSONSerialization.data(withJSONObject: value)
       query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
       guard SecItemAdd(query as CFDictionary, nil) == errSecSuccess else { throw BabyShareStore.Failure.unavailable }
     }
+  }
+  // The categories the app last listed for this credential's space, so the share sheet can offer them. Names and ids,
+  // nothing in them. Kept beside the credential, under the same lock and protection, and only read for the same tag.
+  private static func categoryQuery() throws -> [String: Any] {
+    var query = try query(); query[kSecAttrAccount as String] = "categories"; return query
+  }
+  private static func writeCategories(_ value: [String: Any]?) throws {
+    var query = try categoryQuery()
+    let status = SecItemDelete(query as CFDictionary)
+    guard status == errSecSuccess || status == errSecItemNotFound else { throw BabyShareStore.Failure.unavailable }
+    guard let value else { return }
+    query[kSecValueData as String] = try JSONSerialization.data(withJSONObject: value)
+    query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+    guard SecItemAdd(query as CFDictionary, nil) == errSecSuccess else { throw BabyShareStore.Failure.unavailable }
+  }
+  // Only for the credential that's here now: a list fetched for another space or account is dropped, not kept for later.
+  static func publishCategories(storage: BabyShareStore, _ items: [[String: String]], owner: String, generation: Int, destination: String?) throws {
+    let scope = destination.map { "\(owner):\(generation):\($0)" } ?? "\(owner):\(generation)"
+    let rows = BabyShareCategories.clean(items)
+    try storage.locked {
+      guard try read()?["scope"] as? String == scope else { throw BabyShareStore.Failure.stale }
+      try writeCategories(["scope": scope, "items": rows])
+    }
+  }
+  private static func readCategories() -> [String: Any]? {
+    guard var query = try? categoryQuery() else { return nil }
+    query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
+    var result: CFTypeRef?
+    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+  }
+  static func categories(for scope: String?) -> [[String: String]] {
+    BabyShareCategories.visible(readCategories(), credentialScope: (try? read())?["scope"] as? String, captureScope: scope)
   }
   static func baseURL(_ value: String) -> URL? {
     guard let url = URL(string: value), url.host != nil, url.user == nil, url.password == nil,
@@ -63,6 +98,8 @@ enum BabyShareSession {
     try storage.bind(scope, automaticEpoch: automaticEpoch) {
       try write(["token": token, "base": base, "expires": expiry.timeIntervalSince1970,
         "scope": scope, "generation": generation, "auto_process_epoch": automaticEpoch])
+      // Another destination's names go with its credential, even before the app lists the new one's.
+      if !BabyShareCategories.survives(readCategories(), binding: scope) { try writeCategories(nil) }
     }
   }
   static func disable(storage: BabyShareStore, preserveUnassigned: Bool = false, recoveringOwner: String? = nil) throws -> [String: Any]? {
@@ -81,15 +118,15 @@ enum BabyShareSession {
     let network = network(); defer { network.finishTasksAndInvalidate() }
     _ = try? await network.data(for: request)
   }
-  static func enqueue(_ id: String, storage: BabyShareStore, completion: @escaping (String?) -> Void) {
+  static func enqueue(_ id: String, storage: BabyShareStore, completion: @escaping (_ status: String?, _ filed: Bool) -> Void) {
     do {
       let state = try storage.locked { try read() }
-      guard let state, let saved = try storage.published(id), saved.scope == state["scope"] as? String else { completion(nil); return }
+      guard let state, let saved = try storage.published(id), saved.scope == state["scope"] as? String else { completion(nil, false); return }
       let capture = try BabySharePayload.decode(saved)
       guard let expiry = state["expires"] as? Double, expiry > Date().timeIntervalSince1970,
         let token = state["token"] as? String, let base = state["base"] as? String, let url = baseURL(base),
         (capture["files"] as? [[String: Any]] ?? []).isEmpty else {
-        try? storage.release(saved.token); completion(nil); return
+        try? storage.release(saved.token); completion(nil, false); return
       }
       var request = URLRequest(url: url.appendingPathComponent("api/v1/baby/share/captures"))
       request.httpMethod = "POST"; request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
@@ -104,15 +141,18 @@ enum BabyShareSession {
           receipt["record_id"] as? String == capture["record_id"] as? String,
           receipt["generation"] as? Int == state["generation"] as? Int,
           let status = receipt["status"] as? String, ["saved", "deferred", "queued"].contains(status),
-          status != "queued" || receipt["import_id"] as? String == capture["capture_id"] as? String else { completion(nil); return }
+          status != "queued" || receipt["import_id"] as? String == capture["capture_id"] as? String else { completion(nil, false); return }
         var value = ["status": status]; value["import_id"] = receipt["import_id"] as? String
         let accepted = (try? storage.accept(saved.token, receipt: value)) == true
-        completion(accepted ? status : nil)
+        // The API's word that it went in her category. An older API never says so, and it's just saved.
+        let category = capture["collection_id"] as? String
+        completion(accepted ? status : nil, accepted && category != nil && (receipt["collection_id"] as? String)?.lowercased() == category)
       }.resume()
-    } catch { completion(nil) }
+    } catch { completion(nil, false) }
   }
 }
 private final class BabyShareNetworkDelegate: NSObject, URLSessionTaskDelegate {
   func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
 }
+

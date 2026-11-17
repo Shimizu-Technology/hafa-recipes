@@ -42,6 +42,7 @@ const start = new Date("2026-11-05T02:00:00.000Z");
 let renderer: ReactTestRenderer | undefined;
 function setup() {
   const b = {
+    owner: "kami",
     get records() { return pendingRecords(b.state); },
     state: { ...emptyState(), bootstrap: { generation: 2, active: true, ai_available: false, children: [{ id: "baby", name: "Mia", revision: 1, due_date: "2026-12-10" }],
       profile: { display_name: "K", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState,
@@ -313,4 +314,37 @@ it("reads as Kami's contractions on her partner's phone, and plain Contractions 
   await mount();
   expect(title()).toBe("Contractions");
   expect(words()).not.toContain("Leon’s");
+});
+
+it("on her partner's phone, the note, the early-labor notice and the care-team line are about Kami, and the saved note still has its one title", async () => {
+  const b = setup(), people = { items: [{ app_user_id: "kami", role: "parent", status: "active", access_version: 1, display_name: "Kami" },
+    { app_user_id: "leon", role: "parent", status: "active", access_version: 1, display_name: "Leon" }] };
+  Object.assign(b.state.bootstrap!, { people: { kami: "Kami", leon: "Leon" }, reminders: { push: true, family_news: true },
+    spaces: [{ id: "fam", kind: "family", role: "parent", generation: 1, access_version: 1 }] });
+  Object.assign(b.state.bootstrap!.children[0], { details: { expecting_member: "kami", expecting_confirmed: true }, space_id: "fam" });
+  Object.assign(b, { owner: "leon", api: { ...b.api, familyMembers: vi.fn(async () => people) } });
+  await mount();
+  const field = () => renderer!.root.findAll((n) => String(n.type) === "TextInput")[0];
+  expect(field().props.accessibilityLabel).toBe("What Kami’s doctor said");
+  expect(words()).toContain("What Kami’s doctor said");
+  expect(words()).toContain("Before 37 weeks, don’t wait if Kami has any signs of preterm labor. Call Kami’s care team right away");
+  expect(words()).toContain("Kami’s care team says when to call or go in.");
+  expect(words()).not.toMatch(/What my doctor|Your care team|don’t wait if you|your water/);
+  await act(async () => field().props.onChangeText("Come in at 5 minutes apart"));
+  await act(async () => field().props.onBlur());
+  expect(saves()[0].record).toMatchObject({ title: "What my doctor told me", data: { provenance: "clinician_instruction" } });
+  await act(async () => renderer!.unmount());
+  // Not said yet: everyday words, never "you" and never a guessed name.
+  b.state.bootstrap!.children[0].details = { expecting_member: "leon", expecting_confirmed: false };
+  await mount();
+  expect(words()).toContain("What the doctor said");
+  expect(words()).toContain("The care team says when to call or go in.");
+  expect(words()).not.toMatch(/Kami’s|Leon’s|What my doctor|Your care team/);
+  await act(async () => renderer!.unmount());
+  // Hers: unchanged.
+  Object.assign(b, { owner: "kami" });
+  b.state.bootstrap!.children[0].details = { expecting_member: "kami", expecting_confirmed: true };
+  await mount();
+  expect(words()).toContain("What my doctor told me");
+  expect(words()).toContain("Your care team tells you when to call or go in.");
 });

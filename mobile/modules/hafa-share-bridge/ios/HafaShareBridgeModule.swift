@@ -55,6 +55,12 @@ public final class HafaShareBridgeModule: Module {
       } ?? nil
     }
     AsyncFunction("acknowledgeCapture") { (key: String) -> Bool in HafaShareStore.acknowledge(key) }
+    AsyncFunction("discardCapture") { (key: String, protected: [String]) -> Bool in
+      HafaShareStore.discardCapture(key, deletingAttachments: true, protected: protected)
+    }
+    AsyncFunction("cleanupAttachments") { (released: [String], protected: [String]) -> [String] in
+      HafaShareStore.cleanupAttachments(released: released, protected: protected)
+    }
     AsyncFunction("clearSession") { (revoke: Bool) async throws -> Bool in
       let previous = try HafaShareStore.locked { defaults -> ([String: Any]?, String?) in
         let state = defaults.dictionary(forKey: HafaShareStore.sessionKey)

@@ -31,6 +31,7 @@ vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy"
   ListGroup: "ListGroup", Stack: "Stack", haptics: { light() {}, tick() {}, success: fixture.success } }));
 vi.mock("@/components/training/number-stepper", () => ({ NumberStepper: "NumberStepper" }));
 vi.mock("@/components/training/format-session", () => ({ FormatSession: "FormatSession" }));
+vi.mock("@/components/training/class-session", () => ({ ClassSession: "ClassSession" }));
 vi.mock("@/components/training/lead-in", () => ({ LeadIn: "LeadIn" }));
 vi.mock("@/components/training/kept-running-sheet", () => ({ KeptRunningSheet: "KeptRunningSheet" }));
 vi.mock("@/components/training/keep-awake", () => ({ useKeepAwakeWhile: fixture.keepAwake }));
@@ -666,4 +667,22 @@ it("stacks set fields when large text changes and preserves both fields", async 
   expect(fields[0].parent!.props.style.flexDirection).toBe("column");
   expect(fields[0].props.label).toBe("Reps");
   expect(fields[1].props.label).toBe("Weight · kg");
+});
+
+it("keeps every keystroke of a treadmill distance typed quickly into the class scores", async () => {
+  const { nov17Class } = await import("./fixtures/nov17-class");
+  const { setRun, startPart } = await import("./class-session");
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(nov17Class, { workout_id: nov17Class.id, workout_revision: 1 }, "class-client");
+    await fixture.store!.classAct(startPart);
+    await fixture.store!.classAct((r, w, at) => setRun(r, w, 0, "treadmill", undefined, at), undefined, "treadmill");
+  }); await settle();
+  const runner = renderer!.root.findByType("ClassSession" as never);
+  await act(async () => runner.props.runDistance("a", 0, 100001)); await settle();
+  expect(renderer!.root.findByType("ClassSession" as never).props.error).toContain("0 to 100 km");
+  // "9", "95", "950" arrive before the first write finishes.
+  await act(async () => { for (const meters of [9, 95, 950]) runner.props.runDistance("a", 0, meters); }); await settle();
+  expect(fixture.store!.snapshot().active!.class_run!.parts[0].runs![0]).toEqual({ environment: "treadmill", distance_meters: 950 });
+  expect(renderer!.root.findByType("ClassSession" as never).props.error).toBe("");
 });

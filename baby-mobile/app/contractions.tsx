@@ -15,6 +15,7 @@ import { useSecondClock } from "@/components/feed-timer";
 import { useMinuteClock } from "@/components/care-glance";
 import { LaborCard, useLaborFamily } from "../components/labor-card";
 import { DoctorNote } from "@/components/doctor-note";
+import { careTeamLine } from "../lib/voice-words";
 import { MedicalSource } from "@/components/medical-source";
 import { SyncStatus } from "@/components/sync-status";
 
@@ -63,7 +64,7 @@ export default function Contractions() {
     <Button secondary icon="help-circle-outline" title="Open Help" maxFontSizeMultiplier={1.5} onPress={() => router.push("/help")} />
     {!!guidance && <Notice>{guidance}</Notice>}
     <SyncStatus />
-    <DoctorNote childId={childId} />
+    <DoctorNote childId={childId} voice={family.voice} />
     {others.map((row) => <Card key={row.id} tone="soft">
       <Copy kind="label">Another one is still timing</Copy>
       <Copy numeric kind="small" tone="muted">{`Started ${friendlyTime(row.occurred_at, minute, timeZone)} · ${secondsWords((now.getTime() - new Date(row.occurred_at).getTime()) / 1000)}`}</Copy>
@@ -84,7 +85,7 @@ export default function Contractions() {
       <Copy kind="small" tone="muted">{cdcWarningSignsLine}</Copy>
       <MedicalSource source={cdcWarningSignsSource} url={cdcWarningSignsUrl} />
     </View>
-    <Copy kind="small">This timer records contractions. Your care team tells you when to call or go in.</Copy>
+    <Copy kind="small">{careTeamLine(family.voice)}</Copy>
     <MedicalSource source="ACOG, when labor begins" url={contractionSourceUrl} />
     <MedicalSource source="ACOG, preterm labor" url={pretermSourceUrl} />
     <MedicalSource source="MedlinePlus, preterm labor" url={medlinePretermSourceUrl} />

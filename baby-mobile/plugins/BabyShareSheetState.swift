@@ -1,7 +1,8 @@
 import Foundation
 
-// Every message the share sheet can show, with the rule for choosing it. Foundation only, so it runs
+// Every message the share card can show, with the rule for choosing it. Foundation only, so it runs
 // on a Mac in the native tests. The words never say "source", "original", "import" or "processed".
+// `saving` and `stillWorking` are the card's busy states; the rest are what it says once it's done.
 enum BabyShareSheetState: Equatable {
   case saving, saved, organizing, family, waiting, notSignedIn, notConnected, stillWorking
   case failed, tooBig, tooManyPhotos, oneLink, oneAtATime, unsupported, locked
@@ -19,7 +20,30 @@ enum BabyShareSheetState: Equatable {
   // The largest file taken is 25 MB, which is 3 minutes at about 1.1 Mbps. Anything still going by then is either stuck
   // or far bigger than can be taken once it does arrive, so this ends it rather than spin for ever.
   static let giveUpAfter: TimeInterval = 180
-  var buttonTitle: String { self == .stillWorking ? "Stop" : "Done" }
+  static let openApp = "Open Håfa Baby"
+  static let tryAgain = "Try again"
+  // Save's write normally takes a moment. One still going after this is called slow: Close is allowed again, and only keeps.
+  static let publishTimeout: TimeInterval = 12
+
+  // How Save ended. `failed` and `slow` happened after Save was marked on the phone, so the app can finish it. `notKept` is the
+  // mark itself failing: nothing can be promised. `gone` is the account or its space cleared meanwhile, which takes the share.
+  // `slowUnmarked` is slow before the mark is down: nothing is promised yet.
+  enum Publication: Equatable { case kept, failed, notKept, gone, slow, slowUnmarked }
+
+  // Failed stays on the card, as in Recipes: Save becomes Try again, the kit adds Discard share, and ✕ keeps it.
+  // After Save was marked, closing keeps it and the app finishes it.
+  static let saveFailedNote = "Couldn’t finish saving. Try again, or close and we’ll finish saving it when you open Håfa Baby."
+  // Nothing at all could be written. No promise.
+  static let saveNotKeptNote = "Couldn’t save this. Nothing could be kept on this phone. Try again, or choose Discard share."
+  // Slow before Save is marked on the phone: honest that it might not be kept.
+  static let saveSlowUnmarked = HafaShareOutcome(symbol: "hourglass", title: "Still saving",
+    detail: "Keep this open a moment, or close and share it again.", primary: "Close")
+  // Discard found the app had already finished it.
+  static let alreadySaved = HafaShareOutcome(symbol: "checkmark", title: "Already saved to Håfa Baby",
+    detail: "Håfa Baby finished saving it, so there was nothing to discard.", primary: "Done")
+  // Slow once Save is marked: the write is still going, and the app finishes it whichever way it ends.
+  static let saveSlow = HafaShareOutcome(symbol: "iphone", title: "Still saving",
+    detail: "We’ll finish saving this when you open Håfa Baby.", primary: "Done", secondary: openApp, opens: .secondary)
 
   var words: Words {
     switch self {
@@ -32,7 +56,7 @@ enum BabyShareSheetState: Equatable {
     case .notSignedIn: return Words(title: "You’re not signed in", detail: "We kept this on your phone for 30 days, in no one’s account. Open Håfa Baby and sign in to add it.", closesItself: false)
     case .notConnected: return Words(title: "Saved on this phone", detail: "Open Håfa Baby to add it within 30 days.", closesItself: false)
     // Nothing here says anything's saved, because nothing is yet.
-    case .stillWorking: return Words(title: "Still working on this", detail: "You can stop and share it again later.", closesItself: false)
+    case .stillWorking: return Words(title: "Still working on this", detail: "You can close this and share it again later.", closesItself: false)
     case .failed: return Words(title: "Couldn’t save this", detail: "Try sharing it again.", closesItself: false)
     case .tooBig: return Words(title: "This file is too big", detail: "Håfa Baby takes files up to 25 MB.", closesItself: false)
     case .tooManyPhotos: return Words(title: "Too many photos", detail: "Share up to 4 at a time.", closesItself: false)
@@ -53,6 +77,35 @@ enum BabyShareSheetState: Equatable {
     // Who can see it matters more than that it'll be organized.
     if isFamily(scope) { return .family }
     return status == "saved" ? .saved : .organizing
+  }
+
+  // What the card shows once it's done, or nil while it's still busy. `category` is the one she chose, and `filed` is the
+  // API saying it went there. One kept on the phone hasn't been filed yet, and Håfa Baby files it when it adds it.
+  func outcome(category: String? = nil, filed: Bool = false) -> HafaShareOutcome? {
+    let words = words
+    switch self {
+    case .saving, .stillWorking: return nil
+    case .saved, .organizing, .family:
+      let missed = category != nil && !filed
+      return HafaShareOutcome(symbol: self == .family ? "person.2" : "checkmark",
+        title: filed ? "Added to \(category ?? "")" : words.title,
+        detail: missed ? "It couldn’t go in \(category ?? ""), so it’s waiting in Saved for you to organize." : words.detail,
+        primary: "Done", secondary: Self.openApp, opens: .secondary, closesItself: !missed)
+    case .waiting, .notConnected:
+      return HafaShareOutcome(symbol: "iphone", title: words.title, detail: words.detail, primary: Self.openApp, secondary: "Done", opens: .primary)
+    case .notSignedIn:
+      return HafaShareOutcome(symbol: "person.crop.circle", title: words.title, detail: words.detail, primary: Self.openApp, secondary: "Later", opens: .primary)
+    case .failed, .tooBig, .tooManyPhotos, .oneLink, .oneAtATime, .unsupported, .locked:
+      let symbol: String
+      switch self {
+      case .tooBig, .unsupported: symbol = "doc"
+      case .tooManyPhotos: symbol = "photo.on.rectangle"
+      case .oneLink, .oneAtATime: symbol = "link"
+      case .locked: symbol = "lock"
+      default: symbol = "exclamationmark"
+      }
+      return HafaShareOutcome(symbol: symbol, isProblem: true, title: words.title, detail: words.detail, primary: "Close")
+    }
   }
 
   var isProblem: Bool {
@@ -96,7 +149,7 @@ enum BabyShareSheetState: Equatable {
   }
 
   // `owner:generation:personal`, `owner:generation:<family uuid>`, or `owner:generation` from before spaces.
-  private static func isFamily(_ scope: String) -> Bool {
+  static func isFamily(_ scope: String) -> Bool {
     let parts = scope.components(separatedBy: ":")
     return parts.count > 2 && UUID(uuidString: parts[parts.count - 1]) != nil
   }

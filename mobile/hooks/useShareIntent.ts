@@ -62,6 +62,9 @@ export function useHandleShareIntent() {
       try {
         native = typeof snapshot === 'string' ? JSON.parse(snapshot) : snapshot as NativeCaptureMetadata | null;
       } catch { native = null; }
+      // Defense in depth for stale/native events emitted before Save. Leave
+      // their receipt and files entirely under the extension's ownership.
+      if (native?.confirmed === false) return;
       if (native?.captureId && native.captureKey &&
           (processedCaptureIds.current.has(native.captureId) || processedCaptureKeys.current.has(native.captureKey))) return;
     }
@@ -87,7 +90,7 @@ export function useHandleShareIntent() {
           // An unsupported capture cannot enter the recipe inbox. Reject only
           // this exact native entry so it cannot block later supported shares.
           // Failed acknowledgment leaves it unprocessed and safe to retry.
-          if (native && !(await ShareBridge.acknowledgeCapture(native.captureKey))) {
+          if (native && !(await ShareBridge.discardCapture(native.captureKey, await importInbox.protectedAttachmentPaths()))) {
             throw new Error(`${action.message} This share could not be dismissed yet. It is still saved; reopen Håfa to try again.`);
           }
           processedPayloads.current.add(shareIntent);
@@ -127,6 +130,9 @@ export function useHandleShareIntent() {
         if (native && !(await ShareBridge.acknowledgeCapture(native.captureKey))) {
           throw new Error('Your import is saved. We could not confirm the share handoff; reopen Håfa to reconnect.');
         }
+        // An accepted image may have been protected by its native receipt when
+        // the inbox first retired it. Retry after exact native acknowledgment.
+        void importInbox.cleanupAttachments().catch(() => undefined);
         // Clear only the JS payload. Native data was acknowledged by exact ID.
         processedPayloads.current.add(shareIntent);
         if (native) {

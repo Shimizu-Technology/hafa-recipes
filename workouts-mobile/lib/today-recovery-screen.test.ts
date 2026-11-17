@@ -1,3 +1,4 @@
+vi.mock("@/components/training/score-editor", () => ({ ScoreEditor: "ScoreEditor", CopyForWodUp: "CopyForWodUp" }));
 vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
 vi.mock("@/components/design/foundation", () => ({ Copy: "Copy", useColors: () => ({}) }));
 vi.mock("@/components/design/athletic-motion", () => ({ Entrance: ({ children }: { children: unknown }) => children }));
@@ -941,4 +942,21 @@ it("Today route exposes exactly one floating Coach entry", async () => {
   await settle();
   expect(renderer!.root.findAllByType("AskCoachPill" as never)).toHaveLength(1);
   expect(buttons("Ask Coach")).toHaveLength(0);
+});
+
+it("Today counts the movement actuals from a class round while the class is still active", async () => {
+  const { createTrainingStore } = await import("./training");
+  const { nov17Class } = await import("./fixtures/nov17-class");
+  const { startPart, buyInDone, tapRound } = await import("./class-session");
+  const memory = new Map<string, string>();
+  const store = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null,
+    setItem: async (key, value) => { memory.set(key, value); }, removeItem: async () => {} }, "owner-A", 1, () => 1000);
+  await store.load();
+  await store.start(nov17Class, { workout_id: nov17Class.id, workout_revision: 1 }, "class", 1000);
+  await store.classAct(startPart, 1000); await store.classAct(buyInDone, 2000); await store.classAct(tapRound, 3000);
+  const active = store.snapshot().active!;
+  fixture.active = { workout: { title: active.workout.title }, actuals: active.actuals };
+  await mount();
+  expect(text()).toContain("3 sets recorded so far");
+  expect(buttons("Resume")).toHaveLength(1);
 });

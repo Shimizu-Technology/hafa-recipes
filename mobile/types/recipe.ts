@@ -99,6 +99,8 @@ export interface RecipeExtracted {
   sourceIncomplete?: boolean;
   lowConfidence?: boolean;
   confidenceWarning?: string | null;
+  /** Set on a private copy saved from a Håfa link: the sharer's public name, or null. */
+  sharedCopy?: { sharedBy: string | null } | null;
 }
 
 export interface Recipe {
@@ -153,6 +155,37 @@ export interface RecipeListItem {
   review_state?: RecipeReviewState | null;
   review_summary?: string | null;
   uncertainty_count?: number;
+}
+
+/** Owner view of a recipe's unlisted link. The link itself is only returned when it is created. */
+export interface RecipeShareLinkStatus {
+  active: boolean;
+  created_at: string | null;
+}
+
+/** A recipe with an active unlisted link (GET /api/recipes/share-links). Never includes the link. */
+export interface RecipeShareLinkSummary {
+  recipe_id: string;
+  title: string;
+  thumbnail_url: string | null;
+  created_at: string;
+}
+
+/** The allowlisted recipe a Håfa link opens (GET /public/r/{key}/data). */
+export interface SharedRecipe {
+  id: string;
+  title: string;
+  creator: string;
+  servings: number | null;
+  time: string | null;
+  components: {
+    name: string;
+    ingredients: Pick<Ingredient, 'name' | 'quantity' | 'unit' | 'notes' | 'quantityEstimate'>[];
+    steps: string[];
+    notes?: string | null;
+  }[];
+  notes: string | null;
+  source_url: string | null;
 }
 
 export interface PaginatedRecipes {

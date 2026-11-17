@@ -1,9 +1,12 @@
 import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand, type ResultRecoveryReceipt } from "./result-recovery";
-import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
+import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, SessionSaveResult, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
 import { timedCircuit } from "./timed-circuit";
 import { formatCapSeconds, intervalPosition, isDeathBy, ladderReps, movesFor, timedFormat, timedFormatProblem,
   trackedIntervalLimit, type TimedFormat } from "./timed-execution";
+import { endPart, isTimedPart, partKind, planClass, resolve, startPart, type ClassRun, type PartResult, type Segment, type RunEnvironment } from "./class-session";
+import { carriesResults, classPayload, cleanScore, scoreProblem, withoutResults } from "./class-scores";
+import { alignCursor, classActive, classOver, currentPart, fillRunChoices, isClassWorkout, setsDone, setsOnly, roundActuals, type ClassLoad } from "./class-training";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
   | { workout_id: string; workout_revision: number }
@@ -21,6 +24,9 @@ export interface TrainingStep {
   exercise: ExercisePrescription;
 }
 export interface SessionDraft {
+  class_loads?: Record<string, Record<number, ClassLoad>>;
+  /** Actual identities whose weight came from Rx rather than an athlete entry, retained across reloads. */
+  class_prescribed_loads?: string[];
   id: string;
   cell_identity_version?: 2;
   generation: number;
@@ -46,6 +52,10 @@ export interface SessionDraft {
   timed_circuit?: { time_cap_seconds: number; round_size: number; limit_reached?: boolean };
   /** EMOM, for-time or work/rest: the clock runs on real timestamps, and the person marks each interval or round. */
   timed_format?: TimedFormat;
+  /** A class run part by part (A, rest, B, C, D): each part's clock lives here, not in the session clock. */
+  class_run?: ClassRun;
+  /** Scores the person reviewed or corrected, by part; parts without one keep the clock's score. */
+  class_scores?: Record<string, PartResult>;
   /** Started without fixed set/round counts; the person adds rounds and sets as they go. */
   open_ended?: boolean;
   /**
@@ -62,7 +72,9 @@ export interface SessionDraft {
    * a final for-time tick or Death by miss stopped, so undoing that tick restarts it as if it never stopped.
    */
   undo: Array<{ actuals: ActualSet[]; cursor: number; steps_length?: number;
-    clock?: { active_started_at: number; active_milliseconds: number; intervals: number } }>;
+    clock?: { active_started_at: number; active_milliseconds: number; intervals: number };
+    /** A class's parts before this log, restored by undo only while nothing else changed them since. */
+    class_run?: ClassRun; class_after?: string }>;
 }
 /** How to track a workout whose source gives no fixed set or round counts. */
 export type StartChoice = { log_as_you_go: true } | { rounds: number };
@@ -83,6 +95,8 @@ export interface SavedLocalSession {
   state: "queued" | "synced" | "blocked";
   /** The session ran on the EMOM, for-time or work/rest clock (not logged as you go or with chosen rounds). */
   timed_format?: true;
+  /** The server refused this session's scores or splits; the session saved without them, and they are kept here. */
+  unsent_results?: { reason: string; results?: PartResult[]; segments?: SessionRequest["segments"] };
 }
 export interface TrainingState {
   version: 1;
@@ -91,10 +105,12 @@ export interface TrainingState {
   history: SavedLocalSession[];
   /** Bounded content-free receipts outlive normal synced-history pruning. */
   recovery_receipts?: ResultRecoveryReceipt[];
+  /** The last Outdoor/Treadmill choice for a run, used for the next one. */
+  run_environment?: RunEnvironment;
 }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 // Synced results live on the server. Keep only the newest few on the device so
-// each local save stays small; queued and blocked results are always kept.
+// each local save stays small; queued, blocked, and locally retained scores are always kept.
 export const syncedHistoryLimit = 20;
 /**
  * Whether this device ran the session on the format clock. The server keeps no such fact, so a synced
@@ -105,7 +121,7 @@ export function ranFormatTimer(history: readonly SavedLocalSession[], clientSess
 }
 export function pruneHistory(history: SavedLocalSession[]) {
   let synced = 0;
-  return history.filter((item) => item.state !== "synced" || ++synced <= syncedHistoryLimit);
+  return history.filter((item) => item.state !== "synced" || !!item.unsent_results || ++synced <= syncedHistoryLimit);
 }
 function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
   state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
@@ -130,7 +146,7 @@ export function trainingKey(owner: string, generation: number) {
   return `hafa-workouts:training:v1:${encodeURIComponent(owner)}:${generation}`;
 }
 export function trackingPrescriptionWarning(workout: Workout): string | null {
-  if (timedCircuit(workout) || timedFormat(workout)) return null;
+  if (timedCircuit(workout) || timedFormat(workout) || isClassWorkout(workout)) return null;
   const formatProblem = timedFormatProblem(workout);
   if (formatProblem) return formatProblem;
   if (workout.blocks.some((block) => block.execution))
@@ -221,6 +237,7 @@ type Cell = Pick<ActualSet, "block_id" | "exercise_index" | "round_index" | "set
 export function actualIdentity(cell: Cell) {
   return JSON.stringify([cell.block_id, cell.exercise_index, cell.round_index ?? 1, cell.set_index, cell.side ?? "both"]);
 }
+const logged = (d: Pick<SessionDraft, "actuals">) => (step: { key: string }) => d.actuals.some((a) => actualIdentity(a) === step.key);
 export function draftStructureWarning(draft: SessionDraft) {
   return draft.steps.some((step) => step.set_index !== step.target_set) ?
     "This draft used older set numbering. Recorded work has been kept unchanged. Undo recorded sets before reviewing the empty draft, or finish it as a partial session. Automatic progression cannot treat its older cells as prescribed completion." : null;
@@ -231,7 +248,7 @@ export function historicalStructureWarning(workout: Workout, actuals: ActualSet[
     const block = workout.blocks.find((b) => b.id === actual.block_id);
     const exercise = block?.exercises[actual.exercise_index];
     if (!block || !exercise) return true;
-    return (!timedCircuit(workout) && !timedFormat(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
+    return (!isTimedPart(partKind(block)) && !timedCircuit(workout) && !timedFormat(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
       (exercise.per_side ? actual.side !== "left" && actual.side !== "right" : actual.side != null && actual.side !== "both");
   });
   return outsidePrescription ?
@@ -437,7 +454,23 @@ export function createTrainingStore(
     operations = result;
     return result;
   }
-  async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+  function acceptSaved(s: TrainingState, local: SavedLocalSession, saved: SessionSaveResult) {
+    if (saved.unsent_results) {
+      local.unsent_results = { ...saved.unsent_results, reason: "Class scores are not available on this server yet." };
+      local.request = withoutResults(local.request);
+    }
+    local.state = "synced";
+    local.synced_id = saved.id;
+    local.synced_at = clock();
+    if (local.recovery_origin && local.recovered_with)
+      rememberRecovery(s, local.recovery_origin.request.client_session_id, local.recovered_with, saved.id);
+    delete local.rejection_status;
+    const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
+    if (warning) local.problem = warning;
+    else if (local.unsent_results) local.problem = unsentProblem;
+    else delete local.problem;
+  }
+  async function run(send: (request: SessionRequest, originalGeneration: number) => Promise<SessionSaveResult>) {
     await operations;
     const queue = state.history.filter((x) => x.state === "queued" && !x.recovery);
     let previousRejection: number | null = null;
@@ -451,15 +484,7 @@ export function createTrainingStore(
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
           if (local) {
-            local.state = "synced";
-            local.synced_id = saved.id;
-            local.synced_at = clock();
-            if (local.recovery_origin && local.recovered_with)
-              rememberRecovery(s, local.recovery_origin.request.client_session_id, local.recovered_with, saved.id);
-            delete local.rejection_status;
-            const warning = historicalStructureWarning(local.workout, local.request.actuals, local.cell_identity_version);
-            if (warning) local.problem = warning;
-            else delete local.problem;
+            acceptSaved(s, local, saved);
           }
           return s;
         });
@@ -468,6 +493,21 @@ export function createTrainingStore(
         // Two results rejected the same way in a row look like a service-wide problem,
         // not a problem with each result; keep the rest queued for a later retry.
         const transient = stoppedHere === true || isTransientSyncError(status) || previousRejection === status;
+        // A 403 is about the scores only when heart rate went with them (its storage was turned off); otherwise it's the account.
+        if (!transient && (status === 422 || (status === 403 && item.request.heart_rate != null)) && carriesResults(item.request)) {
+          // Never strand a session over its optional scores: save it without them now, and keep them on the
+          // device so the person can see them and correct the score later.
+          await update((s) => {
+            const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
+            if (local) {
+              local.unsent_results = { reason: e instanceof Error ? e.message : "The scores could not be saved.",
+                results: local.request.results, segments: local.request.segments };
+              local.request = withoutResults(local.request);
+            }
+            return s;
+          });
+          return run(send);
+        }
         await update((s) => {
           const local = s.history.find((x) => x.request.client_session_id === item.request.client_session_id);
           if (local) {
@@ -492,11 +532,15 @@ export function createTrainingStore(
       if (d.timed_circuit && d.paused && capRemainingSeconds(d, now) !== 0)
         throw Error("Resume the circuit before logging more work.");
       const first = d.steps[d.cursor];
+      if (d.class_run && (!first || currentPart(d.class_run, d.workout, now).block.id !== first.block_id ||
+        currentPart(d.class_run, d.workout, now).status !== "running"))
+        throw Error("This part isn’t running. Start it, or wait for its rest to end.");
       // An interval can be marked once it starts (finishing early leaves the rest of it as rest), never before.
       if (d.timed_format && d.timed_format.mode !== "for_time" && first &&
         first.round_index > intervalPosition(d.timed_format, sessionElapsedMilliseconds(d, now)).index)
         throw Error("This interval hasn't started yet.");
-      if (!d.timed_circuit) d.undo.push({ actuals: clone(d.actuals), cursor: d.cursor, ...(d.timed_format ? { steps_length: d.steps.length } : {}) });
+      if (!d.timed_circuit) d.undo.push({ actuals: clone(d.actuals), cursor: d.cursor, ...(d.timed_format ? { steps_length: d.steps.length } : {}),
+        ...(d.class_run ? { class_run: clone(d.class_run) } : {}) });
       let step = first;
       for (const actual of actuals) {
         step = d.steps[d.cursor];
@@ -554,8 +598,23 @@ export function createTrainingStore(
       const completed = actuals.at(-1)!.completed;
       d.rest_until = completed && rest && !d.paused ? now + rest * 1000 : null;
       d.rest_remaining_milliseconds = completed && rest && d.paused ? rest * 1000 : null;
+      if (d.class_run && setsDone(d, step.block_id, logged(d))) {
+        // The part's last set ends the part; its rest before the next part (if any) takes over from set rest.
+        d.class_run = endPart(d.class_run, d.workout, now);
+        clearTimers(d);
+      }
+      syncClass(s, now);
+      const entry = d.undo.at(-1);
+      if (d.class_run && entry?.class_run) entry.class_after = JSON.stringify(d.class_run);
       return s;
     });
+  }
+  /** Keeps a class draft's set cursor and run choices in step with its parts. */
+  function syncClass(s: TrainingState, now: number) {
+    const d = s.active;
+    if (!d?.class_run) return;
+    fillRunChoices(d.class_run, d.workout, s.run_environment ?? "outdoor");
+    alignCursor(d, now, logged(d));
   }
   return {
     subscribe(fn: () => void) {
@@ -590,7 +649,9 @@ export function createTrainingStore(
           const d = state.active;
           const checkpoint = d.checkpoint_at ?? new Date(d.started_at).getTime();
           // A class clock is a wall clock: it ran on while the app was closed. Keep it, and ask.
-          if (isWallClock(d)) d.clock_kept_running ??= { left_at: checkpoint };
+          // A class's parts keep their own timestamps: a part that capped while closed ended on time.
+          if (d.class_run) d.checkpoint_at = checkpoint;
+          else if (isWallClock(d)) d.clock_kept_running ??= { left_at: checkpoint };
           else {
             freezeTimers(d, checkpoint);
             closeActive(d, checkpoint);
@@ -615,10 +676,11 @@ export function createTrainingStore(
         if (warning && !choice) throw Error(warning);
         if (choice && workout.kind === "program") throw Error("Start a plan session instead of the whole program.");
         if (choice && "rounds" in choice) workout = withChosenRounds(workout, choice.rounds);
-        const steps = stepsFor(workout);
-        const execution = choice ? null : timedCircuit(workout);
-        const format = choice || execution ? null : timedFormat(workout);
-        if (!steps.length) throw Error("Add at least one exercise before training.");
+        const runsClass = !choice && isClassWorkout(workout);
+        const steps = stepsFor(runsClass ? setsOnly(workout) : workout);
+        const execution = choice || runsClass ? null : timedCircuit(workout);
+        const format = choice || execution || runsClass ? null : timedFormat(workout);
+        if (!steps.length && !runsClass) throw Error("Add at least one exercise before training.");
         const lead = execution || format ? Math.max(0, Math.min(10, options.lead_in_seconds ?? leadInSeconds)) * 1000 : 0;
         s.active = {
           id,
@@ -648,6 +710,17 @@ export function createTrainingStore(
           ...(format ? { timed_format: clone(format) } : {}),
           ...(choice ? { open_ended: true } : {}),
         };
+        if (runsClass) {
+          // Each part has its own clock and lead-in; the session clock is not used. A set-by-set first part
+          // starts at once, and a timed one waits for Start.
+          const d = s.active;
+          const leadMs = Math.max(0, Math.min(10, options.lead_in_seconds ?? leadInSeconds)) * 1000;
+          d.class_run = planClass(d.workout, leadMs);
+          if (!isTimedPart(d.class_run.parts[0].kind)) d.class_run = startPart(d.class_run, d.workout, now);
+          d.active_started_at = null;
+          delete d.lead_in_until;
+          syncClass(s, now);
+        }
         return s;
       });
     },
@@ -669,10 +742,15 @@ export function createTrainingStore(
           clearTimers(d);
           return s;
         }
+        // In a class, undo reaches only this part's sets, or the set that just ended this part.
+        const last = d?.undo.at(-1);
+        if (d?.class_run && last && JSON.stringify(d.class_run) !== last.class_after &&
+          d.actuals.at(-1)?.block_id !== currentPart(d.class_run, d.workout, clock()).block.id) throw Error("There is no set to undo in this part.");
         const prior = d?.undo.pop();
         if (!d || !prior) throw Error("There is no set to undo.");
         d.actuals = prior.actuals;
         d.cursor = prior.cursor;
+        if (d.class_run && prior.class_run && JSON.stringify(d.class_run) === prior.class_after) d.class_run = prior.class_run;
         if (prior.steps_length != null) d.steps.splice(prior.steps_length);
         if (prior.clock && d.paused && d.active_started_at == null) {
           // The undone tick stopped the clock. The work wasn't over, so the clock runs on from where it was,
@@ -708,6 +786,81 @@ export function createTrainingStore(
       return update((s) => {
         const d = s.active;
         if (d && leadInRemaining(d, now) > 0) d.active_started_at = d.lead_in_until = now;
+        return s;
+      });
+    },
+    /**
+     * One class runner action (Start, +1 round, buy-in done, rest +15 s, end or skip a part…), applied to the
+     * part on screen. `environment` records an Outdoor/Treadmill choice and remembers it for the next run.
+     */
+    classAct(change: (run: ClassRun, workout: Workout, now: number) => ClassRun, now = clock(), environment?: RunEnvironment) {
+      return update((s) => {
+        const d = s.active;
+        if (!d?.class_run) throw Error("This session isn’t a class.");
+        const before = currentPart(d.class_run, d.workout, now).index;
+        // A part that started on its own after a rest gets its run choices before this action can pass them by.
+        d.class_run = resolve(d.class_run, d.workout, now);
+        syncClass(s, now);
+        const priorPart = currentPart(d.class_run, d.workout, now).part;
+        d.class_run = change(d.class_run, d.workout, now);
+        const changedPart = d.class_run.parts.find((p) => p.block_id === priorPart.block_id)!;
+        if (changedPart.round_taps.length > priorPart.round_taps.length) {
+          const block = d.workout.blocks.find((b) => b.id === priorPart.block_id)!;
+          const actuals = roundActuals(block, changedPart.round_taps.length, d.class_loads?.[block.id]);
+          if (changedPart.round_taps.length > 100 || d.actuals.length + actuals.length > 1000)
+            throw Error("This session reached the tracking limit. Save it before logging more work.");
+          d.class_prescribed_loads ??= d.actuals.filter((a) => a.load != null &&
+            d.class_run?.parts.some((p) => p.block_id === a.block_id && ["amrap", "for_time"].includes(p.kind)) &&
+            !d.class_loads?.[a.block_id]?.[a.exercise_index]).map(actualIdentity);
+          d.class_prescribed_loads.push(...actuals.filter((a) => a.load != null &&
+            !d.class_loads?.[a.block_id]?.[a.exercise_index]).map(actualIdentity));
+          d.actuals.push(...actuals);
+        } else if (changedPart.round_taps.length < priorPart.round_taps.length) {
+          d.actuals = d.actuals.filter((a) => a.block_id !== priorPart.block_id || a.round_index !== priorPart.round_taps.length);
+          d.class_prescribed_loads = d.class_prescribed_loads?.filter((key) => d.actuals.some((a) => actualIdentity(a) === key));
+        }
+        if (environment) s.run_environment = environment;
+        // Set rest and set undo from the part just left don't carry into the next part.
+        if (currentPart(d.class_run, d.workout, now).index !== before) { clearTimers(d); d.undo = []; }
+        syncClass(s, now);
+        return s;
+      });
+    },
+    /** Weight used for subsequent round taps; previous rounds keep their recorded load. */
+    classLoad(blockId: string, exerciseIndex: number, load: number | null, load_unit: "kg" | "lb", load_convention?: ActualSet["load_convention"]) {
+      return update((s) => {
+        const d = s.active;
+        if (!d?.class_run || !d.workout.blocks.find((b) => b.id === blockId)?.exercises[exerciseIndex])
+          throw Error("This movement isn’t in the class.");
+        if (load != null && (!Number.isFinite(load) || load < 0 || load > 2000)) throw Error("Enter a weight from 0 to 2000.");
+        d.class_loads ??= {}; d.class_loads[blockId] ??= {};
+        const convention = load_convention ?? d.class_loads[blockId][exerciseIndex]?.load_convention;
+        d.class_loads[blockId][exerciseIndex] = { load, load_unit, ...(convention ? { load_convention: convention } : {}) };
+        return s;
+      });
+    },
+    /** The person's score for a part (null goes back to the clock's score). Timestamps always stay the clock's. */
+    classScore(blockId: string, result: PartResult | null) {
+      return update((s) => {
+        const d = s.active;
+        if (!d?.class_run?.parts.some((p) => p.block_id === blockId)) throw Error("This part isn’t in the class.");
+        if (result) {
+          const clean = cleanScore({ ...result, block_id: blockId });
+          const problem = scoreProblem(clean);
+          if (problem) throw Error(problem);
+          d.class_scores = { ...d.class_scores, [blockId]: clean };
+        } else if (d.class_scores) delete d.class_scores[blockId];
+        return s;
+      });
+    },
+    /** A treadmill run's distance, edited after the part (an outdoor run's distance comes from GPS). */
+    classRunDistance(blockId: string, exerciseIndex: number, meters: number) {
+      return update((s) => {
+        const part = s.active?.class_run?.parts.find((p) => p.block_id === blockId);
+        const choice = part?.runs?.[exerciseIndex];
+        if (!part || choice?.environment !== "treadmill") throw Error("Only a treadmill run’s distance can be edited.");
+        if (!(meters >= 0 && meters <= 100000)) throw Error("Enter a distance from 0 to 100 km.");
+        part.runs = { ...part.runs, [exerciseIndex]: { environment: "treadmill", distance_meters: meters } };
         return s;
       });
     },
@@ -855,7 +1008,17 @@ export function createTrainingStore(
         if (hasUnloggedInput(d.input) && unloggedInput !== "discard")
           throw Error("Log or discard the current entry before finishing.");
         if (status === "completed" && draftStructureWarning(d)) throw Error("Older set numbering needs review. Keep this result as a partial session.");
-        if (status === "completed") {
+        if (d.class_run) {
+          // The part on screen ends now; a part that already ended keeps its own end.
+          d.class_run = resolve(d.class_run, d.workout, now);
+          syncClass(s, now);
+          d.class_run = endPart(d.class_run, d.workout, now);
+          if (!d.class_run.parts.some((p) => p.started_at != null && p.started_at <= now))
+            throw Error("Start a part, or discard the session.");
+          if (status === "completed" && (!classOver(d.class_run, d.workout, now) || d.class_run.ended_early || d.class_run.parts.some((p) => p.skipped) ||
+            !d.steps.every(logged(d)) || d.actuals.some((a) => !a.completed)))
+            throw Error("Some parts or sets were skipped or not finished. Save this as a partial session.");
+        } else if (status === "completed") {
           // Death by ends at the first missed interval, so only that final interval may be unfinished.
           const failureEnds = !!d.timed_format && isDeathBy(d.timed_format, d.workout.blocks[0]);
           const lastRound = Math.max(0, ...d.actuals.map((a) => a.round_index));
@@ -873,9 +1036,12 @@ export function createTrainingStore(
         }
         const activity_type = d.activity_type ?? activityFallback;
         if (!activity_type) throw Error("Choose the activity type before saving.");
-        if (!d.actuals.length) throw Error("Log at least one set, or discard the session.");
+        if (!d.actuals.length && !d.class_run) throw Error("Log at least one set, or discard the session.");
         now = Math.max(now, d.checkpoint_at);
         closeActive(d, now);
+        const classTime = d.class_run ? classActive(d.class_run, d.workout, now) : null;
+        const scores = d.class_run ? classPayload(d.class_run, d.workout, now, d.actuals, d.class_scores) : null;
+        if (classTime) { d.active_intervals = classTime.intervals; d.active_milliseconds = classTime.seconds * 1000; }
         const request: SessionRequest = {
           ...(d.active_intervals ? { active_intervals: clone(d.active_intervals) } : {}),
           client_session_id: d.id,
@@ -890,8 +1056,20 @@ export function createTrainingStore(
               d.active_milliseconds + (d.active_started_at == null ? 0 : Math.max(0, now - d.active_started_at))
             ) / 1000
           ),
-          actuals: clone(d.actuals),
+          actuals: clone(d.actuals).map((a) => {
+            const scaled = scores?.results.some((r) => r.block_id === a.block_id && r.scaling === "scaled");
+            const inferred = d.class_prescribed_loads ? d.class_prescribed_loads.includes(actualIdentity(a)) :
+              d.class_run?.parts.some((p) => p.block_id === a.block_id && ["amrap", "for_time"].includes(p.kind)) &&
+                !d.class_loads?.[a.block_id]?.[a.exercise_index];
+            if (scaled && inferred) {
+              delete a.load; delete a.load_unit; delete a.load_convention;
+            }
+            return a;
+          }),
           notes: d.notes || null,
+          ...(scores?.results.length ? { results: scores.results } : {}),
+          ...(scores?.segments.length ? { segments: scores.segments } : {}),
+          ...(scores ? { recorded_on: "phone" as const } : {}),
         };
         const warning = historicalStructureWarning(d.workout, request.actuals, d.cell_identity_version);
         s.history.unshift({ request, workout: d.workout, generation: d.generation, state: "queued",
@@ -902,7 +1080,7 @@ export function createTrainingStore(
         return s;
       });
     },
-    sync(send: (request: SessionRequest, originalGeneration: number) => Promise<TrainingSession>) {
+    sync(send: (request: SessionRequest, originalGeneration: number) => Promise<SessionSaveResult>) {
       // Concurrent callers wait for the same pass, so follow-up work sees its result.
       syncing ??= exclusive(() => run(send)).finally(() => {
         syncing = null;
@@ -912,7 +1090,7 @@ export function createTrainingStore(
     recoverResult(
       id: string, command: ResultRecoveryCommand,
       saveWorkout: (workout: AuthoredWorkout, key: string, generation: number) => Promise<Workout>,
-      send: (request: SessionRequest, generation: number) => Promise<TrainingSession>,
+      send: (request: SessionRequest, generation: number) => Promise<SessionSaveResult>,
       current: () => boolean
     ) {
       const existing = recoveries.get(id);
@@ -958,8 +1136,7 @@ export function createTrainingStore(
               // acceptance must resolve here before any new workout is created.
               const saved = await sendCurrent(clone(original.request), generation);
               await update(s => { const item = s.history.find(h => h.request.client_session_id === id)!;
-                item.state = "synced"; item.synced_id = saved.id; item.synced_at = clock();
-                delete item.rejection_status; delete item.problem;
+                acceptSaved(s, item, saved);
                 rememberRecovery(s, id, command, saved.id); return s; });
               return saved.id;
             } catch (error) {
@@ -1007,19 +1184,25 @@ export function createTrainingStore(
       void result.finally(() => { recoveries.delete(id); }).catch(() => undefined);
       return result;
     },
-    correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string) {
+    correct(saved: TrainingSession, actuals: ActualSet[], notes: string, id: string, results?: PartResult[], segments?: Segment[]) {
       return update((s) => {
         if (saved.generation !== generation) throw Error("This result belongs to an older account generation.");
         const errors = actuals.flatMap(actualErrors);
         if (errors.length) throw Error(errors.join(" "));
-        const { prescription_snapshot: _snapshot, ...prior } = saved.content;
+        // Only fields the server accepts go back: it adds others (such as results_summary) to what it stores.
+        const prior = Object.fromEntries(Object.entries(saved.content).filter(([key]) => requestFields.has(key))) as unknown as SessionRequest;
+        const problems = (results ?? []).map((r) => scoreProblem(cleanScore(r))).filter(Boolean);
+        if (problems.length) throw Error(problems[0]!);
         const request: SessionRequest = {
           ...prior,
+          ...(results ? { results: results.map(cleanScore) } : {}),
+          ...(segments ? { segments: clone(segments) } : {}),
           client_session_id: id,
           actuals: clone(actuals),
           // A correction can remove completed work; editing recorded cells cannot
           // prove that unrecorded work from a partial session was performed.
-          status: prior.status === "completed" && actuals.length > 0 && actuals.every((actual) => actual.completed)
+          status: prior.status === "completed" && actuals.every((actual) => actual.completed) &&
+            (actuals.length > 0 || (prior.actuals.length === 0 && !!(results ?? prior.results)?.length))
             ? "completed" : "partial",
           notes,
           supersedes_session_id: saved.id,
@@ -1057,6 +1240,10 @@ export function createTrainingStore(
   };
 }
 export type TrainingStore = ReturnType<typeof createTrainingStore>;
+export const unsentProblem = "Session saved, but its class scores weren’t accepted. Open the session and correct the scores to save them again.";
+const requestFields = new Set(["client_session_id", "workout_id", "workout_revision", "program_id", "program_revision", "program_session_id",
+  "started_at", "finished_at", "status", "active_seconds", "active_intervals", "activity_type", "actuals", "notes",
+  "results", "segments", "heart_rate", "recorded_on", "apple_workout_uuid"]);
 export function previousActual(
   workout: Workout,
   step: TrainingStep,

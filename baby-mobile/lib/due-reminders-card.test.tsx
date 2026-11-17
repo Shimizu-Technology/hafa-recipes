@@ -4,7 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { emptyState, type DeviceState, type DueReminder } from "./models";
 
 const scope = vi.hoisted(() => ({ account: null as any, navigate: vi.fn(), toast: vi.fn() }));
-vi.mock("react-native", () => ({ View: "View" }));
+const screen = vi.hoisted(() => ({ width: 393 }));
+vi.mock("react-native", () => ({ View: "View", useWindowDimensions: () => ({ width: screen.width, fontScale: 3 }) }));
 vi.mock("expo-router", () => ({ router: { navigate: scope.navigate }, usePathname: () => "/" }));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/models", () => import("./models"));
@@ -64,4 +65,21 @@ it("a long list stays short until she asks", async () => {
   expect(buttons()).toHaveLength(3);
   await act(async () => { presses()[3].props.onPress(); });
   expect(buttons()).toHaveLength(5);
+});
+
+const copies = () => view.root.findAll((n) => String(n.type) === "Copy");
+it("stops a long word growing past the line at the largest text, so \"contractions\" never breaks mid-word", async () => {
+  setup([due("a", { text: "Kami: contractions have started." }), due("b", { text: "Reminder b" })]);
+  await render();
+  const [news, short] = copies().filter((n) => n.props.kind === "label");
+  // 393 - 2 × 16 - 2 × 22 = 317pt: "contractions" (12 letters of a 17pt face) fits up to about 2.5×, not the 3× iOS goes to.
+  const wide = news.props.limit as number;
+  expect(wide).toBeGreaterThanOrEqual(2);
+  expect(wide).toBeLessThan(3);
+  expect(short.props.limit).toBe(0);
+  await act(async () => view.unmount());
+  screen.width = 320;
+  await render();
+  expect(copies().find((n) => n.props.kind === "label")!.props.limit).toBeLessThan(wide);
+  screen.width = 393;
 });

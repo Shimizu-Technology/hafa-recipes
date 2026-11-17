@@ -32,6 +32,8 @@ import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
 import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput, capRemainingSeconds, restAfter, isWallClock, leadInRemaining } from "@/lib/training";
 import { FormatSession } from "@/components/training/format-session";
+import { ClassSession } from "@/components/training/class-session";
+import { formatPartScore } from "@/lib/class-session";
 import { LeadIn } from "@/components/training/lead-in";
 import { KeptRunningSheet } from "@/components/training/kept-running-sheet";
 import { useKeepAwakeWhile } from "@/components/training/keep-awake";
@@ -130,7 +132,7 @@ export default function Training() {
         backgroundPausePending.current = true;
         void store!.pause(true).catch(() => { if (sameSession()) setError("Could not pause the circuit on this device. Review its saved timer before resuming."); })
           .finally(() => { if (sameSession()) backgroundPausePending.current = false; });
-      } else if (sameSession() && status !== "active" && (active?.timed_format || active?.timed_circuit) && !active.paused) {
+      } else if (sameSession() && status !== "active" && (active?.timed_format || active?.timed_circuit || active?.class_run) && !active.paused) {
         // Timed clocks keep running in the background like a wall clock. Save the moment we left, so a
         // relaunch after the app is closed can say how long it ran on.
         void store!.checkpoint().catch(() => undefined);
@@ -298,8 +300,13 @@ export default function Training() {
     if (!current() || store!.snapshot().active != null) { finishing.current = false; return; }
     haptics.success();
     const saved = store!.snapshot().history.find((h) => h.request.client_session_id === d!.id);
-    void store!.sync(api.saveSession).then(() => { if (current()) void cache.invalidateQueries({ queryKey: [owner, "sessions"] }); });
-    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request, saved.timed_format === true) });
+    void store!.sync(api.saveSession).then(() => {
+      if (!current()) return;
+      // New scores change your results and best scores as well as your sessions.
+      for (const key of ["sessions", "results", "benchmarks"]) void cache.invalidateQueries({ queryKey: [owner, key] });
+    });
+    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request, saved.timed_format === true) ??
+      (saved.request.results?.map((r) => `${saved.workout.blocks.find((b) => b.id === r.block_id)?.label ?? ""} ${formatPartScore(r)}`.trim()).join(" · ") || null) });
     else router.replace("/progress");
   }
   const recorded = d.actuals.filter((a) => a.completed).length;
@@ -382,6 +389,26 @@ export default function Training() {
         onStoppedAt={(at) => { void run(() => store.confirmKeptClock(at)); }} />
     )}
   </>;
+  if (d.class_run)
+    return (
+      <ClassSession d={{ ...d, class_run: d.class_run }} now={now} busy={busy} error={error} runEnvironment={state.run_environment ?? "outdoor"}
+        activityPicker={<ActivityPicker value={activity} onChange={chooseActivity} />}
+        act={(change, environment) => { void run(() => store.classAct(change, undefined, environment)); }}
+        log={(actual) => { void run(async () => { await store.log(actual); if (actual.completed) haptics.light(); }); }}
+        undo={() => { void run(() => store.undo()); }}
+        timer={(kind, seconds) => { void run(() => store.timer(kind, seconds)); }}
+        finish={(status, scores = []) => { void run(async () => {
+          for (const score of scores) await store.classScore(score.block_id, score);
+          await finish(status);
+        }); }}
+        // Each keystroke is a write; the store applies them in order, so typing fast can't drop one the way `run` drops a double tap.
+        roundLoad={(blockId, index, load, unit, convention) => { void store.classLoad(blockId, index, load, unit, convention)
+          .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save the weight."); }); }}
+        runDistance={(blockId, index, meters) => { void store.classRunDistance(blockId, index, meters)
+          .then(() => { if (sameSession()) setError(""); })
+          .catch((e) => { if (sameSession()) setError(e instanceof Error ? e.message : "Could not save on this device."); }); }}
+        discard={discard} />
+    );
   if (d.timed_format)
     return (<>
       <FormatSession d={{ ...d, timed_format: d.timed_format }} now={now} busy={busy} error={error}

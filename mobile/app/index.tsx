@@ -1,3 +1,4 @@
+import { PublishingConfirmationProvider } from '@/contexts/PublishingConfirmation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
 import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
@@ -50,7 +51,7 @@ import {
   getImageImportFailurePresentation,
 } from '@/lib/imageImportClassification';
 
-export default function ExtractScreen() {
+function ExtractScreenRoute() {
   const generation = useRecipeOwnerGeneration();
   return <ExtractScreenContent key={generation} />;
 }
@@ -232,17 +233,16 @@ function ExtractScreenContent() {
       await extraction.retryPendingStart();
       return;
     }
-    if (entry.capture.kind === 'url' && entry.request?.is_public) {
+    let request = entry.request;
+    let publicConfirmed = false;
+    if (entry.capture.kind === 'url' && request?.is_public) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
-      if (!allowed) {
-        if (didChoosePrivate()) await importInbox.patch(entry.id, { request: { ...entry.request, is_public: false },
-          preferences: { isPublic: false, location: entry.request.location || 'Guam' }, state: 'waiting',
-          error: 'Set to private. Tap Finish to import.' });
-        return;
-      }
+      if (!allowed && !didChoosePrivate()) return;
+      publicConfirmed = allowed;
+      request = { ...request, is_public: allowed };
     }
-    await importInbox.claim(entry.id, owner, entry.request);
+    await importInbox.claim(entry.id, owner, request, { publicConfirmed, expected: entry });
     if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
     if (entry.capture.kind === 'url') return;
     if (entry.capture.kind === 'text') {
@@ -503,10 +503,14 @@ function ExtractScreenContent() {
     const draft = { url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId };
     if (currentDraft.current.ownerId !== draft.ownerId) return;
     let requestedPublic = draft.isPublic;
-    if (requestedPublic && !(await requestPublishing())) {
-      if (!didChoosePrivate() || JSON.stringify(currentDraft.current) !== JSON.stringify(draft)) return;
-      requestedPublic = false;
-      setIsPublic(false);
+    if (requestedPublic) {
+      const approved = await requestPublishing();
+      if (JSON.stringify(currentDraft.current) !== JSON.stringify(draft)) return;
+      if (!approved) {
+        if (!didChoosePrivate()) return;
+        requestedPublic = false;
+        setIsPublic(false);
+      }
     }
 
     try {
@@ -524,7 +528,8 @@ function ExtractScreenContent() {
       await importInbox.add({
         id: Crypto.randomUUID(), ownerId: inbox.ownerId,
         capture: { kind: 'url', url: importUrl }, createdAt: Date.now(), state: 'ready',
-        request: { url: importUrl, location: selectedLocation, notes: notes.trim(), is_public: requestedPublic },
+        publicConfirmed: requestedPublic,
+        request: { url: importUrl, location: draft.selectedLocation, notes: draft.notes.trim(), is_public: requestedPublic },
       });
       if (JSON.stringify({ ...currentDraft.current, isPublic: draft.isPublic }) === JSON.stringify(draft)) {
         setUrl('');
@@ -1194,3 +1199,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
 });
+
+export default function ExtractScreen() {
+  return <PublishingConfirmationProvider><ExtractScreenRoute /></PublishingConfirmationProvider>;
+}

@@ -27,7 +27,9 @@ def _older_client_gate(request, monkeypatch):
     if "older_client_gate" not in request.keywords:
         from app.domains.baby import invites
 
-        monkeypatch.setattr(invites, "OLDER_CLIENT_DAYS", 0)
+        # Disable this predicate explicitly: a zero-day window still races
+        # clock corrections between a legacy bootstrap and invite setup.
+        monkeypatch.setattr(invites, "recent_older_client", lambda profile: None)
 
 
 @pytest.fixture(autouse=True)

@@ -420,3 +420,28 @@ it("allows two minutes for authenticated class image/PDF uploads while ordinary 
     expect(timer).toHaveBeenCalledWith(expect.any(Function), 20000);
   } finally { timer.mockRestore(); }
 });
+
+it("releases a queued sync after token acquisition stalls so Retry sends the same session", async () => {
+  const { createTrainingStore } = await import("./training");
+  const { nov17Class } = await import("./fixtures/nov17-class");
+  const { startPart } = await import("./class-session");
+  const { endClass } = await import("./class-training");
+  vi.useFakeTimers();
+  try {
+    const data = new Map<string, string>();
+    const store = createTrainingStore({ getItem: async (k) => data.get(k) ?? null, setItem: async (k, v) => { data.set(k, v); }, removeItem: async () => {} }, "owner", 1);
+    await store.load(); await store.start(nov17Class, { workout_id: nov17Class.id, workout_revision: 1 }, "stalled");
+    await store.classAct(startPart); await store.classAct(endClass); await store.finish("partial", undefined, "keep", "general_fitness");
+    const getToken = vi.fn<() => Promise<string>>().mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue("token");
+    const transport = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ id: "saved", generation: 1, client_session_id: "stalled", content: { prescription_snapshot: nov17Class } })));
+    const api = createWorkoutsApi("https://example.test", getToken, transport);
+    const first = store.sync(api.saveSession);
+    await vi.advanceTimersByTimeAsync(20_001); await first;
+    expect(transport).not.toHaveBeenCalled();
+    expect(store.snapshot().history[0].state).toBe("queued");
+    await store.retry("stalled"); await store.sync(api.saveSession);
+    expect(transport).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(transport.mock.calls[0][1]!.body))).toMatchObject({ client_session_id: "stalled" });
+    expect(store.snapshot().history[0]).toMatchObject({ state: "synced", synced_id: "saved" });
+  } finally { vi.useRealTimers(); }
+});

@@ -1,3 +1,5 @@
+import { withoutResults } from "./class-scores";
+import type { BenchmarkGroup, ResultsPage } from "./results-history";
 import type { DayProposal } from "@/components/adjust-training";
 import type { ScheduleOnceCommand } from "./schedule-once";
 import { streamCoachRequest } from "./coach-stream";
@@ -208,15 +210,23 @@ export function createWorkoutsApi(
   ): Promise<{ data: T; headers: Headers }> {
     if (!base) throw new ApiError("The training service is not configured for this build.", 0);
     guardAccount();
-    const token = await getToken();
-    guardAccount();
-    if (!token) throw new ApiError("Sign in again to access your training.", 401);
     const controller = new AbortController();
     const cancel = () => controller.abort();
     options.signal?.addEventListener("abort", cancel, { once: true });
     if (options.signal?.aborted) controller.abort();
     const timer = setTimeout(() => controller.abort(), options.timeout_ms ?? 20000);
+    // Token acquisition can stall before fetch starts. Bound every asynchronous stage so sync's
+    // in-flight promise settles and Retry can start a fresh idempotent send.
+    const bounded = <V,>(work: () => Promise<V>): Promise<V> => new Promise((resolve, reject) => {
+      const abort = () => reject(new ApiError("Could not reach the training service. Check your connection and try again.", 0));
+      if (controller.signal.aborted) { abort(); return; }
+      controller.signal.addEventListener("abort", abort, { once: true });
+      Promise.resolve().then(work).then(resolve, reject).finally(() => controller.signal.removeEventListener("abort", abort));
+    });
     try {
+      const token = await bounded(getToken);
+      guardAccount();
+      if (!token) throw new ApiError("Sign in again to access your training.", 401);
       const multipart = body instanceof FormData;
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (!multipart) headers["Content-Type"] = "application/json";
@@ -224,7 +234,7 @@ export function createWorkoutsApi(
       if (options.generation != null) headers["X-Workouts-Generation"] = String(options.generation);
       if (options.revision != null) headers["If-Match"] = `"${options.revision}"`;
       if (options.creationKey) headers["Idempotency-Key"] = options.creationKey;
-      const response = await transport(
+      const response = await bounded(() => transport(
         `${base.replace(/\/$/, "")}${path.startsWith("/api/") ? path : `/api/v1/workouts${path}`}`,
         {
           method,
@@ -232,11 +242,11 @@ export function createWorkoutsApi(
           ...(body !== undefined ? { body: multipart ? body as FormData : JSON.stringify(body) } : {}),
           signal: controller.signal,
         }
-      );
+      ));
       guardAccount();
       if (controller.signal.aborted) throw new ApiError("This request was retired. Refresh before continuing.", 409, true);
       if (!response.ok) {
-        const detail = await errorDetail(response);
+        const detail = await bounded(() => errorDetail(response));
         const message =
           response.status === 401
             ? "Your session expired. Sign in again."
@@ -259,7 +269,7 @@ export function createWorkoutsApi(
                           : "The training service could not finish this request. Please try again.";
         throw new ApiError(message, response.status, false, detail);
       }
-      const data = response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+      const data = response.status === 204 ? (undefined as T) : ((await bounded(() => response.json())) as T);
       guardAccount();
       if (controller.signal.aborted) throw new ApiError("This request was retired. Refresh before continuing.", 409, true);
       return { data, headers: response.headers };
@@ -1122,8 +1132,31 @@ export function createWorkoutsApi(
     async session(id: string) {
       return sessionRecord((await request<SessionEnvelope>(`/sessions/${encodeURIComponent(id)}`)).data);
     },
+    /** Scores by part (W3): one workout's, one benchmark's, or all, newest first. */
+    async results(filter: { workout_id?: string; benchmark_key?: string; limit?: number } = {}) {
+      const query = new URLSearchParams(Object.entries({ limit: 50, ...filter }).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)]));
+      return (await request<ResultsPage>(`/results?${query}`)).data;
+    },
+    async benchmarks() {
+      return (await request<BenchmarkGroup[]>("/benchmarks")).data;
+    },
+    async heartRateSummaries() {
+      return (await request<{ available: boolean; enabled: boolean }>("/health-summary-consent")).data;
+    },
+    async setHeartRateSummaries(enabled: boolean) {
+      return (await request<{ available: boolean; enabled: boolean }>("/health-summary-consent", "PUT", { enabled }, { generation: currentGeneration() })).data;
+    },
+    /** Turns storage off and deletes every saved heart-rate summary, including corrections. */
+    async deleteHeartRateSummaries() {
+      return (await request<{ enabled: false; deleted_sessions: number }>("/health-summary-consent", "DELETE", undefined, { generation: currentGeneration() })).data;
+    },
     async saveSession(body: SessionRequest, generation: number) {
-      return sessionRecord((await request<SessionEnvelope>("/sessions", "POST", body, { generation })).data);
+      // Only an explicit capability list can rule scores out. Unknown servers get the payload; sync retains it on 422.
+      const supported = membership?.features == null || membership.features.includes("session_results_v1");
+      const sendable = supported ? body : withoutResults(body);
+      const saved = sessionRecord((await request<SessionEnvelope>("/sessions", "POST", sendable, { generation })).data);
+      return { ...saved, ...(!supported && (body.results?.length || body.segments?.length)
+        ? { unsent_results: { results: body.results, segments: body.segments } } : {}) };
     },
   };
 }

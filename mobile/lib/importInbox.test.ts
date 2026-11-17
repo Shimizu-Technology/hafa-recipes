@@ -49,6 +49,7 @@ describe('durable import inbox', () => {
     const inbox = createImportInbox(persisted);
     const request = { url: 'https://example.com/shared', location: 'Hawaii', notes: '2 cups rice', is_public: true };
     await inbox.add({ ...entry('crashed'), request });
+    await inbox.claim('crashed', 'owner-a', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
     await inbox.claimForSubmit('crashed', 'owner-a', inbox.snapshot()[0]);
     const restarted = createImportInbox(persisted);
     await restarted.hydrate();
@@ -170,4 +171,102 @@ describe('durable import inbox', () => {
     await inbox.patch('a', { state: 'accepted', recipeId: 'recipe-a' });
     expect(visibleImportEntries(inbox.snapshot(), 'owner-a')).toMatchObject([{ id: 'b', state: 'ready' }]);
   });
+});
+
+it('persists owner-bound approval once and invalidates it when request, capture or owner changes', async () => {
+  const persisted = storage();
+  const inbox = createImportInbox(persisted);
+  const request = { url: 'https://example.com/public', is_public: true };
+  await inbox.add({ ...entry('public'), request });
+  expect(await inbox.claimForSubmit('public', 'owner-a', inbox.snapshot()[0])).toBeNull();
+  const stale = inbox.snapshot()[0];
+  await inbox.patch('public', { request: { ...request, notes: 'new notes' } });
+  await inbox.claim('public', 'owner-a', request, { publicConfirmed: true, expected: stale });
+  expect(inbox.snapshot()[0].publicConfirmed).toBeUndefined();
+  for (const patch of [{ request }, { capture: { kind: 'url' as const, url: request.url } }, { ownerId: 'owner-a' }]) {
+    await inbox.claim('public', 'owner-a', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
+    await inbox.patch('public', patch);
+    expect(inbox.snapshot()[0].publicConfirmed).toBeUndefined();
+  }
+  await inbox.claim('public', 'owner-b', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
+  expect(inbox.snapshot()[0].publicConfirmed).toBeUndefined();
+  await inbox.claim('public', 'owner-a', request, { publicConfirmed: true, expected: inbox.snapshot()[0] });
+  const restarted = createImportInbox(persisted);
+  await restarted.hydrate();
+  expect(restarted.snapshot()[0].publicConfirmed).toBe(true);
+  expect(await restarted.claimForSubmit('public', 'owner-b', restarted.snapshot()[0])).toBeNull();
+  const submitted = await restarted.claimForSubmit('public', 'owner-a', restarted.snapshot()[0]);
+  expect(submitted?.request?.is_public).toBe(true);
+  expect(submitted?.publicConfirmed).toBeUndefined();
+  expect(restarted.snapshot()[0].publicConfirmed).toBeUndefined();
+});
+
+function fileStorage() {
+  const values = new Map<string, string>();
+  return { values, getItem: vi.fn(async (key: string) => values.get(key) ?? null),
+    setItem: vi.fn(async (key: string, value: string) => { values.set(key, value); }) };
+}
+const photoEntry = (id: string, ownerId = 'owner-a'): ImportInboxEntry => ({
+  ...entry(id, ownerId), state: 'waiting', capture: { kind: 'images', images: [{ uri: `file:///group/hafa-share-${id}/photo.jpg`, mimeType: 'image/jpeg' }] },
+});
+const cleanupKey = 'hafa_import_attachment_cleanup_v1';
+it('journals retired images before scrubbing and retries after native queue acknowledgment', async () => {
+  const persisted = fileStorage();
+  const cleanup = vi.fn(async (released: string[]) => released);
+  const inbox = createImportInbox(persisted, cleanup);
+  await inbox.add(photoEntry('a'));
+  await inbox.add(photoEntry('b', 'other-owner'));
+  cleanup.mockClear(); persisted.setItem.mockClear();
+  await inbox.patch('a', { state: 'accepted', recipeId: 'recipe-a' });
+  const uri = 'file:///group/hafa-share-a/photo.jpg';
+  expect(persisted.setItem.mock.calls[0][0]).toBe(cleanupKey);
+  expect(cleanup).toHaveBeenLastCalledWith([uri], ['file:///group/hafa-share-b/photo.jpg']);
+  expect(inbox.snapshot().find((value) => value.id === 'a')).toMatchObject({ state: 'accepted', capture: { kind: 'url', url: '' } });
+  cleanup.mockResolvedValue([]);
+  await inbox.cleanupAttachments();
+  expect(persisted.values.get(cleanupKey)).toBe('[]');
+  await inbox.removeWaiting('b', 'other-owner');
+  expect(cleanup).toHaveBeenLastCalledWith(['file:///group/hafa-share-b/photo.jpg'], []);
+});
+it('preserves files if the inbox write fails after journaling, including restart', async () => {
+  const persisted = fileStorage();
+  const cleanup = vi.fn(async (released: string[], protectedPaths: string[]) => released.filter((path) => protectedPaths.includes(path)));
+  const inbox = createImportInbox(persisted, cleanup);
+  await inbox.add(photoEntry('a'));
+  const originalWrite = persisted.setItem.getMockImplementation()!;
+  persisted.setItem.mockImplementation(async (key, value) => {
+    if (key === 'hafa_import_inbox_v1') throw new Error('Storage full');
+    return originalWrite(key, value);
+  });
+  cleanup.mockClear();
+  await expect(inbox.patch('a', { state: 'accepted' })).rejects.toThrow('Storage full');
+  expect(cleanup).not.toHaveBeenCalled();
+  persisted.setItem.mockImplementation(originalWrite);
+  const restarted = createImportInbox(persisted, cleanup);
+  await restarted.hydrate();
+  expect(cleanup).toHaveBeenLastCalledWith(['file:///group/hafa-share-a/photo.jpg'], ['file:///group/hafa-share-a/photo.jpg']);
+  expect(restarted.snapshot()[0].capture.kind).toBe('images');
+  await restarted.patch('a', { state: 'accepted' });
+  expect(persisted.values.get(cleanupKey)).toBe('[]');
+});
+it('retains a failed cleanup journal without reverting an accepted import', async () => {
+  const persisted = fileStorage();
+  const cleanup = vi.fn(async (_released: string[], _protected: string[]): Promise<string[]> => { throw new Error('Native unavailable'); });
+  const inbox = createImportInbox(persisted, cleanup);
+  await inbox.add(photoEntry('a'));
+  await inbox.patch('a', { state: 'accepted', recipeId: 'saved' });
+  expect(inbox.snapshot()[0].state).toBe('accepted');
+  expect(persisted.values.get(cleanupKey)).toContain('photo.jpg');
+  cleanup.mockResolvedValue([]);
+  await createImportInbox(persisted, cleanup).hydrate();
+  expect(cleanup).toHaveBeenLastCalledWith(['file:///group/hafa-share-a/photo.jpg'], []);
+  expect(persisted.values.get(cleanupKey)).toBe('[]');
+});
+it('does not retire a submitting or foreign-owned capture on a waiting removal', async () => {
+  const persisted = fileStorage(), cleanup = vi.fn(async () => []);
+  const inbox = createImportInbox(persisted, cleanup);
+  await inbox.add({ ...photoEntry('a'), state: 'submitting', submissionClaimed: true });
+  await inbox.removeWaiting('a', 'owner-a');
+  expect(cleanup).toHaveBeenLastCalledWith([], ['file:///group/hafa-share-a/photo.jpg']);
+  expect(inbox.snapshot()).toHaveLength(1);
 });

@@ -3,16 +3,17 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mock = vi.hoisted(() => ({ signedIn: true, baby: null as any, foreground: null as null | ((state: string) => void), previous: null as string | null,
-  suspendSession: vi.fn(async () => undefined), clearSession: vi.fn(async () => undefined), configureSession: vi.fn(async () => undefined), noteSignedIn: vi.fn(async () => undefined) }));
+  suspendSession: vi.fn(async () => undefined), clearSession: vi.fn(async () => undefined), configureSession: vi.fn(async () => undefined), noteSignedIn: vi.fn(async () => undefined),
+  publishCategories: vi.fn(async () => undefined) }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" }, AppState: { addEventListener: (_: string, fn: (state: string) => void) => { mock.foreground = fn; return { remove() {} }; } } }));
 vi.mock("@clerk/expo", () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: mock.signedIn }) }));
 vi.mock("./context", () => ({ useBaby: () => mock.baby }));
 vi.mock("./config", () => ({ configuration: { apiBase: "https://api.test" } }));
 vi.mock("@/modules/hafa-baby-share/src", () => ({ nativeSharingAvailable: true, sessionOwner: async () => mock.previous, clearSession: mock.clearSession, suspendSession: mock.suspendSession,
-  installationId: async () => "install", configureSession: mock.configureSession, noteSignedIn: mock.noteSignedIn }));
+  installationId: async () => "install", configureSession: mock.configureSession, noteSignedIn: mock.noteSignedIn, publishCategories: mock.publishCategories }));
 vi.mock("./share-session-state", async (original) => ({ ...(await original<object>()) }));
 vi.mock("../modules/hafa-baby-share/src", () => ({ clearSession: mock.clearSession, suspendSession: mock.suspendSession }));
-import { askForShareSession } from "./share-session-state";
+import { askForShareSession, onSharesChanged } from "./share-session-state";
 import { ShareSessionGuard, useShareSession } from "./use-share-session";
 
 const personal = "22222222-2222-4222-8222-222222222222", family = "11111111-1111-4111-8111-111111111111";
@@ -42,6 +43,41 @@ describe("the share sheet's sign-in note", () => {
     expect(mock.noteSignedIn).toHaveBeenCalledTimes(1);
     await act(async () => { mock.foreground?.("inactive"); });
     expect(mock.noteSignedIn).toHaveBeenCalledTimes(2);
+  });
+});
+describe("the share sheet's categories", () => {
+  const category = (id: string, space_id: string, updated_at: string) => ({ id, kind: "collection", title: id, space_id, updated_at });
+  it("are the session's own space's, sent for the credential just configured", async () => {
+    const baby: any = account({ personal_space_id: personal, spaces: [own, shared] }, { space_id: family });
+    baby.api.records = vi.fn(async () => ({ items: [category("mine", personal, "2026-11-03T00:00:00Z"),
+      category("ours", family, "2026-11-02T00:00:00Z")] }));
+    await mount(baby);
+    expect(baby.api.records).toHaveBeenCalledWith({ kind: "collection", limit: 100 });
+    expect(mock.publishCategories).toHaveBeenCalledWith([{ id: "ours", title: "ours" }], "owner", 1, family);
+    expect(mock.configureSession.mock.invocationCallOrder[0]).toBeLessThan(mock.publishCategories.mock.invocationCallOrder[0]);
+  });
+  it("offers waiting shares while the optional categories request is still pending", async () => {
+    const baby: any = account({});
+    let answer!: (page: { items: unknown[] }) => void;
+    baby.api.records = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+    const changed = vi.fn();
+    const stop = onSharesChanged(changed);
+    try {
+      await mount(baby);
+      expect(mock.configureSession).toHaveBeenCalledOnce();
+      expect(changed).toHaveBeenCalledOnce();
+      expect(mock.publishCategories).not.toHaveBeenCalled();
+      await act(async () => { answer({ items: [] }); });
+      expect(mock.publishCategories).toHaveBeenCalledOnce();
+      expect(changed).toHaveBeenCalledOnce();
+    } finally { stop(); }
+  });
+  it("leave the last list alone when they can't be had, and never hold up the credential", async () => {
+    const baby: any = account({});
+    baby.api.records = vi.fn(async () => { throw Error("offline"); });
+    await mount(baby);
+    expect(mock.configureSession).toHaveBeenCalledTimes(1);
+    expect(mock.publishCategories).not.toHaveBeenCalled();
   });
 });
 describe("the share credential", () => {
@@ -125,6 +161,32 @@ describe("the share credential", () => {
     await act(async () => { mock.foreground?.("active"); });
     expect(baby.api.request).toHaveBeenCalledTimes(2);
     expect(mock.clearSession).not.toHaveBeenCalled();
+  });
+  it("after leaving or removal from the family, retires the old credential before asking, so a failed request leaves no family names", async () => {
+    mock.previous = `owner:1:${family}`;
+    const baby = account({ personal_space_id: personal, spaces: [own] });
+    baby.api.request.mockRejectedValue(Error("offline"));
+    await mount(baby);
+    expect(mock.suspendSession).toHaveBeenCalledTimes(1);
+    expect(mock.suspendSession.mock.invocationCallOrder[0]).toBeLessThan(baby.api.request.mock.invocationCallOrder[0]);
+    // Suspending keeps the captures it made; only another account's credential is privacy-cleared.
+    expect(mock.clearSession).not.toHaveBeenCalled();
+    expect(mock.configureSession).not.toHaveBeenCalled();
+  });
+  it("keeps a credential for a family it's still a parent in, and its own space's, without retiring either", async () => {
+    for (const previous of [`owner:1:${family}`, "owner:1:personal", "owner:1"]) {
+      vi.clearAllMocks();
+      mock.previous = previous;
+      await mount(account({ personal_space_id: personal, spaces: [own, shared] }, { space_id: family }));
+      expect(mock.suspendSession).not.toHaveBeenCalled();
+      await act(async () => renderer?.unmount());
+    }
+  });
+  it("retires a credential from before its own space was cleared, before asking", async () => {
+    mock.previous = "owner:1:personal";
+    const baby = account({ generation: 2, personal_space_id: personal, spaces: [{ ...own, generation: 2 }] }, { space_id: personal, generation: 2 });
+    await mount(baby);
+    expect(mock.suspendSession.mock.invocationCallOrder[0]).toBeLessThan(baby.api.request.mock.invocationCallOrder[0]);
   });
   it("still clears another account's", async () => {
     mock.previous = "someone-else:1";

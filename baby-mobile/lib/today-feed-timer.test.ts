@@ -320,7 +320,9 @@ describe("Baby's here?", () => {
   it("opens the one short birth screen for this baby, right under the tiles", async () => {
     const account = due();
     await render();
-    expect(here().props.detail).toBe("Add the day and time, and tell your family. Starts feeding, sleep and diaper logs");
+    expect(here().props.detail).toBe("Add the day and time, tell your family, and start the care logs");
+    // Shown whole, never cut at two lines, at the default and the largest text alike.
+    expect(here().props.wrapDetail).toBe(true);
     await act(async () => { (here().props.onPress as () => void)(); });
     expect(scope.push).toHaveBeenCalledWith({ pathname: "/birth", params: { id: "baby" } });
     // Nothing is saved until she saves it there.

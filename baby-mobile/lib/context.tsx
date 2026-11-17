@@ -38,6 +38,7 @@ import {
   localFileUris,
   retiredSpaces,
   rejoined,
+  promotedInFamily,
   retargeted,
   retryUnavailable,
   upgradedState,
@@ -87,6 +88,7 @@ import { forgetInvite } from "./family";
 import { nativePushDevice } from "./push-native";
 import { refreshDue, refreshUpcoming, sendDismissals } from "./reminder-due";
 import { wantedCopies } from "./reminder-copies";
+import { changeCategory } from "./categories";
 import { accessKey, remindersOn, stampedDraft, fenceOf, familySpaces, generationOf, goneBabyMessage, rowFence, spacesLive, stuckTapMessage } from "./spaces";
 const familyWork = (state: DeviceState, space?: string) => familySpaces(state.bootstrap).some((known) => known.id === space);
 const webMemory = new Map<string, string>();
@@ -264,7 +266,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
         grew = familySpaces(bootstrap).some((space) => !familySpaces(s.bootstrap).some((known) => known.id === space.id)),
         // With no spaces listed the API has stopped saying, which isn't the same as this account being out of one.
         left = retiredSpaces(fenced, bootstrap).reduce((rows, space) => withoutFamily(rows, space, Crypto.randomUUID), fenced),
-        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap) : left, bootstrap),
+        next = withKnownSpaces(grew ? draftsBeforeFamily(retryUnavailable(rejoined(left, bootstrap)), bootstrap)
+          : promotedInFamily(s.bootstrap, bootstrap) ? rejoined(left, bootstrap, false) : left, bootstrap),
         familyBaby = bootstrap.children.find((child) => familySpaces(bootstrap).some((space) => space.id === child.space_id));
       return upgradedState({
         ...next,
@@ -599,6 +602,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
                 },
               };
               result = await api.save(feedEdit(value), fenceOf(next));
+              // Chosen on the share sheet. A category that's gone, full or in another space leaves the post unfiled in Saved.
+              if (next.file_into) {
+                const filed = await changeCategory(api, next.file_into, [result.id], next.generation).catch(() => undefined);
+                if (filed) await commit((s) => ({ ...s, records: replaceRecord(s.records, filed.record) }));
+              }
             } else {
               // Persist before the request: a lost admission response can replay
               // an already-completed job after a relaunch.

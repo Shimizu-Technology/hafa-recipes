@@ -393,6 +393,20 @@ export default function SettingsScreen() {
           </RNView>
         </RNView>
 
+        {isSignedIn && (
+          <RNView style={styles.section}>
+            <SectionHeader title="Sharing" />
+            <RNView style={[styles.menuGroup, groupSheet]}>
+              <MenuItem
+                icon="link-outline"
+                label="Sharing links"
+                onPress={() => router.push('/sharing-links')}
+                colors={colors}
+              />
+            </RNView>
+          </RNView>
+        )}
+
         {/* Appearance Section - Combined Theme + Text Size */}
         <RNView style={styles.section}>
           <SectionHeader title="Appearance" />

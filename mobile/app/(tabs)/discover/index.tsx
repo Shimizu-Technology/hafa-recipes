@@ -3,7 +3,6 @@ import { FilterButton, SearchLauncher, SearchRow } from '@/components/chrome/Sea
 import { Chip, ChipRow } from '@/components/chrome/Chips';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
-import { discoverSections } from '@/lib/recipeBrowse';
 import { useAuth } from '@clerk/expo';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
@@ -12,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, Pressable, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 
 import AllContributorsModal from '@/components/AllContributorsModal';
-import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
+import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter, cookTimeLabel } from '@/components/FilterBottomSheet';
 import { SignInBanner } from '@/components/SignInBanner';
 import { Text, useColors, View } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, layout, radius, shadows, spacing } from '@/constants/Colors';
@@ -459,6 +458,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
       <FilterButton count={activeFilterCount} onPress={() => setShowFilterModal(true)} />
     </SearchRow>
     <ChipRow accessibilityLabel="Discover tools">
+      <Chip label="Under 30 min" icon="flash-outline" selected={timeFilter === 'quick'} onPress={() => setTimeFilter(current => current === 'quick' ? 'all' : 'quick')} accessibilityLabel="Under 30 minutes filter" />
       <Chip label="Surprise me" icon="shuffle-outline" onPress={() => { if (!randomRequestPending.current) setShowSurpriseModal(true); }} />
       <Chip label="Top contributors" icon="people-outline" onPress={() => setShowAllContributors(true)} />
       <Chip label="What can I make?" icon="basket-outline" onPress={() => router.push('/ingredient-search')} accessibilityLabel="What can I make, search by ingredient" />
@@ -602,12 +602,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             {discoverTools}
             {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
             {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
-              <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
+              <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && cookTimeLabel(timeFilter), ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
             </TouchableOpacity>}
-            {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title} style={{ marginBottom: 8 }}>
-              <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>{section.title}</Text>
-              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} currentUserId={identity.data?.id} />)}</RNView>
-            </RNView>)}
             {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
           </>}
           ListEmptyComponent={hasPrimaryLoadError ? renderError() : renderEmpty()}

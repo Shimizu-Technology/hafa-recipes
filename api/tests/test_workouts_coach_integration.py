@@ -40,6 +40,10 @@ from tests.test_workouts_data_integration import (  # noqa: F401
     settings,
 )
 
+# Admission/context queries can exceed five seconds on a loaded CI host.
+# Events establish ordering; this is only a dead-test watchdog.
+WAIT_SECONDS = 30
+
 
 def answer(text="Here is your training suggestion. Review it before accepting."):
     return {
@@ -102,7 +106,17 @@ async def coach_api(data_api, monkeypatch):  # noqa: F811
     await enroll(data_api)
     await consent(data_api)
     await ready_profile(data_api)
-    yield data_api
+    try:
+        yield data_api
+    finally:
+        # A failed startup/event assertion must settle sends before data_api
+        # drops the schema. Otherwise DROP SCHEMA deadlocks with their queries.
+        tasks = {task for group in data_api.coach._inflight.values() for task in group}
+        for task in tasks:
+            if not task.done() and not task.cancelling():
+                task.cancel()
+        if tasks:
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), WAIT_SECONDS)
 
 
 async def send(api, message="Please help me train", request_id=None):
@@ -322,7 +336,7 @@ async def test_inflight_output_cannot_commit_after_consent_clear_or_profile_chan
     api.provider.before_response = blocked
     api.provider.action = plan_action()
     task = asyncio.create_task(send(api))
-    await asyncio.wait_for(started.wait(), 5)
+    await asyncio.wait_for(started.wait(), WAIT_SECONDS)
     if change == "revoke":
         await consent(api, False)
     elif change == "clear":
@@ -696,7 +710,7 @@ async def test_cancellation_marks_receipt_failed_without_proposals(coach_api):
     api.provider.before_response = blocked
     identifier = uuid4()
     task = asyncio.create_task(send(api, request_id=identifier))
-    await asyncio.wait_for(entered.wait(), 5)
+    await asyncio.wait_for(entered.wait(), WAIT_SECONDS)
     api.coach.cancel_owner("owner")
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -1180,7 +1194,7 @@ async def test_stop_closes_only_exact_request_retains_hash_and_blocks_paid_repla
     api.provider.before_response = blocked
     identifier = uuid4()
     first = asyncio.create_task(send(api, request_id=identifier))
-    await asyncio.wait_for(entered.wait(), 5)
+    await asyncio.wait_for(entered.wait(), WAIT_SECONDS)
     second = asyncio.create_task(send(api))
     try:
         assert (await stop(api, identifier, headers={"X-Workouts-Generation": "2"})).status_code == 409
@@ -1197,7 +1211,7 @@ async def test_stop_closes_only_exact_request_retains_hash_and_blocks_paid_repla
         assert result.json()["cancelled"] is True and result.json()["actions"] == []
         with pytest.raises(asyncio.CancelledError):
             await first
-        await asyncio.wait_for(closed.wait(), 5)
+        await asyncio.wait_for(closed.wait(), WAIT_SECONDS)
         assert not second.done()
         replay = await send(api, request_id=identifier)
         assert replay.json() == result.json()
@@ -1236,13 +1250,13 @@ async def test_other_worker_stop_closes_actual_provider_and_fences_tool_proposal
     api.provider.before_response = blocked
     identifier = uuid4()
     original = asyncio.create_task(send(api, request_id=identifier))
-    await asyncio.wait_for(entered.wait(), 5)
+    await asyncio.wait_for(entered.wait(), WAIT_SECONDS)
     other_worker = coach.WorkoutCoach(api.provider, session_factory=api.sessions)
     monkeypatch.setattr(coach_router, "workout_coach", other_worker)
     try:
         stopped = await stop(api, identifier)
         assert stopped.status_code == 200 and stopped.json()["cancelled"] is True
-        response = await asyncio.wait_for(original, 5)
+        response = await asyncio.wait_for(original, WAIT_SECONDS)
         assert response.status_code == 409, response.text
         assert closed.is_set()
         assert (await send(api, request_id=identifier)).json() == stopped.json()
@@ -1285,7 +1299,7 @@ async def test_stop_remains_callable_after_ai_disabled_and_consent_revoked(coach
     api.provider.before_response = blocked
     identifier = uuid4()
     original = asyncio.create_task(send(api, request_id=identifier))
-    await asyncio.wait_for(entered.wait(), 5)
+    await asyncio.wait_for(entered.wait(), WAIT_SECONDS)
     try:
         await consent(api, False)
         configured = settings(workouts_ai_enabled=False)
@@ -1335,7 +1349,7 @@ async def stream_fixture(api, monkeypatch, respond):
 
 
 async def next_stream_event(events):
-    return json.loads(await asyncio.wait_for(anext(events), timeout=5))
+    return json.loads(await asyncio.wait_for(anext(events), timeout=WAIT_SECONDS))
 
 
 async def test_coach_stream_route_replays_one_durable_request_and_rejects_changed_payload(coach_api, monkeypatch):
@@ -1484,7 +1498,7 @@ async def test_coach_stream_rereads_terminal_state_after_conversation_clear(coac
         await next_stream_event(events)
         await next_stream_event(events)
         release.set()
-        await asyncio.wait_for(complete.wait(), 5)
+        await asyncio.wait_for(complete.wait(), WAIT_SECONDS)
         # Serialize after completion's owner lock; either queued final or pending
         # is cleared before the next network delivery.
         async with api.sessions() as db:
@@ -1514,10 +1528,12 @@ async def test_coach_stream_slow_consumer_bounds_queue_and_disconnect_closes_exa
             closed.set()
 
     _, events = await stream_fixture(api, monkeypatch, respond)
-    assert (await next_stream_event(events))["type"] == "reset"
-    await asyncio.wait_for(blocked.wait(), 5)
-    assert len(emitted) <= 8  # One tiny bounded queue, not an accumulating transcript.
-    await asyncio.wait_for(events.aclose(), 5)
+    try:
+        assert (await next_stream_event(events))["type"] == "reset"
+        await asyncio.wait_for(blocked.wait(), WAIT_SECONDS)
+        assert len(emitted) <= 8  # One tiny bounded queue, not an accumulating transcript.
+    finally:
+        await events.aclose()
     assert closed.is_set() and not api.coach._requests and not api.coach._inflight
     async with api.sessions() as db:
         row = await db.scalar(select(WorkoutCoachMessage))
@@ -1527,16 +1543,18 @@ async def test_coach_stream_slow_consumer_bounds_queue_and_disconnect_closes_exa
 @pytest.mark.parametrize("retirement", ["consent", "profile"])
 async def test_coach_stream_drops_queued_delta_after_its_authority_changes(coach_api, monkeypatch, retirement):
     api = coach_api
-    release = asyncio.Event()
+    release, queued = asyncio.Event(), asyncio.Event()
 
     async def respond(items, *, tools, on_text_delta):
         await on_text_delta("RETIRED PRIVATE DRAFT")
+        queued.set()
         await release.wait()
         return answer("RETIRED PRIVATE FINAL")
 
     _, events = await stream_fixture(api, monkeypatch, respond)
     try:
-        await next_stream_event(events)
+        assert (await next_stream_event(events))["type"] == "reset"
+        await asyncio.wait_for(queued.wait(), WAIT_SECONDS)
         if retirement == "consent":
             await consent(api, False)
         else:
@@ -2339,18 +2357,23 @@ async def test_photo_privacy_retirement_closes_a_blocked_provider_and_cannot_res
             closed.set()
     api.provider.before_response = blocked
     task = asyncio.create_task(send_photo(api, image))
-    await asyncio.wait_for(started.wait(), 5)
-    if change == "clear":
-        assert (await api.client.delete("/api/v1/workouts/coach/messages", headers=GENERATION)).status_code == 204
-    else:
-        async with api.sessions.begin() as db:
-            await images.retire(db, "owner", 1, UUID(image["id"]))
-    response = await asyncio.wait_for(task, 5)
-    assert response.status_code in {409, 410}, response.text
-    assert closed.is_set() and len(api.provider.sent) == 1
-    async with api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
-        assert (await db.scalar(select(WorkoutCoachMessage))).proposals["state"] in {"failed", "cleared"}
+    try:
+        await asyncio.wait_for(started.wait(), WAIT_SECONDS)
+        if change == "clear":
+            assert (await api.client.delete("/api/v1/workouts/coach/messages", headers=GENERATION)).status_code == 204
+        else:
+            async with api.sessions.begin() as db:
+                await images.retire(db, "owner", 1, UUID(image["id"]))
+        response = await asyncio.wait_for(task, WAIT_SECONDS)
+        assert response.status_code in {409, 410}, response.text
+        assert closed.is_set() and len(api.provider.sent) == 1
+        async with api.sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+            assert (await db.scalar(select(WorkoutCoachMessage))).proposals["state"] in {"failed", "cleared"}
+    finally:
+        if not task.done() and not task.cancelling():
+            task.cancel()
+        await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), WAIT_SECONDS)
 
 
 async def test_photo_capability_requires_priced_vision_and_private_schema(coach_api, monkeypatch):

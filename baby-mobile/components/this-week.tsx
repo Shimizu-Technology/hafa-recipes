@@ -6,6 +6,7 @@ import { findBag, packedLine } from "../lib/hospital-bag";
 import { pregnancyProgress } from "../lib/timing";
 import { callIf, dayOfLife, dayPlan, hiddenOnToday, todoDone, typicalNote, weekPlan, withHidden, type Sourced, type TodayCard, type Todo } from "../lib/this-week";
 import { MedicalSource } from "./medical-source";
+import { useExpectingVoice } from "./expecting-voice";
 import { Copy, Grouped, PressTarget, Row, Section, fonts, typeScale, useColors, useToast } from "./ui";
 
 /** "Hide", top right of the section, with Undo. What shows brings it back. */
@@ -35,7 +36,8 @@ const icons = { bag: "bag-handle-outline", question: "help-circle-outline", baby
 /** Before the birth, from week 28: what to expect this week and a few things to get ready, each one tap from where she'd do it. */
 export function ThisWeek({ child, today }: { child: Child; today: Date }) {
   const b = useBaby(), { hidden, hide } = useHide("this_week", "This week"),
-    progress = child.due_date ? pregnancyProgress(child.due_date, today) : null, plan = progress ? weekPlan(progress.week) : null;
+    progress = child.due_date ? pregnancyProgress(child.due_date, today) : null, shown = !hidden && !!progress && !!weekPlan(progress.week),
+    voice = useExpectingVoice(child, shown), plan = progress ? weekPlan(progress.week, voice) : null;
   if (hidden || !plan) return null;
   const bag = findBag(b.records);
   function open(item: Todo) {
