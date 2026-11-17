@@ -445,3 +445,20 @@ it("releases a queued sync after token acquisition stalls so Retry sends the sam
     expect(store.snapshot().history[0]).toMatchObject({ state: "synced", synced_id: "saved" });
   } finally { vi.useRealTimers(); }
 });
+
+it("never uploads watch heart rate at the API boundary while preserving its Health identity", async () => {
+  const transport = vi.fn(async (_url: RequestInfo | URL, options?: RequestInit) => {
+    const sent = JSON.parse(String(options?.body));
+    return new Response(JSON.stringify({ id: "saved", generation: 1, client_session_id: sent.client_session_id,
+      content: { ...sent, prescription_snapshot: { title: "Watch fixture" } } }));
+  });
+  const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport);
+  const request = { client_session_id: "watch", workout_id: "workout", workout_revision: 1,
+    started_at: "2026-11-17T00:00:00Z", finished_at: "2026-11-17T00:15:00Z", status: "completed" as const,
+    actuals: [], recorded_on: "watch" as const, apple_workout_uuid: "health-id",
+    heart_rate: { avg: 145, max: 172, source: "apple_watch" as const } };
+  await api.saveSession(request, 1);
+  const sent = JSON.parse(String(transport.mock.calls[0][1]?.body));
+  expect(sent).not.toHaveProperty("heart_rate"); expect(sent.recorded_on).toBe("watch");
+  expect(sent.apple_workout_uuid).toBe("health-id"); expect(request.heart_rate.avg).toBe(145);
+});

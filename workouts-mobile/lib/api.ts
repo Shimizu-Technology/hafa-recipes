@@ -1153,7 +1153,9 @@ export function createWorkoutsApi(
     async saveSession(body: SessionRequest, generation: number) {
       // Only an explicit capability list can rule scores out. Unknown servers get the payload; sync retains it on 422.
       const supported = membership?.features == null || membership.features.includes("session_results_v1");
-      const sendable = supported ? body : withoutResults(body);
+      const local = { ...body };
+      if (local.recorded_on === "watch") delete local.heart_rate;
+      const sendable = supported ? local : withoutResults(local);
       const saved = sessionRecord((await request<SessionEnvelope>("/sessions", "POST", sendable, { generation })).data);
       return { ...saved, ...(!supported && (body.results?.length || body.segments?.length)
         ? { unsent_results: { results: body.results, segments: body.segments } } : {}) };
