@@ -127,7 +127,7 @@ export function useGroceryCount(isSignedIn = true) {
 
 export function useGroceryListInfo(isSignedIn = true) {
   const query = useSnapshotQuery(isSignedIn);
-  return { ...query, data: query.data?.list };
+  return { ...query, data: query.data?.list, accountScopeId: query.data?.account_scope_id };
 }
 
 async function baseSnapshot(
@@ -171,7 +171,17 @@ async function commitMutations(
 
     if (confirmedOffline) return { ...snapshot, syncStatus: 'queued' };
 
-    for (const [index, mutation] of mutations.entries()) {
+    // Send older queued changes first. Otherwise an Undo could reach the
+    // server before the check it reverses, which would then replay over it.
+    const ownIds = new Set(mutations.map((mutation) => mutation.mutation_id));
+    const queued = (await getPendingSyncQueue(lease)).map((entry) => entry.mutation);
+    assertGroceryStorageLease(lease);
+    const outbox = [
+      ...queued.filter((mutation) => mutation.list_id === snapshot.list.id && !ownIds.has(mutation.mutation_id)),
+      ...mutations,
+    ];
+
+    for (const [index, mutation] of outbox.entries()) {
       try {
         const response = await sendGroceryMutationWithRetry(mutation, (request) =>
           api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
@@ -181,7 +191,7 @@ async function commitMutations(
           console.warn('[Grocery Widget] Failed to publish mutation:', error),
         );
         await removeFromSyncQueue(mutation.mutation_id, lease);
-        snapshot = mutations
+        snapshot = outbox
           .slice(index + 1)
           .reduce(
             (current, pending) => applyOptimisticGroceryMutation(current, pending),
@@ -194,7 +204,7 @@ async function commitMutations(
         await removeFromSyncQueue(mutation.mutation_id, lease);
         try {
           const serverSnapshot = await fetchAndCacheSnapshot(lease);
-          snapshot = mutations
+          snapshot = outbox
             .slice(index + 1)
             .reduce(
               (current, pending) => applyOptimisticGroceryMutation(current, pending),
@@ -205,7 +215,9 @@ async function commitMutations(
         } catch {
           // The queued mutation was rejected permanently; retain the last safe snapshot.
         }
-        throw error;
+        // An older change the server refused is dropped as the sync loop
+        // drops it; only a refusal of this request fails it.
+        if (ownIds.has(mutation.mutation_id)) throw error;
       }
     }
     await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
