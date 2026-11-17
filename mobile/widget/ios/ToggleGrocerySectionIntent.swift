@@ -9,6 +9,9 @@ struct ToggleGrocerySectionIntent: AppIntent {
   static var openAppWhenRun = false
   static var isDiscoverable = false
 
+  @Parameter(title: "Account")
+  var accountScopeID: String
+
   @Parameter(title: "List ID")
   var listID: String
 
@@ -16,18 +19,20 @@ struct ToggleGrocerySectionIntent: AppIntent {
   var sectionKey: String
 
   init() {
+    accountScopeID = ""
     listID = ""
     sectionKey = ""
   }
 
-  init(listID: String, sectionKey: String) {
+  init(accountScopeID: String, listID: String, sectionKey: String) {
+    self.accountScopeID = accountScopeID
     self.listID = listID
     self.sectionKey = sectionKey
   }
 
   func perform() async throws -> some IntentResult {
-    guard !listID.isEmpty, !sectionKey.isEmpty else { return .result() }
-    try HafaWidgetStore.shared.toggleCollapsedSection(listID: listID, key: sectionKey)
+    guard !accountScopeID.isEmpty, !listID.isEmpty, !sectionKey.isEmpty else { return .result() }
+    try HafaWidgetStore.shared.toggleCollapsedSection(accountScopeID: accountScopeID, listID: listID, key: sectionKey)
     return .result()
   }
 }

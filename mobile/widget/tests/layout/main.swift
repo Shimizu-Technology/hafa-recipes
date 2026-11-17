@@ -185,24 +185,53 @@ let storeSnapshot = HafaWidgetSnapshot(
   items: leonsList, total: leonsList.count, unchecked: 3, checked: 3, serverTime: ""
 )
 try! store.mutateState { state in
+  state.accountScopeID = "scope"
   state.snapshot = storeSnapshot
   // Left by the retired paging widget, without a time.
   state.collapsedSectionKeys = ["recipe:id-Old"]
 }
 precondition(try! store.readState().currentCollapsedSectionKeys.isEmpty, "untimed keys are ignored")
-precondition(try! store.toggleCollapsedSection(listID: "other-list", key: "other-items") == false)
+precondition(try! store.toggleCollapsedSection(accountScopeID: "scope", listID: "other-list", key: "other-items") == false)
 let foldTime = Date(timeIntervalSince1970: 1_000)
-precondition(try! store.toggleCollapsedSection(listID: "list-1", key: "recipe:id-Lasagna My Way", now: foldTime))
+precondition(try! store.toggleCollapsedSection(accountScopeID: "scope", listID: "list-1", key: "recipe:id-Lasagna My Way", now: foldTime))
 var foldState = try! store.readState()
 precondition(foldState.currentCollapsedSectionKeys == ["recipe:id-Lasagna My Way"])
 precondition(foldState.collapsedSectionsUpdatedAt == 1_000_000)
 precondition(foldState.shouldUseCachedTimeline(at: foldTime), "a fold redraws from the cache")
-precondition(try! store.setCollapsedSections(listID: "list-1", keys: [], updatedAt: 999_999) == false, "older app copy is ignored")
-precondition(try! store.setCollapsedSections(listID: "list-1", keys: ["other-items"], updatedAt: 1_000_001))
-precondition(try! store.setCollapsedSections(listID: "other-list", keys: [], updatedAt: 2_000_000) == false)
+precondition(try! store.setCollapsedSections(accountScopeID: "scope", listID: "list-1", keys: [], updatedAt: 999_999) == false, "older app copy is ignored")
+precondition(try! store.setCollapsedSections(accountScopeID: "scope", listID: "list-1", keys: ["other-items"], updatedAt: 1_000_001))
+precondition(try! store.setCollapsedSections(accountScopeID: "scope", listID: "other-list", keys: [], updatedAt: 2_000_000) == false)
 foldState = try! store.readState()
 precondition(foldState.currentCollapsedSectionKeys == ["other-items"])
-precondition(try! store.toggleCollapsedSection(listID: "list-1", key: "other-items", now: Date(timeIntervalSince1970: 1_001)))
+precondition(try! store.toggleCollapsedSection(accountScopeID: "scope", listID: "list-1", key: "other-items", now: Date(timeIntervalSince1970: 1_001)))
+precondition(try! store.readState().currentCollapsedSectionKeys.isEmpty)
+
+// A shared list has the same ID for every member. Another account's app, or
+// a stale widget button drawn for it, must not fold this account's view.
+precondition(try! store.setCollapsedSections(accountScopeID: "other-account", listID: "list-1", keys: ["recipe:id-Lasagna My Way"], updatedAt: 3_000_000) == false)
+precondition(try! store.toggleCollapsedSection(accountScopeID: "other-account", listID: "list-1", key: "recipe:id-Lasagna My Way") == false)
+precondition(try! store.setCollapsedSections(accountScopeID: "", listID: "list-1", keys: [], updatedAt: 3_000_000) == false)
+precondition(try! store.readState().currentCollapsedSectionKeys.isEmpty, "other accounts leave folds alone")
+// Only short section keys are accepted from the app.
+precondition(try! store.setCollapsedSections(accountScopeID: "scope", listID: "list-1", keys: [String(repeating: "k", count: 513)], updatedAt: 3_000_000) == false)
+precondition(try! store.setCollapsedSections(accountScopeID: "scope", listID: "list-1", keys: [""], updatedAt: 3_000_000) == false)
+precondition(try! store.setCollapsedSections(accountScopeID: "scope", listID: "list-1", keys: [], updatedAt: .nan) == false)
+
+// An upgraded app folded "Lasagna My Way" by its title. It publishes the
+// section key instead, so one widget tap unfolds the same group. The widget
+// it upgrades alongside has never recorded a fold.
+try! store.mutateState { state in
+  state.collapsedSectionKeys = nil
+  state.collapsedSectionsUpdatedAt = nil
+}
+precondition(try! store.setCollapsedSections(accountScopeID: "scope", listID: "list-1", keys: ["recipe:id-Lasagna My Way"], updatedAt: 0))
+precondition(try! store.readState().currentCollapsedSectionKeys == ["recipe:id-Lasagna My Way"])
+expect(
+  describe(.make(items: leonsList, collapsedKeys: Set(try! store.readState().currentCollapsedSectionKeys), availableHeight: 300, metrics: large, showsHeaders: true)).prefix(2).map { $0 },
+  ["> Lasagna My Way (2)", "v Other (1)"],
+  "a migrated title fold draws folded on the widget"
+)
+precondition(try! store.toggleCollapsedSection(accountScopeID: "scope", listID: "list-1", key: "recipe:id-Lasagna My Way", now: Date(timeIntervalSince1970: 4_000)))
 precondition(try! store.readState().currentCollapsedSectionKeys.isEmpty)
 
 print("Grocery widget layout fixtures passed")

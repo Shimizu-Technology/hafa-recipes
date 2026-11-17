@@ -10,8 +10,9 @@ export type HafaWidgetSessionStatus = {
   requiresReconnect: boolean;
 };
 
-/** Sections folded on the widget, for the list it currently shows. */
+/** Sections folded on the widget, for the account and list it currently shows. */
 export type HafaWidgetCollapsedSections = {
+  accountScopeId: string | null;
   listId: string | null;
   keys: string[];
   /** Milliseconds since 1970, or null when the widget never recorded a change. */
@@ -29,7 +30,7 @@ type HafaWidgetBridgeNativeModule = {
   clearSession(revoke: boolean): Promise<boolean>;
   // Added after the first widget release; older binaries lack them.
   getCollapsedSections?(): Promise<HafaWidgetCollapsedSections>;
-  setCollapsedSections?(listId: string, keys: string[], updatedAt: number): Promise<boolean>;
+  setCollapsedSections?(accountScopeId: string, listId: string, keys: string[], updatedAt: number): Promise<boolean>;
 };
 
 const nativeModule =
@@ -77,8 +78,9 @@ export const HafaWidgetBridge = {
     return (await nativeModule?.getCollapsedSections?.()) ?? null;
   },
 
-  /** Returns false when the widget shows another list or none. */
-  async setCollapsedSections(listId: string, keys: string[], updatedAt: number): Promise<boolean> {
-    return (await nativeModule?.setCollapsedSections?.(listId, keys, updatedAt)) ?? false;
+  /** Returns false when the widget shows another account's view, another list or none. */
+  async setCollapsedSections(accountScopeId: string, listId: string, keys: string[], updatedAt: number): Promise<boolean> {
+    if (!accountScopeId || !listId) return false;
+    return (await nativeModule?.setCollapsedSections?.(accountScopeId, listId, keys, updatedAt)) ?? false;
   },
 };

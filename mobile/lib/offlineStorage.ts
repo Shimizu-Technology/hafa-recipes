@@ -1,4 +1,5 @@
 import { groceryAccountScope } from './groceryAccountScope';
+import { COLLAPSED_SECTIONS_STORAGE_KEY, LEGACY_COLLAPSED_SECTIONS_KEY } from './groceryCollapse';
 import { offlineRecipes } from './offlineRecipes';
 /** Account-scoped grocery snapshots and durable mutation queue. */
 
@@ -12,6 +13,9 @@ const IDENTITY_KEY = '@hafa_grocery_identity_v2';
 const ACTIVE_SCOPE_KEY = '@hafa_grocery_active_scope_v2';
 const SCOPE_PREFIX = '@hafa_grocery_scope_v2:';
 const LEGACY_KEYS = ['@hafa_grocery_list', '@hafa_grocery_count', '@hafa_pending_sync', '@hafa_last_sync'];
+// Which recipe groups are folded is private to the account too. The legacy
+// key is migrated by the Grocery tab, so it is cleared only with the account.
+const DISPLAY_KEYS = [COLLAPSED_SECTIONS_STORAGE_KEY, LEGACY_COLLAPSED_SECTIONS_KEY];
 
 interface GroceryStorageScope {
   owner?: string | null;
@@ -111,7 +115,7 @@ async function setActiveScopeUnsafe(scope: GroceryStorageScope): Promise<void> {
 
 async function privateGroceryKeys(): Promise<string[]> {
   const keys = await AsyncStorage.getAllKeys();
-  return keys.filter((key) => key === ACTIVE_SCOPE_KEY || key === IDENTITY_KEY || key.startsWith(SCOPE_PREFIX) || LEGACY_KEYS.includes(key));
+  return keys.filter((key) => key === ACTIVE_SCOPE_KEY || key === IDENTITY_KEY || key.startsWith(SCOPE_PREFIX) || LEGACY_KEYS.includes(key) || DISPLAY_KEYS.includes(key));
 }
 
 async function clearPrivateGroceryStorage(deletedOwner?: string): Promise<void> {

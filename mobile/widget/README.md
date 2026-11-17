@@ -45,11 +45,16 @@ live in the existing app-group container.
 Folded groups are display state, not list data. They never reach the server.
 The app and the widget share one copy in the app-group state file
 (`collapsed_section_keys` plus `collapsed_sections_updated_at`), scoped to the
-snapshot's list and cleared with it on an account or list change. The widget
-writes it when a header is tapped. The app also saves its own copy per list,
-publishes each change, and compares copies when it returns to the foreground;
-the newer change wins. Keys without a time were left by the retired paging
-widget and are ignored.
+snapshot's account (`account_scope_id`) and list and cleared with it on an
+account or list change. Members of a shared list see the same list ID, so the
+bridge and the header intent check both IDs. The widget writes it when a header
+is tapped. The app also saves its own copy per account and list (the eight most
+recently changed lists), publishes each change, and compares copies once its
+saved copy has loaded and whenever it returns to the foreground; the newer
+change wins. The app saves and publishes only section keys, never titles, and
+drops groups no longer on the list. Its copy is cleared with the account's
+other private grocery data on sign-out. Keys without a time were left by the
+retired paging widget and are ignored.
 
 Widget check-off is durable and replay-safe:
 

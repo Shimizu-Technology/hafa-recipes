@@ -5,13 +5,18 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
     getItem: vi.fn(async (key: string) => storage.get(key) ?? null),
     setItem: vi.fn(async (key: string, value: string) => { storage.set(key, value); }),
+    removeItem: vi.fn(async (key: string) => { storage.delete(key); }),
   },
 }));
 
 import {
+  COLLAPSED_SECTIONS_STORAGE_KEY,
   LEGACY_COLLAPSED_SECTIONS_KEY,
-  collapsedSectionsStorageKey,
+  MAX_COLLAPSED_SECTION_RECORDS,
+  canonicalCollapsedKeys,
+  expandAllSections,
   isSectionCollapsed,
+  isValidCollapseScope,
   loadCollapsedSections,
   newerCollapsedSections,
   parseCollapsedSections,
@@ -24,40 +29,85 @@ import {
 
 const lasagna = { key: 'recipe:lasagna', title: 'Lasagna My Way' };
 const adobo = { key: 'recipe:adobo', title: 'Adobo' };
+const accountA = (listId: string) => ({ accountScopeId: 'gacct_a', listId });
+const accountB = (listId: string) => ({ accountScopeId: 'gacct_b', listId });
 
 describe('grocery collapse state', () => {
   beforeEach(() => storage.clear());
 
   it('saves each list separately and reads them back', async () => {
-    await saveCollapsedSections('list-a', { keys: [lasagna.key], updatedAt: 10 });
-    await saveCollapsedSections('list-b', { keys: [], updatedAt: 20 });
-    expect(await loadCollapsedSections('list-a')).toEqual({ keys: [lasagna.key], updatedAt: 10 });
-    expect(await loadCollapsedSections('list-b')).toEqual({ keys: [], updatedAt: 20 });
-    expect(collapsedSectionsStorageKey('list-a')).toBe('grocery_collapsed_sections:v2:list-a');
+    await saveCollapsedSections(accountA('list-a'), { keys: [lasagna.key], updatedAt: 10 });
+    await saveCollapsedSections(accountA('list-b'), { keys: [], updatedAt: 20 });
+    expect(await loadCollapsedSections(accountA('list-a'))).toEqual({ keys: [lasagna.key], updatedAt: 10 });
+    expect(await loadCollapsedSections(accountA('list-b'))).toEqual({ keys: [], updatedAt: 20 });
+    expect([...storage.keys()]).toEqual([COLLAPSED_SECTIONS_STORAGE_KEY]);
   });
 
-  it('keeps a fold saved by an older build until this list saves its own', async () => {
+  it('keeps two accounts sharing one list apart', async () => {
+    await saveCollapsedSections(accountA('shared'), { keys: [lasagna.key], updatedAt: 10 });
+    expect(await loadCollapsedSections(accountB('shared'))).toEqual({ keys: [], updatedAt: 0 });
+    await saveCollapsedSections(accountB('shared'), { keys: [adobo.key], updatedAt: 20 });
+    expect(await loadCollapsedSections(accountA('shared'))).toEqual({ keys: [lasagna.key], updatedAt: 10 });
+    expect(isValidCollapseScope({ accountScopeId: '', listId: 'shared' })).toBe(false);
+    expect(isValidCollapseScope({ accountScopeId: 'gacct_a', listId: '' })).toBe(false);
+    expect(isValidCollapseScope(null)).toBe(false);
+  });
+
+  it('moves a fold saved by an older build into the first list that loads, once', async () => {
     storage.set(LEGACY_COLLAPSED_SECTIONS_KEY, JSON.stringify([lasagna.key, 'Adobo']));
-    const loaded = await loadCollapsedSections('list-a');
-    expect(loaded).toEqual({ keys: [lasagna.key, 'Adobo'], updatedAt: 0 });
-    // Very old builds saved titles instead of keys.
-    expect(isSectionCollapsed(loaded.keys, adobo)).toBe(true);
-    await saveCollapsedSections('list-a', { keys: [], updatedAt: 5 });
-    expect(await loadCollapsedSections('list-a')).toEqual({ keys: [], updatedAt: 5 });
+    expect(await loadCollapsedSections(accountA('list-a'))).toEqual({ keys: [lasagna.key, 'Adobo'], updatedAt: 0 });
+    expect(storage.has(LEGACY_COLLAPSED_SECTIONS_KEY)).toBe(false);
+    expect(await loadCollapsedSections(accountA('list-a'))).toEqual({ keys: [lasagna.key, 'Adobo'], updatedAt: 0 });
+    // Another list, or another account on this device, does not inherit it.
+    expect(await loadCollapsedSections(accountB('list-a'))).toEqual({ keys: [], updatedAt: 0 });
+    await saveCollapsedSections(accountA('list-a'), { keys: [], updatedAt: 5 });
+    expect(await loadCollapsedSections(accountA('list-a'))).toEqual({ keys: [], updatedAt: 5 });
   });
 
   it('treats damaged storage as nothing folded', async () => {
-    storage.set(collapsedSectionsStorageKey('list-a'), '{not json');
-    expect(await loadCollapsedSections('list-a')).toEqual({ keys: [], updatedAt: 0 });
+    storage.set(COLLAPSED_SECTIONS_STORAGE_KEY, '{not json');
+    expect(await loadCollapsedSections(accountA('list-a'))).toEqual({ keys: [], updatedAt: 0 });
+    storage.set(COLLAPSED_SECTIONS_STORAGE_KEY, JSON.stringify({ [JSON.stringify(['gacct_a', 'list-a'])]: { keys: [1] } }));
+    expect(await loadCollapsedSections(accountA('list-a'))).toEqual({ keys: [], updatedAt: 0 });
     expect(parseCollapsedSections(JSON.stringify({ keys: [1, 2] }))).toBeNull();
     expect(parseCollapsedSections(JSON.stringify({ keys: ['a'] }))).toEqual({ keys: ['a'], updatedAt: 0 });
   });
 
-  it('toggles one section and clears a legacy title along with its key', () => {
+  it('remembers a bounded number of lists, dropping the least recently changed', async () => {
+    for (let index = 0; index < MAX_COLLAPSED_SECTION_RECORDS + 3; index += 1) {
+      await saveCollapsedSections(accountA(`list-${index}`), { keys: [lasagna.key], updatedAt: 100 + index });
+    }
+    // An old list is still kept while it is the one being written.
+    await saveCollapsedSections(accountA('list-0'), { keys: [adobo.key], updatedAt: 1 });
+    const stored = JSON.parse(storage.get(COLLAPSED_SECTIONS_STORAGE_KEY)!);
+    expect(Object.keys(stored)).toHaveLength(MAX_COLLAPSED_SECTION_RECORDS);
+    expect(await loadCollapsedSections(accountA('list-0'))).toEqual({ keys: [adobo.key], updatedAt: 1 });
+    expect(await loadCollapsedSections(accountA('list-1'))).toEqual({ keys: [], updatedAt: 0 });
+    expect(await loadCollapsedSections(accountA(`list-${MAX_COLLAPSED_SECTION_RECORDS + 2}`))).toEqual({ keys: [lasagna.key], updatedAt: 100 + MAX_COLLAPSED_SECTION_RECORDS + 2 });
+  });
+
+  it('turns old title folds into section keys and drops groups no longer on the list', () => {
+    const sameTitle = { key: 'recipe:adobo-2', title: 'Adobo' };
+    const other = { key: 'other-items', title: 'Other Items' };
+    expect(canonicalCollapsedKeys(['Adobo', lasagna.key, 'Other Items'], [lasagna, adobo, sameTitle, other]))
+      .toEqual([adobo.key, sameTitle.key, lasagna.key, other.key]);
+    // Lasagna's items were cleared: its fold goes with it.
+    expect(canonicalCollapsedKeys([lasagna.key, adobo.key], [adobo])).toEqual([adobo.key]);
+    // A recipe group keeps its key when the recipe is renamed.
+    expect(canonicalCollapsedKeys([lasagna.key], [{ key: lasagna.key, title: 'Lasagna, Our Way' }])).toEqual([lasagna.key]);
+    // A group known only by its title is a new group once renamed.
+    expect(canonicalCollapsedKeys(['recipe-title:kelaguen'], [{ key: 'recipe-title:chicken kelaguen', title: 'Chicken Kelaguen' }])).toEqual([]);
+    expect(isSectionCollapsed(['Adobo'], adobo)).toBe(false);
+  });
+
+  it('toggles one section by its key', () => {
     const folded = toggleSectionCollapsed({ keys: [], updatedAt: 0 }, lasagna, 100);
     expect(folded).toEqual({ keys: [lasagna.key], updatedAt: 100 });
     expect(toggleSectionCollapsed(folded, lasagna, 200)).toEqual({ keys: [], updatedAt: 200 });
-    expect(toggleSectionCollapsed({ keys: ['Adobo', lasagna.key], updatedAt: 0 }, adobo, 300)).toEqual({ keys: [lasagna.key], updatedAt: 300 });
+  });
+
+  it('expands everything, including groups the current view hides', () => {
+    expect(expandAllSections(9)).toEqual({ keys: [], updatedAt: 9 });
   });
 
   it('collapses or expands many sections at once without duplicates', () => {

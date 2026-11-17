@@ -397,12 +397,27 @@ final class HafaWidgetStore {
     }
   }
 
+  /// Section keys are short ("recipe:<id>"); anything else is not a fold.
+  static func isValidCollapsedSectionKeys(_ keys: [String]) -> Bool {
+    keys.count <= 500 && keys.allSatisfy { !$0.isEmpty && $0.utf8.count <= 512 }
+  }
+
+  /// Folds belong to one account's view of one list. Two accounts can share a
+  /// list, so the list ID alone is not enough.
+  private static func showsFolds(of state: HafaWidgetState, accountScopeID: String, listID: String) -> Bool {
+    !accountScopeID.isEmpty && !listID.isEmpty
+      && state.accountScopeID == accountScopeID
+      && state.snapshot?.accountScopeID == accountScopeID
+      && state.snapshot?.list.id == listID
+  }
+
   /// Records the app's fold for the list the widget shows. A newer fold made
   /// on the widget is kept; the app adopts it on its next foreground instead.
   @discardableResult
-  func setCollapsedSections(listID: String, keys: [String], updatedAt: Double) throws -> Bool {
-    try mutateState { state in
-      guard state.snapshot?.list.id == listID else { return false }
+  func setCollapsedSections(accountScopeID: String, listID: String, keys: [String], updatedAt: Double) throws -> Bool {
+    guard Self.isValidCollapsedSectionKeys(keys), updatedAt.isFinite, updatedAt >= 0 else { return false }
+    return try mutateState { state in
+      guard Self.showsFolds(of: state, accountScopeID: accountScopeID, listID: listID) else { return false }
       if let current = state.collapsedSectionsUpdatedAt, current > updatedAt { return false }
       state.collapsedSectionKeys = keys
       state.collapsedSectionsUpdatedAt = updatedAt
@@ -413,9 +428,10 @@ final class HafaWidgetStore {
 
   /// Folds or unfolds one section from the widget.
   @discardableResult
-  func toggleCollapsedSection(listID: String, key: String, now: Date = Date()) throws -> Bool {
-    try mutateState { state in
-      guard state.snapshot?.list.id == listID else { return false }
+  func toggleCollapsedSection(accountScopeID: String, listID: String, key: String, now: Date = Date()) throws -> Bool {
+    guard Self.isValidCollapsedSectionKeys([key]) else { return false }
+    return try mutateState { state in
+      guard Self.showsFolds(of: state, accountScopeID: accountScopeID, listID: listID) else { return false }
       var keys = state.currentCollapsedSectionKeys
       if let index = keys.firstIndex(of: key) {
         keys.remove(at: index)

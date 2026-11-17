@@ -46,9 +46,17 @@ const mocks = vi.hoisted(() => ({
   toggleItem: vi.fn(),
   toast: vi.fn(),
   reduceMotion: false,
-  widgetCollapsed: null as null | { listId: string | null; keys: string[]; updatedAt: number | null },
-  setWidgetCollapsed: vi.fn(async () => true),
+  widgetCollapsed: null as null | { accountScopeId: string | null; listId: string | null; keys: string[]; updatedAt: number | null },
+  setWidgetCollapsed: vi.fn(async (_accountScopeId: string, _listId: string, _keys: string[], _updatedAt: number) => true),
+  // Device storage; the fold record falls back to `collapsedSections` for the
+  // current account and list until the screen writes one.
+  storage: new Map<string, string>(),
+  storageGate: null as Promise<void> | null,
+  accountScopeId: 'gacct_a' as string | undefined,
+  listId: 'list-1',
+  focusers: new Set<() => void>(),
 }));
+const FOLDS_KEY = '@hafa_grocery_collapsed_sections_v3';
 vi.mock('@/lib/toast', () => ({ showToast: mocks.toast }));
 vi.mock('hafa-widget-bridge', () => ({ HafaWidgetBridge: {
   getCollapsedSections: async () => mocks.widgetCollapsed,
@@ -109,8 +117,12 @@ vi.mock('react-native', () => ({
 }));
 
 vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.headerSearchBarOptions ? React.createElement('NativeSearch', props.options.headerSearchBarOptions) : null, props.options?.title ? React.createElement('Text', null, props.options.title) : null) },
-  // The screen registers its own focus callback after the collapse hook's.
-  useFocusEffect: (callback: () => void) => { mocks.focusCallback = callback; },
+  // A focus runs every mounted focus callback: the screen's and the collapse hook's.
+  useFocusEffect: (callback: () => void) => {
+    mocks.focusCallback = () => mocks.focusers.forEach((registered) => registered());
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    React.useEffect(() => { mocks.focusers.add(callback); return () => { mocks.focusers.delete(callback); }; }, [callback]);
+  },
   useLocalSearchParams: () => ({}),
   useRouter: () => ({ push: mocks.routerPush, setParams: mocks.routerSetParams }),
 }));
@@ -121,8 +133,15 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Ionicons') }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => mocks.authState }));
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
-    getItem: vi.fn(async () => mocks.collapsedSections),
-    setItem: vi.fn(async () => undefined),
+    getItem: vi.fn(async (key: string) => {
+      if (mocks.storageGate) await mocks.storageGate;
+      if (mocks.storage.has(key)) return mocks.storage.get(key)!;
+      return key === FOLDS_KEY
+        ? JSON.stringify({ [JSON.stringify([mocks.accountScopeId, mocks.listId])]: JSON.parse(mocks.collapsedSections) })
+        : null;
+    }),
+    setItem: vi.fn(async (key: string, value: string) => { mocks.storage.set(key, value); }),
+    removeItem: vi.fn(async (key: string) => { mocks.storage.delete(key); }),
   },
 }));
 vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
@@ -228,7 +247,7 @@ vi.mock('@/hooks/useGrocery', () => ({
       refetch: mocks.refetch,
     };
   },
-  useGroceryListInfo: () => ({ data: { id: 'list-1', ...mocks.listInfoState } }),
+  useGroceryListInfo: () => ({ data: { id: mocks.listId, ...mocks.listInfoState }, accountScopeId: mocks.accountScopeId }),
   usePendingGrocerySync: () => ({ data: mocks.queued }),
   useGrocerySync: () => ({ lastSyncResult: null, clearSyncResult: vi.fn() }),
   useToggleGroceryItem: () => ({ ...mutation(), mutate: mocks.toggleItem }),
@@ -236,6 +255,13 @@ vi.mock('@/hooks/useGrocery', () => ({
 }));
 
 import GroceryScreen from '../app/(tabs)/grocery';
+
+beforeEach(() => {
+  mocks.storage.clear();
+  mocks.storageGate = null;
+  mocks.accountScopeId = 'gacct_a';
+  mocks.listId = 'list-1';
+});
 
 function renderedText(renderer: ReturnType<typeof createRoot>): string {
   return renderer.container.queryAll((instance) => instance.type === 'Text')
@@ -694,6 +720,15 @@ describe('GroceryScreen collapsible recipe sections', () => {
   const button = (renderer: ReturnType<typeof createRoot>, label: string) => renderer.container.queryAll(
     (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityLabel === label,
   )[0];
+  const focusScreen = () => mocks.focusCallback();
+  const savedFolds = (accountScopeId = 'gacct_a', listId = 'list-1') =>
+    JSON.parse(mocks.storage.get(FOLDS_KEY) ?? '{}')[JSON.stringify([accountScopeId, listId])];
+  /** Holds device storage reads until the returned function is called. */
+  const holdStorage = () => {
+    let release = () => {};
+    mocks.storageGate = new Promise<void>((resolve) => { release = () => { mocks.storageGate = null; resolve(); }; });
+    return release;
+  };
 
   beforeEach(() => {
     mocks.authState.isLoaded = true;
@@ -724,13 +759,13 @@ describe('GroceryScreen collapsible recipe sections', () => {
       expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
       expect(mocks.configureNext).toHaveBeenCalledOnce();
       const [storageKey, stored] = vi.mocked(AsyncStorage.setItem).mock.calls.at(-1)!;
-      expect(storageKey).toBe('grocery_collapsed_sections:v2:list-1');
-      expect(JSON.parse(stored).keys).toEqual(['recipe:recipe-1']);
-      expect(mocks.setWidgetCollapsed).toHaveBeenLastCalledWith('list-1', ['recipe:recipe-1'], expect.any(Number));
+      expect(storageKey).toBe(FOLDS_KEY);
+      expect(JSON.parse(stored)['["gacct_a","list-1"]'].keys).toEqual(['recipe:recipe-1']);
+      expect(mocks.setWidgetCollapsed).toHaveBeenLastCalledWith('gacct_a', 'list-1', ['recipe:recipe-1'], expect.any(Number));
 
       await act(async () => header(renderer, 'recipe:recipe-1').props.onToggle());
       expect(checkboxes(renderer)).toHaveLength(4);
-      expect(mocks.setWidgetCollapsed).toHaveBeenLastCalledWith('list-1', [], expect.any(Number));
+      expect(mocks.setWidgetCollapsed).toHaveBeenLastCalledWith('gacct_a', 'list-1', [], expect.any(Number));
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -752,7 +787,7 @@ describe('GroceryScreen collapsible recipe sections', () => {
 
   it('adopts a newer fold made on the widget for the same list', async () => {
     mocks.collapsedSections = JSON.stringify({ keys: [], updatedAt: 1 });
-    mocks.widgetCollapsed = { listId: 'list-1', keys: ['recipe:recipe-2'], updatedAt: 5 };
+    mocks.widgetCollapsed = { accountScopeId: 'gacct_a', listId: 'list-1', keys: ['recipe:recipe-2'], updatedAt: 5 };
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(<GroceryScreen />));
@@ -768,17 +803,169 @@ describe('GroceryScreen collapsible recipe sections', () => {
 
   it('keeps its own fold and updates a widget that is behind or another list', async () => {
     mocks.collapsedSections = JSON.stringify({ keys: ['recipe:recipe-1'], updatedAt: 9 });
-    mocks.widgetCollapsed = { listId: 'list-1', keys: [], updatedAt: null };
+    mocks.widgetCollapsed = { accountScopeId: 'gacct_a', listId: 'list-1', keys: [], updatedAt: null };
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(<GroceryScreen />));
       expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
-      expect(mocks.setWidgetCollapsed).toHaveBeenCalledWith('list-1', ['recipe:recipe-1'], 9);
+      expect(mocks.setWidgetCollapsed).toHaveBeenCalledWith('gacct_a', 'list-1', ['recipe:recipe-1'], 9);
 
       mocks.setWidgetCollapsed.mockClear();
-      mocks.widgetCollapsed = { listId: 'list-from-another-account', keys: ['recipe:recipe-2'], updatedAt: 99 };
-      await act(async () => mocks.focusCallback());
+      mocks.widgetCollapsed = { accountScopeId: 'gacct_a', listId: 'another-list', keys: ['recipe:recipe-2'], updatedAt: 99 };
+      await act(async () => focusScreen());
       expect(header(renderer, 'recipe:recipe-2').props.isCollapsed).toBe(false);
+      // Same shared list, another account's widget.
+      mocks.widgetCollapsed = { accountScopeId: 'gacct_b', listId: 'list-1', keys: ['recipe:recipe-2'], updatedAt: 99 };
+      await act(async () => focusScreen());
+      expect(header(renderer, 'recipe:recipe-2').props.isCollapsed).toBe(false);
+      expect(mocks.setWidgetCollapsed).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('waits for the saved fold before comparing with an older widget copy', async () => {
+    // The app folded Kelaguen at 1000; the widget last changed at 500.
+    mocks.collapsedSections = JSON.stringify({ keys: ['recipe:recipe-1'], updatedAt: 1000 });
+    mocks.widgetCollapsed = { accountScopeId: 'gacct_a', listId: 'list-1', keys: ['recipe:recipe-2'], updatedAt: 500 };
+    const release = holdStorage();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      // Focus and a tap arrive before device storage answers.
+      await act(async () => focusScreen());
+      await act(async () => header(renderer, 'recipe:recipe-2').props.onToggle());
+      expect(mocks.setWidgetCollapsed).not.toHaveBeenCalled();
+      expect(vi.mocked(AsyncStorage.setItem)).not.toHaveBeenCalled();
+
+      await act(async () => release());
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
+      expect(header(renderer, 'recipe:recipe-2').props.isCollapsed).toBe(false);
+      // The widget is behind, so it gets the app's copy.
+      expect(mocks.setWidgetCollapsed).toHaveBeenLastCalledWith('gacct_a', 'list-1', ['recipe:recipe-1'], 1000);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it("never shows the previous list's folds while another list loads", async () => {
+    mocks.collapsedSections = JSON.stringify({ keys: ['recipe:recipe-1'], updatedAt: 1000 });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
+
+      mocks.collapsedSections = JSON.stringify({ keys: ['recipe:recipe-2'], updatedAt: 2000 });
+      const release = holdStorage();
+      mocks.listId = 'list-2';
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(false);
+      expect(header(renderer, 'recipe:recipe-2').props.isCollapsed).toBe(false);
+      mocks.setWidgetCollapsed.mockClear();
+      await act(async () => header(renderer, 'recipe:recipe-1').props.onToggle());
+      expect(mocks.setWidgetCollapsed).not.toHaveBeenCalled();
+
+      await act(async () => release());
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(false);
+      expect(header(renderer, 'recipe:recipe-2').props.isCollapsed).toBe(true);
+      // The tap made while list 2 loaded changed nothing.
+      expect(vi.mocked(AsyncStorage.setItem)).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps folds apart for two accounts on the same shared list', async () => {
+    mocks.listInfoState.is_shared = true;
+    mocks.collapsedSections = '[]';
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      await act(async () => header(renderer, 'recipe:recipe-1').props.onToggle());
+      expect(savedFolds('gacct_a').keys).toEqual(['recipe:recipe-1']);
+
+      // Account B signs in on this device and opens the same shared list. Its
+      // widget still shows A's fold until it reconnects.
+      mocks.accountScopeId = 'gacct_b';
+      mocks.widgetCollapsed = { accountScopeId: 'gacct_a', listId: 'list-1', keys: ['recipe:recipe-1'], updatedAt: Date.now() + 1000 };
+      mocks.setWidgetCollapsed.mockClear();
+      await act(async () => renderer.render(<GroceryScreen />));
+      await act(async () => focusScreen());
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(false);
+      expect(checkboxes(renderer)).toHaveLength(4);
+
+      await act(async () => header(renderer, 'recipe:recipe-2').props.onToggle());
+      expect(savedFolds('gacct_b').keys).toEqual(['recipe:recipe-2']);
+      expect(savedFolds('gacct_a').keys).toEqual(['recipe:recipe-1']);
+      // B only ever writes to its own widget view.
+      expect(mocks.setWidgetCollapsed.mock.calls.every(([account]) => account === 'gacct_b')).toBe(true);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('moves an old title fold to its section key so a widget tap unfolds it', async () => {
+    mocks.storage.set('grocery_collapsed_sections', JSON.stringify(['Chicken Kelaguen']));
+    mocks.collapsedSections = 'null';
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
+      expect(mocks.storage.has('grocery_collapsed_sections')).toBe(false);
+      expect(savedFolds().keys).toEqual(['recipe:recipe-1']);
+      // The widget gets the key it matches, not the title.
+      expect(mocks.setWidgetCollapsed).toHaveBeenCalledWith('gacct_a', 'list-1', ['recipe:recipe-1'], 0);
+
+      // A tap on the widget header unfolds it there; the app follows.
+      mocks.widgetCollapsed = { accountScopeId: 'gacct_a', listId: 'list-1', keys: [], updatedAt: 5000 };
+      await act(async () => focusScreen());
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(false);
+      expect(savedFolds()).toEqual({ keys: [], updatedAt: 5000 });
+
+      // And folding it again on the widget folds it in the app.
+      mocks.widgetCollapsed = { accountScopeId: 'gacct_a', listId: 'list-1', keys: ['recipe:recipe-1'], updatedAt: 6000 };
+      await act(async () => focusScreen());
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('forgets folds for groups that leave the list and keeps them through a rename', async () => {
+    mocks.collapsedSections = JSON.stringify({ keys: ['recipe:recipe-1', 'recipe:gone'], updatedAt: 10 });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(savedFolds()).toEqual({ keys: ['recipe:recipe-1'], updatedAt: 10 });
+
+      mocks.groceryState.items = mocks.groceryState.items!.map((entry) =>
+        entry.recipe_id === 'recipe-1' ? { ...entry, recipe_title: 'Kelaguen Mannok' } : entry);
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(header(renderer, 'recipe:recipe-1').props.isCollapsed).toBe(true);
+
+      mocks.groceryState.items = mocks.groceryState.items!.filter((entry) => entry.recipe_id !== 'recipe-1');
+      await act(async () => renderer.render(<GroceryScreen />));
+      expect(savedFolds().keys).toEqual([]);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('Expand all also unfolds a finished group that To buy hides', async () => {
+    mocks.groceryState.items = [
+      ...mocks.groceryState.items!,
+      item({ id: 'masa', name: 'Masa', checked: true, recipe_id: 'recipe-3', recipe_title: 'Tamales' }),
+    ];
+    mocks.collapsedSections = JSON.stringify({ keys: ['recipe:recipe-1', 'recipe:recipe-3'], updatedAt: 10 });
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      // A folded group that is all checked keeps its fold while hidden.
+      expect(vi.mocked(AsyncStorage.setItem)).not.toHaveBeenCalled();
+      await act(async () => button(renderer, 'Collapse all recipes').props.onPress());
+      expect(savedFolds().keys).toEqual(expect.arrayContaining(['recipe:recipe-1', 'recipe:recipe-2', 'other-items', 'recipe:recipe-3']));
+      await act(async () => button(renderer, 'Expand all recipes').props.onPress());
+      expect(savedFolds().keys).toEqual([]);
     } finally {
       await act(async () => renderer.unmount());
     }

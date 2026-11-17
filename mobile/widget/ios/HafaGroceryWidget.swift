@@ -241,7 +241,7 @@ private struct HafaGroceryWidgetView: View {
             metrics: rowMetrics,
             showsHeaders: true
           )
-          rows(layout, listID: snapshot.list.id, showsOverflow: isLarge && layout.showsOverflow)
+          rows(layout, accountScopeID: snapshot.accountScopeID, listID: snapshot.list.id, showsOverflow: isLarge && layout.showsOverflow)
         }
         .privacySensitive()
       }
@@ -310,12 +310,12 @@ private struct HafaGroceryWidgetView: View {
     .lineLimit(1)
   }
 
-  private func rows(_ layout: HafaWidgetListLayout, listID: String, showsOverflow: Bool) -> some View {
+  private func rows(_ layout: HafaWidgetListLayout, accountScopeID: String, listID: String, showsOverflow: Bool) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       ForEach(Array(layout.rows.enumerated()), id: \.element.id) { index, row in
         switch row {
         case let .header(header):
-          sectionHeader(header, listID: listID)
+          sectionHeader(header, accountScopeID: accountScopeID, listID: listID)
         case let .item(item):
           let followsItem: Bool = {
             guard index > 0, case .item = layout.rows[index - 1] else { return false }
@@ -344,10 +344,10 @@ private struct HafaGroceryWidgetView: View {
 
   /// A recipe header folds or unfolds its items with one tap, like the app.
   @ViewBuilder
-  private func sectionHeader(_ header: HafaWidgetGroupHeader, listID: String) -> some View {
+  private func sectionHeader(_ header: HafaWidgetGroupHeader, accountScopeID: String, listID: String) -> some View {
     if header.isCollapsible {
       let count = "\(header.remaining) left"
-      Button(intent: ToggleGrocerySectionIntent(listID: listID, sectionKey: header.key)) {
+      Button(intent: ToggleGrocerySectionIntent(accountScopeID: accountScopeID, listID: listID, sectionKey: header.key)) {
         sectionHeaderLabel(header, count: count)
       }
       .buttonStyle(.plain)

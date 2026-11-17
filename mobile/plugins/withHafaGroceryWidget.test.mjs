@@ -140,7 +140,7 @@ describe('Håfa grocery widget config plugin', () => {
     expect(sharedSource).toContain('state.markTimelineCacheFresh()');
     expect(checkIntentSource).not.toContain('reloadTimelines');
     const foldIntentSource = readFileSync(join(mobileRoot, 'widget/ios/ToggleGrocerySectionIntent.swift'), 'utf8');
-    expect(foldIntentSource).toContain('toggleCollapsedSection(listID: listID, key: sectionKey)');
+    expect(foldIntentSource).toContain('toggleCollapsedSection(accountScopeID: accountScopeID, listID: listID, key: sectionKey)');
     expect(foldIntentSource).not.toContain('reloadTimelines');
     expect(sharedSource).toContain('state.markTimelineCacheFresh(now: now)');
   });

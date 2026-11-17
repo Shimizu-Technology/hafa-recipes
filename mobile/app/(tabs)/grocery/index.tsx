@@ -210,7 +210,7 @@ function GroceryScreenContent() {
   }, [lastSyncResult, clearSyncResult]);
   
   // Get list info for shared status
-  const { data: listInfo } = useGroceryListInfo(isAuthenticated);
+  const { data: listInfo, accountScopeId } = useGroceryListInfo(isAuthenticated);
 
   // Wait for Clerk before enabling any private grocery request.
   const {
@@ -230,7 +230,6 @@ function GroceryScreenContent() {
   const transferredIds = new Set(pantry.data?.transferred_grocery_item_ids ?? []);
   const readyForPantry = (allGroceryItems ?? []).filter((item) => item.checked && !transferredIds.has(item.id));
   const isSharedList = listInfo?.is_shared === true;
-  const collapse = useGroceryCollapse(listInfo?.id);
   const reduceMotion = useReduceMotion();
 
   // Shared lists may change elsewhere. Quietly revalidate only after the
@@ -296,6 +295,13 @@ function GroceryScreenContent() {
   );
   const sections = useMemo(() => groupGroceryItems(visibleItems), [visibleItems]);
   const fullSections = useMemo(() => groupGroceryItems(allGroceryItems ?? groceryItems ?? []), [allGroceryItems, groceryItems]);
+  // Folds belong to this account's view of this list. They are tidied against
+  // the whole list, never a search or the To buy view.
+  const collapseScope = useMemo(
+    () => (accountScopeId && listInfo?.id ? { accountScopeId, listId: listInfo.id } : null),
+    [accountScopeId, listInfo?.id],
+  );
+  const collapse = useGroceryCollapse(collapseScope, allGroceryItems ? fullSections : null);
   const showHeaders = showsSectionHeaders(sections);
   // Searching shows every match, so folding pauses until the search clears.
   const canCollapse = showHeaders && !isSearching;
@@ -321,7 +327,8 @@ function GroceryScreenContent() {
   const setAllSectionsCollapsed = (collapsed: boolean) => {
     haptics.light();
     animateFold();
-    collapse.setAll(sections, collapsed);
+    if (collapsed) collapse.setAll(sections, true);
+    else collapse.expandAll();
   };
 
   const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);

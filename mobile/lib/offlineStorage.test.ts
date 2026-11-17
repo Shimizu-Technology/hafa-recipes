@@ -105,6 +105,33 @@ describe('account-scoped offline grocery storage', () => {
     expect(() => assertGroceryStorageLease(oldLease)).toThrow('identity');
   });
 
+  it('forgets folded recipe groups on sign-out, account switch and account deletion', async () => {
+    const { COLLAPSED_SECTIONS_STORAGE_KEY, LEGACY_COLLAPSED_SECTIONS_KEY, saveCollapsedSections, loadCollapsedSections } = await import('./groceryCollapse');
+    const fold = async () => {
+      await saveCollapsedSections({ accountScopeId: 'account-a', listId: 'shared' }, { keys: ['recipe:a'], updatedAt: 1 });
+      storage.values.set(LEGACY_COLLAPSED_SECTIONS_KEY, '["Adobo"]');
+    };
+    const forgotten = () => !storage.values.has(COLLAPSED_SECTIONS_STORAGE_KEY) && !storage.values.has(LEGACY_COLLAPSED_SECTIONS_KEY);
+
+    await bindOfflineGroceryIdentity('clerk-user-a');
+    await fold();
+    await bindOfflineGroceryIdentity('clerk-user-a');
+    expect(storage.values.has(COLLAPSED_SECTIONS_STORAGE_KEY)).toBe(true);
+    await bindOfflineGroceryIdentity(null);
+    expect(forgotten()).toBe(true);
+
+    await bindOfflineGroceryIdentity('clerk-user-a');
+    await fold();
+    await bindOfflineGroceryIdentity('clerk-user-b');
+    expect(forgotten()).toBe(true);
+    // Account B shares the list but starts with nothing folded.
+    expect(await loadCollapsedSections({ accountScopeId: 'account-b', listId: 'shared' })).toEqual({ keys: [], updatedAt: 0 });
+
+    await fold();
+    await clearAllOfflineGroceryData('clerk-user-b');
+    expect(forgotten()).toBe(true);
+  });
+
   it('drops the previous list queue when server membership changes scope', async () => {
     await bindOfflineGroceryIdentity('clerk-user-a');
     const lease = getGroceryStorageLease();
