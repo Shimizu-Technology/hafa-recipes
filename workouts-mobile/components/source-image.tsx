@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button, Copy, useColors } from "./ui";
+import { Button, ButtonRow, Copy, useColors } from "./ui";
 export function SourceImage({ uri, label, cover = false, fallback, onFailed }: {
   uri: string; label: string; cover?: boolean;
   /** Shown instead of the image when it fails; pass null to show nothing. */
@@ -40,7 +40,7 @@ export function SourceImage({ uri, label, cover = false, fallback, onFailed }: {
           }}
           style={{ width: "100%", ...(cover ? { aspectRatio: 4 / 3 } : { height: 260 }), resizeMode: cover ? "cover" : "contain" }}
         />
-        {!cover && <Copy kind="small">
+        {!cover && <Copy kind="small" tone="muted">
           Tap to inspect source image
         </Copy>}
       </Pressable>
@@ -49,24 +49,22 @@ export function SourceImage({ uri, label, cover = false, fallback, onFailed }: {
           <View style={{ padding: 16, gap: 12 }}>
             <Copy kind="heading">{label}</Copy>
             <Button title="Close source image" secondary onPress={() => setOpen(false)} />
-            <View style={{ flexDirection: "row", gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Button
-                  title="Zoom out"
-                  secondary
-                  disabled={zoom <= 1}
-                  onPress={() => setZoom((value) => Math.max(1, value - 0.5))}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button
-                  title="Zoom in"
-                  secondary
-                  disabled={zoom >= 4}
-                  onPress={() => setZoom((value) => Math.min(4, value + 0.5))}
-                />
-              </View>
-            </View>
+            <ButtonRow gap={12}>
+              <Button
+                title="Zoom out"
+                secondary
+                icon="remove"
+                disabled={zoom <= 1}
+                onPress={() => setZoom((value) => Math.max(1, value - 0.5))}
+              />
+              <Button
+                title="Zoom in"
+                secondary
+                icon="add"
+                disabled={zoom >= 4}
+                onPress={() => setZoom((value) => Math.min(4, value + 0.5))}
+              />
+            </ButtonRow>
           </View>
           <ScrollView horizontal contentContainerStyle={{ alignItems: "flex-start" }}>
             <ScrollView style={{ width: size.width * zoom }} contentContainerStyle={{ width: size.width * zoom }}>

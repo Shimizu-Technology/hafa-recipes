@@ -328,7 +328,6 @@ export default function SignIn() {
                 ? "Send recovery code"
                 : "Sign in"
         }
-        size="lg"
         onPress={() => {
           void submit();
         }}

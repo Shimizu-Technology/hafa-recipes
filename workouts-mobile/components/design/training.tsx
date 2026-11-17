@@ -4,7 +4,7 @@ import Svg, { Circle } from "react-native-svg";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { radii, spacing } from "@/constants/theme";
 import { Copy, useColors, useSurface } from "./foundation";
-import { Button, type IconName } from "./controls";
+import { Button, ButtonRow, type IconName } from "./controls";
 
 /** A number front and centre with a short label (sessions this week, minutes, …). */
 export function StatTile({
@@ -148,15 +148,11 @@ export function RestTimer({
           {formatClock(remaining)}
         </Copy>
       </ProgressRing>
-      <View style={{ flexDirection: "row", gap: spacing.sm, alignSelf: "stretch" }}>
-        {!!onAdd && (
-          <View style={{ flex: 1 }}>
-            <Button title="+15 sec" icon="add" variant="secondary" onPress={onAdd} />
-          </View>
-        )}
-        <View style={{ flex: 1 }}>
+      <View style={{ alignSelf: "stretch" }}>
+        <ButtonRow gap={spacing.sm}>
+          {!!onAdd && <Button title="+15 sec" icon="add" variant="secondary" onPress={onAdd} />}
           <Button title="End rest" icon="play-skip-forward" variant="secondary" onPress={onSkip} />
-        </View>
+        </ButtonRow>
       </View>
     </View>
   );

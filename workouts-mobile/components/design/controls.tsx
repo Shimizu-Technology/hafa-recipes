@@ -1,4 +1,4 @@
-import { useState, type PropsWithChildren, type Ref } from "react";
+import { Children, createContext, isValidElement, useContext, useState, type PropsWithChildren, type ReactElement, type Ref } from "react";
 import { Text, ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressable, ScrollView, TextInput, useWindowDimensions, View, type TextInputProps } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
@@ -13,7 +13,8 @@ import { animatedPressableComponent, usePressScale } from "./press";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive" | "accent";
-export type ButtonSize = "sm" | "md" | "lg";
+/** Compact controls (chips, segmented control) share one height; the 44pt touch target comes from hitSlop. */
+export const compactControl = 36;
 
 function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface): { bg: string; fg: string; border?: string } {
   switch (variant) {
@@ -30,20 +31,28 @@ function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface):
       return { bg: c.accent, fg: c.onAccent };
   }
 }
-// Compact buttons stay visually light but keep the 44pt touch minimum;
-// hitSlop cannot reach outside a parent Row, so the size itself must comply.
-const heights: Record<ButtonSize, number> = { sm: touch.min, md: 50, lg: 50 };
+/** Every button is one height, so pairs and stacks never disagree. Only a text button (ghost + inline) is lighter. */
+const BUTTON_HEIGHT = touch.comfortable;
+const BUTTON_PADDING = 12;
+const BUTTON_ICON = 20;
+const BUTTON_GAP = 8;
+/** Set by ButtonRow: children fill their equal share of the row instead of sizing to content. */
+const ButtonRowContext = createContext(false);
 
 /**
  * One clear action. `primary` is the screen's main action (use once per view);
- * `secondary` for supporting actions; `ghost` for low-emphasis text actions.
+ * `secondary` for supporting actions; `ghost` for low-emphasis actions; `destructive` for removals.
+ *
+ * Buttons share one height (50pt), radius and type, with an optional leading icon. A button fills the width it
+ * is given. Put two or three side by side in a `ButtonRow`. `inline` makes a text button (ghost only) that
+ * sizes to its label, for a quiet action beside text. Keep the label short enough for one line and put detail
+ * in a caption below.
  */
 export function Button({
   title,
   onPress,
   variant,
   secondary = false,
-  size = "md",
   disabled = false,
   busy = false,
   icon,
@@ -63,11 +72,11 @@ export function Button({
   variant?: ButtonVariant;
   /** @deprecated use variant="secondary" */
   secondary?: boolean;
-  size?: ButtonSize;
   disabled?: boolean;
   busy?: boolean;
+  /** Leading icon. Use it on every button in a group or on none. */
   icon?: IconName;
-  /** Size to content instead of stretching to the container width. */
+  /** Text button: size to the label instead of filling the width. Only for `variant="ghost"`. */
   inline?: boolean;
   haptic?: "tick" | "success";
   accessibilityHint?: string;
@@ -77,7 +86,9 @@ export function Button({
 }) {
   const c = useColors();
   const surface = useSurface();
+  const inRow = useContext(ButtonRowContext);
   const kind = variant ?? (secondary ? "secondary" : "primary");
+  const text = inline && kind === "ghost";
   // Coral is reserved for starting or resuming a workout; those buttons carry the play icon. A setup call to
   // action such as "Start saving workouts" stays ink.
   const start = icon === "play";
@@ -97,6 +108,7 @@ export function Button({
       aria-disabled={inactive}
       aria-busy={busy}
       disabled={inactive}
+      hitSlop={text ? { left: 12, right: 12 } : undefined}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       onPress={() => {
@@ -104,9 +116,11 @@ export function Button({
         onPress();
       }}
       style={{
-        minHeight: heights[size],
-        paddingVertical: textLink ? 0 : size === "sm" ? 8 : 12,
-        paddingHorizontal: textLink ? 0 : size === "sm" ? 16 : 22,
+        // A text button keeps a 44pt target; every other button is the full 50pt.
+        minHeight: text ? touch.min : BUTTON_HEIGHT,
+        paddingVertical: textLink ? 0 : text ? 8 : 12,
+        // A text button has no fill to pad, so its label lines up with the text around it; hitSlop widens the target.
+        paddingHorizontal: textLink || text ? 0 : BUTTON_PADDING,
         borderRadius: radii.md,
         backgroundColor: bg,
         borderWidth: border ? 1 : 0,
@@ -116,14 +130,15 @@ export function Button({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        alignSelf: inline ? "flex-start" : "stretch",
-        gap: 8,
+        alignSelf: text && !inRow ? "flex-start" : "stretch",
+        ...(inRow ? { flex: 1, minWidth: 0 } : null),
+        gap: BUTTON_GAP,
       }}
     >
       {busy ? (
         <ActivityIndicator color={fg} />
       ) : icon ? (
-        <Ionicons name={icon} color={fg} size={size === "sm" ? 18 : 21} />
+        <Ionicons name={icon} color={fg} size={BUTTON_ICON} />
       ) : null}
       <Copy
         kind={textLink ? "small" : "label"}
@@ -136,6 +151,32 @@ export function Button({
     </AnimatedPressable>
     {disabled && !!disabledReason && <Copy kind="small" tone="muted">{disabledReason}</Copy>}
     </>
+  );
+}
+
+/** Rough width of a one-line button label at the current text size, for deciding whether a row has room. */
+const LABEL_EM = 0.57;
+function labelFits(title: unknown, icon: unknown, cell: number, fontScale: number) {
+  if (typeof title !== "string") return true;
+  const need = title.length * 17 * LABEL_EM * fontScale + (icon ? BUTTON_ICON + BUTTON_GAP : 0) + BUTTON_PADDING * 2;
+  return need <= cell;
+}
+/**
+ * Two or three buttons side by side: equal width, equal height. If a label would not fit on one line
+ * (long label, narrow screen or larger text) the buttons stack at full width instead of squeezing or truncating.
+ */
+export function ButtonRow({ children, gap = 8 }: PropsWithChildren<{ gap?: number }>) {
+  const { fontScale } = useWindowDimensions();
+  const [width, setWidth] = useState(0);
+  const buttons = Children.toArray(children).filter(isValidElement) as ReactElement<{ title?: unknown; icon?: unknown }>[];
+  const cell = (width - gap * (buttons.length - 1)) / Math.max(buttons.length, 1);
+  const stacked = buttons.length < 2 || (width > 0 && !buttons.every(b => labelFits(b.props.title, b.props.icon, cell, fontScale)));
+  return (
+    // Keyed by text size so a Dynamic Type change re-measures instead of keeping a stale layout.
+    <View key={fontScale} onLayout={event => setWidth(event.nativeEvent.layout.width)}
+      style={{ flexDirection: stacked ? "column" : "row", alignItems: "stretch", gap }}>
+      <ButtonRowContext.Provider value={!stacked}>{buttons}</ButtonRowContext.Provider>
+    </View>
   );
 }
 
@@ -251,8 +292,8 @@ export function AccountButton() {
   );
 }
 
-/** Interactive chips are 34pt; this slop on every side makes them 44pt targets. */
-const CHIP_REACH = (touch.min - 34) / 2;
+/** Interactive chips use the compact control height; this slop on every side makes them 44pt targets. */
+const CHIP_REACH = (touch.min - compactControl) / 2;
 /**
  * Compact pill (spec v2 §1.4). Pass `onPress` for a selectable filter / quick action; omit it for a static tag.
  * Unselected chips sit on a tonal fill; selected chips fill with the accent.
@@ -298,7 +339,7 @@ export function Chip({
     </>
   );
   const style = {
-    minHeight: onPress ? 34 : 28,
+    minHeight: onPress ? compactControl : 28,
     paddingHorizontal: onPress ? 14 : 10,
     paddingVertical: onPress ? 6 : 4,
     borderRadius: radii.full,
@@ -340,7 +381,7 @@ export function Chip({
  * A row of chips. Scrolls horizontally by default and fades at the trailing edge instead of
  * clipping a label mid-word; `wrap` flows onto new lines instead.
  */
-export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithChildren<{ wrap?: boolean; label?: string; fadeColor?: string }>) {
+export function ChipRow({ children, wrap = false, center = false, label, fadeColor }: PropsWithChildren<{ wrap?: boolean; /** With `wrap`, centre each line. */ center?: boolean; label?: string; fadeColor?: string }>) {
   const c = useColors();
   // Remounted on every text-size change so chips and the scroller re-measure instead of clipping.
   const { fontScale } = useWindowDimensions();
@@ -351,7 +392,7 @@ export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithC
   if (wrap)
     return (
       // Padding (cancelled by the margin) keeps the first and last rows' 44pt reach inside the row.
-      <View key={fontScale} accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: CHIP_REACH, marginVertical: -CHIP_REACH }}>
+      <View key={fontScale} accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: center ? "center" : undefined, gap: 8, paddingVertical: CHIP_REACH, marginVertical: -CHIP_REACH }}>
         {children}
       </View>
     );
@@ -578,8 +619,9 @@ export function Field({
             backgroundColor: disabled ? c.sunken : c.elevated,
             borderRadius: radii.sm,
             paddingHorizontal: focused ? 15 : 16,
-            paddingVertical: large ? 8 : focused ? 13 : 14,
-            minHeight: multiline ? compact ? 60 : 110 : large ? 64 : 54,
+            // One-line fields match a button's 50pt height, so a field and its button line up.
+            paddingVertical: large ? 8 : multiline ? (focused ? 13 : 14) : focused ? 11 : 12,
+            minHeight: multiline ? compact ? 60 : 110 : large ? 64 : touch.comfortable,
             maxHeight: multiline && compact ? 120 : undefined,
             textAlignVertical: multiline ? "top" : "center",
             opacity: disabled ? 0.7 : 1,

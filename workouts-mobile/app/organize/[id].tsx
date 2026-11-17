@@ -207,7 +207,6 @@ export default function Organize() {
                 <Button
                   title="Discard changes and reload"
                   variant="ghost"
-                  size="sm"
                   inline
                   disabled={busy}
                   onPress={() => {

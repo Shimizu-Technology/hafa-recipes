@@ -57,7 +57,7 @@ function RunChoice({ label, value, onChange, disabled }: { label: string; value:
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${word}`} accessibilityHint={`Switches to ${next === "outdoor" ? "Outdoor" : "Treadmill"}`}
       disabled={disabled} onPress={() => { haptics.tick(); onChange(next); }}
-      style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderRadius: 14,
+      style={({ pressed }) => ({ minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderRadius: 12,
         borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surface, opacity: pressed ? 0.7 : 1 })}>
       <Ionicons name={value === "outdoor" ? "sunny-outline" : "speedometer-outline"} size={22} color={c.text} />
       <Copy maxScale={1.5} style={{ flex: 1 }}>{label}</Copy>
@@ -156,7 +156,7 @@ export function ClassSession(p: ClassSessionProps) {
     footer = <>
       {/* Capped so the footer leaves room to scroll the score cards at the largest text size. */}
       {unready && <Copy kind="small" tone="muted" align="center" maxScale={1.5}>Choose Rx or Scaled for each score to save.</Copy>}
-      <Button title="Save class" icon="checkmark-done" size="lg" busy={busy} disabled={unready} onPress={save} />
+      <Button title="Save class" icon="checkmark-done" busy={busy} disabled={unready} onPress={save} />
     </>;
   } else if (status === "resting_after") {
     const left = restLeft(part, block, now);
@@ -168,11 +168,11 @@ export function ClassSession(p: ClassSessionProps) {
     body = <>
       {!grid && restClock}
       <Row gap={12}>
-        <View style={{ flex: 1 }}><Button title="−15 s" variant="secondary" size="lg" disabled={busy} {...half("−15 s")} onPress={() => p.act((r, w, at) => adjustRest(r, w, -15_000, at))} /></View>
-        <View style={{ flex: 1 }}><Button title="+15 s" variant="secondary" size="lg" disabled={busy} {...half("+15 s")} onPress={() => p.act((r, w, at) => adjustRest(r, w, 15_000, at))} /></View>
+        <View style={{ flex: 1 }}><Button title="−15 s" variant="secondary" disabled={busy} {...half("−15 s")} onPress={() => p.act((r, w, at) => adjustRest(r, w, -15_000, at))} /></View>
+        <View style={{ flex: 1 }}><Button title="+15 s" variant="secondary" disabled={busy} {...half("+15 s")} onPress={() => p.act((r, w, at) => adjustRest(r, w, 15_000, at))} /></View>
       </Row>
     </>;
-    footer = <Button title={next ? `Start ${next.label} now` : "End rest"} icon="play-skip-forward" size="lg" disabled={busy} onPress={() => p.act(endRest)} />;
+    footer = <Button title={next ? `Start ${next.label} now` : "End rest"} icon="play-skip-forward" disabled={busy} onPress={() => p.act(endRest)} />;
   } else if (status === "pending" || status === "skipped") {
     body = <>
       <Copy kind="heading">{partTitle(block)}</Copy>
@@ -195,7 +195,7 @@ export function ClassSession(p: ClassSessionProps) {
         {e.duration_seconds != null && (holdLeft != null
           ? <SessionClock text={formatClock(holdLeft)} caption={`${e.name} · time left`} progress={holdLeft / e.duration_seconds}
             trigger={d.cursor} compact={false} accessibilityLabel={`${formatClock(holdLeft)} left`}><View /></SessionClock>
-          : <Button title={`Start ${formatClock(e.duration_seconds)} timer`} icon="timer-outline" variant="secondary" size="lg" disabled={busy} onPress={() => p.timer("interval")} />)}
+          : <Button title={`Start ${formatClock(e.duration_seconds)} timer`} icon="timer-outline" variant="secondary" disabled={busy} onPress={() => p.timer("interval")} />)}
       </> : <Copy tone="muted">{block.label} is running.</Copy>}
     </>;
     footer = setPart ? <>
@@ -238,7 +238,7 @@ export function ClassSession(p: ClassSessionProps) {
       {buyingIn ? <BigTap title="Buy-in done" hint="Starts counting rounds" disabled={busy || paused} onPress={() => p.act(buyInDone)} />
         : counting ? <BigTap title="+1 round" hint={`Now ${roundText(part.round_taps.length)}`} disabled={busy || paused || invalidLoad} onPress={() => p.act(tapRound)} />
         : null}
-      {part.kind === "for_time" && <Button title="Done · stop the clock" icon="stop-circle-outline" size="lg" disabled={busy} onPress={() => p.act(endPart)} />}
+      {part.kind === "for_time" && <Button title="Done · stop the clock" icon="stop-circle-outline" disabled={busy} onPress={() => p.act(endPart)} />}
       <Row gap={12}>
         <View style={{ flex: 1 }}><Button title={paused ? "Resume" : "Pause"} icon={paused ? "play" : "pause"} variant="secondary" disabled={busy}
           {...half(paused ? "Resume" : "Pause")} onPress={() => p.act(paused ? resumePart : pausePart)} /></View>

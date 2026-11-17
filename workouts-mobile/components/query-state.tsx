@@ -29,9 +29,9 @@ export function QueryState({
     return (
       <>
         <Notice error>{hasData ? "Couldn’t refresh. Showing your saved content." : errorMessage ?? (error instanceof ApiError ? error.message : "We couldn’t load this right now. Check your connection and try again.")}</Notice>
-        <Button title="Try again" secondary size={hasData ? "sm" : undefined} onPress={retry} />
+        <Button title="Try again" secondary onPress={retry} />
         {!(error instanceof ApiError) && <>
-          <Button title={details ? "Hide details" : "Show details"} variant="ghost" size="sm" onPress={() => setDetails(!details)} />
+          <Button title={details ? "Hide details" : "Show details"} variant="ghost" onPress={() => setDetails(!details)} />
           {details && <Copy kind="small" tone="muted">{error.message}</Copy>}
         </>}
         {hasData && children}

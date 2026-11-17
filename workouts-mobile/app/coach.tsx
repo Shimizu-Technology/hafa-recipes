@@ -12,7 +12,7 @@ import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { Bubble, Button, Card, Chip, ChipRow, Copy, IconButton, ListGroup, ListRow, Notice, Sheet } from "@/components/ui";
+import { Bubble, Button, ButtonRow, Card, Chip, ChipRow, Copy, IconButton, ListGroup, ListRow, Notice, Sheet } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useTraining } from "@/lib/context";
 import { coachFocusErrors, messageInFocus, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
@@ -552,7 +552,7 @@ export default function Coach() {
   }
   const speechFeedback = <>
     {!!readAloud.error && <Notice error>{readAloud.error}</Notice>}
-    {readAloud.stopFailed && <Button title="Retry stopping speech" variant="ghost" size="sm" inline onPress={() => { void readAloud.retryStop().catch(() => undefined); }} />}
+    {readAloud.stopFailed && <Button title="Retry stopping speech" variant="ghost" inline onPress={() => { void readAloud.retryStop().catch(() => undefined); }} />}
     {!!readAloud.messageId && Platform.OS === "ios" && <Copy kind="small" tone="muted">If you can’t hear speech, turn off silent mode.</Copy>}
   </>;
   const needsConsent = !!enrollment?.enrolled && (!!profile.data || sourceOnly) && !!capabilities.data?.coach &&
@@ -565,10 +565,10 @@ export default function Coach() {
       <View style={{ gap: 8, flexShrink: 1, minHeight: 0 }}>
         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
         {speechFeedback}
-        {awayFromLatest && (!!history.length || !!provisional) && <Button title="Jump to latest reply" icon="arrow-down" variant="ghost" size="sm" inline onPress={latest} />}
+        {awayFromLatest && (!!history.length || !!provisional) && <Button title="Jump to latest reply" icon="arrow-down" variant="ghost" inline onPress={latest} />}
         {!!draftNotice && <Notice>{draftNotice}</Notice>}
         {!!error && <Notice error>{error}</Notice>}
-        {draftLoadError && <Button title="Retry restoring message draft" secondary size="sm" inline onPress={() => { if (currentConversation()) { setError(""); setRestoreAttempt(value => value + 1); } }} />}
+        {draftLoadError && <Button title="Retry restoring message draft" secondary onPress={() => { if (currentConversation()) { setError(""); setRestoreAttempt(value => value + 1); } }} />}
         {pending ? <>
           <Copy kind="small" numberOfLines={2} accessibilityLabel={`Your message: ${pending.message}`}>
             Your message: {pending.message}
@@ -584,15 +584,15 @@ export default function Coach() {
           <CoachPhotoControl slot="status" state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded || voiceActive} />
         </>}
         </ScrollView>
-        {pending ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+        {pending ? <ButtonRow>
           {!busy && !pending.stop_requested && <Button
             title={history.some(item => item.request_id === pending.request_id) ? "Check for reply" : "Retry saved message"}
-            icon="refresh" size="sm" inline disabled={sendDisabled} onPress={() => { void send(); }} />}
+            icon="refresh" disabled={sendDisabled} onPress={() => { void send(); }} />}
           {capabilities.data?.coach_cancellation && <Button
             title={pending.stop_requested ? "Retry stopping reply" : "Stop reply"} icon="stop-circle-outline"
-            secondary size="sm" inline busy={stopping === pending.request_id} disabled={!loaded || !!stopping}
+            secondary busy={stopping === pending.request_id} disabled={!loaded || !!stopping}
             onPress={() => { void stopReply(pending.request_id); }} />}
-        </View> : <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 4 }}>
+        </ButtonRow> : <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 4 }}>
           <CoachPhotoControl slot="button" state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded || voiceActive} />
           <CoachInput
             label="Message to your coach"
@@ -673,7 +673,7 @@ export default function Coach() {
     {speechFeedback}
     <Copy kind="heading">Set up your training first</Copy>
     <Copy tone="muted">Add your goal, equipment and schedule so Coach can use your saved workouts.</Copy>
-    <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} inline onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
+    <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
   </CoachChatShell>;
   const empty = !q.isPending && !q.error && !history.length && !provisional && !pending;
   return (
@@ -707,7 +707,7 @@ export default function Coach() {
       )}
       {(prerequisiteErrors.length > 0 || retryingCoach) && <>
         {prerequisiteErrors.length > 0 && <Notice error>{[...new Set([...prerequisiteErrors, ...(q.error ? [q.error.message] : [])])].join(" ")}</Notice>}
-        <Button title="Retry loading coach" secondary inline busy={retryingCoach} onPress={() => { void retryCoach(); }} />
+        <Button title="Retry loading coach" secondary busy={retryingCoach} onPress={() => { void retryCoach(); }} />
       </>}
       {needsConsent && <Card>
         <Copy>{sourceOnly ? "Source explanation sends your question and the selected saved workout to OpenAI. Turn on AI sharing to continue." : "Coach sends your question and relevant training details to OpenAI. Turn on AI sharing to start chatting."}</Copy>
@@ -717,7 +717,7 @@ export default function Coach() {
       </Card>}
       {q.error && !prerequisiteErrors.length && !retryingCoach && <>
         <Notice error>{q.error.message}</Notice>
-        <Button title="Refresh saved conversation" secondary inline onPress={() => { void q.refetch(); }} />
+        <Button title="Refresh saved conversation" secondary onPress={() => { void q.refetch(); }} />
       </>}
       {q.isPending && <Copy tone="muted" align="center">Loading your conversation…</Copy>}
       {clearedRequest && pending && (
@@ -736,17 +736,16 @@ export default function Coach() {
       {empty && <View style={{ flexGrow: 1, justifyContent: "center", gap: 12, paddingVertical: 24 }}>
         <Copy kind="heading" align="center">{focusKey === "general" ? "What can I help with?" : "What would you like to change?"}</Copy>
         {!needsConsent && <Copy kind="small" tone="muted" align="center">{sourceOnly ? "Source-only context · this saved workout, without a training profile or history." : "Coach uses your profile and recent training. You approve any change first."}</Copy>}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, paddingTop: 4 }}>
-          {prompts.map(prompt => <Button key={prompt} title={prompt} secondary size="sm" inline
+        <ChipRow wrap center label="Suggested questions">
+          {prompts.map(prompt => <Chip key={prompt} label={prompt} role="button"
             disabled={sendDisabled || busy || !!message.trim()} onPress={() => { void send(prompt); }} />)}
-        </View>
+        </ChipRow>
       </View>}
       {/* A scope with no exchanges yet is a fresh conversation: older general history would not appear in it. */}
       {q.hasNextPage && (focusKey === "general" || !!history.length) && (
         <Button
           title="Load earlier messages"
           variant="ghost"
-          size="sm"
           busy={q.isFetchingNextPage}
           onPress={() => {
             void loadEarlier();
@@ -765,19 +764,19 @@ export default function Coach() {
             </Bubble>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <IconButton icon="ellipsis-horizontal" label="Reply options" variant="plain" size={32} onPress={() => { if (currentConversation()) setReplyMenu(item.id); }} />
-              {readAloud.messageId === item.id && <Button title="Stop reading" icon="stop-circle-outline" variant="ghost" size="sm" inline
+              {readAloud.messageId === item.id && <Button title="Stop reading" icon="stop-circle-outline" variant="ghost" inline
                 onPress={() => { void readAloud.stop().catch(() => undefined); }} />}
             </View>
           </View>}
           {item.state === "pending" && <>
             {!item.assistant_message && <Bubble from="coach"><Copy tone="muted">Thinking… You can leave and come back; this message won’t be sent twice.</Copy></Bubble>}
             {capabilities.data?.coach_cancellation && item.request_id !== pending?.request_id && <Button
-              title="Stop this reply" secondary size="sm" inline busy={stopping === item.request_id} disabled={!loaded || !!stopping}
+              title="Stop this reply" secondary busy={stopping === item.request_id} disabled={!loaded || !!stopping}
               onPress={() => { void stopReply(item.request_id); }} />}
           </>}
           {item.state === "failed" && <>
             {!item.assistant_message && <Notice>{item.cancelled ? "Reply stopped. No training changes were applied." : "Your coach couldn’t finish this reply. No training changes were applied."}</Notice>}
-            {message !== item.user_message && <Button title="Use message again" variant="ghost" size="sm" inline disabled={busy || !!pending || !loaded} onPress={() => {
+            {message !== item.user_message && <Button title="Use message again" variant="ghost" inline disabled={busy || !!pending || !loaded} onPress={() => {
               if (!currentConversation() || !loaded || busy || pending) return;
               if (message.trim() && message !== item.user_message) setReuse({ id: item.id, message: item.user_message });
               else useMessage(item.user_message);

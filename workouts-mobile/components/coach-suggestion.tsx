@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Copy, Notice, Row } from "./ui";
+import { Button, ButtonRow, Card, Copy, Notice, Row } from "./ui";
 import { useTraining } from "@/lib/context";
 import { canApplyCoach, needsReturnConfirmation, type CoachSummary, type CoachFocus } from "@/lib/coach";
 import { describeChange, type ChangeSummary } from "@/lib/coach-changes";
@@ -125,7 +125,7 @@ export function CoachSuggestionCard({ item, generation, notify, recovery }: {
   const title = s.summary?.title ?? `Suggested ${coachActionNoun(item.kind)} change`;
   if (hidden && s.state === "proposed") return <Row gap={4}>
     <Copy kind="small" tone="muted" style={{ flexShrink: 1 }}>Suggestion hidden: {title}</Copy>
-    <Button title="Show" variant="ghost" size="sm" inline onPress={() => setHidden(false)} />
+    <Button title="Show" variant="ghost" inline onPress={() => setHidden(false)} />
   </Row>;
   return <Card compact>
     <Copy kind="caption" tone="muted">
@@ -146,16 +146,18 @@ export function CoachSuggestionCard({ item, generation, notify, recovery }: {
     </>}
     {needsInfo && recoveryBlocked && !!recovery?.blockedReason && <Copy kind="small" tone="muted">{recovery.blockedReason}</Copy>}
     {!!s.error && <Notice error>{s.error}</Notice>}
-    <Row wrap gap={4}>
-      {s.current && help && recovery && <Button title={help.title} inline disabled={recoveryBlocked}
+    <ButtonRow>
+      {s.current && help && recovery && <Button title={help.title} disabled={recoveryBlocked}
         accessibilityHint={help.next === "ask" ? "Sends your original request again using your saved information" : undefined} onPress={recover} />}
       {s.state === "proposed" && s.ready && (s.needsFullReview
-        ? <Button title="Review and apply" size="sm" inline onPress={details} />
-        : <Button title="Apply" icon="checkmark" size="sm" inline busy={s.busy}
+        ? <Button title="Review and apply" onPress={details} />
+        : <Button title="Apply" icon="checkmark" busy={s.busy}
           onPress={() => { void s.apply().then(done => { if (done) notify("Change applied", () => { void undo(); }); }); }} />)}
-      {s.state === "proposed" && <Button title="Not now" variant="ghost" size="sm" inline disabled={s.busy} onPress={() => setHidden(true)} />}
-      {s.state === "accepted" && <Button title="Undo" icon="arrow-undo-outline" secondary size="sm" inline busy={s.busy} onPress={() => { void undo(); }} />}
-      {!(s.current && help && recovery && help.next === "details") && <Button title="Details" variant="ghost" size="sm" inline onPress={details} />}
+      {s.state === "accepted" && <Button title="Undo" icon="arrow-undo-outline" secondary busy={s.busy} onPress={() => { void undo(); }} />}
+    </ButtonRow>
+    <Row wrap gap={4}>
+      {s.state === "proposed" && <Button title="Not now" variant="ghost" inline disabled={s.busy} onPress={() => setHidden(true)} />}
+      {!(s.current && help && recovery && help.next === "details") && <Button title="Details" variant="ghost" inline onPress={details} />}
     </Row>
   </Card>;
 }

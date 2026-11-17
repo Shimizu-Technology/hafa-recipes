@@ -6,23 +6,7 @@ import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
-import {
-  Button,
-  Card,
-  Chip,
-  Copy,
-  Empty,
-  HeaderButton,
-  ListGroup,
-  ListRow,
-  Notice,
-  Screen,
-  SectionHeader,
-  Sheet,
-  Stack,
-  Row,
-  useToast,
-} from "@/components/ui";
+import { Button, ButtonRow, Card, Chip, Copy, Empty, HeaderButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, Stack, useToast } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { useTraining, useOfflineTraining } from "@/lib/context";
@@ -190,14 +174,14 @@ export default function WorkoutDetail() {
   const edit = () => go({ pathname: "/edit-workout/[id]", params: { id: workout!.id } });
   // One primary action: resume, start, schedule a program, or fill in an empty workout.
   const primary = !workout ? null : offline.state.active
-    ? <Button title="Resume current session" icon="play" size="lg" disabled={!offline.ready} onPress={() => router.push("/training")} />
+    ? <Button title="Resume current session" icon="play" disabled={!offline.ready} onPress={() => router.push("/training")} />
     : workout.kind === "program"
-      ? <Button title="Schedule as a plan" icon="calendar-outline" size="lg"
+      ? <Button title="Schedule as a plan" icon="calendar-outline"
         onPress={() => router.push({ pathname: "/review-plan", params: { workout_id: workout.id } })} />
       : exercises === 0
-        ? <Button title={recoverable ? "Recover workout instructions" : "Add workout exercises"} icon="create-outline" size="lg"
+        ? <Button title={recoverable ? "Recover workout instructions" : "Add workout exercises"} icon="create-outline"
           onPress={() => router.push({ pathname: recoverable ? "/recover-workout/[id]" : "/edit-workout/[id]", params: { id: workout.id } })} />
-        : <Button title="Start workout" icon="play" size="lg" busy={busy} disabled={!offline.ready}
+        : <Button title="Start workout" icon="play" busy={busy} disabled={!offline.ready}
           onPress={() => { if (trackingWarning) { setError(""); setChoosing(true); } else void start(); }} />;
   const hint = !workout || offline.state.active ? null
     : workout.kind === "program" ? "This program runs over several days. Pick your days to train it."
@@ -280,13 +264,13 @@ export default function WorkoutDetail() {
             {diagnostics.length > 0 && <Card compact tone="sunken">
               <Copy kind="subheading">Review workout details</Copy>
               <Copy kind="small">Some workout details need checking. Review the source or edit the details before training.</Copy>
-              <Row gap={8} wrap>
-                <Button title="Check details" secondary size="sm" inline onPress={() => go({ pathname: "/edit-workout/[id]", params: { id: workout.id, review: "1" } })} />
+              <ButtonRow>
+                <Button title="Check details" icon="create-outline" secondary onPress={() => go({ pathname: "/edit-workout/[id]", params: { id: workout.id, review: "1" } })} />
                 {exercises > 0 && !!(workout.source_url || workout.capture_kind) && <Button
-                  title="Recover from caption or source" secondary size="sm" inline icon="refresh-outline"
+                  title="Recover from caption or source" secondary icon="refresh-outline"
                   onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />}
-              </Row>
-              <Button title={diagnosticScope === scope ? "Hide import diagnostics" : "Import diagnostics"} variant="ghost" size="sm" inline
+              </ButtonRow>
+              <Button title={diagnosticScope === scope ? "Hide import diagnostics" : "Import diagnostics"} variant="ghost" inline
                 onPress={() => setDiagnosticScope(diagnosticScope === scope ? null : scope)} />
               {diagnosticScope === scope && diagnostics.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
             </Card>}
