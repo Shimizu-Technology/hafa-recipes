@@ -99,12 +99,13 @@ describe('Håfa grocery widget config plugin', () => {
     }
   });
 
-  it('compiles the list layout and only the check-off intent into the widget target', () => {
+  it('compiles the list layout, check-off and fold intents but not the retired paging', () => {
     expect(SOURCE_FILES).toEqual(expect.arrayContaining([
       'HafaWidgetSections.swift',
       'HafaWidgetListLayout.swift',
       'HafaWidgetPalette.swift',
       'SetGroceryItemCheckedIntent.swift',
+      'ToggleGrocerySectionIntent.swift',
     ]));
     expect(SOURCE_FILES).not.toContain('HafaWidgetPaging.swift');
     expect(SOURCE_FILES).not.toContain('ChangeGroceryWidgetPageIntent.swift');
@@ -138,6 +139,10 @@ describe('Håfa grocery widget config plugin', () => {
     expect(widgetSource).not.toContain('ToggleGroceryWidgetSectionIntent');
     expect(sharedSource).toContain('state.markTimelineCacheFresh()');
     expect(checkIntentSource).not.toContain('reloadTimelines');
+    const foldIntentSource = readFileSync(join(mobileRoot, 'widget/ios/ToggleGrocerySectionIntent.swift'), 'utf8');
+    expect(foldIntentSource).toContain('toggleCollapsedSection(accountScopeID: accountScopeID, listID: listID, key: sectionKey)');
+    expect(foldIntentSource).not.toContain('reloadTimelines');
+    expect(sharedSource).toContain('state.markTimelineCacheFresh(now: now)');
   });
 
   it('uses the app\'s Calm colors with contrast and tinted-mode fallbacks', () => {

@@ -35,6 +35,7 @@ import {
   requestGroceryWidgetRefresh,
 } from '@/lib/groceryWidget';
 import type {
+  GroceryItem,
   GroceryItemChanges,
   GroceryItemCreate,
   GroceryMutationRequest,
@@ -127,7 +128,7 @@ export function useGroceryCount(isSignedIn = true) {
 
 export function useGroceryListInfo(isSignedIn = true) {
   const query = useSnapshotQuery(isSignedIn);
-  return { ...query, data: query.data?.list };
+  return { ...query, data: query.data?.list, accountScopeId: query.data?.account_scope_id };
 }
 
 async function baseSnapshot(
@@ -171,7 +172,17 @@ async function commitMutations(
 
     if (confirmedOffline) return { ...snapshot, syncStatus: 'queued' };
 
-    for (const [index, mutation] of mutations.entries()) {
+    // Send older queued changes first. Otherwise an Undo could reach the
+    // server before the check it reverses, which would then replay over it.
+    const ownIds = new Set(mutations.map((mutation) => mutation.mutation_id));
+    const queued = (await getPendingSyncQueue(lease)).map((entry) => entry.mutation);
+    assertGroceryStorageLease(lease);
+    const outbox = [
+      ...queued.filter((mutation) => mutation.list_id === snapshot.list.id && !ownIds.has(mutation.mutation_id)),
+      ...mutations,
+    ];
+
+    for (const [index, mutation] of outbox.entries()) {
       try {
         const response = await sendGroceryMutationWithRetry(mutation, (request) =>
           api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
@@ -181,7 +192,7 @@ async function commitMutations(
           console.warn('[Grocery Widget] Failed to publish mutation:', error),
         );
         await removeFromSyncQueue(mutation.mutation_id, lease);
-        snapshot = mutations
+        snapshot = outbox
           .slice(index + 1)
           .reduce(
             (current, pending) => applyOptimisticGroceryMutation(current, pending),
@@ -194,7 +205,7 @@ async function commitMutations(
         await removeFromSyncQueue(mutation.mutation_id, lease);
         try {
           const serverSnapshot = await fetchAndCacheSnapshot(lease);
-          snapshot = mutations
+          snapshot = outbox
             .slice(index + 1)
             .reduce(
               (current, pending) => applyOptimisticGroceryMutation(current, pending),
@@ -205,7 +216,9 @@ async function commitMutations(
         } catch {
           // The queued mutation was rejected permanently; retain the last safe snapshot.
         }
-        throw error;
+        // An older change the server refused is dropped as the sync loop
+        // drops it; only a refusal of this request fails it.
+        if (ownIds.has(mutation.mutation_id)) throw error;
       }
     }
     await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
@@ -267,6 +280,33 @@ export function useDeleteGroceryItem() {
   return useDurableMutation<string>((snapshot, id) => [
     createDeleteMutation(snapshot.list.id, id),
   ]);
+}
+
+/** Undo was asked for on a list this phone is no longer using. */
+export class GroceryListChangedError extends Error {
+  constructor() {
+    super('grocery_list_changed');
+  }
+}
+
+/**
+ * Undo for a deleted item. Deletes are final on the server, so the item comes
+ * back as a new one with the same details, recipe and checked state. It only
+ * comes back to the account and list it was deleted from.
+ */
+export function useRestoreGroceryItem() {
+  return useDurableMutation<{ item: GroceryItem; accountScopeId: string; listId: string }>((snapshot, { item, accountScopeId, listId }) => {
+    if (snapshot.account_scope_id !== accountScopeId || snapshot.list.id !== listId) throw new GroceryListChangedError();
+    const add = createAddMutation(snapshot.list.id, {
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      notes: item.notes,
+      recipe_id: item.recipe_id,
+      recipe_title: item.recipe_title,
+    });
+    return item.checked ? [add, createCheckedMutation(snapshot.list.id, add.item_id, true)] : [add];
+  });
 }
 
 export function useDeleteGroceryItems() {

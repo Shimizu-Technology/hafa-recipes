@@ -197,7 +197,9 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   const storage = useMemo(() => privateRegistry.capture(owner), [owner, enrollment?.generation, localEpoch]);
   const localDrafts = useMemo(() => drafts(storage), [storage]);
   async function eraseLocalData() {
-    await erasePrivateDeviceData(owner, binding);
+    try { await erasePrivateDeviceData(owner, binding); }
+    // The account stays signed in after a local erase, even a failed one, so its watch sync resumes.
+    finally { if (currentOwner.current === owner && bindingRef.current === binding) resumeWatchSync(); }
     if (currentOwner.current !== owner || bindingRef.current !== binding) return;
     setPrivateError("");
     setBoot((old) => old?.scope === scope ? { ...old, value: { ...old.value, units: "imperial" } } : old);

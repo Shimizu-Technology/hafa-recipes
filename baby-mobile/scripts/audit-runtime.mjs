@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 // assessment. These are temporary documented exceptions, not security fixes.
 const reviewedLock = "3426112ea17b32309e85095f0ef39331d858b9343a8b832f347b1d4275b0c905";
 // Expo CLI/config/fingerprint and Metro file matching; absent from native bundles.
-const reviewed = new Set(["decode-uri-component:1147955", "decode-uri-component:1243857", "glob:1244013", "minimatch:1244623"]);
+const reviewed = new Set(["decode-uri-component:1147955", "decode-uri-component:1243857", "glob:1244013", "minimatch:1244623", "picomatch:1247710"]);
 const lock = readFileSync(new URL("../package-lock.json", import.meta.url));
 const now = Date.now();
 if (createHash("sha256").update(lock).digest("hex") !== reviewedLock || now < Date.parse("2026-10-24T00:00:00Z") || now >= Date.parse("2027-01-15T00:00:00Z")) {

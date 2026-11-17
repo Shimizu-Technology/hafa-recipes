@@ -768,3 +768,9 @@ advisories, zero critical, zero unexpected. Reviewed whole-lock SHA-256:
 `2016b3bed25f1f6919ebca552b93edc491d47258ae9bb6dca52096bebd07fe3c`.
 
 2026-11-17 main integration: regenerated the combined Watch + test-only jsdom lock with npm install. No non-dev lock entries differ from main. Existing advisory exceptions and expiry remain unchanged. Combined lock SHA-256: `d37cc6e070a2f81c4317ed375ac858d8cafee4f38b00706aca983fa3ca6a55d7`.
+
+### picomatch:1247710 (2026-11-18)
+
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), high: ReDoS through single-branch repeated extglobs. It affects every published version up to 4.0.7, and no patched release exists, so no override can fix it. Installed consumers are Expo CLI, `@expo/metro-config`, Metro's `micromatch`/`jest-util` file map, `tinyglobby`/`fdir` (React Native CLI), and test-only Vite/Vitest. They match developer-controlled repository paths during builds and tests. Recipe, workout and Baby content never supplies their patterns, and application source does not import picomatch.
+
+All three apps accept the advisory temporarily until the existing 2027-01-15 deadline, with no lock change. Workouts and Baby keep their whole-lock SHA-256 pins, and their native bundle checks now reject `picomatch`. Recipes pins each installed picomatch copy, its declaring parents and their ranges in `mobile/scripts/audit-policy.mjs`, with the same expiry and drift tests as `minimatch:1244623`. Remove the exception when a patched picomatch can be installed.

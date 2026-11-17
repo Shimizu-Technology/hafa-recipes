@@ -157,6 +157,95 @@ const reviewedBuildToolAdvisories = {
         }
       }
     }
+  },
+  // Metro/Expo CLI and Vite file matching (GHSA-fc5q-39xc-vjpf); no patched release exists.
+  "picomatch:1247710": {
+    "packages": {
+      "node_modules/@expo/cli": {
+        "version": "57.0.34",
+        "integrity": "sha512-bVicshFxfoAupsxrFnR9MB8nU1w6Pv6kBiPro6PiFj6930WYe+ZFlTZsHDrKrdyZWWv75Tq8GWsYN+SDw+XTiA=="
+      },
+      "node_modules/@expo/cli/node_modules/picomatch": {
+        "version": "4.0.7",
+        "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="
+      },
+      "node_modules/@expo/metro-config": {
+        "version": "57.0.14",
+        "integrity": "sha512-kKC1A1W0Xwmdp7VwWxTvKchyPQM5+IZoYjy9iFa0ftq920MYSsPnCONGolOlrIKImfgJH2UIMXvAFmC6HnT+aw=="
+      },
+      "node_modules/@expo/metro-config/node_modules/picomatch": {
+        "version": "4.0.7",
+        "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="
+      },
+      "node_modules/jest-util": {
+        "version": "29.7.0",
+        "integrity": "sha512-z6EbKajIpqGKU56y5KBUgy1dt1ihhQJgWzUlZHArA/+X2ad7Cb5iF+AK1EWVL/Bo7Rz9uurpqw6SiBCefUbCGA=="
+      },
+      "node_modules/micromatch": {
+        "version": "4.0.8",
+        "integrity": "sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA=="
+      },
+      "node_modules/picomatch": {
+        "version": "2.3.2",
+        "integrity": "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA=="
+      },
+      "node_modules/tinyglobby": {
+        "version": "0.2.17",
+        "integrity": "sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g=="
+      },
+      "node_modules/tinyglobby/node_modules/fdir": {
+        "version": "6.5.0",
+        "integrity": "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="
+      },
+      "node_modules/tinyglobby/node_modules/picomatch": {
+        "version": "4.0.4",
+        "integrity": "sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A=="
+      },
+      "node_modules/vite": {
+        "version": "8.2.1",
+        "integrity": "sha512-EU/eS7BH3XROHh2YnBefjM6DBKA6ZeMZEYQbj7NLWg5wHYlhB8B/Mayd5XsgWq+NFYccDOTemRpdETWR6Ka/lw=="
+      },
+      "node_modules/vite/node_modules/picomatch": {
+        "version": "4.0.5",
+        "integrity": "sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A=="
+      },
+      "node_modules/vitest": {
+        "version": "4.1.10",
+        "integrity": "sha512-R9jUTe5S4Qb0HCd4TNqpC7oGcrMssMRGXLW80ubjWsW9VH5GF8y1Y0SFLY9AbqSk6nt0PnOx4H4WNJYZ13GUPw=="
+      },
+      "node_modules/vitest/node_modules/picomatch": {
+        "version": "4.0.5",
+        "integrity": "sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A=="
+      }
+    },
+    "declarations": {
+      "picomatch": {
+        "node_modules/@expo/cli": {
+          "dependencies": "^4.0.4"
+        },
+        "node_modules/@expo/metro-config": {
+          "dependencies": "^4.0.4"
+        },
+        "node_modules/jest-util": {
+          "dependencies": "^2.2.3"
+        },
+        "node_modules/micromatch": {
+          "dependencies": "^2.3.1"
+        },
+        "node_modules/tinyglobby": {
+          "dependencies": "^4.0.4"
+        },
+        "node_modules/tinyglobby/node_modules/fdir": {
+          "peerDependencies": "^3 || ^4"
+        },
+        "node_modules/vite": {
+          "dependencies": "^4.0.5"
+        },
+        "node_modules/vitest": {
+          "dependencies": "^4.0.3"
+        }
+      }
+    }
   }
 };
 

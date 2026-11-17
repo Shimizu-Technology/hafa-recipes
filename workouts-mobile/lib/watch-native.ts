@@ -17,11 +17,13 @@ export async function nativeWatchBridge(): Promise<WatchBridge | null> {
 }
 
 /** Sign-out keeps unimported results for the same application account's return. */
-let plansEpoch = 0;
+let plansEpoch = 0, suspended = false;
 export const watchPlansEpoch = () => plansEpoch;
-export async function clearWatchPlans() { plansEpoch++; await (await nativeWatchBridge())?.clearPlans(); }
+export const watchSyncSuspended = () => suspended;
+/** Stays suspended until resumed, so a data refresh during a pending sign-out cannot republish plans. */
+export async function clearWatchPlans() { plansEpoch++; suspended = true; await (await nativeWatchBridge())?.clearPlans(); }
 
-// Cleanup invalidates in-flight passes. Only a failed sign-out explicitly resumes the mounted account.
+// Cleanup invalidates in-flight passes. A failed sign-out, a finished local erase or a newly mounted account resumes.
 let resyncToken = 0;
 const resyncListeners = new Set<() => void>();
 export const watchResyncToken = () => resyncToken;
@@ -29,4 +31,4 @@ export function subscribeWatchResync(listener: () => void) {
   resyncListeners.add(listener);
   return () => { resyncListeners.delete(listener); };
 }
-export function resumeWatchSync() { resyncToken++; resyncListeners.forEach(listener => listener()); }
+export function resumeWatchSync() { suspended = false; resyncToken++; resyncListeners.forEach(listener => listener()); }

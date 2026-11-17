@@ -1,5 +1,5 @@
 const watch = vi.hoisted(() => ({ clear: vi.fn(async () => undefined), resume: vi.fn() }));
-vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: watch.clear, resumeWatchSync: watch.resume, subscribeWatchResync: () => () => {}, watchResyncToken: () => 0, nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
+vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: watch.clear, resumeWatchSync: watch.resume, subscribeWatchResync: () => () => {}, watchResyncToken: () => 0, watchSyncSuspended: () => false, nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
 import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
@@ -228,7 +228,9 @@ it("revokes native sharing before sign-out and preserves setup recovery when cle
   expect(await setup.pending("session_A", "user_A")).toBe(true);
   gate.revoke.mockResolvedValue(undefined); gate.clerk.signOut.mockResolvedValue(undefined);
   watch.clear.mockRejectedValueOnce(Error("watchAppNotInstalled"));
+  const clears = watch.clear.mock.calls.length;
   await act(async () => leave());
+  expect(watch.clear.mock.calls.length).toBe(clears + 1);
   expect(gate.revoke.mock.invocationCallOrder.at(-1)).toBeLessThan(gate.clerk.signOut.mock.invocationCallOrder[0]);
   expect(await setup.pending("session_A", "user_A")).toBe(false);
   expect(await setup.recoverable("user_A")).toBe(true);

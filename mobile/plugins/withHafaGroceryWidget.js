@@ -20,6 +20,7 @@ const SOURCE_FILES = [
   'HafaWidgetSections.swift',
   'HafaWidgetListLayout.swift',
   'SetGroceryItemCheckedIntent.swift',
+  'ToggleGrocerySectionIntent.swift',
   'HafaWidgetShared.swift',
 ];
 const RESOURCE_FILES = ['PrivacyInfo.xcprivacy'];

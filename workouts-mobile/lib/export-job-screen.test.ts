@@ -238,6 +238,7 @@ it("Workouts-only deletion purges the retired generation and retries cleanup wit
   expect(JSON.stringify(renderer!.toJSON())).toContain("Watch results still need cleanup");
   // Enrollment may have advanced before a device-only cleanup retry.
   f.generation = 4;
+  await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(AccountData))); });
   await press("Retry device cleanup");
   expect(f.remove).toHaveBeenCalledOnce();
   expect(f.purge).toHaveBeenLastCalledWith("screen-owner", "screen-owner:3");

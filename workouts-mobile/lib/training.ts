@@ -546,7 +546,8 @@ export function createTrainingStore(
         });
         // A permanent rejection only needs attention for this result; keep sending the rest.
         if (transient) break;
-        previousRejection = status ?? null;
+        // Quick-workout creation is a different request; only session uploads count toward the streak.
+        if (!preparation) previousRejection = status ?? null;
       }
     }
   }

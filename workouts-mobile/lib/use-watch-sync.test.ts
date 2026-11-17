@@ -2,10 +2,11 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
 import type { TrainingStore } from "./training";
-const f = vi.hoisted(() => ({ epoch: 0, listeners: [] as Array<() => void>, pending: vi.fn(async () => []), setPlans: vi.fn(),
+const f = vi.hoisted(() => ({ epoch: 0, suspended: false, listeners: [] as Array<() => void>, pending: vi.fn(async () => []), setPlans: vi.fn(),
   token: 0, resync: new Set<() => void>(), saves: vi.fn(), catalog: {} as Record<string, unknown>, remove: vi.fn() }));
 vi.mock("react-native", () => ({ AppState: { currentState: "active", addEventListener: () => ({ remove: f.remove }) } }));
-vi.mock("./watch-native", () => ({ watchPlansEpoch: () => f.epoch, watchResyncToken: () => f.token,
+vi.mock("./watch-native", () => ({ watchPlansEpoch: () => f.epoch, watchResyncToken: () => f.token, watchSyncSuspended: () => f.suspended,
+  resumeWatchSync: () => { f.suspended = false; f.token++; f.resync.forEach(fn => fn()); },
   subscribeWatchResync: (listener: () => void) => { f.resync.add(listener); return () => { f.resync.delete(listener); }; }, nativeWatchBridge: async () => ({
   pendingResults: f.pending, setPlans: f.setPlans, markImported: vi.fn(), addListener: () => ({ remove: f.remove }),
 }) }));
@@ -33,19 +34,34 @@ it("debounces store bursts, skips identical contexts and refuses stale writes af
   f.listeners.forEach(fn => fn());
   await act(async () => { await vi.advanceTimersByTimeAsync(300); }); expect(f.pending).toHaveBeenCalledTimes(2); expect(f.setPlans).toHaveBeenCalledOnce();
   expect(f.saves).toHaveBeenCalledOnce();
-  f.epoch++; f.listeners.forEach(fn => fn());
+  const clear = () => { f.epoch++; f.suspended = true; };
+  clear(); f.listeners.forEach(fn => fn());
   await act(async () => { await vi.advanceTimersByTimeAsync(300); }); expect(f.pending).toHaveBeenCalledTimes(2);
   // Failed sign-out resumes the same mounted account. A later store change sends plans again.
-  await act(async () => { f.token++; f.resync.forEach(fn => fn()); });
+  await act(async () => { f.suspended = false; f.token++; f.resync.forEach(fn => fn()); });
   f.listeners.forEach(fn => fn());
   await act(async () => { await vi.advanceTimersByTimeAsync(300); });
   expect(f.setPlans).toHaveBeenCalledTimes(2);
-  // Successful local erase changes the storage lease even when server deletion fails.
-  f.epoch++;
+  // Sign-out pending: new library data restarts the effect at the new epoch, but plans stay off the watch.
+  clear();
+  const changed = [{ ...library[0], title: "Changed class" }];
+  context.api.library = () => changed;
+  await act(async () => tree.update(createElement(Harness)));
+  f.listeners.forEach(fn => fn());
+  await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+  expect(f.setPlans).toHaveBeenCalledTimes(2);
+  // A finished local erase resumes the signed-in account even when server deletion then fails.
   context.storage = { isCurrent: () => true };
+  await act(async () => { f.suspended = false; f.token++; f.resync.forEach(fn => fn()); });
   await act(async () => tree.update(createElement(Harness)));
   f.listeners.forEach(fn => fn());
   await act(async () => { await vi.advanceTimersByTimeAsync(300); });
   expect(f.setPlans).toHaveBeenCalledTimes(3);
   await act(async () => tree.unmount()); expect(f.listeners).toHaveLength(0);
+  // The next signed-in mount is a new account session; an old suspension does not carry over.
+  clear();
+  await act(async () => { tree = create(createElement(Harness)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+  expect(f.suspended).toBe(false); expect(f.setPlans).toHaveBeenCalledTimes(4);
+  await act(async () => tree.unmount());
 });
