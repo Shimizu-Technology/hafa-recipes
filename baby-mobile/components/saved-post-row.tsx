@@ -87,13 +87,14 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
         cachePolicy="memory" contentFit="cover" transition={150} onError={() => setBroken(thumbnail)} />}
     </View>
     <View style={{ flex: stacked ? undefined : 1, minWidth: 0, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
-      <Copy kind="label" lines={wraps ? undefined : 2}>{title}</Copy>
-      {!!gist && <Copy kind="small" tone="muted" lines={wraps ? undefined : 2}>{gist}</Copy>}
-      {update || meta || !timing ? <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={wraps ? undefined : 1}>
+      {/* Stacking gives a long title the full width; the cap keeps a word like "contractions" whole at the largest size. */}
+      <Copy kind="label" limit={2.4} lines={wraps ? undefined : 2}>{title}</Copy>
+      {!!gist && <Copy kind="small" tone="muted" limit={2.2} lines={wraps ? undefined : 2}>{gist}</Copy>}
+      {update || meta || !timing ? <Copy kind="small" limit={2.2} tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={wraps ? undefined : 1}>
         {update || meta || [record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
       </Copy> : <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, paddingTop: 2 }}>
         <Pill icon="calendar-outline" label={timing} />
-        {!!(record.data.creator || identity) && <Copy kind="small" tone="muted" lines={wraps ? undefined : 1}>{record.data.creator || identity}</Copy>}
+        {!!(record.data.creator || identity) && <Copy kind="small" tone="muted" limit={2.2} lines={wraps ? undefined : 1}>{record.data.creator || identity}</Copy>}
       </View>}
     </View>
   </PressTarget>;
