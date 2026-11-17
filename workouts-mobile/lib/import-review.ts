@@ -17,19 +17,29 @@ export const intervalWord = (block: Block) => (block.execution?.mode === "emom" 
 
 /**
  * "Minute 1 … Minute N" rows, one move each, say the moves take turns. Read from the part's own wording: its
- * notes, each move's note and each move's name (the source often stores a "Minute 3" header there).
+ * notes, each move's note and each move's name (the source often stores a "Minute 3" header there). Only a plain
+ * one-move-per-minute list counts: as many minutes as moves (a rest minute the import left out included). Two moves
+ * in one minute ("Minute 1: Snatches + Sit-Ups") or "both moves each minute" leaves the choice to the user, because
+ * guessing wrong changes the workout.
  */
 export function inferRotation(block: Block): "alternating" | null {
   if (block.execution?.mode !== "emom" || block.exercises.length < 2) return null;
   const words = [...(block.instructions ?? []), ...block.exercises.flatMap(e => [e.name, e.instructions ?? ""])];
+  if (words.some(word => /\b(?:both|all|every|each)\s+(?:of\s+(?:them|the)\s+)?(?:moves?|movements?|exercises?)\b|\btogether\b/i.test(word)))
+    return null;
   const minutes = new Set<number>();
   for (const word of words)
-    for (const match of word.matchAll(/\bmin(?:ute)?s?\s*(\d+)(?:\s*[-–]\s*(\d+))?/gi)) {
+    for (const match of word.matchAll(/\bmin(?:ute)?s?\s*(\d+)(?:\s*[-–]\s*(\d+))?([^\n]*)/gi)) {
+      // A joined line ("Minute 1: Snatches + Sit-Ups") holds several moves in one minute.
+      if (/[+&]|\band\b/i.test(match[3])) return null;
       const from = Number(match[1]), to = match[2] ? Number(match[2]) : from;
-      // A header such as "Minutes 1 - 2" names every minute it covers, but a stray "every 3 minutes" does not.
+      // A header such as "Minutes 1 - 5" names every minute it covers, but a stray "every 3 minutes" does not.
       if (to >= from && to - from < 100) for (let n = from; n <= to; n++) minutes.add(n);
     }
-  return minutes.size >= 2 && minutes.size >= block.exercises.length ? "alternating" : null;
+  const rests = block.exercises.filter(e => /^\s*rest\b/i.test(e.name)).length;
+  const restMinuteMissing = rests === 0 && words.some(word => /\brest\b/i.test(word)) ? 1 : 0;
+  return minutes.size >= 2 && (minutes.size === block.exercises.length || minutes.size === block.exercises.length + restMinuteMissing)
+    ? "alternating" : null;
 }
 
 /** The workout as it will be saved: a rotation the source makes plain is chosen, so Save is never blocked by it. */
@@ -93,12 +103,20 @@ export function reviewNotices(warnings: readonly string[], workout: AuthoredWork
   for (const text of warnings.map(warning => warning.trim()).filter(Boolean)) {
     if (seen.has(text)) continue;
     seen.add(text);
+    const lower = text.toLowerCase();
+    const indices = blocks.map((_, index) => index);
+    const naming = (from: number[]) => from.filter(index => blocks[index].exercises.some(e => e.name.trim().length >= 4 && lower.includes(e.name.trim().toLowerCase())));
     const letter = text.match(/\bPart\s+([A-Z])\b/)?.[1];
-    let at = letter ? blocks.findIndex(block => new RegExp(`^\\s*${letter}\\s*[.:)-]`).test(block.label)) : -1;
-    if (at < 0) at = blocks.findIndex(block => block.label.trim().length >= 3 && text.toLowerCase().includes(block.label.trim().toLowerCase()));
-    if (at < 0) {
-      const named = blocks.map((block, index) => ({ index, hit: block.exercises.some(e => e.name.trim().length >= 4 && text.toLowerCase().includes(e.name.trim().toLowerCase())) })).filter(item => item.hit);
-      if (named.length === 1) at = named[0].index;
+    let at = -1;
+    if (letter) {
+      // A part the warning names but the workout lacks stays unlinked rather than borrowing another part.
+      const lettered = indices.filter(index => new RegExp(`^\\s*${letter}\\s*[.:)-]`).test(blocks[index].label));
+      if (lettered.length === 1) at = lettered[0];
+    } else {
+      const labelled = indices.filter(index => blocks[index].label.trim().length >= 3 && lower.includes(blocks[index].label.trim().toLowerCase()));
+      // Two parts with the same label ("Circuit") are told apart by the move the warning names.
+      const candidates = labelled.length === 1 ? labelled : naming(labelled.length ? labelled : indices);
+      if (candidates.length === 1) at = candidates[0];
     }
     const named = at >= 0 && (/^Part\s+[A-Z]\b/.test(text) || text.toLowerCase().startsWith(blocks[at].label.trim().toLowerCase()));
     notices.push({ text, blockId: at >= 0 ? blocks[at].id : null, part: at >= 0 ? partName(blocks[at], at) : null, kind: informational(text) ? "info" : "check", ...(named ? { named } : {}) });

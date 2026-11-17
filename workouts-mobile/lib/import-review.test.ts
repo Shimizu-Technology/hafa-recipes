@@ -29,6 +29,18 @@ describe("rotation default", () => {
     expect(inferRotation(block(only(["Minute 1"]), "b"))).toBeNull();
     expect(inferRotation(block(only(["Minute 1–3"]), "b"))).toBeNull(); // five moves, three minutes
   });
+  it("does not guess when a minute holds several moves or every move runs each minute", () => {
+    const pair = (instructions: string[]) => ({ ...workout, blocks: workout.blocks.map(b => b.id !== "b" ? b : { ...b, instructions,
+      exercises: [{ name: "Dumbbell Snatch", reps_min: 10, reps_max: 10 }, { name: "Sit-up", reps_min: 15, reps_max: 15 }] }) }) as AuthoredWorkout;
+    expect(inferRotation(block(pair(["Minutes 1–8: do both moves each minute."]), "b"))).toBeNull();
+    expect(inferRotation(block(pair(["Minute 1: Snatches + Sit-Ups", "Minute 2: Rest"]), "b"))).toBeNull();
+    expect(inferRotation(block(pair(["Minute 1: Snatches", "Minute 2: Sit-Ups"]), "b"))).toBe("alternating");
+  });
+  it("counts a rest minute the import left out", () => {
+    const rest = { ...workout, blocks: workout.blocks.map(b => b.id !== "b" ? b : { ...b, exercises: b.exercises.slice(0, 2),
+      instructions: ["Minute 1 Row", "Minute 2 Echo Bike", "Minute 3 Rest for 1 minute"] }) } as AuthoredWorkout;
+    expect(inferRotation(block(rest, "b"))).toBe("alternating");
+  });
   it("never overrides a choice that was made", () => {
     const chosen = setPartRotation(workout, "b", "together");
     expect(withReviewDefaults(chosen)).toBe(chosen);
@@ -90,6 +102,14 @@ describe("notices", () => {
   it("links a warning that names one move only", () => {
     expect(reviewNotices(["Per-side details for Side Plank are unspecified; review the source."], workout)[0]).toMatchObject({ blockId: "c", kind: "check" });
     expect(reviewNotices(["Per-side details for Burpee are unspecified; review the source."], workout)[0].blockId).toBe("b");
+  });
+  it("tells two parts with the same label apart by the move, and leaves a missing part unlinked", () => {
+    const circuits = { ...workout, blocks: [
+      { ...block(workout, "a"), id: "x", label: "Circuit", exercises: [{ name: "Back Squat", sets: 3 }] },
+      { ...block(workout, "c"), id: "y", label: "Circuit" }] } as AuthoredWorkout;
+    expect(reviewNotices(["Circuit: Side Plank needs source review."], circuits)[0].blockId).toBe("y");
+    expect(reviewNotices(["Circuit needs source review."], circuits)[0].blockId).toBeNull();
+    expect(reviewNotices(["Part D was read from the page layout; review it. Side Plank too."], workout)[0].blockId).toBeNull();
   });
 });
 
