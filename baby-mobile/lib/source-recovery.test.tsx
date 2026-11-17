@@ -14,7 +14,7 @@ vi.mock("@/lib/models", () => import("./models"));
 vi.mock("react-native", () => ({ Linking: { openURL: vi.fn() }, Text: "Text", View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("../components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", Section: "Section",
-  fonts: {}, typeScale: {}, useColors: () => ({}), useToast: () => mock.toast }));
+  fonts: {}, sectionHeadingLimit: 2.2, typeScale: {}, useColors: () => ({}), useToast: () => mock.toast }));
 vi.mock("../components/disclosure", () => ({ Disclosure: "Disclosure" }));
 vi.mock("../components/timing-editor", () => ({ TimingEditor: "TimingEditor", TimingRow: "TimingRow" }));
 vi.mock("../components/share-toggle", () => ({ ShareToggle: "ShareToggle", whoCanSee: () => null }));

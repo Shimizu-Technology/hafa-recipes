@@ -5,7 +5,7 @@ import type { BabyRecord, Relevance } from "@/lib/models";
 import { sourceProcessingNotes, sourceEvidenceItems } from "@/lib/models";
 import { pointParts, readSummary } from "../lib/source-reading";
 import { timingLabel } from "@/lib/timing";
-import { Button, Card, Copy, Grouped, Icon, Notice, fonts, typeScale, useColors } from "./ui";
+import { Button, Card, Copy, Grouped, Icon, Notice, fonts, sectionHeadingLimit, typeScale, useColors } from "./ui";
 import { Disclosure } from "./disclosure";
 import { TimingEditor, TimingRow } from "./timing-editor";
 import { SourceRecovery } from "./source-recovery";
@@ -21,17 +21,19 @@ function Eyebrow({ children }: { children: string }) {
 
 /** Numbered points in a card, each with its slide reference on a quiet line below. */
 function NumberedCard({ title, items }: { title: string; items: string[] }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), badge = Math.round(24 * Math.min(fontScale, 1.6));
+  const c = useColors(), { fontScale } = useWindowDimensions(), badge = Math.round(24 * Math.min(fontScale, 1.6)),
+    // At the largest sizes the number sits above its point, so long words keep the card's full width.
+    stacked = fontScale >= 2;
   return <Card>
-    <Copy kind="heading">{title}</Copy>
+    <Copy kind="heading" limit={sectionHeadingLimit}>{title}</Copy>
     {items.map((item, index) => {
       const { text, ref } = pointParts(item);
       return <View key={index} accessible accessibilityLabel={[`${index + 1}. ${text}`, ref].filter(Boolean).join(". ")}
-        style={{ flexDirection: "row", gap: 12, alignItems: "flex-start", paddingTop: 4 }}>
+        style={{ flexDirection: stacked ? "column" : "row", gap: stacked ? 6 : 12, alignItems: "flex-start", paddingTop: 4 }}>
         <View style={{ width: badge, height: badge, borderRadius: badge / 2, backgroundColor: c.soft, alignItems: "center", justifyContent: "center", marginTop: 1 }}>
           <Text allowFontScaling={false} style={{ fontFamily: fonts.semibold, fontSize: Math.round(badge * 0.5), color: c.muted, fontVariant: ["tabular-nums"] }}>{index + 1}</Text>
         </View>
-        <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flex: stacked ? undefined : 1, alignSelf: stacked ? "stretch" : undefined, gap: 2 }}>
           <Copy>{text}</Copy>
           {!!ref && <Copy kind="small" tone="muted">{ref}</Copy>}
         </View>

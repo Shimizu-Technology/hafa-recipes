@@ -10,7 +10,7 @@ vi.mock("@/lib/source-title", () => import("./source-title"));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("../components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable",
-  fonts: {}, radii: {}, typeScale: {}, useColors: () => ({}) }));
+  fonts: {}, radii: {}, sectionHeadingLimit: 2.2, typeScale: {}, useColors: () => ({}) }));
 vi.mock("../components/disclosure", () => ({ Disclosure: "Disclosure" }));
 vi.mock("../components/timing-editor", () => ({ TimingEditor: "TimingEditor", TimingRow: "TimingRow" }));
 vi.mock("../components/source-recovery", () => ({ SourceRecovery: "SourceRecovery" }));
@@ -68,6 +68,9 @@ it("stacks the actions at the largest text sizes", async () => {
   const row = content.root.findAllByType("View" as React.ElementType).find((node) => node.findAllByType("Button" as React.ElementType).length === 2
     && node.props.style?.gap === 12)!;
   expect(row.props.style.flexDirection).toBe("column");
+  // Each numbered point puts its number above the words.
+  const point = content.root.findAll((node) => String(node.props.accessibilityLabel ?? "").startsWith("1. Feeding"))[0];
+  expect(point.props.style.flexDirection).toBe("column");
 });
 
 it("keeps timing, what was read, reading again and who can see it closed under More about this post", async () => {
