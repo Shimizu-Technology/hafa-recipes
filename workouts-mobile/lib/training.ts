@@ -122,10 +122,18 @@ export const syncedHistoryLimit = 20;
 export function ranFormatTimer(history: readonly SavedLocalSession[], clientSessionId: string) {
   return history.some((item) => item.request.client_session_id === clientSessionId && item.timed_format === true);
 }
-export function pruneHistory(history: SavedLocalSession[]) {
-  let synced = 0;
-  return history.filter((item) => item.state !== "synced" || !!item.watch || !!item.unsent_results || ++synced <= syncedHistoryLimit);
+export function pruneHistory(history: SavedLocalSession[], now = Date.now()) {
+  let synced = 0, watch = 0;
+  return history.flatMap(item => {
+    // Never discard the only copy of unsynced work or rejected scores.
+    if (item.state !== "synced" || item.unsent_results) return [item];
+    if (item.watch && ++watch <= 60 && Date.parse(item.request.started_at) >= now - 90 * 86400000) return [item];
+    if (++synced > syncedHistoryLimit) return [];
+    // Older sessions in the normal short history need only their watch HR summary.
+    return [item.watch ? { ...item, watch: { heart_rate: item.watch.heart_rate, parts: [] } } : item];
+  });
 }
+
 function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
   state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
     client_session_id: command.client_session_id, saved_id },

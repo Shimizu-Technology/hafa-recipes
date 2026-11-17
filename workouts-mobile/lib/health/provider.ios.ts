@@ -53,6 +53,8 @@ export function createHealthKitProvider(
     message:
       "Apple does not disclose read permission denial. No visible records can mean limited access or no records.",
   });
+  // Phone sync IDs name server sessions. Watch IDs name client UUIDs, and its
+  // samples remain managed in Health until cross-bundle deletion is verified.
   const ownFilter = (id: string) => ({
     metadata: { withMetadataKey: SYNC_KEY, operatorType: 4, value: syncIdentifier(id) },
   });
@@ -150,7 +152,7 @@ export function createHealthKitProvider(
       });
       const same = existing.find(
         (sample) =>
-          isOwnedSource(sample.sourceRevision.source.bundleIdentifier) &&
+          sample.sourceRevision.source.bundleIdentifier === WORKOUTS_APP_ID &&
           Number(sample.metadata[VERSION_KEY]) >= workout.revision
       );
       if (same)
@@ -202,7 +204,7 @@ export function createHealthKitProvider(
     deleteOwned: async (id) => {
       const records = await bridge.queryWorkoutSamples({ limit: PAGE_SIZE, filter: ownFilter(id) });
       const uuids = records
-        .filter((sample) => isOwnedSource(sample.sourceRevision.source.bundleIdentifier))
+        .filter((sample) => sample.sourceRevision.source.bundleIdentifier === WORKOUTS_APP_ID)
         .map((sample) => sample.uuid);
       if (uuids.length) await bridge.deleteObjects(WORKOUT_TYPE, { uuids });
     },

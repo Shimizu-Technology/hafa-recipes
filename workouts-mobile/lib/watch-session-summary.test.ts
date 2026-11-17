@@ -15,6 +15,21 @@ it("shows local HR and split durations without requiring server HR", async () =>
   await act(async () => { view!.unmount(); });
 });
 it("preserves local watch HR when ordinary synced history is pruned", () => {
-  const items = Array.from({ length: 25 }, (_, i) => ({ request: { client_session_id: String(i) }, state: "synced", watch: i === 24 ? { parts: [] } : undefined }));
+  const items = Array.from({ length: 25 }, (_, i) => ({ request: { client_session_id: String(i), started_at: new Date().toISOString() }, state: "synced", watch: i === 24 ? { parts: [] } : undefined }));
   expect(pruneHistory(items as Parameters<typeof pruneHistory>[0]).some(h => h.request.client_session_id === "24")).toBe(true);
+});
+
+it("caps full watch history by count and age, keeps small HR summaries in short history, and preserves unsynced results", () => {
+  const now = Date.parse("2026-11-17T00:00:00Z");
+  const recent = Array.from({ length: 85 }, (_, i) => ({ state: "synced", request: { client_session_id: String(i), started_at: new Date(now - i * 60000).toISOString() },
+    watch: { heart_rate: { average: 145 }, parts: [{ block_id: "a" }] } }));
+  const cast = (items: unknown) => items as Parameters<typeof pruneHistory>[0];
+  const pruned = pruneHistory(cast(recent), now);
+  expect(pruned.filter(h => h.watch?.parts.length)).toHaveLength(60);
+  expect(pruned).toHaveLength(80); expect(pruned[60].watch).toEqual({ heart_rate: { average: 145 }, parts: [] });
+  const old = recent.map(h => ({ ...h, request: { ...h.request, started_at: "2026-01-01T00:00:00Z" } }));
+  const aged = pruneHistory(cast(old), now);
+  expect(aged).toHaveLength(20); expect(aged.every(h => h.watch?.parts.length === 0)).toBe(true);
+  const queued = { ...old[0], state: "queued" }, blocked = { ...old[1], state: "blocked" }, scores = { ...old[2], unsent_results: { reason: "local scores" } };
+  expect(pruneHistory(cast([...recent, queued, blocked, scores]), now).slice(-3)).toEqual([queued, blocked, scores]);
 });
