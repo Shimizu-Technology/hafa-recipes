@@ -6,14 +6,18 @@ final class WorkoutEngineTests: XCTestCase {
   private var clock: ManualClock!
   private var recorder: FakeRecorder!
   private var store: CheckpointStore!
+  private var outbox: ClassOutbox!
 
   override func setUp() async throws {
     clock = ManualClock()
     recorder = FakeRecorder()
     store = CheckpointStore(url: temporaryURL())
+    outbox = ClassOutbox(directory: temporaryURL().deletingLastPathComponent())
   }
 
-  private func engine() -> WorkoutEngine { WorkoutEngine(recorder: recorder, store: store, clock: clock) }
+  private func engine() -> WorkoutEngine {
+    WorkoutEngine(recorder: recorder, store: store, outbox: outbox, clock: clock)
+  }
 
   private let twoParts = plan(part("A", .amrap, cap: 60, restAfter: 30), part("B", .forTime, cap: 600, rounds: 1))
 
@@ -108,6 +112,7 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertNil(record.parts[1].heartRate)
     XCTAssertEqual(record.heartRate?.max, 181)
     XCTAssertNil(store.load())
+    XCTAssertEqual(outbox.records(), [record], "kept for the phone after the checkpoint is cleared")
   }
 
   func testFailedHealthSaveKeepsTheClassForRetry() async throws {
@@ -118,9 +123,45 @@ final class WorkoutEngineTests: XCTestCase {
     await engine.finish()
     XCTAssertTrue(engine.state.isFailure)
     XCTAssertNotNil(store.load())
+    try await engine.start(twoParts, leadIn: 0)
+    XCTAssertTrue(engine.state.isFailure, "a new class never replaces one that isn't saved")
     recorder.failFinish = false
     await engine.finish()
     guard case .saved = engine.state else { return XCTFail("retry didn't save") }
+  }
+
+  func testSaveWithoutHealthKeepsTheScores() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    clock.advance(30)
+    engine.advance()
+    recorder.failFinish = true
+    await engine.finish()
+    await engine.finish(withoutHealth: true)
+    guard case .saved(let record) = engine.state else { return XCTFail("not saved: \(engine.state)") }
+    XCTAssertEqual(record.parts[0].rounds, 1)
+    XCTAssertNil(record.healthWorkoutUUID)
+    XCTAssertEqual(recorder.calls.last, "discard")
+    XCTAssertEqual(outbox.records().count, 1)
+  }
+
+  func testStartingTwiceAtOnceBeginsOneSession() async throws {
+    let engine = engine()
+    async let first: Void = engine.start(twoParts, leadIn: 0)
+    async let second: Void = engine.start(twoParts, leadIn: 0)
+    _ = try await (first, second)
+    XCTAssertEqual(recorder.calls.filter { $0.hasPrefix("begin") }.count, 1)
+  }
+
+  func testLostSessionStopsRecordingButKeepsTheClass() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    recorder.onSessionLost?()
+    XCTAssertFalse(engine.isRecording)
+    XCTAssertEqual(store.load()?.isRecording, false)
+    clock.advance(30)
+    XCTAssertEqual(engine.advance(), .applied(.round(1)))
+    XCTAssertFalse(recorder.calls.contains("part A 30"))
   }
 }
 
@@ -132,12 +173,16 @@ final class ManualClock: Clock {
 @MainActor
 final class FakeRecorder: WorkoutRecorder {
   var calls: [String] = []
+  var onSessionLost: (() -> Void)?
   var liveSession = false
   var failFinish = false
   var finishedSegments: [Segment] = []
   var syncIdentifier: String?
 
-  func begin(activityType: UInt, at date: Date) async throws { calls.append("begin \(activityType) \(offset(date))") }
+  func begin(activityType: UInt, at date: Date) async throws {
+    calls.append("begin \(activityType) \(offset(date))")
+    await Task.yield()
+  }
   func recover(inPart: Bool) async throws -> Bool {
     calls.append("recover inPart=\(inPart)")
     return liveSession
@@ -152,7 +197,7 @@ final class FakeRecorder: WorkoutRecorder {
     finishedSegments = segments
     self.syncIdentifier = syncIdentifier
     return RecordedSummary(
-      workoutUUID: UUID(), heartRate: .init(average: 150, max: 181), parts: [.init(average: 158, max: 181)])
+      workoutUUID: UUID(), heartRate: .init(average: 150, max: 181), parts: ["block-B": .init(average: 158, max: 181)])
   }
   func discard() async { calls.append("discard") }
 
