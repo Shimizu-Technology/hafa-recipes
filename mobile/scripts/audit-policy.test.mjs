@@ -52,6 +52,7 @@ const reviewedAt = Date.parse('2026-10-24T12:00:00Z');
 const buildToolAdvisories = [
   { packageName: 'decode-uri-component', source: 1243857, parent: 'node_modules/query-string' },
   { packageName: 'minimatch', source: 1244623, parent: 'node_modules/@expo/fingerprint' },
+  { packageName: 'picomatch', source: 1247710, parent: 'node_modules/micromatch' },
 ];
 
 describe.each(buildToolAdvisories)('$packageName temporary dependency review', (advisory) => {
