@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { hashKey, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Button, Copy, Empty, Field, IconButton, ListGroup, ListRow, Notice, Row, Screen, Sheet, SkeletonCard, useColors } from "@/components/ui";
+import { Button, ButtonRow, Copy, Empty, Field, IconButton, ListGroup, ListRow, Notice, Screen, Sheet, SkeletonCard, useColors } from "@/components/ui";
 import { LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
 import { spacing } from "@/constants/theme";
 import { useTraining } from "@/lib/context";
@@ -157,10 +157,10 @@ export default function CollectionDetail() {
       <Sheet visible={removing} onClose={() => { if (!busy) setRemoving(false); }} title="Remove collection?">
         <Copy>Remove “{item?.title}”? Its workouts stay in your library.</Copy>
         {!!error && <Notice error>{error}</Notice>}
-        <Row gap={10}>
-          <Button title="Keep it" secondary inline disabled={busy} onPress={() => setRemoving(false)} />
-          <Button title="Remove collection" variant="destructive" inline busy={busy} onPress={() => void remove()} />
-        </Row>
+        <ButtonRow>
+          <Button title="Keep it" secondary disabled={busy} onPress={() => setRemoving(false)} />
+          <Button title="Remove collection" variant="destructive" busy={busy} onPress={() => void remove()} />
+        </ButtonRow>
       </Sheet>
     </Screen>
   );

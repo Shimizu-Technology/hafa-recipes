@@ -99,7 +99,6 @@ export default function ShareToDiscover() {
                 <Button
                   title={`Open ${failure.workout.title}`}
                   variant="secondary"
-                  inline
                   onPress={() => router.push({ pathname: "/workout/[id]", params: { id: failure.workout.id } })}
                 />
               )}

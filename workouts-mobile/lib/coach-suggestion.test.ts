@@ -14,7 +14,7 @@ vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: "owner", enrollme
   acceptCoachAction: f.accept, undoCoachAction: f.undo } }) }));
 vi.mock("expo-router", () => ({ router: { push: f.push, back: vi.fn(), canGoBack: () => true }, useLocalSearchParams: () => ({ id: "proposal", generation: "1", state: f.state }) }));
 vi.mock("react-native", () => ({ View: "View" }));
-vi.mock("@/components/ui", () => ({ ...Object.fromEntries(["Button", "Card", "Copy", "Field", "ListGroup", "ListRow", "Notice", "Row", "SkeletonCard"].map(name => [name, name])),
+vi.mock("@/components/ui", () => ({ ...Object.fromEntries(["Button", "ButtonRow", "Card", "Copy", "Field", "ListGroup", "ListRow", "Notice", "Row", "SkeletonCard", "Stack"].map(name => [name, name])),
   Screen: (props: { children?: React.ReactNode; footer?: React.ReactNode }) => createElement("Screen", props, props.children, createElement("Footer", null, props.footer)) }));
 vi.mock("@/components/coach-action-preview", () => ({ CoachActionPreview: "CoachActionPreview" }));
 import { CoachSuggestionCard } from "../components/coach-suggestion";

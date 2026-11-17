@@ -136,7 +136,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   const cell = footerCellWidth(width);
   const action = (title: string, props: Omit<ComponentProps<typeof Button>, "title" | "size" | "maxScale">, alone = false) => (
     <View key={title} style={{ width: alone ? "100%" : cell }}>
-      <Button title={title} size="lg" {...props} icon={undefined} maxScale={footerLabelScale(title, (alone ? cell * 2 : cell) - 12, fontScale)} />
+      <Button title={title} {...props} icon={undefined} maxScale={footerLabelScale(title, (alone ? cell * 2 : cell) - 12, fontScale)} />
     </View>
   );
   const cells = (...items: ReactNode[]) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>{items}</View>;
@@ -144,19 +144,19 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   const missTitle = format.mode === "work_rest" ? "Skip" : "Missed";
   const doneDisabled = !typedValid || doseless.some((i) => countFor(i) == null);
   const primary = canComplete ? (
-    <Button title="Save session" icon="checkmark-done" size="lg" busy={busy} onPress={() => finish("completed")} />
+    <Button title="Save session" icon="checkmark-done" busy={busy} onPress={() => finish("completed")} />
   ) : format.mode === "for_time" ? (
-    step && !capReached ? <Button size="lg" icon="checkmark" busy={busy}
+    step && !capReached ? <Button icon="checkmark" busy={busy}
       title={(block.rounds ?? 1) === 1 ? "Done · stop the clock" : target === (block.rounds ?? 1) ? `Round ${target} done · stop the clock` : `Round ${target} done`}
       onPress={() => log(targetSteps.map((s) => actualFor(s, true, null, null)))} />
-      : <Button title="Save capped result" icon="checkmark-done" size="lg" busy={busy} disabled={!typedValid} onPress={stopEarly} />
+      : <Button title="Save capped result" icon="checkmark-done" busy={busy} disabled={!typedValid} onPress={stopEarly} />
   ) : step && started ? (grid ? null : (
     <View style={{ flexDirection: "row", gap: 12 }}>
       <View style={{ flex: 2 }}>
-        <Button size="lg" icon="checkmark" busy={busy} disabled={doneDisabled} title={doneTitle} onPress={() => mark(true)} />
+        <Button icon="checkmark" busy={busy} disabled={doneDisabled} title={doneTitle} onPress={() => mark(true)} />
       </View>
       <View style={{ flex: 1 }}>
-        <Button size="lg" variant="secondary" disabled={busy || !typedValid} title={missTitle} onPress={() => mark(false)} />
+        <Button variant="secondary" disabled={busy || !typedValid} title={missTitle} onPress={() => mark(false)} />
       </View>
     </View>
   )) : null;

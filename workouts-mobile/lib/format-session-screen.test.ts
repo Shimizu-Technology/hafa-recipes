@@ -203,11 +203,11 @@ it("lays the footer actions out as a two-column grid at the largest text sizes a
   const footer = renderer!.root.findByType("Screen" as never).props.footer;
   const buttons = elements(footer).filter((n) => n.type === "Button");
   expect(buttons.map((n) => n.props.title)).toEqual(["Done", "Missed", "Pause", "Finish"]);
-  // Two cells per row (four actions in two rows), wrapped inside the row; buttons keep their 44pt-plus size and drop icons.
+  // Two cells per row (four actions in two rows), wrapped inside the row; buttons drop icons.
   const rows = elements(footer).filter((n) => n.type === "View" && n.props.style?.flexWrap === "wrap");
   expect(rows).toHaveLength(2);
   expect(rows.map((row) => elements(row.props.children).filter((n) => n.type === "Button").length)).toEqual([2, 2]);
-  expect(buttons.every((n) => n.props.size === "lg" && n.props.icon === undefined)).toBe(true);
+  expect(buttons.every((n) => n.props.icon === undefined)).toBe(true);
   // A label may still grow with the setting, but never past the size where its longest word fits its cell.
   const done = buttons[0].props.maxScale, missed = buttons[1].props.maxScale;
   expect(done).toBeGreaterThanOrEqual(1);

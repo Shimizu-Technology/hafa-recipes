@@ -7,27 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, router, useFocusEffect } from "expo-router";
-import {
-  Button,
-  Chip,
-  ChipRow,
-  Choice,
-  Copy,
-  Empty,
-  Field,
-  FilterButton,
-  ListGroup,
-  ListRow,
-  Notice,
-  Row,
-  Screen,
-  SearchField,
-  Segmented,
-  Sheet,
-  SkeletonCard,
-  haptics,
-  useColors,
-} from "@/components/ui";
+import { Button, ButtonRow, Chip, ChipRow, Choice, Copy, Empty, Field, FilterButton, haptics, ListGroup, ListRow, Notice, Row, Screen, SearchField, Segmented, Sheet, SkeletonCard, useColors } from "@/components/ui";
 import { CollectionCard, LIBRARY_GRID_GAP, LibraryCard, NewCollectionCard, useLibraryGridWidth } from "@/components/library-card";
 import { spacing } from "@/constants/theme";
 import { useTraining } from "@/lib/context";
@@ -216,10 +196,10 @@ export default function Library() {
       {screenHeader}
       {selecting ? (
         <Row justify="space-between">
-          <Button title="Done" variant="ghost" size="sm" inline disabled={bulkBusy}
+          <Button title="Done" variant="ghost" inline disabled={bulkBusy}
             onPress={() => interact(() => { setSelecting(false); setSelectedIds([]); setBulkMessage(""); setBulkError(""); })} />
           <Copy kind="label">{selectedIds.length} selected</Copy>
-          <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length || q.isPlaceholderData}
+          <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" inline disabled={bulkBusy || !visible.length || q.isPlaceholderData}
             onPress={() => interact(() => { setSelectedIds(allSelected ? [] : [...new Set([...selectedIds, ...visible.map((w) => w.id)])]); setBulkMessage(""); setBulkError(""); })} />
         </Row>
       ) : <>
@@ -368,10 +348,10 @@ export default function Library() {
             selected={collection === item.id} onPress={() => setCollection(item.id)} />
         ))}
         {collections.error && <Notice error>{collections.error.message}</Notice>}
-        <Row gap={10}>
-          <Button title="Clear filters" secondary inline onPress={clear} />
-          <Button title="Show workouts" inline onPress={() => setFilters(false)} />
-        </Row>
+        <ButtonRow>
+          <Button title="Clear filters" secondary onPress={clear} />
+          <Button title="Show workouts" onPress={() => setFilters(false)} />
+        </ButtonRow>
       </Sheet>
       <Sheet visible={bulkOpen} onClose={() => interact(() => setBulkOpen(false))} title="Add workouts to a collection">
         <Copy>{selectedIds.length} selected. Existing collections, favorites, tags and archive choices stay private and unchanged.</Copy>

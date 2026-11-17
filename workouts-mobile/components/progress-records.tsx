@@ -53,7 +53,7 @@ export function ProgressRecords({ records, units, active = true }: { records: Ex
         ))}
       </ListGroup>
       {records.length > 5 && (
-        <Button title={all ? "Show fewer" : `Show all ${records.length}`} variant="ghost" size="sm" inline onPress={() => setAll(!all)} />
+        <Button title={all ? "Show fewer" : `Show all ${records.length}`} variant="ghost" inline onPress={() => setAll(!all)} />
       )}
     </>
   );

@@ -121,13 +121,13 @@ export function TrainToday() {
   const recorded = active?.actuals.filter((a) => a.completed).length ?? 0;
   const library = <Button title="Browse workouts" onPress={() => router.push("/(tabs)/library")} />;
   const buildPlan = (pathname: "/build-plan" | "/profile") => (
-    <Button title="Build a plan" icon="add" size="lg" onPress={() =>
+    <Button title="Build a plan" icon="add" onPress={() =>
       router.push(pathname === "/profile" ? { pathname, params: { return_to: "build-plan" } } : pathname)} />
   );
   let hero: { title: string; detail: string; cover?: string | null; meta?: string[]; action?: ReactNode; extra?: ReactNode };
   if (active) {
     hero = { title: active.workout.title, cover: active.workout.source_thumbnail_url, detail: `${recorded} ${recorded === 1 ? "set" : "sets"} recorded so far · saved on this device`,
-      action: <Button title="Resume" icon="play" size="lg" onPress={() => router.push("/training")} /> };
+      action: <Button title="Resume" icon="play" onPress={() => router.push("/training")} /> };
   } else if (planned) {
     const workout = planned.session.workout;
     hero = { title: workout.title, cover: workout.source_thumbnail_url, detail: "",
@@ -135,13 +135,11 @@ export function TrainToday() {
         .filter((x): x is string => !!x),
       action: <>
         {!offline.ready && <Copy kind="small" tone="muted">Getting this device ready to record your session…</Copy>}
-        <Button title="Start" icon="play" size="lg" disabled={!offline.ready} busy={busy} onPress={() => {
+        <Button title="Start" icon="play" disabled={!offline.ready} busy={busy} onPress={() => {
           if (planned.session.workout.blocks?.length && trackingPrescriptionWarning(planned.session.workout)) setChoosing({ program: planned.program, session: planned.session });
           else void start(planned.program, planned.session);
         }} />
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <View style={{ flex: 1 }}><Button title="Adjust today" size="sm" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} /></View>
-        </View>
+        <Button title="Adjust today" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} />
       </> };
   } else if (!profile.data) {
     hero = { title: "Set up your training", detail: "Add your goal and free days, then build a plan that fits your week.",
@@ -193,7 +191,7 @@ export function TrainToday() {
           {!!missedPlan && !active && <Button title={`${missed.length} earlier ${missed.length === 1 ? "session" : "sessions"} · Review dates`} secondary onPress={() => { setAdjust({ program: missedPlan }); setAdjustOpen(true); }} />}
           {!ancestryReady && <>
             <Copy kind="small" tone="muted">Done-day checkmarks are paused while we check your corrected results. Your saved results are in Progress.</Copy>
-            {!ancestry.isPending && <Button title="Check again" variant="secondary" size="sm" inline onPress={() => { void ancestry.refetch(); }} />}
+            {!ancestry.isPending && <Button title="Check again" variant="secondary" onPress={() => { void ancestry.refetch(); }} />}
           </>}
         </View>
       </QueryState>

@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef } fr
 import { ActivityIndicator, AppState, Image, Linking } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, Field, ListRow, Notice, Screen, SectionHeader, Skeleton } from "@/components/ui";
+import { Button, Card, Chip, ChipRow, Choice, Copy, Empty, Field, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutEditor } from "@/components/workout-editor";
 import { QueryState } from "@/components/query-state";
@@ -436,7 +436,7 @@ export default function ImportReview() {
         {result && (
           <>
             {!hasExercises && reviewMessage && <Notice tone="warning">{reviewMessage}</Notice>}
-            {isClass && workout && !savedId && <Field label="Class date (YYYY-MM-DD)" optional
+            {isClass && workout && !savedId && <Field label="Class date" placeholder="YYYY-MM-DD" optional
               disabled={busy || !routeReady || !restored} value={workout.programming?.date ?? ""}
               onChange={date => update({ ...workout, programming: { ...workout.programming, source_kind: "gym", date: date || null } })} />}
             {workout && (
@@ -512,7 +512,6 @@ export default function ImportReview() {
                 {hasExercises && <Button
                   title={q.data?.replace_target ? "Update saved workout" : sharing ? "Save and share to Discover" : "Save workout"}
                   icon={sharing ? "globe-outline" : "lock-closed-outline"}
-                  size="lg"
                   busy={busy}
                   disabled={!routeReady || !restored || busy || !!q.data?.accepted_workout_id}
                   onPress={() => {

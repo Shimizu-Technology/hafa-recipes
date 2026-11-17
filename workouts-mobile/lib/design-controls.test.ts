@@ -1,7 +1,7 @@
 vi.mock("@/components/workout-art", () => ({ WorkoutArt: "WorkoutArt" }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { light } from "../constants/theme";
 const f = vi.hoisted(() => ({ reduced: false, fontScale: 1, timing: vi.fn() }));
 vi.mock("react-native", () => {
@@ -22,7 +22,7 @@ import { LibraryCard } from "../components/library-card";
 import { DiscoverGridCard } from "../components/discover-grid-card";
 import { DiscoverCardView } from "../components/discover-card";
 import type { DiscoverCard } from "./discover";
-import { AccountButton, Button, Choice, HeaderButton, Segmented, Field, Chip, SearchField } from "../components/design/controls";
+import { AccountButton, Button, ButtonRow, Choice, HeaderButton, Segmented, Field, Chip, SearchField } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.fontScale = 1; f.timing.mockClear(); });
 afterEach(() => { act(() => view?.unmount()); });
@@ -122,6 +122,73 @@ it("keeps coral for workout starts (play icon) and ink for setup calls to action
   expect(bg({ title: "Start saving workouts" })).not.toBe(light.accent);
 });
 
+const flat = (style: unknown) => (Array.isArray(style) ? Object.assign({}, ...style.flat()) : style) as Record<string, unknown>;
+it("gives every filled button the same height, radius and padding, whatever its variant or icon", () => {
+  const look = (props: object) => {
+    act(() => { view = create(createElement(Button, { title: "Go", onPress() {}, ...props } as never)); });
+    const { minHeight, borderRadius, paddingHorizontal, alignSelf } = flat(view!.root.findByType("Pressable" as never).props.style);
+    return { minHeight, borderRadius, paddingHorizontal, alignSelf };
+  };
+  const primary = look({});
+  expect(primary).toMatchObject({ minHeight: 50, borderRadius: 12, alignSelf: "stretch" });
+  for (const props of [{ variant: "secondary" }, { variant: "destructive" }, { variant: "accent" }, { variant: "ghost" }, { secondary: true, icon: "add" }, { busy: true }])
+    expect(look(props)).toEqual(primary);
+});
+it("only a ghost button with inline is a lighter text button; inline never shrinks a filled button", () => {
+  const look = (props: object) => {
+    act(() => { view = create(createElement(Button, { title: "Go", onPress() {}, ...props } as never)); });
+    const { minHeight, alignSelf } = flat(view!.root.findByType("Pressable" as never).props.style);
+    return { minHeight, alignSelf };
+  };
+  expect(look({ variant: "ghost", inline: true })).toEqual({ minHeight: 44, alignSelf: "flex-start" });
+  expect(look({ variant: "secondary", inline: true })).toEqual({ minHeight: 50, alignSelf: "stretch" });
+});
+describe("ButtonRow", () => {
+  const row = (titles: Array<[string, string?]>, width: number) => {
+    act(() => { view = create(createElement(ButtonRow, null, ...titles.map(([title, icon]) => createElement(Button, { key: title, title, icon: icon as never, onPress() {} })))); });
+    act(() => view!.root.findAllByType("View" as never)[0].props.onLayout({ nativeEvent: { layout: { width } } }));
+    const container = view!.root.findAllByType("View" as never)[0];
+    // In a row each button sits in a cell that carries the equal-width flex; stacked, the button itself stretches.
+    const cells = view!.root.findAllByType("Pressable" as never).map(node => {
+      let cell: ReactTestRenderer["root"] | null = node.parent;
+      while (cell && (cell.type as unknown) !== "View") cell = cell.parent;
+      const style: Record<string, unknown> = { ...flat(node.props.style) };
+      return { ...style, flex: cell && cell !== container ? flat(cell.props.style).flex : undefined } as Record<string, unknown>;
+    });
+    return { direction: flat(container.props.style).flexDirection, cells };
+  };
+  it("puts short labels side by side in equal-width cells", () => {
+    const { direction, cells } = row([["Skip set", "close"], ["Undo", "arrow-undo-outline"]], 326);
+    expect(direction).toBe("row");
+    expect(cells.map(cell => [cell.flex, cell.minHeight])).toEqual([[1, 50], [1, 50]]);
+  });
+  it("stacks three labelled buttons on a phone, where each cell would be about 100pt", () => {
+    expect(row([["Paste", "clipboard-outline"], ["Screenshots", "images-outline"], ["PDF", "document-attach-outline"]], 326).direction).toBe("column");
+  });
+  it("stacks at full width when a label would not fit one line", () => {
+    const { direction, cells } = row([["Choose screenshots", "images-outline"], ["Take a photo", "camera-outline"]], 326);
+    expect(direction).toBe("column");
+    expect(cells.every(cell => cell.flex === undefined && cell.alignSelf === "stretch" && cell.minHeight === 50)).toBe(true);
+  });
+  it("keeps a disabled button's explanation inside its own cell", () => {
+    act(() => { view = create(createElement(ButtonRow, null,
+      createElement(Button, { key: "a", title: "Save", disabled: true, disabledReason: "Add a title first", onPress() {} }),
+      createElement(Button, { key: "b", title: "Undo", variant: "secondary", onPress() {} }))); });
+    act(() => view!.root.findAllByType("View" as never)[0].props.onLayout({ nativeEvent: { layout: { width: 326 } } }));
+    const container = view!.root.findAllByType("View" as never)[0];
+    expect(flat(container.props.style).flexDirection).toBe("row");
+    const cells = container.findAllByType("View" as never).filter(node => node !== container);
+    expect(cells).toHaveLength(2);
+    expect(cells.map(cell => flat(cell.props.style).flex)).toEqual([1, 1]);
+    expect(cells[0].findAllByType("Copy" as never).map(node => node.props.children)).toContain("Add a title first");
+  });
+  it("stacks equal pairs at larger text instead of squeezing the labels", () => {
+    expect(row([["Keep it"], ["Remove"]], 326).direction).toBe("row");
+    f.fontScale = 2.35;
+    expect(row([["Keep it"], ["Remove"]], 326).direction).toBe("column");
+  });
+});
+
 it("compact search keeps its accessible name without a duplicate visible label", async () => {
   await act(async () => { view = create(createElement(Field, { label: "Search Discover", hideLabel: true, value: "", onChange() {}, placeholder: "Search workouts or creators" })); });
   expect(view!.root.findByType("Input" as never).props.accessibilityLabel).toBe("Search Discover");
@@ -191,12 +258,12 @@ it("shows a filter count as an accent badge and says it to VoiceOver", () => {
   expect(view!.root.findByType("Copy" as never).props.children).toBe(2);
   act(() => button.props.onPress()); expect(onPress).toHaveBeenCalledOnce();
 });
-it("draws chips with a shape: tonal when off, ink-filled when on, 34pt with a 44pt reach", () => {
+it("draws chips with a shape: tonal when off, ink-filled when on, 36pt with a 44pt reach", () => {
   act(() => { view = create(createElement(ChipRow, { label: "Filters" }, createElement(Chip, { label: "Needs info · 2", onPress() {} }),
     createElement(Chip, { label: "Favorites", role: "button", trailingIcon: "close", selected: true, onPress() {} }))); });
   const [off, on] = view!.root.findAllByType("Pressable" as never);
-  expect(off.props.style[0]).toMatchObject({ minHeight: 34, backgroundColor: light.sunken, borderRadius: 999 });
-  expect(off.props.hitSlop).toBe(5);
+  expect(off.props.style[0]).toMatchObject({ minHeight: 36, backgroundColor: light.sunken, borderRadius: 999 });
+  expect(off.props.hitSlop).toBe(4);
   expect(on.props.style[0].backgroundColor).toBe(light.text);
   expect(on.props.accessibilityState).toEqual({ disabled: false });
   expect(view!.root.findByType("ScrollView" as never).props.horizontal).toBe(true);
@@ -220,8 +287,8 @@ it("chips and segments keep their compact look but reach 44pt, with room in thei
     size + (typeof slop === "number" ? 2 * slop : (slop.top ?? 0) + (slop.bottom ?? 0));
   act(() => { view = create(createElement(ChipRow, { label: "Filters" }, createElement(Chip, { label: "Needs info", onPress() {} }))); });
   const chip = view!.root.findByType("Pressable" as never);
-  expect(chip.props.style[0].minHeight).toBe(34);
-  expect(reach(chip.props.hitSlop, 34)).toBeGreaterThanOrEqual(44);
+  expect(chip.props.style[0].minHeight).toBe(36);
+  expect(reach(chip.props.hitSlop, 36)).toBeGreaterThanOrEqual(44);
   expect(view!.root.findByType("ScrollView" as never).props.contentContainerStyle.paddingVertical).toBeGreaterThanOrEqual(chip.props.hitSlop);
   act(() => { view!.update(createElement(ChipRow, { wrap: true, label: "Time" }, createElement(Chip, { label: "Up to 15 min", onPress() {} }))); });
   const wrapped = view!.root.findAllByType("View" as never).find(node => node.props.style?.flexWrap === "wrap")!;

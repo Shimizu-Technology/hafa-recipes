@@ -159,18 +159,18 @@ export default function SharePrescription() {
         <>
           <Copy selectable>{url}</Copy>
           {!website && <Copy kind="small" tone="muted">This build shares an app link; people need Håfa Workouts installed to open it.</Copy>}
-          <Button title="Turn off link" variant="ghost" size="sm" inline icon="link-outline" disabled={busy}
+          <Button title="Turn off link" variant="ghost" inline icon="link-outline" disabled={busy}
             onPress={() => Alert.alert("Turn off this link?", "New visits stop. Copies people already saved stay with them.", [
               { text: "Keep link", style: "cancel" },
               { text: "Turn off", style: "destructive", onPress: () => { void revoke(); } },
             ])} />
         </>
       ))}
-      {!link && <Button title="Link options" variant="ghost" size="sm" inline icon="options-outline" disabled={busy}
+      {!link && <Button title="Link options" variant="ghost" inline icon="options-outline" disabled={busy}
         onPress={() => setOptions(true)} />}
       {!!(error || q.error) && <Notice error>{error || q.error?.message}</Notice>}
       {!!error && !preview && !link && !busy && !notReady && (
-        <Button title="Try again" variant="ghost" size="sm" inline icon="refresh" onPress={refresh} />
+        <Button title="Try again" variant="ghost" inline icon="refresh" onPress={refresh} />
       )}
       <Sheet visible={options} onClose={closeOptions} title="Link options">
         <Field label="Public title" optional value={title} onChange={(v) => { setTitle(v); changed(); }}

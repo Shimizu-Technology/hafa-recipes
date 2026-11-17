@@ -147,7 +147,7 @@ vi.mock("expo-router", async () => {
 }); });
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("@/components/ui", () => {
-  const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "FilterButton", "Grow", "HeaderButton", "Segmented", "IconButton", "SearchField",
+  const names = ["AccountButton", "Button", "ButtonRow", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "FilterButton", "Grow", "HeaderButton", "Segmented", "IconButton", "SearchField",
     "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
   return { ...Object.fromEntries(names.map((name) => [name, name])),
     Screen: ({ children, footer, list, ...props }: PropsWithChildren<{ footer?: ReactNode; list?: (body: object) => ReactNode; [key: string]: unknown }>) =>
@@ -573,8 +573,9 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   for (const title of ["Favorite workout", "Organize workout", "Edit workout details", "Remove from Discover", "See it in Discover",
     "Version history", "Update from caption or link", "Delete workout"])
     expect(nodes("ListRow").filter((n) => n.props.title === title)).toHaveLength(1);
-  expect(nodes("Button").filter((n) => !n.props.inline && n.props.size !== "lg").map((n) => n.props.title)).toEqual([]);
-  expect(nodes("Button").filter((n) => n.props.size === "lg").map((n) => n.props.title)).toEqual(["Start workout"]);
+  // One filled primary on the page; every other button is a quiet text button.
+  expect(nodes("Button").filter((n) => !n.props.inline && !n.props.secondary && (n.props.variant ?? "primary") === "primary").map((n) => n.props.title)).toEqual(["Start workout"]);
+  expect(nodes("Button").filter((n) => n.props.inline && n.props.variant !== "ghost").map((n) => n.props.title)).toEqual([]);
   await act(async () => header("More workout actions")!.props.onPress());
   await act(async () => row("Remove from Discover")!.props.onPress()); await settle();
   expect(fixture.unpublishWorkout).toHaveBeenCalledWith(saved.id, saved.generation);
@@ -628,7 +629,7 @@ it("Discover detail leads with the cover, keeps one primary save and tucks repor
     "Share this workout", "More options"]);
   expect(nodes("AskCoachPill")).toHaveLength(1);
   expect(nodes("AskCoachPill")[0].props).toMatchObject({ label: "Ask about this", hint: "Saves a private copy, then opens Coach about this workout" });
-  expect(nodes("Button").filter((n) => n.props.size === "lg").map((n) => n.props.title)).toEqual(["Save to library"]);
+  expect(nodes("Button").filter((n) => !n.props.secondary && (n.props.variant ?? "primary") === "primary").map((n) => n.props.title)).toEqual(["Save to library"]);
   expect(nodes("ListRow").filter((n) => /Report|Block/.test(n.props.title)).every((n) => {
     let parent = n.parent;
     while (parent && String(parent.type) !== "Sheet") parent = parent.parent;

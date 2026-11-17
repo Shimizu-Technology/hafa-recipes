@@ -267,7 +267,6 @@ export default function ReviewPlan() {
                     <Button
                       title={`Remove ${day.label || "this session"}`}
                       variant="ghost"
-                      size="sm"
                       inline
                       icon="trash-outline"
                       disabled={busy}
@@ -377,7 +376,6 @@ export default function ReviewPlan() {
           <Button
             title="Reload and try again"
             variant="ghost"
-            size="sm"
             inline
             busy={busy}
             onPress={() => {
