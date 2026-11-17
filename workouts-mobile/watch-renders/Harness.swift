@@ -5,7 +5,15 @@ import CoreText
 // Test-only injected services. No HealthKit, persistence, intents or session side effects.
 let renderNow = Date()
 @MainActor final class WorkoutEngine: ObservableObject {
- enum State { case idle, starting, running, saving, saved, failed(String) }
+ enum State {
+  case idle, starting, running, saving, saved, failed(String)
+  var isFailure: Bool { if case .failed = self { return true }; return false }
+ }
+ enum Control { case end, skip }
+ @Published var pendingControl: Control?
+ var canSaveScoresOnly = true
+ func request(_ control: Control) { pendingControl = control }
+ func confirmControl() {}
  @Published var state: State = .idle
  @Published var runner: PartRunner?
  @Published var startError: String?
@@ -17,8 +25,13 @@ let renderNow = Date()
  func setScore(_ score: PartScore, for index: Int) {}
  func finish(withoutHealth: Bool = false) async {}
  func tick() {}
+ func completePart() {}
+ func recover() async {}
 }
+enum WorkoutStyle { case todaysClass, openTimer }
 @MainActor final class WatchRuntime: ObservableObject {
+ static let shared = WatchRuntime()
+ var startedStyle = WorkoutStyle.todaysClass
  var notice: String?; var donationFailed = false
  func advance() {}
 }
@@ -78,22 +91,47 @@ struct RenderScroll<Content: View>: View {
   r = runner(0, elapsed: 35); _ = r.tick(at: renderNow); engine.runner = r
   try shot("11-between-parts", ClassView())
   try shot("12-movements", RenderScroll { VStack(alignment: .leading, spacing: 12) { Text("Movements").font(Theme.display(26)); ForEach(r.part?.moves ?? [], id: \.index) { Text($0.text).font(.body) } } })
-  try shot("12-controls", RenderScroll { VStack(spacing: 8) { Button("Pause") {}; Button("End") {}; Button("Skip part") {} }.buttonStyle(WatchButton()) })
-  r = runner(0); _ = r.finish(at: renderNow); engine.runner = r
+  try shot("12-controls", RenderScroll { VStack(spacing: 8) {
+   Button("Pause") {}.buttonStyle(WatchButton(role: .secondary))
+   Button("End class") {}.buttonStyle(WatchButton(role: .destructive))
+   Button("Skip part") {}.buttonStyle(WatchButton(role: .destructive))
+  } })
+  r = runner(0, elapsed: 100)
+  _ = r.tick(at: renderNow)
+  _ = r.finish(at: renderNow)
+  r.setScore(PartScore(rounds: 3, reps: 7, seconds: 30), for: 0)
+  r.setScore(PartScore(rounds: 1, reps: 4, seconds: 30), for: 1)
+  let finished = r
+  engine.runner = r
   try shot("13-finish", FinishView())
   engine.state = .saved; try shot("14-saved", WatchRootView())
   engine.state = .failed("Couldn't save workout. Try again.")
   try shot("15-save-failure", FinishView())
   engine.runner = runner(0); try shot("16-always-on", ClassView().clock(engine.runner!, now: renderNow))
   r = runner(0); _ = r.advance(at: renderNow); engine.runner = r
-  try shot("17-undo", ClassView().overlay(alignment: .bottom) { Button("Undo") {}.buttonStyle(WatchButton()) })
+  try shot("17-undo", ClassView().safeAreaInset(edge: .bottom, spacing: 2) { UndoPill {} })
   engine.runner = runner(2)
   try shot("18-ignored-press", ClassView().overlay(alignment: .bottom) { Text("Clock advances this part").font(.footnote).padding(8).background(Theme.surface) })
   health.status = .notAsked; try shot("19-first-run", HomeView())
   try shot("20-action-help", HelpContent())
-  try shot("15-save-failure-actions", FinishFooter())
-  engine.runner = r
+  engine.runner = finished
+  engine.state = .failed("Couldn't save workout. Try again.")
+  try shot("15-save-failure-actions", FinishView())
+  engine.state = .running
+  engine.runner = finished
   try shot("13-score-a", RenderScroll { ScoreCard(index: 0) })
   try shot("13-score-b", RenderScroll { ScoreCard(index: 1) })
+  try shot("13-edit-rounds", ScoreEditor(index: 0))
+  try shot("13-edit-time", ScoreEditor(index: 1))
+  var skipped = finished; _ = skipped.endPart(at: renderNow)
+  var skipRunner = runner(1); _ = skipRunner.endPart(at: renderNow); engine.runner = skipRunner
+  try shot("13-skipped", RenderScroll { ScoreCard(index: 0) })
+  var openPlan = SamplePlan.plan
+  openPlan.parts = [WatchPlan.Part(blockId: "open", label: "Open effort", kind: .forTime, scored: true,
+    moves: [.init(index: 0, text: "6 air squats", isRun: false)])]
+  var open = PartRunner(plan: openPlan, leadIn: 0); _ = open.start(at: renderNow.addingTimeInterval(-42))
+  engine.runner = open; try shot("21-part-done", ClassView())
+  engine.pendingControl = .end; try shot("22-end-confirmation", ControlConfirmation())
+  engine.pendingControl = .skip; try shot("23-skip-confirmation", ControlConfirmation())
  }
 }

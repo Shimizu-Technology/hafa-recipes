@@ -13,9 +13,6 @@ with tempfile.TemporaryDirectory(prefix='hafa-render-') as tmp:
   s=(root/f'targets/watch/Views/{name}.swift').read_text()
   s=s.replace('private struct ActionHelp','struct ActionHelp').replace('private struct ScoreCard','struct ScoreCard')
   s=s.replace('.digitalCrownRotation($reps, from: 0, through: 9999, by: 1, sensitivity: .low, isContinuous: false)','')
-  if name == 'FinishView':
-   footer=s[s.index('        if let average'):s.index('\n      }\n    }')]
-   (p/'Footer.swift').write_text('import SwiftUI\nstruct FinishFooter: View { @EnvironmentObject var engine: WorkoutEngine; @State var discard = false; func save(withoutHealth: Bool = false) {} ; var body: some View { RenderScroll { VStack(spacing: 12) {\n'+footer+'\n} } } }')
   if name == 'HomeView':
    helpbody=s[s.index('        ScrollView {', s.index('struct ActionHelp')):s.index('\n      }\n  }', s.index('struct ActionHelp'))]
    (p/'Help.swift').write_text('import SwiftUI\nstruct HelpContent: View { @EnvironmentObject var runtime: WatchRuntime; var body: some View {\n'+helpbody.replace('ScrollView {', 'RenderScroll {')+'\n} }')
@@ -25,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix='hafa-render-') as tmp:
  helpers=s[s.index('  @ViewBuilder private func live'):s.index('  private func cue(')]
  helpers=helpers.replace('private func','func').replace('.handGestureShortcut(.primaryAction)','')
  rootview=s[s.index('struct WatchRootView'):s.index('struct ClassView')]
- (p/'Live.swift').write_text('import SwiftUI\n'+rootview.replace('ScrollView {', 'RenderScroll {')+'struct ClassView: View {\n @EnvironmentObject var engine: WorkoutEngine\n @EnvironmentObject var runtime: WatchRuntime\n var body: some View { live(engine.runner!, now: renderNow) }\n'+helpers.replace('ScrollView {', 'RenderScroll {')+'}\n')
+ (p/'Live.swift').write_text('import SwiftUI\n'+rootview.replace('ScrollView {', 'RenderScroll {')+'struct ClassView: View {\n @EnvironmentObject var engine: WorkoutEngine\n @EnvironmentObject var runtime: WatchRuntime\n var body: some View { live(engine.runner!, now: renderNow) }\n'+helpers.replace('ScrollView {', 'RenderScroll {')+'}\n'+s[s.index('struct UndoPill:'):])
  (p/'Harness.swift').write_text((root/'watch-renders/Harness.swift').read_text())
  (p/'Package.swift').write_text('// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "WatchRenders", platforms: [.macOS(.v14)], targets: [.executableTarget(name: "WatchRenders", path: ".", exclude: ["Package.swift"])])\n')
  subprocess.run(['swift','run','--package-path',str(p),'--scratch-path',str(p/'build'),'--jobs','2','WatchRenders',str(out),str(root/'targets/watch/Fonts/BarlowCondensed_700Bold.ttf')],check=True)
