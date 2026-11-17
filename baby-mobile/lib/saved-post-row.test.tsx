@@ -7,7 +7,7 @@ vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
 vi.mock("@/lib/timing", () => import("./timing"));
-vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", PressTarget: "Pressable", fonts: { displayItalic: "italic" }, radii: { thumb: 14 },
+vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", PressTarget: "Pressable", fonts: { displayItalic: "italic" }, radii: { thumb: 14 }, typeScale: {},
   useColors: () => ({ tile: "#eee", border: "#ddd", placeholder: "blush", placeholderInk: "clay" }) }));
 import { router } from "expo-router";
 import { SavedPostRow } from "../components/saved-post-row";
@@ -16,21 +16,21 @@ const row = optimisticRecord({ id: "post", kind: "source", title: "Packing a dia
   occurred_at: "2026-10-30T00:00:00Z", data: { status: "ready", platform: "instagram", creator: "Example parent" } });
 afterEach(() => vi.unstubAllGlobals());
 const monogram = (renderer: ReturnType<typeof create>) => renderer.root.findAll(n => String(n.type) === "Text").map(n => n.props.children);
-it("shows a blush monogram, the platform and known creator without a redundant ready line", async () => {
+it("shows a blush cover with the italic title, the platform and known creator without a redundant ready line", async () => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   let renderer!: ReturnType<typeof create>;
   await act(async () => { renderer = create(<SavedPostRow record={row} pending={false} />); });
-  expect(monogram(renderer)).toEqual(["P"]);
+  expect(monogram(renderer)).toEqual(["Packing a diaper bag"]);
   const copy = renderer.root.findAll(n => String(n.type) === "Copy");
   expect(copy.some(n => JSON.stringify(n.props.children).includes("Example parent"))).toBe(true);
   expect(copy.some(n => n.props.children === "Ready to read")).toBe(false);
   await act(async () => { renderer.update(<SavedPostRow record={{ ...row, data: { ...row.data, thumbnail_url: "https://example.com/thumbnail.jpg" } }} pending />); });
   expect(renderer.root.findAll(n => String(n.type) === "Image")).toHaveLength(1);
-  // The monogram stays under the photo while it loads, and takes over if it fails.
-  expect(monogram(renderer)).toEqual(["P"]);
+  // The cover stays under the photo while it loads, and takes over if it fails.
+  expect(monogram(renderer)).toEqual(["Packing a diaper bag"]);
   await act(async () => renderer.root.findByType("Image" as React.ElementType).props.onError());
   expect(renderer.root.findAll(n => String(n.type) === "Image")).toHaveLength(0);
-  expect(monogram(renderer)).toEqual(["P"]);
+  expect(monogram(renderer)).toEqual(["Packing a diaper bag"]);
   expect(renderer.root.findAll(n => String(n.type) === "Copy").some(n => n.props.children === "Saved on this device")).toBe(true);
   await act(async () => renderer.unmount());
 });
@@ -61,12 +61,10 @@ it("stacks the thumbnail above the text at accessibility sizes so long titles do
   let renderer!: ReturnType<typeof create>;
   const style = () => renderer.root.findByType("Pressable" as React.ElementType).props.style({ pressed: false });
   await act(async () => { renderer = create(<SavedPostRow record={row} pending={false} />); });
-  expect(style()).toMatchObject({ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 12 });
-  expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "chevron-forward")).toBe(true);
+  expect(style()).toMatchObject({ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 14 });
   scale.font = 3.1;
   await act(async () => { renderer.update(<SavedPostRow record={{ ...row }} pending={false} />); });
   expect(style()).toMatchObject({ flexDirection: "column", alignItems: "flex-start" });
-  expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "chevron-forward")).toBe(false);
   scale.font = 1;
   await act(async () => renderer.unmount());
 });
@@ -84,5 +82,22 @@ it("keeps list rows compact at the default size: two-line titles, one-line sourc
   expect(copy[1].props.lines).toBe(1);
   // The full title and source stay available to VoiceOver.
   expect(renderer.root.findByType("Pressable" as React.ElementType).props.accessibilityLabel).toContain(title);
+  await act(async () => renderer.unmount());
+});
+
+it("adds the summary's first sentence as a takeaway, and the timing as a pill beside the creator", async () => {
+  vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  let renderer!: ReturnType<typeof create>;
+  const record = { ...row, data: { ...row.data, summary: "An L&D nurse packs a small bag. She skips the robe.", relevance: { pregnancy_week_min: 36 } } };
+  await act(async () => { renderer = create(<SavedPostRow record={record} pending={false} />); });
+  const copy = renderer.root.findAll(n => String(n.type) === "Copy").map(n => n.props.children);
+  expect(copy).toEqual(["Packing a diaper bag", "An L&D nurse packs a small bag.", "Example parent"]);
+  expect(renderer.root.findAll(n => n.props.label === "From 36 weeks")).toHaveLength(1);
+  expect(renderer.root.findByType("Pressable" as React.ElementType).props.accessibilityLabel)
+    .toBe("Packing a diaper bag. An L&D nurse packs a small bag. From 36 weeks. Example parent");
+  // A status that matters replaces the pill line.
+  await act(async () => renderer.update(<SavedPostRow record={{ ...record, data: { ...record.data, status: "processing" } }} pending={false} />));
+  expect(renderer.root.findAll(n => n.props.label === "From 36 weeks")).toHaveLength(0);
+  expect(renderer.root.findAll(n => String(n.type) === "Copy").at(-1)!.props.children).toBe("Organizing…");
   await act(async () => renderer.unmount());
 });
