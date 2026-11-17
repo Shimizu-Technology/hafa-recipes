@@ -268,7 +268,6 @@ export default function DiscoverWorkout() {
               <Button
                 title="Open in your library"
                 icon="albums-outline"
-                size="lg"
                 onPress={() => router.push({ pathname: "/workout/[id]", params: { id: item.id } })}
               />
               <ListGroup>
@@ -286,14 +285,12 @@ export default function DiscoverWorkout() {
             <Button
               title="Open in your library"
               icon="checkmark-circle"
-              size="lg"
               onPress={() => router.push({ pathname: "/workout/[id]", params: { id: savedId } })}
             />
           ) : (
             <Button
               title="Save to library"
               icon="bookmark-outline"
-              size="lg"
               haptic="success"
               busy={busy === "save"}
               disabled={generation == null || !!busy}

@@ -41,7 +41,7 @@ export function LeadIn({ until, label, onSkip, onDone }: { until: number; label:
           style={{ fontSize: 160, lineHeight: 176 }}>{second === 0 ? "GO" : second}</Copy>
         {/* A real target for a sweaty thumb; the label stays on one line so the icon stays beside it. */}
         <View style={{ alignSelf: "stretch" }}>
-          <Button title="Start now" variant="secondary" size="lg" icon="play-skip-forward" maxScale={1.3} onPress={onSkip} />
+          <Button title="Start now" variant="secondary" icon="play-skip-forward" maxScale={1.3} onPress={onSkip} />
         </View>
       </View>
     </Modal>

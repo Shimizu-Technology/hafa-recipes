@@ -428,7 +428,7 @@ export default function Plan() {
                     <Copy kind="small" tone="muted">On hold · {s.purpose}</Copy>
                   </Grow>
                 </Row>
-                <Button title={inspecting === `held:${p.id}:${s.id}` ? "Hide workout" : "Show workout"} variant="ghost" size="sm" inline
+                <Button title={inspecting === `held:${p.id}:${s.id}` ? "Hide workout" : "Show workout"} variant="ghost" inline
                   onPress={() => setInspecting(inspecting === `held:${p.id}:${s.id}` ? null : `held:${p.id}:${s.id}`)} />
                 {inspecting === `held:${p.id}:${s.id}` && <PrescriptionPreview workout={s.workout} />}
               </View>

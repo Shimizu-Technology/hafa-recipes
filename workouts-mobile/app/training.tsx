@@ -5,28 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useWindowDimensions, Alert, AppState, Keyboard, Linking, View } from "react-native";
 import { router } from "expo-router";
-import {
-  Button,
-  Card,
-  Chip,
-  ChipRow,
-  Copy,
-  Empty,
-  Field,
-  HeaderButton,
-  ListRow,
-  Notice,
-  RestTimer,
-  Row,
-  Screen,
-  SectionHeader,
-  Segmented,
-  SetRow,
-  Sheet,
-  StatTile,
-  formatClock,
-  haptics,
-} from "@/components/ui";
+import { Button, ButtonRow, Card, Chip, ChipRow, Copy, Empty, Field, formatClock, haptics, HeaderButton, ListRow, Notice, RestTimer, Row, Screen, SectionHeader, Segmented, SetRow, Sheet, StatTile } from "@/components/ui";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
@@ -182,7 +161,7 @@ export default function Training() {
     return (
       <Screen native
         title={summary.partial ? "Partial session saved" : "Session saved"}
-        footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/history-progress")} />}
+        footer={<Button title="Done" icon="checkmark" onPress={() => router.replace("/history-progress")} />}
       >
         {!!summary.score && <Copy kind="heading">{summary.score}</Copy>}
         <Copy tone="muted">Saved to your history. If you’re offline, it uploads when you reconnect.</Copy>
@@ -436,13 +415,12 @@ export default function Training() {
       footer={<>
         {!!error && <Notice error>{error}</Notice>}
         {timedComplete && !pendingEntry ? (
-          <Button title="Finish at time cap and save" icon="checkmark-done" size="lg" busy={busy}
+          <Button title="Finish at time cap and save" icon="checkmark-done" busy={busy}
             onPress={() => { void run(() => finish("completed")); }} />
         ) : step && e ? (
           <Button
             title={step.side ? `Log ${step.side} side` : timed ? "Log exercise" : "Log set"}
             icon="checkmark"
-            size="lg"
             busy={busy}
             disabled={(d.paused && !capReached) || !!structureWarning}
             disabledReason={structureWarning ? "Review this older draft before logging." : d.paused && !capReached ? "Resume your session to log this set." : undefined}
@@ -454,7 +432,6 @@ export default function Training() {
           <Button
             title="Finish and save session"
             icon="checkmark-done"
-            size="lg"
             busy={busy}
             onPress={() => {
               void run(() => finish("completed"));
@@ -463,7 +440,6 @@ export default function Training() {
         ) : (
           <Button
             title="Finish as partial session"
-            size="lg"
             disabled={busy || !d.actuals.length}
             onPress={requestPartialFinish}
           />
@@ -522,7 +498,7 @@ export default function Training() {
               void run(() => store.timer("rest", 0));
             }}
           />
-          <Button title="Reset rest" variant="ghost" size="sm" disabled={busy} onPress={() => {
+          <Button title="Reset rest" variant="ghost" disabled={busy} onPress={() => {
             const previous = d.cursor > 0 ? d.steps[d.cursor - 1] : undefined;
             const seconds = previous ? restAfter(d.workout, previous, step) ?? 60 : 60;
             void run(() => store.timer("rest", seconds));
@@ -578,29 +554,27 @@ export default function Training() {
             />
           </View>
           {metric === "time" && (d.interval_started_at != null || d.interval_elapsed_milliseconds != null ? (
-            <Row gap={12} wrap>
+            <>
               <Copy kind="numericSmall">{formatClock(interval)}</Copy>
-              <Button title="Reset timer" variant="ghost" size="sm" inline disabled={busy}
-                onPress={() => { void run(() => store.timer("interval")); }} />
-              <Button
-                title="Use this time"
-                icon="stop-circle-outline"
-                variant="secondary"
-                size="sm"
-                inline
-                disabled={busy || (d.paused && !capReached) || !!structureWarning}
-                onPress={() => {
-                  field("seconds", String(interval));
-                  void run(() => store.timer("interval", 0));
-                }}
-              />
-            </Row>
+              <ButtonRow>
+                <Button title="Reset timer" icon="refresh" variant="ghost" disabled={busy}
+                  onPress={() => { void run(() => store.timer("interval")); }} />
+                <Button
+                  title="Use this time"
+                  icon="stop-circle-outline"
+                  variant="secondary"
+                  disabled={busy || (d.paused && !capReached) || !!structureWarning}
+                  onPress={() => {
+                    field("seconds", String(interval));
+                    void run(() => store.timer("interval", 0));
+                  }}
+                />
+              </ButtonRow>
+            </>
           ) : (
             <Button
               title="Start timer"
               variant="secondary"
-              size="sm"
-              inline
               icon="timer-outline"
               disabled={d.paused || !!structureWarning}
               onPress={() => {
@@ -608,18 +582,18 @@ export default function Training() {
               }}
             />
           ))}
-          {!timed && <Button title="Add set" icon="add" variant="ghost" size="sm" disabled={busy || d.paused || !!structureWarning} onPress={() => { void run(() => store.addSet()); }} />}
+          {!timed && <Button title="Add set" icon="add" variant="ghost" disabled={busy || d.paused || !!structureWarning} onPress={() => { void run(() => store.addSet()); }} />}
           <ListRow icon="create-outline" title="Notes & feel" detail={feel ?? "Effort, how it felt, any pain"} onPress={() => setFeelOpen(true)} />
           {!!e.instructions && (
             <View style={{ gap: 4 }}>
               <Copy tone="muted" numberOfLines={moreInstructions ? undefined : 2}>{e.instructions}</Copy>
               {e.instructions.length > 90 && (
-                <Button title={moreInstructions ? "Less" : "More"} variant="ghost" size="sm" inline
+                <Button title={moreInstructions ? "Less" : "More"} variant="ghost" inline
                   onPress={() => setMoreInstructions(!moreInstructions)} />
               )}
             </View>
           )}
-          <Button title="Workout instructions" variant="ghost" size="sm" inline icon="book-outline" onPress={() => setInstructionsOpen(true)} />
+          <Button title="Workout instructions" variant="ghost" inline icon="book-outline" onPress={() => setInstructionsOpen(true)} />
           {e.sets == null && !timed && d.workout.blocks.find(block => block.id === step?.block_id)?.rounds == null && (
             <Copy kind="small" tone="muted">No set count given. Log what you do, and add sets from the ··· menu.</Copy>
           )}
@@ -637,7 +611,7 @@ export default function Training() {
             title={timed ? (timed.limit_reached ? "Tracking limit reached" : "Time cap reached") : "You've reached the end"}
             description={timed ? "Review your recorded work, then explicitly save. Skipped work and tracking limits stay partial." : "Nice work. Review your recorded work below, then save the session. Skipped sets stay visible as partial training."}
           />
-          {d.open_ended && !timed && <Button title="Add another round" icon="add-circle-outline" secondary inline
+          {d.open_ended && !timed && <Button title="Add another round" icon="add-circle-outline" secondary
             disabled={busy || !!structureWarning} onPress={() => { void run(() => store.addRound()); }} />}
           {!timedComplete && <ActivityPicker value={activity} onChange={chooseActivity} />}
         </>

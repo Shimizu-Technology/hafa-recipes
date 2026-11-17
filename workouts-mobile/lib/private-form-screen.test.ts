@@ -203,6 +203,7 @@ vi.mock("@/components/ui", () => ({
   Choice: "Choice",
   Notice: "Notice",
   Button: "Button",
+  ButtonRow: "ButtonRow",
   Empty: "Empty",
   AccountButton: "AccountButton",
   Chip: "Chip",
@@ -398,7 +399,7 @@ it("mounted Capture and ShareCapture keep the shared source when an older same-a
   await mount(overlappingCapture);
   const picker = deferred<import("./capture").CaptureFile[]>();
   fixture.pickImages.mockReturnValueOnce(picker.promise);
-  await click("Choose up to four images");
+  await click("Choose images");
   const b = {
     uri: "file:///cache/hafa-workouts-capture/source-B.jpg",
     name: "B",
@@ -897,7 +898,7 @@ it("mounted capture cleans an exact late picker result after its owner retires, 
   await settle();
   const pending = deferred<import("./capture").CaptureFile[]>();
   fixture.pickImages.mockReturnValue(pending.promise);
-  await click("Choose up to four images");
+  await click("Choose images");
   fixture.current = false;
   const late = [
     {
@@ -3345,7 +3346,7 @@ it("a Safari class waits on the form, uses profile-local today, removes copied W
     fixture.startImport.mockResolvedValue({ id: "confirmed-class" });
     await mount(Capture);
     expect(fixture.startImport).not.toHaveBeenCalled();
-    await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-11-18"));
+    await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("2026-11-18"));
     await click("Import workout");
     expect(fixture.sourceFor.mock.calls[0][0].programming.date).toBe("2026-11-18");
   } finally { vi.useRealTimers(); }
@@ -3390,7 +3391,7 @@ it("class route offers to switch an existing source, keeps its content and uses 
     await mount(Capture);
     expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
     await click("Today’s class");
-    expect(nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.value).toBe("2026-11-17");
+    expect(nodes("Field").find(n => n.props.label === "Class date")!.props.value).toBe("2026-11-17");
     expect(nodes("Field").find(n => n.props.label === "Workout text")!.props.value).toBe("10 squats");
     expect(button("Paste")).toBeTruthy(); expect(button("Screenshots")).toBeTruthy(); expect(button("PDF")).toBeTruthy();
   } finally { vi.useRealTimers(); }
@@ -3401,9 +3402,9 @@ it("the parsed class review accepts an edited date and rejects invalid dates wit
   fixture.importSource.mockResolvedValue({ kind: "text", class_parts: true });
   fixture.acceptImport.mockResolvedValue({ ...nov17Class, id: "saved" });
   await mount(ImportReview);
-  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-02-30"));
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("2026-02-30"));
   await click("Save workout"); expect(fixture.acceptImport).not.toHaveBeenCalled();
-  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("2026-11-18"));
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("2026-11-18"));
   await click("Save workout");
   expect(fixture.acceptImport.mock.calls[0][1].programming.date).toBe("2026-11-18");
 });
@@ -3493,7 +3494,7 @@ it("class route profile failure is recoverable by loading the saved source with 
   expect(fixture.startImport).not.toHaveBeenCalled();
   fixture.profile.mockResolvedValue({ ...profile, timezone: "Pacific/Guam" });
   await click("Load saved source");
-  expect(nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")).toBeTruthy();
+  expect(nodes("Field").find(n => n.props.label === "Class date")).toBeTruthy();
   expect(nodes("Field").find(n => n.props.label === "Workout text")).toBeTruthy();
   expect(nodes("Field").find(n => n.props.label === "Gym")!.props.value).toBe("Unified");
   expect(button("Import workout").props.disabled).toBe(true);
@@ -3503,7 +3504,7 @@ it("an ambiguous class date is blocked locally before transport", async () => {
   fixture.params = { class: "1" };
   await mount(Capture);
   await act(async () => nodes("Field").find(n => n.props.label === "Workout text")!.props.onChange("A. Squats"));
-  await act(async () => nodes("Field").find(n => n.props.label === "Class date (YYYY-MM-DD)")!.props.onChange("11/17"));
+  await act(async () => nodes("Field").find(n => n.props.label === "Class date")!.props.onChange("11/17"));
   expect(button("Import workout").props.disabled).toBe(true);
   await click("Import workout"); expect(fixture.startImport).not.toHaveBeenCalled();
   expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).toContain("Use a class date like");

@@ -193,7 +193,7 @@ export default function BuildPlan() {
       />
       <Button
         title={showSources ? "Hide saved workouts" : draft.selected.length ? `Saved workouts · ${draft.selected.length} selected` : "Include my saved workouts"}
-        variant="ghost" size="sm" inline icon={showSources ? "chevron-up" : "chevron-down"} disabled={busy}
+        variant="ghost" inline icon={showSources ? "chevron-up" : "chevron-down"} disabled={busy}
         onPress={() => setShowSources(!showSources)}
       />
       {showSources && (
@@ -270,7 +270,6 @@ export default function BuildPlan() {
           <Button
             title="Reload my profile"
             variant="ghost"
-            size="sm"
             inline
             disabled={busy}
             onPress={() => {

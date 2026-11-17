@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Share } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, Copy, Empty, Notice, Row, Screen } from "@/components/ui";
+import { Button, ButtonRow, Card, Copy, Empty, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import type { OwnerShare } from "@/lib/sharing";
@@ -65,13 +65,11 @@ export default function SharingLinks() {
                     : `Works until ${new Date(share.expires_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
               </Copy>
               {shareAvailable(share, Math.max(clock, Date.now())) && (
-                <Row wrap>
+                <ButtonRow>
                   <Button
                     title="Share"
                     accessibilityHint={`Shares the link to ${share.content.title}`}
                     icon="share-outline"
-                    size="sm"
-                    inline
                     secondary
                     onPress={() => {
                       if (!shareAvailable(share)) { setClock(Date.now()); setError("This link expired. Open the workout or plan to create a new sharing link."); return; }
@@ -81,9 +79,8 @@ export default function SharingLinks() {
                   <Button
                     title="Turn off"
                     accessibilityHint={`Turns off the link to ${share.content.title}`}
+                    icon="close-circle-outline"
                     variant="ghost"
-                    size="sm"
-                    inline
                     busy={busy}
                     onPress={() =>
                       Alert.alert(
@@ -102,7 +99,7 @@ export default function SharingLinks() {
                       )
                     }
                   />
-                </Row>
+                </ButtonRow>
               )}
             </Card>
           ))

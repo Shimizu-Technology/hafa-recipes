@@ -24,7 +24,7 @@ vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontS
   },
 } }));
 vi.mock("expo-router", () => ({ router: { replace: fixture.replace, push: vi.fn() } }));
-vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button",
+vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button", ButtonRow: "ButtonRow",
   Chip: "Chip", ChipRow: "ChipRow", Empty: "Empty", Field: "Field", HeaderButton: "HeaderButton", IconButton: "IconButton", ListRow: "ListRow",
   RestTimer: "RestTimer", Row: "Row", SectionHeader: "SectionHeader", Segmented: "Segmented", SetRow: "SetRow", Sheet: "Sheet", StatTile: "StatTile",
   formatClock: (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`,

@@ -24,7 +24,7 @@ function Column({ children }: PropsWithChildren) {
   return <View style={{ flexBasis: 140, flexGrow: 1 }}>{children}</View>;
 }
 function Disclosure({ title, open, disabled, onPress }: { title: string; open: boolean; disabled?: boolean; onPress(): void }) {
-  return <Button title={title} variant="ghost" size="sm" inline icon={open ? "chevron-up" : "chevron-down"} disabled={disabled} onPress={onPress} />;
+  return <Button title={title} variant="ghost" inline icon={open ? "chevron-up" : "chevron-down"} disabled={disabled} onPress={onPress} />;
 }
 const hasText = (lines?: string[] | null) => !!lines?.some(line => line.trim());
 function invalidBlockSettings(block: AuthoredWorkout["blocks"][number]) {
@@ -281,7 +281,7 @@ export function WorkoutEditor({
                 onChange={(rep_scheme) => update(changeRepScheme(value, bi, ei, rep_scheme))} />}
               {!!e.ladder && <View style={{ gap: 4 }}>
                 <Copy kind="small" tone="muted">{ladderText(e.ladder)}</Copy>
-                <Button title={`Remove ladder for ${e.name || "exercise"}`} variant="ghost" size="sm" inline disabled={disabled}
+                <Button title={`Remove ladder for ${e.name || "exercise"}`} variant="ghost" inline disabled={disabled}
                   onPress={() => exercise(bi, ei, { ladder: null })} />
               </View>}
               {(e.duration_seconds != null || e.distance_meters != null || expanded) && <Columns>
@@ -350,7 +350,6 @@ export function WorkoutEditor({
                   disabled={disabled}
                   title={`Remove ${e.name || "exercise"}`}
                   variant="ghost"
-                  size="sm"
                   inline
                   icon="trash-outline"
                   onPress={() =>
@@ -369,8 +368,6 @@ export function WorkoutEditor({
             disabled={disabled || block.exercises.length >= 100}
             title="Add exercise to this block"
             secondary
-            size="sm"
-            inline
             icon="add"
             onPress={() => {
               if (block.exercises.length >= 100) return;
@@ -390,7 +387,7 @@ export function WorkoutEditor({
               update({ ...value, blocks: value.blocks.filter((_, index) => index !== bi) });
               setRemovingBlock(null);
             }} />
-          </Card> : <Button title={`Remove block: ${block.label || "Workout block"}`} variant="ghost" size="sm" inline icon="trash-outline" disabled={disabled}
+          </Card> : <Button title={`Remove block: ${block.label || "Workout block"}`} variant="ghost" inline icon="trash-outline" disabled={disabled}
             onPress={() => { if (!disabled) setRemovingBlock(block.id); }} />}
         </Card>
       ); })}

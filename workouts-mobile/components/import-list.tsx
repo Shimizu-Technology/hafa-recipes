@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect, useLayoutEffect, useRef } from "react
 import { ActivityIndicator, AppState } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Copy, Grow, Notice, Row, SectionHeader } from "./ui";
+import { Button, ButtonRow, Card, Copy, Grow, Notice, Row, SectionHeader } from "./ui";
 import { importPresentation, importSourceLabel } from "@/lib/import-recovery";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, retireCapturedImport, updateImportReferences } from "@/lib/capture";
@@ -85,7 +85,7 @@ export function ImportList({ showEmpty = false }: { showEmpty?: boolean }) {
       {!!deviceError && <Notice error>{deviceError}</Notice>}
       {server.error && <Row gap={8} wrap>
         <Grow><Copy kind="small" tone="error">Could not check your imports. Saved workouts are still in Library.</Copy></Grow>
-        <Button title="Retry imports" size="sm" variant="ghost" inline onPress={() => { void server.refetch(); }} />
+        <Button title="Retry imports" variant="ghost" inline onPress={() => { void server.refetch(); }} />
       </Row>}
       {inbox.size > 0 && <SectionHeader title={`In progress · ${inbox.size}`} />}
       {[...inbox.values()].map((item) => (
@@ -205,12 +205,10 @@ function ImportCard({ id, label, autoSave, onRemoved }: { id: string; label: str
       </Row>
       {q.error && <Copy kind="small" tone="error">{q.error.message}</Copy>}
       {!!saveError && <Copy kind="small" tone="error">{saveError}</Copy>}
-      <Row gap={4} wrap>
+      <ButtonRow>
         <Button
           title={presentation.action}
-          size="sm"
           variant="secondary"
-          inline
           onPress={() =>
             router.push(
               q.data?.accepted_workout_id
@@ -219,10 +217,10 @@ function ImportCard({ id, label, autoSave, onRemoved }: { id: string; label: str
             )
           }
         />
-        {terminal && <Button title="Dismiss import" size="sm" variant="ghost" inline busy={removing}
+        {terminal && <Button title="Dismiss import" variant="ghost" busy={removing}
           accessibilityHint="Clears this import and its temporary source. Saved workouts stay in your library."
           onPress={() => { void remove(true); }} />}
-      </Row>
+      </ButtonRow>
     </Card>
   );
 }

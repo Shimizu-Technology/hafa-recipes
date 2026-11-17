@@ -18,7 +18,7 @@ export function CoachVoiceStatus({ voice }: { voice: Voice }) {
   return <>
     {active(voice) && <Copy kind="small" tone="muted">{voice.phase === "permission" ? "Waiting for microphone and speech permission. Canceling keeps your draft." : "Listening… Your words appear in the message. Review it before sending."}</Copy>}
     {voice.guidance && <Notice>{voice.guidance.message}</Notice>}
-    {voice.guidance?.settings && <Button title="Open microphone and speech Settings" variant="ghost" size="sm" inline onPress={() => { void voice.settings(); }} />}
+    {voice.guidance?.settings && <Button title="Open microphone and speech Settings" variant="ghost" inline onPress={() => { void voice.settings(); }} />}
     {!!voice.preparationError && <Notice error>{voice.preparationError}</Notice>}
     {!!voice.settingsError && <Notice error>{voice.settingsError}</Notice>}
   </>;

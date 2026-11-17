@@ -17,6 +17,7 @@ export {
 export {
   AccountButton,
   Button,
+  ButtonRow,
   Chip,
   ChipRow,
   Choice,
@@ -26,7 +27,6 @@ export {
   IconButton,
   SearchField,
   Segmented,
-  type ButtonSize,
   type ButtonVariant,
   type IconName,
 } from "./design/controls";

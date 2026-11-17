@@ -56,7 +56,7 @@ vi.mock("expo-router", async () => {
     useFocusEffect: (fn: () => void) => useEffect(() => f.routeFocused ? fn() : undefined, [fn, f.focusVersion, f.routeFocused]) };
 });
 vi.mock("@/components/ui", () => ({
-  ...Object.fromEntries(["Button", "Card", "Chip", "ChipRow", "Copy", "IconButton", "ListGroup", "ListRow", "Notice"].map(name => [name, name])),
+  ...Object.fromEntries(["Button", "ButtonRow", "Card", "Chip", "ChipRow", "Copy", "IconButton", "ListGroup", "ListRow", "Notice"].map(name => [name, name])),
   Bubble: (props: React.ComponentProps<typeof import("../components/design/surfaces").Bubble>) => createElement(f.bubble ?? "Bubble", props),
   Sheet: (props: { visible: boolean; children?: React.ReactNode }) => props.visible ? createElement("Sheet", props, props.children) : null,
   useColors: () => ({ text: "ink", accentText: "accent", sunken: "sunken" }),
@@ -83,7 +83,7 @@ import Coach from "../app/coach";
 let view: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => view!.root.findAll(node => node.type === type);
 // Actions may be text buttons, icon buttons (by VoiceOver label) or sheet rows.
-const button = (title: string) => view!.root.findAll(node => ["Button", "ListRow"].includes(String(node.type)) && node.props.title === title || String(node.type) === "IconButton" && node.props.label === title)[0]!;
+const button = (title: string) => view!.root.findAll(node => ["Button", "ListRow"].includes(String(node.type)) && node.props.title === title || ["IconButton", "Chip"].includes(String(node.type)) && node.props.label === title)[0]!;
 // Reply actions sit behind each reply's ··· button; Coach options behind the header ···.
 const replyRow = async (title: string, index = 0) => {
   if (!button(title)) await act(async () => { nodes("IconButton").filter(node => node.props.label === "Reply options")[index].props.onPress(); });

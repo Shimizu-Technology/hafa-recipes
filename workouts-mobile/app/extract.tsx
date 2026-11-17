@@ -10,7 +10,7 @@ import * as Crypto from "expo-crypto";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { classDate, classText } from "@/lib/class-import";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccountButton, Button, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, useColors, useReducedMotion } from "@/components/ui";
+import { AccountButton, Button, ButtonRow, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, Stack, useColors, useReducedMotion } from "@/components/ui";
 import { RecentImports } from "@/components/recent-imports";
 import { importSettingsSummary, linkLooksComplete } from "@/lib/add-composer";
 import { useTraining } from "@/lib/context";
@@ -629,10 +629,10 @@ export default function Capture() {
           <Ionicons name="checkmark-circle" size={22} color={colors.success} />
           <Grow><Copy kind="small">{draft.job_id ? "Your previous import is saved. Start another source to use this form again." : "Your previous import is saved."}</Copy></Grow>
         </Row>
-        <Row gap={4} wrap>
-          <Button title="Open previous import" size="sm" variant="secondary" inline onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id ?? submittedId! } })} />
-          {!!draft.job_id && <Button title="Start another source draft" size="sm" variant="ghost" inline busy={busy} onPress={() => { void startAnother(); }} />}
-        </Row>
+        <Stack gap={8}>
+          <Button title="Open previous import" variant="secondary" onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id ?? submittedId! } })} />
+          {!!draft.job_id && <Button title="Start another source draft" variant="ghost" busy={busy} onPress={() => { void startAnother(); }} />}
+        </Stack>
       </Card>}
       {!!error && <Notice error>{error}</Notice>}
       {stale && <Notice>A newer source is saved. Load it before changing this draft.</Notice>}
@@ -646,18 +646,20 @@ export default function Capture() {
         {ready && classRoute === "1" && !draft.class_parts && <Notice>Your other source draft is still here. Switch it to Today’s class, or finish that import first.</Notice>}
         {!draft.class_parts && <Button title="Today’s class" secondary disabled={locked} onPress={() => { void chooseClass(); }} />}
         {draft.class_parts && <>
-          <Button title="Start a different import" size="sm" variant="ghost" disabled={locked} onPress={() => setAbandon(true)} />
+          <Button title="Start a different import" variant="ghost" inline disabled={locked} onPress={() => setAbandon(true)} />
           <Notice>Gym programming stays private. Crop screenshots to leave out the leaderboard and comments.</Notice>
-          <Row gap={8} wrap>
-            <Button title="Paste" secondary inline disabled={locked} onPress={() => { void paste(); }} />
-            <Button title="Screenshots" secondary inline disabled={locked} onPress={() => { void pick("images"); }} />
-            <Button title="PDF" secondary inline disabled={locked} onPress={() => { void pick("document"); }} />
-          </Row>
+          {/* Each one acts at once (reads the clipboard, opens a picker), so they are buttons, not a mode switch.
+              Three labelled buttons don't fit one line at phone width, so they stack. */}
+          <Stack gap={8}>
+            <Button title="Paste" icon="clipboard-outline" variant="secondary" disabled={locked} onPress={() => { void paste(); }} />
+            <Button title="Screenshots" icon="images-outline" variant="secondary" disabled={locked} onPress={() => { void pick("images"); }} />
+            <Button title="PDF" icon="document-attach-outline" variant="secondary" disabled={locked} onPress={() => { void pick("document"); }} />
+          </Stack>
           {!!pasteNote && <Copy kind="small" tone="warning">{pasteNote}</Copy>}
           <Field label="Gym" optional disabled={locked} value={draft.programming?.gym_name ?? ""} onChange={gym_name => update({ programming: { ...draft.programming, source_kind: "gym", gym_name } })} />
           <Field label="Track" optional disabled={locked} value={draft.programming?.track ?? ""} onChange={track => update({ programming: { ...draft.programming, source_kind: "gym", track } })} />
-          <Field label="Class date (YYYY-MM-DD)" optional disabled={locked} value={draft.programming?.date ?? ""} onChange={date => update({ programming: { ...draft.programming, source_kind: "gym", date: date || null } })} />
-          <Copy kind="small">In Safari, use Share → Håfa Workouts on the open class page. Or save a Full Page screenshot as a PDF and choose it here.</Copy>
+          <Field label="Class date" placeholder="YYYY-MM-DD" optional disabled={locked} value={draft.programming?.date ?? ""} onChange={date => update({ programming: { ...draft.programming, source_kind: "gym", date: date || null } })} />
+          <Copy kind="small" tone="muted">In Safari, use Share → Håfa Workouts on the open class page. Or save a Full Page screenshot as a PDF and choose it here.</Copy>
         </>}
         {draft.kind === "url" ? (
           <>
@@ -667,7 +669,7 @@ export default function Capture() {
                   onChange={(source_url) => { setPasteNote(""); update({ source_url }); }} />
               </Grow>
               <View>
-                <Button title="Paste" icon="clipboard-outline" variant="secondary" inline disabled={locked}
+                <Button title="Paste" icon="clipboard-outline" variant="secondary" disabled={locked}
                   accessibilityHint="Pastes a workout link from your clipboard" onPress={() => { void paste(); }} />
               </View>
             </Row>
@@ -678,7 +680,7 @@ export default function Capture() {
         ) : (
           <Row gap={8}>
             <Grow><Copy kind="label">{modeTitles[draft.kind]}</Copy></Grow>
-            {!draft.class_parts && <Button title="Use a link instead" size="sm" variant="ghost" inline disabled={locked} onPress={() => { void choose("url"); }} />}
+            {!draft.class_parts && <Button title="Use a link instead" variant="ghost" inline disabled={locked} onPress={() => { void choose("url"); }} />}
           </Row>
         )}
         {draft.kind === "url" && duplicateUrl === draft.source_url.trim() && !!duplicateHint.data?.matches.length && (
@@ -697,23 +699,20 @@ export default function Capture() {
         )}
         {draft.kind === "images" && (
           <>
-            <Row gap={8}>
-              <Grow>
-                <Button title={draft.class_parts ? "Choose up to eight screenshots" : "Choose up to four images"} size="sm" variant="secondary" icon="images-outline" busy={busy} disabled={locked}
-                  onPress={() => { void pick("images"); }} />
-              </Grow>
-              <Grow>
-                <Button title="Take a photo" size="sm" variant="secondary" icon="camera-outline" disabled={locked}
-                  onPress={() => { void pick("images", true); }} />
-              </Grow>
-            </Row>
+            <ButtonRow>
+              <Button title={draft.class_parts ? "Choose screenshots" : "Choose images"} variant="secondary" icon="images-outline" busy={busy} disabled={locked}
+                onPress={() => { void pick("images"); }} />
+              <Button title="Take a photo" variant="secondary" icon="camera-outline" disabled={locked}
+                onPress={() => { void pick("images", true); }} />
+            </ButtonRow>
+            <Copy kind="small" tone="muted">{draft.class_parts ? "Up to 8 screenshots." : "Up to 4 images."}</Copy>
             {draft.files.map((file) => <SourceImage key={file.uri} uri={file.uri} label={file.name} />)}
             <Copy kind="small" tone="muted">Clear images where exercise names are easy to read work best.</Copy>
           </>
         )}
         {draft.kind === "document" && (
           <>
-            <Button title="Choose PDF or text document" size="sm" variant="secondary" icon="document-attach-outline" busy={busy} disabled={locked}
+            <Button title="Choose PDF or text document" variant="secondary" icon="document-attach-outline" busy={busy} disabled={locked}
               onPress={() => { void pick("document"); }} />
             {draft.files.map((file) => <Copy key={file.uri} kind="label">{file.name}</Copy>)}
             <Copy kind="small" tone="muted">Small text PDFs work best. For scans, use screenshots or paste the text.</Copy>
@@ -728,7 +727,7 @@ export default function Capture() {
         {draft.pending_import && !draft.job_id && (
           <Row gap={8} wrap>
             <Grow><Copy kind="small" tone="muted">This source is saved on your device. Retry to pick up the earlier import.</Copy></Grow>
-            <Button title="Start another source" size="sm" variant="ghost" inline disabled={busy} onPress={() => setAbandon(true)} />
+            <Button title="Start another source" variant="ghost" inline disabled={busy} onPress={() => setAbandon(true)} />
           </Row>
         )}
         {aiConsent.error && <Copy kind="small" tone="error">Could not check AI preferences. Try again before importing.</Copy>}
