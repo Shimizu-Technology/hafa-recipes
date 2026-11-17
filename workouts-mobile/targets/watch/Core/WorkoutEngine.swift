@@ -137,14 +137,15 @@ final class WorkoutEngine: ObservableObject {
   func advance() -> PartRunner.AdvanceResult {
     guard state == .running, var runner else { return .ignored(.nothingToAdvance) }
     flushDeferred()
-    let (result, events) = runner.advance(at: clock.now)
+    let now = clock.now
+    let (result, events) = runner.advance(at: now)
     if case .applied = result {
       flushDeferred(force: true)
       self.runner = runner
       // Catch-up boundaries predate this press and cannot be undone with it.
-      apply(events.filter { $0.date < clock.now })
-      deferredUntil = clock.now.addingTimeInterval(PartRunner.undoWindow)
-      deliver(events.filter { $0.date >= clock.now })
+      apply(events.filter { $0.date < now })
+      deferredUntil = now.addingTimeInterval(PartRunner.undoWindow)
+      deliver(events.filter { $0.date >= now })
     } else {
       self.runner = runner
       deliver(events)

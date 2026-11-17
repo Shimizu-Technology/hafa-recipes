@@ -186,6 +186,15 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertEqual(recorder.calls.filter { $0 == "part B 60" }.count, 1)
   }
 
+  func testPressEventsRemainDeferredWhenClockAdvancesBetweenReads() async throws {
+    let engine = WorkoutEngine(recorder: recorder, store: store, outbox: outbox, clock: ReadAdvancingClock())
+    try await engine.start(plan(part("A", .forTime, rounds: 1)), leadIn: 0)
+    XCTAssertEqual(engine.advance(), .applied(.partDone))
+    XCTAssertFalse(recorder.calls.contains { $0.hasPrefix("end part") }, "the press's own boundary must remain undoable")
+    XCTAssertFalse(store.load()!.deferredEvents!.isEmpty)
+    XCTAssertTrue(engine.undo())
+  }
+
   func testRecordingFollowsTheParts() async throws {
     let engine = engine()
     try await engine.start(twoParts, leadIn: 3)
@@ -476,3 +485,11 @@ final class FakeRecorder: WorkoutRecorder {
   private func offset(_ date: Date) -> Int { Int(date.timeIntervalSince(t0).rounded()) }
 }
 
+
+final class ReadAdvancingClock: Clock {
+  private var current = t0
+  var now: Date {
+    defer { current = current.addingTimeInterval(0.001) }
+    return current
+  }
+}
