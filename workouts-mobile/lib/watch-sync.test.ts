@@ -88,6 +88,15 @@ describe("watch sync", () => {
     const saved = watchSession(r, doseless, 1, setup().snapshot());
     expect(saved.request.actuals.filter(a => a.exercise_index === 1 && a.reps == null)).toHaveLength(2);
     expect(saved.request.active_intervals).toHaveLength(2); expect(saved.request.active_seconds).toBe(900);
+    // Sets parts send their template cells as-is.
+    const sets = { ...bare, id: "strength", execution: undefined, rounds: undefined, score_kind: "none" as const,
+      exercises: [{ ...bare.exercises[1], sets: 2, segment: undefined }] };
+    const setsWorkout = { ...workout, blocks: [sets] }, setsPlan = watchPlan(setsWorkout, source, account, "2026-11-17");
+    expect(setsPlan.parts[0].kind).toBe("sets");
+    const s = result(); s.plan = setsPlan; s.plan_key = setsPlan.plan_key; s.parts = [{ ...s.parts[0], block_id: "strength" }];
+    s.actuals = setsPlan.parts[0].actuals as typeof s.actuals;
+    expect(s.actuals).toHaveLength(2); expect(s.actuals.every(a => a.completed && a.reps == null)).toBe(true);
+    expect(watchSession(s, setsWorkout, 1, setup().snapshot()).request.actuals).toHaveLength(2);
     const dosed = result(); dosed.actuals = roundActuals(first, 1).map(a => a.exercise_index === 1 ? { ...a, reps: null } : a);
     expect(() => watchSession(dosed, workout, 1, setup().snapshot())).toThrow("pinned workout");
   });
