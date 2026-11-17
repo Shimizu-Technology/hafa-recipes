@@ -1,7 +1,17 @@
 import { recipeLinkRoute } from './recipeLinkRoute';
 
+/** The share card opens this URL only after an explicit open-in-app action. */
+export function shareOpenCaptureKey(path: string | null): string | null {
+  const match = path?.match(/^hafarecipes:\/\/dataUrl=([^?#]+)(?:\?[^#]*)?#(?:text|weburl|url|file|image|media)$/i);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
+
 /** Preserve capture parameters while moving legacy hidden-tab routes onto the root stack. */
 export function redirectSystemPath({ path, initial }: { path: string; initial: boolean }): string {
+  // Seed/retain tabs; durable intake pushes Import only for the matching
+  // explicit share-card URL. Linking still delivers the original URL to intake.
+  if (shareOpenCaptureKey(path)) return '/(tabs)/recipes';
   // hafa-recipes.com/r/<recipe id> opens the recipe; an unlisted key opens the shared view.
   const recipeLink = recipeLinkRoute(path);
   if (recipeLink) return recipeLink;

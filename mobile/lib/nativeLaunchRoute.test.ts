@@ -17,7 +17,7 @@ describe('native launch destination', () => {
     expect(redirectSystemPath({ path, initial: true })).toBe(expected);
     expect(redirectSystemPath({ path, initial: false })).toBe(expected);
   });
-  it.each(['/(tabs)/discover', 'hafarecipes://dataUrl=capture#text', '/?captureToken=abc', '/?sharedUrl=https%3A%2F%2Fexample.com', '/recipe/recipe-a', 'hafarecipes://discover?query=rice'])('preserves explicit content and capture links: %s', path => {
+  it.each(['/(tabs)/discover', '/?captureToken=abc', '/?sharedUrl=https%3A%2F%2Fexample.com', '/recipe/recipe-a', 'hafarecipes://discover?query=rice'])('preserves explicit content and capture links: %s', path => {
     expect(redirectSystemPath({ path, initial: true })).toBe(path);
     expect(redirectSystemPath({ path, initial: false })).toBe(path);
   });
@@ -55,5 +55,11 @@ describe('Håfa recipe links', () => {
   it('leaves shared website captures to the import flow', () => {
     const capture = `/?sharedUrl=${encodeURIComponent(`https://hafa-recipes.com/r/${id}`)}`;
     expect(redirectSystemPath({ path: capture, initial: true })).toBe(capture);
+  });
+});
+
+describe('explicit native share open', () => {
+  it.each([true, false])('anchors the share card above Library (initial=%s)', initial => {
+    expect(redirectSystemPath({ path: 'hafarecipes://dataUrl=key-a#weburl', initial })).toBe('/(tabs)/recipes');
   });
 });

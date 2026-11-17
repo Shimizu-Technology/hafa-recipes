@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 import { useAuth } from '@clerk/expo';
+import { useLinkingURL } from 'expo-linking';
+import { showToast } from '@/lib/toast';
+import { shareOpenCaptureKey } from '@/lib/nativeLaunchRoute';
 import { useRouter } from 'expo-router';
 import { ShareIntentModule, useShareIntentContext } from 'expo-share-intent';
 import * as Crypto from 'expo-crypto';
@@ -28,6 +31,9 @@ export type NativeCaptureMetadata = {
 
 export function useHandleShareIntent() {
   const router = useRouter();
+  const linkingURL = useLinkingURL();
+  const explicitCaptureKeyRef = useRef<string | null>(null);
+  explicitCaptureKeyRef.current = shareOpenCaptureKey(linkingURL);
   const queryClient = useQueryClient();
   const { isLoaded, isSignedIn } = useAuth();
   const identity = useCurrentUserIdentity(Boolean(isSignedIn));
@@ -42,6 +48,8 @@ export function useHandleShareIntent() {
   const processedPayloads = useRef(new WeakSet<object>());
   const processedCaptureIds = useRef(new Set<string>());
   const processedCaptureKeys = useRef(new Set<string>());
+  const capturedIds = useRef(new Map<string, string>());
+  const openedCaptureKeys = useRef(new Set<string>());
   const [workerVersion, setWorkerVersion] = useState(0);
   useEffect(() => {
     mountedRef.current = true;
@@ -50,6 +58,16 @@ export function useHandleShareIntent() {
   const payloadIds = useRef(new WeakMap<object, string>());
   useImportInboxProcessor();
   useShareSession();
+
+  // URL delivery and queue events can arrive in either order. Open only after
+  // the matching capture is durable, even if its explicit URL arrives later.
+  useEffect(() => {
+    const key = shareOpenCaptureKey(linkingURL);
+    const id = key ? capturedIds.current.get(key) : undefined;
+    if (!key || !id || openedCaptureKeys.current.has(key)) return;
+    openedCaptureKeys.current.add(key);
+    router.push({ pathname: '/', params: { inboxCaptureId: id } });
+  }, [linkingURL, workerVersion, router]);
 
   useEffect(() => {
     if (!isLoaded || !hasShareIntent || !shareIntent || processingRef.current ||
@@ -138,13 +156,23 @@ export function useHandleShareIntent() {
         if (native) {
           processedCaptureIds.current.add(native.captureId);
           processedCaptureKeys.current.add(native.captureKey);
+          capturedIds.current.set(native.captureKey, id);
         }
         shouldDrain = Platform.OS === 'ios';
         // A new onChange can arrive while A is persisting/acknowledging. Do
-        // not clear B's payload or navigate for A after B has taken its place.
+        // not clear B's payload or show A's recovery notice in its place.
         if (currentPayloadRef.current === shareIntent) {
           resetShareIntent(Platform.OS !== 'ios');
-          if (mountedRef.current) router.replace({ pathname: '/', params: { inboxCaptureId: id } });
+          if (mountedRef.current) {
+            const openStatus = () => router.push({ pathname: '/', params: { inboxCaptureId: id } });
+            if (Platform.OS === 'android') {
+              // Android delivers an explicit share intent, not the iOS recovery queue.
+              openStatus();
+            } else if (!native || explicitCaptureKeyRef.current !== native.captureKey) {
+              // Queue recovery is background work, not an instruction to navigate.
+              showToast({ message: 'Shared recipe saved', actionLabel: 'View import', onAction: openStatus });
+            }
+          }
         }
       } catch (error) {
         if (mountedRef.current) Alert.alert('Shared Recipe Saved for Later', error instanceof Error

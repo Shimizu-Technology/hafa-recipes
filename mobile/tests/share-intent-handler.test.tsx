@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
-  alert: vi.fn(), replace: vi.fn(), reset: vi.fn(), add: vi.fn(), ack: vi.fn(), metadata: vi.fn(),
+  url: null as string | null, toast: vi.fn(), push: vi.fn(), alert: vi.fn(), replace: vi.fn(), reset: vi.fn(), add: vi.fn(), ack: vi.fn(), metadata: vi.fn(),
   cleanup: vi.fn(async () => undefined), discard: vi.fn(), scopeOwner: vi.fn(), getShareIntent: vi.fn(), signedIn: true,
   payload: { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl', _hafa: {} as Record<string, unknown> },
   action: { kind: 'url', url: 'https://example.com/recipe' } as Record<string, unknown>,
@@ -12,7 +12,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('react-native', () => ({ Alert: { alert: mocks.alert }, Platform: { OS: 'ios' } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'android-capture' }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: mocks.signedIn }) }));
-const router = { replace: mocks.replace };
+const router = { replace: mocks.replace, push: mocks.push };
+vi.mock('expo-linking', () => ({ useLinkingURL: () => mocks.url }));
+vi.mock('@/lib/toast', () => ({ showToast: mocks.toast }));
 vi.mock('expo-router', () => ({ useRouter: () => router }));
 vi.mock('expo-share-intent', () => ({
   ShareIntentModule: { getShareIntent: mocks.getShareIntent },
@@ -33,7 +35,7 @@ function Harness() { useHandleShareIntent(); return null; }
 let renderer: ReactTestRenderer;
 async function render() { await act(async () => { renderer = create(<Harness />); }); }
 beforeEach(() => {
-  vi.useFakeTimers(); vi.clearAllMocks(); mocks.signedIn = true; mocks.hasIntent = true;
+  vi.useFakeTimers(); vi.clearAllMocks(); mocks.url = null; mocks.signedIn = true; mocks.hasIntent = true;
   mocks.payload = { webUrl: 'https://example.com/recipe', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a' } };
   mocks.action = { kind: 'url', url: 'https://example.com/recipe' };
   mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a' }));
@@ -48,13 +50,53 @@ describe('durable share intake', () => {
     expect(mocks.add).not.toHaveBeenCalled();
     expect(mocks.ack).not.toHaveBeenCalled();
   });
+  it('opens status only when the background-save notice is tapped', async () => {
+    await render();
+    expect(mocks.push).not.toHaveBeenCalled();
+    mocks.toast.mock.calls[0][0].onAction();
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith({ pathname: '/', params: { inboxCaptureId: 'capture-a' } });
+  });
+  it('pushes the explicitly opened capture above tabs and allows Back', async () => {
+    const { StackActions, StackRouter } = await import('expo-router/build/react-navigation/routers/StackRouter');
+    const stack = StackRouter({ initialRouteName: '(tabs)' });
+    const options = { routeNames: ['(tabs)', 'index'], routeParamList: {}, routeGetIdList: {} };
+    let state = stack.getInitialState(options);
+    mocks.push.mockImplementationOnce(() => {
+      state = stack.getRehydratedState(stack.getStateForAction(state, StackActions.push('index'), options)!, options);
+    });
+    mocks.url = 'hafarecipes://dataUrl=key-a#weburl';
+    await render();
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith({ pathname: '/', params: { inboxCaptureId: 'capture-a' } });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(state.routes.map(route => route.name)).toEqual(['(tabs)', 'index']);
+    state = stack.getRehydratedState(stack.getStateForAction(state, StackActions.pop(), options)!, options);
+    expect(state.routes.map(route => route.name)).toEqual(['(tabs)']);
+  });
+  it('honors an explicit URL delivered after background intake completed', async () => {
+    await render();
+    expect(mocks.push).not.toHaveBeenCalled();
+    mocks.url = 'hafarecipes://dataUrl=key-a#weburl';
+    await act(async () => renderer.update(<Harness />));
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith({ pathname: '/', params: { inboxCaptureId: 'capture-a' } });
+    await act(async () => renderer.update(<Harness />));
+    expect(mocks.push).toHaveBeenCalledOnce();
+  });
+  it('does not treat another capture in the queue as an explicit open', async () => {
+    mocks.url = 'hafarecipes://dataUrl=key-b#weburl';
+    await render();
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledOnce();
+  });
   it('persists before acknowledging the exact native capture and never clears the whole native queue', async () => {
     await render();
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ id: 'capture-a', ownerId: 'durable-owner', state: 'ready', request: expect.objectContaining({ is_public: false }) }));
     expect(mocks.ack).toHaveBeenCalledWith('key-a');
     expect(mocks.add.mock.invocationCallOrder[0]).toBeLessThan(mocks.ack.mock.invocationCallOrder[0]);
     expect(mocks.reset).toHaveBeenCalledWith(false);
-    expect(mocks.replace).toHaveBeenCalledWith({ pathname: '/', params: { inboxCaptureId: 'capture-a' } });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ message: 'Shared recipe saved', actionLabel: 'View import' }));
   });
   it('round-trips the exact native public/private preference and location', async () => {
     mocks.action = { ...mocks.action, notes: '2 cups rice\nSimmer 20 minutes.' };
@@ -88,7 +130,9 @@ describe('durable share intake', () => {
     expect(mocks.add.mock.calls.map(([entry]) => entry.id)).toEqual(['capture-a', 'capture-b']);
     expect(mocks.ack.mock.calls.map(([key]) => key)).toEqual(['key-a', 'key-b']);
     expect(mocks.reset).toHaveBeenCalledOnce();
-    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith({ pathname: '/', params: { inboxCaptureId: 'capture-b' } });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledOnce();
     await act(async () => { vi.runOnlyPendingTimers(); });
     expect(mocks.getShareIntent).toHaveBeenCalled();
   });
