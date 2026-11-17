@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { redirectSystemPath } from './nativeLaunchRoute';
 describe('native launch destination', () => {
-  it.each(['/', '', 'hafarecipes:///', 'exp://127.0.0.1:8081/--/'])('starts home-screen launches at Library: %s', path => {
+  it.each(['/', '', 'hafarecipes://', 'hafarecipes:///', 'exp://127.0.0.1:8081/--/'])('starts home-screen launches at Library: %s', path => {
     expect(redirectSystemPath({ path, initial: true })).toBe('/(tabs)/recipes');
   });
   it.each([

@@ -41,6 +41,13 @@ beforeEach(() => {
 });
 afterEach(async () => { if (renderer) await act(async () => renderer.unmount()); vi.useRealTimers(); });
 describe('durable share intake', () => {
+  it('leaves a cold launch without a pending share at its launch destination', async () => {
+    mocks.hasIntent = false;
+    await render();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+    expect(mocks.ack).not.toHaveBeenCalled();
+  });
   it('persists before acknowledging the exact native capture and never clears the whole native queue', async () => {
     await render();
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ id: 'capture-a', ownerId: 'durable-owner', state: 'ready', request: expect.objectContaining({ is_public: false }) }));
