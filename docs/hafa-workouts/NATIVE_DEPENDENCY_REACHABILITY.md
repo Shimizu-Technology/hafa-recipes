@@ -749,3 +749,6 @@ Minimatch remains build-only; Router 57.0.31 still uses query-string 7.1.3.
 Existing decoder and wallet reachability assessments and the 2027-01-15 deadline
 remain unchanged. No new advisories are accepted. Native bundle evidence is in
 the alignment PR.
+
+
+2026-11-17 class QA update: added test-only jsdom 28.1.0 and @types/jsdom 30.0.0. Compared every non-dev lock entry with the prior tree: none changed. The Safari DOM fixture imports jsdom only from its Vitest test; application/native entrypoints do not import it. Existing advisory exceptions and expiry are unchanged. Reviewed lock SHA-256: `ee5052ffa6bfd7ec053c936c82b4f0ed93e8e5a54254856236c33ec70249fbc6`.

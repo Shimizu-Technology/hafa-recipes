@@ -445,7 +445,7 @@ export default function ImportReview() {
                   <WorkoutEditor value={workout} onChange={update} disabled={busy} />
                 ) : (
                   <>
-                    {isClass && <Notice>Review every class part and its prescriptions before saving. Gym programming stays private.</Notice>}
+                    {isClass && <Notice>Review each class part before saving. Check all reps, loads, distances and times. Your gym class stays private.</Notice>}
                     <SectionHeader title={hasExercises ? workout.title : "No exercises were imported"} />
                     <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
                     {hasExercises && <ChipRow wrap>

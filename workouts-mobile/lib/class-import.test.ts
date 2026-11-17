@@ -1,3 +1,4 @@
+import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -61,4 +62,30 @@ it("reports Safari PDF content type even for a local document and keeps HTML pre
   sandbox.document = { URL: "https://wodup.com/class", contentType: "text/html", body: { innerText: "A. 8 squats" } };
   sandbox.ExtensionPreprocessingJS.run({ completionFunction: (value: any) => { result = value; } });
   expect(result).toMatchObject({ contentType: "text/html", classText: "A. 8 squats" });
+});
+
+it("runs the Safari preprocessing resource on a WodUp DOM and hands off visible text and a clean URL", () => {
+  const dom = new JSDOM(`<body><nav>Timeline</nav><main>A. AMRAP 15 minutes<br>Buy In:<br>Run 800 to 1000m</main><aside hidden>PRIVATE HIDDEN RESULT</aside></body>`, {
+    url: "https://gym.wodup.com/classes/today?token=private#leaderboard", runScripts: "outside-only"
+  });
+  try {
+    // jsdom has no layout engine/innerText. Supply Safari's visible-text behavior
+    // from this DOM, excluding hidden nodes; execute the production JS unchanged.
+    const body = dom.window.document.body;
+    Object.defineProperty(body, "innerText", { get() {
+      const visible = body.cloneNode(true) as HTMLElement;
+      visible.querySelectorAll("[hidden]").forEach(node => node.remove());
+      visible.querySelectorAll("br").forEach(node => node.replaceWith("\n"));
+      return visible.textContent;
+    } });
+    dom.window.eval(script);
+    let result: any;
+    (dom.window as any).ExtensionPreprocessingJS.run({ completionFunction: (value: any) => { result = value; } });
+    expect(result).toMatchObject({ baseURI: "https://gym.wodup.com/classes/today", contentType: "text/html",
+      classText: "TimelineA. AMRAP 15 minutes\nBuy In:\nRun 800 to 1000m" });
+    expect(result.classText).not.toContain("PRIVATE HIDDEN RESULT");
+    dom.reconfigure({ url: "http://localhost/classes/today?token=private#leaderboard" });
+    (dom.window as any).ExtensionPreprocessingJS.run({ completionFunction: (value: any) => { result = value; } });
+    expect(result.classText).toBeUndefined();
+  } finally { dom.window.close(); }
 });
