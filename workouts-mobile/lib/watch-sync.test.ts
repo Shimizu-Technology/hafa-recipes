@@ -188,6 +188,29 @@ describe("watch sync", () => {
     expect(item.request.results).toEqual(r.results); expect(item.unsent_results).toBeUndefined();
     expect(item.problem).toContain("Could not create this Open timer workout");
   });
+  it("does not count an Open timer preparation 422 toward a session 422 streak", async () => {
+    const store = setup(async () => { throw Object.assign(Error("Workout rejected"), { status: 422 }); });
+    await store.load(); const timer = result(); timer.plan = { ...plan, source: undefined, title: "Open timer" };
+    timer.parts = [{ ...timer.parts[0], block_id: "timer" }]; timer.actuals = [];
+    const rejected = result(); rejected.client_session_id = "88753900-0192-4f86-879a-7ba599178692";
+    const valid = result(); valid.client_session_id = "88753900-0192-4f86-879a-7ba599178693";
+    // History is newest first, so the queue sends the timer, then the rejected session, then the valid one.
+    for (const r of [valid, rejected]) await drainWatch({ store, account, generation: 1, catalog: { [plan.plan_key]: workout }, current: () => true,
+      pendingResults: async () => [JSON.stringify(r)], markImported: async () => {} });
+    await drainWatch({ store, account, generation: 1, catalog: {}, current: () => true,
+      pendingResults: async () => [JSON.stringify(timer)], markImported: async () => {} });
+    expect(store.snapshot().history.map(h => h.watch_quick ? "timer" : h.request.client_session_id))
+      .toEqual(["timer", rejected.client_session_id, valid.client_session_id]);
+    const sent: string[] = [];
+    await store.sync(async request => {
+      sent.push(request.client_session_id);
+      if (request.client_session_id === rejected.client_session_id) throw Object.assign(Error("Invalid"), { status: 422 });
+      return { id: "server", generation: 1, client_session_id: request.client_session_id, title: "Saved", started_at: start,
+        status: request.status, content: { ...request, prescription_snapshot: workout } };
+    });
+    expect(sent).toContain(valid.client_session_id);
+    expect(store.snapshot().history.find(h => h.request.client_session_id === rejected.client_session_id)?.state).toBe("blocked");
+  });
 
 });
 
@@ -211,6 +234,8 @@ it("retains snapshots through day 45 and preserves sent timestamps for unchanged
   expect(pruneWatchCatalog(sent, { sent: workout }, [], now + 300)).toEqual(sent);
   expect(pruneWatchCatalog(sent, { sent: workout }, [], now + 2 * 86400000)).toEqual(sent);
   expect(pruneWatchCatalog(sent, { sent: { ...workout, title: "Edited" } }, [], now + 2 * 86400000).sent.watch_cached_at).toBe(now + 2 * 86400000);
+  // A snapshot still advertised after a week is re-stamped, so it outlives 45 days from its first send.
+  expect(pruneWatchCatalog(sent, { sent: workout }, [], now + 8 * 86400000).sent.watch_cached_at).toBe(now + 8 * 86400000);
 });
 it("bounds imported IDs on load and write and still dedupes recent replay after reload", async () => {
   const disk = new Map<string, string>();
@@ -223,7 +248,10 @@ it("bounds imported IDs on load and write and still dedupes recent replay after 
     pendingResults: async () => [JSON.stringify(result())], markImported: async () => {} });
   expect(store.snapshot().watch_imported).toHaveLength(500);
   const reloaded = createTrainingStore(storage, "synthetic", 1); await reloaded.load();
-  await drainWatch({ store: reloaded, account, generation: 1, current: () => true, catalog: {},
-    pendingResults: async () => [JSON.stringify(result())], markImported: async () => {} });
+  const replayed: string[] = [];
+  const attention = await drainWatch({ store: reloaded, account, generation: 1, current: () => true, catalog: {},
+    pendingResults: async () => [JSON.stringify(result())], markImported: async id => { replayed.push(id); } });
+  // An empty catalog would report a missing snapshot; dedupe must acknowledge before validating.
+  expect(attention).toEqual([]); expect(replayed).toEqual([result().client_session_id]);
   expect(reloaded.snapshot().history).toHaveLength(1);
 });

@@ -156,9 +156,10 @@ export function pruneWatchCatalog(prior: WatchCatalog, sent: Record<string, Work
   }
   for (const [key, workout] of Object.entries(sent)) {
     const { watch_cached_at: cached, ...snapshot } = prior[key] ?? {};
-    // Keep the original timestamp for unchanged snapshots; timestamp-only churn is not a catalog change.
+    // Unchanged snapshots keep their timestamp for a week, so retention counts from the last advertisement
+    // without a durable write on every pass.
     const unchanged = JSON.stringify(snapshot) === JSON.stringify(workout);
-    catalog[key] = { ...workout, watch_cached_at: unchanged && cached != null ? cached : now };
+    catalog[key] = { ...workout, watch_cached_at: unchanged && cached != null && cached >= now - 7 * 86400000 ? cached : now };
   }
   return catalog;
 }

@@ -5,11 +5,13 @@ import { useTraining } from "./context";
 import type { TrainingStore } from "./training";
 import { dateInTimezone } from "./training";
 import { drainWatch, planContext, watchAccountKey, stablePlans, pruneWatchCatalog, type WatchAttention, type WatchCatalog } from "./watch-sync";
-import { nativeWatchBridge, watchPlansEpoch, subscribeWatchResync, watchResyncToken, type WatchBridge } from "./watch-native";
+import { nativeWatchBridge, watchPlansEpoch, watchSyncSuspended, resumeWatchSync, subscribeWatchResync, watchResyncToken, type WatchBridge } from "./watch-native";
 
 export function useWatchSync(store: TrainingStore | null, ready: boolean) {
   const { api, owner, enrollment, units, localDrafts, isCurrentAccount, storage } = useTraining();
   const [watchBridge, setBridge] = useState<WatchBridge | null>(null);
+  // Mounting means a signed-in account; an earlier account's sign-out suspension does not carry over.
+  useEffect(() => { if (watchSyncSuspended()) resumeWatchSync(); }, []);
   useEffect(() => { let active = true; void nativeWatchBridge().then(b => { if (active) setBridge(b); }); return () => { active = false; }; }, []);
   const [attention, setAttention] = useState<{ account: string; items: WatchAttention[] }>({ account: "", items: [] });
   const lastPlans = useRef({ account: "", epoch: -1, fingerprint: "" });
@@ -28,7 +30,7 @@ export function useWatchSync(store: TrainingStore | null, ready: boolean) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => { clearTimeout(timer); timer = setTimeout(() => { void pass(); }, 300); };
     refresh.current = schedule;
-    const current = () => !disposed && epoch === watchPlansEpoch() && AppState.currentState === "active" && isCurrentAccount() && storage.isCurrent();
+    const current = () => !disposed && !watchSyncSuspended() && epoch === watchPlansEpoch() && AppState.currentState === "active" && isCurrentAccount() && storage.isCurrent();
     async function pass() {
       if (!current()) return;
       if (running) { again = true; return; }

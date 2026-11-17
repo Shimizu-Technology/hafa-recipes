@@ -1,5 +1,5 @@
 const watch = vi.hoisted(() => ({ clear: vi.fn(async () => undefined), resume: vi.fn() }));
-vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: watch.clear, resumeWatchSync: watch.resume, subscribeWatchResync: () => () => {}, watchResyncToken: () => 0, nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
+vi.mock("@/lib/watch-native", () => ({ clearWatchPlans: watch.clear, resumeWatchSync: watch.resume, subscribeWatchResync: () => () => {}, watchResyncToken: () => 0, watchSyncSuspended: () => false, nativeWatchBridge: async () => null, watchPlansEpoch: () => 0 }));
 import { createElement, useEffect, StrictMode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
