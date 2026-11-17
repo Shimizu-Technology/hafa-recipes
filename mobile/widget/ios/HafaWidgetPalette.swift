@@ -2,8 +2,9 @@ import SwiftUI
 import WidgetKit
 
 /// The widget runs outside React Native, so it cannot consume `Colors.ts`.
-/// Keep these values aligned with the app's island-modern pantry palette and
-/// choose appearance-specific roles here instead of using fixed foregrounds.
+/// These values mirror the app's Calm tokens: a white sheet (dark: #1A1D1C),
+/// one deep-reef accent and 1pt hairlines. Tinted and clear home screens fall
+/// back to system roles so the glyphs stay readable.
 struct HafaWidgetPalette {
   let colorScheme: ColorScheme
   let contrast: ColorSchemeContrast
@@ -13,65 +14,81 @@ struct HafaWidgetPalette {
   private var isHighContrast: Bool { contrast == .increased }
   private var isFullColor: Bool { renderingMode == .fullColor }
 
+  /// Colors.backgroundElevated: #FFFFFF / #1A1D1C.
   var background: Color {
     guard isFullColor else { return .clear }
-    return isDark
-      ? Color(red: 0.063, green: 0.078, blue: 0.067) // #101411
-      : Color(red: 1.000, green: 0.969, blue: 0.925) // #FFF7EC
+    return isDark ? Color(hex: 0x1A1D1C) : Color(hex: 0xFFFFFF)
   }
 
-  /// Dark mode uses a brighter reef tone for clarity; light mode uses deep
-  /// reef so small labels retain accessible contrast on the warm background.
+  /// Colors.text: #222222 / #ECEEEC.
+  var text: Color {
+    guard isFullColor else { return .primary }
+    return isDark ? Color(hex: 0xECEEEC) : Color(hex: 0x222222)
+  }
+
+  /// Colors.textSecondary: #6A6A66 / #9BA19E, darker or lighter for
+  /// Increase Contrast.
+  var secondaryText: Color {
+    guard isFullColor else { return .secondary }
+    if isDark { return isHighContrast ? Color(hex: 0xC4C9C6) : Color(hex: 0x9BA19E) }
+    return isHighContrast ? Color(hex: 0x4A4A46) : Color(hex: 0x6A6A66)
+  }
+
+  /// Colors.actionText: checkmarks and links. #145E52 / #8CCFBE.
   var accent: Color {
     guard isFullColor else { return .primary }
-    if isDark {
-      return isHighContrast
-        ? Color(red: 0.549, green: 0.847, blue: 0.800) // #8CD8CC
-        : Color(red: 0.412, green: 0.784, blue: 0.729) // #69C8BA
-    }
-    return isHighContrast
-      ? Color(red: 0.059, green: 0.286, blue: 0.259) // #0F4942
-      : Color(red: 0.082, green: 0.361, blue: 0.322) // #155C52
+    if isDark { return isHighContrast ? Color(hex: 0xB0E2D5) : Color(hex: 0x8CCFBE) }
+    return isHighContrast ? Color(hex: 0x0F4942) : Color(hex: 0x145E52)
   }
 
-  var onAccent: Color {
-    guard isFullColor else { return .primary }
-    return isDark
-      ? Color(red: 0.090, green: 0.071, blue: 0.055) // brand ink
-      : .white
-  }
-
-  /// Filled controls need their own pair of roles. In tinted and accented
-  /// rendering modes, using `.primary` for both the fill and its glyph would
-  /// erase the glyph, so the system-colored variant becomes a soft neutral
-  /// surface with a readable primary foreground.
+  /// Colors.tint behind the add button. #17695B / #1B7466 with white.
+  /// In tinted modes a filled accent would erase its glyph, so the button
+  /// becomes a soft neutral circle with a primary foreground.
   var prominentControlBackground: Color {
-    isFullColor ? accent : Color.primary.opacity(isHighContrast ? 0.24 : 0.14)
+    guard isFullColor else { return Color.primary.opacity(isHighContrast ? 0.24 : 0.14) }
+    return isDark ? Color(hex: 0x1B7466) : Color(hex: 0x17695B)
   }
 
   var prominentControlForeground: Color {
-    isFullColor ? onAccent : .primary
+    isFullColor ? .white : .primary
   }
 
-  var sectionSurface: Color {
-    if !isFullColor {
-      return Color.primary.opacity(isHighContrast ? 0.16 : 0.09)
-    }
-    return isDark
-      ? Color(red: 0.125, green: 0.157, blue: 0.125) // #202820
-      : Color(red: 0.973, green: 0.937, blue: 0.890) // #F8EFE3
+  /// Colors.hairline: #E7E7E3 / #2A2E2C.
+  var hairline: Color {
+    guard isFullColor else { return Color.primary.opacity(isHighContrast ? 0.30 : 0.12) }
+    if isHighContrast { return isDark ? Color(hex: 0x4A504D) : Color(hex: 0xC8C8C2) }
+    return isDark ? Color(hex: 0x2A2E2C) : Color(hex: 0xE7E7E3)
   }
 
-  var controlSurface: Color {
-    if !isFullColor {
-      return Color.primary.opacity(isHighContrast ? 0.18 : 0.10)
-    }
-    return isDark
-      ? Color(red: 0.173, green: 0.208, blue: 0.184) // #2C352F
-      : Color(red: 0.910, green: 0.847, blue: 0.784) // #E8D8C8
+  /// Colors.warning for a connection problem: #8A5A00 / #E8B04A.
+  var warning: Color {
+    guard isFullColor else { return .primary }
+    return isDark ? Color(hex: 0xE8B04A) : Color(hex: 0x8A5A00)
+  }
+}
+
+private extension Color {
+  init(hex: UInt32) {
+    self.init(
+      red: Double((hex >> 16) & 0xFF) / 255,
+      green: Double((hex >> 8) & 0xFF) / 255,
+      blue: Double(hex & 0xFF) / 255
+    )
+  }
+}
+
+/// Figtree, the app's UI face, bundled with the extension. Each size scales
+/// with Dynamic Type relative to a system style.
+enum HafaWidgetFont {
+  static func medium(_ size: CGFloat, relativeTo style: Font.TextStyle) -> Font {
+    .custom("Figtree-Medium", size: size, relativeTo: style)
   }
 
-  var subtleBorder: Color {
-    Color.primary.opacity(isHighContrast ? 0.30 : 0.09)
+  static func semibold(_ size: CGFloat, relativeTo style: Font.TextStyle) -> Font {
+    .custom("Figtree-SemiBold", size: size, relativeTo: style)
+  }
+
+  static func bold(_ size: CGFloat, relativeTo style: Font.TextStyle) -> Font {
+    .custom("Figtree-Bold", size: size, relativeTo: style)
   }
 }

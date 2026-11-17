@@ -7,15 +7,28 @@ EAS builds.
 
 ## Product behavior
 
-- Small: unchecked-item count and a link into the grocery list.
-- Medium/large: four/eight items at a time with iOS 17 interactive check-off
-  and native previous/next controls for browsing the entire saved list.
+- The widget follows the app's Calm look: a white sheet (dark: #1A1D1C), the
+  deep-reef accent, 1pt hairlines and Figtree, which the config plugin copies
+  from `@expo-google-fonts/figtree` into the extension at prebuild.
+- Small: items left, plus a preview of the next few. Tapping opens the list.
+- Medium/large: what is left to buy comes first, in the app's recipe order.
+  Large adds recipe headers like the app's sections. Tapping anywhere on a row
+  checks it off (iOS 17 App Intent); the next item moves up into view.
+  Checked items only fill leftover space, newest first, so a mistaken tap can
+  be undone. When the list is longer than the widget, large shows "N more on
+  your list", which opens the app. There is no paging or collapsing: the
+  layout in `HafaWidgetListLayout.swift` sizes the list to the space.
 - Add: opens `hafarecipes://grocery?focusAdd=1` and focuses the app's text input.
   WidgetKit does not provide free-form text entry inside a home-screen widget.
-- Edit: tapping an item name opens that item's existing edit sheet in the app.
-  Destructive delete remains in the app, where iOS can present confirmation.
+  Editing and deleting stay in the app.
+- Status: the subtitle reads like the app's ("Shared · 5 items left"). It adds
+  "Syncing" while a check is queued, "Showing saved list" after a failed
+  refresh, and asks the user to open the app when the widget must reconnect.
 - Freshness: app fetches and mutations publish confirmed snapshots immediately;
   WidgetKit also requests a server snapshot on its budgeted timeline.
+
+Layout tests: `widget/tests/test-widget-layout.sh` compiles the layout with the
+shared models and runs its fixtures on the Mac.
 
 ## Data and authentication boundary
 

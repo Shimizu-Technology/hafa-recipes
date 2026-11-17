@@ -7,38 +7,13 @@ struct HafaWidgetSection: Identifiable, Hashable {
   var items: [HafaWidgetItem]
 
   var id: String { key }
-  var checkedCount: Int { items.filter(\.checked).count }
   var isOtherItems: Bool { key == HafaWidgetSections.otherItemsKey }
+  /// Matches the app's grocery section header, which shortens "Other Items".
+  var displayTitle: String { isOtherItems ? "Other" : title }
 }
 
-enum HafaWidgetDisplayRow: Identifiable, Hashable {
-  case section(HafaWidgetSection, continuation: Bool)
-  case item(sectionKey: String, HafaWidgetItem)
-
-  var id: String {
-    switch self {
-    case let .section(section, continuation):
-      return "section:\(section.key):\(continuation ? "continued" : "start")"
-    case let .item(sectionKey, item):
-      return "item:\(sectionKey):\(item.id)"
-    }
-  }
-}
-
-struct HafaWidgetSectionPage: Equatable {
-  let index: Int
-  let totalPages: Int
-  let pageSize: Int
-  let rows: [HafaWidgetDisplayRow]
-
-  var canMovePrevious: Bool { index > 0 }
-  var canMoveNext: Bool { index + 1 < totalPages }
-
-  func moved(by direction: Int) -> Int {
-    min(max(0, index + (direction < 0 ? -1 : 1)), max(0, totalPages - 1))
-  }
-}
-
+/// Mirrors `groupGroceryItems` in `mobile/lib/grocerySections.ts` so the widget
+/// and the app list recipes in the same order.
 enum HafaWidgetSections {
   static let otherItemsKey = "other-items"
   static let otherItemsTitle = "Other Items"
@@ -85,66 +60,6 @@ enum HafaWidgetSections {
       )
     }
     return result
-  }
-
-  static func pages(
-    sections: [HafaWidgetSection],
-    collapsedKeys: Set<String>,
-    pageSize: Int
-  ) -> [[HafaWidgetDisplayRow]] {
-    let capacity = max(2, pageSize)
-    var pages: [[HafaWidgetDisplayRow]] = []
-    var current: [HafaWidgetDisplayRow] = []
-
-    func flush() {
-      guard !current.isEmpty else { return }
-      pages.append(current)
-      current = []
-    }
-
-    for section in sections {
-      if collapsedKeys.contains(section.key) || section.items.isEmpty {
-        if current.count == capacity { flush() }
-        current.append(.section(section, continuation: false))
-        continue
-      }
-
-      // Never leave an expanded section header orphaned at the bottom of a page.
-      if current.count > capacity - 2 { flush() }
-      current.append(.section(section, continuation: false))
-
-      for item in section.items {
-        if current.count == capacity {
-          flush()
-          current.append(.section(section, continuation: true))
-        }
-        current.append(.item(sectionKey: section.key, item))
-      }
-    }
-    flush()
-    return pages.isEmpty ? [[]] : pages
-  }
-
-  static func page(
-    state: HafaWidgetState,
-    familyKey: String,
-    pageSize: Int
-  ) -> HafaWidgetSectionPage {
-    let sections = build(from: state.snapshot?.items ?? [])
-    let allPages = pages(
-      sections: sections,
-      collapsedKeys: Set(state.collapsedSectionKeys ?? []),
-      pageSize: pageSize
-    )
-    let legacyIndex = (state.pageOffsets?[familyKey] ?? 0) / max(1, pageSize)
-    let requestedIndex = state.pageIndices?[familyKey] ?? legacyIndex
-    let index = min(max(0, requestedIndex), allPages.count - 1)
-    return HafaWidgetSectionPage(
-      index: index,
-      totalPages: allPages.count,
-      pageSize: pageSize,
-      rows: allPages[index]
-    )
   }
 
   private static func sectionKey(for item: HafaWidgetItem) -> String? {
