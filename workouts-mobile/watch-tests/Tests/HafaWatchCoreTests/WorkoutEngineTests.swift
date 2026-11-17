@@ -123,6 +123,52 @@ final class WorkoutEngineTests: XCTestCase {
     XCTAssertEqual(outbox.records().count, 1)
   }
 
+  func testActionIsIgnoredWhileEitherConfirmationIsOpen() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    clock.advance(2)
+    for control in [WorkoutEngine.Control.end, .skip] {
+      engine.request(control)
+      let before = engine.runner
+      let calls = recorder.calls
+      XCTAssertEqual(engine.advance(), .ignored(.confirmationOpen))
+      XCTAssertEqual(engine.runner, before)
+      XCTAssertEqual(recorder.calls, calls)
+      XCTAssertEqual(engine.pendingControl, control)
+      engine.pendingControl = nil; engine.sheetDismissed()
+    }
+    XCTAssertEqual(engine.advance(), .applied(.round(1)))
+  }
+
+  func testPartDoneIsUndoableAfterRelaunchAndIgnoredWhilePaused() async throws {
+    for kind in [WatchPlan.Part.Kind.forTime, .sets] {
+      let first = engine()
+      try await first.start(plan(part("A", kind), part("B", .amrap, cap: 60)), leadIn: 0)
+      clock.advance(2)
+      first.pause()
+      let paused = first.runner
+      first.completePart()
+      XCTAssertEqual(first.runner, paused)
+      first.resume()
+      first.completePart()
+      XCTAssertEqual(first.runner?.cursor, 1)
+      XCTAssertTrue(first.runner!.canUndo(at: clock.now))
+      XCTAssertFalse(recorder.calls.contains { $0.hasPrefix("end part") })
+      XCTAssertFalse(store.load()!.deferredEvents!.isEmpty)
+      recorder.liveSession = true
+      let recovered = engine()
+      await recovered.recover()
+      XCTAssertTrue(recovered.undo())
+      XCTAssertEqual(recovered.runner?.cursor, 0)
+      XCTAssertEqual(recovered.runner?.phase, .running)
+      XCTAssertNil(recovered.runner?.runs[0].span?.end)
+      XCTAssertFalse(recovered.runner!.runs[0].skipped)
+      XCTAssertTrue(store.load()!.deferredEvents!.isEmpty)
+      await recovered.discard()
+      recorder.calls = []
+    }
+  }
+
   func testHealthSummarySurvivesOutboxFailureAndRelaunch() async throws {
     let engine = engine()
     try await engine.start(twoParts, leadIn: 0)

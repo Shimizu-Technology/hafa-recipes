@@ -134,11 +134,14 @@ final class WorkoutEngine: ObservableObject {
   }
 
   @discardableResult
-  func advance() -> PartRunner.AdvanceResult {
+  func advance() -> PartRunner.AdvanceResult { applyAdvance { $0.advance(at: $1) } }
+
+  private func applyAdvance(_ change: (inout PartRunner, Date) -> (PartRunner.AdvanceResult, [RunnerEvent])) -> PartRunner.AdvanceResult {
+    guard pendingControl == nil else { return .ignored(.confirmationOpen) }
     guard state == .running, var runner else { return .ignored(.nothingToAdvance) }
     flushDeferred()
     let now = clock.now
-    let (result, events) = runner.advance(at: now)
+    let (result, events) = change(&runner, now)
     if case .applied = result {
       flushDeferred(force: true)
       self.runner = runner
@@ -195,7 +198,7 @@ final class WorkoutEngine: ObservableObject {
 
   func pause() { mutate { $0.pause(at: $1) } }
   func resume() { mutate { $0.resume(at: $1) } }
-  func completePart() { mutate { $0.completePart(at: $1) } }
+  func completePart() { _ = applyAdvance { $0.completePartWithResult(at: $1) } }
   func endPart(expected: Int? = nil) {
     mutate { runner, now in
       let events = runner.tick(at: now)

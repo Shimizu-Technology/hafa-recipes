@@ -46,7 +46,7 @@ struct PartRunner: Codable, Equatable {
   }
 
   enum Advance: Equatable { case startedPart, buyInDone, round(Int), setDone(Int), partDone }
-  enum Ignored: Equatable { case tooSoon, paused, clockDriven, nothingToAdvance, stateChanged }
+  enum Ignored: Equatable { case tooSoon, paused, clockDriven, nothingToAdvance, stateChanged, confirmationOpen }
   enum AdvanceResult: Equatable { case applied(Advance), ignored(Ignored) }
 
   static let debounce: TimeInterval = 0.6
@@ -137,7 +137,7 @@ struct PartRunner: Codable, Equatable {
     if let latest = lastTransitionAt, now.timeIntervalSince(latest) < Self.debounce { return (.ignored(.stateChanged), events) }
     if pausedAt != nil { return (.ignored(.paused), events) }
     if let last = lastAdvanceAt, now.timeIntervalSince(last) < Self.debounce { return (.ignored(.tooSoon), events) }
-    let baseline = UndoBaseline(phase: phase, cursor: cursor, runs: runs, pausedAt: pausedAt, lastTapAt: lastTapAt)
+    let baseline = UndoBaseline(phase: phase, cursor: cursor, runs: runs, pausedAt: pausedAt, lastTapAt: lastTapAt, lastTransitionAt: lastTransitionAt)
     var applied: [RunnerEvent] = []
     let result: AdvanceResult
     switch phase {
@@ -182,6 +182,7 @@ struct PartRunner: Codable, Equatable {
     var runs: [PartRun]
     var pausedAt: Date?
     var lastTapAt: Date?
+    var lastTransitionAt: Date?
     var events: [RunnerEvent] = []
   }
   private var undoBaseline: UndoBaseline?
@@ -191,7 +192,7 @@ struct PartRunner: Codable, Equatable {
     var copy = self
     copy.undoBaseline = nil
     copy.phase = saved.phase; copy.cursor = saved.cursor; copy.runs = saved.runs
-    copy.pausedAt = saved.pausedAt; copy.lastTapAt = saved.lastTapAt
+    copy.pausedAt = saved.pausedAt; copy.lastTapAt = saved.lastTapAt; copy.lastTransitionAt = saved.lastTransitionAt
     return copy
   }
 
@@ -199,7 +200,7 @@ struct PartRunner: Codable, Equatable {
     guard var baseline = undoRunner else { return }
     let events = (undoBaseline?.events ?? []) + change(&baseline)
     undoBaseline = UndoBaseline(phase: baseline.phase, cursor: baseline.cursor, runs: baseline.runs,
-      pausedAt: baseline.pausedAt, lastTapAt: baseline.lastTapAt, events: events)
+      pausedAt: baseline.pausedAt, lastTapAt: baseline.lastTapAt, lastTransitionAt: baseline.lastTransitionAt, events: events)
   }
 
   mutating func pause(at now: Date) -> [RunnerEvent] {
@@ -233,12 +234,21 @@ struct PartRunner: Codable, Equatable {
   /// after the last movement of one pass. Part done can also finish a longer open effort.
   var isOpenPart: Bool { part?.rounds == nil && (part?.kind == .forTime || part?.kind == .sets) }
 
-  mutating func completePart(at now: Date) -> [RunnerEvent] {
-    clearUndo()
+  mutating func completePart(at now: Date) -> [RunnerEvent] { completePartWithResult(at: now).1 }
+
+  mutating func completePartWithResult(at now: Date) -> (AdvanceResult, [RunnerEvent]) {
     var events = tick(at: now)
-    guard phase == .running, isOpenPart, pausedAt == nil else { return events }
+    guard pausedAt == nil else { return (.ignored(.paused), events) }
+    if let latest = lastTransitionAt, now.timeIntervalSince(latest) < Self.debounce {
+      return (.ignored(.stateChanged), events)
+    }
+    if let last = lastAdvanceAt, now.timeIntervalSince(last) < Self.debounce { return (.ignored(.tooSoon), events) }
+    guard phase == .running, isOpenPart else { return (.ignored(.nothingToAdvance), events) }
+    undoBaseline = UndoBaseline(phase: phase, cursor: cursor, runs: runs, pausedAt: pausedAt,
+      lastTapAt: lastTapAt, lastTransitionAt: lastTransitionAt)
+    lastAdvanceAt = now
     close(at: now, &events)
-    return events
+    return (.applied(.partDone), events)
   }
 
   /// Ends the running part now, or skips the part whose lead-in or rest is showing.

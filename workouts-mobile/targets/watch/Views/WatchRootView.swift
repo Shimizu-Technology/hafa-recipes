@@ -170,6 +170,8 @@ struct ClassView: View {
             .handGestureShortcut(.primaryAction)
           if runner.isOpenPart {
             Button("Part done") { engine.completePart() }.buttonStyle(WatchButton(compact: true))
+              .disabled(runner.pausedAt != nil)
+              .opacity(runner.pausedAt == nil ? 1 : 0.4)
           }
         }.padding(.bottom, 4)
       }
@@ -243,6 +245,7 @@ struct UndoPill: View {
 
 struct ControlConfirmation: View {
   @EnvironmentObject private var engine: WorkoutEngine
+  @EnvironmentObject private var runtime: WatchRuntime
   var body: some View {
     VStack(spacing: 8) {
       Text(engine.pendingControl == .end ? "End this class?" : "Skip this part?")
@@ -251,6 +254,7 @@ struct ControlConfirmation: View {
       Button(engine.pendingControl == .end ? "End class" : "Skip part") {
         engine.confirmControl()
       }.buttonStyle(WatchButton(role: .destructive))
+      if let notice = runtime.notice { Text(notice).font(.caption).foregroundStyle(Theme.muted) }
     }
   }
 }

@@ -71,8 +71,8 @@ enum WorkoutStyle: String, AppEnum {
   func advance() {
     switch engine.advance() {
     case .applied: WKInterfaceDevice.current().play(.click)
-    case .ignored(.clockDriven):
-      notice = "Clock advances this part"
+    case .ignored(.clockDriven), .ignored(.confirmationOpen):
+      notice = engine.pendingControl != nil ? "Confirm or cancel first" : "Clock advances this part"
       Task { @MainActor in try? await Task.sleep(for: .seconds(2)); notice = nil }
     default: break
     }
