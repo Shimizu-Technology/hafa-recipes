@@ -60,6 +60,7 @@ struct PartRunner: Codable, Equatable {
   private(set) var pausedAt: Date?
   private(set) var lastAdvanceAt: Date?
   private(set) var lastTapAt: Date?
+  private(set) var lastTransitionAt: Date?
 
   init(plan: WatchPlan, leadIn: TimeInterval) {
     self.plan = plan
@@ -106,6 +107,9 @@ struct PartRunner: Codable, Equatable {
   mutating func tick(at now: Date) -> [RunnerEvent] {
     guard pausedAt == nil else { return [] }
     var events: [RunnerEvent] = []
+    defer {
+      if let latest = events.map(\.date).max() { lastTransitionAt = latest }
+    }
     while true {
       switch phase {
       case .leadIn(let until) where now >= until:
@@ -127,7 +131,7 @@ struct PartRunner: Codable, Equatable {
   mutating func advance(at now: Date) -> (AdvanceResult, [RunnerEvent]) {
     let events = tick(at: now)
     // The clock just moved the class on (cap reached, rest over), so this press was meant for the old screen.
-    if let latest = events.map(\.date).max(), now.timeIntervalSince(latest) < Self.debounce { return (.ignored(.stateChanged), events) }
+    if let latest = lastTransitionAt, now.timeIntervalSince(latest) < Self.debounce { return (.ignored(.stateChanged), events) }
     if pausedAt != nil { return (.ignored(.paused), events) }
     if let last = lastAdvanceAt, now.timeIntervalSince(last) < Self.debounce { return (.ignored(.tooSoon), events) }
     var applied: [RunnerEvent] = []

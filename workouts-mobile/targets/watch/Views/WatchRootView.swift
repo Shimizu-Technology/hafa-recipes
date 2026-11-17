@@ -35,8 +35,6 @@ struct ClassView: View {
   @EnvironmentObject private var engine: WorkoutEngine
   @Environment(\.isLuminanceReduced) private var dimmed
   @State private var page = 1
-  @State private var capSheet = false
-  @State private var capIndex = 0
   @State private var lastCue = ""
 
   var body: some View {
@@ -79,22 +77,27 @@ struct ClassView: View {
         }
       }
     }
-    .confirmationDialog("End this class?", isPresented: Binding(get: { engine.pendingControl == .end }, set: { if !$0 { engine.pendingControl = nil } })) {
-      Button("End class", role: .destructive) { engine.confirmControl() }
-      Button("Keep going", role: .cancel) {}
+    .sheet(item: Binding(get: { engine.sheet }, set: { if $0 == nil { engine.dismissSheet() } }), onDismiss: {
+      engine.sheetDismissed()
+    }) { sheet in
+      switch sheet {
+      case .capReps(let index): RepSheet(index: index)
+      case .confirmation(let control):
+        VStack(spacing: 12) {
+          Text(control == .end ? "End this class?" : "Skip this part?").font(Theme.display(26))
+          Button(control == .end ? "End class" : "Skip part") { engine.confirmControl(); page = 1 }
+            .buttonStyle(WatchButton(role: .destructive))
+          Button("Keep going") { engine.pendingControl = nil }.buttonStyle(WatchButton(role: .secondary))
+        }
+      }
     }
-    .confirmationDialog("Skip this part?", isPresented: Binding(get: { engine.pendingControl == .skip }, set: { if !$0 { engine.pendingControl = nil } })) {
-      Button("Skip part", role: .destructive) { engine.confirmControl(); page = 1 }
-      Button("Keep going", role: .cancel) {}
-    }
-    .sheet(isPresented: $capSheet) { RepSheet(index: capIndex) }
     .onChange(of: engine.runner) { old, new in
       guard let old, let new, old.phase == .running,
         new.cursor != old.cursor || new.phase != old.phase,
         let cap = old.part?.timeLimit, (old.part?.kind == .forTime || old.part?.kind == .amrap),
         new.runs[old.cursor].span?.end != nil,
         new.activeSeconds(of: old.cursor, at: Date()) >= cap else { return }
-      capIndex = old.cursor; capSheet = true
+      engine.presentCapReps(for: old.cursor)
     }
   }
 

@@ -27,6 +27,9 @@ protocol WorkoutRecorder: AnyObject {
   var metrics: LiveMetrics { get }
   var isRecording: Bool { get }
   var collectionEnded: Bool { get }
+  var eventsAdded: Bool { get }
+  var onEventsAdded: (() -> Void)? { get set }
+  func restoreEventsAdded(_ added: Bool)
   var onCollectionEnded: (() -> Void)? { get set }
   func restoreCollectionEnded(_ ended: Bool)
   /// Called when the system ends or fails the session outside finish and discard.

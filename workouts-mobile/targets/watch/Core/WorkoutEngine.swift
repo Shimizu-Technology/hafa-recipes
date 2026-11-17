@@ -15,13 +15,51 @@ final class WorkoutEngine: ObservableObject {
   }
 
   enum StartError: Error { case emptyPlan, sessionLost }
-  enum Control { case end, skip }
-  @Published var pendingControl: Control?
-  func request(_ control: Control) { pendingControl = control }
+  enum Control: Equatable { case end, skip }
+  enum Sheet: Identifiable, Equatable {
+    case confirmation(Control), capReps(Int)
+    var id: String {
+      switch self {
+      case .confirmation(.end): return "end"
+      case .confirmation(.skip): return "skip"
+      case .capReps(let index): return "cap-\(index)"
+      }
+    }
+  }
+  @Published private(set) var sheet: Sheet?
+  private var sheetIsPresented = false
+  private var queuedCaps: [Int] = []
+  private var pendingPartIndex: Int?
+  var pendingControl: Control? {
+    get { if case .confirmation(let control) = sheet { return control }; return nil }
+    set { if newValue == nil, pendingControl != nil { dismissSheet() } }
+  }
+  func request(_ control: Control) {
+    guard !sheetIsPresented else { return }
+    pendingPartIndex = runner?.cursor
+    sheetIsPresented = true
+    sheet = .confirmation(control)
+  }
+  func presentCapReps(for index: Int) {
+    if sheetIsPresented { queuedCaps.append(index) }
+    else { sheetIsPresented = true; sheet = .capReps(index) }
+  }
+  func dismissSheet() { sheet = nil }
+  /// Called by SwiftUI only after the previous presentation has finished dismissing.
+  func sheetDismissed() {
+    sheetIsPresented = false
+    pendingPartIndex = nil
+    if !queuedCaps.isEmpty { presentCapReps(for: queuedCaps.removeFirst()) }
+  }
   func confirmControl() {
     let action = pendingControl
+    let expected = pendingPartIndex
     pendingControl = nil
-    switch action { case .end: stop(); case .skip: endPart(); case nil: break }
+    switch action {
+    case .end: stop()
+    case .skip: if let expected { endPart(expected: expected) }
+    case nil: break
+    }
   }
   @Published var startError: String?
   @Published private(set) var runner: PartRunner?
@@ -49,6 +87,7 @@ final class WorkoutEngine: ObservableObject {
     self.outbox = outbox
     self.clock = clock
     recorder.onCollectionEnded = { [weak self] in self?.checkpoint(force: true) }
+    recorder.onEventsAdded = { [weak self] in self?.checkpoint(force: true) }
     recorder.onSessionLost = { [weak self] in self?.sessionLost() }
   }
 
@@ -123,7 +162,13 @@ final class WorkoutEngine: ObservableObject {
   func pause() { mutate { $0.pause(at: $1) } }
   func resume() { mutate { $0.resume(at: $1) } }
   func completePart() { mutate { $0.completePart(at: $1) } }
-  func endPart() { mutate { $0.endPart(at: $1) } }
+  func endPart(expected: Int? = nil) {
+    mutate { runner, now in
+      let events = runner.tick(at: now)
+      guard expected == nil || runner.cursor == expected else { return events }
+      return events + runner.endPart(at: now)
+    }
+  }
 
   /// Ends the class and saves it to Health. After a failure the class is kept: try again, or save the
   /// scores without a Health workout.
@@ -197,6 +242,7 @@ final class WorkoutEngine: ObservableObject {
     }
     if live && !saved.isRecording { await recorder.discard() }
     recorder.restoreCollectionEnded(saved.collectionEnded ?? false)
+    recorder.restoreEventsAdded(saved.eventsAdded ?? false)
     recordedSummary = saved.recordedSummary
     sessionID = saved.sessionID
     startedAt = saved.startedAt
@@ -217,6 +263,7 @@ final class WorkoutEngine: ObservableObject {
     let events = change(&runner, clock.now)
     if runner != self.runner { self.runner = runner }
     apply(events)
+    if case .finished = runner.phase { pendingControl = nil }
     checkpoint(force: force || !events.isEmpty)
   }
 
@@ -237,7 +284,7 @@ final class WorkoutEngine: ObservableObject {
     let now = clock.now
     guard let runner, force || now.timeIntervalSince(lastCheckpoint) >= Self.checkpointInterval else { return }
     // A failed write is retried on the next tick; the class keeps running either way.
-    guard (try? store.save(Checkpoint(sessionID: sessionID, startedAt: startedAt, runner: runner, isRecording: isRecording, recordedSummary: recordedSummary, collectionEnded: recorder.collectionEnded))) != nil
+    guard (try? store.save(Checkpoint(sessionID: sessionID, startedAt: startedAt, runner: runner, isRecording: isRecording, recordedSummary: recordedSummary, collectionEnded: recorder.collectionEnded, eventsAdded: recorder.eventsAdded))) != nil
     else { return }
     lastCheckpoint = now
   }

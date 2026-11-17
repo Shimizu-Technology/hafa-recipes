@@ -28,7 +28,9 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
   /// Set once finish or discard starts, so the session's own end isn't reported as a loss.
   private var ending = false
   private(set) var collectionEnded = false
-  private var eventsAdded = false
+  private(set) var eventsAdded = false
+  var onEventsAdded: (() -> Void)?
+  func restoreEventsAdded(_ added: Bool) { eventsAdded = eventsAdded || added }
 
   init(store: HKHealthStore = HKHealthStore()) {
     self.store = store
@@ -98,12 +100,14 @@ final class HealthKitRecorder: NSObject, WorkoutRecorder {
           metadata: ["HafaSegmentKind": segment.kind.rawValue, "HafaPartIndex": segment.part])
       }
       if !events.isEmpty { try await builder.addWorkoutEvents(events) }
-      // The same sync keys the phone exporter uses (lib/health/provider.ios.ts), so the phone can tell it's ours.
-      try await builder.addMetadata([
-        HKMetadataKeySyncIdentifier: syncIdentifier, HKMetadataKeySyncVersion: 1, "hafa.recorded_on": "watch",
-      ])
       eventsAdded = true
+      onEventsAdded?()
     }
+    // Metadata is safe to retry even when segment events were already checkpointed.
+    // The same sync keys the phone exporter uses (lib/health/provider.ios.ts), so the phone can tell it's ours.
+    try await builder.addMetadata([
+      HKMetadataKeySyncIdentifier: syncIdentifier, HKMetadataKeySyncVersion: 1, "hafa.recorded_on": "watch",
+    ])
     let workout = try await builder.finishWorkout()
     session.end()
     detach()

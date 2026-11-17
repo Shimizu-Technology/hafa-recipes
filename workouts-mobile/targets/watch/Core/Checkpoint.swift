@@ -13,6 +13,7 @@ struct Checkpoint: Codable, Equatable {
   var isRecording: Bool
   var recordedSummary: RecordedSummary? = nil
   var collectionEnded: Bool? = nil
+  var eventsAdded: Bool? = nil
 }
 
 struct CheckpointStore {

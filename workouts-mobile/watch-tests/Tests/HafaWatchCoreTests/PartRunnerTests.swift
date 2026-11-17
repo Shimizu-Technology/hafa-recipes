@@ -2,6 +2,19 @@ import XCTest
 @testable import HafaWatchCore
 
 final class PartRunnerTests: XCTestCase {
+  func testViewTickTransitionStillGuardsTheFollowingPress() throws {
+    for delay in [0.0, 0.3, 0.599] {
+      var runner = PartRunner(plan: plan(part("A", .amrap, cap: 10), part("B", .amrap, cap: 60)), leadIn: 0)
+      _ = runner.start(at: t0)
+      _ = runner.tick(at: at(10))
+      let data = try JSONEncoder().encode(runner)
+      runner = try JSONDecoder().decode(PartRunner.self, from: data)
+      XCTAssertEqual(runner.advance(at: at(10 + delay)).0, .ignored(.stateChanged))
+      XCTAssertEqual(runner.runs[1].taps.count, 0)
+      XCTAssertEqual(runner.advance(at: at(10.61)).0, .applied(.round(1)))
+    }
+  }
+
   func testOldCatchUpAppliesPressButFreshTransitionIsProtected() {
     let fixture = plan(part("A", .amrap, cap: 60), part("B", .amrap, cap: 600))
     var old = PartRunner(plan: fixture, leadIn: 0)

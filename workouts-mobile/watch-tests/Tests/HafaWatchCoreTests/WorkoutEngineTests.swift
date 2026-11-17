@@ -47,15 +47,80 @@ final class WorkoutEngineTests: XCTestCase {
     engine.request(.end)
     XCTAssertEqual(engine.runner?.phase, .running)
     engine.pendingControl = nil
+    engine.sheetDismissed()
     engine.confirmControl()
     XCTAssertEqual(engine.runner?.phase, .running)
     engine.request(.skip)
     XCTAssertFalse(engine.runner!.runs[0].skipped)
     engine.confirmControl()
     XCTAssertTrue(engine.runner!.runs[0].skipped)
+    engine.sheetDismissed()
     engine.request(.end)
     engine.confirmControl()
     guard case .finished = engine.runner?.phase else { return XCTFail("not ended") }
+  }
+
+  func testSkipConfirmationCatchesUpBeforeCheckingExpectedPartWithoutViewTick() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .amrap, cap: 10), part("B", .amrap, cap: 60)), leadIn: 0)
+    engine.request(.skip)
+    clock.advance(11) // No intervening engine.tick().
+    engine.confirmControl()
+    XCTAssertEqual(engine.runner?.cursor, 1)
+    XCTAssertEqual(engine.runner?.phase, .running)
+    XCTAssertEqual(engine.runner?.runs.map(\.skipped), [false, false])
+    XCTAssertNil(engine.pendingControl)
+    XCTAssertEqual(store.load()?.runner, engine.runner)
+  }
+
+  func testFinishedClassDismissesEndConfirmation() async throws {
+    let engine = engine()
+    try await engine.start(plan(part("A", .amrap, cap: 10)), leadIn: 0)
+    engine.request(.end)
+    clock.advance(11)
+    engine.tick()
+    XCTAssertNil(engine.pendingControl)
+    XCTAssertNil(engine.sheet)
+  }
+
+  func testCapRepsWaitsForConfirmationDismissal() async throws {
+    let engine = engine()
+    try await engine.start(twoParts, leadIn: 0)
+    for control in [WorkoutEngine.Control.skip, .end] {
+      engine.request(control)
+      engine.presentCapReps(for: 0)
+      XCTAssertEqual(engine.sheet, .confirmation(control))
+      engine.pendingControl = nil
+      engine.presentCapReps(for: 1) // Even callbacks during dismissal must queue.
+      XCTAssertNil(engine.sheet)
+      engine.sheetDismissed()
+      XCTAssertEqual(engine.sheet, .capReps(0))
+      engine.dismissSheet(); engine.sheetDismissed()
+      XCTAssertEqual(engine.sheet, .capReps(1))
+      engine.dismissSheet(); engine.sheetDismissed()
+      XCTAssertNil(engine.sheet)
+    }
+  }
+
+  func testAddedHealthEventsAreCheckpointedBeforeFinishAndRestored() async throws {
+    let first = engine()
+    try await first.start(twoParts, leadIn: 0)
+    clock.advance(2)
+    _ = first.advance()
+    recorder.addEventsBeforeFailure = true
+    recorder.failFinish = true
+    await first.finish()
+    XCTAssertEqual(store.load()?.eventsAdded, true)
+    XCTAssertEqual(recorder.eventBatches, 1)
+    recorder.eventsAdded = false // A fresh recorder reattaches to the existing Health builder.
+    recorder.liveSession = true
+    let second = engine()
+    await second.recover()
+    XCTAssertTrue(recorder.eventsAdded)
+    recorder.failFinish = false
+    await second.finish()
+    XCTAssertEqual(recorder.eventBatches, 1)
+    XCTAssertEqual(outbox.records().count, 1)
   }
 
   func testHealthSummarySurvivesOutboxFailureAndRelaunch() async throws {
@@ -290,6 +355,11 @@ final class FakeRecorder: WorkoutRecorder {
   var liveSession = false
   var isRecording = false
   var collectionEnded = false
+  var eventsAdded = false
+  var onEventsAdded: (() -> Void)?
+  var addEventsBeforeFailure = false
+  var eventBatches = 0
+  func restoreEventsAdded(_ added: Bool) { eventsAdded = added }
   var onCollectionEnded: (() -> Void)?
   var loseDuringBegin = false
   var endCollectionBeforeFailure = false
@@ -316,6 +386,9 @@ final class FakeRecorder: WorkoutRecorder {
   func resume() { calls.append("resume") }
   func finish(at date: Date, segments: [Segment], syncIdentifier: String) async throws -> RecordedSummary {
     if endCollectionBeforeFailure { collectionEnded = true; onCollectionEnded?() }
+    if addEventsBeforeFailure && !eventsAdded {
+      eventBatches += 1; eventsAdded = true; onEventsAdded?()
+    }
     if failFinish { throw CocoaError(.fileWriteUnknown) }
     calls.append("finish \(offset(date))")
     finishedSegments = segments
