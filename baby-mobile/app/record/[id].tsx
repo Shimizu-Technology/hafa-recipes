@@ -18,10 +18,9 @@ import { PrivateAttachment } from "@/components/private-attachment";
 import { Button, Card, Chips, Choice, Copy, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SourceHero } from "@/components/saved-post-row";
-import { tipTopic } from "@/lib/timing";
-import { SourceContent } from "@/components/source-content";
-import { Disclosure } from "@/components/disclosure";
-import { TimingEditor, TimingRow } from "@/components/timing-editor";
+import { profileToday, timingChild, tipTopic } from "@/lib/timing";
+import { timingDistance } from "../../lib/source-reading";
+import { SourceContent, SourceMore } from "@/components/source-content";
 import { RecordVisit } from "@/components/visit-sections";
 import { RelatedRows } from "../../components/related-rows";
 import { ShareToggle } from "@/components/share-toggle";
@@ -39,7 +38,6 @@ export default function RecordDetail() {
     openJournal = useOpenJournal(),
     [error, setError] = useState(""),
     [missing, setMissing] = useState(false),
-    [editingTiming, setEditingTiming] = useState(false),
     record = b.records.find((r) => r.id === id),
     pending = b.state.outbox.some((m) => mutationRecordId(m) === id && m.type !== "import");
   /** Reads it from the service, and says plainly when it's gone: deleted, or the other parent made it private. */
@@ -96,7 +94,8 @@ export default function RecordDetail() {
       </Screen>
     );
   if (record.kind === "event") return <Redirect href={{ pathname: "/event/[id]", params: { id: record.id } }} />;
-  const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
+  const source = record.kind === "source",
+    child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
     title = record.kind === "source" ? sourceTitle(record) : record.kind === "journal" ? writtenTitle(record) : record.title,
     data = record.data,
     // Care and the timers read on the family's clock, as they do in Tracker. Everything else keeps the phone's.
@@ -108,10 +107,11 @@ export default function RecordDetail() {
     );
   return (
     <Screen
-      title={data.label ?? kindName[record.kind]}
+      // A saved post's own title is its heading, so the bar just says back and ⋯.
+      title={source ? "" : data.label ?? kindName[record.kind]}
       back
       numericSubtitle
-      subtitle={(dateOnly ? keyDate(recordDay(record.occurred_at, b.state.bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
+      subtitle={source ? undefined : (dateOnly ? keyDate(recordDay(record.occurred_at, b.state.bootstrap?.profile.timezone)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
         : friendlyTime(record.occurred_at, undefined, clock)) + (child ? " · " + babyLabel(child, b.state.bootstrap) : "")}
       floating={!isCaregiver(b.state.bootstrap) && <AskButton
         hint={record.kind === "collection" ? "Opens Ask about the posts in this category, with a switch to everything" : "Opens Ask about this entry, with a switch to everything"}
@@ -119,7 +119,8 @@ export default function RecordDetail() {
     >
       {/* Edit, organize, share and delete live in the ⋯ menu at the top right; Ask floats at the bottom right. */}
       <RecordMenu record={record} title={data.label ?? kindName[record.kind]} onError={setError} />
-      {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
+      {source ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))}
+        distance={timingDistance(data.relevance, child ?? timingChild(b.state), profileToday(new Date(), b.state.bootstrap?.profile.timezone))} />
         : !!title && !summaryHoldsTitle(record.kind, title, summary) && title !== (data.label ?? kindName[record.kind]) && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
@@ -129,13 +130,9 @@ export default function RecordDetail() {
         <Notice>This device has a partial offline copy. Reconnect to load the complete source before editing.</Notice>
       )}
       {pending && <Notice>Saved on this device. Your latest changes will sync when a connection is available.</Notice>}
-      {data.status !== "ready" && <SourceRecovery record={record} onError={setError} />}
-      {record.kind === "source" && <SourceContent data={data} onError={setError} />}
-      {data.status === "ready" && <SourceRecovery record={record} onError={setError} />}
-      {/* When a tip shows up on Today belongs with the post, not under the page's other controls. */}
-      {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
-        onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
-      {record.kind === "source" && !record.cache_partial && !editingTiming && <Grouped><TimingRow relevance={data.relevance} onPress={() => setEditingTiming(true)} /></Grouped>}
+      {/* Missing content is named under the title, with what to do about it; a readable post keeps reading again shut at the bottom. */}
+      {source && data.status !== "ready" && <SourceRecovery record={record} onError={setError} />}
+      {source && <SourceContent record={record} onError={setError} />}
       {record.kind === "feeding" && (
         <Card tone="hero">
           <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
@@ -254,7 +251,7 @@ export default function RecordDetail() {
         return !!other && !!name && name !== loggedByName(record, b.state.bootstrap, b.owner) && <Notice>{duplicateHint(other, b.state.bootstrap, b.owner)}</Notice>; })()}
       {/* Above who can see it, so it's on screen after saving something short. */}
       {(record.kind === "journal" || record.kind === "question") && <Grouped><Row title="Your journal" detail="Your entries and doctor questions" icon="book-outline" onPress={() => openJournal(record.kind)} /></Grouped>}
-      <ShareToggle record={record} />
+      {source ? <SourceMore record={record} onError={setError} onTiming={(relevance) => void update({ ...data, relevance })} /> : <ShareToggle record={record} />}
       <View style={{ height: 20 }} />
     </Screen>
   );

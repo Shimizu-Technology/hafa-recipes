@@ -407,9 +407,9 @@ export function Screen({
       }}
     >
       {brand && <BrandMark size={64} />}
-      {(!nativeHeader || !!subtitle || (action && !grouped) || titleKind === "heading" || wrapTitle) && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
+      {(!nativeHeader || !!subtitle || (action && !grouped) || titleKind === "heading" || wrapTitle) && (!!title || !!subtitle || !!action) && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
         <View style={{ flex: fontScale >= 1.5 ? undefined : 1, gap: 4 }}>
-          {(!nativeHeader || titleKind === "heading" || wrapTitle) && <Copy kind={titleKind}>{title}</Copy>}
+          {(!nativeHeader || titleKind === "heading" || wrapTitle) && !!title && <Copy kind={titleKind}>{title}</Copy>}
           {!!subtitle && <Copy numeric={numericSubtitle} tone="muted">{subtitle}</Copy>}
         </View>
         {(!nativeHeader || !grouped) && action}
@@ -420,7 +420,8 @@ export function Screen({
   return (
     <SafeAreaView collapsable={false} edges={nativeHeader ? ["left", "right"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: grouped ? c.groupedBackground : c.background }}>
       {nativeHeader && <Stack.Screen options={{ title: titleKind === "heading" ? "Entry" : title, headerShown: true,
-        headerLargeTitle: titleKind !== "heading" && !wrapTitle,
+        // An empty title is a bare bar (a page whose content leads with its own heading).
+        headerLargeTitle: titleKind !== "heading" && !wrapTitle && !!title,
         ...(grouped && action ? { headerRight: () => action } : {}),
         headerLeft: close || (back && !router.canGoBack())
           ? () => <HeaderAction title={close ? "Close" : "Back"}

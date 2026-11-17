@@ -7,18 +7,20 @@ import { withoutRefusedRetry } from "../lib/outbox";
 import { importFinished } from "../lib/import-status";
 import { type BabyRecord, messageFor } from "@/lib/models";
 import { isCaregiver } from "@/lib/spaces";
-import { Button, Copy, Notice, Section, useToast } from "./ui";
+import { missingProblem } from "../lib/source-reading";
+import { Button, Card, Copy, Notice, useToast } from "./ui";
 import { Disclosure } from "./disclosure";
 
 export function SourceRecovery({ record, onError }: { record: BabyRecord; onError: (error: string) => void }) {
   const b = useBaby(), toast = useToast(), reading = useRef(false), [busy, setBusy] = useState(false);
-  const data = record.data;
-  if (record.kind !== "source" || record.cache_partial || isCaregiver(b.state.bootstrap)
-      || !["saved", "incomplete", "failed", "cancelled", "ready"].includes(data.status ?? "")) return null;
+  const data = record.data, problem = record.kind === "source" ? missingProblem(data) : null;
+  const canAct = record.kind === "source" && !record.cache_partial && !isCaregiver(b.state.bootstrap)
+      && ["saved", "incomplete", "failed", "cancelled", "ready"].includes(data.status ?? "");
+  if (!canAct && !problem) return null;
   const refused = b.state.outbox.filter((item) => item.type === "import" && item.record_id === record.id && item.error);
   const queued = b.state.outbox.some((item) => item.type === "import" && item.record_id === record.id && !item.error)
     || b.state.imports.some((item) => item.record_id === record.id && !importFinished(item.status));
-  const label = data.status === "ready" ? "Process this post again" : data.status === "saved" ? "Read with AI" : "Try again";
+  const label = data.status === "ready" ? "Read this post again" : data.status === "saved" ? "Read with AI" : "Try reading it again";
   const hasSource = !!(data.url || data.attachment_ids?.length || record.body.trim() || data.source_text?.trim());
   async function read() {
     if (reading.current || queued || !b.state.bootstrap) return;
@@ -48,20 +50,23 @@ export function SourceRecovery({ record, onError }: { record: BabyRecord; onErro
       void b.sync();
     } catch (error) { onError(messageFor(error)); }
   }
-  const actions = <>
+  const ready = data.status === "ready";
+  const actions = canAct && <>
     {refused.map((item) => <Notice error key={item.id}>{item.error}</Notice>)}
     {!!refused.length && <Button variant="ghost" title="Clear processing request" onPress={() => void clearRefusal()} />}
-    {hasSource && <Button secondary title={queued ? "Waiting to process" : label} icon="sparkles-outline"
+    {hasSource && <Button secondary={ready} title={queued ? "Waiting to read" : label} icon="sparkles-outline"
       busy={busy || queued} disabled={busy || queued || !!refused.length} onPress={() => void read()} />}
-    <Button secondary title="Add screenshots or missing text" icon="images-outline"
+    <Button secondary title={ready ? "Add screenshots or missing text" : "Add screenshots"} icon="images-outline"
       disabled={busy}
       onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: "source" } })} />
-    <Copy kind="small" tone="muted">{hasSource
-      ? `Add screenshots or notes, choose Save changes, then return here and tap ${label}. This updates the same saved post. Some posts may still be unreadable.`
-      : "Add screenshots or source text and choose Save changes. You can then read it here."}</Copy>
+    {ready && <Copy kind="small" tone="muted">{`Add screenshots or notes, choose Save changes, then return here and tap ${label}. This updates the same saved post.`}</Copy>}
   </>;
-  // A readable post keeps this shut below its content; only missing content puts it up top.
+  // A readable post keeps this shut at the bottom; only missing content puts it up top, under the title, in plain words.
   // A refusal that arrives while the page is open remounts it open, so the notice is never shut away.
-  return data.status === "ready" ? <Disclosure key={refused.length ? "refused" : "quiet"} title="Read this post again" startOpen={!!refused.length}>{actions}</Disclosure>
-    : <Section title="Read this post">{actions}</Section>;
+  return ready ? <Disclosure key={refused.length ? "refused" : "quiet"} title="Read this post again" detail="If something looks off" startOpen={!!refused.length}>{actions}</Disclosure>
+    : <Card>
+      {!!problem && <><Copy kind="label">{problem.title}</Copy><Copy tone="muted">{hasSource || !canAct ? problem.body
+        : "Add screenshots or the post’s text and choose Save changes. You can then read it here."}</Copy></>}
+      {actions}
+    </Card>;
 }

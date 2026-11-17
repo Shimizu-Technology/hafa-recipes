@@ -11,25 +11,30 @@ vi.mock("@/lib/import-status", () => import("./import-status"));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "mutation-id" }));
 vi.mock("expo-router", () => ({ router: { push: (...args: any[]) => mock.push(...args) } }));
 vi.mock("@/lib/models", () => import("./models"));
-vi.mock("react-native", () => ({ Linking: { openURL: vi.fn() } }));
-vi.mock("../components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Notice: "Notice", Section: "Section", useToast: () => mock.toast }));
+vi.mock("react-native", () => ({ Linking: { openURL: vi.fn() }, Text: "Text", View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
+vi.mock("@/lib/timing", () => import("./timing"));
+vi.mock("../components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Grouped: "Grouped", Icon: "Icon", Notice: "Notice", Section: "Section",
+  fonts: {}, typeScale: {}, useColors: () => ({}), useToast: () => mock.toast }));
 vi.mock("../components/disclosure", () => ({ Disclosure: "Disclosure" }));
-import { SourceContent } from "../components/source-content";
+vi.mock("../components/timing-editor", () => ({ TimingEditor: "TimingEditor", TimingRow: "TimingRow" }));
+vi.mock("../components/share-toggle", () => ({ ShareToggle: "ShareToggle", whoCanSee: () => null }));
+import { SourceContent, SourceMore } from "../components/source-content";
 import { Linking } from "react-native";
 import { importRetryable, sourceRefusalMessages } from "./import-status";
 import { ImportUpdates } from "../components/import-updates";
 import { SourceRecovery } from "../components/source-recovery";
 import type { BabyRecord } from "./models";
+const post = (data: BabyRecord["data"]) => ({ id: "saved-post", kind: "source", title: "", body: "", data, occurred_at: "2026-11-07T01:00:00Z",
+  created_at: "2026-11-07T01:00:00Z", revision: 1 } as BabyRecord);
 it("shows read failures and the original above disclosures on an older API source", async () => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   let view!: ReturnType<typeof create>;
-  await act(async () => { view = create(<SourceContent data={{ url: "https://www.tiktok.com/@example/photo/123", status: "incomplete",
-    source_text: "Available caption", coverage_notes: ["Slide 2 could not be read; its details may be missing."] }} onError={vi.fn()} />); });
+  await act(async () => { view = create(<SourceContent record={post({ url: "https://www.tiktok.com/@example/photo/123", status: "incomplete",
+    source_text: "Available caption", coverage_notes: ["Slide 2 could not be read; its details may be missing."] })} onError={vi.fn()} />); });
   const visible = JSON.stringify(view.toJSON());
   expect(visible).toContain("Slide 2 could not be read");
   expect(visible).toContain("Available caption");
-  expect(visible).toContain("https://www.tiktok.com/@example/photo/123");
-  await act(async () => view.root.findByType("Button" as React.ElementType).props.onPress());
+  await act(async () => view.root.findAllByType("Button" as React.ElementType).find((item) => item.props.title === "Open post")!.props.onPress());
   expect(Linking.openURL).toHaveBeenCalledWith("https://www.tiktok.com/@example/photo/123");
   expect(importRetryable("incomplete", null)).toBe(true);
   await act(async () => view.unmount());
@@ -82,31 +87,38 @@ it("holds repeat taps while consent or an import is pending", async () => {
   expect(mock.baby.queue).toHaveBeenCalledTimes(1);
   mock.baby.state.outbox = [{ type: "import", record_id: record.id }];
   await act(async () => view.update(<SourceRecovery record={record} onError={onError} />));
-  expect(view.root.findAllByType("Button" as React.ElementType)[0].props.title).toBe("Waiting to process");
+  expect(view.root.findAllByType("Button" as React.ElementType)[0].props.title).toBe("Waiting to read");
   expect(view.root.findAllByType("Button" as React.ElementType)[0].props.disabled).toBe(true);
 });
 it("describes the existing editor Save changes path", async () => {
-  const view = await recovery();
+  const view = await recovery(source("ready"));
   const visible = JSON.stringify(view.toJSON());
   expect(visible).toContain("Save changes"); expect(visible).not.toContain("Process & organize with AI");
   await act(async () => view.root.findAllByType("Button" as React.ElementType)[1].props.onPress());
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/edit", params: { id: "saved-post", kind: "source" } });
 });
-it("hides processing from a caregiver and for a partial offline record", async () => {
+it("hides processing from a caregiver and for a partial offline record, but still says what's missing", async () => {
   const record = source(); record.cache_partial = true;
-  const view = await recovery(record); expect(view.toJSON()).toBeNull();
+  const view = await recovery(record);
+  expect(view.root.findAllByType("Button" as React.ElementType)).toHaveLength(0);
+  expect(JSON.stringify(view.toJSON())).toContain("No summary yet");
   record.cache_partial = false; mock.caregiver = true;
   await act(async () => view.update(<SourceRecovery record={record} onError={onError} />));
+  expect(view.root.findAllByType("Button" as React.ElementType)).toHaveLength(0);
+  await act(async () => view.update(<SourceRecovery record={source("ready")} onError={onError} />));
   expect(view.toJSON()).toBeNull();
 });
 it("keeps older saved text separate from a new read and never resubmits it", async () => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   let content!: ReturnType<typeof create>;
-  await act(async () => { content = create(<SourceContent data={{ source_text: "New caption", legacy_saved_text: "Earlier ambiguous note" }} onError={vi.fn()} />); });
+  mock.baby = { owner: "owner", state: { bootstrap: null, outbox: [], imports: [] } };
+  await act(async () => { content = create(<SourceMore record={post({ source_text: "New caption", legacy_saved_text: "Earlier ambiguous note" })} onTiming={vi.fn()} onError={vi.fn()} />); });
   const earlier = content.root.findAllByType("Disclosure" as React.ElementType).find((item) => item.props.title === "Earlier saved text");
   expect(earlier?.findAllByType("Copy" as React.ElementType).map((item) => item.props.children).join(" ")).toContain("Earlier ambiguous note");
   const record = source(); record.body = ""; record.data.legacy_saved_text = "Earlier ambiguous note";
   const view = await recovery(record);
+  await act(async () => content.update(<SourceMore record={post({ source_text: "New caption", legacy_saved_text: "Earlier ambiguous note" })} onTiming={vi.fn()} onError={vi.fn()} />));
+  expect(content.root.findAllByType("Disclosure" as React.ElementType).some((item) => item.props.title === "Earlier saved text")).toBe(true);
   await act(async () => view.root.findAllByType("Button" as React.ElementType)[0].props.onPress());
   expect(mock.baby.queue.mock.calls[0][0].text).toBeUndefined();
   await act(async () => content.unmount());
@@ -114,10 +126,9 @@ it("keeps older saved text separate from a new read and never resubmits it", asy
 
 it("keeps a quiet re-read action on a ready source", async () => {
   const view = await recovery(source("ready"));
-  expect(JSON.stringify(view.toJSON())).toContain("Process this post again");
-  // Shut, under the post, not a "Read again" section above what it says.
-  expect(view.root.findByType("Disclosure" as React.ElementType).props.title).toBe("Read this post again");
-  expect(view.root.findAllByType("Section" as React.ElementType)).toHaveLength(0);
+  // Shut, under the post, not a "Read again" card above what it says.
+  expect(view.root.findByType("Disclosure" as React.ElementType).props).toMatchObject({ title: "Read this post again", detail: "If something looks off" });
+  expect(view.root.findAllByType("Card" as React.ElementType)).toHaveLength(0);
   await act(async () => view.root.findAllByType("Button" as React.ElementType)[0].props.onPress());
   expect(mock.baby.queue).toHaveBeenCalledTimes(1);
 });
@@ -127,8 +138,8 @@ it.each(Object.entries(sourceRefusalMessages))("shows and clears %s without bloc
   await act(async () => view.update(<SourceRecovery record={record} onError={onError} />));
   const buttons = view.root.findAllByType("Button" as React.ElementType);
   expect(JSON.stringify(view.toJSON())).toContain(error);
-  expect(JSON.stringify(view.toJSON())).not.toContain("Waiting to process");
-  const screenshots = buttons.find((item) => item.props.title === "Add screenshots or missing text")!;
+  expect(JSON.stringify(view.toJSON())).not.toContain("Waiting to read");
+  const screenshots = buttons.find((item) => item.props.title === "Add screenshots")!;
   expect(screenshots.props.disabled).toBe(false);
   await act(async () => screenshots.props.onPress());
   expect(mock.push).toHaveBeenCalledTimes(1);
@@ -149,19 +160,21 @@ it.each(Object.values(sourceRefusalMessages))("Library retry shows the refusal: 
   expect(mock.baby.api.retryJob).toHaveBeenCalledTimes(1);
 });
 
-it("says how a readable post was read as a calm line, and a missing read as a notice", async () => {
+it("says how a post was read as a calm line, never a notice", async () => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const notes = ["image:0 sampled at 1.5s; samples do not cover every frame.",
     "AI condensed details in image batch 1; read the saved text and originals for full wording."];
   let view!: ReturnType<typeof create>;
-  await act(async () => { view = create(<SourceContent data={{ status: "ready", summary: "The creator's charts.", source_text: "Charts",
-    coverage_notes: notes }} onError={vi.fn()} />); });
+  await act(async () => { view = create(<SourceContent record={post({ status: "ready", summary: "The creator's charts.", source_text: "Charts",
+    coverage_notes: notes })} onError={vi.fn()} />); });
   expect(view.root.findAllByType("Notice" as React.ElementType)).toHaveLength(0);
   const calm = view.root.findAllByType("Copy" as React.ElementType).find((item) => String(item.props.children).startsWith("AI condensed"));
   expect(calm?.props).toMatchObject({ kind: "small", tone: "muted" });
   expect(String(calm?.props.children)).not.toContain("sampled");
-  await act(async () => view.update(<SourceContent data={{ status: "incomplete", source_text: "Charts", coverage_notes: notes }} onError={vi.fn()} />));
-  expect(view.root.findByType("Notice" as React.ElementType).props.children).toContain("AI condensed");
+  // A missing read is named by the recovery card under the title, so here it stays a quiet line too.
+  await act(async () => view.update(<SourceContent record={post({ status: "incomplete", source_text: "Charts", coverage_notes: notes })} onError={vi.fn()} />));
+  expect(view.root.findAllByType("Notice" as React.ElementType)).toHaveLength(0);
+  expect(JSON.stringify(view.toJSON())).toContain("AI condensed");
   await act(async () => view.unmount());
 });
 
