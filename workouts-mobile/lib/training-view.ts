@@ -122,6 +122,9 @@ export function restPhase(until: number | null, now: number, doneMs = 3000): "id
 export const activityTypes = [
   { value: "strength_training", label: "Strength training" },
   { value: "general_fitness", label: "General fitness" },
+  { value: "cross_training", label: "Cross Training" },
+  { value: "hiit", label: "HIIT" },
+  { value: "functional_strength", label: "Functional Strength" },
   { value: "running", label: "Running" },
   { value: "walking", label: "Walking" },
   { value: "basketball", label: "Basketball" },
@@ -135,6 +138,7 @@ const walking = /\bwalk(s|ing)?\b(?![-\s]?outs?\b)/i;
  * (or measured by distance), otherwise general fitness.
  */
 export function inferActivityType(workout: Workout) {
+  if (workout.programming?.source_kind === "gym" || workout.blocks.length > 1 && workout.blocks.some(b => b.execution)) return "cross_training";
   const exercises = workout.blocks.flatMap((b) => b.exercises);
   const cardio = exercises.length > 0 && exercises.every((e) =>
     (e.distance_meters != null || e.duration_seconds != null) && e.reps_min == null && e.reps_max == null && e.load == null);

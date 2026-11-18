@@ -100,6 +100,12 @@ describe("watch sync", () => {
     const dosed = result(); dosed.actuals = roundActuals(first, 1).map(a => a.exercise_index === 1 ? { ...a, reps: null } : a);
     expect(() => watchSession(dosed, workout, 1, setup().snapshot())).toThrow("pinned workout");
   });
+  it("preserves the phone's selected activity in recent watch plans", () => {
+    const state: TrainingState = { version: 1, generation: 1, active: null, history: [{ generation: 1, workout, state: "synced",
+      request: { ...source, client_session_id: "recent", started_at: start, finished_at: end, status: "completed", actuals: [], activity_type: "hiit" } }] };
+    const context = JSON.parse(planContext({ account, units: "metric", today: "2026-11-17", leadIn: 3, state, library: [], programs: [] }).json);
+    expect(context.plans[0].activity_type).toBe(63);
+  });
   it("retains invalid cells and overlapping intervals in the inbox without importing", async () => {
     const store = setup(); await store.load(); let marked = 0;
     const invalid = result(); invalid.actuals = [{ ...invalid.actuals[0], block_id: "missing" }];
@@ -107,6 +113,20 @@ describe("watch sync", () => {
     await drainWatch({ store, account, generation: 1, catalog: { [plan.plan_key]: workout }, current: () => true,
       pendingResults: async () => [JSON.stringify(invalid), JSON.stringify(overlap)], markImported: async () => { marked++; } });
     expect(marked).toBe(0); expect(store.snapshot().history).toHaveLength(0);
+  });
+  it("keeps watch provenance when optional scores are refused, without looping on another 422", async () => {
+    const store = setup(); await store.load();
+    const r = result(); r.health_workout_uuid = "5963af29-cd6d-479c-a63d-bf348868f979";
+    await drainWatch({ store, account, generation: 1, catalog: { [plan.plan_key]: workout }, current: () => true,
+      pendingResults: async () => [JSON.stringify(r)], markImported: async () => {} });
+    let attempts = 0;
+    await store.sync(async request => {
+      attempts++; expect(request.recorded_on).toBe("watch"); expect(request.apple_workout_uuid).toBe(r.health_workout_uuid);
+      throw Object.assign(Error("Scores or source rejected"), { status: 422 });
+    });
+    expect(attempts).toBe(2); expect(store.snapshot().history[0].state).toBe("blocked");
+    expect(store.snapshot().history[0].request.recorded_on).toBe("watch");
+    expect(store.snapshot().history[0].request.results).toBeUndefined();
   });
   it("manual sync creates a private quick workout before the session and persists its source", async () => {
     let creations = 0;

@@ -134,7 +134,7 @@ export function createHealthConnectProvider(
         };
       if ((await access()).write !== "granted")
         throw new HealthError("write_denied", "Allow workout writing in Health Connect before exporting.");
-      const exerciseType = ({ running: 56, walking: 79, strength: 70, basketball: 5, other: 0 } as const)[
+      const exerciseType = ({ running: 56, walking: 79, strength: 70, basketball: 5, other: 0, cross_training: 0, hiit: 36, functional_strength: 70 } as const)[
         workout.activity
       ];
       if (pausedIntervals(workout).length) {

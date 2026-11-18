@@ -122,10 +122,18 @@ export const syncedHistoryLimit = 20;
 export function ranFormatTimer(history: readonly SavedLocalSession[], clientSessionId: string) {
   return history.some((item) => item.request.client_session_id === clientSessionId && item.timed_format === true);
 }
-export function pruneHistory(history: SavedLocalSession[]) {
-  let synced = 0;
-  return history.filter((item) => item.state !== "synced" || !!item.unsent_results || ++synced <= syncedHistoryLimit);
+export function pruneHistory(history: SavedLocalSession[], now = Date.now()) {
+  let synced = 0, watch = 0;
+  return history.flatMap(item => {
+    // Never discard the only copy of unsynced work or rejected scores.
+    if (item.state !== "synced" || item.unsent_results) return [item];
+    if (item.watch && ++watch <= 60 && Date.parse(item.request.started_at) >= now - 90 * 86400000) return [item];
+    if (++synced > syncedHistoryLimit) return [];
+    // Older sessions in the normal short history need only their watch HR summary.
+    return [item.watch ? { ...item, watch: { heart_rate: item.watch.heart_rate, parts: [] } } : item];
+  });
 }
+
 function rememberRecovery(state: TrainingState, original_id: string, command: ResultRecoveryCommand, saved_id: string) {
   state.recovery_receipts = [{ original_id, creation_key: command.creation_key,
     client_session_id: command.client_session_id, saved_id },
@@ -1200,6 +1208,8 @@ export function createTrainingStore(
             s.history = s.history.map(h => h !== item ? h : { request: { ...actuals,
               client_session_id: command.client_session_id, workout_id: workout.id, workout_revision: workout.revision },
               workout, generation, state: "queued", cell_identity_version: item.cell_identity_version,
+              ...(item.watch ? { watch: clone(item.watch) } : {}),
+              ...(item.timed_format ? { timed_format: true as const } : {}),
               recovery_origin: { request: item.request, workout: item.workout,
                 ...(item.recovery_origin ? { previous: item.recovery_origin } : {}) }, recovered_with: clone(command) });
             return s;
@@ -1242,6 +1252,7 @@ export function createTrainingStore(
           supersedes_session_id: saved.id,
         };
         s.history.unshift({ request, workout: saved.content.prescription_snapshot, generation, state: "queued",
+          ...(s.history.find(h => h.synced_id === saved.id)?.watch ? { watch: clone(s.history.find(h => h.synced_id === saved.id)!.watch!) } : {}),
           // A corrected result was still recorded on the clock the original ran on.
           ...(ranFormatTimer(s.history, saved.content.client_session_id) ? { timed_format: true as const } : {}) });
         return s;

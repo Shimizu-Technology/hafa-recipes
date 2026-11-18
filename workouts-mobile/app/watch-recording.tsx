@@ -1,3 +1,4 @@
+import { WatchSessionSummary } from "@/components/watch-session-summary";
 import { router, useLocalSearchParams } from "expo-router";
 import { Screen, Card, Copy, Notice, Button } from "@/components/ui";
 import { SessionTable } from "@/components/session-table";
@@ -16,6 +17,7 @@ export default function WatchRecording() {
       <Copy kind="label">Recorded on {item.request.recorded_on === "watch" ? "watch" : "phone"}</Copy>
       <Copy kind="small">{new Date(item.request.started_at).toLocaleString()} · {Math.round((item.request.active_seconds ?? 0) / 60)} min</Copy>
       <Notice>This result is saved on this phone. {item.state === "queued" ? "It will upload when connected." : item.problem ?? "Open history to manage it."}</Notice>
+      <WatchSessionSummary details={item.watch} workout={item.workout} segments={item.request.segments} />
       {!!scores.length && <Card compact>
         <Copy kind="label">Scores</Copy>
         {scores.map(r => { const block = item.workout.blocks.find(b => b.id === r.block_id);

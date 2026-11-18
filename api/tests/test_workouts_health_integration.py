@@ -782,3 +782,18 @@ async def test_class_export_requires_capability_even_when_intent_is_cached(api, 
             json={"session_id": str(row.id), "expected_revision": 1, **({"supports_class_activity_types": True} if supported else {})})
         assert response.status_code == 200, response.text
         assert response.json()["actual"]["activity"] == (activity if supported else "other")
+
+
+async def test_watch_workout_export_is_blocked_for_old_and_new_phone_clients(api):
+    await connect(api, write_actuals=True)
+    row = await actual(api, activity_type="cross_training", recorded_on="watch")
+    for supported in [False, True]:
+        response = await api.client.post(
+            "/api/v1/workouts/health/apple_health/exports", headers=HEADERS,
+            json={"session_id": str(row.id), "expected_revision": 1,
+                  "supports_class_activity_types": supported})
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "unsupported"
+        assert response.json()["actual"] is None
+        assert "Apple Watch" in response.json()["message"]
+    assert await count(api, HealthExportIntent) == 0

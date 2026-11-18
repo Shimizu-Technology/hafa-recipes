@@ -7,6 +7,7 @@ import { eligibility, reconcileObservations, validateActual, validateWindow, pau
 import {
   SYNC_PREFIX,
   WORKOUTS_APP_ID,
+  WORKOUTS_WATCH_APP_ID,
   type ActualWorkout,
   type HealthObservation,
   type HealthPage,
@@ -73,16 +74,21 @@ function hkSample(id = "one", origin = "com.example.watch", metadata: Record<str
   return { ...raw, toJSON: () => raw };
 }
 function hkBridge() {
+  const samples: ReturnType<typeof hkSample>[] = [];
   const fake = {
     isHealthDataAvailableAsync: vi.fn(async () => true),
     requestAuthorization: vi.fn(async () => true),
     authorizationStatusFor: vi.fn(() => 2),
     queryWorkoutSamplesWithAnchor: vi.fn(async () => ({ workouts: [], deletedSamples: [], newAnchor: "anchor" })),
-    queryWorkoutSamples: vi.fn(async () => []),
+    queryWorkoutSamples: vi.fn(async (options: { filter: { metadata: { withMetadataKey: string; operatorType: number; value: string } } }) => {
+      const predicate = options.filter.metadata;
+      expect(predicate.operatorType).toBe(4);
+      return samples.filter(sample => sample.metadata[predicate.withMetadataKey] === predicate.value);
+    }),
     saveWorkoutSample: vi.fn(async () => hkSample("saved", WORKOUTS_APP_ID)),
     deleteObjects: vi.fn(async () => 1),
   };
-  return { fake, bridge: fake as unknown as HealthKitBridge };
+  return { fake, samples, bridge: fake as unknown as HealthKitBridge };
 }
 function hcRecord(id = "one", origin = "com.example.watch", clientRecordId?: string) {
   return {
@@ -173,6 +179,7 @@ describe("minimal Apple Health adapter", () => {
       workouts: [
         hkSample(),
         hkSample("own", WORKOUTS_APP_ID),
+        hkSample("watch-own", WORKOUTS_WATCH_APP_ID),
         hkSample("echo", "external", { HKSyncIdentifier: `${SYNC_PREFIX}session_1` }),
         hkSample("strava", "com.strava.app"),
       ],
@@ -190,7 +197,7 @@ describe("minimal Apple Health adapter", () => {
     ]);
   });
   it("writes actuals with native sync metadata and checks an already-written revision", async () => {
-    const { fake, bridge } = hkBridge();
+    const { fake, samples, bridge } = hkBridge();
     const provider = createHealthKitProvider(bridge, async () => {});
     expect((await provider.exportActual(ACTUAL)).status).toBe("written");
     expect(fake.saveWorkoutSample.mock.calls[0]).toEqual([
@@ -201,15 +208,33 @@ describe("minimal Apple Health adapter", () => {
       undefined,
       { HKSyncIdentifier: `${SYNC_PREFIX}session_1`, HKSyncVersion: 1, "hafa.partial": false },
     ]);
-    fake.queryWorkoutSamples.mockResolvedValueOnce([
-      hkSample("saved", WORKOUTS_APP_ID, { HKSyncIdentifier: `${SYNC_PREFIX}session_1`, HKSyncVersion: 1 }),
-    ] as never);
+    samples.push(hkSample("saved", WORKOUTS_APP_ID, { HKSyncIdentifier: `${SYNC_PREFIX}session_1`, HKSyncVersion: 1 }));
     expect((await provider.exportActual(ACTUAL)).status).toBe("already_written");
     expect(fake.saveWorkoutSample).toHaveBeenCalledTimes(1);
   });
-  it("deletes only records owned by this app", async () => {
+  it("never writes a watch recording, even without Health write permission", async () => {
+    const { fake, bridge } = hkBridge(); fake.authorizationStatusFor.mockReturnValue(0);
+    const receipt = await createHealthKitProvider(bridge, async () => {}).exportActual({ ...ACTUAL, recorded_on: "watch", apple_workout_uuid: "watch-uuid" });
+    expect(receipt.status).toBe("already_written"); expect(receipt.source_id).toBe("apple_health:watch-uuid");
+    expect(fake.queryWorkoutSamples).not.toHaveBeenCalled(); expect(fake.saveWorkoutSample).not.toHaveBeenCalled();
+  });
+  it("does not claim watch UUID metadata matches the phone server-session lookup", async () => {
+    const { fake, samples, bridge } = hkBridge();
+    samples.push(hkSample("watch", WORKOUTS_WATCH_APP_ID, { HKSyncIdentifier: `${SYNC_PREFIX}watch-client-uuid`, HKSyncVersion: 1 }));
+    expect((await createHealthKitProvider(bridge, async () => {}).exportActual(ACTUAL)).status).toBe("written");
+    await expect(fake.queryWorkoutSamples.mock.results[0].value).resolves.toHaveLength(0);
+    expect(fake.saveWorkoutSample).toHaveBeenCalledOnce();
+  });
+  it.each([["cross_training", 11], ["hiit", 63], ["functional_strength", 20]] as const)("writes %s with its HealthKit activity type", async (activity, value) => {
     const { fake, bridge } = hkBridge();
-    fake.queryWorkoutSamples.mockResolvedValueOnce([hkSample("ours", WORKOUTS_APP_ID), hkSample("theirs")] as never);
+    await createHealthKitProvider(bridge, async () => {}).exportActual({ ...ACTUAL, activity });
+    expect(fake.saveWorkoutSample).toHaveBeenCalledWith(value, [], new Date(START), new Date(END), undefined, expect.any(Object));
+  });
+  it("deletes only phone-owned records with matching sync metadata", async () => {
+    const { fake, samples, bridge } = hkBridge();
+    const matching = { HKSyncIdentifier: `${SYNC_PREFIX}session_1`, HKSyncVersion: 1 };
+    samples.push(hkSample("ours", WORKOUTS_APP_ID, matching), hkSample("watch", WORKOUTS_WATCH_APP_ID, matching),
+      hkSample("theirs", "com.example.watch", matching), hkSample("unrelated", WORKOUTS_APP_ID, { HKSyncIdentifier: `${SYNC_PREFIX}other` }));
     await createHealthKitProvider(bridge, async () => {}).deleteOwned("session_1");
     expect(fake.deleteObjects).toHaveBeenCalledWith("HKWorkoutTypeIdentifier", { uuids: ["ours"] });
   });

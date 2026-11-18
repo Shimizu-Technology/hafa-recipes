@@ -1073,3 +1073,16 @@ it("uses prior active segments and repeated pause/resume when freezing clocks at
   expect(restRemainingSeconds(store.snapshot().active!, time())).toBe(30);
   expect(store.snapshot().active!.active_intervals?.at(-1)?.ended_at).toBe(new Date(230000).toISOString());
 });
+
+
+it("watch recovery retains local heart rate without putting it in the recovered request", async () => {
+  const { original } = await orphaned();
+  const store = createTrainingStore(memory(), "owner", 1); await store.load();
+  const watch = { heart_rate: { average: 145, max: 172 }, parts: [] };
+  await store.importWatch({ ...original, request: { ...original.request, recorded_on: "watch" }, watch, timed_format: true });
+  await store.recoverResult("orphan", recoveryCommand, restoreWorkout(), recoverSend(), () => true);
+  const recovered = store.snapshot().history[0];
+  expect(recovered.watch).toEqual(watch); expect(recovered.timed_format).toBe(true);
+  expect(recovered.request.recorded_on).toBe("watch");
+  expect(JSON.stringify(recovered.request)).not.toContain("heart_rate");
+});

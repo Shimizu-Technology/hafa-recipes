@@ -631,6 +631,9 @@ async def actual_for_export(db, user_id, generation, session_id, *, supports_cla
             raise HTTPException(409, "Session correction history is unavailable")
         revision += 1
     content = row.content
+    # A watch already owns the Health workout. Block exports for older phone builds too.
+    if content.get("recorded_on") == "watch" or original.content.get("recorded_on") == "watch":
+        return row, None, "Recorded by Apple Watch. Manage this workout in the Health app."
     duration = content.get("active_seconds")
     if duration is None:
         return (

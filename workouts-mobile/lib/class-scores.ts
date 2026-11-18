@@ -111,6 +111,14 @@ export const resultFields = ["results", "segments", "heart_rate", "recorded_on",
 export function withoutResults<T extends object>(request: T): T {
   const copy = { ...request } as Record<string, unknown>;
   for (const key of resultFields) delete copy[key];
+  // The watch already owns its Health sample. Optional-score fallback must never turn it into a phone export.
+  if ((request as Record<string, unknown>).recorded_on === "watch") {
+    copy.recorded_on = "watch";
+    if ((request as Record<string, unknown>).apple_workout_uuid != null)
+      copy.apple_workout_uuid = (request as Record<string, unknown>).apple_workout_uuid;
+  }
   return copy as T;
 }
-export const carriesResults = (request: object) => resultFields.some((key) => (request as Record<string, unknown>)[key] != null);
+export const carriesResults = (request: object) => resultFields.some((key) =>
+  ((request as Record<string, unknown>).recorded_on !== "watch" || !["recorded_on", "apple_workout_uuid"].includes(key)) &&
+  (request as Record<string, unknown>)[key] != null);

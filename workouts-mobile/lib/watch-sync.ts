@@ -1,6 +1,7 @@
 import type { ActualSet, Program, SessionRequest, Workout } from "./models";
 import { dateInTimezone, stepsFor, actualIdentity, actualErrors, type SavedLocalSession, type SessionSource, type TrainingState } from "./training";
 import { isRun, partKind, type PartResult, type Segment } from "./class-session";
+import { inferActivityType } from "./training-view";
 import { moveText, repsFor } from "./timed-execution";
 
 export interface WatchPlan {
@@ -10,9 +11,9 @@ export interface WatchPlan {
 }
 const sourceKey = (source: SessionSource) => "workout_id" in source ? source.workout_id : `${source.program_id}:${source.program_session_id}`;
 export const watchAccountKey = (owner: string, generation: number) => `${owner}:${generation}`;
-export function watchPlan(workout: Workout, source: SessionSource, account: string, date?: string): WatchPlan {
+export function watchPlan(workout: Workout, source: SessionSource, account: string, date?: string, activity?: string): WatchPlan {
   const plan: WatchPlan = { plan_key: JSON.stringify([source, date ?? null]), title: workout.title, date, source,
-    activity_type: 11, runs_outside: false, account_key: account, lead_in_seconds: 3,
+    activity_type: ({ cross_training: 11, hiit: 63, functional_strength: 20, strength_training: 50, running: 37, walking: 52, basketball: 6, general_fitness: 3000 } as Record<string, number>)[activity ?? inferActivityType(workout)] ?? 11, runs_outside: false, account_key: account, lead_in_seconds: 3,
     parts: workout.blocks.map(b => ({ block_id: b.id, label: b.label, role: b.role, kind: partKind(b),
       ...(b.execution?.mode === "amrap" ? { cap_seconds: b.execution.time_cap_seconds } :
         b.execution?.mode === "for_time" ? { cap_seconds: b.execution.time_cap_seconds } :
@@ -47,9 +48,9 @@ export function planContext(options: { account: string; units: string; today: st
   const next = new Date(`${options.today}T12:00:00Z`); next.setUTCDate(next.getUTCDate() + 2);
   const through = next.toISOString().slice(0, 10);
   const entries: Array<{ plan: WatchPlan; workout: Workout }> = [];
-  const add = (workout: Workout, source: SessionSource, date?: string) => {
+  const add = (workout: Workout, source: SessionSource, date?: string, activity?: string) => {
     let plan: WatchPlan;
-    try { plan = watchPlan(workout, source, options.account, date); } catch { return; }
+    try { plan = watchPlan(workout, source, options.account, date, activity); } catch { return; }
     plan.lead_in_seconds = options.leadIn;
     if (!entries.some(e => e.plan.plan_key === plan.plan_key)) entries.push({ plan, workout });
   };
@@ -67,7 +68,7 @@ export function planContext(options: { account: string; units: string; today: st
     const key = sourceKey(s.source);
     if (s.workout.blocks.some(b => b.id === "timer" && b.exercises.some(e => e.name === "Open timer")) ||
       options.state.history.some(h => h.watch_quick && h.request.client_session_id === ("id" in s ? s.id : s.client_session_id))) continue;
-    if (!used.has(key) && recentCount < 5) { used.add(key); recentCount++; add(s.workout, s.source); }
+    if (!used.has(key) && recentCount < 5) { used.add(key); recentCount++; add(s.workout, s.source, undefined, s.activity_type ?? undefined); }
   }
   const context = { v: 1, generated_at: new Date().toISOString(), account_key: options.account, units: options.units,
     lead_in_seconds: options.leadIn, plans: [] as WatchPlan[] };
@@ -130,7 +131,7 @@ export function watchSession(r: WatchResult, workout: Workout, generation: numbe
   if (active <= 0 || active > 86400) throw Error("Invalid watch session time.");
   const request: SessionRequest = { client_session_id: r.client_session_id.toLowerCase(), ...source,
     started_at: r.started_at, finished_at: r.finished_at, status: r.status ?? (r.parts.some(p => p.skipped || !p.end) ? "partial" : "completed"),
-    active_seconds: Math.floor(active), active_intervals: intervals, activity_type: ({ 11: "cross_training", 63: "hiit", 20: "functional_strength" } as Record<number, string>)[r.plan?.activity_type ?? 11] ?? "general_fitness",
+    active_seconds: Math.floor(active), active_intervals: intervals, activity_type: ({ 11: "cross_training", 63: "hiit", 20: "functional_strength", 37: "running", 52: "walking", 50: "strength_training", 6: "basketball", 3000: "general_fitness" } as Record<number, string>)[r.plan?.activity_type ?? 11] ?? "general_fitness",
     actuals, results, segments, recorded_on: "watch", ...(r.health_workout_uuid ? { apple_workout_uuid: r.health_workout_uuid } : {}) };
   // HR is deliberately outside SessionRequest: it never reaches saveSession or recovery payloads.
   const duplicate = state.active && sourceKey(state.active.source) === sourceKey(source) ? state.active.id : undefined;

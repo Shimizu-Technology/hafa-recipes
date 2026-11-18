@@ -28,7 +28,7 @@ class HafaPausedHealthModule : Module() {
       val active = payload.getDouble("active_seconds")
       val type = payload.getInt("activity_type")
       require(Regex("^[A-Za-z0-9_-]{1,100}$").matches(id) && revision > 0 && status in listOf("completed", "partial"))
-      require(end > start && active.isFinite() && active > 0 && type in listOf(56, 79, 70, 5, 0))
+      require(end > start && active.isFinite() && active > 0 && type in listOf(56, 79, 70, 5, 0, 36))
       val intervals = payload.getJSONArray("active_intervals")
       require(intervals.length() in 1..1000)
       val pauses = mutableListOf<ExerciseSegment>()
