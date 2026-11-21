@@ -100,16 +100,18 @@ setup/call/teardown timings and JUnit results for 14 days. To refresh the seed,
 download every shard's artifacts from a successful run, merge their duration
 objects, and commit the combined map. Use the larger duration for tests measured
 in both configurations. All shards must read the same committed timing map;
-new tests receive pytest-split's average duration. The explicit config/root
-arguments preserve asyncio auto mode and timing node IDs when the timing file
-lives outside `api/`.
+new tests receive pytest-split's average duration. Contiguous timed chunks
+preserve collection order even when parametrizations generate random UUIDs
+at import; sorting those names independently would make shard assignments differ.
+The explicit config/root arguments preserve asyncio auto mode and timing node IDs
+when the timing file lives outside `api/`.
 
 From `api/`, against an explicitly disposable `TEST_DATABASE_URL`:
 
 ```bash
 uv sync --frozen --dev
 uv pip install --no-deps -r ../.github/requirements-ci.txt
-uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. --splits 6 --group 1 --splitting-algorithm least_duration --durations-path ../.github/pytest-durations.json
+uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. --splits 6 --group 1 --splitting-algorithm duration_based_chunks --durations-path ../.github/pytest-durations.json
 # Add BABY_FAMILY_ENABLED=true and -k baby for the second configuration.
 ```
 

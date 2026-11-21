@@ -103,9 +103,10 @@ jobs:
       - name: Test
         # External timing paths otherwise change pytest's inferred root/config.
         # Pin both so asyncio auto mode and stored node IDs remain unchanged.
+        # Contiguous chunks avoid sorting import-time randomized parameter IDs.
         run: >-
           uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=.
-          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm least_duration
+          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm duration_based_chunks
           --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
           --junitxml=test-results.xml
       - name: Upload timings and test results
@@ -182,9 +183,10 @@ jobs:
       - name: Test
         # External timing paths otherwise change pytest's inferred root/config.
         # Pin both so asyncio auto mode and stored node IDs remain unchanged.
+        # Contiguous chunks avoid sorting import-time randomized parameter IDs.
         run: >-
           uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. -q -k baby
-          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm least_duration
+          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm duration_based_chunks
           --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
           --junitxml=test-results.xml
       - name: Upload timings and test results
