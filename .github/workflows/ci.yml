@@ -101,9 +101,10 @@ jobs:
         if: matrix.shard == 1
         run: uv run --frozen --no-sync ruff check app migrations tests
       - name: Test
-        # Preserve both original selections, including the family-enabled configuration.
+        # External timing paths otherwise change pytest's inferred root/config.
+        # Pin both so asyncio auto mode and stored node IDs remain unchanged.
         run: >-
-          uv run --frozen --no-sync pytest
+          uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=.
           --splits 6 --group ${{ matrix.shard }} --splitting-algorithm least_duration
           --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
           --junitxml=test-results.xml
@@ -179,9 +180,10 @@ jobs:
           asyncio.run(check())
           PYCODE
       - name: Test
-        # Preserve both original selections, including the family-enabled configuration.
+        # External timing paths otherwise change pytest's inferred root/config.
+        # Pin both so asyncio auto mode and stored node IDs remain unchanged.
         run: >-
-          uv run --frozen --no-sync pytest -q -k baby
+          uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. -q -k baby
           --splits 6 --group ${{ matrix.shard }} --splitting-algorithm least_duration
           --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
           --junitxml=test-results.xml
