@@ -84,3 +84,36 @@ runbooks. Read [the architecture and migration program](docs/ARCHITECTURE_AND_MI
 before changing authentication, ownership, deployment sources, or database
 schema. The standalone repositories are retained only as migration archives;
 this monorepo is the canonical source.
+
+## API CI sharding
+
+The API workflow keeps the complete suite and the existing `-k baby` selection
+with `BABY_FAMILY_ENABLED=true`. The latter checks a second family-sharing
+configuration. Each selection runs in six timing-balanced shards, each with its
+own PostgreSQL service/database. The `FastAPI` and `Baby family gate on` status
+names fail unless every corresponding shard succeeds. Frozen API dependencies
+and the pinned CI-only plugin are downloaded through the uv cache.
+
+`.github/pytest-durations.json` seeds pytest-split from run 44209905600's file
+timings, averaged over the collected tests per file. Each shard uploads measured
+setup/call/teardown timings and JUnit results for 14 days. To refresh the seed,
+download every shard's artifacts from a successful run, merge their duration
+objects, and commit the combined map. Use the larger duration for tests measured
+in both configurations. All shards must read the same committed timing map;
+new tests receive pytest-split's average duration. Contiguous timed chunks
+preserve collection order even when parametrizations generate random UUIDs
+at import; sorting those names independently would make shard assignments differ.
+The explicit config/root arguments preserve asyncio auto mode and timing node IDs
+when the timing file lives outside `api/`.
+
+From `api/`, against an explicitly disposable `TEST_DATABASE_URL`:
+
+```bash
+uv sync --frozen --dev
+uv pip install --no-deps -r ../.github/requirements-ci.txt
+uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. --splits 6 --group 1 --splitting-algorithm duration_based_chunks --durations-path ../.github/pytest-durations.json
+# Add BABY_FAMILY_ENABLED=true and -k baby for the second configuration.
+```
+
+Only workflow/support files change: no API source, production dependency pins,
+hosting settings, or frontend build inputs change.

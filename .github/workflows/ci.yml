@@ -15,6 +15,8 @@ on:
       - scripts/setup-dev.sh
       - .github/workflows/import-health.yml
       - .github/workflows/ci.yml
+      - .github/requirements-ci.txt
+      - .github/pytest-durations.json
   push:
     branches: [main]
     paths:
@@ -25,81 +27,199 @@ on:
       - scripts/setup-dev.sh
       - .github/workflows/import-health.yml
       - .github/workflows/ci.yml
+      - .github/requirements-ci.txt
+      - .github/pytest-durations.json
 
 permissions:
   contents: read
 
 jobs:
-  api:
-    name: FastAPI
+  api-shards:
+    name: API shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: hafa_recipes_test
-        ports:
-          - 5432:5432
+          POSTGRES_DB: hafa_api_${{ matrix.shard }}_test
+        ports: [5432:5432]
         options: >-
-          --health-cmd "pg_isready -U postgres -d hafa_recipes_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/hafa_recipes_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/hafa_api_${{ matrix.shard }}_test
+      EXPECTED_TEST_DATABASE: hafa_api_${{ matrix.shard }}_test
+      BABY_FAMILY_ENABLED: "false"
     defaults:
       run:
         working-directory: api
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            api/uv.lock
+            .github/requirements-ci.txt
       - name: Install dependencies
-        run: uv sync --dev
+        run: |
+          uv sync --frozen --dev
+          uv pip install --no-deps -r ../.github/requirements-ci.txt
+      - name: Assert disposable database identity
+        run: |
+          uv run --frozen --no-sync python - <<'PYCODE'
+          import asyncio
+          import os
+          import asyncpg
+          from tests.database_safety import require_disposable_test_database
 
+          async def check():
+              url = os.environ["TEST_DATABASE_URL"]
+              require_disposable_test_database(url)
+              connection = await asyncpg.connect(url.replace("postgresql+asyncpg:", "postgresql:"))
+              try:
+                  actual = await connection.fetchval("SELECT current_database()")
+                  assert actual == os.environ["EXPECTED_TEST_DATABASE"], actual
+              finally:
+                  await connection.close()
+
+          asyncio.run(check())
+          PYCODE
       - name: Check deployed requirements match uv.lock
-        # Render installs requirements.txt; CI tests uv.lock. They must agree.
+        if: matrix.shard == 1
         run: python scripts/check_requirements_lock.py
-
       - name: Lint
-        run: uv run ruff check app migrations tests
-
+        if: matrix.shard == 1
+        run: uv run --frozen --no-sync ruff check app migrations tests
       - name: Test
-        run: uv run pytest
+        # External timing paths otherwise change pytest's inferred root/config.
+        # Pin both so asyncio auto mode and stored node IDs remain unchanged.
+        # Contiguous chunks avoid sorting import-time randomized parameter IDs.
+        run: >-
+          uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=.
+          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm duration_based_chunks
+          --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
+          --junitxml=test-results.xml
+      - name: Upload timings and test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: api-shards-${{ matrix.shard }}
+          path: |
+            .github/pytest-durations.json
+            api/test-results.xml
+          include-hidden-files: true
+          retention-days: 14
 
-  baby-family:
-    name: Baby family gate on
+  baby-family-shards:
+    name: Baby family shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: hafa_baby_family_test
+          POSTGRES_DB: hafa_baby_family_${{ matrix.shard }}_test
         ports: [5432:5432]
         options: >-
-          --health-cmd "pg_isready -U postgres -d hafa_baby_family_test"
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/hafa_baby_family_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/hafa_baby_family_${{ matrix.shard }}_test
+      EXPECTED_TEST_DATABASE: hafa_baby_family_${{ matrix.shard }}_test
       BABY_FAMILY_ENABLED: "true"
+    defaults:
+      run:
+        working-directory: api
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-      - run: uv sync --project api --dev
-      - run: PYTHONPATH=$PWD/api uv run --project api pytest api/tests -q -k baby
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            api/uv.lock
+            .github/requirements-ci.txt
+      - name: Install dependencies
+        run: |
+          uv sync --frozen --dev
+          uv pip install --no-deps -r ../.github/requirements-ci.txt
+      - name: Assert disposable database identity
+        run: |
+          uv run --frozen --no-sync python - <<'PYCODE'
+          import asyncio
+          import os
+          import asyncpg
+          from tests.database_safety import require_disposable_test_database
+
+          async def check():
+              url = os.environ["TEST_DATABASE_URL"]
+              require_disposable_test_database(url)
+              connection = await asyncpg.connect(url.replace("postgresql+asyncpg:", "postgresql:"))
+              try:
+                  actual = await connection.fetchval("SELECT current_database()")
+                  assert actual == os.environ["EXPECTED_TEST_DATABASE"], actual
+              finally:
+                  await connection.close()
+
+          asyncio.run(check())
+          PYCODE
+      - name: Test
+        # External timing paths otherwise change pytest's inferred root/config.
+        # Pin both so asyncio auto mode and stored node IDs remain unchanged.
+        # Contiguous chunks avoid sorting import-time randomized parameter IDs.
+        run: >-
+          uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. -q -k baby
+          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm duration_based_chunks
+          --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
+          --junitxml=test-results.xml
+      - name: Upload timings and test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: baby-family-shards-${{ matrix.shard }}
+          path: |
+            .github/pytest-durations.json
+            api/test-results.xml
+          include-hidden-files: true
+          retention-days: 14
+
+  api:
+    # Keep the existing status context; skipped/cancelled/failed shards fail closed.
+    name: FastAPI
+    if: always()
+    needs: [api-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every shard to pass
+        env:
+          SHARD_RESULT: ${{ needs.api-shards.result }}
+        run: test "$SHARD_RESULT" = success
+
+  baby-family:
+    # Keep the existing status context; skipped/cancelled/failed shards fail closed.
+    name: Baby family gate on
+    if: always()
+    needs: [baby-family-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every shard to pass
+        env:
+          SHARD_RESULT: ${{ needs.baby-family-shards.result }}
+        run: test "$SHARD_RESULT" = success

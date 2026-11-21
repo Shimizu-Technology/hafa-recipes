@@ -1,0 +1,2 @@
+# CI-only plugin; pytest and its dependencies come from api/uv.lock.
+pytest-split==0.11.0
