@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   pendingCapture: null as any,
   ownerId: 'owner-a' as string | null,
   signedIn: true, authLoaded: true,
-  params: { entry: undefined as string | undefined, sharedUrl: undefined as string | undefined, sharedReceiptId: undefined as string | undefined, captureToken: undefined as string | undefined },
+  params: { entry: undefined as string | undefined, sharedUrl: undefined as string | undefined, sharedReceiptId: undefined as string | undefined, captureToken: undefined as string | undefined, inboxCaptureId: undefined as string | undefined },
   uuid: vi.fn(),
   setParams: vi.fn(),
   inboxEntries: [] as any[],
@@ -251,7 +251,7 @@ describe('classified image recovery', () => {
   beforeEach(() => {
     mocks.realInbox = false;
     mocks.draftsReady = true; mocks.scanAvailable = null; mocks.platform = 'ios';
-    mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.entry = undefined; mocks.params.captureToken = undefined; mocks.inboxEntries = [];
+    mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.entry = undefined; mocks.params.captureToken = undefined; mocks.params.inboxCaptureId = undefined; mocks.inboxEntries = [];
     mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
     legacyShareReceipts.clearRoute();
     mocks.uuid.mockReset(); mocks.uuid.mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
@@ -313,6 +313,63 @@ describe('classified image recovery', () => {
     expect(importInbox.snapshot()[0]).toMatchObject({ state: 'accepted', jobId: 'job-public' });
     expect(importInbox.snapshot()[0].publicConfirmed).toBeUndefined();
     await act(async () => renderer.unmount());
+  });
+
+  it('asks for the one publishing confirmation when Open Håfa names a waiting public share', async () => {
+    mocks.realInbox = true;
+    await importInbox.hydrate();
+    for (const entry of importInbox.snapshot()) await importInbox.remove(entry.id);
+    await importInbox.add({ id: 'card-public', ownerId: 'owner-a', createdAt: 1, state: 'ready',
+      capture: { kind: 'url', url: 'https://example.com/card' },
+      request: { url: 'https://example.com/card', is_public: true } });
+    mocks.params.inboxCaptureId = 'card-public';
+    mocks.extraction.startExtraction.mockResolvedValue({ jobId: 'job-card' });
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<><ExtractScreen /><InboxProcessor /></>); });
+      await act(async () => renderer.update(<><ExtractScreen /><InboxProcessor /></>));
+      expect(mocks.requestPublishing).toHaveBeenCalledOnce();
+      expect(mocks.setParams).toHaveBeenCalledWith({ inboxCaptureId: undefined });
+      await act(async () => renderer.update(<><ExtractScreen /><InboxProcessor /></>));
+      expect(mocks.extraction.startExtraction).toHaveBeenCalledExactlyOnceWith(
+        { url: 'https://example.com/card', is_public: true }, 'share:card-public');
+      expect(mocks.requestPublishing).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('waits for focus before asking, and only clears the route for shares that need no confirmation', async () => {
+    mocks.inboxEntries = [{ id: 'card-public', ownerId: 'owner-a', createdAt: 1, state: 'waiting',
+      capture: { kind: 'url', url: 'https://example.com/card' }, request: { url: 'https://example.com/card', is_public: true } },
+    { id: 'card-private', ownerId: 'owner-a', createdAt: 2, state: 'waiting',
+      capture: { kind: 'url', url: 'https://example.com/private' }, request: { url: 'https://example.com/private', is_public: false } }];
+    mocks.focused = false;
+    mocks.params.inboxCaptureId = 'card-public';
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      expect(mocks.requestPublishing).not.toHaveBeenCalled();
+      expect(mocks.setParams).not.toHaveBeenCalledWith({ inboxCaptureId: undefined });
+      mocks.params.inboxCaptureId = 'card-private';
+      mocks.focused = true;
+      await act(async () => renderer.update(<ExtractScreen />));
+      expect(mocks.setParams).toHaveBeenCalledWith({ inboxCaptureId: undefined });
+      expect(mocks.requestPublishing).not.toHaveBeenCalled();
+      expect(mocks.claimInbox).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('labels a share waiting on its publishing confirmation as waiting, not as a failure', async () => {
+    mocks.inboxEntries = [{ id: 'card-public', ownerId: 'owner-a', createdAt: 1, state: 'waiting',
+      error: 'Review public sharing to finish this import.',
+      capture: { kind: 'url', url: 'https://example.com/card' }, request: { url: 'https://example.com/card', is_public: true } }];
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      const labels = renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType).map(node => node.props.children);
+      expect(labels).toContain('Waiting · Tap Finish to confirm it’s public');
+      expect(labels.some(label => typeof label === 'string' && label.startsWith('Needs help'))).toBe(false);
+      expect(touchableWithText(renderer, 'Finish')).toBeDefined();
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it.each([true, false])('carries one composer confirmation into one import (public=%s)', async approved => {
