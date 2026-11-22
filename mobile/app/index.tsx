@@ -270,19 +270,23 @@ function ExtractScreenContent() {
   // instead of leaving it behind a Finish tap.
   const openedInboxCapture = useRef<string | null>(null);
   // Waiting on its one publishing confirmation, which is not a failure.
-  const awaitsPublicReview = (item: ImportInboxEntry) => item.state === 'waiting' && item.capture.kind === 'url' &&
-    Boolean(item.request?.is_public) && !item.publicConfirmed && !item.submissionClaimed;
+  const needsPublicReview = (item: ImportInboxEntry) => Boolean(inbox.ownerId) && item.ownerId === inbox.ownerId &&
+    item.capture.kind === 'url' && Boolean(item.request?.is_public) && !item.publicConfirmed && !item.submissionClaimed;
+  const awaitsPublicReview = (item: ImportInboxEntry) => item.state === 'waiting' && needsPublicReview(item);
   useEffect(() => {
-    if (!inboxCaptureId || !isAuthLoaded || (isSignedIn && !inbox.ownerId) || !isFocused) return;
-    const captured = inbox.ownerId ? inbox.entries.find((item) => item.id === inboxCaptureId) : undefined;
+    if (!inboxCaptureId || !inbox.hydrated || !isAuthLoaded || (isSignedIn && !inbox.ownerId) || !isFocused) return;
+    const captured = inbox.entries.find((item) => item.id === inboxCaptureId);
+    // Another import owns the screen; leave this one on its row rather than
+    // interrupting whatever the person is looking at when that import ends.
+    const busy = extraction.isExtracting || extraction.canRetryStart;
     // The inbox processor parks it as waiting; opening it earlier would race that write.
-    if (captured?.ownerId === inbox.ownerId && awaitsPublicReview({ ...captured, state: 'waiting' }) && captured.state === 'ready') return;
+    if (!busy && captured?.state === 'ready' && needsPublicReview(captured)) return;
     router.setParams({ inboxCaptureId: undefined });
-    if (!captured || captured.ownerId !== inbox.ownerId || !awaitsPublicReview(captured) || extraction.isExtracting ||
-        openedInboxCapture.current === captured.id) return;
+    if (busy || !captured || !awaitsPublicReview(captured) || openedInboxCapture.current === captured.id) return;
     openedInboxCapture.current = captured.id;
     void openCapturedEntry(captured).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
-  }, [inboxCaptureId, inbox.entries, inbox.ownerId, isAuthLoaded, isSignedIn, isFocused, extraction.isExtracting, router]);
+  }, [inboxCaptureId, inbox.entries, inbox.ownerId, inbox.hydrated, isAuthLoaded, isSignedIn, isFocused,
+    extraction.isExtracting, extraction.canRetryStart, router]);
 
   // Shared images stay in memory only until this screen consumes the route token.
   useEffect(() => {

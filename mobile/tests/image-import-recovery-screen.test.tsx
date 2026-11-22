@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   uuid: vi.fn(),
   setParams: vi.fn(),
   inboxEntries: [] as any[],
-  realInbox: false, inboxStorage: null as string | null,
+  realInbox: false, inboxStorage: null as string | null, inboxHydrated: true,
   removeWaiting: vi.fn(async () => undefined),
   jobs: [] as any[],
   addInbox: vi.fn(async (_entry: any) => undefined),
@@ -210,7 +210,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({ default: {
 vi.mock('@/hooks/useImportInbox', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useImportInbox')>();
   return { ...actual, useImportInbox: () => mocks.realInbox ? actual.useImportInbox()
-    : { ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null } };
+    : { ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null, hydrated: mocks.inboxHydrated } };
 });
 vi.mock('@/lib/importInbox', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/importInbox')>();
@@ -251,7 +251,7 @@ describe('classified image recovery', () => {
   beforeEach(() => {
     mocks.realInbox = false;
     mocks.draftsReady = true; mocks.scanAvailable = null; mocks.platform = 'ios';
-    mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.entry = undefined; mocks.params.captureToken = undefined; mocks.params.inboxCaptureId = undefined; mocks.inboxEntries = [];
+    mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.entry = undefined; mocks.params.captureToken = undefined; mocks.params.inboxCaptureId = undefined; mocks.inboxEntries = []; mocks.inboxHydrated = true;
     mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
     legacyShareReceipts.clearRoute();
     mocks.uuid.mockReset(); mocks.uuid.mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
@@ -337,38 +337,84 @@ describe('classified image recovery', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 
-  it('waits for focus before asking, and only clears the route for shares that need no confirmation', async () => {
-    mocks.inboxEntries = [{ id: 'card-public', ownerId: 'owner-a', createdAt: 1, state: 'waiting',
-      capture: { kind: 'url', url: 'https://example.com/card' }, request: { url: 'https://example.com/card', is_public: true } },
-    { id: 'card-private', ownerId: 'owner-a', createdAt: 2, state: 'waiting',
-      capture: { kind: 'url', url: 'https://example.com/private' }, request: { url: 'https://example.com/private', is_public: false } }];
-    mocks.focused = false;
+  const cardEntry = (overrides: Record<string, unknown> = {}) => ({ id: 'card-public', ownerId: 'owner-a', createdAt: 1, state: 'waiting',
+    capture: { kind: 'url', url: 'https://example.com/card' }, request: { url: 'https://example.com/card', is_public: true }, ...overrides });
+
+  it('waits for focus and saved imports before asking for the confirmation', async () => {
+    mocks.inboxEntries = [cardEntry()];
+    mocks.focused = false; mocks.inboxHydrated = false;
     mocks.params.inboxCaptureId = 'card-public';
     let renderer!: ReactTestRenderer;
     try {
       await act(async () => { renderer = create(<ExtractScreen />); });
-      expect(mocks.requestPublishing).not.toHaveBeenCalled();
-      expect(mocks.setParams).not.toHaveBeenCalledWith({ inboxCaptureId: undefined });
-      mocks.params.inboxCaptureId = 'card-private';
       mocks.focused = true;
       await act(async () => renderer.update(<ExtractScreen />));
+      expect(mocks.requestPublishing).not.toHaveBeenCalled();
+      expect(mocks.setParams).not.toHaveBeenCalledWith({ inboxCaptureId: undefined });
+      mocks.inboxHydrated = true;
+      await act(async () => renderer.update(<ExtractScreen />));
+      expect(mocks.requestPublishing).toHaveBeenCalledOnce();
+      expect(mocks.setParams).toHaveBeenCalledWith({ inboxCaptureId: undefined });
+      await act(async () => renderer.update(<ExtractScreen />));
+      expect(mocks.requestPublishing).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it.each([
+    ['a private share', { request: { url: 'https://example.com/card', is_public: false } }, {}],
+    ['an already confirmed share', { publicConfirmed: true }, {}],
+    ['a share claimed for submission', { submissionClaimed: true }, {}],
+    ['another account\'s share', { ownerId: 'owner-b' }, {}],
+    ['a share waiting behind a running import', { state: 'ready' }, { isExtracting: true }],
+    ['a parked share while another import runs', {}, { isExtracting: true }],
+    ['a share while an uncertain start needs Reconnect', {}, { canRetryStart: true }],
+  ])('only clears the route for %s', async (_name, overrides, extraction) => {
+    mocks.inboxEntries = [cardEntry(overrides)];
+    Object.assign(mocks.extraction, extraction);
+    mocks.params.inboxCaptureId = 'card-public';
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
       expect(mocks.setParams).toHaveBeenCalledWith({ inboxCaptureId: undefined });
       expect(mocks.requestPublishing).not.toHaveBeenCalled();
       expect(mocks.claimInbox).not.toHaveBeenCalled();
     } finally { await act(async () => renderer.unmount()); }
   });
 
-  it('labels a share waiting on its publishing confirmation as waiting, not as a failure', async () => {
-    mocks.inboxEntries = [{ id: 'card-public', ownerId: 'owner-a', createdAt: 1, state: 'waiting',
-      error: 'Review public sharing to finish this import.',
-      capture: { kind: 'url', url: 'https://example.com/card' }, request: { url: 'https://example.com/card', is_public: true } }];
+  it('keeps the route while the inbox processor has not parked the share yet', async () => {
+    mocks.inboxEntries = [cardEntry({ state: 'ready' })];
+    mocks.params.inboxCaptureId = 'card-public';
     let renderer!: ReactTestRenderer;
     try {
       await act(async () => { renderer = create(<ExtractScreen />); });
-      const labels = renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType).map(node => node.props.children);
-      expect(labels).toContain('Waiting · Tap Finish to confirm it’s public');
-      expect(labels.some(label => typeof label === 'string' && label.startsWith('Needs help'))).toBe(false);
+      expect(mocks.setParams).not.toHaveBeenCalledWith({ inboxCaptureId: undefined });
+      expect(mocks.requestPublishing).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  const hintFor = (renderer: ReactTestRenderer, text: string) => renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
+    .find(node => node.props.children === text);
+
+  it('labels a share waiting on its publishing confirmation as waiting, not as a failure', async () => {
+    mocks.inboxEntries = [cardEntry({ error: 'Review public sharing to finish this import.' })];
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      const hint = hintFor(renderer, 'Waiting · Tap Finish to confirm it’s public');
+      expect(hint).toBeDefined();
+      expect(hint!.props.style).toContainEqual({ color: '#666' });
       expect(touchableWithText(renderer, 'Finish')).toBeDefined();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('keeps the sign-in label for a signed-out public share', async () => {
+    mocks.signedIn = false; mocks.ownerId = null;
+    mocks.inboxEntries = [cardEntry({ ownerId: null })];
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      expect(hintFor(renderer, 'Sign in to finish importing')).toBeDefined();
+      expect(hintFor(renderer, 'Waiting · Tap Finish to confirm it’s public')).toBeUndefined();
     } finally { await act(async () => renderer.unmount()); }
   });
 
