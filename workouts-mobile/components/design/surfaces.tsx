@@ -446,13 +446,16 @@ export function ListGroup({ children, grouped: explicitGrouped, header, notes, s
   const c = useColors();
   const pageGrouped = useGroupedPage();
   const grouped = explicitGrouped ?? pageGrouped;
-  // Flatten arrays and fragments so every row gets its own separator.
-  const flatten = (nodes: ReactNode): ReactNode[] =>
-    Children.toArray(nodes).flatMap((child) =>
-      isValidElement(child) && child.type === Fragment
-        ? flatten((child as ReactElement<{ children?: ReactNode }>).props.children)
-        : [child]
-    );
+  // Flatten arrays and fragments so every row gets its own separator. Keys keep
+  // their fragment path: two fragments' children are both ".0", ".1", ...
+  // The path is serialized whole so an explicit key can't imitate a delimiter.
+  const flatten = (nodes: ReactNode, path: string[] = []): { key: string; node: ReactNode }[] =>
+    Children.toArray(nodes).flatMap((child, i) => {
+      const segments = [...path, String((isValidElement(child) && child.key) || i)];
+      return isValidElement(child) && child.type === Fragment
+        ? flatten((child as ReactElement<{ children?: ReactNode }>).props.children, segments)
+        : [{ key: JSON.stringify(segments), node: child }];
+    });
   const items = flatten(children);
   return (
     <View
@@ -467,10 +470,10 @@ export function ListGroup({ children, grouped: explicitGrouped, header, notes, s
     >
       {!!header && <View style={{ paddingTop: 12, paddingBottom: 8 }}><Copy kind="caption" tone="muted">{header}</Copy></View>}
       {!!notes?.length && <View style={{ gap: 4, paddingBottom: 8 }}>{notes.map((line, i) => <Copy key={i} kind="small">{line}</Copy>)}</View>}
-      {items.map((child, i) => (
-        <View key={(isValidElement(child) && child.key) || i}>
+      {items.map(({ key, node }, i) => (
+        <View key={key}>
           {i > 0 && <View style={{ marginLeft: separatorInset, borderTopWidth: 1, borderTopColor: c.border }} />}
-          {child}
+          {node}
         </View>
       ))}
     </View>
