@@ -1051,26 +1051,26 @@ index f1f4b72..96a28dd 100644
 +      }
 +      controller.captureSubmitted = true
 +      guard RecipeShareWords.sendsNow(kind: controller.captureKind, isPublic: intent.isPublic, signedIn: controller.captureSignedIn),
-+        let link = controller.captureLink() else { controller.finishCapture(accepted: false); return }
++        let link = controller.captureLink() else { controller.finishCapture(.unreachable); return }
 +      controller.enqueueCapture(intent.captureKey, link: link)
 +    }
 +  }
 +
 +  private func enqueueCapture(_ captureKey: String, link: String) {
-+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.finishCapture(accepted: false) }
++    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.finishCapture(.unreachable) }
 +    HafaShareStore.performCaptureWrite({ [weak self] in
-+      HafaShareStore.enqueueLink(captureKey: captureKey, url: link) { [weak self] accepted in
-+        DispatchQueue.main.async { [weak self] in self?.finishCapture(accepted: accepted) }
++      HafaShareStore.enqueueLink(captureKey: captureKey, url: link) { [weak self] sent in
++        DispatchQueue.main.async { [weak self] in self?.finishCapture(sent) }
 +      }
 +    }, completion: { _ in })
 +  }
 +
-+  private func finishCapture(accepted: Bool) {
++  private func finishCapture(_ sent: HafaShareStore.ImportResult) {
 +    guard !captureClosed, !captureFinished else { return }
 +    captureFinished = true
 +    saveAttemptID = nil; setSaveState(.saved)
 +    card?.finish(RecipeShareWords.outcome(RecipeShareWords.result(
-+      kind: captureKind, isPublic: captureVisibility, signedIn: captureSignedIn, accepted: accepted)))
++      kind: captureKind, isPublic: captureVisibility, signedIn: captureSignedIn, accepted: sent == .accepted, needsApp: sent == .needsApp)))
 +  }
 +
 +  private func answerOutcome(_ button: HafaShareOutcome.Button) {

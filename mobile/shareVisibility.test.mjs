@@ -20,14 +20,14 @@ describe('per-item native share visibility', () => {
     expect(visibilityIndex).toBeLessThan(enqueueIndex);
     expect(submit).toContain('guard !captureSubmitted');
     expect(submit).toContain('metadata[\"confirmed\"] = true');
-    // Public, signed-out, photo and text captures stay on the phone for Håfa to finish.
+    // Signed-out, photo and text captures stay on the phone for Håfa to finish.
     expect(submit).toContain('RecipeShareWords.sendsNow(');
   });
   it('offers two labelled cards that update only the captured receipt, private by default', () => {
     const words = card('RecipeShareWords.swift');
     expect(words).toContain('title: "Private", detail: "Only you"');
     expect(words).toContain('title: "Public", detail: "Anyone in Discover"');
-    expect(words).toContain('Håfa will ask you to confirm before it goes public.');
+    expect(words).toContain('Anyone can find it in Discover once it’s imported.');
     const choice = section('private func changeCaptureVisibility', 'private func submitCapture');
     expect(choice).toContain('defaults.set(metadata, forKey: "\\(key).meta")');
     expect(choice).not.toContain('preferencesKey');
