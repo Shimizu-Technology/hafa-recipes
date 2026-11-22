@@ -81,6 +81,9 @@ describe("Workouts native share generation", () => {
     expect(promotion).not.toContain("sessionKey");
     expect(promotion).toContain('capture["ownerId"] = stage["ownerId"]');
     expect(promotion).toContain('capture["accountScopeId"] = stage["accountScopeId"]');
+    // A saved Discover default never preselects Discover on the card; only a tap there sends it.
+    expect(confirmation).toContain("controller.captureIsPublic = false");
+    expect(confirmation).not.toContain("captureClassPage ? false : isPublic");
   });
   it("flushes exact file receipts before copy and preserves completed sources across interrupted promotion", () => {
     const store = native("HafaWorkoutsShareStore.swift");
