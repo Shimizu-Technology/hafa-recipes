@@ -115,12 +115,14 @@ assert(!HafaShareStore.canSubmitInBackground(["requestedIsPublic": true, "confir
 assert(!HafaShareStore.canSubmitInBackground([:]))
 print("Saved-default public and legacy-unknown captures stay local for foreground confirmation")
 
-// Public picked on the card and Saved is sent now, and says so; nothing else claims it.
-let chosen: [String: Any] = ["requestedIsPublic": true, "confirmed": true]
+// Public tapped on the card and Saved is sent now, and says so; nothing else claims it.
+assert(HafaShareStore.cardStart["requestedIsPublic"] as? Bool == false)
+assert(!HafaShareStore.canSubmitInBackground(["requestedIsPublic": true, "confirmed": true]))
+let chosen: [String: Any] = ["requestedIsPublic": true, "confirmed": true, "visibilityFromCard": true]
 assert(HafaShareStore.canSubmitInBackground(chosen))
 assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r", metadata: chosen)["public_confirmed"] as? Bool == true)
 assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r",
-  metadata: ["requestedIsPublic": false, "confirmed": true])["public_confirmed"] == nil)
+  metadata: ["requestedIsPublic": false, "confirmed": true, "visibilityFromCard": true])["public_confirmed"] == nil)
 assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r",
   metadata: ["requestedIsPublic": true])["public_confirmed"] == nil)
 print("Public chosen on the card imports from the extension")

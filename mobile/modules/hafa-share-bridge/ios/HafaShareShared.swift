@@ -387,9 +387,13 @@ enum HafaShareStore {
     return payload
   }
 
-  // Public picked on the card and Saved. Older captures took Public from a saved default.
+  // The card always opens on Private, whatever the saved default, so Public there is always a tap.
+  static let cardStart: [String: Any] = ["requestedIsPublic": false, "visibilityFromCard": true]
+
+  // Public tapped on this card and Saved. Older captures took Public from a saved default.
   static func choseOnCard(_ metadata: [String: Any]) -> Bool {
-    metadata["requestedIsPublic"] as? Bool == true && metadata["confirmed"] as? Bool == true
+    metadata["visibilityFromCard"] as? Bool == true && metadata["requestedIsPublic"] as? Bool == true
+      && metadata["confirmed"] as? Bool == true
   }
 
   static func acceptedImport(data: Data?, response: URLResponse?, captureID: String) -> [String: Any]? {

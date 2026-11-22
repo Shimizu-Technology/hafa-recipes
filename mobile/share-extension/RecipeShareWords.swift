@@ -25,7 +25,7 @@ enum RecipeShareWords {
   static func note(isPublic: Bool, kind: Kind) -> String {
     switch (kind, isPublic) {
     case (.link, false): return "You can share it or make it public later."
-    case (.link, true): return "Anyone can find it in Discover once it’s imported. You can make it private later."
+    case (.link, true): return "Once it’s imported, anyone can find it in Discover. You can make it private later."
     case (_, false): return "You’ll check it in Håfa before it’s added."
     case (_, true): return "You’ll check it in Håfa and confirm before it goes public. Your photos stay private."
     }
@@ -36,7 +36,7 @@ enum RecipeShareWords {
   static func photosTitle(_ count: Int) -> String { count == 1 ? "1 photo" : "\(count) photos" }
 
   // A link from a signed-in phone is sent now. Everything else waits for Håfa, and says why.
-  // needsApp: Discover's one-time agreement (or an older server) wants Håfa to finish a public import.
+  // needsApp: the server refused the public send (Discover's one-time agreement, or an older server); Håfa finishes it.
   static func result(kind: Kind, isPublic: Bool, signedIn: Bool, accepted: Bool, needsApp: Bool = false) -> Result {
     guard signedIn else { return .signedOut }
     guard kind == .link else { return .review }
@@ -56,11 +56,11 @@ enum RecipeShareWords {
         primary: "Done", secondary: "Open Håfa", opens: .secondary, closesItself: true)
     case .importingPublic:
       return HafaShareOutcome(symbol: "checkmark", title: "Saved to Håfa",
-        detail: "We’re importing it now. It’ll be in your library and Discover in a minute or two.",
+        detail: "We’re importing it now. It’ll be in your library in a minute or two, and public once it’s complete.",
         primary: "Done", secondary: "Open Håfa", opens: .secondary, closesItself: true)
     case .confirmPublic:
       return HafaShareOutcome(symbol: "globe", title: "One more step",
-        detail: "Open Håfa once to agree to Discover’s rules. The import starts then.",
+        detail: "Open Håfa to finish making it public. The import starts then.",
         primary: "Open Håfa", secondary: "Later", opens: .primary)
     case .review:
       return HafaShareOutcome(symbol: "text.viewfinder", title: "Saved — check it in Håfa",

@@ -27,7 +27,7 @@ describe('per-item native share visibility', () => {
     const words = card('RecipeShareWords.swift');
     expect(words).toContain('title: "Private", detail: "Only you"');
     expect(words).toContain('title: "Public", detail: "Anyone in Discover"');
-    expect(words).toContain('Anyone can find it in Discover once it’s imported.');
+    expect(words).toContain('Once it’s imported, anyone can find it in Discover.');
     const choice = section('private func changeCaptureVisibility', 'private func submitCapture');
     expect(choice).toContain('defaults.set(metadata, forKey: "\\(key).meta")');
     expect(choice).not.toContain('preferencesKey');

@@ -113,15 +113,16 @@ describe('durable share intake', () => {
     expect(mocks.add.mock.calls[1][0].request.notes).toBe('2 cups rice\nSimmer 20 minutes.');
   });
   it('takes Public picked on the share card as this recipe\'s confirmation', async () => {
-    mocks.payload._hafa = { ...mocks.payload._hafa, requestedIsPublic: true, confirmed: true };
+    mocks.payload._hafa = { ...mocks.payload._hafa, requestedIsPublic: true, confirmed: true, visibilityFromCard: true };
     await render();
     expect(mocks.add.mock.calls[0][0]).toMatchObject({ state: 'ready', publicConfirmed: true, request: { is_public: true } });
     // A saved-default Public from an older extension, or one Håfa has to finish, still asks.
-    for (const [key, extra] of [['key-b', { confirmed: undefined }], ['key-c', { confirmed: true, publicNeedsApp: true }]] as const) {
+    for (const [key, extra] of [['key-b', { confirmed: undefined }], ['key-c', { confirmed: true, visibilityFromCard: true, publicNeedsApp: true }],
+      ['key-d', { confirmed: true }]] as const) {
       mocks.payload = { ...mocks.payload, _hafa: { captureKey: key, captureId: `capture-${key}`, accountScopeId: 'scope-a', requestedIsPublic: true, ...extra } };
       await act(async () => renderer.update(<Harness />));
     }
-    expect(mocks.add.mock.calls.map(([entry]) => entry.publicConfirmed)).toEqual([true, undefined, undefined]);
+    expect(mocks.add.mock.calls.map(([entry]) => entry.publicConfirmed)).toEqual([true, undefined, undefined, undefined]);
   });
   it('retains visibility for shared text and images awaiting review', async () => {
     mocks.action = { kind: 'text', text: 'Rice recipe' };
