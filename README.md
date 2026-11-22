@@ -94,26 +94,41 @@ own PostgreSQL service/database. The `FastAPI` and `Baby family gate on` status
 names fail unless every corresponding shard succeeds. Frozen API dependencies
 and the pinned CI-only plugin are downloaded through the uv cache.
 
-`.github/pytest-durations.json` seeds pytest-split from run 44209905600's file
-timings, averaged over the collected tests per file. Each shard uploads measured
-setup/call/teardown timings and JUnit results for 14 days. To refresh the seed,
-download every shard's artifacts from a successful run, merge their duration
-objects, and commit the combined map. Use the larger duration for tests measured
-in both configurations. All shards must read the same committed timing map;
-new tests receive pytest-split's average duration. Contiguous timed chunks
-preserve collection order even when parametrizations generate random UUIDs
-at import; sorting those names independently would make shard assignments differ.
-The explicit config/root arguments preserve asyncio auto mode and timing node IDs
-when the timing file lives outside `api/`.
+`.github/ci/ci_shards.py` assigns whole files using longest-processing-time
+first, with deterministic file-name ties. It preserves collection order within
+each file, module fixtures, and import-time randomized parameter IDs. API and
+Baby use separate file medians in `.github/ci/file-durations.json`; unseen files
+receive the selection's mean file duration. Six jobs per configuration remain.
+
+Each shard uploads measured setup/call/teardown timings and JUnit results for
+14 days. Refresh the file map from complete green-run artifact directories:
+
+```bash
+python3 .github/ci/refresh_timings.py /path/to/run-id /path/to/another-run-id
+```
+
+The refresh sums all tests (including files split by the former partitioner)
+within each run before taking per-file medians across runs. The initial refresh
+uses main run 44904323794 and identical-source green repeat runs 44902882065
+and 44902885662. The old per-test seed remains only as pytest-split's timing
+output path; it no longer controls assignment. All shards read the same
+committed file map.
 
 From `api/`, against an explicitly disposable `TEST_DATABASE_URL`:
 
 ```bash
 uv sync --frozen --dev
 uv pip install --no-deps -r ../.github/requirements-ci.txt
-uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. --splits 6 --group 1 --splitting-algorithm duration_based_chunks --durations-path ../.github/pytest-durations.json
-# Add BABY_FAMILY_ENABLED=true and -k baby for the second configuration.
+PYTHONPATH=../.github/ci uv run --frozen --no-sync pytest -p ci_shards -c pyproject.toml --rootdir=. --ci-shards 6 --ci-shard 1 --ci-selection api
+# Use --ci-selection baby, BABY_FAMILY_ENABLED=true and -k baby for Baby.
+uv run --frozen --no-sync python -m unittest discover -s ../.github/ci
+uv run --frozen --no-sync python ../.github/ci/audit_shards.py
 ```
+
+The audit independently collects the baseline and all six shards for each
+configuration, checks per-file case counts against the baseline, and requires
+one owner per file. No fixtures execute. Shard 1 of each configuration runs its exact-coverage
+check before tests; the aggregate status fails closed if it fails.
 
 Only workflow/support files change: no API source, production dependency pins,
 hosting settings, or frontend build inputs change.
