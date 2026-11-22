@@ -4,7 +4,7 @@ import Foundation
 // Picking Public here is the confirmation: a public link imports straight away, like a private one.
 enum RecipeShareWords {
   enum Kind: Equatable { case link, photos(Int), text }
-  enum Result: Equatable { case importing, importingPublic, confirmPublic, review, signedOut, waiting }
+  enum Result: Equatable { case importing, importingPublic, alreadySaved, confirmPublic, review, signedOut, waiting }
 
   static let visibility = "visibility"
   static let action = "Save recipe"
@@ -37,9 +37,11 @@ enum RecipeShareWords {
 
   // A link from a signed-in phone is sent now. Everything else waits for Håfa, and says why.
   // needsApp: the server refused the public send (Discover's one-time agreement, or an older server); Håfa finishes it.
-  static func result(kind: Kind, isPublic: Bool, signedIn: Bool, accepted: Bool, needsApp: Bool = false) -> Result {
+  // existing: the link was already a recipe here, which keeps its own visibility.
+  static func result(kind: Kind, isPublic: Bool, signedIn: Bool, accepted: Bool, needsApp: Bool = false, existing: Bool = false) -> Result {
     guard signedIn else { return .signedOut }
     guard kind == .link else { return .review }
+    if existing { return .alreadySaved }
     if accepted { return isPublic ? .importingPublic : .importing }
     return isPublic && needsApp ? .confirmPublic : .waiting
   }
@@ -58,6 +60,10 @@ enum RecipeShareWords {
       return HafaShareOutcome(symbol: "checkmark", title: "Saved to Håfa",
         detail: "We’re importing it now. It’ll be in your library in a minute or two, and public once it’s complete.",
         primary: "Done", secondary: "Open Håfa", opens: .secondary, closesItself: true)
+    case .alreadySaved:
+      return HafaShareOutcome(symbol: "checkmark", title: "Already in your library",
+        detail: "You saved this one before. Open Håfa to change who can see it.",
+        primary: "Done", secondary: "Open Håfa", opens: .secondary)
     case .confirmPublic:
       return HafaShareOutcome(symbol: "globe", title: "One more step",
         detail: "Open Håfa to finish making it public. The import starts then.",

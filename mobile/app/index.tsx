@@ -115,7 +115,7 @@ function ExtractScreenContent() {
     if (!inbox.ownerId) initializedPreferencesOwner.current = null;
   }, [inbox.ownerId, preferences.ready, preferences.isPublic, preferences.location]);
   const rememberImportSettings = (patch: { isPublic?: boolean; location?: string }) => {
-    void preferences.update(patch).catch(() => Alert.alert('Could not save import settings', 'Your choice applies to this recipe. Please try again to update sharing from other apps.'));
+    void preferences.update(patch).catch(() => Alert.alert('Could not save import settings', 'Your choice applies to this recipe. Please try again to keep it for your next import.'));
   };
   const restoreComposerPreferences = () => {
     const latest = latestPreferences.current;

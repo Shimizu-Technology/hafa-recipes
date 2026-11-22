@@ -1070,7 +1070,7 @@ index f1f4b72..96a28dd 100644
 +    captureFinished = true
 +    saveAttemptID = nil; setSaveState(.saved)
 +    card?.finish(RecipeShareWords.outcome(RecipeShareWords.result(
-+      kind: captureKind, isPublic: captureVisibility, signedIn: captureSignedIn, accepted: sent == .accepted, needsApp: sent == .needsApp)))
++      kind: captureKind, isPublic: captureVisibility, signedIn: captureSignedIn, accepted: sent == .accepted, needsApp: sent == .needsApp, existing: sent == .existing)))
 +  }
 +
 +  private func answerOutcome(_ button: HafaShareOutcome.Button) {

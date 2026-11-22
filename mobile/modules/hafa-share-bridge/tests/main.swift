@@ -125,6 +125,9 @@ assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r"
   metadata: ["requestedIsPublic": false, "confirmed": true, "visibilityFromCard": true])["public_confirmed"] == nil)
 assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r",
   metadata: ["requestedIsPublic": true])["public_confirmed"] == nil)
+assert(HafaShareStore.needsPublishingAgreement(Data(#"{"detail":"Accept the current publishing disclosure before sharing recipes"}"#.utf8)))
+assert(!HafaShareStore.needsPublishingAgreement(Data(#"{"detail":"Capture ID was already used for another link"}"#.utf8)))
+assert(!HafaShareStore.needsPublishingAgreement(nil))
 print("Public chosen on the card imports from the extension")
 
 let capabilityOnly = HafaShareStore.capturePreferences(session: ["accountScopeId": "owner-a", "isPublic": true], preferences: nil)

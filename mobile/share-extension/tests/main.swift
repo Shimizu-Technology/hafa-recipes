@@ -45,16 +45,17 @@ check(!RecipeShareWords.sendsNow(kind: .photos(1), isPublic: false, signedIn: tr
 check(!RecipeShareWords.sendsNow(kind: .text, isPublic: false, signedIn: true), "text waits for review")
 
 let result = RecipeShareWords.result
-check(result(.link, false, true, true, false) == .importing, "accepted private link")
-check(result(.link, false, true, false, false) == .waiting, "refused or offline")
-check(result(.link, true, true, true, false) == .importingPublic, "accepted public link")
-check(result(.link, true, true, false, true) == .confirmPublic, "public link Håfa has to finish")
-check(result(.link, true, true, false, false) == .waiting, "public link while offline")
-check(result(.photos(3), true, true, false, true) == .review, "photos")
-check(result(.text, false, false, false, false) == .signedOut, "signed out wins")
+check(result(.link, false, true, true, false, false) == .importing, "accepted private link")
+check(result(.link, false, true, false, false, false) == .waiting, "refused or offline")
+check(result(.link, true, true, true, false, false) == .importingPublic, "accepted public link")
+check(result(.link, true, true, false, true, false) == .confirmPublic, "public link Håfa has to finish")
+check(result(.link, true, true, false, false, false) == .waiting, "public link while offline")
+check(result(.link, true, true, false, false, true) == .alreadySaved, "a link already in the library keeps its visibility")
+check(result(.photos(3), true, true, false, true, false) == .review, "photos")
+check(result(.text, false, false, false, false, false) == .signedOut, "signed out wins")
 
 // Only the finished import closes itself; every other outcome has a next step and an Open Håfa button.
-for value in [RecipeShareWords.Result.importing, .importingPublic, .confirmPublic, .review, .signedOut, .waiting] {
+for value in [RecipeShareWords.Result.importing, .importingPublic, .alreadySaved, .confirmPublic, .review, .signedOut, .waiting] {
   let outcome = RecipeShareWords.outcome(value)
   check(outcome.closesItself == (value == .importing || value == .importingPublic), "\(value) closes only when done")
   let opener = outcome.opens == .primary ? outcome.primary : outcome.secondary

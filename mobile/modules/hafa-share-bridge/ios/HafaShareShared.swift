@@ -396,6 +396,11 @@ enum HafaShareStore {
       && metadata["confirmed"] as? Bool == true
   }
 
+  static func needsPublishingAgreement(_ data: Data?) -> Bool {
+    let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    return (body?["detail"] as? String)?.contains("publishing disclosure") == true
+  }
+
   static func acceptedImport(data: Data?, response: URLResponse?, captureID: String) -> [String: Any]? {
     guard let response = response as? HTTPURLResponse, response.statusCode == 202,
       let data, let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -409,7 +414,8 @@ enum HafaShareStore {
     metadata["requestedIsPublic"] as? Bool == false || choseOnCard(metadata)
   }
 
-  enum ImportResult: Equatable { case accepted, needsApp, unreachable }
+  // existing: the link is already a recipe here, so nothing new is imported and its visibility is unchanged.
+  enum ImportResult: Equatable { case accepted, existing, needsApp, unreachable }
 
   static func enqueueLink(captureKey key: String, url: String, completion: @escaping (ImportResult) -> Void) {
     // Snapshot under the same lock used by configure/clear. If signed out,
@@ -436,9 +442,11 @@ enum HafaShareStore {
     session.dataTask(with: request) { data, response, _ in
       defer { session.finishTasksAndInvalidate() }
       guard let result = acceptedImport(data: data, response: response, captureID: captureID) else {
-        // 409: Discover's agreement isn't accepted yet. 403: an older server wants the app to confirm.
+        // 403: an older server wants the app to confirm. 409 counts only for Discover's agreement.
         let status = (response as? HTTPURLResponse)?.statusCode
-        guard choseOnCard(state.2), status == 403 || status == 409 else { completion(.unreachable); return }
+        guard choseOnCard(state.2), status == 403 || (status == 409 && needsPublishingAgreement(data)) else {
+          completion(.unreachable); return
+        }
         let marked = locked { defaults -> Bool in
           guard var current = defaults.dictionary(forKey: "\(key).meta") else { return false }
           current["publicNeedsApp"] = true
@@ -457,7 +465,7 @@ enum HafaShareStore {
         defaults.set(current, forKey: "\(key).meta")
         return true
       } ?? false
-      completion(stored ? .accepted : .unreachable)
+      completion(stored ? (result["job_id"] is String ? .accepted : .existing) : .unreachable)
     }.resume()
   }
 }
