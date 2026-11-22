@@ -291,6 +291,9 @@ async def test_public_chosen_on_share_card_imports_without_opening_the_app(shari
             "capture_id": str(uuid4()), "url": "https://example.com/public",
             "is_public": True, "public_confirmed": True,
         }
+        loose = await client.post("/api/share/imports", headers=headers,
+                                  json={**chosen, "public_confirmed": "true"})
+        assert loose.status_code == 422
         # Discover's one-time agreement still comes first, and nothing is queued.
         needs_agreement = await client.post("/api/share/imports", json=chosen, headers=headers)
         assert needs_agreement.status_code == 409, needs_agreement.text

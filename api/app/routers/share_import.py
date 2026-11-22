@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy import String, cast, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +48,7 @@ class ImportRequest(BaseModel):
     location: str | None = Field(default=None, min_length=1, max_length=100)
     # Sent only by the share card, after the person picked Public and tapped
     # Save. Older extensions published from a saved default without asking.
-    public_confirmed: bool = False
+    public_confirmed: StrictBool = False
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("url")
