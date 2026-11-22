@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { light } from "../constants/theme";
@@ -10,7 +10,7 @@ vi.mock("react-native", () => {
     AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, fn: (value: string) => void) => { f.listeners.add(fn); return { remove: () => f.listeners.delete(fn) }; } },
     Animated: { View: "AnimatedView", Value, timing: () => ({ start() {} }), sequence: () => ({}), loop: () => ({ start: f.start, stop: f.stop }) } };
 });
-vi.mock("../components/design/foundation", () => ({ Copy: "Copy", SurfaceProvider: "SurfaceProvider", useColors: () => light, useSurface: () => "surface", useReducedMotion: () => f.reduced }));
+vi.mock("../components/design/foundation", () => ({ Copy: "Copy", SurfaceProvider: "SurfaceProvider", useColors: () => light, useSurface: () => "surface", useGroupedPage: () => false, useReducedMotion: () => f.reduced }));
 vi.mock("../components/design/controls", () => ({ Chip: "Chip", IconButton: "IconButton" }));
 vi.mock("../components/design/press", () => ({ animatedPressableComponent: () => "Pressable", usePressScale: () => ({ scale: 1, opacity: 1 }) }));
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
@@ -19,7 +19,7 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34 }) }));
 vi.mock("expo-router", () => ({ router: {}, useSegments: () => f.segments }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
-import { Skeleton, ToastProvider, useToast, ListRow, Notice } from "../components/design/surfaces";
+import { Skeleton, ToastProvider, useToast, ListRow, ListGroup, Notice } from "../components/design/surfaces";
 import { reportTabScreenBottomInset } from "./bottom-overlay";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.listeners.clear(); f.start.mockClear(); f.stop.mockClear(); f.announce.mockClear(); f.reduced = false; f.fontScale = 1; f.appState = "active"; vi.useFakeTimers(); });
@@ -84,4 +84,14 @@ it.each([1, 3.1])("gives notice prose the full width at accessibility scale %s",
   expect(copy.props.children).toBe(text);
   expect(copy.props.numberOfLines).toBeUndefined();
   if (fontScale > 1) expect(copy.props.style).toMatchObject({ flex: undefined, alignSelf: "stretch" });
+});
+it("gives rows from sibling fragments distinct keys", () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    act(() => { view = create(createElement(ListGroup, null,
+      createElement(Fragment, null, createElement("Row", { id: "a" }), createElement("Row", { id: "b" })),
+      createElement(Fragment, null, createElement("Row", { id: "c" }), createElement("Row", { id: "d" })))); });
+    expect(view!.root.findAllByType("Row" as never).map(row => row.props.id)).toEqual(["a", "b", "c", "d"]);
+    expect(error.mock.calls.some(call => String(call[0]).includes("same key"))).toBe(false);
+  } finally { error.mockRestore(); }
 });
