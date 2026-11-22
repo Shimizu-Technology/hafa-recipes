@@ -46,6 +46,9 @@ class ImportRequest(BaseModel):
     # a previously private capture, or change its cost-estimate location.
     is_public: bool | None = None
     location: str | None = Field(default=None, min_length=1, max_length=100)
+    # Sent only by the share card, after the person picked Public and tapped
+    # Save. Older extensions published from a saved default without asking.
+    public_confirmed: bool = False
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("url")
@@ -105,7 +108,7 @@ async def provision(
     token, credential.token_hash = issue_token(credential.id)
     credential.scope = SCOPE
     credential.location = request.location
-    # Every public capture requires the foreground recipe confirmation.
+    # A credential never publishes by default; each capture chooses.
     credential.is_public = False
     credential.display_name = user.recipe_display_name[:200]
     credential.issued_at = now
@@ -150,9 +153,10 @@ async def submit(
             "replayed": True,
         }
     is_public = credential.is_public if request.is_public is None else request.is_public
-    if is_public:
+    if is_public and not (request.is_public and request.public_confirmed):
         # Narrow already-issued legacy credentials too; disclosure acceptance
         # alone never authorizes publishing a different captured recipe.
+        # start_extraction_job still requires the current disclosure.
         raise HTTPException(403, "Open Håfa to confirm making this recipe public")
     # Enqueue commits the job before its receipt. Count both durable records,
     # deduplicated by capture, while the account lock still serializes intake.

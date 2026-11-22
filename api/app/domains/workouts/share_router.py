@@ -154,6 +154,8 @@ class CaptureRequest(DomainModel):
     capture_id: UUID
     url: str = Field(min_length=1, max_length=2000)
     is_public: StrictBool = False
+    # Sent only after the person picked Discover on the share card and tapped Import.
+    public_confirmed: StrictBool = False
     typed_formats: StrictBool = False  # The sharing build runs EMOM/for-time/work-rest formats.
 
     @field_validator("url")
@@ -179,7 +181,7 @@ async def submit(request: CaptureRequest, db: Database, credential: Credential):
         db, credential.app_user_id, credential.generation, expected=credential.ai_accepted_at
     )
     if request.is_public:
-        if not credential.is_public:
+        if not credential.is_public and not request.public_confirmed:
             raise HTTPException(403, "Open Workouts to enable sharing to Discover")
         await require_discover(db)
         await require_current_publishing_disclosure(db, credential.app_user_id)

@@ -280,6 +280,47 @@ async def test_public_capture_requires_foreground_even_with_legacy_public_creden
         assert private.status_code == 202, private.text
 
 
+@pytest.mark.asyncio
+async def test_public_chosen_on_share_card_imports_without_opening_the_app(sharing_db):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_for(sharing_db)), base_url="https://test"
+    ) as client:
+        issued = await client.post("/api/share/credentials", json={"installation_id": str(uuid4())})
+        headers = {"Authorization": "Bearer " + issued.json()["token"]}
+        chosen = {
+            "capture_id": str(uuid4()), "url": "https://example.com/public",
+            "is_public": True, "public_confirmed": True,
+        }
+        # Discover's one-time agreement still comes first, and nothing is queued.
+        needs_agreement = await client.post("/api/share/imports", json=chosen, headers=headers)
+        assert needs_agreement.status_code == 409, needs_agreement.text
+        async with sharing_db() as db:
+            assert await db.scalar(select(func.count()).select_from(ExtractionJob)) == 0
+            assert await db.scalar(select(func.count()).select_from(ShareImportReceipt)) == 0
+            owner = await db.get(AppUser, "stable_owner")
+            owner.publishing_disclosure_version = 1
+            await db.commit()
+        accepted = await client.post("/api/share/imports", json=chosen, headers=headers)
+        assert accepted.status_code == 202, accepted.text
+        # A confirmation never turns a private or legacy capture public.
+        private = await client.post("/api/share/imports", headers=headers, json={
+            "capture_id": str(uuid4()), "url": "https://example.com/private",
+            "is_public": False, "public_confirmed": True,
+        })
+        assert private.status_code == 202, private.text
+        legacy = await client.post("/api/share/imports", headers=headers, json={
+            "capture_id": str(uuid4()), "url": "https://example.com/legacy", "public_confirmed": True,
+        })
+        assert legacy.status_code == 202, legacy.text
+        async with sharing_db() as db:
+            public_job = await db.get(ExtractionJob, accepted.json()["job_id"])
+            private_job = await db.get(ExtractionJob, private.json()["job_id"])
+            legacy_job = await db.get(ExtractionJob, legacy.json()["job_id"])
+            assert public_job.requested_is_public is True
+            assert private_job.requested_is_public is False
+            assert legacy_job.requested_is_public is False
+
+
 def test_production_migration_requires_verified_restore_point(monkeypatch):
     from types import SimpleNamespace
 
