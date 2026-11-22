@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.domains.workouts import automation_router, imports, share_router
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal
@@ -19,6 +19,7 @@ from app.domains.workouts.extraction import (
 )
 from app.domains.workouts.lifecycle import now
 from app.domains.workouts.models import WorkoutRecord, WorkoutsConsent, WorkoutsMembership
+from app.models.identity import AppUser
 from tests.test_workouts_data_integration import (  # noqa: F401 -- shared isolated database fixture
     GENERATION,
     data_api,
@@ -529,6 +530,28 @@ async def test_native_capability_only_enqueues_its_own_workouts_once(native_shar
         "/api/v1/workouts/share/imports",
         headers={"Authorization": "Bearer " + api.share["token"].replace("hfws_v1", "hfs_v1")}, json=body,
     )).status_code == 401
+
+
+async def test_native_share_publishes_only_what_the_card_confirmed(native_share_api):
+    api = native_share_api
+    await importlib.import_module("migrations.045_add_workouts_discover").run_migration(
+        configured=settings(), migration_engine=api.engine)
+    url = "https://www.instagram.com/reel/DecwoqXS9ts/"
+    unconfirmed = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers,
+        json={"capture_id": str(uuid4()), "url": url, "is_public": True})
+    assert unconfirmed.status_code == 403
+    chosen = {"capture_id": str(uuid4()), "url": url, "is_public": True, "public_confirmed": True}
+    needs_agreement = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=chosen)
+    assert needs_agreement.status_code == 409, needs_agreement.text
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
+        await db.execute(update(AppUser).where(AppUser.id == "owner").values(publishing_disclosure_version=1))
+        await db.commit()
+    accepted = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=chosen)
+    assert accepted.status_code == 202, accepted.text
+    async with api.sessions() as db:
+        row = await db.get(WorkoutImport, accepted.json()["job_id"])
+        assert row.payload["_save"]["is_public"] is True
 
 
 async def test_wrong_share_secret_does_not_lock_account(native_share_api, monkeypatch):
