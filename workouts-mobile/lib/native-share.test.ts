@@ -310,6 +310,11 @@ assert(privacyReopen.synchronize())
 assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: true, privacyReopen))
 assert(!WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: true, privacyReopen))
 assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == true)
+// Discover picked on the card is sent as confirmed; a saved default or Private is not.
+let chosenBody = WorkoutsShareStore.importBody(["isPublic": true, "visibilityChosen": true], capture: "c", url: "https://example.com/w")
+assert(chosenBody["is_public"] as? Bool == true && chosenBody["public_confirmed"] as? Bool == true)
+assert(WorkoutsShareStore.importBody(["isPublic": true], capture: "c", url: "https://example.com/w")["public_confirmed"] == nil)
+assert(WorkoutsShareStore.importBody(["isPublic": false, "visibilityChosen": true], capture: "c", url: "https://example.com/w")["public_confirmed"] == nil)
 // Existing unreadable/corrupt journals fail closed instead of overwriting
 // queued sources with stale preferences or a new account.
 let beforeCorruption = try Data(contentsOf: journalURL)
