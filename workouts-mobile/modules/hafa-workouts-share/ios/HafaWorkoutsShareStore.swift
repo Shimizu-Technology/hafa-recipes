@@ -250,6 +250,14 @@ enum WorkoutsShareStore {
     guard let url = parts.string else { return nil }
     return (url, String(text.prefix(30000)))
   }
+  // Discover picked on the card is this workout's confirmation; a saved default is not.
+  static func importBody(_ stored: [String: Any], capture: String, url: String) -> [String: Any] {
+    let isPublic = stored["isPublic"] as? Bool ?? false
+    var body: [String: Any] = ["capture_id": capture, "url": url,
+      "is_public": isPublic, "typed_formats": stored["typedFormats"] as? Bool ?? false]
+    if isPublic && stored["visibilityChosen"] as? Bool == true { body["public_confirmed"] = true }
+    return body
+  }
   static func enqueue(_ key: String, completion: @escaping (Bool) -> Void) {
     guard let state = locked({ d -> ([String: Any], String, [String: Any])? in
       guard let session = d.dictionary(forKey: sessionKey), let capability = token(),
@@ -270,8 +278,7 @@ enum WorkoutsShareStore {
     request.setValue("Bearer " + state.1, forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     // A capture an older build saved was first sent without typed_formats; resend the same body under its ID.
-    request.httpBody = try? JSONSerialization.data(withJSONObject: ["capture_id": capture, "url": source,
-      "is_public": state.2["isPublic"] as? Bool ?? false, "typed_formats": state.2["typedFormats"] as? Bool ?? false])
+    request.httpBody = try? JSONSerialization.data(withJSONObject: importBody(state.2, capture: capture, url: source))
     let network = network()
     network.dataTask(with: request) { data, response, _ in
       defer { network.finishTasksAndInvalidate() }

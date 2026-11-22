@@ -64,12 +64,13 @@
     guard let payload = capturePayload else { return }
     let key = sharedKey
     writeCapture({ WorkoutsShareStore.promoteStage(key, payload: payload) }) { controller, result in
-      guard let isPublic = result else {
+      guard result != nil else {
         controller.captureDoneTitle = "Try saving source again"
         controller.captureDetail?.text = "Couldn’t save this source. Try again before closing this sheet."
         return
       }
-      controller.captureDurable = true; controller.capturePayload = nil; controller.captureIsPublic = controller.captureClassPage ? false : isPublic
+      // The card opens on Private whatever the saved default, so Discover here is always a tap.
+      controller.captureDurable = true; controller.capturePayload = nil; controller.captureIsPublic = false
       controller.captureDoneTitle = controller.captureClassPage ? "Keep class source" : "Import workout"
       controller.showConfirmation(title: controller.captureClassPage ? "Review your class in Håfa Workouts" : "Save this workout", detail: controller.captureClassPage ? "This class stays private. Open Håfa Workouts to confirm its date and review the parts before importing." : "Choose where this workout goes. Incomplete imports always stay private.", finished: false)
     }
