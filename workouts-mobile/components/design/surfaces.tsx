@@ -448,12 +448,13 @@ export function ListGroup({ children, grouped: explicitGrouped, header, notes, s
   const grouped = explicitGrouped ?? pageGrouped;
   // Flatten arrays and fragments so every row gets its own separator. Keys keep
   // their fragment path: two fragments' children are both ".0", ".1", ...
-  const flatten = (nodes: ReactNode, path = ""): { key: string; node: ReactNode }[] =>
+  // The path is serialized whole so an explicit key can't imitate a delimiter.
+  const flatten = (nodes: ReactNode, path: string[] = []): { key: string; node: ReactNode }[] =>
     Children.toArray(nodes).flatMap((child, i) => {
-      const key = `${path}${(isValidElement(child) && child.key) || i}`;
+      const segments = [...path, String((isValidElement(child) && child.key) || i)];
       return isValidElement(child) && child.type === Fragment
-        ? flatten((child as ReactElement<{ children?: ReactNode }>).props.children, `${key}/`)
-        : [{ key, node: child }];
+        ? flatten((child as ReactElement<{ children?: ReactNode }>).props.children, segments)
+        : [{ key: JSON.stringify(segments), node: child }];
     });
   const items = flatten(children);
   return (

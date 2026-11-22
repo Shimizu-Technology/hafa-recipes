@@ -92,6 +92,10 @@ it("gives rows from sibling fragments distinct keys", () => {
       createElement(Fragment, null, createElement("Row", { id: "a" }), createElement("Row", { id: "b" })),
       createElement(Fragment, null, createElement("Row", { id: "c" }), createElement("Row", { id: "d" })))); });
     expect(view!.root.findAllByType("Row" as never).map(row => row.props.id)).toEqual(["a", "b", "c", "d"]);
+    act(() => { view!.update(createElement(ListGroup, null,
+      createElement(Fragment, { key: "a" }, createElement("Row", { id: "in-fragment" })),
+      createElement("Row", { id: "explicit", key: "a/.0" }))); });
+    expect(view!.root.findAllByType("Row" as never).map(row => row.props.id)).toEqual(["in-fragment", "explicit"]);
     expect(error.mock.calls.some(call => String(call[0]).includes("same key"))).toBe(false);
   } finally { error.mockRestore(); }
 });
