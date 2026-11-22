@@ -27,6 +27,10 @@ export type NativeCaptureMetadata = {
   confirmed?: boolean;
   location?: string;
   requestedIsPublic?: boolean;
+  /** The card opened on Private, so a public capture with this was tapped Public. */
+  visibilityFromCard?: boolean;
+  /** The extension's public send needs Håfa: Discover's agreement, or an older server. */
+  publicNeedsApp?: boolean;
 };
 
 export function useHandleShareIntent() {
@@ -139,6 +143,9 @@ export function useHandleShareIntent() {
           state: submitted ? 'accepted' : captureOwner && action.kind === 'url' && native?.confirmed !== false ? 'ready' : 'waiting',
           jobId: native?.jobId ?? undefined, recipeId: native?.recipeId ?? undefined,
           preferences: capturedPreferences,
+          // Public tapped on the share card and Saved is this recipe's confirmation.
+          ...(action.kind === 'url' && capturedPreferences.isPublic && native?.confirmed === true &&
+            native.visibilityFromCard === true && !native.publicNeedsApp ? { publicConfirmed: true } : {}),
           ...(action.kind === 'url' ? { request: {
             url: action.url, location: capturedPreferences.location, notes: action.notes || '',
             is_public: capturedPreferences.isPublic,

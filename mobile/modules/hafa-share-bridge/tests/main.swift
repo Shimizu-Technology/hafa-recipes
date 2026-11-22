@@ -111,8 +111,24 @@ print("Denied public captures (403) never become submitted receipts")
 
 assert(HafaShareStore.canSubmitInBackground(["requestedIsPublic": false]))
 assert(!HafaShareStore.canSubmitInBackground(["requestedIsPublic": true]))
+assert(!HafaShareStore.canSubmitInBackground(["requestedIsPublic": true, "confirmed": false]))
 assert(!HafaShareStore.canSubmitInBackground([:]))
-print("Public and legacy-unknown captures stay local for foreground confirmation")
+print("Saved-default public and legacy-unknown captures stay local for foreground confirmation")
+
+// Public tapped on the card and Saved is sent now, and says so; nothing else claims it.
+assert(HafaShareStore.cardStart["requestedIsPublic"] as? Bool == false)
+assert(!HafaShareStore.canSubmitInBackground(["requestedIsPublic": true, "confirmed": true]))
+let chosen: [String: Any] = ["requestedIsPublic": true, "confirmed": true, "visibilityFromCard": true]
+assert(HafaShareStore.canSubmitInBackground(chosen))
+assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r", metadata: chosen)["public_confirmed"] as? Bool == true)
+assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r",
+  metadata: ["requestedIsPublic": false, "confirmed": true, "visibilityFromCard": true])["public_confirmed"] == nil)
+assert(HafaShareStore.importPayload(captureID: "c", url: "https://example.com/r",
+  metadata: ["requestedIsPublic": true])["public_confirmed"] == nil)
+assert(HafaShareStore.needsPublishingAgreement(Data(#"{"detail":"Accept the current publishing disclosure before sharing recipes"}"#.utf8)))
+assert(!HafaShareStore.needsPublishingAgreement(Data(#"{"detail":"Capture ID was already used for another link"}"#.utf8)))
+assert(!HafaShareStore.needsPublishingAgreement(nil))
+print("Public chosen on the card imports from the extension")
 
 let capabilityOnly = HafaShareStore.capturePreferences(session: ["accountScopeId": "owner-a", "isPublic": true], preferences: nil)
 assert(capabilityOnly["requestedIsPublic"] as? Bool == false)

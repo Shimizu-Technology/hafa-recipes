@@ -10,10 +10,11 @@ export function useImportInbox() {
   const ownerId = isSignedIn ? identity.data?.id ?? null : null;
   const entries = useSyncExternalStore(importInbox.subscribe, importInbox.snapshot);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
-    void importInbox.hydrate().catch((error: Error) => setStorageError(error.message));
+    void importInbox.hydrate().then(() => setHydrated(true), (error: Error) => setStorageError(error.message));
   }, []);
-  return { ownerId, entries: visibleImportEntries(entries, ownerId), storageError };
+  return { ownerId, entries: visibleImportEntries(entries, ownerId), storageError, hydrated };
 }
 
 /** One intake coordinator, independent of the screen and navigation lifecycle. */

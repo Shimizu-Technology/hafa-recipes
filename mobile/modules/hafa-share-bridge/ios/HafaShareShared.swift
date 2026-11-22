@@ -383,7 +383,22 @@ enum HafaShareStore {
     var payload: [String: Any] = ["capture_id": captureID, "url": url]
     if let isPublic = metadata["requestedIsPublic"] as? Bool { payload["is_public"] = isPublic }
     if let location = metadata["location"] as? String { payload["location"] = location }
+    if choseOnCard(metadata) { payload["public_confirmed"] = true }
     return payload
+  }
+
+  // The card always opens on Private, whatever the saved default, so Public there is always a tap.
+  static let cardStart: [String: Any] = ["requestedIsPublic": false, "visibilityFromCard": true]
+
+  // Public tapped on this card and Saved. Older captures took Public from a saved default.
+  static func choseOnCard(_ metadata: [String: Any]) -> Bool {
+    metadata["visibilityFromCard"] as? Bool == true && metadata["requestedIsPublic"] as? Bool == true
+      && metadata["confirmed"] as? Bool == true
+  }
+
+  static func needsPublishingAgreement(_ data: Data?) -> Bool {
+    let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    return (body?["detail"] as? String)?.contains("publishing disclosure") == true
   }
 
   static func acceptedImport(data: Data?, response: URLResponse?, captureID: String) -> [String: Any]? {
@@ -395,11 +410,14 @@ enum HafaShareStore {
   }
 
   static func canSubmitInBackground(_ metadata: [String: Any]) -> Bool {
-    // Public and legacy-unknown captures need an in-app per-recipe choice.
-    metadata["requestedIsPublic"] as? Bool == false
+    // Legacy-unknown and saved-default public captures need an in-app per-recipe choice.
+    metadata["requestedIsPublic"] as? Bool == false || choseOnCard(metadata)
   }
 
-  static func enqueueLink(captureKey key: String, url: String, completion: @escaping (Bool) -> Void) {
+  // existing: the link is already a recipe here, so nothing new is imported and its visibility is unchanged.
+  enum ImportResult: Equatable { case accepted, existing, needsApp, unreachable }
+
+  static func enqueueLink(captureKey key: String, url: String, completion: @escaping (ImportResult) -> Void) {
     // Snapshot under the same lock used by configure/clear. If signed out,
     // retain the original capture locally and do not submit under any account.
     guard let state = locked({ defaults -> ([String: Any], String, [String: Any])? in
@@ -411,7 +429,7 @@ enum HafaShareStore {
       let baseURL = validBaseURL(base),
       let captureID = state.2["captureId"] as? String,
       canSubmitInBackground(state.2) else {
-      completion(false); return
+      completion(.unreachable); return
     }
     let endpoint = baseURL.appendingPathComponent("api/share/imports")
     var request = URLRequest(url: endpoint)
@@ -424,7 +442,18 @@ enum HafaShareStore {
     session.dataTask(with: request) { data, response, _ in
       defer { session.finishTasksAndInvalidate() }
       guard let result = acceptedImport(data: data, response: response, captureID: captureID) else {
-        completion(false); return
+        // 403: an older server wants the app to confirm. 409 counts only for Discover's agreement.
+        let status = (response as? HTTPURLResponse)?.statusCode
+        guard choseOnCard(state.2), status == 403 || (status == 409 && needsPublishingAgreement(data)) else {
+          completion(.unreachable); return
+        }
+        let marked = locked { defaults -> Bool in
+          guard var current = defaults.dictionary(forKey: "\(key).meta") else { return false }
+          current["publicNeedsApp"] = true
+          defaults.set(current, forKey: "\(key).meta")
+          return true
+        } ?? false
+        completion(marked ? .needsApp : .unreachable); return
       }
       // Keep the queue entry until main-app durable intake. If a main-app
       // callback already consumed this capture, do not recreate it here.
@@ -436,7 +465,7 @@ enum HafaShareStore {
         defaults.set(current, forKey: "\(key).meta")
         return true
       } ?? false
-      completion(stored)
+      completion(stored ? (result["job_id"] is String ? .accepted : .existing) : .unreachable)
     }.resume()
   }
 }

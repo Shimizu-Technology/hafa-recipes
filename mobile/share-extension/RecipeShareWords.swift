@@ -1,10 +1,10 @@
 import Foundation
 
 // Everything the Recipes share card says, and the rule for choosing it. Foundation only, so it runs in the Mac tests.
-// Public recipes are never sent from here: the server refuses them from share credentials, and Håfa asks first.
+// Picking Public here is the confirmation: a public link imports straight away, like a private one.
 enum RecipeShareWords {
   enum Kind: Equatable { case link, photos(Int), text }
-  enum Result: Equatable { case importing, confirmPublic, review, signedOut, waiting }
+  enum Result: Equatable { case importing, importingPublic, alreadySaved, confirmPublic, review, signedOut, waiting }
 
   static let visibility = "visibility"
   static let action = "Save recipe"
@@ -21,11 +21,11 @@ enum RecipeShareWords {
     ], selected: isPublic ? "public" : "private")
   }
 
-  // The one line under the choice says what happens next, so Public never sounds instant.
+  // The one line under the choice says what happens next.
   static func note(isPublic: Bool, kind: Kind) -> String {
     switch (kind, isPublic) {
     case (.link, false): return "You can share it or make it public later."
-    case (.link, true): return "Håfa will ask you to confirm before it goes public. The import starts then."
+    case (.link, true): return "Once it’s imported, anyone can find it in Discover. You can make it private later."
     case (_, false): return "You’ll check it in Håfa before it’s added."
     case (_, true): return "You’ll check it in Håfa and confirm before it goes public. Your photos stay private."
     }
@@ -35,16 +35,19 @@ enum RecipeShareWords {
 
   static func photosTitle(_ count: Int) -> String { count == 1 ? "1 photo" : "\(count) photos" }
 
-  // Only a private link from a signed-in phone is sent now. Everything else waits for Håfa, and says why.
-  static func result(kind: Kind, isPublic: Bool, signedIn: Bool, accepted: Bool) -> Result {
+  // A link from a signed-in phone is sent now. Everything else waits for Håfa, and says why.
+  // needsApp: the server refused the public send (Discover's one-time agreement, or an older server); Håfa finishes it.
+  // existing: the link was already a recipe here, which keeps its own visibility.
+  static func result(kind: Kind, isPublic: Bool, signedIn: Bool, accepted: Bool, needsApp: Bool = false, existing: Bool = false) -> Result {
     guard signedIn else { return .signedOut }
     guard kind == .link else { return .review }
-    if isPublic { return .confirmPublic }
-    return accepted ? .importing : .waiting
+    if existing { return .alreadySaved }
+    if accepted { return isPublic ? .importingPublic : .importing }
+    return isPublic && needsApp ? .confirmPublic : .waiting
   }
 
   static func sendsNow(kind: Kind, isPublic: Bool, signedIn: Bool) -> Bool {
-    kind == .link && !isPublic && signedIn
+    kind == .link && signedIn
   }
 
   static func outcome(_ result: Result) -> HafaShareOutcome {
@@ -53,9 +56,17 @@ enum RecipeShareWords {
       return HafaShareOutcome(symbol: "checkmark", title: "Saved to Håfa",
         detail: "We’re importing it now. It’ll be in your library in a minute or two.",
         primary: "Done", secondary: "Open Håfa", opens: .secondary, closesItself: true)
+    case .importingPublic:
+      return HafaShareOutcome(symbol: "checkmark", title: "Saved to Håfa",
+        detail: "We’re importing it now. It’ll be in your library in a minute or two, and public once it’s complete.",
+        primary: "Done", secondary: "Open Håfa", opens: .secondary, closesItself: true)
+    case .alreadySaved:
+      return HafaShareOutcome(symbol: "checkmark", title: "Already in your library",
+        detail: "You saved this one before. Open Håfa to change who can see it.",
+        primary: "Done", secondary: "Open Håfa", opens: .secondary)
     case .confirmPublic:
       return HafaShareOutcome(symbol: "globe", title: "One more step",
-        detail: "Open Håfa to confirm it’s public. The import starts then.",
+        detail: "Open Håfa to finish making it public. The import starts then.",
         primary: "Open Håfa", secondary: "Later", opens: .primary)
     case .review:
       return HafaShareOutcome(symbol: "text.viewfinder", title: "Saved — check it in Håfa",

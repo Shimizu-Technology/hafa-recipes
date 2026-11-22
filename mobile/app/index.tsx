@@ -115,7 +115,7 @@ function ExtractScreenContent() {
     if (!inbox.ownerId) initializedPreferencesOwner.current = null;
   }, [inbox.ownerId, preferences.ready, preferences.isPublic, preferences.location]);
   const rememberImportSettings = (patch: { isPublic?: boolean; location?: string }) => {
-    void preferences.update(patch).catch(() => Alert.alert('Could not save import settings', 'Your choice applies to this recipe. Please try again to update sharing from other apps.'));
+    void preferences.update(patch).catch(() => Alert.alert('Could not save import settings', 'Your choice applies to this recipe. Please try again to keep it for your next import.'));
   };
   const restoreComposerPreferences = () => {
     const latest = latestPreferences.current;
@@ -257,12 +257,36 @@ function ExtractScreenContent() {
     }
   };
 
+  const [isFocused, setIsFocused] = useState(false);
+  useFocusEffect(useCallback(() => {
+    setIsFocused(true);
+    return () => setIsFocused(false);
+  }, []));
+
   // Image/text intake is a user-reviewed flow. Keep the persisted record until
-  // the user explicitly opens it; URL captures auto-submit independently.
+  // the user explicitly opens it; URL captures auto-submit independently. The
+  // exception is a public link the share card sent here for its one publishing
+  // confirmation: Open Håfa was that explicit action, so ask right away
+  // instead of leaving it behind a Finish tap.
+  const openedInboxCapture = useRef<string | null>(null);
+  // Waiting on its one publishing confirmation, which is not a failure.
+  const needsPublicReview = (item: ImportInboxEntry) => Boolean(inbox.ownerId) && item.ownerId === inbox.ownerId &&
+    item.capture.kind === 'url' && Boolean(item.request?.is_public) && !item.publicConfirmed && !item.submissionClaimed;
+  const awaitsPublicReview = (item: ImportInboxEntry) => item.state === 'waiting' && needsPublicReview(item);
   useEffect(() => {
-    if (!inboxCaptureId) return;
+    if (!inboxCaptureId || !inbox.hydrated || !isAuthLoaded || (isSignedIn && !inbox.ownerId) || !isFocused) return;
+    const captured = inbox.entries.find((item) => item.id === inboxCaptureId);
+    // Another import owns the screen; leave this one on its row rather than
+    // interrupting whatever the person is looking at when that import ends.
+    const busy = extraction.isExtracting || extraction.canRetryStart;
+    // The inbox processor parks it as waiting; opening it earlier would race that write.
+    if (!busy && captured?.state === 'ready' && needsPublicReview(captured)) return;
     router.setParams({ inboxCaptureId: undefined });
-  }, [inboxCaptureId, router]);
+    if (busy || !captured || !awaitsPublicReview(captured) || openedInboxCapture.current === captured.id) return;
+    openedInboxCapture.current = captured.id;
+    void openCapturedEntry(captured).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
+  }, [inboxCaptureId, inbox.entries, inbox.ownerId, inbox.hydrated, isAuthLoaded, isSignedIn, isFocused,
+    extraction.isExtracting, extraction.canRetryStart, router]);
 
   // Shared images stay in memory only until this screen consumes the route token.
   useEffect(() => {
@@ -876,8 +900,8 @@ function ExtractScreenContent() {
               id: entry.id, createdAt: entry.createdAt, content: <RNView key={entry.id} style={styles.inboxRow}>
               <RNView style={{ flex: 1 }}>
                 <Text style={{ color: colors.text }} numberOfLines={1}>{entry.capture.kind === 'url' ? entry.capture.url : entry.capture.kind === 'text' ? 'Shared recipe text' : `${entry.capture.images.length} recipe images`}</Text>
-                <Text style={[styles.hint, { color: entry.error ? colors.error : colors.textMuted }]}>
-                  {entry.error ? `Needs help · ${entry.error}` : (entry.ownerId === null ? (!isSignedIn ? 'Sign in to finish importing' : inbox.ownerId ? 'Tap Finish to import it into your library' : 'Getting your account ready…') : entry.state === 'submitting' ? 'Importing…' : entry.state === 'ready' ? 'Waiting · starts after the current import' : 'Waiting · Ready to review')}
+                <Text style={[styles.hint, { color: entry.error && !awaitsPublicReview(entry) ? colors.error : colors.textMuted }]}>
+                  {awaitsPublicReview(entry) ? 'Waiting · Tap Finish to confirm it’s public' : entry.error ? `Needs help · ${entry.error}` : (entry.ownerId === null ? (!isSignedIn ? 'Sign in to finish importing' : inbox.ownerId ? 'Tap Finish to import it into your library' : 'Getting your account ready…') : entry.state === 'submitting' ? 'Importing…' : entry.state === 'ready' ? 'Waiting · starts after the current import' : 'Waiting · Ready to review')}
                 </Text>
               </RNView>
               {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting || Boolean(isSignedIn && !inbox.ownerId)} onPress={() => {

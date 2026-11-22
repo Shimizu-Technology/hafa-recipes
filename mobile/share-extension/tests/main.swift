@@ -34,27 +34,30 @@ check(HafaSharePreviewText.handle(URL(string: "https://example.com/@")!) == nil,
 // Private is a real default and Public always says what happens next.
 check(RecipeShareWords.visibilityChoice(isPublic: false).selected == "private", "private selected")
 check(RecipeShareWords.visibilityChoice(isPublic: true).selected == "public", "public selected")
-check(RecipeShareWords.note(isPublic: true, kind: .link).contains("confirm"), "public link says it will ask")
+check(RecipeShareWords.note(isPublic: true, kind: .link).contains("Discover"), "public link says where it goes")
 check(RecipeShareWords.note(isPublic: true, kind: .photos(2)).contains("photos stay private"), "photo pages stay private")
 
-// Only a private link from a signed-in phone is sent from the extension.
+// A link from a signed-in phone is sent from the extension, public or private.
 check(RecipeShareWords.sendsNow(kind: .link, isPublic: false, signedIn: true), "private link sends")
-check(!RecipeShareWords.sendsNow(kind: .link, isPublic: true, signedIn: true), "public never sends")
+check(RecipeShareWords.sendsNow(kind: .link, isPublic: true, signedIn: true), "public link sends")
 check(!RecipeShareWords.sendsNow(kind: .link, isPublic: false, signedIn: false), "signed out never sends")
 check(!RecipeShareWords.sendsNow(kind: .photos(1), isPublic: false, signedIn: true), "photos wait for review")
 check(!RecipeShareWords.sendsNow(kind: .text, isPublic: false, signedIn: true), "text waits for review")
 
 let result = RecipeShareWords.result
-check(result(.link, false, true, true) == .importing, "accepted private link")
-check(result(.link, false, true, false) == .waiting, "refused or offline")
-check(result(.link, true, true, false) == .confirmPublic, "public link")
-check(result(.photos(3), true, true, false) == .review, "photos")
-check(result(.text, false, false, false) == .signedOut, "signed out wins")
+check(result(.link, false, true, true, false, false) == .importing, "accepted private link")
+check(result(.link, false, true, false, false, false) == .waiting, "refused or offline")
+check(result(.link, true, true, true, false, false) == .importingPublic, "accepted public link")
+check(result(.link, true, true, false, true, false) == .confirmPublic, "public link Håfa has to finish")
+check(result(.link, true, true, false, false, false) == .waiting, "public link while offline")
+check(result(.link, true, true, false, false, true) == .alreadySaved, "a link already in the library keeps its visibility")
+check(result(.photos(3), true, true, false, true, false) == .review, "photos")
+check(result(.text, false, false, false, false, false) == .signedOut, "signed out wins")
 
 // Only the finished import closes itself; every other outcome has a next step and an Open Håfa button.
-for value in [RecipeShareWords.Result.importing, .confirmPublic, .review, .signedOut, .waiting] {
+for value in [RecipeShareWords.Result.importing, .importingPublic, .alreadySaved, .confirmPublic, .review, .signedOut, .waiting] {
   let outcome = RecipeShareWords.outcome(value)
-  check(outcome.closesItself == (value == .importing), "\(value) closes only when done")
+  check(outcome.closesItself == (value == .importing || value == .importingPublic), "\(value) closes only when done")
   let opener = outcome.opens == .primary ? outcome.primary : outcome.secondary
   check(opener == "Open Håfa", "\(value) offers Open Håfa")
   check(!outcome.isProblem, "\(value) is not a problem")
