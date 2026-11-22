@@ -17,6 +17,7 @@ on:
       - .github/workflows/ci.yml
       - .github/requirements-ci.txt
       - .github/pytest-durations.json
+      - .github/ci/**
   push:
     branches: [main]
     paths:
@@ -29,6 +30,7 @@ on:
       - .github/workflows/ci.yml
       - .github/requirements-ci.txt
       - .github/pytest-durations.json
+      - .github/ci/**
 
 permissions:
   contents: read
@@ -36,6 +38,7 @@ permissions:
 jobs:
   api-shards:
     name: API shard ${{ matrix.shard }}/6
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -97,16 +100,23 @@ jobs:
       - name: Check deployed requirements match uv.lock
         if: matrix.shard == 1
         run: python scripts/check_requirements_lock.py
+      - name: Check CI partitioner and exact collection coverage
+        if: matrix.shard == 1
+        run: |
+          uv run --frozen --no-sync python -m unittest discover -s ../.github/ci
+          uv run --frozen --no-sync python ../.github/ci/audit_shards.py --selection api
       - name: Lint
         if: matrix.shard == 1
         run: uv run --frozen --no-sync ruff check app migrations tests
       - name: Test
         # External timing paths otherwise change pytest's inferred root/config.
         # Pin both so asyncio auto mode and stored node IDs remain unchanged.
-        # Contiguous chunks avoid sorting import-time randomized parameter IDs.
+        # File-level LPT preserves fixtures and ignores randomized parameter IDs.
+        env:
+          PYTHONPATH: ../.github/ci
         run: >-
-          uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=.
-          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm duration_based_chunks
+          uv run --frozen --no-sync pytest -p ci_shards -c pyproject.toml --rootdir=.
+          --ci-shards 6 --ci-shard ${{ matrix.shard }} --ci-selection api
           --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
           --junitxml=test-results.xml
       - name: Upload timings and test results
@@ -122,6 +132,7 @@ jobs:
 
   baby-family-shards:
     name: Baby family shard ${{ matrix.shard }}/6
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -180,13 +191,18 @@ jobs:
 
           asyncio.run(check())
           PYCODE
+      - name: Check exact Baby collection coverage
+        if: matrix.shard == 1
+        run: uv run --frozen --no-sync python ../.github/ci/audit_shards.py --selection baby
       - name: Test
         # External timing paths otherwise change pytest's inferred root/config.
         # Pin both so asyncio auto mode and stored node IDs remain unchanged.
-        # Contiguous chunks avoid sorting import-time randomized parameter IDs.
+        # File-level LPT preserves fixtures and ignores randomized parameter IDs.
+        env:
+          PYTHONPATH: ../.github/ci
         run: >-
-          uv run --frozen --no-sync pytest -c pyproject.toml --rootdir=. -q -k baby
-          --splits 6 --group ${{ matrix.shard }} --splitting-algorithm duration_based_chunks
+          uv run --frozen --no-sync pytest -p ci_shards -c pyproject.toml --rootdir=. -q -k baby
+          --ci-shards 6 --ci-shard ${{ matrix.shard }} --ci-selection baby
           --durations-path ../.github/pytest-durations.json --store-durations --clean-durations
           --junitxml=test-results.xml
       - name: Upload timings and test results
@@ -205,6 +221,7 @@ jobs:
     name: FastAPI
     if: always()
     needs: [api-shards]
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - name: Require every shard to pass
@@ -217,6 +234,7 @@ jobs:
     name: Baby family gate on
     if: always()
     needs: [baby-family-shards]
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - name: Require every shard to pass
