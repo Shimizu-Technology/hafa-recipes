@@ -1,6 +1,6 @@
 import type { ActualSet, Workout } from "./models";
 import { amrapFor } from "./timed-circuit";
-import { formatCapSeconds, timedFormatFor } from "./timed-execution";
+import { formatCapSeconds, intervalLength, timedFormatFor } from "./timed-execution";
 
 /**
  * A class run part by part: A, rest, B, then C and D. Pure and timestamp-based, like the session clock: each
@@ -171,6 +171,34 @@ export const tapRound = (run: ClassRun, workout: Workout, now: number) =>
     if (partStatus(part, block, now) !== "running" || (buyIn(block) >= 0 && part.buy_in_done_at == null)) return;
     part.round_taps.push(now);
   });
+/**
+ * "Every move each interval" parts with more than one move (E6MOM × 3 of sled, run, carry): one
+ * "Round done" tap per interval records how long that interval's round took.
+ */
+export function intervalRounds(block: Block) {
+  const format = timedFormatFor(block);
+  return format?.mode === "emom" && format.rotation === "together" && block.exercises.length > 1 ? format : null;
+}
+/** The interval a moment in an interval part falls in, and when that interval began. */
+function intervalAt(part: PartRun, block: Block, at: number) {
+  const length = intervalLength(intervalRounds(block)!) * 1000;
+  const elapsed = partElapsedMs(part, block, at);
+  const index = Math.floor(elapsed / length) + 1;
+  return { index, started: at - (elapsed - (index - 1) * length) };
+}
+/** Seconds the current interval's round took, once its "Round done" was tapped; else null. */
+export function intervalRoundSeconds(part: PartRun, block: Block, now: number) {
+  const last = part.round_taps.at(-1);
+  if (last == null || !intervalRounds(block)) return null;
+  const tapped = intervalAt(part, block, last);
+  return tapped.index === intervalAt(part, block, now).index ? Math.round((last - tapped.started) / 1000) : null;
+}
+export const tapInterval = (run: ClassRun, workout: Workout, now: number) =>
+  edit(run, workout, now, (part, block) => {
+    if (part.kind !== "emom" || !intervalRounds(block) || partStatus(part, block, now) !== "running") return;
+    if (intervalRoundSeconds(part, block, now) != null) return; // One round per interval.
+    part.round_taps.push(now);
+  });
 /** Undo the last round, or the buy-in when no round has been tapped. */
 export const undoTap = (run: ClassRun, workout: Workout, now: number) =>
   edit(run, workout, now, (part) => { if (part.round_taps.length) part.round_taps.pop(); else delete part.buy_in_done_at; });
@@ -277,7 +305,8 @@ export interface Segment {
  * Outdoor distance comes later from the watch's GPS, so it is left out here.
  */
 export function partSegments(block: Block, part: PartRun): Segment[] {
-  if (part.started_at == null || part.skipped || (part.kind !== "amrap" && part.kind !== "for_time")) return [];
+  const byInterval = part.kind === "emom" && !!intervalRounds(block);
+  if (part.started_at == null || part.skipped || (part.kind !== "amrap" && part.kind !== "for_time" && !byInterval)) return [];
   const iso = (at: number) => new Date(at).toISOString();
   const runFields = (index: number) => {
     const choice = part.runs?.[index];
@@ -298,6 +327,14 @@ export function partSegments(block: Block, part: PartRun): Segment[] {
   }
   const roundRun = block.exercises.findIndex((e, i) => i !== buyInIndex && e.segment == null && isRun(e) && part.runs?.[i]);
   const roundRunFields = roundRun >= 0 ? runFields(roundRun) : {};
+  if (byInterval) {
+    // Each round runs from its interval's start; its index is the interval it was done in.
+    for (const at of part.round_taps) {
+      const { index, started } = intervalAt(part, block, at);
+      segments.push({ block_id: block.id, kind: "round", index, started_at: iso(started), ended_at: iso(at), ...roundRunFields });
+    }
+    return segments;
+  }
   part.round_taps.forEach((at, i) => {
     segments.push({ block_id: block.id, kind: "round", index: i + 1, started_at: iso(from), ended_at: iso(at), ...roundRunFields });
     from = at;

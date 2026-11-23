@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
 import {
   adjustRest, buyInDone, classIntervals, endPart, endRest, formatPartScore, partCapMs, partElapsedMs, partKind, partScore,
-  partSegments, partStatus, pausePart, planClass, resolve, resumePart, setRun, skipLeadIn, skipPart, startPart, tapRound, undoTap,
+  intervalRoundSeconds, intervalRounds, partSegments, partStatus, pausePart, planClass, resolve, resumePart, setRun, skipLeadIn, skipPart, startPart, tapInterval, tapRound, undoTap,
   type ClassRun,
 } from "./class-session";
 import { timedCircuit } from "./timed-circuit";
@@ -211,5 +211,35 @@ describe("runs: Outdoor or Treadmill", () => {
     const run = buyInDone(started(), w, at(3000 + 6 * min));
     expect(partSegments(A, part(run, 0))[0].run_environment).toBeUndefined();
     expect(partSegments(C, { block_id: "c", kind: "sets", pauses: [], round_taps: [], started_at: at(0) })).toEqual([]);
+  });
+});
+
+describe("interval rounds (E6MOM of several moves)", () => {
+  const e6: Workout = { ...w, blocks: [{ id: "a", label: "A", grouping: "interval",
+    execution: { mode: "emom", interval_seconds: 360, intervals: 3, rotation: "together" },
+    exercises: [{ name: "Sled Push", distance_meters: 25 }, { name: "Run", distance_meters: 400 }, { name: "Farmers Carry", distance_meters: 100 }] }] as Workout["blocks"] };
+  const go = () => startPart(planClass(e6, 0), e6, at(0));
+  const done = (run: ClassRun, ms: number) => tapInterval(run, e6, at(ms));
+
+  it("records one round per interval, timed from that interval's start", () => {
+    let run = done(go(), 4 * min + 12_000);
+    expect(intervalRoundSeconds(run.parts[0], e6.blocks[0], at(4 * min + 30_000))).toBe(252);
+    // A second tap in the same interval is ignored.
+    run = done(run, 5 * min);
+    expect(run.parts[0].round_taps).toHaveLength(1);
+    // The next interval starts fresh.
+    expect(intervalRoundSeconds(run.parts[0], e6.blocks[0], at(6 * min + 5_000))).toBeNull();
+    run = done(run, 6 * min + 4 * min + 50_000);
+    expect(partSegments(e6.blocks[0], run.parts[0]).map((s) => [s.kind, s.index, (Date.parse(s.ended_at) - Date.parse(s.started_at)) / 1000]))
+      .toEqual([["round", 1, 252], ["round", 2, 290]]);
+  });
+
+  it("only applies to every-move intervals with more than one move", () => {
+    expect(intervalRounds(e6.blocks[0])).not.toBeNull();
+    const alternating = { ...e6.blocks[0], execution: { mode: "emom" as const, interval_seconds: 60, intervals: 10, rotation: "alternating" as const } };
+    expect(intervalRounds(alternating)).toBeNull();
+    const single = { ...e6.blocks[0], exercises: [e6.blocks[0].exercises[0]] };
+    expect(intervalRounds(single)).toBeNull();
+    expect(intervalRounds(A)).toBeNull();
   });
 });
