@@ -45,3 +45,10 @@ it("steps aside when its screen needs the space, such as Today with a workout to
   act(() => view!.update(createElement(AskCoachPill, { bottom: 12 })));
   expect(view!.root.findAllByType("Pressable" as never)).toHaveLength(1);
 });
+
+it("can stay a labelled 48pt circle so it never covers a full-width button's label", () => {
+  act(() => { view = create(createElement(AskCoachPill, { bottom: 12, iconOnly: true })); });
+  expect(view!.root.findAllByType("Text" as never)).toHaveLength(0);
+  expect(pillStyle()).toMatchObject({ height: 48, minWidth: 48, paddingHorizontal: 0 });
+  expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toBe("Ask Coach");
+});
