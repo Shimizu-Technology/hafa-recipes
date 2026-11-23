@@ -249,7 +249,10 @@ export async function normalizeDocument(file: { uri: string; mimeType: string; n
 }
 export async function sourceFor(draft: CaptureDraft, guard: CaptureGuard): Promise<ExtractionRequest> {
   guard();
-  const source: ExtractionRequest = { kind: draft.kind, ai_consent: true, ...(draft.typed_formats === false ? {} : { typed_formats: true, multipart_runner: true }) };
+  // A pending import keeps exactly what it first sent (same request ID, same digest); a fresh one declares this build.
+  const multipart = draft.pending_import ? draft.multipart_runner === true : draft.multipart_runner !== false;
+  const source: ExtractionRequest = { kind: draft.kind, ai_consent: true,
+    ...(draft.typed_formats === false ? {} : { typed_formats: true, ...(multipart ? { multipart_runner: true } : {}) }) };
   if (draft.class_parts) {
     source.class_parts = true; source.programming = draft.programming;
     if (draft.source_url) source.source_url = draft.source_url;

@@ -436,6 +436,14 @@ it.each(["normalization", "picker", "document"] as const)(
   }
 );
 
+it("a pending import an older build froze without the runner flag retries with the same body", async () => {
+  // Sent before this release: typed formats, no multipart_runner. The retry must not add it (same request ID → 409).
+  const old = await sourceFor({ ...draft, pending_import: true, typed_formats: true }, () => {});
+  expect(old).toEqual({ kind: "url", source_url: "https://example.test/workout", ai_consent: true, typed_formats: true });
+  // Frozen by this build: keeps declaring it on every retry.
+  expect(await sourceFor({ ...draft, pending_import: true, typed_formats: true, multipart_runner: true }, () => {}))
+    .toMatchObject({ typed_formats: true, multipart_runner: true });
+});
 it("asks for typed formats unless the pending import was frozen without them by an older build", async () => {
   expect(await sourceFor(draft, () => {})).toEqual({ kind: "url", source_url: "https://example.test/workout", ai_consent: true, typed_formats: true, multipart_runner: true });
   expect(await sourceFor({ ...draft, pending_import: true, typed_formats: true }, () => {})).toMatchObject({ typed_formats: true });

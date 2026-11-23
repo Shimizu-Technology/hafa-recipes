@@ -532,6 +532,7 @@ export default function Capture() {
         server_auto_save: serverSave, is_public: isPublic,
         // A pending import from an older build was sent without typed formats; its retry must send the same body.
         typed_formats: original.pending_import ? original.typed_formats === true : true,
+        multipart_runner: original.pending_import ? original.multipart_runner === true : true,
         auto_save: original.pending_import ? original.auto_save === true : serverSave || original.kind === "url" };
       // Persist original UUID/fields before any transport; retries stay frozen.
       const frozen = await persist(pending);

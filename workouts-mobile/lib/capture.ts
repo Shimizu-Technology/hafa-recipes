@@ -59,6 +59,11 @@ export interface CaptureDraft {
    * repeats the original request body instead of changing it under the same request ID.
    */
   typed_formats?: boolean;
+  /**
+   * Frozen the same way: true once this build sent the import declaring the part-by-part runner. A pending
+   * import an older build froze has no value, which means false, so its retry keeps the original digest.
+   */
+  multipart_runner?: boolean;
   created_at: string;
 }
 /** Supplied by the original account/enrollment/screen; native helpers stay UI-free. */
