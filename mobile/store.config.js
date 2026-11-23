@@ -49,7 +49,7 @@ const RELEASE_NOTES = `A new look for Håfa Recipes, built around your library.
 
 • Five places along the bottom: Library, Discover, Import, Plan and Grocery. Ask Håfa is one tap away from every tab.
 • Share a TikTok, Instagram or website link to Håfa from any app. The share card shows what you're saving, lets you pick Private or Public, and starts the import right there.
-• Send any recipe with a private link. People can open it on the web or save their own copy in Håfa, and it stays out of Discover. Turn links off anytime in Settings.
+• Send a private recipe with a link without making it public. People can open it on the web or save their own copy in Håfa. Turn links off anytime in Settings.
 • Save a recipe while browsing as a guest, sign in, and Håfa finishes saving it.
 • Unfinished recipes are kept as private drafts on your phone until you save or discard them.
 • Scanned family recipes keep their original pages privately, so you can check the handwriting later. Remove them anytime.
