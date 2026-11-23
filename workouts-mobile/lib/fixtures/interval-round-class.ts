@@ -2,6 +2,7 @@ import type { Workout } from "../models";
 
 export const intervalClass: Workout = {
   id: "interval-class", generation: 1, revision: 1, title: "Intervals", provenance: "user", kind: "session",
+  programming: { source_kind: "gym", app_name: "WodUp", gym_name: "Unified", track: "BUILD | BRIK", date: "2026-11-24" },
   blocks: [{
     id: "a", label: "A", grouping: "interval", rest_after_seconds: 60,
     execution: { mode: "emom", interval_seconds: 360, intervals: 3, rotation: "together" },

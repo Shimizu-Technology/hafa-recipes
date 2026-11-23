@@ -9,6 +9,7 @@ import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { classDate, classText } from "@/lib/class-import";
+import { trainingTimezone } from "@/lib/training";
 import { CalendarDate } from "@/components/calendar-date";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccountButton, Button, ButtonRow, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, Stack, useColors, useReducedMotion } from "@/components/ui";
@@ -31,8 +32,7 @@ export default function Capture() {
     const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 })
       .catch(() => { throw Object.assign(Error("Could not load your training profile timezone. Retry loading the class form."), { classProfileError: true }); });
     currentScope();
-    if (!profile) throw Object.assign(Error("Set up your training profile timezone before importing a class."), { classProfileError: true });
-    return classDate(profile.timezone);
+    return classDate(trainingTimezone(profile));
   }
   async function applyClassDefaults(value: CaptureDraft, hasSavedSource: boolean) {
     if (classRoute !== "1" || hasSavedSource) return value;

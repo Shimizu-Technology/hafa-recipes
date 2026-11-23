@@ -14,8 +14,12 @@ export const ASK_PILL_HEIGHT = 48;
  * Floating entry to the coach (spec v2 §1.6): bottom-right, accent fill, sparkle + label.
  * General coach chat from the tabs; "Ask about this" with the item's context on a detail screen.
  */
-export function AskCoachPill({ bottom, href = "/coach", label = "Ask Coach", hint = "Opens a chat with your AI coach", onPress, disabled = false }: {
+export function AskCoachPill({ bottom, href = "/coach", label = "Ask Coach", hint = "Opens a chat with your AI coach", onPress, disabled = false, hidden: hiddenHere = false, iconOnly = false }: {
   bottom: number; href?: Href; label?: string; hint?: string; onPress?(): void; disabled?: boolean;
+  /** Keep to the 48pt circle so it never sits over a full-width button's label. */
+  iconOnly?: boolean;
+  /** This screen needs the space now, e.g. Today while a workout waits to be resumed. */
+  hidden?: boolean;
 }) {
   const c = useColors();
   const press = usePressScale(disabled);
@@ -23,8 +27,8 @@ export function AskCoachPill({ bottom, href = "/coach", label = "Ask Coach", hin
   const { collapsed, hidden } = useAskPill();
   const keyboard = useKeyboardShown();
   const { fontScale } = useWindowDimensions();
-  const compact = collapsed || fontScale >= 1.5;
-  if (hidden || keyboard) return null;
+  const compact = iconOnly || collapsed || fontScale >= 1.5;
+  if (hidden || hiddenHere || keyboard) return null;
   return <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom }}>
     <Target testID="ask-coach" accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} accessibilityState={{ disabled }} disabled={disabled}
       onPress={() => { haptics.light(); if (onPress) onPress(); else router.push(href); }}

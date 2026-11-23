@@ -86,12 +86,15 @@ export function ClassSession(p: ClassSessionProps) {
   const [edits, setEdits] = useState<Record<string, PartResult>>({});
   useKeepAwakeWhile(!over, `class:${d.id}`);
   // One cue when a part caps, a rest ends or the class is done, even when the change happened while locked.
+  // A gym class reads as a class; a workout you built or imported reads as a workout.
+  const noun = d.workout.programming?.source_kind === "gym" ? "class" : "workout";
+  const Noun = noun === "class" ? "Class" : "Workout";
   const cue = `${index}:${status}`;
   const previous = useRef(cue);
   useEffect(() => {
     if (previous.current === cue) return;
     previous.current = cue;
-    const word = status === "resting_after" ? `Time. Rest, ${restLine(next)}` : status === "running" ? `${block.label}, go` : over ? "Class done" : null;
+    const word = status === "resting_after" ? `Time. Rest, ${restLine(next)}` : status === "running" ? `${block.label}, go` : over ? `${Noun} done` : null;
     if (!word) return;
     haptics.warning();
     announce(word);
@@ -105,7 +108,7 @@ export function ClassSession(p: ClassSessionProps) {
   const env = (i: number) => part.runs?.[i]?.environment ?? p.runEnvironment;
   const chooseRun = (i: number, next: RunEnvironment) =>
     p.act((r, w, at) => setRun(r, w, i, next, r.parts[r.cursor].runs?.[i]?.distance_meters, at), next);
-  const endEarly = () => Alert.alert(`End ${block.label} now?`, "The clock stops here and the class moves on.", [
+  const endEarly = () => Alert.alert(`End ${block.label} now?`, `The clock stops here and the ${noun} moves on.`, [
     { text: "Keep going", style: "cancel" }, { text: `End ${block.label}`, style: "destructive", onPress: () => p.act(endPart) }]);
   const canComplete = over && !run.ended_early && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
     d.steps.every((s) => d.actuals.some((a) => actualIdentity(a) === s.key));
@@ -113,8 +116,8 @@ export function ClassSession(p: ClassSessionProps) {
   const reviewIntervals = over ? classActive(run, d.workout, now).intervals : undefined;
   // Every scored part is reviewed, including one still missing its value; only valid scores are ever sent.
   const scored = over ? scoredParts(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : [];
-  const unready = scored.some(({ block, result }) =>
-    scoreProblem(result) || (!result.scaling && !(result.kind === "completed" && intervalRoundFormat(block))));
+  // Rx or Scaled matters for a real score; a part that's simply done can leave it unset.
+  const unready = scored.some(({ result }) => scoreProblem(result) || (result.kind !== "completed" && !result.scaling));
   const save = () => p.finish(canComplete ? "completed" : "partial", scored.map(({ result }) => result));
 
   // A set-by-set part logs the prescribed dose, or the timed hold the person just ran.
@@ -130,7 +133,14 @@ export function ClassSession(p: ClassSessionProps) {
   const setRest = restRemainingSeconds(d, now);
   const holdLeft = timing && step?.exercise.duration_seconds != null ? Math.max(0, step.exercise.duration_seconds - exerciseElapsedSeconds(d, now)) : null;
   useEffect(() => { if (holdLeft === 0) { haptics.warning(); announce("Time"); } }, [holdLeft === 0]);
-  const setName = step && block.exercises.length > 1 ? `${block.label}${step.exercise_index + 1}` : block.label;
+  // Gym letter codes number their moves (C → C1, C2; "C. ACCESSORIES" → C1); an already numbered code (C1) or a
+  // named part (Warm-up) shows the move and its place instead of gluing on another number.
+  const code = /^([A-Z]{1,2})(?:[.:)]\s.*)?$/.exec(block.label)?.[1] ?? null;
+  const coded = code != null;
+  const many = !!step && block.exercises.length > 1;
+  const setName = many && coded ? `${code}${step.exercise_index + 1}` : block.label;
+  const setPlace = many && !coded ? `${setName} · ${step.exercise_index + 1} of ${block.exercises.length}` : setName;
+  const doneName = many && !coded ? step.exercise.name : setName;
   const rounds = block.rounds ?? 1;
 
   let body: ReactNode = null;
@@ -138,7 +148,7 @@ export function ClassSession(p: ClassSessionProps) {
   let pinned: ReactNode = null;
   if (over) {
     body = <>
-      <Copy kind="heading">Class done</Copy>
+      <Copy kind="heading">{`${Noun} done`}</Copy>
       <Card compact>
         {run.parts.map((x, i) => {
           const b = d.workout.blocks[i];
@@ -156,7 +166,7 @@ export function ClassSession(p: ClassSessionProps) {
     footer = <>
       {/* Capped so the footer leaves room to scroll the score cards at the largest text size. */}
       {unready && <Copy kind="small" tone="muted" align="center" maxScale={1.5}>Choose Rx or Scaled for each score to save.</Copy>}
-      <Button title="Save class" icon="checkmark-done" busy={busy} disabled={unready} onPress={save} />
+      <Button title={`Save ${noun}`} icon="checkmark-done" busy={busy} disabled={unready} onPress={save} />
     </>;
   } else if (status === "resting_after") {
     const left = restLeft(part, block, now);
@@ -188,7 +198,7 @@ export function ClassSession(p: ClassSessionProps) {
     body = <>
       {setRest > 0 && <RestTimer remaining={setRest} onAdd={() => p.timer("rest", setRest + 15)} onSkip={() => p.timer("rest", 0)} />}
       {setPart && e ? <>
-        <Copy kind="label" tone="muted">{`${setName} · round ${step.round_index} of ${rounds}`}</Copy>
+        <Copy kind="label" tone="muted">{`${setPlace} · round ${step.round_index} of ${rounds}`}</Copy>
         <Copy kind="heading">{e.name}</Copy>
         <Copy tone="muted">{prescriptionLine({ ...e, sets: null, rest_seconds: null })}</Copy>
         {!!e.instructions && <Copy kind="small" tone="muted">{e.instructions}</Copy>}
@@ -199,7 +209,7 @@ export function ClassSession(p: ClassSessionProps) {
       </> : <Copy tone="muted">{block.label} is running.</Copy>}
     </>;
     footer = setPart ? <>
-      <BigTap title={`Done · ${setName}`} hint="Logs this set as prescribed" disabled={busy} onPress={() => logSet(true)} />
+      <BigTap title={`Done · ${doneName}`} hint="Logs this set as prescribed" disabled={busy} onPress={() => logSet(true)} />
       <Row gap={12}>
         <View style={{ flex: 1 }}><Button title="Skip set" variant="secondary" disabled={busy} {...half("Skip set")} onPress={() => logSet(false)} /></View>
         {d.undo.length > 0 && d.actuals.at(-1)?.block_id === block.id && <View style={{ flex: 1 }}><Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy} {...half("Undo")} onPress={p.undo} /></View>}
@@ -260,7 +270,7 @@ export function ClassSession(p: ClassSessionProps) {
   const leadIn = status === "lead_in" || (part.started_at != null && now < part.started_at + 1500 && leadInDone !== part.started_at && part.lead_in_ms != null);
   return (
     <Screen native back title={over ? d.workout.title : status === "resting_after" ? "Rest" : partTitle(block)} subtitle={status === "resting_after" ? restLine(next) : over ? undefined : d.workout.title}
-      action={<IconButton icon="ellipsis-horizontal" label="More class actions" onPress={() => setMore(true)} />}
+      action={<IconButton icon="ellipsis-horizontal" label={`More ${noun} actions`} onPress={() => setMore(true)} />}
       footer={<>{!!p.error && <Notice error>{p.error}</Notice>}{footer}</>} pinned={pinned ?? undefined}>
       {body}
       {!over && run.parts.length > 1 && <>
@@ -292,12 +302,12 @@ export function ClassSession(p: ClassSessionProps) {
           </View>;
         })}
       </Sheet>
-      <Sheet visible={more} onClose={() => setMore(false)} title="Class">
+      <Sheet visible={more} onClose={() => setMore(false)} title={Noun}>
         <ListRow icon="book-outline" title="Coach notes" onPress={() => { setMore(false); setInstructions(true); }} />
         {!over && (status === "running" || status === "paused") && part.kind !== "sets" &&
           <ListRow icon="stop-circle-outline" title={`End ${block.label} now`} disabled={busy} onPress={() => { setMore(false); endEarly(); }} />}
         {!over && status !== "resting_after" && <ListRow icon="play-skip-forward-outline" title={`Skip ${block.label}`} disabled={busy} onPress={() => { setMore(false); p.act(skipPart); }} />}
-        {!over && <ListRow icon="flag-outline" title="End class" detail="Ends this part, skips the rest, and goes to your scores" disabled={busy}
+        {!over && <ListRow icon="flag-outline" title={`End ${noun}`} detail="Ends this part, skips the rest, and goes to your scores" disabled={busy}
           onPress={() => { setMore(false); p.act(endClass); }} />}
         <ListRow icon="trash-outline" title="Discard this session" destructive disabled={busy} onPress={() => { setMore(false); p.discard(); }} />
       </Sheet>
