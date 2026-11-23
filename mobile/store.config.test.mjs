@@ -30,7 +30,7 @@ describe('App Store release metadata', () => {
     const info = config.apple.info['en-US'];
 
     expect(config.apple.version).toBe(appVersion);
-    expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: false });
+    expect(config.apple.release).toEqual({ automaticRelease: true, phasedRelease: true });
     expect(info.subtitle).toBe(APP_SUBTITLE);
     expect(info.keywords).toEqual(APP_KEYWORDS);
     expect(info.keywords.every((keyword) => keyword.length > 2)).toBe(true);

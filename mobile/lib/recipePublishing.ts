@@ -3,7 +3,7 @@ import type { Recipe } from '@/types/recipe';
 export const PUBLISHING_DISCLOSURE_VERSION = 1;
 
 export const PUBLISHING_DISCLOSURE_MESSAGE =
-  'Public recipes can appear in Discover and search. People can see the recipe title, ingredients, instructions, recipe notes, photo, source link, and your contributor name. Personal notes and extraction details stay private. You can make a recipe private later.';
+  'Public recipes can appear in Discover and search. People can see the recipe title, ingredients, instructions, recipe notes, photo, source link, and your contributor name. Personal notes and extraction details stay private. You can make a recipe private later.\n\nOnly publish recipes you have the right to share, and nothing offensive, hateful, sexual or harassing. We remove recipes that break these rules and may suspend accounts that post them. Full terms: hafa-recipes.com/terms';
 
 export interface PublishingDisclosureStatus {
   current_version: number;

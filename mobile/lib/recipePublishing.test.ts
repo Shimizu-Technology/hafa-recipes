@@ -12,6 +12,9 @@ describe('recipe publishing disclosure', () => {
     expect(PUBLISHING_DISCLOSURE_VERSION).toBe(1);
     expect(PUBLISHING_DISCLOSURE_MESSAGE).toContain('can appear in Discover and search');
     expect(PUBLISHING_DISCLOSURE_MESSAGE).toContain('Personal notes and extraction details stay private');
+    // App Store guideline 1.2: publishing means agreeing to rules against objectionable content.
+    expect(PUBLISHING_DISCLOSURE_MESSAGE).toContain('nothing offensive, hateful, sexual or harassing');
+    expect(PUBLISHING_DISCLOSURE_MESSAGE).toContain('hafa-recipes.com/terms');
   });
   it('counts every component without exposing private extraction details', () => {
     const disclosure = getPublishDisclosure({

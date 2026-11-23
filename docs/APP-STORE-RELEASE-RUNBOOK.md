@@ -89,8 +89,9 @@ an existing customer account. Repeating a successful run reports `unchanged`.
 `mobile/store.config.js` contains the reviewed English (U.S.) subtitle,
 description, promotional text, release notes, support URL, and privacy URL. It
 verifies the existing App Store record before preparing that listing, creates
-the current app version, requires manual release after approval, and enables
-phased distribution. Update the reviewed constants and their length tests for
+the current app version, releases automatically after approval, and enables
+phased distribution so automatic updates roll out over seven days and can be
+paused in App Store Connect. Update the reviewed constants and their length tests for
 each release instead of copying old listing text forward.
 
 Before running metadata synchronization, provide these process-only values:
