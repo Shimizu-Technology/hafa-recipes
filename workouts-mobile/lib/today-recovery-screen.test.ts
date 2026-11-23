@@ -317,7 +317,7 @@ it.each(["populated", "zero and absent"] as const)("saved-result correction expo
   await act(async () => { buttons("Save correction")[0].props.onPress(); });
   expect(fixture.correct).toHaveBeenCalledWith(original, [expect.objectContaining({
     distance_meters: 3218.688, duration_seconds: 900, effort: 5, difficulty: "manageable", pain_reported: true, notes: "Corrected cue",
-  })], "", "synthetic-session");
+  })], "", "synthetic-session", undefined, undefined);
   expect(JSON.stringify(original)).toBe(before);
 });
 
