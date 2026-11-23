@@ -216,3 +216,51 @@ it("keeps the run choice in the fixed footer and lets the athlete set the next r
   await act(async () => field().props.onChange("60.."));
   expect(control("+1 round")!.props.disabled).toBe(true);
 });
+
+describe("a workout you built (not a gym class)", () => {
+  const home = { ...w, id: "home", programming: undefined,
+    blocks: w.blocks.map((b) => b.id === "d" ? { ...b, label: "Arms and shoulders", score_kind: "auto" as const } : b) } as typeof w;
+  beforeEach(async () => {
+    s = store(); await s.load(); s.setLeadIn(0);
+    await s.start(home, { workout_id: home.id, workout_revision: 1 }, "class", 0);
+  });
+  it("names a named part's moves instead of gluing a number onto the part", async () => {
+    for (let i = 0; i < 3; i++) await s.classAct(skipPart, 0);
+    await render(1000);
+    expect(text()).toContain("Arms and shoulders · 1 of 3 · round 1 of 2");
+    expect(text()).not.toContain("Arms and shoulders1");
+    expect(control("Done · GHD side-lying Pallof hold")).toBeDefined();
+    expect(screen().action.props.label).toBe("More workout actions");
+  });
+  it("says workout, and saves a part that's simply done without asking Rx or Scaled", async () => {
+    for (let i = 0; i < 3; i++) await s.classAct(skipPart, 0);
+    await s.classAct(endPart, 1000);
+    await render(2000);
+    expect(text()).toContain("Workout done");
+    expect(text()).not.toContain("Class done");
+    expect(control("Save workout")!.props.disabled).toBe(false);
+    expect(text()).not.toContain("Choose Rx or Scaled for each score to save.");
+  });
+});
+
+describe("gym part codes", () => {
+  const withD = (label: string) => ({ ...w, id: `label-${label}`, blocks: w.blocks.map((b) => b.id === "d" ? { ...b, label } : b) }) as typeof w;
+  const open = async (label: string) => {
+    s = store(); await s.load(); s.setLeadIn(0);
+    const workout = withD(label);
+    await s.start(workout, { workout_id: workout.id, workout_revision: 1 }, "class", 0);
+    for (let i = 0; i < 3; i++) await s.classAct(skipPart, 0);
+    await render(1000);
+  };
+  it("numbers a punctuated heading's letter (C. ACCESSORIES → C1)", async () => {
+    await open("C. ACCESSORIES");
+    expect(text()).toContain("C1 · round 1 of 2");
+    expect(control("Done · C1")).toBeDefined();
+  });
+  it("never glues a second number onto an already numbered code", async () => {
+    await open("C1");
+    expect(text()).not.toContain("C11");
+    expect(text()).toContain("C1 · 1 of 3 · round 1 of 2");
+    expect(control("Done · GHD side-lying Pallof hold")).toBeDefined();
+  });
+});
