@@ -11,6 +11,7 @@ import { normalizeImages, normalizeDocument, cleanupCaptureFiles } from "@/lib/c
 import * as NativeShare from "@/modules/hafa-workouts-share/src";
 import * as FileSystem from "expo-file-system/legacy";
 import { isClassPage, classText, classDate } from "@/lib/class-import";
+import { trainingTimezone } from "@/lib/training";
 import { useNativeShareSession } from "./native-share-session";
 export function ShareCapture() {
   const stock = useShareIntentContext();
@@ -99,9 +100,8 @@ export function ShareCapture() {
       };
       async function prepareClass() {
         const profile = await cache.fetchQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, staleTime: 60000 }); guard();
-        if (!profile) throw Error("Set up your training profile timezone before importing a class.");
         const preferences = await localDrafts.load<CaptureDraft["programming"]>(owner, `class-preferences:${generation}`); guard();
-        draft = { ...draft, class_parts: true, is_public: false, auto_save: false, programming: { ...draft.programming, date: classDate(profile.timezone), source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK" } };
+        draft = { ...draft, class_parts: true, is_public: false, auto_save: false, programming: { ...draft.programming, date: classDate(trainingTimezone(profile)), source_kind: "gym", gym_name: preferences?.gym_name ?? "Unified", track: preferences?.track ?? "BUILD | BRIK" } };
       }
       async function preserveNativeSource(saved: Awaited<ReturnType<typeof slot.load>>) {
         const prior = saved.value;

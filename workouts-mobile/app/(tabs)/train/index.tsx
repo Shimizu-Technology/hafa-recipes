@@ -540,7 +540,9 @@ export default function Plan() {
         </>}
       </Sheet>
     </Screen>
-    <AskCoachPill bottom={12} />
+    {/* Today's cards end in full-width buttons (Build a plan, Start): the circle stays clear of their labels,
+        and a workout in progress puts Resume there, so the pill steps aside. */}
+    <AskCoachPill bottom={12} iconOnly hidden={!!offline.state.active} />
     </>
   );
 }

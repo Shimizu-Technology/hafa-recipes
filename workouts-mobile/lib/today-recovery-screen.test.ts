@@ -17,11 +17,12 @@ const fixture = vi.hoisted(() => ({
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
   coachMessages: [] as { state: string; assistant_message: string; created_at: string }[],
   session: vi.fn(), correct: vi.fn(), sync: vi.fn(), appListeners: new Set<(state: string) => void>(),
+  saved: [] as { id: string; programming?: { source_kind: string; date: string | null } }[],
 }));
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
   const { useMemo } = await import("react");
-  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, coachHistory: async () => ({ messages: fixture.coachMessages }), updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram, setReadiness: fixture.setReadiness };
+  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, coachHistory: async () => ({ messages: fixture.coachMessages }), library: async () => fixture.saved, updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram, setReadiness: fixture.setReadiness };
   return {
     useTraining: () => {
       const owner = fixture.owner, epoch = fixture.epoch;
@@ -260,9 +261,27 @@ it("Today marks only effective recorded work and agrees with corrections, reject
 it("opens the Progress tab (not a pushed copy) when a weekday is tapped", async () => {
   await mount();
   const { router } = await import("expo-router");
-  await act(async () => { renderer!.root.findByType("WeekStrip" as never).props.onPress(); });
+  const strip = renderer!.root.findByType("WeekStrip" as never).props;
+  await act(async () => { strip.onPress(strip.days[0]); });
   expect(router.navigate).toHaveBeenLastCalledWith("/(tabs)/history");
   expect(router.push).not.toHaveBeenCalledWith("/history-progress");
+  expect(strip.hint(strip.days[0])).toBe("Opens your training progress");
+});
+
+it("marks a saved class's day and opens that class when the day is tapped", async () => {
+  const day = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  fixture.saved = [{ id: "class-1", programming: { source_kind: "gym", date: day } }, { id: "own", programming: { source_kind: "self", date: day } }];
+  try {
+    await mount();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    const { router } = await import("expo-router");
+    const strip = renderer!.root.findByType("WeekStrip" as never).props;
+    const marked = strip.days.find((d: { date: string }) => d.date === day);
+    expect(marked.accessibilityLabel).toMatch(/class saved/);
+    expect(strip.hint(marked)).toBe("Opens this day’s class");
+    await act(async () => { strip.onPress(marked); });
+    expect(router.push).toHaveBeenLastCalledWith({ pathname: "/workout/[id]", params: { id: "class-1" } });
+  } finally { fixture.saved = []; }
 });
 
 it.each(["populated", "zero and absent"] as const)("saved-result correction exposes %s feedback and preserves imperial distance and immutable source", async feedback => {

@@ -39,6 +39,8 @@ export function TrainToday() {
   const enabled = !!enrollment?.enrolled;
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled });
   const programs = useQuery({ queryKey: [owner, "programs", enrollment?.generation], queryFn: api.programs, enabled });
+  // Same query as Today's class: a saved gym class marks its day in the week strip.
+  const savedWorkouts = useQuery({ queryKey: [owner, "library", "search", enrollment?.generation], queryFn: api.library, enabled });
   const sessions = useQuery(sessionsQuery(api, owner, enrollment));
   const generation = enrollment?.generation ?? 0;
   const receipts = useQuery({ queryKey: [owner, "day-adjustments", generation], queryFn: () => dayAdjustments(storage, owner, generation).list(), enabled });
@@ -71,10 +73,15 @@ export function TrainToday() {
     const at = new Date(iso ?? "");
     return Number.isNaN(at.getTime()) ? [] : [dateInTimezone(at, timezone)];
   };
+  const classByDate = new Map<string, string>();
+  for (const w of savedWorkouts.data ?? [])
+    if (w.programming?.source_kind === "gym" && w.programming.date && !classByDate.has(w.programming.date)) classByDate.set(w.programming.date, w.id);
   const week = weekDays(
     date,
     new Set(ancestryReady ? recordedSessions.filter((s) => s.recorded).flatMap((s) => dayOf(s.started_at)) : []),
-    new Set(activePrograms.flatMap((p) => p.sessions.map((s) => s.date)))
+    new Set(activePrograms.flatMap((p) => p.sessions.map((s) => s.date))),
+    undefined,
+    new Set(classByDate.keys())
   );
   const summaryReady = sessions.data !== undefined && offline.ready && !offline.error && profile.data !== undefined && ancestryReady;
   const summary = summaryReady ? weekSummary(date, progress.effective.map(s => s.request), timezone) : null;
@@ -177,7 +184,13 @@ export function TrainToday() {
   return (
     <>
       {!!offline.error && <Notice error>{offline.error}</Notice>}
-      <WeekStrip days={week} onPress={() => router.navigate("/(tabs)/history")} />
+      <WeekStrip days={week}
+        hint={(day) => day.date && classByDate.has(day.date) ? "Opens this day’s class" : "Opens your training progress"}
+        onPress={(day) => {
+          const id = day.date ? classByDate.get(day.date) : undefined;
+          if (id) router.push({ pathname: "/workout/[id]", params: { id } });
+          else router.navigate("/(tabs)/history");
+        }} />
       {/* Saved device training stays resumable even when the service can't be reached. */}
       {active && heroCard}
       <QueryState
