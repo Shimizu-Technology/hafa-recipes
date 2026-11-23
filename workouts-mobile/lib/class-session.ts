@@ -1,6 +1,6 @@
 import type { ActualSet, Workout } from "./models";
 import { amrapFor } from "./timed-circuit";
-import { formatCapSeconds, timedFormatFor } from "./timed-execution";
+import { formatCapSeconds, intervalLength, intervalPosition, timedFormatFor } from "./timed-execution";
 
 /**
  * A class run part by part: A, rest, B, then C and D. Pure and timestamp-based, like the session clock: each
@@ -28,6 +28,8 @@ export interface PartRun {
   rest_ended_at?: number;
   /** Each "+1 round", in order. */
   round_taps: number[];
+  /** Timing only. The 1-based interval stays attached to the tap even when an interval is skipped. */
+  interval_taps?: Array<{ interval: number; at: number }>;
   buy_in_done_at?: number;
   /** Outdoor or treadmill for each run move, by exercise index; treadmill keeps the distance run. */
   runs?: Record<number, { environment: RunEnvironment; distance_meters?: number }>;
@@ -174,6 +176,38 @@ export const tapRound = (run: ClassRun, workout: Workout, now: number) =>
 /** Undo the last round, or the buy-in when no round has been tapped. */
 export const undoTap = (run: ClassRun, workout: Workout, now: number) =>
   edit(run, workout, now, (part) => { if (part.round_taps.length) part.round_taps.pop(); else delete part.buy_in_done_at; });
+
+export function intervalRoundFormat(block: Block) {
+  const format = timedFormatFor(block);
+  return format?.mode === "emom" && format.rotation === "together" && block.exercises.length > 1 ? format : null;
+}
+
+export function intervalRoundSeconds(part: PartRun, block: Block, interval: number) {
+  const format = intervalRoundFormat(block);
+  const tap = part.interval_taps?.find((tap) => tap.interval === interval);
+  if (!format || !tap) return null;
+  return Math.round((partElapsedMs(part, block, tap.at) - (interval - 1) * intervalLength(format) * 1000) / 1000);
+}
+
+/** Compare the button the athlete saw with the clock when the press actually arrived. */
+export const tapIntervalRound = (run: ClassRun, workout: Workout, now: number, blockId: string, interval: number) =>
+  edit(run, workout, now, (part, block) => {
+    const samePart = part.block_id === blockId;
+    const format = samePart && part.kind === "emom" ? intervalRoundFormat(block) : null;
+    const position = format && partStatus(part, block, now) === "running"
+      ? intervalPosition(format, partElapsedMs(part, block, now)) : null;
+    if (position?.phase !== "work" || position.index !== interval) {
+      const next = position?.phase === "work" ? ` Tap again when Round ${position.index} is done.` : "";
+      throw Error(`Round ${interval} is no longer available.${next}`);
+    }
+    if (interval > 1000) throw Error("This part reached the split tracking limit.");
+    const taps = part.interval_taps ??= [];
+    if (interval > (taps.at(-1)?.interval ?? 0)) taps.push({ interval, at: now });
+  });
+
+export const undoIntervalRound = (run: ClassRun, workout: Workout, now: number, blockId: string) =>
+  edit(run, workout, now, (part) => { if (part.block_id === blockId) part.interval_taps?.pop(); });
+
 export const setRun = (run: ClassRun, workout: Workout, exerciseIndex: number, environment: RunEnvironment, distance?: number, now = Date.now()) =>
   edit(run, workout, now, (part) => {
     part.runs = { ...part.runs, [exerciseIndex]: { environment, ...(distance != null ? { distance_meters: distance } : {}) } };
@@ -181,21 +215,36 @@ export const setRun = (run: ClassRun, workout: Workout, exerciseIndex: number, e
 /** The API's own run test, so every run it requires Outdoor/Treadmill for gets the choice. */
 export const isRun = (e: Block["exercises"][number]) => /\b(run|running|jog|jogging|treadmill)\b/i.test(e.name) && !!e.distance_meters;
 
+function partIntervals(part: PartRun, block: Block, now: number) {
+  const spans: Array<{ started_at: number; ended_at: number }> = [];
+  if (part.started_at == null || part.started_at > now) return spans;
+  const end = Math.min(now, partEndedAt(part, block, now) ?? now);
+  let from = part.started_at;
+  for (const p of [...part.pauses].sort((x, y) => x.at - y.at)) {
+    if (p.at >= end) break;
+    if (p.at > from) spans.push({ started_at: from, ended_at: p.at });
+    from = Math.max(from, p.until ?? Infinity);
+  }
+  if (from < end) spans.push({ started_at: from, ended_at: end });
+  return spans;
+}
+
 /** Running spans of every part, for `active_intervals`; rests and pauses between them are not active time. */
 export function classIntervals(run: ClassRun, workout: Workout, now: number) {
-  const spans: Array<{ started_at: number; ended_at: number }> = [];
-  for (const part of run.parts) {
-    if (part.started_at == null || part.started_at > now) continue;
-    const block = blockOf(workout, part);
-    const end = Math.min(now, partEndedAt(part, block, now) ?? now);
-    let from = part.started_at;
-    for (const p of [...part.pauses].sort((x, y) => x.at - y.at)) {
-      if (p.at > from) spans.push({ started_at: from, ended_at: Math.min(p.at, end) });
-      from = Math.max(from, p.until ?? Infinity);
-    }
-    if (from < end) spans.push({ started_at: from, ended_at: end });
+  return run.parts.flatMap((part) => partIntervals(part, blockOf(workout, part), now));
+}
+
+/**
+ * The interval starts at the first wall-clock instant when the active clock reaches its boundary.
+ * A pause exactly at rollover belongs to the new interval. Its duration is excluded from the split time.
+ */
+function intervalRoundStart(part: PartRun, block: Block, at: number, activeOffset: number) {
+  if (activeOffset === 0) return part.started_at;
+  for (const span of partIntervals(part, block, at)) {
+    const length = span.ended_at - span.started_at;
+    if (activeOffset <= length) return span.started_at + activeOffset;
+    activeOffset -= length;
   }
-  return spans.filter((s) => s.ended_at > s.started_at);
 }
 
 /** One scored part, in the API's `PartResult` shape (W2). */
@@ -272,12 +321,14 @@ export interface Segment {
   run_environment?: RunEnvironment; distance_source?: "gps" | "prescribed" | "edited";
 }
 /**
- * Splits for an AMRAP or for-time part: the buy-in, then each round. A run's Outdoor/Treadmill choice goes on
+ * Splits for a timed part: the buy-in and rounds for AMRAP/for-time, or interval rounds for eligible EMOMs.
+ * A run's Outdoor/Treadmill choice goes on
  * the buy-in split, or on each round containing that run; treadmill keeps the prescribed or edited distance.
  * Outdoor distance comes later from the watch's GPS, so it is left out here.
  */
 export function partSegments(block: Block, part: PartRun): Segment[] {
-  if (part.started_at == null || part.skipped || (part.kind !== "amrap" && part.kind !== "for_time")) return [];
+  const intervalFormat = part.kind === "emom" ? intervalRoundFormat(block) : null;
+  if (part.started_at == null || part.skipped || (!intervalFormat && part.kind !== "amrap" && part.kind !== "for_time")) return [];
   const iso = (at: number) => new Date(at).toISOString();
   const runFields = (index: number) => {
     const choice = part.runs?.[index];
@@ -298,6 +349,13 @@ export function partSegments(block: Block, part: PartRun): Segment[] {
   }
   const roundRun = block.exercises.findIndex((e, i) => i !== buyInIndex && e.segment == null && isRun(e) && part.runs?.[i]);
   const roundRunFields = roundRun >= 0 ? runFields(roundRun) : {};
+  if (intervalFormat) {
+    for (const { interval, at } of part.interval_taps ?? []) {
+      const start = intervalRoundStart(part, block, at, (interval - 1) * intervalLength(intervalFormat) * 1000);
+      if (start != null) segments.push({ block_id: block.id, kind: "round", index: interval, started_at: iso(start), ended_at: iso(at), ...roundRunFields });
+    }
+    return segments;
+  }
   part.round_taps.forEach((at, i) => {
     segments.push({ block_id: block.id, kind: "round", index: i + 1, started_at: iso(from), ended_at: iso(at), ...roundRunFields });
     from = at;

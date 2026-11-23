@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
-import { buyInDone, endPart, planClass, setRun, skipPart, startPart, tapRound, type PartResult } from "./class-session";
+import { intervalClass } from "./fixtures/interval-round-class";
+import { buyInDone, endPart, pausePart, planClass, resumePart, setRun, skipPart, startPart, tapIntervalRound, tapRound, type PartResult } from "./class-session";
 import { classPayload, cleanScore, parseTime, scoreProblem, scoredParts, wodupScore, wodupText } from "./class-scores";
 import { endClass } from "./class-training";
 import { createTrainingStore, pruneHistory, syncedHistoryLimit, unsentProblem } from "./training";
@@ -14,6 +15,44 @@ function device() {
   const data = new Map<string, string>();
   return { getItem: async (k: string) => data.get(k) ?? null, setItem: async (k: string, v: string) => { data.set(k, v); }, removeItem: async () => {} };
 }
+
+it("restores old and new checkpoints, then saves ordered interval splits with no actuals or score change", async () => {
+  let now = T0;
+  const storage = device();
+  const clock = () => now;
+  const create = () => createTrainingStore(storage, "owner", 1, clock);
+  let store = create();
+  await store.load();
+  await store.start(intervalClass, { workout_id: intervalClass.id, workout_revision: 1 }, "interval", now);
+  await store.classAct(startPart);
+  store = create();
+  await store.load();
+  expect(store.snapshot().active!.class_run!.parts[0].interval_taps).toBeUndefined();
+  now += 7 * min; await store.classAct(pausePart);
+  now += min; await store.classAct(resumePart);
+  now = T0 + 11 * min + 12_000;
+  await store.classAct((r, w, at) => tapIntervalRound(r, w, at, "a", 2));
+  store = create();
+  await store.load();
+  expect(store.snapshot().active).toMatchObject({ actuals: [], class_run: {
+    parts: [expect.objectContaining({ round_taps: [], interval_taps: [{ interval: 2, at: now }] }), expect.anything()],
+  } });
+  now = T0 + 17 * min;
+  await store.classAct((r, w, at) => tapIntervalRound(r, w, at, "a", 3));
+  now = T0 + 21 * min;
+  await store.finish("completed", undefined, "keep", "cross_training");
+  const { actuals, active_intervals, results, segments, status } = store.snapshot().history[0].request;
+  expect(actuals).toEqual([]);
+  expect(status).toBe("completed");
+  expect(results).toEqual([{ block_id: "a", kind: "completed", origin: "timer", started_at: iso(0), ended_at: iso(19 * min) }]);
+  expect(segments).toMatchObject([
+    { block_id: "a", kind: "round", index: 2, started_at: iso(6 * min), ended_at: iso(11 * min + 12_000) },
+    { block_id: "a", kind: "round", index: 3, started_at: iso(13 * min), ended_at: iso(17 * min) },
+    { block_id: "a", kind: "rest", index: 1, started_at: iso(19 * min), ended_at: iso(20 * min) },
+  ]);
+  expect(wodupText(intervalClass, results!, segments, active_intervals))
+    .toBe("Intervals\nA: Done\n  Round 2 4:12 · Round 3 4:00");
+});
 /** A and B on the clock: A's buy-in on a treadmill at 6:00 and two rounds; B capped during its buy-in; C and D skipped. */
 async function classDay() {
   let now = T0;

@@ -1,5 +1,5 @@
-import type { Workout } from "./models";
-import { buyIn, isRun, partCapMs, partElapsedMs, restEndsAt, type PartRun } from "./class-session";
+import type { SessionRequest, Workout } from "./models";
+import { buyIn, intervalRoundFormat, isRun, partCapMs, partElapsedMs, restEndsAt, type PartRun, type Segment } from "./class-session";
 import { formatLabel, intervalPosition, moveText, timedFormatFor, type IntervalFormat } from "./timed-execution";
 
 /** What the class runner shows for the part on screen. Pure, so it can be tested without rendering. */
@@ -22,6 +22,17 @@ export function roundMoves(block: Block) {
   return block.exercises.filter((e, i) => i !== skip && e.segment !== "cash_out").map((e) => moveText(e, 1)).join(" · ");
 }
 export const buyInMove = (block: Block) => (buyIn(block) >= 0 ? moveText(block.exercises[buyIn(block)], 1) : null);
+
+/** Interval round timestamps are wall-clock times. Their displayed duration counts only running spans. */
+export function splitTime(segment: Segment, block: Block | undefined, activeIntervals?: SessionRequest["active_intervals"]) {
+  const start = Date.parse(segment.started_at), end = Date.parse(segment.ended_at);
+  const elapsed = segment.kind === "round" && block && intervalRoundFormat(block) && activeIntervals?.length
+    ? activeIntervals.reduce((total, span) =>
+      total + Math.max(0, Math.min(end, Date.parse(span.ended_at)) - Math.max(start, Date.parse(span.started_at))), 0)
+    : end - start;
+  const seconds = Math.round(elapsed / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 export interface PartClock {
   /** Whole seconds shown on the big clock. */

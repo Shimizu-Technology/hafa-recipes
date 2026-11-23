@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { nov17Class as w } from "./fixtures/nov17-class";
+import { intervalClass } from "./fixtures/interval-round-class";
 import {
   adjustRest, buyInDone, classIntervals, endPart, endRest, formatPartScore, partCapMs, partElapsedMs, partKind, partScore,
-  partSegments, partStatus, pausePart, planClass, resolve, resumePart, setRun, skipLeadIn, skipPart, startPart, tapRound, undoTap,
+  intervalRoundSeconds, partSegments, partStatus, pausePart, planClass, resolve, resumePart, setRun, skipLeadIn, skipPart, startPart,
+  tapIntervalRound, tapRound, undoIntervalRound, undoTap,
   type ClassRun,
 } from "./class-session";
 import { timedCircuit } from "./timed-circuit";
@@ -17,6 +19,54 @@ const part = (run: ClassRun, i: number) => run.parts[i];
 const status = (run: ClassRun, i: number, now: number) => partStatus(run.parts[i], w.blocks[i], now);
 /** A started with a 3 s lead-in at T0; its clock starts at T0 + 3 s. */
 const started = (lead = 3000) => startPart(planClass(w, lead), w, at(0));
+
+describe("interval round timing", () => {
+  const block = intervalClass.blocks[0];
+  const start = () => startPart(planClass(intervalClass), intervalClass, at(0));
+  const tap = (run: ClassRun, ms: number, interval: number) => tapIntervalRound(run, intervalClass, at(ms), block.id, interval);
+
+  it("records one tap per interval and rejects the button from a previous interval or part", () => {
+    const run = tap(start(), 4 * min, 1);
+    expect(tap(run, 5 * min, 1)).toEqual(run);
+    expect(() => tap(run, 6 * min, 1)).toThrow("Tap again when Round 2 is done.");
+    expect(() => tap(run, 18 * min, 3)).toThrow("Round 3 is no longer available.");
+    expect(() => tap(run, 19 * min, 1)).toThrow("Round 1 is no longer available.");
+    expect(run.parts[0].interval_taps).toEqual([{ interval: 1, at: at(4 * min) }]);
+  });
+
+  it("keeps the true start of a round paused mid-interval and of the following interval", () => {
+    let run = pausePart(start(), intervalClass, at(2 * min));
+    run = resumePart(run, intervalClass, at(3 * min));
+    run = tap(run, 5 * min, 1);
+    run = tap(run, 11 * min, 2);
+    const part = run.parts[0];
+    expect([intervalRoundSeconds(part, block, 1), intervalRoundSeconds(part, block, 2)]).toEqual([240, 240]);
+    expect(partSegments(block, part)).toMatchObject([
+      { index: 1, started_at: new Date(at(0)).toISOString(), ended_at: new Date(at(5 * min)).toISOString() },
+      { index: 2, started_at: new Date(at(7 * min)).toISOString(), ended_at: new Date(at(11 * min)).toISOString() },
+    ]);
+  });
+
+  it("counts a pause exactly at rollover against neither round's active time", () => {
+    let run = pausePart(start(), intervalClass, at(6 * min));
+    run = resumePart(run, intervalClass, at(7 * min));
+    run = tap(run, 8 * min, 2);
+    expect(intervalRoundSeconds(run.parts[0], block, 2)).toBe(60);
+    expect(partSegments(block, run.parts[0])).toMatchObject([
+      { index: 2, started_at: new Date(at(6 * min)).toISOString() },
+    ]);
+  });
+
+  it("undoes only the latest interval tap and keeps the other round log intact", () => {
+    const run = tap(tap(start(), 8 * min, 2), 14 * min, 3);
+    run.parts[0].round_taps.push(at(3 * min));
+    const undone = undoIntervalRound(run, intervalClass, at(15 * min), block.id);
+    expect(undone.parts[0]).toMatchObject({
+      interval_taps: [{ interval: 2, at: at(8 * min) }], round_taps: [at(3 * min)],
+    });
+    expect(partSegments(block, undone.parts[0]).map((s) => [s.kind, s.index])).toEqual([["round", 2]]);
+  });
+});
 
 describe("part kinds and the legacy single-part path", () => {
   it("reads each part's kind and clock", () => {
