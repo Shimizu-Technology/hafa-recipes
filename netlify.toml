@@ -29,6 +29,12 @@
   [headers.values]
     Content-Type = "application/json"
 
+# Demo page shared into the app for App Store screenshots; never indexed.
+[[headers]]
+  for = "/demo/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
 # Keep authorization and OG rendering in the API. Do not cache revocable links.
 [[headers]]
   for = "/r/*"
