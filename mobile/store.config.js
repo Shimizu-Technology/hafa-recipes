@@ -45,18 +45,18 @@ DISCOVER AND ORGANIZE
 AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
 
 Made in Guam by Shimizu Technology.`;
-const RELEASE_NOTES = `A simpler Håfa Recipes, built around your library.
+const RELEASE_NOTES = `A new look for Håfa Recipes, built around your library.
 
-• Four tabs: Recipes, Add, Plan and Grocery. Switch between My Library and Discover at the top of Recipes.
-• Choose Public or Private right beside Import, and keep going in one tap. The share sheet asks too.
+• Five places along the bottom: Library, Discover, Import, Plan and Grocery. Ask Håfa is one tap away from every tab.
+• Share a TikTok, Instagram or website link to Håfa from any app. The share card shows what you're saving, lets you pick Private or Public, and starts the import right there.
+• Send a private recipe with a link without making it public. People can open it on the web or save their own copy in Håfa. Turn links off anytime in Settings.
 • Save a recipe while browsing as a guest, sign in, and Håfa finishes saving it.
 • Unfinished recipes are kept as private drafts on your phone until you save or discard them.
 • Scanned family recipes keep their original pages privately, so you can check the handwriting later. Remove them anytime.
 • Plan meals with the servings you want, see your week at a glance, and review totals before adding them to your grocery list.
-• Share your grocery list with your household, or export only what is left to buy.
-• Recipes you open recently, and Cook Mode, work without a connection.
-• A recipe shows as saved only once it reaches Håfa, with Retry if something goes wrong.
-• Cook Mode tells you when timer alerts are off.
+• Share your grocery list with your household, fold a recipe's items away with one tap, and check items off from the home-screen widget.
+• Recipes you opened recently, and Cook Mode, work without a connection.
+• Making a recipe public always asks you first.
 • Recipe links from more websites import, with a clear reason when a site can't be read.
 • Clearer dark mode, better large-text layouts and VoiceOver labels throughout.`;
 
@@ -125,9 +125,10 @@ function buildStoreConfig({ environment, listing }) {
     apple: {
       version: app.version,
       copyright: `${new Date().getFullYear()} Shimizu Technology`,
+      // Live on approval, but a redesign reaches automatic updaters gradually and can be paused.
       release: {
         automaticRelease: true,
-        phasedRelease: false,
+        phasedRelease: true,
       },
       info: {
         'en-US': {
@@ -150,7 +151,7 @@ function buildStoreConfig({ environment, listing }) {
         demoUsername: reviewerEmail,
         demoPassword: reviewerPassword,
         demoRequired: true,
-        notes: 'Use the provided email and password on the Sign In screen. The Discover tab and public recipe details are available without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. To test sharing, sign in and open Import once, then share a recipe link from Safari to Håfa Recipes. The share extension starts the import. Tap Done to return to Safari, then open Håfa Recipes to see its progress or completed recipe. Offline captures are retained for importing when the app reconnects. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
+        notes: 'Use the provided email and password on the Sign In screen. Discover and public recipe pages work without an account. Grocery lists, meal planning, recipe creation, Ask Håfa, and the interactive home-screen widget require the review account. To test sharing, sign in, then in Safari open a recipe link (a recipe website, TikTok or Instagram post) and share it to Håfa Recipes. The share card shows a preview and a Private or Public choice; tap Save recipe. The share extension starts the import, and the recipe appears in the library a minute or two later. Public recipes appear in Discover only after the cook agrees to the publishing rules, which forbid objectionable content (hafa-recipes.com/terms). Any recipe in Discover can be reported, and its cook reported or blocked, from the ⋯ menu on the recipe. Offline captures are retained for importing when the app reconnects. The app does not provide persistent background audio. Audio is limited to foreground source-video playback, cook-mode narration, and timer sounds; timer completion while the app is backgrounded uses a local notification.',
       },
     },
   };
