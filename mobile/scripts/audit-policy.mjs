@@ -111,8 +111,8 @@ const reviewedBuildToolAdvisories = {
         "integrity": "sha512-hh2WYhq4fi8+b+/2Kg9CEge4fDPvHS534aOOvOZeQ3+Vf2mCFsaFBYj0i+iXcAq6I9Vzp5fjMFBlONvayDC1qg=="
       },
       "node_modules/expo-router": {
-        "version": "57.0.31",
-        "integrity": "sha512-a1JskzAVbIFi9POmayde7U7TkvQHiK5NR2vqTeu4PbU+6oNg9dnsBRmP1kNimDjJJCj6VrGlKPhXASICeFOyYA=="
+        "version": "57.0.32",
+        "integrity": "sha512-QA389CJXkan2/q+UHInmu0y0eIlop5iv86ami9h/IQrSAmOrxozZm460QVmQvxoHQzEMFo+89KeB742U9ptpvA=="
       }
     },
     "declarations": {
