@@ -1501,7 +1501,8 @@ def _reuse_movement_dose_quotes(item, source: SourceBundle):
         re.I,
     )
     duration_row = re.compile(
-        rf"{prefix}\d{{1,4}}(?:\.\d+)?\s*(?:seconds?|secs?|s|minutes?|mins?|m)"
+        # A bare "m" means metres in workout text (400 m Run), so minutes need "min" or "minute".
+        rf"{prefix}\d{{1,4}}(?:\.\d+)?\s*(?:seconds?|secs?|s|minutes?|mins?)"
         rf"\s+{re.escape(item.name)}\s*[.!]?\s*", re.I,
     )
     for field_name in ("reps_min", "reps_max", "duration_seconds"):

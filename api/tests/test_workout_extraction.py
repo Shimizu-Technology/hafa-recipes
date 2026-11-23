@@ -2646,3 +2646,18 @@ def test_rounds_header_for_other_movements_does_not_change_grouping():
     workout, _, _ = ground_workout(
         raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", PASTED_WORKOUT)]))
     assert workout.blocks[2].grouping == "sequential"
+
+
+def test_a_bare_m_in_a_list_row_is_metres_not_minutes():
+    raw = complete_workout()
+    raw["blocks"][0]["exercises"] = [{
+        "name": "Run", "sets": None, "reps_min": None, "reps_max": None, "per_side": None,
+        "duration_seconds": 120, "distance_meters": None, "rest_seconds": None, "load": None,
+        "load_unit": None, "load_convention": None, "tempo": None, "effort": None, "notes": None,
+        "evidence": [evidence("name", "2 m Run")],
+    }]
+    workout, warnings, _ = ground_workout(
+        raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", "- 2 m Run")])
+    )
+    assert workout.blocks[0].exercises[0].duration_seconds is None
+    assert "Unsupported duration_seconds removed from Run." in warnings
