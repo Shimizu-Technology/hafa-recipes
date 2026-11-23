@@ -305,3 +305,15 @@ it("shows records from accepted sessions and refreshes on pull", async () => {
   expect(fixture.sessions).toHaveBeenCalledTimes(2);
   expect(renderer!.root.findByType("Screen" as never).props.refreshing).toBe(false);
 });
+it("a class session card shows its scored parts, and sessions come before records", async () => {
+  const run = saved("A");
+  run.content.results = [
+    { block_id: "main", kind: "rounds_reps", rounds: 3, reps: 10, origin: "timer", started_at: "2026-10-10T00:00:00Z", ended_at: "2026-10-10T00:01:00Z" },
+  ];
+  fixture.remote = [run];
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(text()).toMatch(/: 3 \+ 10/);
+  const order = renderer!.root.findAll((n) => n.type === ("ProgressRecords" as never) || (n.type === ("SectionHeader" as never) && n.props.title === "Recent sessions"))
+    .map((n) => n.type === ("ProgressRecords" as never) ? "records" : "sessions");
+  expect(order).toEqual(["sessions", "records"]);
+});

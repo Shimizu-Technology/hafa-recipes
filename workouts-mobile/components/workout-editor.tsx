@@ -27,6 +27,10 @@ function Disclosure({ title, open, disabled, onPress }: { title: string; open: b
   return <Button title={title} variant="ghost" inline icon={open ? "chevron-up" : "chevron-down"} disabled={disabled} onPress={onPress} />;
 }
 const hasText = (lines?: string[] | null) => !!lines?.some(line => line.trim());
+/** An AMRAP still waiting for its cap, before anything else about it is wrong. */
+function capPending(block: AuthoredWorkout["blocks"][number]) {
+  return block.execution?.mode === "amrap" && block.grouping === "circuit" && block.rounds == null && !block.execution.time_cap_seconds;
+}
 function invalidBlockSettings(block: AuthoredWorkout["blocks"][number]) {
   return !!executionError(block) || !block.label.trim() || block.label.length > 200 ||
     (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
@@ -74,7 +78,10 @@ export function WorkoutEditor({
     !!value.equipment_required?.length || !!value.source_context);
   // Fields with a validation problem stay visible so they can be corrected.
   const moreOpen = target?.key === "equipment" || showMore || invalidWorkoutDetails(value);
-  const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
+  // Building from scratch, a block's settings (including its timer) start open; editing keeps them tidy.
+  const [expandedBlocks, setExpandedBlocks] = useState<string[]>(() => context === "create" && !review ? value.blocks.map(b => b.id) : []);
+  // An AMRAP cap nobody has typed yet is a prompt, not an error.
+  const [capTouched, setCapTouched] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
   const [removingBlock, setRemovingBlock] = useState<string | null>(null);
   function update(next: AuthoredWorkout, removedExercise?: { blockId: string; index: number }) {
@@ -214,7 +221,7 @@ export function WorkoutEditor({
           </Columns>
           {formatChoice(block) === "unknown" && <Copy kind="small" tone="muted">This workout uses a timer this app version doesn’t know. It’s kept as it is unless you choose another timer here.</Copy>}
           {block.execution?.mode === "amrap" && <TimeCapField seconds={block.execution.time_cap_seconds} disabled={disabled}
-            onChange={(seconds) => update(changeTimeCap(value, bi, seconds))} />}
+            onChange={(seconds) => { setCapTouched(current => current.includes(block.id) ? current : [...current, block.id]); update(changeTimeCap(value, bi, seconds)); }} />}
           {block.execution?.mode === "emom" && <>
             <Columns>
               <Column><NumberField disabled={disabled} label={seconds("Every")} value={block.execution.interval_seconds}
@@ -240,7 +247,9 @@ export function WorkoutEditor({
             <Column><NumberField disabled={disabled} label="Intervals" value={block.execution.intervals}
               onChange={(intervals) => update(changeFormatFields(value, bi, { intervals }))} /></Column>
           </Columns>}
-          {!!executionError(block) && <Copy kind="small" tone="error">{executionError(block)}</Copy>}
+          {!!executionError(block) && (capPending(block) && !capTouched.includes(block.id)
+            ? <Copy kind="small" tone="muted">Enter how long the AMRAP runs.</Copy>
+            : <Copy kind="small" tone="error">{executionError(block)}</Copy>)}
           {block.execution && <Copy kind="small" tone="muted">{[formatDescription(block), "This sets the timer; review written instructions if you change it."].filter(Boolean).join(". ")}</Copy>}
           {block.execution?.mode !== "amrap" && block.execution?.mode !== "emom" && block.execution?.mode !== "work_rest" && <NumberField
             disabled={disabled}
@@ -267,7 +276,9 @@ export function WorkoutEditor({
                 onChange={(name) => exercise(bi, ei, { name })}
               />
               <Columns>
-                <Column><NumberField disabled={disabled} label="Sets" value={e.sets} onChange={(sets) => exercise(bi, ei, { sets })} /></Column>
+                {/* Rounds-based blocks set the repeats; Sets only shows there if the workout already has one. */}
+                {(e.sets != null || (block.grouping === "sequential" && !block.execution)) &&
+                  <Column><NumberField disabled={disabled} label="Sets" value={e.sets} onChange={(sets) => exercise(bi, ei, { sets })} /></Column>}
                 <Column><NumberField
                   disabled={disabled}
                   label={range ? "Minimum reps" : "Reps"}
@@ -398,12 +409,14 @@ export function WorkoutEditor({
         icon="add"
         onPress={() => {
           if (value.blocks.length >= 100) return;
+          const id = `block-${Date.now()}-${value.blocks.length}`;
+          setExpandedBlocks(current => [...current, id]);
           update({
             ...value,
             blocks: [
               ...value.blocks,
               {
-                id: `block-${Date.now()}-${value.blocks.length}`,
+                id,
                 label: value.blocks.length ? "Additional work" : "Main session",
                 grouping: "sequential",
                 exercises: [{ name: "", provenance: "user" }]

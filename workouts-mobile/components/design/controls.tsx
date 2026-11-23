@@ -580,7 +580,8 @@ export function Field({
   const traits = inputTraits(purpose, Platform.OS, numeric);
   // iOS number pads have no return key; without a Done bar the keyboard hides
   // the button below the field (Verify, Save set).
-  const pad = Platform.OS === "ios" && (traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad");
+  // A full-size multiline field's return key adds a line, so it gets the Done bar too (the compact coach composer has Send).
+  const pad = Platform.OS === "ios" && (traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || (!!multiline && !compact));
   const [accessory] = useState(() => `field-done-${++accessoryCount}`);
   return (
     <View style={{ gap: 8, flexGrow: 1 }}>

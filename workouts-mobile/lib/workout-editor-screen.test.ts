@@ -17,10 +17,10 @@ let latest: AuthoredWorkout | undefined;
 const field = (label: string) => renderer!.root.findAllByType("Field" as never).find(node => node.props.label === label);
 const copy = () => renderer!.root.findAllByType("Copy" as never).map((n) => [n.props.children].flat().join("")).join("\n");
 const button = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
-async function render(initial: AuthoredWorkout, review = false) {
+async function render(initial: AuthoredWorkout, review = false, context: "create" | "edit" = "edit") {
   function Editor() {
     const [value, setValue] = useState(initial);
-    return createElement(WorkoutEditor, { review, value, onChange(next: AuthoredWorkout) { latest = next; setValue(next); } });
+    return createElement(WorkoutEditor, { review, context, value, onChange(next: AuthoredWorkout) { latest = next; setValue(next); } });
   }
   await act(async () => { renderer = create(createElement(Editor)); });
 }
@@ -259,4 +259,39 @@ it("keeps a timer from a newer app version until the person replaces or clears i
   expect(workoutErrors({ ...initial })).toEqual([]);
   await act(async () => renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === "No timer")!.props.onPress());
   expect(latest!.blocks[0].execution).toBeUndefined();
+});
+
+it("opens a new workout's block settings so the timer is easy to find, and opens added blocks too", async () => {
+  await render(workout(), false, "create");
+  expect(field("Block name")).toBeDefined();
+  const choices = () => renderer!.root.findAllByType("Choice" as never).map((n) => n.props.label);
+  expect(choices()).toContain("As many rounds as possible");
+  await act(async () => button("Add another block").props.onPress());
+  expect(renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Block name")).toHaveLength(2);
+});
+
+it("keeps block settings tidy when editing a saved workout", async () => {
+  await render(workout());
+  expect(field("Block name")).toBeUndefined();
+});
+
+it("asks for an AMRAP cap as a prompt until it is typed, then checks it", async () => {
+  await render(workout(), false, "create");
+  const amrap = renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === "As many rounds as possible")!;
+  await act(async () => amrap.props.onPress());
+  expect(copy()).toContain("Enter how long the AMRAP runs.");
+  expect(copy()).not.toContain("AMRAP time cap must be");
+  await act(async () => field("AMRAP time cap · minutes")!.props.onChange("15"));
+  expect(latest!.blocks[0].execution).toMatchObject({ mode: "amrap", time_cap_seconds: 900 });
+  expect(copy()).not.toContain("Enter how long the AMRAP runs.");
+  await act(async () => field("AMRAP time cap · minutes")!.props.onChange(""));
+  expect(copy()).toContain("AMRAP time cap must be");
+});
+
+it("offers Sets for straight sets but not inside a circuit's rounds", async () => {
+  await render(workout(), false, "create");
+  expect(field("Sets")).toBeDefined();
+  const circuit = renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === "Circuit")!;
+  await act(async () => circuit.props.onPress());
+  expect(field("Sets")).toBeUndefined();
 });

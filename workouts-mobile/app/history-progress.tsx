@@ -15,6 +15,7 @@ import { isTransientSyncError, ranFormatTimer } from "@/lib/training";
 import { exerciseLines, exerciseRecords, friendlyDate } from "@/lib/progress-insights";
 import { sessionStatusLabel } from "@/lib/labels";
 import { formatScore } from "@/lib/timed-execution";
+import { formatPartScore } from "@/lib/class-session";
 import type { SessionRequest, Workout } from "@/lib/models";
 import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
@@ -28,7 +29,10 @@ function SessionSummary({ title, when, request, workout, ranTimer, onOpen }: {
   const minutes = Math.round((request.active_seconds ?? 0) / 60);
   const lines = exerciseLines(request, workout, units);
   // EMOM, for-time and work/rest results read in their own terms: "18 of 20 minutes", "Time 8:42", "Capped · 2 rounds + 12 reps".
-  const score = formatScore(workout, request, ranTimer);
+  // A class run's scored parts: "A · AMRAP 15: 3 + 10".
+  const partScores = (request.results ?? []).filter((r) => r.kind !== "completed")
+    .map((r) => { const block = workout.blocks.find((b) => b.id === r.block_id); return `${block?.label || "Part"}: ${formatPartScore(r)}`; });
+  const score = formatScore(workout, request, ranTimer) || partScores.join(" · ") || null;
   const body = <>
     <Row justify="space-between">
       <Copy kind="caption" tone="muted">{when}</Copy>
@@ -137,7 +141,6 @@ export default function Progress() {
         <ListRow icon="walk-outline" title="Runs, walks & other activity" onPress={() => router.push("/activity-log")} />
         <ListRow icon="trophy-outline" title="Best scores" detail="Benchmarks and progressions, such as Everest" onPress={() => router.push("/best-scores")} />
       </ListGroup>
-      <ProgressRecords units={units} records={records} active={focused} />
       {!!offline.error && <>
         <Notice error>{offline.error}</Notice>
         <Button title="Retry restoring saved sessions" secondary onPress={offline.retry} />
@@ -240,6 +243,8 @@ export default function Progress() {
       ))}
       {local.length + remote.length > visibleCount && <Button title="Show more sessions" secondary
         onPress={() => setVisibleCount((count) => count + 20)} />}
+      {/* Your sessions come first; per-exercise records follow them. */}
+      <ProgressRecords units={units} records={records} active={focused} />
       {!!error && <Notice error>{error}</Notice>}
     </Screen>
   );

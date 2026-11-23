@@ -1952,7 +1952,8 @@ it("keeps unknowns and less common prescription values intact through simple edi
       load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
   }] };
   await mountRealWorkoutEditor(content);
-  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Duration · minutes", "Exercise name", "Sets", "Reps"]);
+  // A circuit's rounds set the repeats, so its moves don't offer Sets.
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Duration · minutes", "Exercise name", "Reps"]);
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("More details for Row");
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
@@ -1963,11 +1964,11 @@ it("keeps unknowns and less common prescription values intact through simple edi
   expect(nodes("Field").find((n) => n.props.label === "Rounds")!.props.value).toBe("3");
   await click("Hide block settings: Strength");
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
-  await act(async () => nodes("Field").find((n) => n.props.label === "Sets")!.props.onChange("2"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Reps")!.props.onChange("8"));
   const corrected = fixture.updateWorkout.mock.calls[0][0];
-  expect(corrected.blocks[0]).toEqual({ ...content.blocks[0], exercises: [{ ...content.blocks[0].exercises[0], sets: 2, provenance: "user" }] });
-  expect(corrected.blocks[0].exercises[0].reps_min).toBeNull();
+  expect(corrected.blocks[0]).toEqual({ ...content.blocks[0], exercises: [{ ...content.blocks[0].exercises[0], reps_min: 8, provenance: "user" }] });
   expect(corrected.blocks[0].exercises[0].reps_max).toBeNull();
+  expect(corrected.blocks[0].exercises[0].sets).toBeUndefined();
 });
 it("corrects overall duration and instructions without changing the exercise prescription", async () => {
   const content: AuthoredWorkout = { ...workout, estimated_minutes: null, instructions: ["Repeat the circuit"], notes: ["Private concern"], provenance: "source" };
