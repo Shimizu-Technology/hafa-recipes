@@ -1,12 +1,12 @@
-import type { ActualSet, Workout } from "./models";
-import { formatPartScore, partEndedAt, partScore, partSegments, restEndsAt, type ClassRun, type PartResult, type Segment } from "./class-session";
+import type { ActualSet, SessionRequest, Workout } from "./models";
+import { formatPartScore, intervalRoundFormat, partEndedAt, partScore, partSegments, restEndsAt, type ClassRun, type PartResult, type Segment } from "./class-session";
+import { splitTime } from "./class-view";
 
 /**
  * Scores and splits a class sends with its session (API contract W2), the review before saving, and the text
  * for WodUp's Log Result. Pure.
  */
 type Block = Workout["blocks"][number];
-const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 const blockOf = (workout: Workout, id: string) => workout.blocks.find((b) => b.id === id)!;
 
 /** Parts that get a score: started, not skipped, and not marked "not scored". */
@@ -89,18 +89,30 @@ const scalingWord = (r: PartResult) => (r.scaling === "rx" ? "Rx" : r.scaling ==
  * The day's scores, one line per part, ready to paste into WodUp's Log Result. Splits follow on their own line:
  * "  Buy-in 5:48 · Rounds 4:10, 4:02".
  */
-export function wodupText(workout: Workout, results: readonly PartResult[], segments: readonly Segment[] = []) {
+export function wodupText(workout: Workout, results: readonly PartResult[], segments: readonly Segment[] = [],
+  activeIntervals?: SessionRequest["active_intervals"]) {
   const lines = [workout.title];
-  for (const r of results) {
-    const block: Block | undefined = workout.blocks.find((b) => b.id === r.block_id);
-    const scaling = scalingWord(r);
-    lines.push(`${block?.label ?? r.block_id}: ${wodupScore(r)}${scaling ? ` · ${scaling}` : ""}${r.scaling_note ? ` (${r.scaling_note})` : ""}`);
-    const mine = segments.filter((s) => s.block_id === r.block_id && s.kind !== "rest");
-    const span = (s: Segment) => clock(Math.round((Date.parse(s.ended_at) - Date.parse(s.started_at)) / 1000));
+  const ids = new Set([...workout.blocks.map((b) => b.id), ...results.map((r) => r.block_id)]);
+  for (const id of ids) {
+    const block = workout.blocks.find((b) => b.id === id);
+    const r = results.find((r) => r.block_id === id);
+    const mine = segments.filter((s) => s.block_id === id);
+    const rounds = mine.filter((s) => s.kind === "round");
+    if (!r && !rounds.length) continue;
+    const label = block?.label ?? id;
+    if (r) {
+      const scaling = scalingWord(r);
+      lines.push(`${label}: ${wodupScore(r)}${scaling ? ` · ${scaling}` : ""}${r.scaling_note ? ` (${r.scaling_note})` : ""}`);
+    } else {
+      lines.push(`${label}:`);
+    }
+    const span = (s: Segment) => splitTime(s, block, activeIntervals);
     const buyIn = mine.find((s) => s.kind === "buy_in");
-    const rounds = mine.filter((s) => s.kind === "round").map(span);
+    const roundLine = !rounds.length ? null : block && intervalRoundFormat(block)
+      ? rounds.map((s) => `Round ${s.index} ${span(s)}`).join(" · ")
+      : `Rounds ${rounds.map(span).join(", ")}`;
     const splits = [buyIn ? `Buy-in ${span(buyIn)}${buyIn.run_environment === "treadmill" ? " (treadmill)" : ""}` : null,
-      rounds.length ? `Rounds ${rounds.join(", ")}` : null].filter(Boolean);
+      roundLine].filter(Boolean);
     if (splits.length) lines.push(`  ${splits.join(" · ")}`);
   }
   return lines.join("\n");

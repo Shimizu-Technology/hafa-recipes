@@ -4,6 +4,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createTrainingStore } from "./training";
+import { intervalClass } from "./fixtures/interval-round-class";
 import type { SessionRequest, TrainingSession, Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
@@ -148,6 +149,34 @@ it("copies and corrects locally retained splits alongside locally retained score
   await act(async () => button("Correct these results").props.onPress());
   await act(async () => button("Save correction").props.onPress()); await settle();
   expect(fixture.store!.snapshot().history[0].request).toMatchObject({ results: [result], segments });
+});
+
+it("reopens a phone round split for an unscored part without Watch metadata and preserves it through correction", async () => {
+  const prescription = { ...intervalClass, blocks: [
+    { ...intervalClass.blocks[0], score_kind: "none" as const }, intervalClass.blocks[1],
+  ] };
+  const { started_at } = saved.content;
+  const segments = [{ block_id: "a", kind: "round" as const, index: 1, started_at, ended_at: "2026-10-14T00:05:12Z" }];
+  const active_intervals = [
+    { started_at, ended_at: "2026-10-14T00:02:00Z" },
+    { started_at: "2026-10-14T00:03:00Z", ended_at: "2026-10-14T00:19:00Z" },
+    { started_at: "2026-10-14T00:20:00Z", ended_at: "2026-10-14T00:21:00Z" },
+  ];
+  await act(async () => renderer!.unmount());
+  cache.clear();
+  fixture.session.mockResolvedValue({ ...saved, title: prescription.title, content: {
+    ...saved.content, workout_id: prescription.id, finished_at: active_intervals[2].ended_at, active_seconds: 1140,
+    prescription_snapshot: prescription, actuals: [], recorded_on: "phone", segments, active_intervals,
+  } });
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(SessionDetail))); });
+  await settle();
+  const labels = renderer!.root.findAllByType("Copy" as never).map((n) => n.props.children);
+  expect(labels).toContain("A · Round 1 · 4:12");
+  expect(labels).not.toContain("Recorded on Apple Watch");
+  expect(renderer!.root.findByType("CopyForWodUp" as never).props).toMatchObject({ results: [], segments, activeIntervals: active_intervals });
+  await act(async () => button("Correct these results").props.onPress());
+  await act(async () => button("Save correction").props.onPress()); await settle();
+  expect(fixture.store!.snapshot().history[0].request).toMatchObject({ segments, active_intervals, status: "completed" });
 });
 
 it("waits for local score history before allowing a correction to start", async () => {

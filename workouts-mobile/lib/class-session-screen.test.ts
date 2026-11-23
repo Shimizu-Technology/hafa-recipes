@@ -5,9 +5,10 @@ import { createElement, isValidElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTrainingStore } from "./training";
-import { buyInDone, endPart, skipPart, startPart, tapRound, type ClassRun } from "./class-session";
+import { buyInDone, endPart, pausePart, resumePart, skipPart, startPart, tapRound, type ClassRun } from "./class-session";
+import { intervalClass } from "./fixtures/interval-round-class";
 import { nov17Class as w } from "./fixtures/nov17-class";
-import type { ActualSet } from "./models";
+import type { ActualSet, Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ alert: vi.fn(), warning: vi.fn(), announce: vi.fn(), copy: vi.fn(async (_text: string) => true), fontScale: 1 }));
 vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: fixture.fontScale }), View: "View", Pressable: "Pressable", Modal: "Modal",
@@ -34,10 +35,10 @@ const store = () => {
 };
 let s: ReturnType<typeof store>;
 const actions = { act: vi.fn(), log: vi.fn<(a: ActualSet) => void>(), finish: vi.fn(), roundLoad: vi.fn(), timer: vi.fn(), runDistance: vi.fn() };
-async function render(at: number) {
+async function render(at: number, error = "") {
   now = at;
   const d = s.snapshot().active!;
-  const props: ClassSessionProps = { d: { ...d, class_run: d.class_run! }, now, busy: false, error: "", runEnvironment: s.snapshot().run_environment ?? "outdoor",
+  const props: ClassSessionProps = { d: { ...d, class_run: d.class_run! }, now, busy: false, error, runEnvironment: s.snapshot().run_environment ?? "outdoor",
     activityPicker: null, act: actions.act, log: actions.log, undo() {}, timer: actions.timer, finish: actions.finish, runDistance: actions.runDistance, roundLoad: actions.roundLoad, discard() {} };
   await act(async () => { if (renderer) renderer.update(createElement(ClassSession, props)); else renderer = create(createElement(ClassSession, props)); });
 }
@@ -56,11 +57,78 @@ const apply = async () => { const [change, environment] = actions.act.mock.calls
 
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  Object.values(actions).forEach((f) => f.mockReset()); fixture.announce.mockReset(); fixture.fontScale = 1;
+  Object.values(actions).forEach((f) => f.mockReset()); fixture.announce.mockReset(); fixture.copy.mockClear(); fixture.fontScale = 1;
   now = 0; s = store(); await s.load(); s.setLeadIn(0);
   await s.start(w, { workout_id: w.id, workout_revision: 1 }, "class", 0);
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
+
+describe("interval round controls", () => {
+  const block = intervalClass.blocks[0];
+  async function start(workout = intervalClass) {
+    s = store(); await s.load();
+    await s.start(workout, { workout_id: workout.id, workout_revision: 1 }, "interval", 0);
+    await s.classAct(startPart, 0);
+  }
+
+  it("shows a disabled split after the tap, offers Undo, and advances at rollover", async () => {
+    await start();
+    await s.classAct(pausePart, 2 * min);
+    await s.classAct(resumePart, 3 * min);
+    await render(5 * min + 12_000);
+    control("Round 1 done")!.props.onPress();
+    await apply();
+    await render(now);
+    expect(control("Round 1 · 4:12")!.props.disabled).toBe(true);
+    control("Undo")!.props.onPress();
+    await apply();
+    await render(now);
+    expect(control("Round 1 done")!.props.disabled).toBe(false);
+    control("Round 1 done")!.props.onPress();
+    await apply();
+    await render(7 * min);
+    expect(control("Round 2 done")!.props.disabled).toBe(false);
+  });
+
+  it("shows the store's stale-tap error and leaves the new round unlogged", async () => {
+    await start();
+    await render(6 * min - 1);
+    control("Round 1 done")!.props.onPress();
+    now = 6 * min + 200;
+    // The parent surfaces a rejected class action in the runner's footer.
+    const error = await apply().then(() => "", (e: Error) => e.message);
+    await render(now, error);
+    const notices = renderer!.root.findAllByType("Notice" as never);
+    expect(notices.some((n) => n.props.children === "Round 1 is no longer available. Tap again when Round 2 is done.")).toBe(true);
+    expect(control("Round 2 done")!.props.disabled).toBe(false);
+    expect(s.snapshot().active!.class_run!.parts[0].interval_taps).toBeUndefined();
+  });
+
+  const ineligible: [string, Workout["blocks"][number]][] = [
+    ["single-move EMOM", { ...block, exercises: block.exercises.slice(0, 1) }],
+    ["alternating EMOM", { ...block, execution: { mode: "emom", interval_seconds: 360, intervals: 3, rotation: "alternating" } }],
+    ["work/rest", { ...block, execution: { mode: "work_rest", work_seconds: 40, rest_seconds: 20, intervals: 3 } }],
+  ];
+  it.each(ineligible)("keeps the Round done action off a %s", async (_name, first) => {
+    await start({ ...intervalClass, blocks: [first, intervalClass.blocks[1]] });
+    await render(1000);
+    expect(control("Round 1 done")).toBeUndefined();
+  });
+
+  it.each(["auto", "none"] as const)("copies active splits for score kind %s and allows saving without scaling", async (score_kind) => {
+    await start({ ...intervalClass, blocks: [{ ...block, score_kind }, intervalClass.blocks[1]] });
+    await s.classAct(pausePart, 2 * min);
+    await s.classAct(resumePart, 3 * min);
+    await render(5 * min + 12_000);
+    control("Round 1 done")!.props.onPress();
+    await apply();
+    await render(21 * min);
+    if (score_kind === "auto") expect(text()).toContain("4:12");
+    expect(control("Save class")!.props.disabled).toBe(false);
+    await act(async () => control("Copy for WodUp")!.props.onPress());
+    expect(fixture.copy).toHaveBeenLastCalledWith(`Intervals\nA:${score_kind === "auto" ? " Done" : ""}\n  Round 1 4:12`);
+  });
+});
 
 describe("class runner (Nov 17)", () => {
   it("shows A with its moves and a big Start", async () => {

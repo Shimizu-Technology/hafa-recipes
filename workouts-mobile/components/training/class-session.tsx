@@ -9,11 +9,11 @@ import { announce } from "@/components/training/session-parts";
 import { useKeepAwakeWhile } from "@/components/training/keep-awake";
 import { prescriptionLine } from "@/lib/discover";
 import type { ActualSet } from "@/lib/models";
-import { adjustRest, buyInDone, endPart, endRest, isRun, pausePart, resumePart, setRun, skipLeadIn, skipPart, startPart, tapRound, undoTap,
+import { adjustRest, buyInDone, endPart, endRest, intervalRoundFormat, intervalRoundSeconds, isRun, pausePart, resumePart, setRun, skipLeadIn, skipPart, startPart, tapIntervalRound, tapRound, undoIntervalRound, undoTap,
   type ClassRun, type PartResult, type RunEnvironment } from "@/lib/class-session";
 import { classPayload, scoreProblem, scoredParts } from "@/lib/class-scores";
 import { CopyForWodUp, ScoreEditor } from "@/components/training/score-editor";
-import { classOver, currentPart, endClass, hasBuyIn } from "@/lib/class-training";
+import { classActive, classOver, currentPart, endClass, hasBuyIn } from "@/lib/class-training";
 import { buyInMove, partClock, partTitle, restLeft, restLine, roundMoves, visibleRuns } from "@/lib/class-view";
 import { footerCellWidth, footerLabelScale, largeText } from "@/lib/readable-layout";
 import { actualIdentity, exerciseElapsedSeconds, restRemainingSeconds, type SessionDraft } from "@/lib/training";
@@ -110,10 +110,12 @@ export function ClassSession(p: ClassSessionProps) {
   const canComplete = over && !run.ended_early && !run.parts.some((x) => x.skipped) && d.actuals.every((a) => a.completed) &&
     d.steps.every((s) => d.actuals.some((a) => actualIdentity(a) === s.key));
   const review = over ? classPayload(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : null;
+  const reviewIntervals = over ? classActive(run, d.workout, now).intervals : undefined;
   // Every scored part is reviewed, including one still missing its value; only valid scores are ever sent.
-  const scored = over ? scoredParts(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }).map((x) => x.result) : [];
-  const unready = scored.some((r) => scoreProblem(r) || !r.scaling);
-  const save = () => p.finish(canComplete ? "completed" : "partial", scored);
+  const scored = over ? scoredParts(run, d.workout, now, d.actuals, { ...d.class_scores, ...edits }) : [];
+  const unready = scored.some(({ block, result }) =>
+    scoreProblem(result) || (!result.scaling && !(result.kind === "completed" && intervalRoundFormat(block))));
+  const save = () => p.finish(canComplete ? "completed" : "partial", scored.map(({ result }) => result));
 
   // A set-by-set part logs the prescribed dose, or the timed hold the person just ran.
   const timing = d.interval_started_at != null;
@@ -145,12 +147,10 @@ export function ClassSession(p: ClassSessionProps) {
       </Card>
       {!canComplete && <Copy kind="small" tone="muted">Unfinished or skipped parts and sets save this as a partial session.</Copy>}
       {!!scored.length && <SectionHeader title="Your scores" />}
-      {review && scored.map((r) => {
-        const b = d.workout.blocks.find((x) => x.id === r.block_id)!;
-        return <ScoreEditor key={r.block_id} block={b} result={r} segments={review.segments.filter((s) => s.block_id === r.block_id)}
-          onChange={(next) => setEdits((e) => ({ ...e, [r.block_id]: next }))} onRunDistance={(i, m) => p.runDistance(r.block_id, i, m)} />;
-      })}
-      {!!review?.results.length && <CopyForWodUp workout={d.workout} results={review.results} segments={review.segments} />}
+      {review && scored.map(({ block, result }) => <ScoreEditor key={block.id} block={block} result={result}
+        segments={review.segments.filter((s) => s.block_id === block.id)} activeIntervals={reviewIntervals}
+        onChange={(next) => setEdits((e) => ({ ...e, [block.id]: next }))} onRunDistance={(i, m) => p.runDistance(block.id, i, m)} />)}
+      {review && <CopyForWodUp workout={d.workout} results={review.results} segments={review.segments} activeIntervals={reviewIntervals} />}
       {p.activityPicker}
     </>;
     footer = <>
@@ -211,6 +211,10 @@ export function ClassSession(p: ClassSessionProps) {
     const buyingIn = (part.kind === "amrap" || part.kind === "for_time") && hasBuyIn(block) && part.buy_in_done_at == null;
     const counting = part.kind === "amrap" || (part.kind === "for_time" && rounds > 1);
     const format = timedFormatFor(block);
+    const intervalRound = (status === "running" || paused) && part.kind === "emom" && intervalRoundFormat(block) && clock.interval?.phase === "work"
+      ? clock.interval.index : null;
+    const intervalSeconds = intervalRound == null ? null : intervalRoundSeconds(part, block, intervalRound);
+    const canUndoInterval = intervalRound != null && !!part.interval_taps?.length;
     const intervalMoves = clock.interval && format && format.mode !== "for_time"
       ? movesFor(format as IntervalFormat, block, clock.interval.index).map((i) => moveText(block.exercises[i], 1)).join(" + ") : null;
     const clockCard = <SessionClock text={formatClock(clock.seconds)} caption={[partTitle(block), clock.interval?.label].filter(Boolean).join(" · ")}
@@ -237,14 +241,18 @@ export function ClassSession(p: ClassSessionProps) {
         value={env(i)} disabled={busy} onChange={(v) => chooseRun(i, v)} />)}
       {buyingIn ? <BigTap title="Buy-in done" hint="Starts counting rounds" disabled={busy || paused} onPress={() => p.act(buyInDone)} />
         : counting ? <BigTap title="+1 round" hint={`Now ${roundText(part.round_taps.length)}`} disabled={busy || paused || invalidLoad} onPress={() => p.act(tapRound)} />
+        : intervalRound != null ? <BigTap title={intervalSeconds == null ? `Round ${intervalRound} done` : `Round ${intervalRound} · ${formatClock(intervalSeconds)}`}
+          hint={intervalSeconds == null ? "Records how long this round took" : undefined} disabled={busy || paused || intervalSeconds != null}
+          onPress={() => p.act((r, w, at) => tapIntervalRound(r, w, at, block.id, intervalRound))} />
         : null}
       {part.kind === "for_time" && <Button title="Done · stop the clock" icon="stop-circle-outline" disabled={busy} onPress={() => p.act(endPart)} />}
       <Row gap={12}>
         <View style={{ flex: 1 }}><Button title={paused ? "Resume" : "Pause"} icon={paused ? "play" : "pause"} variant="secondary" disabled={busy}
           {...half(paused ? "Resume" : "Pause")} onPress={() => p.act(paused ? resumePart : pausePart)} /></View>
-        {(part.round_taps.length > 0 || part.buy_in_done_at != null) && <View style={{ flex: 1 }}>
+        {(canUndoInterval || part.round_taps.length > 0 || part.buy_in_done_at != null) && <View style={{ flex: 1 }}>
           <Button title="Undo" icon="arrow-undo-outline" variant="secondary" disabled={busy} {...half("Undo")}
-            accessibilityHint={part.round_taps.length ? "Removes the last round" : "Takes back the buy-in"} onPress={() => p.act(undoTap)} /></View>}
+            accessibilityHint={canUndoInterval ? "Removes the last interval split" : part.round_taps.length ? "Removes the last round" : "Takes back the buy-in"}
+            onPress={() => p.act(canUndoInterval ? (r, w, at) => undoIntervalRound(r, w, at, block.id) : undoTap)} /></View>}
       </Row>
     </>;
   }

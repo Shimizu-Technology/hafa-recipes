@@ -1246,7 +1246,8 @@ export function createTrainingStore(
           // A correction can remove completed work; editing recorded cells cannot
           // prove that unrecorded work from a partial session was performed.
           status: prior.status === "completed" && actuals.every((actual) => actual.completed) &&
-            (actuals.length > 0 || (prior.actuals.length === 0 && !!(results ?? prior.results)?.length))
+            (actuals.length > 0 || (prior.actuals.length === 0 &&
+              (!!(results ?? prior.results)?.length || (segments ?? prior.segments)?.some((s) => s.kind === "round"))))
             ? "completed" : "partial",
           notes,
           supersedes_session_id: saved.id,

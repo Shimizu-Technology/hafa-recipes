@@ -1,4 +1,4 @@
-import { WatchSessionSummary } from "@/components/watch-session-summary";
+import { SessionRoundSplits, WatchSessionSummary } from "@/components/watch-session-summary";
 import { HealthExport } from "@/components/health-export";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,7 +31,7 @@ export default function SessionDetail() {
   // Scores the server refused stay on this device; a correction sends them again.
   const local = offline.state.history.find((h) => h.synced_id === id);
   const savedScores = q.data?.content.results?.length ? q.data.content.results : local?.unsent_results?.results ?? [];
-  const savedSegments = q.data?.content.results?.length ? q.data.content.segments ?? [] : local?.unsent_results?.segments ?? [];
+  const savedSegments = q.data?.content.segments?.length ? q.data.content.segments : local?.unsent_results?.segments ?? [];
   const blockOf = (blockId: string) => q.data!.content.prescription_snapshot.blocks.find((b) => b.id === blockId);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,8 +48,8 @@ export default function SessionDetail() {
         return result;
       });
       const correctionId = Crypto.randomUUID();
-      if (scores?.length) await offline.store.correct(q.data, actuals, notes, correctionId, scores, savedSegments);
-      else await offline.store.correct(q.data, actuals, notes, correctionId);
+      await offline.store.correct(q.data, actuals, notes, correctionId, scores?.length ? scores : undefined,
+        savedSegments.length ? savedSegments : undefined);
       void offline.store.sync(api.saveSession).then(() => Promise.all(["sessions", "results", "benchmarks"]
         .map((key) => cache.invalidateQueries({ queryKey: [owner, key] }))));
       router.replace("/progress");
@@ -98,18 +98,22 @@ export default function SessionDetail() {
                 <Copy>{q.data.content.notes}</Copy>
               </Card>
             )}
-            {!editing && !!savedScores.length && (
+            {!editing && (!!savedScores.length || savedSegments.some((s) => s.kind === "round")) && (
               <Card compact>
-                <Copy kind="label">Scores</Copy>
+                {!!savedScores.length && <Copy kind="label">Scores</Copy>}
                 {savedScores.map((r) => <Copy key={r.block_id}>{[blockOf(r.block_id) ? partTitle(blockOf(r.block_id)!) : r.block_id, formatPartScore(r),
                   r.scaling === "rx" ? "Rx" : r.scaling === "scaled" ? `Scaled${r.scaling_note ? ` (${r.scaling_note})` : ""}` : null].filter(Boolean).join(" · ")}</Copy>)}
-                <CopyForWodUp workout={q.data.content.prescription_snapshot} results={savedScores} segments={savedSegments} />
+                <CopyForWodUp workout={q.data.content.prescription_snapshot} results={savedScores} segments={savedSegments}
+                  activeIntervals={q.data.content.recorded_on === "watch" ? undefined : q.data.content.active_intervals} />
               </Card>
             )}
-            {!editing && !!local?.unsent_results && !q.data.content.results?.length && <Notice error>{unsentProblem}</Notice>}
+            {!editing && !!local?.unsent_results && <Notice error>{unsentProblem}</Notice>}
             {editing && scores?.map((r, i) => blockOf(r.block_id) && <ScoreEditor key={r.block_id} block={blockOf(r.block_id)!} result={r}
               onChange={(next) => setScores((old) => old?.map((x, j) => (j === i ? next : x)) ?? null)} />)}
-            {!editing && <WatchSessionSummary details={local?.watch} workout={q.data.content.prescription_snapshot} segments={q.data.content.segments ?? local?.unsent_results?.segments} />}
+            {!editing && <WatchSessionSummary details={local?.watch} workout={q.data.content.prescription_snapshot} segments={savedSegments} />}
+            {!editing && !local?.watch && q.data.content.recorded_on !== "watch" && (
+              <SessionRoundSplits workout={q.data.content.prescription_snapshot} segments={savedSegments} activeIntervals={q.data.content.active_intervals} />
+            )}
             {!editing && <SessionTable actuals={q.data.content.actuals} workout={q.data.content.prescription_snapshot} units={units} />}
             {!editing && (q.data.content.recorded_on === "watch" ? <Notice>Recorded by Apple Watch. Manage this workout in the Health app.</Notice> : <HealthExport sessionId={q.data.id} />)}
             {editing?.map((a, index) => (
