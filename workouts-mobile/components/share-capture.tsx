@@ -87,6 +87,7 @@ export function ShareCapture() {
           throw Error("The shared source or account changed. Open Capture to choose the source again.");
       }
       let registered = false;
+      const nativePublic = native?.isPublic === true && native?.discoverTapped === true;
       let draft: CaptureDraft = {
         request_id: native?.captureId ?? Crypto.randomUUID(),
         generation,
@@ -95,7 +96,7 @@ export function ShareCapture() {
         source_url: classPage ? (() => { const url = new URL(sourceURL!); url.search = ""; url.hash = ""; return url.href; })() : sourceURL ?? "",
         text: classPage ? classText(shareIntent.text ?? "") : shareIntent.text ?? "",
         files: [],
-        ...(native ? { is_public: native.isPublic } : {}),
+        ...(native ? { is_public: nativePublic } : {}),
         ...(classPage ? { class_parts: true, is_public: false, auto_save: false, programming: { source_kind: "gym" as const, app_name: "WodUp" } } : {})
       };
       async function prepareClass() {
@@ -143,7 +144,7 @@ export function ShareCapture() {
         if (classPage) await prepareClass();
         if (native?.jobId) {
           guard();
-          await localDrafts.save(owner, `import-source-visibility:${generation}:${native.jobId}`, native.isPublic); guard();
+          await localDrafts.save(owner, `import-source-visibility:${generation}:${native.jobId}`, nativePublic); guard();
           await updateImportReferences(localDrafts, owner, generation, guard, prior => [
             { id: native.jobId!, generation, auto_save: true, label: sourceURL ?? "Shared workout", created_at: new Date().toISOString() },
             ...prior.filter(item => item.id !== native.jobId)]);

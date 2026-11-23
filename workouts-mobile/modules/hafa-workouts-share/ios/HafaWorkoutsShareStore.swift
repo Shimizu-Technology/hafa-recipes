@@ -142,7 +142,9 @@ enum WorkoutsShareStore {
         }) else { return nil }
       var capture = payload
       capture["ownerId"] = stage["ownerId"]; capture["generation"] = stage["generation"]
-      capture["accountScopeId"] = stage["accountScopeId"]; capture["isPublic"] = stage["isPublic"]
+      capture["accountScopeId"] = stage["accountScopeId"]
+      // A saved Discover default never makes a share public; only tapping Discover on the card does.
+      capture["isPublic"] = false; capture["discoverTapped"] = false
       // This build runs EMOM, for-time and work/rest formats. Frozen with the capture so a retry repeats its body.
       capture["typedFormats"] = true
       d.set(capture, forKey: key + ".capture")
@@ -162,27 +164,41 @@ enum WorkoutsShareStore {
     } ?? nil
   }
   // Only this durable capture changes; the account's default stays unchanged.
-  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool = false) -> Bool {
-    locked { chooseVisibility(key, isPublic: isPublic, confirmed: confirmed, $0) } ?? false
+  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool = false, tapped: Bool = false) -> Bool {
+    locked { chooseVisibility(key, isPublic: isPublic, confirmed: confirmed, tapped: tapped, $0) } ?? false
   }
-  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool, _ d: WorkoutsShareDefaults) -> Bool {
+  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool, tapped: Bool = false, _ d: WorkoutsShareDefaults) -> Bool {
     guard var capture = d.dictionary(forKey: key + ".capture"),
       capture["visibilityPending"] as? Bool == true, capture["jobId"] == nil else { return false }
-    capture["isPublic"] = isPublic; capture["visibilityChosen"] = true
+    if tapped && !confirmed {
+      capture["discoverTapped"] = isPublic
+    } else if !isPublic {
+      capture["discoverTapped"] = false
+    }
+    let discoverTapped = capture["discoverTapped"] as? Bool == true
+    capture["isPublic"] = isPublic && discoverTapped
+    capture["visibilityChosen"] = true
     capture["visibilityPending"] = !confirmed
     d.set(capture, forKey: key + ".capture")
     return d.synchronize()
   }
-  // Opening the host takes ownership of unfinished confirmations. An untouched
-  // choice recovers privately; an explicit per-item choice survives dismissal.
+  // Opening the host takes ownership of unfinished confirmations. Only a capture
+  // whose Discover button was tapped on the card stays public; inherited defaults
+  // and older queued captures recover privately.
   static func readyCaptures(_ d: WorkoutsShareDefaults) -> [[String: Any]]? {
     let captures = (d.stringArray(forKey: pending) ?? []).compactMap { key -> [String: Any]? in
       guard var capture = d.dictionary(forKey: key + ".capture") else { return nil }
+      let discoverTapped = capture["discoverTapped"] as? Bool == true
+      var changed = false
       if capture["visibilityPending"] as? Bool == true {
-        if capture["visibilityChosen"] as? Bool != true { capture["isPublic"] = false }
         capture["visibilityPending"] = false
-        d.set(capture, forKey: key + ".capture")
+        changed = true
       }
+      if !discoverTapped && capture["isPublic"] as? Bool == true {
+        capture["isPublic"] = false
+        changed = true
+      }
+      if changed { d.set(capture, forKey: key + ".capture") }
       return capture
     }
     return d.synchronize() ? captures : nil
@@ -250,12 +266,12 @@ enum WorkoutsShareStore {
     guard let url = parts.string else { return nil }
     return (url, String(text.prefix(30000)))
   }
-  // Discover picked on the card is this workout's confirmation; a saved default is not.
+  // Discover tapped on the card is this workout's confirmation; a saved default is not.
   static func importBody(_ stored: [String: Any], capture: String, url: String) -> [String: Any] {
     let isPublic = stored["isPublic"] as? Bool ?? false
     var body: [String: Any] = ["capture_id": capture, "url": url,
       "is_public": isPublic, "typed_formats": stored["typedFormats"] as? Bool ?? false]
-    if isPublic && stored["visibilityChosen"] as? Bool == true { body["public_confirmed"] = true }
+    if isPublic && stored["discoverTapped"] as? Bool == true { body["public_confirmed"] = true }
     return body
   }
   static func enqueue(_ key: String, completion: @escaping (Bool) -> Void) {

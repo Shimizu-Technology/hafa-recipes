@@ -1,6 +1,7 @@
 import { requireOptionalNativeModule } from "expo-modules-core";
 export interface NativeCapture {
   captureKey: string; captureId: string; ownerId?: string; generation?: number; isPublic: boolean;
+  discoverTapped?: boolean;
   url?: string; text: string; files: Array<{ path: string; mimeType: string; fileName: string; width?: number; height?: number }>;
   jobId?: string; workoutId?: string;
 }
