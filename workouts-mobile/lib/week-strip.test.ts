@@ -11,6 +11,12 @@ it("builds Monday–Sunday around today with done, planned and today states", ()
   expect(days[2].accessibilityLabel).toBe("Wednesday, today, session planned");
 });
 
+it("marks a day with a saved class as planned and says so", () => {
+  const days = weekDays("2026-11-23", new Set(["2026-11-23"]), new Set(), "en-US", new Set(["2026-11-24"]));
+  expect(days[1]).toMatchObject({ date: "2026-11-24", state: "planned", accessibilityLabel: "Tuesday, class saved" });
+  expect(days[0].state).toBe("done");
+});
+
 it("treats Sunday as the end of the week and recorded training wins over today", () => {
   const days = weekDays("2026-10-18", new Set(["2026-10-18"]), new Set(), "en-US");
   expect(days[0].date).toBe("2026-10-12");

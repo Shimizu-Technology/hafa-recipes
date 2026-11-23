@@ -3606,6 +3606,15 @@ it("class route profile failure is recoverable by loading the saved source with 
   expect(button("Import workout").props.disabled).toBe(true);
   expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).not.toContain("Your other source draft");
 });
+it("class route without a training profile opens the form on the phone's day instead of blocking", async () => {
+  fixture.params = { class: "1" };
+  fixture.profile.mockResolvedValueOnce(null);
+  await mount(Capture);
+  expect(JSON.stringify(nodes("Notice").map(n => n.props.children))).not.toContain("training profile timezone");
+  const day = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  expect(nodes("CalendarDate").find(n => n.props.label === "Class date")!.props.value).toBe(day);
+  expect(nodes("Field").find(n => n.props.label === "Gym")!.props.value).toBe("Unified");
+});
 it("an ambiguous class date is blocked locally before transport", async () => {
   fixture.params = { class: "1" };
   await mount(Capture);

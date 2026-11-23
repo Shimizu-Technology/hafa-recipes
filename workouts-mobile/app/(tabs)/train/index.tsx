@@ -540,7 +540,8 @@ export default function Plan() {
         </>}
       </Sheet>
     </Screen>
-    <AskCoachPill bottom={12} />
+    {/* A workout in progress puts Resume on Today; keep the pill off it. */}
+    <AskCoachPill bottom={12} hidden={!!offline.state.active} />
     </>
   );
 }

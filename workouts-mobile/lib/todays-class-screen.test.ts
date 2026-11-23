@@ -64,3 +64,30 @@ it("keeps classes hidden when the profile timezone fails and offers a retry", as
     cache.clear(); vi.useRealTimers();
   }
 });
+it("uses the phone's timezone when there's no training profile yet, and shows tomorrow's saved class", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-17T05:00:00Z"));
+  f.profile.mockReset(); f.library.mockReset(); f.push.mockClear();
+  f.profile.mockResolvedValue(null);
+  const deviceDay = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const next = new Date(`${deviceDay}T12:00:00Z`); next.setUTCDate(next.getUTCDate() + 1);
+  f.library.mockResolvedValue([
+    { ...nov17Class, id: "today", programming: { ...nov17Class.programming, date: deviceDay } },
+    { ...nov17Class, id: "tomorrow", title: "Tomorrow class", programming: { ...nov17Class.programming, date: next.toISOString().slice(0, 10) } },
+  ]);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  let tree: ReturnType<typeof create> | undefined;
+  try {
+    await act(async () => { tree = create(createElement(QueryClientProvider, { client: cache }, createElement(TodaysClass))); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(tree!.root.findAllByType("Notice" as any)).toHaveLength(0);
+    expect(tree!.root.findAllByType("Button" as any)).toHaveLength(0);
+    const rows = tree!.root.findAllByType("ListRow" as any);
+    expect(rows.map(r => r.props.detail)).toEqual(["Today’s class · Ready to train", "Tomorrow’s class · Saved and ready", "Import gym text, screenshots or a Full Page PDF"]);
+    await act(async () => rows[1].props.onPress());
+    expect(f.push).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "tomorrow" } });
+  } finally {
+    if (tree) await act(async () => tree!.unmount());
+    cache.clear(); vi.useRealTimers();
+  }
+});

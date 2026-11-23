@@ -16,7 +16,8 @@ const shift = (date: string, days: number) => {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
-export function weekDays(today: string, done: ReadonlySet<string>, planned: ReadonlySet<string>, locale?: string): WeekDay[] {
+/** `classes` are days with a saved gym class: they show as planned and say so. */
+export function weekDays(today: string, done: ReadonlySet<string>, planned: ReadonlySet<string>, locale?: string, classes: ReadonlySet<string> = new Set()): WeekDay[] {
   const weekday = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
   const monday = shift(today, -weekday);
   const narrow = new Intl.DateTimeFormat(locale, { weekday: "narrow", timeZone: "UTC" });
@@ -24,9 +25,12 @@ export function weekDays(today: string, done: ReadonlySet<string>, planned: Read
   return Array.from({ length: 7 }, (_, i) => {
     const date = shift(monday, i);
     const at = new Date(`${date}T12:00:00Z`);
-    const state: WeekDayState = done.has(date) ? "done" : date === today ? "today" : planned.has(date) ? "planned" : "rest";
+    const ahead = planned.has(date) || classes.has(date);
+    const state: WeekDayState = done.has(date) ? "done" : date === today ? "today" : ahead ? "planned" : "rest";
     const detail = done.has(date)
       ? date === today ? "today, training recorded" : "training recorded"
+      : classes.has(date)
+        ? date === today ? "today, class saved" : "class saved"
       : planned.has(date)
         ? date === today
           ? "today, session planned"

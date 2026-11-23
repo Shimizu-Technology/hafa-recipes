@@ -38,3 +38,10 @@ it("uses the accessible icon-only entry at accessibility text sizes", () => {
   expect(view!.root.findAllByType("Text" as never)).toHaveLength(0);
   expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toBe("Ask Coach");
 });
+
+it("steps aside when its screen needs the space, such as Today with a workout to resume", () => {
+  act(() => { view = create(createElement(AskCoachPill, { bottom: 12, hidden: true })); });
+  expect(view!.root.findAllByType("Pressable" as never)).toHaveLength(0);
+  act(() => view!.update(createElement(AskCoachPill, { bottom: 12 })));
+  expect(view!.root.findAllByType("Pressable" as never)).toHaveLength(1);
+});

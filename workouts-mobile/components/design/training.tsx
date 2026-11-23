@@ -236,9 +236,9 @@ export function SetRow({
   );
 }
 
-export type DayMark = { today?: boolean; label: string; state: "done" | "planned" | "today" | "rest"; accessibilityLabel: string };
+export type DayMark = { date?: string; today?: boolean; label: string; state: "done" | "planned" | "today" | "rest"; accessibilityLabel: string };
 /** This week at a glance: done, planned and today. No streak pressure. */
-export function WeekStrip({ days, onPress }: { days: DayMark[]; onPress?(): void }) {
+export function WeekStrip({ days, onPress, hint = () => "Opens your training progress" }: { days: DayMark[]; onPress?(day: DayMark): void; hint?(day: DayMark): string }) {
   const c = useColors();
   const Target = onPress ? Pressable : View;
   return (
@@ -247,7 +247,7 @@ export function WeekStrip({ days, onPress }: { days: DayMark[]; onPress?(): void
         const done = day.state === "done";
         const today = day.today || day.state === "today";
         return (
-          <Target key={i} accessible accessibilityRole={onPress ? "button" : undefined} accessibilityHint={onPress ? "Opens your training progress" : undefined} onPress={onPress} accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", gap: 6, flex: 1 }}>
+          <Target key={i} accessible accessibilityRole={onPress ? "button" : undefined} accessibilityHint={onPress ? hint(day) : undefined} onPress={onPress ? () => onPress(day) : undefined} accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", gap: 6, flex: 1 }}>
             <Copy kind="caption" tone={today ? "accent" : "muted"}>
               {day.label}
             </Copy>

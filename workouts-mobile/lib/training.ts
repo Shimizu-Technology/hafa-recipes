@@ -296,6 +296,14 @@ export function actualErrors(actual: ActualSet) {
     errors.push("Record actual reps, time or distance before completing a set.");
   return errors;
 }
+/** The phone's timezone: the training day until the person saves a profile with their own. */
+export function deviceTimezone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+/** A saved profile's timezone, else the phone's. A missing profile is not an error. */
+export function trainingTimezone(profile: { timezone?: string | null } | null | undefined) {
+  return profile?.timezone || deviceTimezone();
+}
 export function dateInTimezone(date: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
