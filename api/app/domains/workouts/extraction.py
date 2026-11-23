@@ -117,6 +117,9 @@ class ExtractionRequest(DomainModel):
     # receive AMRAP-only executions; an absent False keeps request digests stable.
     typed_formats: bool = Field(default=False, exclude_if=lambda value: not value)
     class_parts: bool = Field(default=False, exclude_if=lambda value: not value)
+    # Builds that run a multi-part workout part by part (including several timed parts) opt in;
+    # older builds keep the review warning for timed multi-part imports.
+    multipart_runner: bool = Field(default=False, exclude_if=lambda value: not value)
     # Builds that show listed sets and per-athlete values opt in; others keep
     # the earlier class shape (with those facts summarized in older fields).
     class_rows: bool = Field(default=False, exclude_if=lambda value: not value)
@@ -1288,7 +1291,8 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
     if field_name in {"reps_min", "reps_max"}:
         # 21-15-9 and ladder 1-10 are per-round schemes, never one rep range.
         wording = scheme_wording(wording)
-        ranges = re.findall(r"(\d+)\s*[-–]\s*(\d+)", wording)
+        # A time range ("30-45 seconds Plank") is a hold, never a rep range.
+        ranges = re.findall(r"(\d+)\s*[-–]\s*(\d+)\b(?!\s*(?:seconds?|secs?|s|minutes?|mins?|min)\b)", wording, re.I)
         if ranges:
             index = 0 if field_name == "reps_min" else 1
             return any(float(pair[index]) == value for pair in ranges)
@@ -1483,20 +1487,37 @@ def _prescription_wording(item, entry, source):
     return clauses or [entry.wording]
 
 
-def _reuse_rep_name_quotes(item, source: SourceBundle):
+LIST_MARKER = r"[^\S\r\n]*(?:[-*•]|\d+[.)])[^\S\r\n]+"
+
+
+def _matches_prescription_field(entry, field_name):
+    return entry.field == field_name or (
+        entry.field == "reps" and field_name in {"reps_min", "reps_max"}
+    )
+
+
+def _reuse_movement_dose_quotes(item, source: SourceBundle):
     """Reuse only an unambiguous whole movement/dose row, never a nearby number."""
-    row = re.compile(
-        rf"\s{{0,8}}\d{{1,4}}\s{{0,8}}(?:[x×]\s{{0,8}}|(?:reps?|repetitions?)\s{{1,8}})?{re.escape(item.name)}"
+    prefix = rf"(?:{LIST_MARKER})?\s{{0,8}}"
+    reps_row = re.compile(
+        rf"{prefix}\d{{1,4}}\s{{0,8}}(?:[x×]\s{{0,8}}|(?:reps?|repetitions?)\s{{1,8}})?{re.escape(item.name)}"
         r"(?:\s{0,8}\(\d{1,4}(?:\s{1,8}(?:each|per)\s{1,8}|\s{0,8}/\s{0,8})(?:side|leg|arm|limb)\))?\s{0,8}[.!]?\s{0,8}",
         re.I,
     )
-    for field_name in ("reps_min", "reps_max"):
+    duration_row = re.compile(
+        # A bare "m" means metres in workout text (400 m Run), so minutes need "min" or "minute".
+        rf"{prefix}\d{{1,4}}(?:\.\d+)?\s*(?:seconds?|secs?|s|minutes?|mins?)"
+        rf"\s+{re.escape(item.name)}\s*[.!]?\s*", re.I,
+    )
+    for field_name in ("reps_min", "reps_max", "duration_seconds"):
+        row = duration_row if field_name == "duration_seconds" else reps_row
+        quote_fields = {"name"} if field_name == "duration_seconds" else {"name", "reps_min", "reps_max"}
         value = getattr(item, field_name)
         if value is None or len(item.evidence) >= 100:
             continue
         for entry in list(item.evidence):
             # "12 Burpees" quoted for reps_min supports the equal reps_max too.
-            if (entry.field not in {"name", "reps_min", "reps_max"} or not row.fullmatch(entry.wording)
+            if (entry.field not in quote_fields or not row.fullmatch(entry.wording)
                     or not _numeric_supported(field_name, value, entry.wording, item.name)
                     or not any(part.location == entry.location and any(
                         entry.wording in line and row.fullmatch(line)
@@ -1516,7 +1537,7 @@ def _normalize_side_counts(item, source: SourceBundle):
         for match in _affirmative_side_counts(clause):
             if not any(
                 entry.location == location and (entry.wording in line or line in entry.wording)
-                and entry.field in {"reps_min", "reps_max", "per_side"}
+                and entry.field in {"reps", "reps_min", "reps_max", "per_side"}
                 for entry in item.evidence
             ):
                 continue
@@ -1530,7 +1551,10 @@ def _normalize_side_counts(item, source: SourceBundle):
     # an unqualified total, or invent a missing reps field.
     fields = [field for field in ("reps_min", "reps_max")
               if getattr(item, field) is not None and any(
-                  entry.field == field and any(
+                  _matches_prescription_field(entry, field)
+                  and (entry.field != "reps" or _numeric_supported(
+                      field, getattr(item, field), entry.wording, item.name))
+                  and any(
                       _numeric_supported(field, getattr(item, field), wording, item.name)
                       for wording in _prescription_wording(item, entry, source)
                   )
@@ -1889,8 +1913,56 @@ def _legacy_execution(workout):
             item.rep_scheme = item.ladder = None
 
 
+ROW_DOSE = re.compile(
+    r"^\d{1,4}(?:\s*[-–]\s*\d{1,4})?\s*(?:[x×]|reps?|repetitions?|seconds?|secs?|s|minutes?|mins?|min)?\s+", re.I
+)
+
+
+def _row_lists_movement(row, name):
+    """The row lists this exact movement (one of its comma-separated entries), not a longer one containing it."""
+    body = re.sub(rf"^{LIST_MARKER}", "", row)
+    for entry in body.split(","):
+        entry = re.sub(r"\s*\([^)]*\)\s*$", "", ROW_DOSE.sub("", entry.strip())).strip(" .!")
+        if entry.casefold() == name.strip().casefold():
+            return True
+    return False
+
+
+def _ground_list_circuit(block, source):
+    """A fixed-round header can scope a contiguous list of movement rows."""
+    if (block.grouping != "sequential" or block.execution is not None
+            or block.rounds is None or block.rounds < 2 or len(block.exercises) < 2
+            or any(item.sets is not None for item in block.exercises)):
+        return
+    header = (
+        rf"[^\S\r\n]*(?:[^:,\r\n]+:[^\S\r\n]*)?{block.rounds} rounds?"
+        r"(?:,\s*rest\s+\d+\s*(?:seconds?|secs?|s|minutes?|mins?|m)\s+between rounds?)?\s*:?[^\S\r\n]*"
+    )
+    listed = re.compile(rf"^({header})\r?\n((?:{LIST_MARKER}[^\r\n]+(?:\r?\n|$)){{2,}})", re.I | re.M)
+    for part in source.parts:
+        for match in listed.finditer(part.text):
+            if not _affirmative_execution_prefix(match[1].split(",", 1)[0]):
+                continue
+            if not any(entry.field == "rounds" and entry.location == part.location
+                       and _numeric_supported("rounds", block.rounds, entry.wording)
+                       and entry.wording in match[1] for entry in block.evidence):
+                continue
+            rows = match[2].splitlines()
+            matched_rows = [
+                {index for index, row in enumerate(rows) if _row_lists_movement(row, item.name) and any(
+                    entry.field == "name" and entry.location == part.location
+                    and item.name.casefold() in entry.wording.casefold() and entry.wording in row
+                    for entry in item.evidence)}
+                for item in block.exercises
+            ]
+            if all(matched_rows) and len(set().union(*matched_rows)) >= 2:
+                block.grouping = "circuit"
+                return
+
+
 def ground_workout(
-    raw: dict, source: SourceBundle, *, typed_formats: bool = True, class_parts: bool = False
+    raw: dict, source: SourceBundle, *, typed_formats: bool = True, class_parts: bool = False,
+    multipart_runner: bool = True,
 ) -> tuple[WorkoutContent, list[str], list[Evidence]]:
     """Schema validity is insufficient: strip unsupported values, retain the draft."""
     raw = raw if class_parts else legacy_shape(raw)
@@ -1946,7 +2018,7 @@ def ground_workout(
             item.instructions = None
             item.exercise_id = None  # Movement matching is a distinct review step.
             item.evidence = [value for value in item.evidence if _quote_is_supported(value, source)]
-            _reuse_rep_name_quotes(item, source)
+            _reuse_movement_dose_quotes(item, source)
             side_warning = _normalize_side_counts(item, source)
             if side_warning:
                 warnings.append(side_warning)
@@ -1973,7 +2045,10 @@ def ground_workout(
                 value = getattr(item, field_name)
                 if value is None:
                     continue
-                valid_evidence = [entry for entry in item.evidence if entry.field == field_name]
+                valid_evidence = [
+                    entry for entry in item.evidence if _matches_prescription_field(entry, field_name)
+                    and (entry.field != "reps" or _numeric_supported(field_name, value, entry.wording, item.name))
+                ]
                 supported = any(
                     any(_value_supported(field_name, value, wording, item.name) for wording in (
                         _prescription_wording(item, entry, source)
@@ -2014,6 +2089,7 @@ def ground_workout(
             item.evidence = [entry.model_copy(update={"field": "instructions"})
                              if entry.field == "notes" else entry for entry in item.evidence]
             collected.extend(item.evidence)
+        _ground_list_circuit(block, source)
         block_warnings[id(block)] = (first_warning, len(warnings))
     scaled_versions = _fold_scaled_versions(
         workout, source, block_warnings, clean_execution, warnings) if typed_formats and not class_parts else []
@@ -2028,7 +2104,11 @@ def ground_workout(
                     if block.execution is not None and block.execution.mode != "amrap"]
     if not typed_formats:
         _legacy_execution(workout)
-    if not class_parts and any(block.execution for block in workout.blocks) and not supports_timed(workout):
+    # Only builds that declare the part-by-part runner skip the review warning for mixed sessions.
+    supports_multipart = (multipart_runner and typed_formats and workout.kind != "program" and len(workout.blocks) > 1
+                          and all(block.execution is None or is_timed(block) for block in workout.blocks))
+    if (not class_parts and not supports_multipart and any(block.execution for block in workout.blocks)
+            and not supports_timed(workout)):
         warnings.append("Review the timed blocks as separate single-circuit workouts before training.")
     context_evidence = [entry for block in workout.blocks for entry in block.evidence
                         if entry.location in text_locations and (
@@ -2100,7 +2180,8 @@ def _visual_review_required(workout: WorkoutContent, source: SourceBundle) -> bo
         matches = [
             entry
             for entry in evidence
-            if entry.field == field_name and _value_supported(field_name, value, entry.wording, exercise_name)
+            if _matches_prescription_field(entry, field_name)
+            and _value_supported(field_name, value, entry.wording, exercise_name)
             and _time_evidence_supported(field_name, value, entry, source, exercise_name)
         ]
         return any(
@@ -2366,14 +2447,16 @@ class WorkoutExtractor:
                 staged_media = False
                 raw = await extract_provider()
             typed = request.typed_formats or request.class_parts
-            workout, warnings, evidence = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts)
+            workout, warnings, evidence = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts,
+                                                          multipart_runner=request.multipart_runner)
             if (staged_media and not source.paid_recovery_denied
                     and not _text_prescription_usable(workout, source.warnings + warnings, source)):
                 previous = (workout, warnings, evidence)
                 await acquire_media()
                 try:
                     raw = await extract_provider()
-                    candidate = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts)
+                    candidate = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts,
+                                                          multipart_runner=request.multipart_runner)
                     if (_prescription_quality(candidate[0]) >= _prescription_quality(workout)
                             and _prescription_preserves(candidate[0], workout)):
                         workout, warnings, evidence = candidate

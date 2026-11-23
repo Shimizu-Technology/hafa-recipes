@@ -46,5 +46,5 @@ export function recoverySource(source: ExtractionRequest | null, sourceURL: stri
   return boundedSource({ kind: original?.kind ?? "text", source_url: original?.source_url,
     ...(classParts ? { class_parts: true, programming: programming ?? original?.programming ?? fallback?.programming } : {}),
     images: original?.images, document_base64: original?.document_base64,
-    document_mime: original?.document_mime, ...(text ? { text } : {}), ai_consent: true, typed_formats: true });
+    document_mime: original?.document_mime, ...(text ? { text } : {}), ai_consent: true, typed_formats: true, multipart_runner: true });
 }
