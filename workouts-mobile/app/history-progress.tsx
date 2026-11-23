@@ -32,7 +32,8 @@ function SessionSummary({ title, when, request, workout, ranTimer, onOpen }: {
   // A class run's scored parts: "A · AMRAP 15: 3 + 10".
   const partScores = (request.results ?? []).filter((r) => r.kind !== "completed")
     .map((r) => { const block = workout.blocks.find((b) => b.id === r.block_id); return `${block?.label || "Part"}: ${formatPartScore(r)}`; });
-  const score = formatScore(workout, request, ranTimer) || partScores.join(" · ") || null;
+  // A saved part score (possibly corrected) wins over the timer summary.
+  const score = partScores.join(" · ") || formatScore(workout, request, ranTimer) || null;
   const body = <>
     <Row justify="space-between">
       <Copy kind="caption" tone="muted">{when}</Copy>
@@ -48,7 +49,7 @@ function SessionSummary({ title, when, request, workout, ranTimer, onOpen }: {
   </>;
   if (!onOpen) return <View style={{ gap: 4 }}>{body}</View>;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${title}, ${when}. View session`} onPress={onOpen}
+    <Pressable accessibilityRole="button" accessibilityLabel={`${title}, ${when}${score ? `, ${score}` : ""}. View session`} onPress={onOpen}
       style={({ pressed }) => ({ gap: 4, opacity: pressed ? 0.7 : 1 })}>
       {body}
     </Pressable>

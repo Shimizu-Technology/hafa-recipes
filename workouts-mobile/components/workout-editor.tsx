@@ -216,7 +216,7 @@ export function WorkoutEditor({
             {formatChoices.map(([choice, label]) => (
               <Column key={choice}><Choice role="radio" disabled={disabled} selected={formatChoice(block) === choice}
                 label={choice === "none" && block.grouping !== "circuit" ? "No timer" : label}
-                onPress={() => update(changeFormat(value, bi, choice))} /></Column>
+                onPress={() => { setCapTouched(current => current.filter(id => id !== block.id)); update(changeFormat(value, bi, choice)); }} /></Column>
             ))}
           </Columns>
           {formatChoice(block) === "unknown" && <Copy kind="small" tone="muted">This workout uses a timer this app version doesn’t know. It’s kept as it is unless you choose another timer here.</Copy>}

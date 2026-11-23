@@ -286,6 +286,12 @@ it("asks for an AMRAP cap as a prompt until it is typed, then checks it", async 
   expect(copy()).not.toContain("Enter how long the AMRAP runs.");
   await act(async () => field("AMRAP time cap · minutes")!.props.onChange(""));
   expect(copy()).toContain("AMRAP time cap must be");
+  // Switching timers and back starts a fresh AMRAP: a prompt again, not the error.
+  const choice = (label: string) => renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === label)!;
+  await act(async () => choice("Set number of rounds").props.onPress());
+  await act(async () => choice("As many rounds as possible").props.onPress());
+  expect(copy()).toContain("Enter how long the AMRAP runs.");
+  expect(copy()).not.toContain("AMRAP time cap must be");
 });
 
 it("offers Sets for straight sets but not inside a circuit's rounds", async () => {

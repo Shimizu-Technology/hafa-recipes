@@ -313,6 +313,8 @@ it("a class session card shows its scored parts, and sessions come before record
   fixture.remote = [run];
   await act(async () => { renderer = create(tree()); }); await settle();
   expect(text()).toMatch(/: 3 \+ 10/);
+  const card = renderer!.root.findAllByType("Pressable" as never).find((node) => /View session$/.test(node.props.accessibilityLabel))!;
+  expect(card.props.accessibilityLabel).toMatch(/: 3 \+ 10\. View session$/);
   const order = renderer!.root.findAll((n) => n.type === ("ProgressRecords" as never) || (n.type === ("SectionHeader" as never) && n.props.title === "Recent sessions"))
     .map((n) => n.type === ("ProgressRecords" as never) ? "records" : "sessions");
   expect(order).toEqual(["sessions", "records"]);
