@@ -743,7 +743,7 @@ async def test_streamed_slideshow_images_bound_bytes_and_normalize(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("primary", ["name_quote_dose", "malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
+@pytest.mark.parametrize("primary", ["pasted_list", "name_quote_dose", "malformed", "empty", "missing_dose", "missing_some_dose", "missing_movement",
                                      "missing_inline_movement",
                                      "missing_dose_and_unsupported_movement",
                                      "partial_recovery_failed", "partial_recovery_denied",
@@ -796,7 +796,9 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
         payloads.append(json.loads(request.content))
         value = reel_workout()
         if len(payloads) == 1:
-            if primary == "name_quote_dose":
+            if primary == "pasted_list":
+                value = pasted_workout_payload()
+            elif primary == "name_quote_dose":
                 value["blocks"][0]["execution"] = {"mode": "amrap", "time_cap_seconds": 1200}
                 value["blocks"][0]["evidence"].extend([
                     evidence("execution.mode", REEL_INSTRUCTIONS, "caption"),
@@ -847,9 +849,16 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     budget = FakeBudget(deny_at=2 if denied else None)
     caption = REEL_CAPTION.replace("\n10 x", " + 10 x") if primary == "missing_inline_movement" else REEL_CAPTION
     source = SourceBundle(SourceMetadata(url=REEL), [SourcePart("caption", caption)])
+    if primary == "pasted_list":
+        source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", PASTED_WORKOUT)])
     result = await ProductionExtractionProvider(
         budget_guard=budget, development_api_key="explicit-budget-test-key"
     ).extract(source)
+    if primary == "pasted_list":
+        assert [attempt.model for attempt in attempts] == ["primary-test"]
+        assert budget.outcomes == ["success"]
+        assert result == pasted_workout_payload()
+        return
     assert len(result["blocks"][0]["exercises"]) == (8 if partial else 9)
     assert source.paid_recovery_denied is denied
     if primary == "name_quote_dose":
@@ -2529,3 +2538,111 @@ async def test_empty_workout_keeps_transient_media_failure(monkeypatch, stage, c
     result = await WorkoutExtractor(FakeProvider()).extract(
         ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True))
     assert result.error_code == "source_or_provider_unavailable"
+
+PASTED_WORKOUT = """Home Wall Street Walk (bodyweight)
+
+Warm-up: 2 rounds
+- 1 minute march in place
+- 5 inchworms
+- 10 air squats
+- 10 scap push-ups
+- 5 pike push-ups
+
+Main: AMRAP 15 minutes
+- 8 pike push-ups
+- 10 air squats
+- 8 burpees (no jump)
+
+Accessories: 3 rounds, rest 60 seconds between rounds
+- 10-12 backpack curls
+- 8-12 counter tricep extensions
+- 10 Y raises, 10 T raises, 10 W raises"""
+
+
+def pasted_workout_payload():
+    def reps(name, low, high=None, quote=None):
+        high = low if high is None else high
+        quote = quote or f"{low if low == high else f'{low}-{high}'} {name}"
+        return {
+            "name": name, "reps_min": low, "reps_max": high,
+            "evidence": [evidence("name", quote), evidence("reps", quote)],
+        }
+
+    march = {
+        "name": "march in place", "duration_seconds": 60,
+        "evidence": [evidence("name", "1 minute march in place")],
+    }
+    raises = "10 Y raises, 10 T raises, 10 W raises"
+    return {"title": "Home Wall Street Walk (bodyweight)", "kind": "session", "blocks": [
+        {"id": "warm-up", "label": "Warm-up", "role": "warm_up", "grouping": "sequential", "rounds": 2,
+         "evidence": [evidence("rounds", "2 rounds")],
+         "exercises": [march, reps("inchworms", 5), reps("air squats", 10),
+                       reps("scap push-ups", 10), reps("pike push-ups", 5)]},
+        {"id": "main", "label": "Main", "grouping": "sequential",
+         "execution": {"mode": "amrap", "time_cap_seconds": 900},
+         "evidence": [evidence("execution.mode", "AMRAP 15 minutes"),
+                      evidence("execution.time_cap_seconds", "15 minutes")],
+         "exercises": [reps("pike push-ups", 8), reps("air squats", 10),
+                       reps("burpees", 8, quote="8 burpees (no jump)")]},
+        {"id": "accessories", "label": "Accessories", "grouping": "sequential", "rounds": 3,
+         "rest_between_rounds_seconds": 60,
+         "evidence": [evidence("rounds", "3 rounds"),
+                      evidence("rest_between_rounds_seconds", "rest 60 seconds between rounds")],
+         "exercises": [reps("backpack curls", 10, 12), reps("counter tricep extensions", 8, 12),
+                       *(reps(f"{letter} raises", 10, quote=raises) for letter in "YTW")]},
+    ]}
+
+
+@pytest.mark.parametrize("duration_evidence", [False, True], ids=["name-quote", "duration-quote"])
+async def test_pasted_workout_retains_grounded_doses_and_is_ready(duration_evidence):
+    raw = pasted_workout_payload()
+    if duration_evidence:
+        raw["blocks"][0]["exercises"][0]["evidence"].append(evidence("duration_seconds", "1 minute"))
+    result = await WorkoutExtractor(FakeProvider(raw)).extract(
+        ExtractionRequest(kind="text", text=PASTED_WORKOUT, typed_formats=True, ai_consent=True))
+    assert result.warnings == []
+    assert result.status == "ready"
+    warm_up, main, accessories = result.workout.blocks
+    assert (warm_up.grouping, warm_up.rounds) == ("circuit", 2)
+    assert (accessories.grouping, accessories.rounds, accessories.rest_between_rounds_seconds) == ("circuit", 3, 60)
+    assert (main.execution.mode, main.execution.time_cap_seconds) == ("amrap", 900)
+    assert warm_up.exercises[0].duration_seconds == 60
+    assert [[(item.reps_min, item.reps_max) for item in block.exercises] for block in result.workout.blocks] == [
+        [(None, None), (5, 5), (10, 10), (10, 10), (5, 5)],
+        [(8, 8), (10, 10), (8, 8)],
+        [(10, 12), (8, 12), (10, 10), (10, 10), (10, 10)],
+    ]
+
+
+@pytest.mark.parametrize("marker", ["- ", "  • ", "* ", "1. ", "1) "])
+def test_list_marker_allows_reusing_a_whole_name_quote_for_reps(marker):
+    text = PASTED_WORKOUT.replace("- 5 inchworms", f"{marker}5 inchworms")
+    raw = pasted_workout_payload()
+    raw["blocks"][0]["exercises"][1]["evidence"] = [evidence("name", "5 inchworms")]
+    workout, warnings, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", text)]))
+    item = workout.blocks[0].exercises[1]
+    assert (item.reps_min, item.reps_max) == (5, 5)
+    assert warnings == []
+
+
+def test_pasted_workout_keeps_legacy_warning_and_rejects_unsupported_reps():
+    raw = pasted_workout_payload()
+    item = raw["blocks"][2]["exercises"][0]
+    item["reps_max"] = 15  # Present in the AMRAP header only.
+    workout, warnings, _ = ground_workout(
+        raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", PASTED_WORKOUT)]), typed_formats=False)
+    assert workout.blocks[2].exercises[0].reps_min == 10
+    assert workout.blocks[2].exercises[0].reps_max is None
+    assert warnings == [
+        "Unsupported reps_max removed from backpack curls.",
+        "Review the timed blocks as separate single-circuit workouts before training.",
+    ]
+
+
+def test_rounds_header_for_other_movements_does_not_change_grouping():
+    raw = pasted_workout_payload()
+    raw["blocks"][2]["evidence"][0] = evidence("rounds", "2 rounds")
+    raw["blocks"][2]["rounds"] = 2
+    workout, _, _ = ground_workout(
+        raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", PASTED_WORKOUT)]))
+    assert workout.blocks[2].grouping == "sequential"

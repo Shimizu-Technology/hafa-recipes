@@ -761,8 +761,7 @@ def test_other_timed_blocks_are_not_folded_as_versions(change):
     workout, warnings, _ = on_page(CROSSFIT_FRAN, data, typed=change != "legacy build")
     assert len(workout.blocks) == 3
     assert not any(line.startswith(("Intermediate:", "Intermediate Variation:")) for line in workout.instructions)
-    if change != "legacy build":
-        assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any("single-circuit" in warning for warning in warnings)
 
 
 def emom_part(key, label, text_label, quote, *moves):
@@ -784,7 +783,7 @@ def test_a_different_timed_part_is_not_folded_as_a_version(heading, label):
     workout, warnings, _ = on_page(text, data)
     assert [block.label for block in workout.blocks] == ["Part 1", label]
     assert [item.name for item in workout.blocks[1].exercises] == ["Kettlebell Swings"]
-    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any("single-circuit" in warning for warning in warnings)
     assert not any("Kettlebell" in line for line in workout.instructions)
 
 
@@ -803,7 +802,7 @@ def test_a_model_label_the_source_never_uses_folds_nothing_into_instructions(lab
     workout, warnings, _ = on_page(text, {"title": "Two parts", "kind": "session", "blocks": [first, then]})
     assert [block.label for block in workout.blocks] == ["Rx", label]
     assert not any("ignore" in line or "Box Jumps" in line for line in workout.instructions)
-    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any("single-circuit" in warning for warning in warnings)
 
 
 def test_a_named_level_that_shares_no_movement_is_not_a_version():
@@ -851,7 +850,7 @@ def test_a_level_word_only_in_prose_folds_nothing(label, prose):
     data["blocks"][1]["execution"]["intervals"] = 8
     workout, warnings, _ = on_page(text, data)
     assert [block.label for block in workout.blocks] == ["Rx", label]
-    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any("single-circuit" in warning for warning in warnings)
     assert not any("Burpees 6" in line for line in workout.instructions)
 
 
@@ -864,7 +863,7 @@ def test_a_version_whose_clock_conflicts_with_the_source_keeps_its_block_and_war
     workout, warnings, _ = on_page(text, data)
     assert [block.label for block in workout.blocks] == ["Rx’d", "Intermediate Variation", "Beginner Variation"]
     assert "The timed execution for Beginner Variation needs source review." in warnings
-    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any("single-circuit" in warning for warning in warnings)
     assert not any(line.startswith(("Intermediate:", "Beginner:")) for line in workout.instructions)
     assert not _complete(workout, warnings)
 
@@ -883,8 +882,8 @@ def test_two_back_to_back_tabatas_keep_their_work_rest_clock():
     assert [block.execution.model_dump() for block in workout.blocks] == [
         {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 8}] * 2
     # The page runs eight rounds of each move in turn, not alternating moves:
-    # two timed parts, which the player still runs one per session.
-    assert warnings == ["Review the timed blocks as separate single-circuit workouts before training."]
+    # the class runner plays both timed parts in order.
+    assert warnings == []
 
 
 @pytest.mark.parametrize("quotes,value", [
