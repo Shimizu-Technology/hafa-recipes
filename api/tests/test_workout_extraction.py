@@ -2599,7 +2599,7 @@ async def test_pasted_workout_retains_grounded_doses_and_is_ready(duration_evide
     if duration_evidence:
         raw["blocks"][0]["exercises"][0]["evidence"].append(evidence("duration_seconds", "1 minute"))
     result = await WorkoutExtractor(FakeProvider(raw)).extract(
-        ExtractionRequest(kind="text", text=PASTED_WORKOUT, typed_formats=True, ai_consent=True))
+        ExtractionRequest(kind="text", text=PASTED_WORKOUT, typed_formats=True, multipart_runner=True, ai_consent=True))
     assert result.warnings == []
     assert result.status == "ready"
     warm_up, main, accessories = result.workout.blocks
@@ -2661,3 +2661,37 @@ def test_a_bare_m_in_a_list_row_is_metres_not_minutes():
     )
     assert workout.blocks[0].exercises[0].duration_seconds is None
     assert "Unsupported duration_seconds removed from Run." in warnings
+
+
+def test_typed_formats_alone_keeps_the_multipart_review_warning():
+    # A build that reads typed formats but predates the part-by-part runner still gets the review note.
+    workout, warnings, _ = ground_workout(
+        pasted_workout_payload(), SourceBundle(SourceMetadata(), [SourcePart("provided_text", PASTED_WORKOUT)]),
+        multipart_runner=False)
+    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    _, declared, _ = ground_workout(
+        pasted_workout_payload(), SourceBundle(SourceMetadata(), [SourcePart("provided_text", PASTED_WORKOUT)]),
+        multipart_runner=True)
+    assert not any("single-circuit" in warning for warning in declared)
+
+
+def test_a_list_circuit_needs_the_exact_movements_not_longer_ones():
+    text = "Warm-up: 2 rounds\n- 10 Jump Squats\n- 10 Jump Lunges\n\nStrength\nSquats\nLunges\n"
+    raw = complete_workout()
+    raw["blocks"][0].update({"grouping": "sequential", "rounds": 2, "execution": None,
+                             "evidence": [evidence("rounds", "2 rounds")]})
+    raw["blocks"][0]["exercises"] = [
+        {**raw["blocks"][0]["exercises"][0], "name": name, "sets": None, "reps_min": None, "reps_max": None,
+         "evidence": [evidence("name", name)]} for name in ("Squats", "Lunges")]
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", text)]))
+    assert workout.blocks[0].grouping == "sequential"
+
+
+def test_a_time_range_is_not_a_rep_range():
+    raw = complete_workout()
+    raw["blocks"][0]["exercises"] = [{**raw["blocks"][0]["exercises"][0], "name": "Plank", "sets": None,
+        "reps_min": 30, "reps_max": 45, "evidence": [evidence("name", "Plank"), evidence("reps", "30-45 seconds Plank")]}]
+    workout, _, _ = ground_workout(
+        raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", "- 30-45 seconds Plank")]))
+    item = workout.blocks[0].exercises[0]
+    assert (item.reps_min, item.reps_max) == (None, None)

@@ -75,6 +75,8 @@ export interface ExtractionRequest {
   ai_consent: boolean;
   /** This build runs EMOM, for-time and work/rest formats, so the API may return them. */
   typed_formats?: boolean;
+  /** This build runs a multi-part workout part by part, so mixed timed sessions need no review note. */
+  multipart_runner?: boolean;
 }
 export interface Evidence {
   field: string;

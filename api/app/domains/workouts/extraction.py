@@ -117,6 +117,9 @@ class ExtractionRequest(DomainModel):
     # receive AMRAP-only executions; an absent False keeps request digests stable.
     typed_formats: bool = Field(default=False, exclude_if=lambda value: not value)
     class_parts: bool = Field(default=False, exclude_if=lambda value: not value)
+    # Builds that run a multi-part workout part by part (including several timed parts) opt in;
+    # older builds keep the review warning for timed multi-part imports.
+    multipart_runner: bool = Field(default=False, exclude_if=lambda value: not value)
     # Builds that show listed sets and per-athlete values opt in; others keep
     # the earlier class shape (with those facts summarized in older fields).
     class_rows: bool = Field(default=False, exclude_if=lambda value: not value)
@@ -1288,7 +1291,8 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
     if field_name in {"reps_min", "reps_max"}:
         # 21-15-9 and ladder 1-10 are per-round schemes, never one rep range.
         wording = scheme_wording(wording)
-        ranges = re.findall(r"(\d+)\s*[-–]\s*(\d+)", wording)
+        # A time range ("30-45 seconds Plank") is a hold, never a rep range.
+        ranges = re.findall(r"(\d+)\s*[-–]\s*(\d+)\b(?!\s*(?:seconds?|secs?|s|minutes?|mins?|min)\b)", wording, re.I)
         if ranges:
             index = 0 if field_name == "reps_min" else 1
             return any(float(pair[index]) == value for pair in ranges)
@@ -1909,6 +1913,21 @@ def _legacy_execution(workout):
             item.rep_scheme = item.ladder = None
 
 
+ROW_DOSE = re.compile(
+    r"^\d{1,4}(?:\s*[-–]\s*\d{1,4})?\s*(?:[x×]|reps?|repetitions?|seconds?|secs?|s|minutes?|mins?|min)?\s+", re.I
+)
+
+
+def _row_lists_movement(row, name):
+    """The row lists this exact movement (one of its comma-separated entries), not a longer one containing it."""
+    body = re.sub(rf"^{LIST_MARKER}", "", row)
+    for entry in body.split(","):
+        entry = re.sub(r"\s*\([^)]*\)\s*$", "", ROW_DOSE.sub("", entry.strip())).strip(" .!")
+        if entry.casefold() == name.strip().casefold():
+            return True
+    return False
+
+
 def _ground_list_circuit(block, source):
     """A fixed-round header can scope a contiguous list of movement rows."""
     if (block.grouping != "sequential" or block.execution is not None
@@ -1930,7 +1949,7 @@ def _ground_list_circuit(block, source):
                 continue
             rows = match[2].splitlines()
             matched_rows = [
-                {index for index, row in enumerate(rows) if any(
+                {index for index, row in enumerate(rows) if _row_lists_movement(row, item.name) and any(
                     entry.field == "name" and entry.location == part.location
                     and item.name.casefold() in entry.wording.casefold() and entry.wording in row
                     for entry in item.evidence)}
@@ -1942,7 +1961,8 @@ def _ground_list_circuit(block, source):
 
 
 def ground_workout(
-    raw: dict, source: SourceBundle, *, typed_formats: bool = True, class_parts: bool = False
+    raw: dict, source: SourceBundle, *, typed_formats: bool = True, class_parts: bool = False,
+    multipart_runner: bool = True,
 ) -> tuple[WorkoutContent, list[str], list[Evidence]]:
     """Schema validity is insufficient: strip unsupported values, retain the draft."""
     raw = raw if class_parts else legacy_shape(raw)
@@ -2084,8 +2104,8 @@ def ground_workout(
                     if block.execution is not None and block.execution.mode != "amrap"]
     if not typed_formats:
         _legacy_execution(workout)
-    # The class runner handles mixed sessions for builds that understand typed formats.
-    supports_multipart = (typed_formats and workout.kind != "program" and len(workout.blocks) > 1
+    # Only builds that declare the part-by-part runner skip the review warning for mixed sessions.
+    supports_multipart = (multipart_runner and typed_formats and workout.kind != "program" and len(workout.blocks) > 1
                           and all(block.execution is None or is_timed(block) for block in workout.blocks))
     if (not class_parts and not supports_multipart and any(block.execution for block in workout.blocks)
             and not supports_timed(workout)):
@@ -2427,14 +2447,16 @@ class WorkoutExtractor:
                 staged_media = False
                 raw = await extract_provider()
             typed = request.typed_formats or request.class_parts
-            workout, warnings, evidence = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts)
+            workout, warnings, evidence = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts,
+                                                          multipart_runner=request.multipart_runner)
             if (staged_media and not source.paid_recovery_denied
                     and not _text_prescription_usable(workout, source.warnings + warnings, source)):
                 previous = (workout, warnings, evidence)
                 await acquire_media()
                 try:
                     raw = await extract_provider()
-                    candidate = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts)
+                    candidate = ground_workout(raw, source, typed_formats=typed, class_parts=request.class_parts,
+                                                          multipart_runner=request.multipart_runner)
                     if (_prescription_quality(candidate[0]) >= _prescription_quality(workout)
                             and _prescription_preserves(candidate[0], workout)):
                         workout, warnings, evidence = candidate
