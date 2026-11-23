@@ -84,6 +84,12 @@ describe("Workouts native share generation", () => {
     // A saved Discover default never preselects Discover on the card; only a tap there sends it.
     expect(confirmation).toContain("controller.captureIsPublic = false");
     expect(confirmation).not.toContain("captureClassPage ? false : isPublic");
+    const onVisibilityTap = confirmation.slice(confirmation.indexOf("func visibilityChanged"), confirmation.indexOf("func beginImport"));
+    const onBeginImport = confirmation.slice(confirmation.indexOf("func beginImport"), confirmation.indexOf("func enqueueCapture"));
+    expect(onVisibilityTap).toContain("chooseVisibility(key, isPublic: requested, tapped: true)");
+    expect(onBeginImport).toContain("chooseVisibility(key, isPublic: requested, confirmed: true)");
+    expect(onBeginImport).not.toContain("tapped: true");
+    expect(promotion).toContain('capture["isPublic"] = false; capture["discoverTapped"] = false');
   });
   it("flushes exact file receipts before copy and preserves completed sources across interrupted promotion", () => {
     const store = native("HafaWorkoutsShareStore.swift");
@@ -297,27 +303,48 @@ retry.set(["captureId": "visibility", "files": [[String: Any]](), "visibilityPen
     "isPublic": true, "ownerId": "owner-b", "generation": 4], forKey: visibilityKey + ".capture")
 retry.set([visibilityKey], forKey: WorkoutsShareStore.pending)
 assert(retry.synchronize())
-assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: false, retry))
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: false, tapped: true, retry))
 let privacyReopen = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
 assert(privacyReopen.dictionary(forKey: visibilityKey + ".capture")?["isPublic"] as? Bool == false)
+assert(privacyReopen.dictionary(forKey: visibilityKey + ".capture")?["discoverTapped"] as? Bool == false)
 assert(privacyReopen.dictionary(forKey: WorkoutsShareStore.sessionKey)?["isPublic"] as? Bool == true)
-assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: false, privacyReopen))
-assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == true)
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: false, tapped: true, privacyReopen))
+let tappedReady = WorkoutsShareStore.readyCaptures(privacyReopen)?.first
+assert(tappedReady?["isPublic"] as? Bool == true && tappedReady?["discoverTapped"] as? Bool == true)
 assert(!WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: true, privacyReopen))
 privacyReopen.set(["captureId": "untouched", "files": [[String: Any]](), "visibilityPending": true,
     "isPublic": true], forKey: visibilityKey + ".capture")
 assert(privacyReopen.synchronize())
 assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == false)
-privacyReopen.set(["captureId": "confirmed", "files": [[String: Any]](), "visibilityPending": true], forKey: visibilityKey + ".capture")
+// Import tap without a prior Discover tap cannot confirm Discover.
+privacyReopen.set(["captureId": "import-only", "files": [[String: Any]](), "visibilityPending": true], forKey: visibilityKey + ".capture")
 assert(privacyReopen.synchronize())
 assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: true, privacyReopen))
 assert(!WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: true, privacyReopen))
-assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == true)
-// Discover picked on the card is sent as confirmed; a saved default or Private is not.
-let chosenBody = WorkoutsShareStore.importBody(["isPublic": true, "visibilityChosen": true], capture: "c", url: "https://example.com/w")
-assert(chosenBody["is_public"] as? Bool == true && chosenBody["public_confirmed"] as? Bool == true)
+let importOnlyReady = WorkoutsShareStore.readyCaptures(privacyReopen)?.first
+assert(importOnlyReady?["isPublic"] as? Bool == false && importOnlyReady?["discoverTapped"] as? Bool != true)
+// Tapping Discover then tapping Import preserves discoverTapped; tapping Private clears it.
+privacyReopen.set(["captureId": "confirmed", "files": [[String: Any]](), "visibilityPending": true], forKey: visibilityKey + ".capture")
+assert(privacyReopen.synchronize())
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: false, tapped: true, privacyReopen))
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: false, tapped: true, privacyReopen))
+assert(privacyReopen.dictionary(forKey: visibilityKey + ".capture")?["discoverTapped"] as? Bool == false)
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: false, tapped: true, privacyReopen))
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: true, privacyReopen))
+let confirmedReady = WorkoutsShareStore.readyCaptures(privacyReopen)?.first
+assert(confirmedReady?["isPublic"] as? Bool == true && confirmedReady?["discoverTapped"] as? Bool == true)
+// Older build capture with isPublic + visibilityChosen (no discoverTapped) recovers privately.
+privacyReopen.set(["captureId": "old-card", "files": [[String: Any]](), "visibilityPending": false,
+    "visibilityChosen": true, "isPublic": true], forKey: visibilityKey + ".capture")
+assert(privacyReopen.synchronize())
+let oldCardReady = WorkoutsShareStore.readyCaptures(privacyReopen)?.first
+assert(oldCardReady?["isPublic"] as? Bool == false && oldCardReady?["discoverTapped"] as? Bool != true)
+// Discover tapped on the card is sent as confirmed; a saved default, old visibilityChosen, or Private is not.
+let tappedBody = WorkoutsShareStore.importBody(["isPublic": true, "discoverTapped": true], capture: "c", url: "https://example.com/w")
+assert(tappedBody["is_public"] as? Bool == true && tappedBody["public_confirmed"] as? Bool == true)
+assert(WorkoutsShareStore.importBody(["isPublic": true, "visibilityChosen": true], capture: "c", url: "https://example.com/w")["public_confirmed"] == nil)
 assert(WorkoutsShareStore.importBody(["isPublic": true], capture: "c", url: "https://example.com/w")["public_confirmed"] == nil)
-assert(WorkoutsShareStore.importBody(["isPublic": false, "visibilityChosen": true], capture: "c", url: "https://example.com/w")["public_confirmed"] == nil)
+assert(WorkoutsShareStore.importBody(["isPublic": false, "discoverTapped": true], capture: "c", url: "https://example.com/w")["public_confirmed"] == nil)
 // Existing unreadable/corrupt journals fail closed instead of overwriting
 // queued sources with stale preferences or a new account.
 let beforeCorruption = try Data(contentsOf: journalURL)
@@ -412,7 +439,7 @@ for confirmed in [false, true] {
     assert(!Thread.isMainThread)
     return WorkoutsShareStore.withFileLock(container) {
       WorkoutsShareStore.withJournal(defaults, container) { state in
-        WorkoutsShareStore.chooseVisibility(key, isPublic: true, confirmed: confirmed, state)
+        WorkoutsShareStore.chooseVisibility(key, isPublic: true, confirmed: confirmed, tapped: !confirmed, state)
       } ?? false
     } ?? false
   }) { saved in assert(saved && Thread.isMainThread); order.append(confirmed ? 2 : 1) }
@@ -424,9 +451,11 @@ while order.count < 2 && ProcessInfo.processInfo.systemUptime - retryStart < 2 {
 assert(order == [1, 2])
 let reopened = try WorkoutsShareDefaults(defaults: defaults, container: container)
 assert(reopened.dictionary(forKey: key + ".capture")?["isPublic"] as? Bool == true)
+assert(reopened.dictionary(forKey: key + ".capture")?["discoverTapped"] as? Bool == true)
 assert(reopened.dictionary(forKey: key + ".capture")?["visibilityPending"] as? Bool == false)
 assert(reopened.dictionary(forKey: key + ".capture")?["ownerId"] as? String == "owner")
-assert(WorkoutsShareStore.readyCaptures(reopened)?.last?["isPublic"] as? Bool == true) // Older receipts stay readable.
+let readyLegacy = WorkoutsShareStore.readyCaptures(reopened)?.last
+assert(readyLegacy?["captureId"] as? String == "legacy" && readyLegacy?["isPublic"] as? Bool == false) // Older receipts stay readable, privately.
 print("Bounded off-main capture contention and ordered retry passed")
 `);
     const binary = join(directory, "test");

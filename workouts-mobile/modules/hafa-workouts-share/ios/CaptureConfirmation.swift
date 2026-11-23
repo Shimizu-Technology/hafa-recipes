@@ -78,7 +78,7 @@
   @objc private func visibilityChanged(_ sender: UIButton) {
     guard captureDurable, !captureWriting, !captureImporting, !captureConfirmationFinished else { return }
     let key = sharedKey, requested = sender.tag == 1
-    writeCapture({ WorkoutsShareStore.chooseVisibility(key, isPublic: requested) }) { controller, saved in
+    writeCapture({ WorkoutsShareStore.chooseVisibility(key, isPublic: requested, tapped: true) }) { controller, saved in
       if saved {
         controller.captureIsPublic = requested
         controller.captureDetail?.text = "Choice saved for this workout. Incomplete imports always stay private."

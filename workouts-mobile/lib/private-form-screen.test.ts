@@ -2140,6 +2140,36 @@ it("native fallback keeps the capture identity and private visibility before ack
   expect(fixture.persist.mock.invocationCallOrder[0]).toBeLessThan(fixture.nativeAck.mock.invocationCallOrder[0]);
 });
 
+it("native fallback treats isPublic without discoverTapped as Private and honors Discover only when tapped", async () => {
+  fixture.os = "ios"; fixture.nativeSharing = true;
+  fixture.nativeCaptures.mockResolvedValueOnce([{
+    captureKey: "legacy-public", captureId: "legacy-req", ownerId: fixture.owner, generation: 1,
+    url: "https://instagram.com/reel/legacy", text: "", files: [], isPublic: true,
+  }]);
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({
+    request_id: "legacy-req", is_public: false,
+  });
+  await unmount();
+  fixture.map.clear();
+  fixture.nativeCaptures.mockResolvedValueOnce([{
+    captureKey: "tapped-public", captureId: "tapped-req", ownerId: fixture.owner, generation: 1,
+    url: "https://instagram.com/reel/tapped", text: "", files: [], isPublic: true, discoverTapped: true,
+  }]);
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({
+    request_id: "tapped-req", is_public: true,
+  });
+  await unmount();
+  fixture.map.clear();
+  fixture.nativeCaptures.mockResolvedValueOnce([{
+    captureKey: "legacy-receipt", captureId: "receipt-req", ownerId: fixture.owner, generation: 1,
+    url: "https://instagram.com/reel/receipt", text: "", files: [], isPublic: true, jobId: "legacy-job",
+  }]);
+  await mount(ShareCapture);
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "import-source-visibility:1:legacy-job"))!)).toBe(false);
+});
+
 it("native server receipt persists recovery without opening Capture or starting the import again", async () => {
   fixture.nativeAck.mockImplementationOnce(async () => {
     expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "import-source-visibility:1:server-job"))!)).toBe(false);

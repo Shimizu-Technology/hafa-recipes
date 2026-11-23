@@ -181,8 +181,8 @@ async def submit(request: CaptureRequest, db: Database, credential: Credential):
         db, credential.app_user_id, credential.generation, expected=credential.ai_accepted_at
     )
     if request.is_public:
-        if not credential.is_public and not request.public_confirmed:
-            raise HTTPException(403, "Open Workouts to enable sharing to Discover")
+        if not request.public_confirmed:
+            raise HTTPException(403, "Open Workouts to confirm sharing to Discover")
         await require_discover(db)
         await require_current_publishing_disclosure(db, credential.app_user_id)
     source = ExtractionRequest(kind="url", source_url=request.url, ai_consent=True,

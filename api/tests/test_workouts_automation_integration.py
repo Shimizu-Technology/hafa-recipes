@@ -541,17 +541,49 @@ async def test_native_share_publishes_only_what_the_card_confirmed(native_share_
         json={"capture_id": str(uuid4()), "url": url, "is_public": True})
     assert unconfirmed.status_code == 403
     chosen = {"capture_id": str(uuid4()), "url": url, "is_public": True, "public_confirmed": True}
+    loose = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers,
+        json=chosen | {"public_confirmed": "true"})
+    assert loose.status_code == 422
     needs_agreement = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=chosen)
     assert needs_agreement.status_code == 409, needs_agreement.text
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
         await db.execute(update(AppUser).where(AppUser.id == "owner").values(publishing_disclosure_version=1))
         await db.commit()
+    # Even a session provisioned with is_public=True requires per-item public_confirmed.
+    public_session = await api.client.post(
+        "/api/v1/workouts/share/session", headers=GENERATION,
+        json={"installation_id": str(uuid4()), "is_public": True},
+    )
+    assert public_session.status_code == 201, public_session.text
+    assert public_session.json()["is_public"] is True
+    public_headers = {"Authorization": "Bearer " + public_session.json()["token"]}
+    unconfirmed_on_public_session = await api.client.post(
+        "/api/v1/workouts/share/imports", headers=public_headers,
+        json={"capture_id": str(uuid4()), "url": url, "is_public": True},
+    )
+    assert unconfirmed_on_public_session.status_code == 403
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutImport)) == 0
     accepted = await api.client.post("/api/v1/workouts/share/imports", headers=api.share_headers, json=chosen)
     assert accepted.status_code == 202, accepted.text
+    accepted_from_public_session = await api.client.post(
+        "/api/v1/workouts/share/imports", headers=public_headers,
+        json={"capture_id": str(uuid4()), "url": url, "is_public": True, "public_confirmed": True},
+    )
+    assert accepted_from_public_session.status_code == 202, accepted_from_public_session.text
+    private_with_flag = await api.client.post(
+        "/api/v1/workouts/share/imports", headers=public_headers,
+        json={"capture_id": str(uuid4()), "url": url, "is_public": False, "public_confirmed": True},
+    )
+    assert private_with_flag.status_code == 202, private_with_flag.text
     async with api.sessions() as db:
         row = await db.get(WorkoutImport, accepted.json()["job_id"])
         assert row.payload["_save"]["is_public"] is True
+        row_public = await db.get(WorkoutImport, accepted_from_public_session.json()["job_id"])
+        assert row_public.payload["_save"]["is_public"] is True
+        row_private = await db.get(WorkoutImport, private_with_flag.json()["job_id"])
+        assert row_private.payload["_save"]["is_public"] is False
 
 
 async def test_wrong_share_secret_does_not_lock_account(native_share_api, monkeypatch):
