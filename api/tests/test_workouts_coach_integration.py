@@ -2759,3 +2759,371 @@ async def test_source_only_delivery_stops_when_current_consent_is_revoked(coach_
     assert response.status_code in {403, 409}, response.text
     async with api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+
+
+async def _create_brik_e6mom_workout(api):
+    payload = {
+        "title": "BRIK Hybrid Phase 5 Week 5 Tuesday Intervals",
+        "kind": "session",
+        "provenance": "source",
+        "capture_kind": "text",
+        "programming": {
+            "source_kind": "gym",
+            "app_name": "WodUp",
+            "gym_name": "Unified",
+            "track": "BUILD | BRIK",
+            "track_variant": "HYBRID",
+        },
+        "equipment_required": ["sled", "dumbbells", "landmine"],
+        "blocks": [
+            {
+                "id": "part-a",
+                "label": "A. Intervals",
+                "role": "main",
+                "grouping": "interval",
+                "execution": {"mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": "together"},
+                "rest_after_seconds": 180,
+                "exercises": [
+                    {"name": "Sled Push", "provenance": "source", "distance_meters": 25},
+                    {"name": "Run", "provenance": "source", "distance_meters": 400},
+                    {"name": "Farmers Carry", "provenance": "source", "distance_meters": 100},
+                ],
+            },
+            {
+                "id": "part-b",
+                "label": "B. Intervals",
+                "role": "main",
+                "grouping": "interval",
+                "execution": {"mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": "together"},
+                "rest_after_seconds": 120,
+                "exercises": [
+                    {"name": "Sled Push", "provenance": "source", "distance_meters": 25},
+                    {"name": "Run", "provenance": "source", "distance_meters": 400},
+                    {"name": "Farmers Carry", "provenance": "source", "distance_meters": 100},
+                ],
+            },
+            {
+                "id": "part-c",
+                "label": "C. Accessories",
+                "role": "accessory",
+                "grouping": "superset",
+                "rounds": 3,
+                "exercises": [
+                    {"name": "Landmine Rotation", "provenance": "source", "reps_min": 10, "reps_max": 12, "per_side": True},
+                    {"name": "Dumbbell Row", "provenance": "source", "reps_min": 10, "reps_max": 12},
+                ],
+            },
+        ],
+    }
+    response = await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def test_coach_adapts_multipart_e6mom_class_workout_and_accept_saves_linked_copy(coach_api):
+    api = coach_api
+    original = await _create_brik_e6mom_workout(api)
+    api.provider.action = (
+        "adapt_saved_workout",
+        {
+            "workout_id": original["id"],
+            "expected_revision": 1,
+            "minutes": None,
+            "adapted_workout": {
+                "title": "BRIK Hybrid Phase 5 Week 5 Tuesday Intervals (Bodyweight at Home)",
+                "estimated_minutes": 48,
+                "equipment_required": [],
+                "instructions": ["Run outdoors for the 400 m intervals; rest in the time left each 6-minute window."],
+                "changes": [
+                    "Swapped Sled Push (25 m) for Bear Crawl (25–30 s).",
+                    "Swapped Farmers Carry (100 m) for Braced March (45–60 s).",
+                    "Swapped Landmine Rotation and Dumbbell Row for Plank Shoulder Taps and Push-up.",
+                ],
+                "blocks": [
+                    {
+                        "id": "part-a",
+                        "label": "A. Intervals (Bodyweight)",
+                        "role": "main",
+                        "grouping": "interval",
+                        "rounds": None,
+                        "execution": {
+                            "mode": "emom",
+                            "time_cap_seconds": None,
+                            "interval_seconds": 360,
+                            "intervals": 3,
+                            "rotation": "together",
+                            "work_seconds": None,
+                            "rest_seconds": None,
+                        },
+                        "rest_between_rounds_seconds": None,
+                        "rest_after_seconds": 180,
+                        "instructions": None,
+                        "exercises": [
+                            {"name": "Bear Crawl", "duration_seconds": 25, "duration_seconds_max": 30},
+                            {"name": "Run", "distance_meters": 400},
+                            {"name": "Braced March", "duration_seconds": 45, "duration_seconds_max": 60},
+                        ],
+                    },
+                    {
+                        "id": "part-b",
+                        "label": "B. Intervals (Bodyweight)",
+                        "role": "main",
+                        "grouping": "interval",
+                        "rounds": None,
+                        "execution": {
+                            "mode": "emom",
+                            "time_cap_seconds": None,
+                            "interval_seconds": 360,
+                            "intervals": 3,
+                            "rotation": "together",
+                            "work_seconds": None,
+                            "rest_seconds": None,
+                        },
+                        "rest_between_rounds_seconds": None,
+                        "rest_after_seconds": 120,
+                        "instructions": None,
+                        "exercises": [
+                            {"name": "Bear Crawl", "duration_seconds": 25, "duration_seconds_max": 30},
+                            {"name": "Run", "distance_meters": 400},
+                            {"name": "Braced March", "duration_seconds": 45, "duration_seconds_max": 60},
+                        ],
+                    },
+                    {
+                        "id": "part-c",
+                        "label": "C. Accessories (Bodyweight)",
+                        "role": "accessory",
+                        "grouping": "superset",
+                        "rounds": 3,
+                        "execution": None,
+                        "rest_between_rounds_seconds": None,
+                        "rest_after_seconds": None,
+                        "instructions": None,
+                        "exercises": [
+                            {"name": "Plank Shoulder Taps", "reps_min": 16, "reps_max": 20},
+                            {"name": "Push-up", "reps_min": 10, "reps_max": 12},
+                        ],
+                    },
+                ],
+            },
+        },
+    )
+    response = await api.client.post(
+        "/api/v1/workouts/coach/messages",
+        headers=GENERATION,
+        json={
+            "request_id": str(uuid4()),
+            "message": "I'm home tomorrow with no weights and no sled. Make this a bodyweight version I can do at home, same idea.",
+            "context_workout_id": original["id"],
+            "context_revision": 1,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["state"] == "completed"
+    assert len(body["actions"]) == 1
+    receipt = body["actions"][0]
+    assert receipt["kind"] == "adaptation" and receipt["status"] == "ready"
+    assert "call adapt_saved_workout directly on this turn" in api.provider.sent[0][0]["content"]
+
+    preview_res = await api.client.get(f"/api/v1/workouts/coach/actions/{receipt['proposal_id']}")
+    assert preview_res.status_code == 200, preview_res.text
+    preview_body = preview_res.json()
+    # Older mobile clients expect the existing AdaptationProposal shape (proposal.workout + proposal.changes)
+    # and never see or depend on the internal tool-call `adapted_workout` field.
+    assert "adapted_workout" not in preview_body and "adapted_workout" not in body
+    assert preview_body["kind"] == "adaptation"
+    assert preview_body["target_id"] == original["id"]
+    assert preview_body["target_revision"] == 1
+    proposal = preview_body["proposal"]
+    assert set(proposal) == {"status", "rule_version", "workout", "questions", "changes", "warnings"}
+    assert "adapted_workout" not in proposal
+    assert proposal["status"] == "ready"
+    assert isinstance(proposal["changes"], list) and all(isinstance(c, str) for c in proposal["changes"])
+    assert len(proposal["changes"]) == 3
+    assert len(proposal["workout"]["blocks"]) == 3
+    assert proposal["workout"]["blocks"][0]["execution"] == {
+        "mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": "together",
+    }
+
+    accepted, _ = await action(api, proposal_id=receipt["proposal_id"])
+    assert accepted.status_code == 200, accepted.text
+    new_id = accepted.json()["record_id"]
+    assert new_id != original["id"]
+
+    saved = (await api.client.get(f"/api/v1/workouts/library/{new_id}")).json()["content"]
+    async with api.sessions() as db:
+        parent_version = await db.scalar(
+            select(WorkoutVersion.id).where(
+                WorkoutVersion.workout_id == UUID(original["id"]),
+                WorkoutVersion.revision == 1,
+            )
+        )
+        assert (await db.get(WorkoutRecord, UUID(original["id"]))).revision == 1
+    assert saved["parent_version_id"] == str(parent_version)
+    assert saved["provenance"] == "suggestion"
+    assert saved["equipment_required"] == []
+    assert saved["programming"]["source_kind"] == "gym"
+    assert [b["id"] for b in saved["blocks"]] == ["part-a", "part-b", "part-c"]
+    assert saved["blocks"][0]["execution"]["interval_seconds"] == 360
+    assert saved["blocks"][0]["execution"]["intervals"] == 3
+    assert [e["name"] for e in saved["blocks"][0]["exercises"]] == ["Bear Crawl", "Run", "Braced March"]
+    assert saved["blocks"][2]["exercises"][0]["reps_min"] == 16
+    unchanged = (await api.client.get(f"/api/v1/workouts/library/{original['id']}")).json()
+    assert unchanged == original
+
+    undone, _ = await action(api, "undo", receipt["proposal_id"])
+    assert undone.status_code == 200, undone.text
+    assert (await api.client.get(f"/api/v1/workouts/library/{new_id}")).status_code == 404
+
+
+async def test_coach_adaptation_validation_rejection_logs_and_returns_visible_conflict(coach_api, caplog):
+    import logging
+
+    api = coach_api
+    original = await _create_brik_e6mom_workout(api)
+    api.provider.action = (
+        "adapt_saved_workout",
+        {
+            "workout_id": original["id"],
+            "expected_revision": 1,
+            "minutes": None,
+            "adapted_workout": {
+                "title": "BRIK Bodyweight",
+                "estimated_minutes": 40,
+                "equipment_required": [],
+                "instructions": [],
+                "changes": ["Swapped Sled Push for Bear Crawl."],
+                "blocks": [
+                    {
+                        "id": "part-a",
+                        "label": "A. Intervals",
+                        "role": "main",
+                        "grouping": "interval",
+                        "rounds": None,
+                        "execution": {
+                            "mode": "emom",
+                            "time_cap_seconds": None,
+                            "interval_seconds": 360,
+                            "intervals": 3,
+                            "rotation": "together",
+                            "work_seconds": None,
+                            "rest_seconds": None,
+                        },
+                        "rest_between_rounds_seconds": None,
+                        "rest_after_seconds": None,
+                        "instructions": None,
+                        "exercises": [
+                            {"name": "Bear Crawl"},  # Missing dose -> validation conflict.
+                        ],
+                    },
+                ],
+            },
+        },
+    )
+    with caplog.at_level(logging.WARNING, logger="app.domains.workouts.coach_actions"):
+        response = await api.client.post(
+            "/api/v1/workouts/coach/messages",
+            headers=GENERATION,
+            json={
+                "request_id": str(uuid4()),
+                "message": "Make this a bodyweight version",
+                "context_workout_id": original["id"],
+                "context_revision": 1,
+            },
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["state"] == "completed"
+    assert len(body["actions"]) == 1
+    receipt = body["actions"][0]
+    assert receipt["kind"] == "adaptation" and receipt["status"] == "conflicts"
+    assert any(
+        "workouts_coach_adaptation_rejected" in rec.message and "missing_exercise_dose" in rec.message
+        for rec in caplog.records
+    )
+
+    preview_res = await api.client.get(f"/api/v1/workouts/coach/actions/{receipt['proposal_id']}")
+    assert preview_res.status_code == 200
+    proposal = preview_res.json()["proposal"]
+    assert proposal["status"] == "conflicts" and proposal["workout"] is None
+    assert proposal["warnings"][0].startswith("Couldn't build the change:")
+    assert "Bear Crawl" in proposal["warnings"][0]
+    output = next(
+        item for item in reversed(api.provider.sent[-1]) if item.get("type") == "function_call_output"
+    )
+    assert "Couldn't build the change:" in output["output"]
+    assert (await action(api, proposal_id=receipt["proposal_id"]))[0].status_code == 409
+    async with api.sessions() as db:
+        assert len((await db.scalars(select(WorkoutRecord))).all()) == 1
+
+
+async def test_coach_adapted_workout_forbids_invented_load_and_logs_4xx_tool_rejection(coach_api, caplog):
+    import logging
+
+    api = coach_api
+    original = await _create_brik_e6mom_workout(api)
+    api.provider.action = (
+        "adapt_saved_workout",
+        {
+            "workout_id": original["id"],
+            "expected_revision": 1,
+            "minutes": None,
+            "adapted_workout": {
+                "title": "BRIK Bodyweight",
+                "estimated_minutes": 40,
+                "equipment_required": [],
+                "instructions": [],
+                "changes": ["Swapped moves."],
+                "blocks": [
+                    {
+                        "id": "part-a",
+                        "label": "A. Intervals",
+                        "role": "main",
+                        "grouping": "sequential",
+                        "rounds": 3,
+                        "execution": None,
+                        "rest_between_rounds_seconds": None,
+                        "rest_after_seconds": None,
+                        "instructions": None,
+                        "exercises": [
+                            {"name": "Bear Crawl", "reps_min": 10, "load": 20},  # Extra forbidden load field.
+                        ],
+                    },
+                ],
+            },
+        },
+    )
+    response = await api.client.post(
+        "/api/v1/workouts/coach/messages",
+        headers=GENERATION,
+        json={
+            "request_id": str(uuid4()),
+            "message": "Make this a bodyweight version",
+            "context_workout_id": original["id"],
+            "context_revision": 1,
+        },
+    )
+    assert response.status_code == 503
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+
+    # A recoverable 4xx tool rejection is logged cleanly with fixed diagnostic fields.
+    api.provider.action = (
+        "update_training_preferences",
+        {
+            "primary_goal": None,
+            "experience": None,
+            "equipment": None,
+            "available_days": None,
+            "session_minutes": None,
+        },
+    )
+    with caplog.at_level(logging.WARNING, logger="app.domains.workouts.coach"):
+        rejected = await send(api, "Update my preferences")
+    assert rejected.status_code == 200 and rejected.json()["actions"] == []
+    assert any(
+        "workouts_coach_tool_rejected" in rec.message
+        and "update_training_preferences" in rec.message
+        and "422" in rec.message
+        for rec in caplog.records
+    )

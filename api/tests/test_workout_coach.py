@@ -275,11 +275,23 @@ async def test_stream_budget_denial_never_opens_http(streamed_provider):
 def test_all_function_schemas_are_strict_and_required():
     tools = tool_definitions()
     assert len(tools) == 9
+
+    def check_strict(node):
+        if isinstance(node, dict):
+            assert "default" not in node
+            assert "oneOf" not in node
+            if node.get("type") == "object":
+                assert node["additionalProperties"] is False
+                assert set(node["required"]) == set(node["properties"])
+            for value in node.values():
+                check_strict(value)
+        elif isinstance(node, list):
+            for value in node:
+                check_strict(value)
+
     for tool in tools:
         assert tool["strict"] is True
-        schema = tool["parameters"]
-        assert schema["additionalProperties"] is False
-        assert set(schema["required"]) == set(schema["properties"])
+        check_strict(tool["parameters"])
 
 
 @pytest.mark.parametrize(
@@ -573,3 +585,242 @@ async def test_image_provider_attempt_truthfully_admits_vision_and_only_uses_sup
     assert envelope.max_output_tokens == 1800 and envelope.sdk_max_retries == 0
     assert state.sent[0][1]["input"] == items and state.sent[0][1]["store"] is False
     assert len(budget.reservations) == 1 and budget.outcomes == ["success"]
+
+
+def _brik_class_workout():
+    from app.domains.workouts.schemas import WorkoutContent
+
+    return WorkoutContent.model_validate({
+        "id": "brik-1",
+        "title": "BRIK Hybrid Phase 5 Week 5 Tuesday Intervals",
+        "kind": "session",
+        "provenance": "source",
+        "capture_kind": "text",
+        "programming": {
+            "source_kind": "gym",
+            "app_name": "WodUp",
+            "gym_name": "Unified",
+            "track": "BUILD | BRIK",
+            "track_variant": "HYBRID",
+        },
+        "benchmark": {"key": "tuesday-intervals", "name": "Tuesday Intervals", "block_ids": ["part-a", "part-b"]},
+        "equipment_required": ["sled", "dumbbells", "landmine"],
+        "notes": ["My private gym note"],
+        "blocks": [
+            {
+                "id": "part-a",
+                "label": "A. Intervals",
+                "role": "main",
+                "grouping": "interval",
+                "execution": {"mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": "together"},
+                "rest_after_seconds": 180,
+                "exercises": [
+                    {"name": "Sled Push", "provenance": "source", "distance_meters": 25},
+                    {"name": "Run", "provenance": "source", "distance_meters": 400},
+                    {"name": "Farmers Carry", "provenance": "source", "distance_meters": 100, "load": 24, "load_unit": "kg", "load_convention": "per_hand"},
+                ],
+            },
+            {
+                "id": "part-b",
+                "label": "B. Intervals",
+                "role": "main",
+                "grouping": "interval",
+                "execution": {"mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": "together"},
+                "rest_after_seconds": 120,
+                "exercises": [
+                    {"name": "Sled Push", "provenance": "source", "distance_meters": 25},
+                    {"name": "Run", "provenance": "source", "distance_meters": 400},
+                    {"name": "Farmers Carry", "provenance": "source", "distance_meters": 100},
+                ],
+            },
+            {
+                "id": "part-c",
+                "label": "C. Accessories",
+                "role": "accessory",
+                "grouping": "superset",
+                "rounds": 3,
+                "score_kind": "none",
+                "exercises": [
+                    {"name": "Landmine Rotation", "provenance": "source", "reps_min": 10, "reps_max": 12, "per_side": True},
+                    {"name": "Dumbbell Row", "provenance": "source", "reps_min": 10, "reps_max": 12},
+                ],
+            },
+        ],
+    })
+
+
+def _brik_bodyweight_input(**overrides):
+    from app.domains.workouts.coach_actions import CoachAdaptedWorkout
+
+    payload = {
+        "title": "BRIK Hybrid Phase 5 Week 5 Tuesday Intervals (Bodyweight at Home)",
+        "estimated_minutes": 48,
+        "equipment_required": [],
+        "instructions": ["Run outdoors for the 400 m intervals; rest in whatever time remains each 6-minute window."],
+        "changes": [
+            "Swapped Sled Push (25 m) for Bear Crawl (25–30 s).",
+            "Swapped Farmers Carry (100 m) for Braced March (45–60 s).",
+            "Swapped Landmine Rotation and Dumbbell Row for Plank Shoulder Taps and Prone Y-T-W Raises.",
+        ],
+        "blocks": [
+            {
+                "id": "part-a",
+                "label": "A. Intervals (Bodyweight)",
+                "role": "main",
+                "grouping": "interval",
+                "rounds": 3,  # Redundant rounds alongside EMOM intervals should normalize cleanly.
+                "execution": {"mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": None},
+                "rest_after_seconds": 180,
+                "exercises": [
+                    {"name": "Bear Crawl", "duration_seconds": 25, "duration_seconds_max": 30, "instructions": "Keep hips low and drive steady."},
+                    {"name": "Run", "distance_meters": 400},
+                    {"name": "Braced March", "duration_seconds": 45, "duration_seconds_max": 60, "effort": "Hard braced core"},
+                ],
+            },
+            {
+                "id": "part-b",
+                "label": "B. Intervals (Bodyweight)",
+                "role": "main",
+                "grouping": "interval",
+                "execution": {"mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": "together"},
+                "rest_after_seconds": 120,
+                "exercises": [
+                    {"name": "Bear Crawl", "duration_seconds": 25, "duration_seconds_max": 30},
+                    {"name": "Run", "distance_meters": 400},
+                    {"name": "Braced March", "duration_seconds": 45, "duration_seconds_max": 60},
+                ],
+            },
+            {
+                "id": "part-c",
+                "label": "C. Accessories (Bodyweight)",
+                "role": "accessory",
+                "grouping": "superset",
+                "rounds": 3,
+                "rest_after_seconds": 60,  # Last part rest_after_seconds must clear cleanly.
+                "exercises": [
+                    {"name": "Plank Shoulder Taps", "reps_min": 16, "reps_max": 20},
+                    {"name": "Push-up", "reps_min": 10, "reps_max": 12},
+                ],
+            },
+        ],
+    }
+    payload.update(overrides)
+    return CoachAdaptedWorkout.model_validate(payload)
+
+
+def test_build_adapted_workout_accepts_multipart_e6mom_class_bodyweight_version():
+    from app.domains.workouts.coach_actions import build_adapted_workout
+    from app.domains.workouts.router import validated_workout
+    from app.domains.workouts.schemas import WorkoutContent
+    from tests.test_workout_programming import profile
+
+    source = _brik_class_workout()
+    result = build_adapted_workout(source, profile(equipment=["sled", "dumbbells"]), _brik_bodyweight_input())
+    assert result["status"] == "ready", result
+    workout = result["workout"]
+    assert workout["provenance"] == "suggestion"
+    assert workout["parent_version_id"] == "brik-1" and workout["version"] == 2
+    assert workout["equipment_required"] == []
+    assert workout["programming"]["source_kind"] == "gym"
+    assert "benchmark" not in workout and "source_context" not in workout
+    assert workout["notes"] == ["My private gym note"]
+    assert len(workout["blocks"]) == 3
+    part_a, part_b, part_c = workout["blocks"]
+    assert part_a["execution"] == {"mode": "emom", "interval_seconds": 360, "intervals": 3, "rotation": "together"}
+    assert part_a["rounds"] is None and part_a["rest_after_seconds"] == 180
+    assert part_a["exercises"][0]["duration_seconds"] == 25 and part_a["exercises"][0]["duration_seconds_max"] == 30
+    assert part_a["exercises"][1]["distance_meters"] == 400
+    assert part_a["exercises"][2]["duration_seconds"] == 45 and part_a["exercises"][2]["duration_seconds_max"] == 60
+    assert part_b["execution"]["interval_seconds"] == 360 and part_b["execution"]["intervals"] == 3
+    assert part_c["grouping"] == "superset" and part_c["rounds"] == 3 and part_c["score_kind"] == "none"
+    assert "rest_after_seconds" not in part_c
+    assert part_c["exercises"][1]["exercise_id"] == "pushup"
+    assert all(ex["load"] is None and ex["evidence"] == [] and ex["provenance"] == "suggestion"
+               for block in workout["blocks"] for ex in block["exercises"])
+    validated_workout(WorkoutContent.model_validate(workout | {
+        "id": "00000000-0000-0000-0000-000000000000", "version": 1,
+        "parent_version_id": "00000000-0000-0000-0000-000000000000",
+    }), authored=False)
+
+
+@pytest.mark.parametrize(
+    "case,expected_code",
+    [
+        ("missing_dose", "missing_exercise_dose"),
+        ("missing_sets", "missing_sets_or_rounds"),
+        ("missing_emom_intervals", "invalid_execution"),
+        ("missing_amrap_cap", "invalid_execution"),
+        ("bad_rep_range", "invalid_exercise_prescription"),
+        ("duplicate_block_id", "duplicate_block_id"),
+        ("excluded_move", "movement_exclusion_conflict"),
+        ("empty_changes", "missing_changes"),
+        ("empty_blocks", "missing_blocks"),
+    ],
+)
+def test_build_adapted_workout_rejections_log_and_return_visible_conflict(caplog, case, expected_code):
+    import logging
+
+    from app.domains.workouts.coach_actions import build_adapted_workout
+    from tests.test_workout_programming import profile
+
+    source = _brik_class_workout()
+    training_profile = profile(movement_exclusions=["floor"] if case == "excluded_move" else [])
+    adapted = _brik_bodyweight_input()
+    if case == "missing_dose":
+        adapted.blocks[0].exercises[0].duration_seconds = None
+        adapted.blocks[0].exercises[0].duration_seconds_max = None
+    elif case == "missing_sets":
+        adapted.blocks[2].grouping = "sequential"
+        adapted.blocks[2].rounds = None
+        adapted.blocks[2].exercises[0].sets = None
+    elif case == "missing_emom_intervals":
+        adapted.blocks[0].execution.intervals = None
+    elif case == "missing_amrap_cap":
+        adapted.blocks[0].execution.mode = "amrap"
+        adapted.blocks[0].execution.time_cap_seconds = None
+    elif case == "bad_rep_range":
+        adapted.blocks[2].exercises[0].reps_min = 20
+        adapted.blocks[2].exercises[0].reps_max = 10
+    elif case == "duplicate_block_id":
+        adapted.blocks[1].id = adapted.blocks[0].id
+    elif case == "empty_changes":
+        adapted.changes = []
+    elif case == "empty_blocks":
+        adapted.blocks = []
+
+    with caplog.at_level(logging.WARNING, logger="app.domains.workouts.coach_actions"):
+        result = build_adapted_workout(source, training_profile, adapted)
+    assert result["status"] == "conflicts" and result["workout"] is None
+    assert result["warnings"][0].startswith("Couldn't build the change:")
+    assert any(
+        "workouts_coach_adaptation_rejected" in rec.message and expected_code in rec.message
+        for rec in caplog.records
+    )
+    assert all("Bear Crawl" not in rec.message and "BRIK" not in rec.message for rec in caplog.records)
+
+
+def test_build_adapted_workout_preserves_profile_safety_gates_and_forbids_invented_loads():
+    from pydantic import ValidationError
+
+    from app.domains.workouts.coach_actions import CoachAdaptedExercise, build_adapted_workout
+    from tests.test_workout_programming import profile
+
+    source = _brik_class_workout()
+    adapted = _brik_bodyweight_input()
+    for bad in ({"adult_confirmed": False}, {"readiness": "unknown"}, {"limitations": ["Ask doctor"]}):
+        gated = build_adapted_workout(source, profile(**bad), adapted)
+        assert gated["status"] == "needs_information" and gated["workout"] is None
+    # Purely bodyweight adaptation can still proceed when equipment hasn't been set,
+    # even if the model lists placeholder labels like "Bodyweight" or "None",
+    # whereas an adaptation requiring equipment still asks for equipment confirmation.
+    assert build_adapted_workout(source, profile(equipment=None), adapted)["status"] == "ready"
+    bw_placeholder = _brik_bodyweight_input(equipment_required=["Bodyweight", "None"])
+    bw_placeholder.blocks[0].exercises[0].rep_scheme = []
+    bw_result = build_adapted_workout(source, profile(equipment=None), bw_placeholder)
+    assert bw_result["status"] == "ready"
+    assert bw_result["workout"]["equipment_required"] == []
+    assert "rep_scheme" not in bw_result["workout"]["blocks"][0]["exercises"][0]
+    with_equip = _brik_bodyweight_input(equipment_required=["dumbbell"])
+    assert build_adapted_workout(source, profile(equipment=None), with_equip)["status"] == "needs_information"
+    with pytest.raises(ValidationError):
+        CoachAdaptedExercise.model_validate({"name": "Squat", "reps_min": 10, "load": 50})
