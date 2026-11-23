@@ -10,7 +10,7 @@ import { useKeepAwakeWhile } from "@/components/training/keep-awake";
 import { prescriptionLine } from "@/lib/discover";
 import type { ActualSet } from "@/lib/models";
 import { adjustRest, buyInDone, endPart, endRest, isRun, pausePart, resumePart, setRun, skipLeadIn, skipPart, startPart, tapRound, undoTap,
-  intervalRoundSeconds, intervalRounds, tapInterval, type ClassRun, type PartResult, type RunEnvironment } from "@/lib/class-session";
+  type ClassRun, type PartResult, type RunEnvironment } from "@/lib/class-session";
 import { classPayload, scoreProblem, scoredParts } from "@/lib/class-scores";
 import { CopyForWodUp, ScoreEditor } from "@/components/training/score-editor";
 import { classOver, currentPart, endClass, hasBuyIn } from "@/lib/class-training";
@@ -132,10 +132,12 @@ export function ClassSession(p: ClassSessionProps) {
   const setRest = restRemainingSeconds(d, now);
   const holdLeft = timing && step?.exercise.duration_seconds != null ? Math.max(0, step.exercise.duration_seconds - exerciseElapsedSeconds(d, now)) : null;
   useEffect(() => { if (holdLeft === 0) { haptics.warning(); announce("Time"); } }, [holdLeft === 0]);
-  // Gym codes number their moves (C1, C2); a named part (Warm-up) shows the move and its place instead.
-  const coded = /^[A-Z]{1,2}\d{0,2}$/.test(block.label);
+  // Gym letter codes number their moves (C → C1, C2; "C. ACCESSORIES" → C1); an already numbered code (C1) or a
+  // named part (Warm-up) shows the move and its place instead of gluing on another number.
+  const code = /^([A-Z]{1,2})(?:[.:)]\s.*)?$/.exec(block.label)?.[1] ?? null;
+  const coded = code != null;
   const many = !!step && block.exercises.length > 1;
-  const setName = many && coded ? `${block.label}${step.exercise_index + 1}` : block.label;
+  const setName = many && coded ? `${code}${step.exercise_index + 1}` : block.label;
   const setPlace = many && !coded ? `${setName} · ${step.exercise_index + 1} of ${block.exercises.length}` : setName;
   const doneName = many && !coded ? step.exercise.name : setName;
   const rounds = block.rounds ?? 1;
@@ -220,9 +222,6 @@ export function ClassSession(p: ClassSessionProps) {
     const buyingIn = (part.kind === "amrap" || part.kind === "for_time") && hasBuyIn(block) && part.buy_in_done_at == null;
     const counting = part.kind === "amrap" || (part.kind === "for_time" && rounds > 1);
     const format = timedFormatFor(block);
-    // E6MOM of several moves: one tap when the round is done records its time (aim: under 5 minutes).
-    const intervalRound = part.kind === "emom" && !!intervalRounds(block) && !!clock.interval && clock.interval.phase !== "ended";
-    const intervalDone = intervalRound ? intervalRoundSeconds(part, block, now) : null;
     const intervalMoves = clock.interval && format && format.mode !== "for_time"
       ? movesFor(format as IntervalFormat, block, clock.interval.index).map((i) => moveText(block.exercises[i], 1)).join(" + ") : null;
     const clockCard = <SessionClock text={formatClock(clock.seconds)} caption={[partTitle(block), clock.interval?.label].filter(Boolean).join(" · ")}
@@ -249,8 +248,6 @@ export function ClassSession(p: ClassSessionProps) {
         value={env(i)} disabled={busy} onChange={(v) => chooseRun(i, v)} />)}
       {buyingIn ? <BigTap title="Buy-in done" hint="Starts counting rounds" disabled={busy || paused} onPress={() => p.act(buyInDone)} />
         : counting ? <BigTap title="+1 round" hint={`Now ${roundText(part.round_taps.length)}`} disabled={busy || paused || invalidLoad} onPress={() => p.act(tapRound)} />
-        : intervalRound ? <BigTap title={intervalDone == null ? `Round ${clock.interval!.index} done` : `Round ${clock.interval!.index} · ${formatClock(intervalDone)}`}
-          hint="Records how long this round took" disabled={busy || paused || intervalDone != null} onPress={() => p.act(tapInterval)} />
         : null}
       {part.kind === "for_time" && <Button title="Done · stop the clock" icon="stop-circle-outline" disabled={busy} onPress={() => p.act(endPart)} />}
       <Row gap={12}>

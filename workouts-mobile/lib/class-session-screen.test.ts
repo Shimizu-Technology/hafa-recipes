@@ -242,3 +242,25 @@ describe("a workout you built (not a gym class)", () => {
     expect(text()).not.toContain("Choose Rx or Scaled for each score to save.");
   });
 });
+
+describe("gym part codes", () => {
+  const withD = (label: string) => ({ ...w, id: `label-${label}`, blocks: w.blocks.map((b) => b.id === "d" ? { ...b, label } : b) }) as typeof w;
+  const open = async (label: string) => {
+    s = store(); await s.load(); s.setLeadIn(0);
+    const workout = withD(label);
+    await s.start(workout, { workout_id: workout.id, workout_revision: 1 }, "class", 0);
+    for (let i = 0; i < 3; i++) await s.classAct(skipPart, 0);
+    await render(1000);
+  };
+  it("numbers a punctuated heading's letter (C. ACCESSORIES → C1)", async () => {
+    await open("C. ACCESSORIES");
+    expect(text()).toContain("C1 · round 1 of 2");
+    expect(control("Done · C1")).toBeDefined();
+  });
+  it("never glues a second number onto an already numbered code", async () => {
+    await open("C1");
+    expect(text()).not.toContain("C11");
+    expect(text()).toContain("C1 · 1 of 3 · round 1 of 2");
+    expect(control("Done · GHD side-lying Pallof hold")).toBeDefined();
+  });
+});
