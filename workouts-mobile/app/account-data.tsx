@@ -246,7 +246,7 @@ export default function AccountData() {
           Erases local private drafts, pending commands and reminders first, then requests deletion of saved training.
           If the connection fails, device drafts remain erased and you can retry saved-data deletion. You keep your Håfa login
           and your Recipes and Baby data. Public Workouts sharing links stop working. Existing copies saved by other
-          people stay theirs. Content-free import allowance records remain for up to 48 hours to protect the shared beta;
+          people stay theirs. Content-free import allowance records remain for up to 48 hours to enforce fair import limits;
           they contain no source text, images or workout content.
         </Copy>
         <Button

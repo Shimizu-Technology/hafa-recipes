@@ -203,7 +203,7 @@ export default function SignIn() {
     >
       <Card tone="hero">
         <Copy kind="heading">Håfa adai</Copy>
-        <Copy tone="muted">Save workouts from anywhere and train your way. Free while in beta.</Copy>
+        <Copy tone="muted">Save workouts from anywhere and train your way.</Copy>
         <Copy tone="muted">Use Håfa Recipes? Sign in the same way.</Copy>
       </Card>
       {!verification && mode !== "recover" && (

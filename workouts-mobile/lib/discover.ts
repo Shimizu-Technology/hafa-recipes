@@ -233,6 +233,7 @@ export const PUBLISHING_DISCLOSURE_POINTS = [
   "They see the title, blocks and exercises with sets, reps, time and rest, the equipment, the source link and creator credit, and your contributor name.",
   "Workout instructions are included. Private notes, effort, training history, profile and health data stay private.",
   "You can remove it from Discover at any time. Copies people already saved stay in their libraries.",
+  "Only share workouts you have the right to share, and nothing offensive, hateful, sexual or harassing. We remove workouts that break these rules and may suspend accounts that post them.",
   "This is the same sharing agreement as Håfa Recipes, so it also covers recipes you choose to make public.",
 ];
 

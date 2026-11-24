@@ -14,6 +14,7 @@ export function checkAuthConfiguration(key?: string, environment?: string, appEn
 /** Published policy and help pages (App Store listing uses the same URLs). */
 export const PRIVACY_POLICY_URL = "https://shimizu-technology.com/hafa-workouts/privacy";
 export const SUPPORT_URL = "https://shimizu-technology.com/hafa-workouts/support";
+export const TERMS_URL = "https://shimizu-technology.com/hafa-workouts/terms";
 
 export const configuration = {
   apiBase: process.env.EXPO_PUBLIC_API_BASE_URL ?? "",
