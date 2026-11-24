@@ -12,7 +12,7 @@ import { radii, spacing, typography } from "@/constants/theme";
 import { useAccountIdentity } from "@/components/account-identity";
 import { suspendNativeSharing } from "@/lib/native-share-session";
 import { useTraining } from "@/lib/context";
-import { configuration, PRIVACY_POLICY_URL, SUPPORT_URL } from "@/lib/config";
+import { configuration, PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_URL } from "@/lib/config";
 import { logoutBinding } from "@/lib/logout-recovery";
 
 const avatarSize = 56;
@@ -124,6 +124,7 @@ export default function Settings() {
         <ListRow title="Account data and deletion" icon="shield-outline" onPress={() => router.push("/account-data")} />
         <ListRow title="How Workouts uses your data" icon="document-text-outline" onPress={() => router.push("/privacy")} />
         <ListRow title="Privacy policy" icon="open-outline" onPress={() => { void openLink(PRIVACY_POLICY_URL); }} />
+        <ListRow title="Terms of use" icon="open-outline" onPress={() => { void openLink(TERMS_URL); }} />
         <ListRow title="Help and support" icon="help-circle-outline" onPress={() => { void openLink(SUPPORT_URL); }} />
       </ListGroup>
       {!!error && <Notice error>{error}</Notice>}

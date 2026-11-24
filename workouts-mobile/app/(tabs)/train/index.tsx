@@ -442,7 +442,7 @@ export default function Plan() {
         );
       })}
       {!!error && <Notice error>{error}</Notice>}
-      <Copy kind="small" tone="muted" align="center">Free during beta. Completed work counts; rest is part of the plan.</Copy>
+      <Copy kind="small" tone="muted" align="center">Completed work counts; rest is part of the plan.</Copy>
       <Sheet visible={!!sheet} onClose={closeSession} title={removingOpen ? "Remove planned session?" : sheet?.s.workout.title ?? "Session"}>
         {!!sheet && (removingOpen ? <>
           <Copy>Remove {sheet.s.workout.title} on {formatPlanDate(sheet.s.date)} from {sheet.p.title}?</Copy>

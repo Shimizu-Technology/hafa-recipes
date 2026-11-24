@@ -183,7 +183,7 @@ it("denied beta access blocks private consumers, explains access and retries ide
   fixture.disk.set(draftKey("A", "profile:1"), "saved private draft");
   await act(async () => { renderer = create(tree()); }); await settle();
   expect(mounts).toBe(0);
-  expect(visibleText()).toContain("does not have access to the Workouts private beta");
+  expect(visibleText()).toContain("can’t open Håfa Workouts right now");
   expect(button("Sign out and choose account")).toBeDefined();
   const identities = transport.mock.calls.filter(([url]) => String(url).endsWith("/identity")).length;
   const enrollments = transport.mock.calls.filter(([url]) => String(url).endsWith("/enrollment")).length;
@@ -220,7 +220,7 @@ it.each([401, 403])("identity refetch denial%s blocks earlier authorized private
   // TanStack retains the prior successful response after the refetch fails.
   expect(cache.getQueryData(identityKey)).toEqual({ id: "A" });
   expect(renderer!.root.findAllByType("Training" as never)).toHaveLength(0);
-  expect(visibleText()).toContain(status === 401 ? "Your sign-in session expired" : "does not have access to the Workouts private beta");
+  expect(visibleText()).toContain(status === 401 ? "Your sign-in session expired" : "can’t open Håfa Workouts right now");
   expect(button("Sign out and choose account")).toBeDefined();
   expect(fixture.disk.get(draftKey("A", "profile:1"))).toBe("saved private draft");
   expect(fixture.erase).not.toHaveBeenCalled();
@@ -267,7 +267,7 @@ it("failed sign-out keeps denied training closed and drafts intact, then permits
   await act(async () => { renderer = create(tree()); }); await settle();
   await act(async () => { button("Sign out and choose account").props.onPress(); }); await settle();
   expect(visibleText()).toContain("Could not sign out");
-  expect(visibleText()).toContain("does not have access to the Workouts private beta");
+  expect(visibleText()).toContain("can’t open Håfa Workouts right now");
   expect(mounts).toBe(0);
   expect(fixture.disk.get(draftKey("A", "profile:1"))).toBe("account A draft");
   await act(async () => { button("Sign out and choose account").props.onPress(); }); await settle();
