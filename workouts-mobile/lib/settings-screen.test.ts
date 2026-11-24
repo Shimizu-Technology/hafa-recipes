@@ -5,6 +5,7 @@ import { createElement, type PropsWithChildren } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
+import { Linking } from "react-native";
 const clerk = vi.hoisted(() => ({ signOut: vi.fn() }));
 const revoke = vi.hoisted(() => vi.fn(async () => undefined));
 const resume = vi.hoisted(() => vi.fn());
@@ -20,7 +21,7 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: "owner" }) }));
 vi.mock("@/lib/config", () => ({
   configuration: { clerkEnvironment: "production", clerkKey: "pk_live_synthetic" },
-  PRIVACY_POLICY_URL: "https://example.com/privacy", SUPPORT_URL: "https://example.com/support",
+  PRIVACY_POLICY_URL: "https://example.com/privacy", SUPPORT_URL: "https://example.com/support", TERMS_URL: "https://example.com/terms",
 }));
 const navigation = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("expo-router", () => ({ router: navigation }));
@@ -77,5 +78,16 @@ it("keeps cached account data after a failed sign-out and clears it only after s
   expect(cache.getQueryData(["another-owner", "profile", 1])).toBe("ANOTHER ACCOUNT");
   expect(clerk.signOut).toHaveBeenLastCalledWith({ sessionId: "original-session" });
   expect(resume).toHaveBeenCalledTimes(1);
+  await act(async () => { tree!.unmount(); });
+});
+
+it("opens the policy, terms and support pages from their rows", async () => {
+  let tree: ReactTestRenderer;
+  await act(async () => { tree = create(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(Settings))); });
+  const press = (title: string) => tree!.root.findAll((node) => String(node.type) === "row").find((node) => node.children.join("") === title)!.props.onClick();
+  for (const [title, url] of [["Privacy policy", "https://example.com/privacy"], ["Terms of use", "https://example.com/terms"], ["Help and support", "https://example.com/support"]]) {
+    await act(async () => { press(title); });
+    expect(Linking.openURL).toHaveBeenLastCalledWith(url);
+  }
   await act(async () => { tree!.unmount(); });
 });
