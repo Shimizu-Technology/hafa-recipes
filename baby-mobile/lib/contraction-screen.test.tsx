@@ -348,3 +348,16 @@ it("on her partner's phone, the note, the early-labor notice and the care-team l
   expect(words()).toContain("What my doctor told me");
   expect(words()).toContain("Your care team tells you when to call or go in.");
 });
+
+it("shows live time since last start and last duration on Start, and gap from previous on Stop", async () => {
+  setup();
+  await mount();
+  await act(async () => { await target("Start")!.props.onPress(); }); await refresh();
+  await act(async () => { vi.advanceTimersByTime(50_000); });
+  await act(async () => { await target("Stop")!.props.onPress(); }); await refresh();
+  await act(async () => { vi.advanceTimersByTime(200_000); }); await refresh();
+  expect(words()).toContain("4 min 10 sec since last start · last 50 sec");
+  expect(target("Start")!.props.accessibilityLabel).toBe("Start. 4 min 10 sec since last start · last 50 sec");
+  await act(async () => { await target("Start")!.props.onPress(); }); await refresh();
+  expect(words()).toContain("4 min 10 sec from last start");
+});

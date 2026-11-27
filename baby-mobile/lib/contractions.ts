@@ -3,6 +3,8 @@ import { newestFirst } from "./feed-reducer";
 
 /** A contraction nobody stopped isn't still going after this long. It stays saved, with no end. */
 export const contractionLimit = 30 * 60_000;
+/** Past 12 hours, the last contraction is from another session, not a live gap to display on Start. */
+export const recentGapLimit = 12 * 60 * 60_000;
 const hour = 60 * 60_000;
 const time = (iso: string) => new Date(iso).getTime();
 
@@ -16,6 +18,22 @@ export function runningContractions(rows: readonly BabyRecord[], childId: string
 /** How long one lasted, in seconds. Nothing without an end. */
 export function lasted(row: BabyRecord) {
   return row.data.end_at ? Math.max(0, (time(row.data.end_at) - time(row.occurred_at)) / 1000) : undefined;
+}
+/** Time since the latest contraction started (and its duration, if stopped), for the Start button between contractions. */
+export function sinceLastContraction(newestFirst: readonly BabyRecord[], now = new Date()) {
+  const latest = newestFirst[0];
+  if (!latest) return null;
+  const elapsedMs = now.getTime() - time(latest.occurred_at);
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0 || elapsedMs >= recentGapLimit) return null;
+  return { sinceStart: elapsedMs / 1000, lastDuration: lasted(latest) };
+}
+/** Gap in seconds from the previous contraction's start to this running contraction's start, if within 12 hours. */
+export function runningGap(newestFirst: readonly BabyRecord[], running: BabyRecord) {
+  const index = newestFirst.findIndex((row) => row.id === running.id);
+  const before = index >= 0 ? newestFirst[index + 1] : undefined;
+  if (!before) return undefined;
+  const gapMs = time(running.occurred_at) - time(before.occurred_at);
+  return Number.isFinite(gapMs) && gapMs >= 0 && gapMs < recentGapLimit ? gapMs / 1000 : undefined;
 }
 /** The gap beside each one: from the start of the one before to its own start. */
 export function withGaps(newestFirst: readonly BabyRecord[]) {

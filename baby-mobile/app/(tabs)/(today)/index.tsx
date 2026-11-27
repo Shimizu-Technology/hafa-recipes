@@ -4,6 +4,8 @@ import { ScrollView, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { useTodayCare } from "@/lib/today-care";
 import { sleepGlanceDetail, babyAge, careGlance } from "@/lib/care-glance";
+import { friendlyTime } from "@/lib/care-format";
+import { runningContractions } from "../../../lib/contractions";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { activeTimer } from "@/lib/feed-timer";
 import { runningFeed } from "@/lib/feed-reducer";
@@ -87,6 +89,7 @@ export default function Today() {
     ];
   const titleText = child?.name.trim() || "Today";
   const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id, stage: "here" } });
+  const activeContractions = child ? runningContractions(b.records, child.id, now) : [];
   if (expecting && child) return (
     <Screen scrollRef={scroller} title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
@@ -97,6 +100,13 @@ export default function Today() {
       <WaitingShares />
       {children.length > 1 && <ChildFilter />}
       <LegacyTimer />
+      {activeContractions.length > 0 && <Row
+        title={activeContractions.length > 1 ? `${activeContractions.length} contractions timing now` : "Contraction timing now"}
+        numericDetail
+        detail={`Started ${friendlyTime(activeContractions[0].occurred_at, now, timezone)} · Tap to open timer`}
+        icon="pulse-outline"
+        onPress={() => router.push("/contractions")}
+      />}
       {pregnant ? <PregnancyHero child={child} now={today} /> : <Card tone="hero" style={{ gap: 12 }}>
         <Copy kind="label">Add the birth date</Copy>
         <Copy numeric kind="small" tone="muted">{`${dueLine(child.due_date!, today)}. Add the birth date to start feeding, sleep and diaper logs and see tips for this age.`}</Copy>

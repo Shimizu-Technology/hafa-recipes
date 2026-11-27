@@ -22,7 +22,11 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     [historyError, setHistoryError] = useState(""),
     [page, setPage] = useState<{ key: string; ticket: number; ids: string[] | null; more: boolean } | null>(null);
   useEffect(() => {
-    if (careHistory) return;
+    if (careHistory) {
+      if (params.filter && ["care", "feeding", "diaper", "sleep", "contraction"].includes(params.filter))
+        setFilter(params.filter);
+      return;
+    }
     if (params.filter === "care") router.replace("/care-history");
     else if (params.filter && ["all", "journal", "question", "timeline"].includes(params.filter))
       setFilter(params.filter === "all" ? "writing" : params.filter);
@@ -106,17 +110,23 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
       {!careHistory && <Row title="Bring in pregnancy notes" detail="Paste, review, then save" icon="document-text-outline" onPress={() => router.push("/paste-visits")} />}
       <SyncStatus />
       <ChildFilter scroll />
-      {!careHistory && <FilterChips
+      <FilterChips
         value={filter}
         label="Show"
-        options={[
+        options={careHistory ? [
+          { label: "All", value: "care" },
+          { label: "Feeds", value: "feeding" },
+          { label: "Diapers", value: "diaper" },
+          { label: "Sleep", value: "sleep" },
+          { label: "Contractions", value: "contraction" },
+        ] : [
           { label: "Timeline", value: "timeline" },
           { label: "All writing", value: "writing" },
           { label: "Journal", value: "journal" },
           { label: "Doctor questions", value: "question" },
         ]}
         onChange={setFilter}
-      />}
+      />
       {/* A baby's page here still holds what she wrote for no baby in particular, and that's easy to miss. */}
       {!careHistory && !!shownBaby && <Copy kind="small" tone="muted">{`${shownBaby.name.trim() || "This baby"}’s entries, and those for no baby in particular.`}</Copy>}
       {searching && <HeaderSearch value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Search notes and questions"} />}
@@ -152,9 +162,16 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
       ) : (
         <Empty
           icon="book-outline"
-          title={q.trim() ? "No matching entries" : careHistory ? "No care logged yet" : filter === "question" ? "No doctor questions yet." : "A place for your own words."}
+          title={q.trim() ? "No matching entries" : careHistory
+            ? filter === "feeding" ? "No feeds logged yet"
+              : filter === "diaper" ? "No diapers logged yet"
+              : filter === "sleep" ? "No sleep logged yet"
+              : filter === "contraction" ? "No contractions logged yet"
+              : "No care logged yet"
+            : filter === "question" ? "No doctor questions yet." : "A place for your own words."}
           body={q.trim() ? "Try a different phrase or clear your search." : careHistory ? "Log a feed, sleep or diaper from Today. Your care history will be here." : filter === "question" ? "Write down what you want to ask, and bring it to your next visit." : "Write a thought, save a photo, or record something you want to ask about. It doesn’t have to be polished."}
-          action={q.trim() ? <Button secondary title="Clear search" onPress={() => setQ("")} /> : undefined}
+          action={q.trim() ? <Button secondary title="Clear search" onPress={() => setQ("")} />
+            : careHistory && filter !== "care" ? <Button secondary title="Show all care" onPress={() => setFilter("care")} /> : undefined}
         />
       )}
       {!historyError && page?.key === key && page.more && (

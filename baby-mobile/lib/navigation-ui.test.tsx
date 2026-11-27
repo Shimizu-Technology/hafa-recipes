@@ -888,3 +888,56 @@ it("shows a custom entry's own title beside its numbers, and doesn't repeat a me
   await mount(<RecordDetail />);
   expect((JSON.stringify(renderer!.toJSON()).match(/Vitamin D/g) ?? []).length).toBe(1);
 });
+
+it("shows contraction start, end and duration on detail, and lets an open contraction be stopped with Undo", async () => {
+  const ended = optimisticRecord({ id: "c-done", kind: "contraction", title: "Contraction", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00Z", data: { end_at: "2026-11-04T02:00:55Z" } });
+  mock.baby.records = [ended]; mock.baby.state = { ...mock.baby.state, records: [ended] }; mock.params = { id: ended.id };
+  await mount(<RecordDetail />);
+  const texts = () => renderer!.root.findAll((n) => n.props?.numeric === true).map((n) => [n.props.children].flat().join("")).join(" | ");
+  expect(texts()).toContain("Started ");
+  expect(texts()).toContain("Ended ");
+  expect(texts()).toContain("55 sec");
+  await act(async () => renderer!.unmount());
+
+  const open = optimisticRecord({ id: "c-open", kind: "contraction", title: "Contraction", body: "", child_id: null, occurred_at: new Date().toISOString(), data: {} });
+  const queued: any[] = [];
+  mock.baby.queue = vi.fn(async (m: any) => { queued.push(m); });
+  mock.baby.records = [open]; mock.baby.state = { ...mock.baby.state, records: [open] }; mock.params = { id: open.id };
+  await mount(<RecordDetail />);
+  await press("Stop this contraction now");
+  expect(queued).toHaveLength(1);
+  expect(queued[0]).toMatchObject({ type: "session_action", record_id: "c-open", action: { action: "finish" } });
+  expect(mock.toasts.at(-1)![0]).toBe("Stopped");
+  await act(async () => { await mock.toasts.at(-1)![1].onPress(); });
+  expect(queued[1]).toMatchObject({ type: "session_action", record_id: "c-open", action: { action: "undo", target: queued[0].action.id } });
+  await act(async () => renderer!.unmount());
+
+  const stale = optimisticRecord({ id: "c-stale", kind: "contraction", title: "Contraction", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00Z", data: {} });
+  mock.baby.records = [stale]; mock.baby.state = { ...mock.baby.state, records: [stale] }; mock.params = { id: stale.id };
+  await mount(<RecordDetail />);
+  const staleTexts = renderer!.root.findAllByType("Text" as React.ElementType).map((n) => [n.props.children].flat().join(""));
+  expect(staleTexts).toContain("No end time");
+  expect(staleTexts).toContain("No end time was recorded for this contraction.");
+});
+
+it("filters Care history by Feeds, Diapers, Sleep and Contractions", async () => {
+  const diaper = optimisticRecord({ id: "d1", kind: "diaper", title: "Diaper", body: "", child_id: null, occurred_at: "2026-10-30T01:00:00Z", data: { type: "wet" } });
+  const sleep = optimisticRecord({ id: "s1", kind: "sleep", title: "Sleep", body: "", child_id: null, occurred_at: "2026-10-30T02:00:00Z", data: { end_at: "2026-10-30T03:00:00Z" } });
+  const records = [sleep, diaper, row("Bottle observation", "feeding")];
+  mock.baby.records = records;
+  mock.baby.state = { ...mock.baby.state, records };
+  mock.baby.api.records = async ({ kinds }: any) => ({ items: records.filter((r) => kinds.includes(r.kind)), total: records.length, has_more: false });
+  await mount(<JournalContent careHistory />);
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map((n) => n.props.record.kind)).toEqual(["sleep", "diaper", "feeding"]);
+  await press("Diapers");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map((n) => n.props.record.kind)).toEqual(["diaper"]);
+  await press("Contractions");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType)).toHaveLength(0);
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).map((n) => [n.props.children].flat().join(""))).toContain("No contractions logged yet");
+  await press("Show all care");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType)).toHaveLength(3);
+});

@@ -336,6 +336,16 @@ describe("Baby's here?", () => {
       expect(scope.push).toHaveBeenCalledWith(route);
     }
   });
+  it("shows an active contraction row on Today and opens the timer in one tap", async () => {
+    const account = due();
+    account.records = [optimisticRecord({ id: "c-live", kind: "contraction", child_id: "baby", title: "Contraction", body: "", occurred_at: start.toISOString(), data: {} })];
+    await render();
+    const liveRow = find("Row", (p) => p.title === "Contraction timing now")[0];
+    expect(liveRow).toBeDefined();
+    expect(liveRow.props.detail).toContain("Tap to open timer");
+    (liveRow.props.onPress as () => void)();
+    expect(scope.push).toHaveBeenCalledWith("/contractions");
+  });
 });
 
 it("keeps child B's routine out of child A's Today summary when Everything is selected", async () => {
