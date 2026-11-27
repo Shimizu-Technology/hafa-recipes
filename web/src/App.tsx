@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import { PostHogPageView } from './components/PostHogProvider';
 import Home from './pages/Home';
 import Privacy from './pages/Privacy';
 import Support from './pages/Support';
@@ -11,6 +12,7 @@ import './index.css';
 function App() {
   return (
     <BrowserRouter>
+      <PostHogPageView />
       <Navbar />
       <main>
         <Routes>

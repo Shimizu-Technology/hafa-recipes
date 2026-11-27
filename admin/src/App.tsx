@@ -2,6 +2,7 @@ import { SignIn, useAuth } from '@clerk/react'
 import { useMemo } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AdminShell } from './components/AdminShell'
+import { PostHogPageView } from './components/PostHogProvider'
 import { AdminApiProvider } from './context/AdminApiContext'
 import { createAdminApi, templatedTokenGetter } from './lib/api'
 import { AuditPage } from './pages/AuditPage'
@@ -64,6 +65,7 @@ function AuthenticatedAdmin() {
 export default function App() {
   return (
     <BrowserRouter>
+      <PostHogPageView />
       <AuthenticatedAdmin />
     </BrowserRouter>
   )

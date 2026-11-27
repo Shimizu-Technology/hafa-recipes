@@ -14,7 +14,7 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://clerk.hafa-recipes.com https://*.clerk.accounts.dev https://*.protect.clerk.com https://challenges.cloudflare.com; connect-src 'self' https://clerk.hafa-recipes.com https://*.clerk.accounts.dev https://*.protect.clerk.com https://recipe-api-x5na.onrender.com; img-src 'self' data: https://img.clerk.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src 'self' https://*.protect.clerk.com https://challenges.cloudflare.com; worker-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://clerk.hafa-recipes.com https://*.clerk.accounts.dev https://*.protect.clerk.com https://challenges.cloudflare.com https://us-assets.i.posthog.com; connect-src 'self' https://clerk.hafa-recipes.com https://*.clerk.accounts.dev https://*.protect.clerk.com https://recipe-api-x5na.onrender.com https://us.i.posthog.com https://us-assets.i.posthog.com; img-src 'self' data: https://img.clerk.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src 'self' https://*.protect.clerk.com https://challenges.cloudflare.com; worker-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     Referrer-Policy = "no-referrer"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains"
