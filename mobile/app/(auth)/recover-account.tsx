@@ -27,7 +27,7 @@ import { authBackAccessibilityLabel, leaveAuthScreen } from '@/lib/authNavigatio
 import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
 
 const RESEND_COOLDOWN_SECONDS = 30;
-const SUPPORT_URL = 'mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20account%20recovery';
+const SUPPORT_URL = 'mailto:support@shimizu-technology.com?subject=H%C3%A5fa%20Recipes%20account%20recovery';
 const NEUTRAL_CODE_SENT_MESSAGE =
   'If a Håfa account matches this email, a six-digit code is on its way.';
 
@@ -162,7 +162,7 @@ export default function RecoverAccountScreen() {
     } catch {
       Alert.alert(
         'Could Not Open Email',
-        'Email shimizutechnology@gmail.com and mention Håfa Recipes account recovery.',
+        'Email support@shimizu-technology.com and mention Håfa Recipes account recovery.',
       );
     }
   }

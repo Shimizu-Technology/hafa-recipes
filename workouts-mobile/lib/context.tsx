@@ -56,7 +56,7 @@ const OfflineContext = createContext<{ store: TrainingStore | null; ready: boole
 const identityStorage = createVerifiedIdentityCache(AsyncStorage);
 function accountAccessMessage(error: Error | null) {
   const status = (error as { status?: number } | null)?.status;
-  if (status === 403) return "This account can’t open Håfa Workouts right now. Try again later, or email shimizutechnology@gmail.com if it keeps happening.";
+  if (status === 403) return "This account can’t open Håfa Workouts right now. Try again later, or email support@shimizu-technology.com if it keeps happening.";
   if (status === 401) return "Your sign-in session expired. Sign out and sign in again to open your training.";
   return error?.message;
 }

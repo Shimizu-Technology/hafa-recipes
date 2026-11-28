@@ -19,7 +19,7 @@ export default function DeleteAccount() {
 
         <h2>Without the app</h2>
         <p>
-          Email <a href="mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20account%20deletion%20request">shimizutechnology@gmail.com</a> from
+          Email <a href="mailto:support@shimizu-technology.com?subject=H%C3%A5fa%20Recipes%20account%20deletion%20request">support@shimizu-technology.com</a> from
           the address connected to your account and ask us to delete it. If you
           cannot use that address, tell us which address was on the account so we
           can verify ownership before deleting it. Do not send a password or

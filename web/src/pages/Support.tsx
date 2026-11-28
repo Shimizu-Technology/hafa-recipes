@@ -12,7 +12,7 @@ export default function Support() {
           The best way to reach us is by email. We typically respond within 24-48 hours.
         </p>
         <p>
-          <strong>Email:</strong> <a href="mailto:shimizutechnology@gmail.com">shimizutechnology@gmail.com</a>
+          <strong>Email:</strong> <a href="mailto:support@shimizu-technology.com">support@shimizu-technology.com</a>
         </p>
 
         <h2>Frequently Asked Questions</h2>
@@ -25,7 +25,7 @@ export default function Support() {
         <h3>What recipe websites are supported?</h3>
         <p>
           We aim to support recipe pages from popular blogs, publishers, and independent websites. Some sites format recipes differently, so if a page does not import cleanly, email us at{' '}
-          <a href="mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20website%20extraction%20issue">shimizutechnology@gmail.com</a>{' '}
+          <a href="mailto:support@shimizu-technology.com?subject=H%C3%A5fa%20Recipes%20website%20extraction%20issue">support@shimizu-technology.com</a>{' '}
           with the link and we can tune support for it.
         </p>
 
@@ -62,7 +62,7 @@ export default function Support() {
         <h2>Bug Reports & Feature Requests</h2>
         <p>
           Found a bug or have an idea for a feature? We'd love to hear from you! Send us an email at{' '}
-          <a href="mailto:shimizutechnology@gmail.com">shimizutechnology@gmail.com</a> with details.
+          <a href="mailto:support@shimizu-technology.com">support@shimizu-technology.com</a> with details.
         </p>
 
         <h2>About Håfa Recipes</h2>
