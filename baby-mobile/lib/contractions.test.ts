@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractionDetail, contractionLimit, doctorNote, hourLine, lastHour, ownContractions, runningContractions, secondsWords, withGaps } from "./contractions";
+import { contractionDetail, contractionLimit, doctorNote, hourLine, lastHour, ownContractions, recentGapLimit, runningContractions, runningGap, secondsWords, sinceLastContraction, withGaps } from "./contractions";
 import { contractionGuidance } from "./medical-wording";
 import { optimisticRecord, type BabyRecord } from "./models";
 
@@ -30,6 +30,18 @@ describe("timing", () => {
     expect(secondsWords(310)).toBe("5 min 10 sec");
     expect(secondsWords(3840)).toBe("1 h 4 min");
     expect(secondsWords(-5)).toBe("0 sec");
+  });
+  it("tracks time since the last start and the gap from the previous contraction within 12 hours", () => {
+    const old = row("old", at(0), at(0, 50));
+    const latest = row("latest", at(5, 10), at(6, 5));
+    expect(sinceLastContraction([latest, old], new Date(at(9, 25)))).toEqual({ sinceStart: 255, lastDuration: 55 });
+    expect(sinceLastContraction([], new Date(at(9, 25)))).toBeNull();
+    expect(sinceLastContraction([latest], new Date(new Date(at(5, 10)).getTime() + recentGapLimit))).toBeNull();
+    const active = row("active", at(10, 30));
+    expect(runningGap([active, latest, old], active)).toBe(320);
+    expect(runningGap([active], active)).toBeUndefined();
+    const stalePrev = row("stale", new Date(new Date(at(10, 30)).getTime() - recentGapLimit).toISOString(), at(0));
+    expect(runningGap([active, stalePrev], active)).toBeUndefined();
   });
 });
 

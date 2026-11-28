@@ -1,13 +1,15 @@
 import { FeedEnded } from "../../components/feed-ended";
 import { sourceTitle } from "@/lib/source-title";
 import { writtenTitle } from "../../lib/journal-title";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime, isCare, summaryHoldsTitle } from "@/lib/care-format";
+import { contractionDetail, contractionLimit, lasted, secondsWords } from "../../lib/contractions";
+import { queueSessionAction } from "../../lib/quick-care";
 import { feedOverdue, feedProgress } from "@/lib/feed-reducer";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { moreKinds } from "../../lib/more-logs";
@@ -38,6 +40,7 @@ export default function RecordDetail() {
     openJournal = useOpenJournal(),
     [error, setError] = useState(""),
     [missing, setMissing] = useState(false),
+    stopping = useRef(false),
     record = b.records.find((r) => r.id === id),
     pending = b.state.outbox.some((m) => mutationRecordId(m) === id && m.type !== "import");
   /** Reads it from the service, and says plainly when it's gone: deleted, or the other parent made it private. */
@@ -76,6 +79,29 @@ export default function RecordDetail() {
       toast("Saved.");
     } catch (e) {
       setError(messageFor(e));
+    }
+  }
+  async function stopContraction() {
+    if (!record || stopping.current) return;
+    stopping.current = true;
+    setError("");
+    try {
+      const actionId = await queueSessionAction(b, record.id, { action: "finish", at: new Date().toISOString() });
+      toast("Stopped", {
+        label: "Undo",
+        onPress: async () => {
+          try {
+            await queueSessionAction(b, record.id, { action: "undo", target: actionId, at: new Date().toISOString() });
+            toast("Undone.");
+          } catch (e) {
+            toast(messageFor(e));
+          }
+        },
+      });
+    } catch (e) {
+      setError(messageFor(e));
+    } finally {
+      stopping.current = false;
     }
   }
   if (!record)
@@ -167,6 +193,30 @@ export default function RecordDetail() {
           <Copy kind="heading">{careSummary("diaper", data, record.occurred_at)}</Copy>
         </Card>
       )}
+      {record.kind === "contraction" && (() => {
+        const seconds = lasted(record),
+          timing = !data.end_at && Date.now() - new Date(record.occurred_at).getTime() < contractionLimit;
+        return (
+          <Card tone="hero">
+            <Copy kind="heading">{data.end_at ? "Contraction" : contractionDetail(record)}</Copy>
+            <Copy numeric>Started {friendlyTime(record.occurred_at, undefined, clock)}</Copy>
+            {data.end_at ? (
+              <>
+                <Copy numeric>Ended {friendlyTime(data.end_at, undefined, clock)}</Copy>
+                {seconds !== undefined && <Copy numeric>{secondsWords(seconds)}</Copy>}
+              </>
+            ) : timing ? (
+              <Button
+                title="Stop this contraction now"
+                icon="checkmark"
+                onPress={() => void stopContraction()}
+              />
+            ) : (
+              <Copy kind="small" tone="muted">No end time was recorded for this contraction.</Copy>
+            )}
+          </Card>
+        );
+      })()}
       {!!record.body && !(record.kind === "source" && record.body === data.source_text && !data.summary) && (
         <Section
           title={

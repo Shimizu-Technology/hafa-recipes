@@ -252,6 +252,11 @@ it.each(["empty","total"])("drops stale retained IDs at a completed %s boundary"
 it("keeps the Journal's written timeline separate from the pushed care history", () => {
   expect(historyKinds("writing")).toEqual(["journal", "question"]);
   expect(historyKinds("care")).toEqual(expect.arrayContaining(["feeding", "sleep", "diaper", "pumping", "medicine", "temperature", "growth", "custom", "kick_session", "contraction"]));
-  const state = { ...emptyState(), records: [row("note"), row("question", "question"), row("feed", "feeding")] };
+  expect(historyKinds("feeding")).toEqual(["feeding"]);
+  expect(historyKinds("diaper")).toEqual(["diaper"]);
+  expect(historyKinds("sleep")).toEqual(["sleep"]);
+  expect(historyKinds("contraction")).toEqual(["contraction"]);
+  const state = { ...emptyState(), records: [row("note"), row("question", "question"), row("feed", "feeding"), row("wet", "diaper")] };
   expect(historyRows(state, { ...view, filter: "writing" }, null).map(r => r.id)).toEqual(["note", "question"]);
+  expect(historyRows(state, { ...view, filter: "diaper" }, null).map(r => r.id)).toEqual(["wet"]);
 });

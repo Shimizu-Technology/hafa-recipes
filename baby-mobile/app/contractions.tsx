@@ -3,7 +3,7 @@ import { useRef } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { contractionDetail, hourLine, lastHour, ownContractions, runningContractions, secondsWords, withGaps } from "@/lib/contractions";
+import { contractionDetail, hourLine, lastHour, ownContractions, runningContractions, runningGap, secondsWords, sinceLastContraction, withGaps } from "@/lib/contractions";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { cdcWarningSignsLine, cdcWarningSignsSource, cdcWarningSignsUrl, contractionGuidance, contractionSourceUrl, pretermSourceUrl, medlinePretermSourceUrl } from "@/lib/medical-wording";
 import { careWrite, logCare, queueSessionAction } from "@/lib/quick-care";
@@ -54,11 +54,19 @@ export default function Contractions() {
   }, "Stopped");
   const toggle = () => running ? stop(running) : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
   const elapsed = running ? secondsWords((now.getTime() - new Date(running.occurred_at).getTime()) / 1000) : "";
+  const apartNow = running ? runningGap(rows, running) : undefined;
+  const recent = !running ? sinceLastContraction(rows, now) : null;
+  const subline = running
+    ? apartNow !== undefined ? `${secondsWords(apartNow)} from last start` : ""
+    : recent
+      ? [`${secondsWords(recent.sinceStart)} since last start`, recent.lastDuration !== undefined ? `last ${secondsWords(recent.lastDuration)}` : ""].filter(Boolean).join(" · ")
+      : "";
   return <Screen title={support?.name ? `${support.name}’s contractions` : "Contractions"} back>
-    <PressTarget accessibilityRole="button" accessibilityLabel={running ? `Stop. Timing, started ${friendlyTime(running.occurred_at, minute, timeZone)}` : "Start"} accessibilityHint="Saves straight away" onPress={() => void toggle()}
+    <PressTarget accessibilityRole="button" accessibilityLabel={running ? `Stop. Timing, started ${friendlyTime(running.occurred_at, minute, timeZone)}` : subline ? `Start. ${subline}` : "Start"} accessibilityHint="Saves straight away" onPress={() => void toggle()}
       style={{ minHeight: 172, borderRadius: radii.card, alignItems: "center", justifyContent: "center", gap: 4, padding: 16, backgroundColor: c.addFill }}>
       <Text key={fontScale} maxFontSizeMultiplier={1.5} style={{ fontFamily: fonts.display, fontSize: 48, lineHeight: 56, color: c.onAdd }}>{running ? "Stop" : "Start"}</Text>
       {!!running && <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 22, lineHeight: 28, color: c.onAdd, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>}
+      {!!subline && <Text key={`s:${fontScale}`} maxFontSizeMultiplier={1.3} style={{ fontFamily: fonts.medium, fontSize: 15, lineHeight: 20, color: c.onAdd, textAlign: "center", fontVariant: ["tabular-nums"] }}>{subline}</Text>}
     </PressTarget>
     {/* Secondary to Start, and capped at the same 1.5× so it never outgrows it at the largest text sizes. */}
     <Button secondary icon="help-circle-outline" title="Open Help" maxFontSizeMultiplier={1.5} onPress={() => router.push("/help")} />

@@ -12,7 +12,7 @@ export function historyKinds(filter: string): Kind[] {
   if (filter === "timeline") return ["event", "journal"];
   if (filter === "writing") return ["journal", "question"];
   if (filter === "care") return trackedKinds.filter((kind) => kind !== "milestone");
-  if (filter === "journal" || filter === "question") return [filter];
+  if (filter === "journal" || filter === "question" || filter === "feeding" || filter === "diaper" || filter === "sleep" || filter === "contraction") return [filter];
   return ["journal", "question", ...careKinds];
 }
 
