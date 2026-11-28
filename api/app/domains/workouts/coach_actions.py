@@ -1,5 +1,6 @@
 """Validated coach tools. Model output proposes; only an explicit receipt accepts."""
 
+import logging
 from copy import deepcopy
 from datetime import date
 from typing import Literal
@@ -7,7 +8,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from pydantic import Field
+from pydantic import Field, ValidationError
 from sqlalchemy import String, cast, select
 
 from app.config import get_settings
@@ -22,6 +23,7 @@ from app.domains.workouts.automation_router import (
     proposal_context_hash,
     store_workout,
 )
+from app.domains.workouts.catalog import EXERCISES, match_exercise
 from app.domains.workouts.coach_continuity import (
     bulk_schedule,
     comparable_progression,
@@ -33,6 +35,7 @@ from app.domains.workouts.coach_continuity import (
     shorter_workout,
     validate_calendar,
 )
+from app.domains.workouts.execution import format_complete, has_dose, is_timed
 from app.domains.workouts.imports import require_ai_consent
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import (
@@ -44,14 +47,28 @@ from app.domains.workouts.models import (
     WorkoutVersion,
 )
 from app.domains.workouts.plan_archival import require_unarchived
-from app.domains.workouts.programming import REVIEW_NOTICE, adapt_workout, build_program
+from app.domains.workouts.programming import (
+    REVIEW_NOTICE,
+    RULE_VERSION,
+    adapt_workout,
+    build_program,
+)
 from app.domains.workouts.router import content_digest, owned_record, validated_workout
 from app.domains.workouts.schedule import validate_other_program_dates
 from app.domains.workouts.schemas import (
+    AdaptationProposal,
+    AmrapExecution,
     DomainModel,
+    EmomExecution,
+    ExercisePrescription,
+    ForTimeExecution,
     TrainingProfile,
+    WorkoutBlock,
     WorkoutContent,
+    WorkRestExecution,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PlanAction(DomainModel):
@@ -60,10 +77,60 @@ class PlanAction(DomainModel):
     source_workout_ids: list[UUID] = Field(max_length=12)
 
 
+class CoachAdaptedExecution(DomainModel):
+    mode: Literal["amrap", "emom", "for_time", "work_rest"]
+    time_cap_seconds: int | None = Field(default=None, ge=1, le=86400, strict=True)
+    interval_seconds: int | None = Field(default=None, ge=1, le=3600, strict=True)
+    intervals: int | None = Field(default=None, ge=1, le=1440, strict=True)
+    rotation: Literal["alternating", "together"] | None = None
+    work_seconds: int | None = Field(default=None, ge=1, le=3600, strict=True)
+    rest_seconds: int | None = Field(default=None, ge=0, le=3600, strict=True)
+
+
+class CoachAdaptedExercise(DomainModel):
+    name: str = Field(min_length=1, max_length=200)
+    sets: int | None = Field(default=None, ge=1, le=100, strict=True)
+    reps_min: int | None = Field(default=None, ge=1, le=1000, strict=True)
+    reps_max: int | None = Field(default=None, ge=1, le=1000, strict=True)
+    per_side: bool | None = None
+    duration_seconds: int | None = Field(default=None, ge=1, le=86400, strict=True)
+    duration_seconds_max: int | None = Field(default=None, ge=1, le=86400, strict=True)
+    distance_meters: float | None = Field(default=None, gt=0, le=1_000_000)
+    rest_seconds: int | None = Field(default=None, ge=0, le=7200, strict=True)
+    effort: str | None = Field(default=None, max_length=500)
+    instructions: str | None = Field(default=None, max_length=2000)
+    segment: Literal["buy_in", "cash_out"] | None = None
+    rep_scheme: list[int] | None = Field(default=None, max_length=100)
+    calories: int | None = Field(default=None, ge=1, le=10000, strict=True)
+
+
+class CoachAdaptedBlock(DomainModel):
+    id: str = Field(min_length=1, max_length=100)
+    label: str = Field(min_length=1, max_length=200)
+    role: Literal["warm_up", "main", "accessory", "cool_down"] | None = None
+    grouping: Literal["sequential", "circuit", "superset", "interval"] = "sequential"
+    rounds: int | None = Field(default=None, ge=1, le=100, strict=True)
+    execution: CoachAdaptedExecution | None = None
+    rest_between_rounds_seconds: int | None = Field(default=None, ge=0, le=7200, strict=True)
+    rest_after_seconds: int | None = Field(default=None, ge=0, le=3600, strict=True)
+    instructions: list[str] | None = Field(default=None, max_length=20)
+    exercises: list[CoachAdaptedExercise] = Field(max_length=100)
+
+
+class CoachAdaptedWorkout(DomainModel):
+    title: str = Field(min_length=1, max_length=200)
+    estimated_minutes: int | None = Field(default=None, ge=1, le=1440, strict=True)
+    equipment_required: list[str] = Field(default_factory=list, max_length=100)
+    instructions: list[str] = Field(default_factory=list, max_length=100)
+    changes: list[str] = Field(max_length=30)
+    blocks: list[CoachAdaptedBlock] = Field(max_length=30)
+
+
 class AdaptAction(DomainModel):
     workout_id: UUID
     expected_revision: int = Field(ge=1, strict=True)
-    minutes: int | None = Field(ge=5, le=180)
+    minutes: int | None = Field(default=None, ge=5, le=180)
+    adapted_workout: CoachAdaptedWorkout | None = None
 
 
 class PreferencesAction(DomainModel):
@@ -131,7 +198,7 @@ TOOLS = {
     ),
     "adapt_saved_workout": (
         AdaptAction,
-        "Prepare a separate adapted copy of an inspected workout. Supply minutes to shorten it while keeping its exercises. Whole exercise names may be matched automatically; unknown moves need clarification for swaps or movement exclusions.",
+        "Prepare a separate saveable adapted copy of an inspected workout (original stays untouched). Use this whenever the user asks to adapt, swap exercises in, make bodyweight/at-home, scale, or shorten a saved workout. Pass adapted_workout for exercise swaps, equipment/bodyweight changes, scaling, or multi-part/timed/class workouts (keep parts, execution timing such as EMOM interval_seconds/intervals/rotation, and clear rep, time, or distance targets; never invent personal weights). Pass minutes with adapted_workout=null only to shorten a single-block workout while keeping its exercises.",
     ),
     "update_training_preferences": (
         PreferencesAction,
@@ -274,6 +341,316 @@ async def safe_program(db, user_id, generation, identifier, revision):
     return row
 
 
+def _adaptation_conflict(reason_code: str, detail: str) -> dict:
+    logger.warning(
+        "workouts_coach_adaptation_rejected reason_code=%s",
+        reason_code,
+        extra={"reason_code": reason_code},
+    )
+    return AdaptationProposal(
+        status="conflicts",
+        rule_version=RULE_VERSION,
+        warnings=[f"Couldn't build the change: {detail}", REVIEW_NOTICE],
+    ).model_dump(mode="json")
+
+
+def build_adapted_workout(
+    source_workout: WorkoutContent,
+    profile: TrainingProfile,
+    adapted_input: CoachAdaptedWorkout,
+    *,
+    minutes: int | None = None,
+) -> dict:
+    """Validate a coach-proposed adaptation against workout/profile safety rules."""
+    questions = []
+    if not profile.adult_confirmed or profile.readiness != "ready" or profile.limitations:
+        questions.append(
+            "Confirm you're 18 or older and ready to train, and clarify any movements you need to avoid."
+        )
+    known_exclusions = set(EXERCISES) | set().union(*(item.tags for item in EXERCISES.values()))
+    if any(item.strip().lower() not in known_exclusions for item in profile.movement_exclusions):
+        questions.append(
+            "Choose movements to avoid from your profile options before changing this workout."
+        )
+    no_equipment = {"none", "no equipment", "bodyweight", "n/a", "na"}
+    equipment_required = sorted(
+        {
+            item.strip()
+            for item in adapted_input.equipment_required
+            if item.strip() and item.strip().casefold() not in no_equipment
+        }
+    )
+    if profile.equipment is None and equipment_required:
+        questions.append(
+            "What equipment do you have, including any stable supports or anchors?"
+        )
+    if questions:
+        return AdaptationProposal(
+            status="needs_information", rule_version=RULE_VERSION, questions=questions
+        ).model_dump(mode="json")
+
+    title = adapted_input.title.strip()
+    if not title:
+        return _adaptation_conflict("blank_title", "the adapted workout needs a title.")
+    changes = [entry.strip() for entry in adapted_input.changes if entry.strip()]
+    if not changes:
+        return _adaptation_conflict(
+            "missing_changes", "describe what changed in the adapted workout."
+        )
+    if not adapted_input.blocks:
+        return _adaptation_conflict(
+            "missing_blocks", "the adapted workout needs at least one part."
+        )
+
+    source_blocks = {block.id: block for block in source_workout.blocks}
+    excluded = {item.strip().lower() for item in profile.movement_exclusions}
+    built_blocks = []
+    seen_block_ids = set()
+    has_unmatched_with_exclusions = False
+    for block_input in adapted_input.blocks:
+        block_id = block_input.id.strip()
+        label = block_input.label.strip()
+        if not block_id or not label:
+            return _adaptation_conflict("blank_block", "every workout part needs an id and label.")
+        if block_id in seen_block_ids:
+            return _adaptation_conflict(
+                "duplicate_block_id", "each workout part needs a unique id."
+            )
+        seen_block_ids.add(block_id)
+        if not block_input.exercises:
+            return _adaptation_conflict("empty_block", f"part {label} has no exercises.")
+
+        source_block = source_blocks.get(block_id)
+        grouping = block_input.grouping
+        rounds = block_input.rounds
+        execution = None
+        if block_input.execution is not None:
+            ex = block_input.execution
+            try:
+                if ex.mode == "amrap":
+                    if ex.time_cap_seconds is None:
+                        return _adaptation_conflict(
+                            "invalid_execution", f"part {label} needs an AMRAP time cap."
+                        )
+                    execution = AmrapExecution(mode="amrap", time_cap_seconds=ex.time_cap_seconds)
+                    grouping = "circuit"
+                    rounds = None
+                elif ex.mode == "emom":
+                    if ex.intervals is None:
+                        return _adaptation_conflict(
+                            "invalid_execution", f"part {label} needs an interval count."
+                        )
+                    rotation = ex.rotation
+                    if (
+                        rotation is None
+                        and len(block_input.exercises) > 1
+                        and source_block is not None
+                        and source_block.execution is not None
+                        and source_block.execution.mode == "emom"
+                    ):
+                        rotation = source_block.execution.rotation
+                    execution = EmomExecution(
+                        mode="emom",
+                        interval_seconds=ex.interval_seconds or 60,
+                        intervals=ex.intervals,
+                        rotation=rotation,
+                    )
+                    grouping = "interval"
+                    rounds = None
+                elif ex.mode == "for_time":
+                    execution = ForTimeExecution(
+                        mode="for_time", time_cap_seconds=ex.time_cap_seconds
+                    )
+                else:
+                    if (
+                        ex.work_seconds is None
+                        or ex.rest_seconds is None
+                        or ex.intervals is None
+                    ):
+                        return _adaptation_conflict(
+                            "invalid_execution",
+                            f"part {label} needs work, rest, and interval counts.",
+                        )
+                    execution = WorkRestExecution(
+                        mode="work_rest",
+                        work_seconds=ex.work_seconds,
+                        rest_seconds=ex.rest_seconds,
+                        intervals=ex.intervals,
+                    )
+                    grouping = "interval"
+                    rounds = None
+            except ValidationError:
+                return _adaptation_conflict(
+                    "invalid_execution", f"part {label} has invalid timing values."
+                )
+
+        built_exercises = []
+        for ex_input in block_input.exercises:
+            ex_name = ex_input.name.strip()
+            if not ex_name:
+                return _adaptation_conflict(
+                    "blank_exercise", f"part {label} has a blank exercise name."
+                )
+            matched = match_exercise(ex_name)
+            if matched is not None and (matched.tags & excluded or matched.id in excluded):
+                return _adaptation_conflict(
+                    "movement_exclusion_conflict",
+                    f"{ex_name} conflicts with the movements you avoid.",
+                )
+            if matched is None and excluded:
+                has_unmatched_with_exclusions = True
+            try:
+                built_exercise = ExercisePrescription(
+                    exercise_id=matched.id if matched else None,
+                    name=ex_name,
+                    provenance="suggestion",
+                    sets=ex_input.sets,
+                    reps_min=ex_input.reps_min,
+                    reps_max=ex_input.reps_max,
+                    per_side=ex_input.per_side,
+                    duration_seconds=ex_input.duration_seconds,
+                    duration_seconds_max=ex_input.duration_seconds_max,
+                    distance_meters=ex_input.distance_meters,
+                    rest_seconds=ex_input.rest_seconds,
+                    effort=(
+                        ex_input.effort.strip()
+                        if ex_input.effort and ex_input.effort.strip()
+                        else None
+                    ),
+                    instructions=(
+                        ex_input.instructions.strip()
+                        if ex_input.instructions and ex_input.instructions.strip()
+                        else None
+                    ),
+                    segment=ex_input.segment,
+                    rep_scheme=ex_input.rep_scheme or None,
+                    calories=ex_input.calories,
+                    evidence=[],
+                )
+            except ValidationError:
+                return _adaptation_conflict(
+                    "invalid_exercise_prescription",
+                    f"{ex_name} has an invalid rep, time, or distance target.",
+                )
+            built_exercises.append(built_exercise)
+
+        block_instructions = (
+            [line.strip() for line in block_input.instructions if line.strip()] or None
+            if block_input.instructions
+            else None
+        )
+        same_mode = (
+            source_block is not None
+            and (source_block.execution.mode if source_block.execution else None)
+            == (execution.mode if execution else None)
+        )
+        try:
+            built_block = WorkoutBlock(
+                id=block_id,
+                label=label,
+                role=(
+                    block_input.role
+                    if block_input.role is not None
+                    else (source_block.role if source_block else None)
+                ),
+                grouping=grouping,
+                rounds=rounds,
+                execution=execution,
+                rest_between_rounds_seconds=block_input.rest_between_rounds_seconds,
+                rest_after_seconds=block_input.rest_after_seconds,
+                time_window_seconds=source_block.time_window_seconds if same_mode else None,
+                score_kind=source_block.score_kind if same_mode else None,
+                instructions=block_instructions,
+                exercises=built_exercises,
+                evidence=[],
+            )
+        except ValidationError:
+            return _adaptation_conflict(
+                "invalid_block_structure", f"part {label} has an invalid block structure."
+            )
+
+        if not format_complete(built_block):
+            return _adaptation_conflict(
+                "incomplete_format", f"part {label} is missing required timer settings."
+            )
+        for item in built_block.exercises:
+            if not has_dose(built_block, item):
+                return _adaptation_conflict(
+                    "missing_exercise_dose",
+                    f"{item.name} needs a rep, time, or distance target.",
+                )
+            if (
+                not is_timed(built_block)
+                and built_block.rounds is None
+                and item.sets is None
+                and item.duration_seconds is None
+                and item.distance_meters is None
+                and item.calories is None
+                and item.rep_scheme is None
+            ):
+                return _adaptation_conflict(
+                    "missing_sets_or_rounds",
+                    f"{item.name} needs sets or block rounds.",
+                )
+        built_blocks.append(built_block)
+
+    if built_blocks and built_blocks[-1].rest_after_seconds is not None:
+        built_blocks[-1] = built_blocks[-1].model_copy(update={"rest_after_seconds": None})
+
+    parent_id = source_workout.id or content_digest(source_workout.model_dump(mode="json"))[:24]
+    workout_instructions = [line.strip() for line in adapted_input.instructions if line.strip()]
+    estimated_minutes = (
+        adapted_input.estimated_minutes if adapted_input.estimated_minutes is not None else minutes
+    )
+    try:
+        adapted = WorkoutContent(
+            title=title,
+            kind=source_workout.kind,
+            provenance="suggestion",
+            version=source_workout.version + 1,
+            parent_version_id=parent_id,
+            blocks=built_blocks,
+            source_url=source_workout.source_url,
+            capture_kind=source_workout.capture_kind,
+            source_creator=source_workout.source_creator,
+            source_title=source_workout.source_title,
+            source_thumbnail_url=source_workout.source_thumbnail_url,
+            source_context=None,
+            programming=source_workout.programming,
+            benchmark=None,
+            equipment_required=equipment_required,
+            equipment_optional=[],
+            estimated_minutes=estimated_minutes,
+            instructions=workout_instructions,
+            notes=list(source_workout.notes),
+        )
+        adapted.id = content_digest(
+            {"parent": adapted.parent_version_id, "content": adapted.model_dump(mode="json")}
+        )[:24]
+        saved = adapted.model_dump(mode="json") | {
+            "id": "00000000-0000-0000-0000-000000000000",
+            "version": 1,
+            "parent_version_id": "00000000-0000-0000-0000-000000000000",
+        }
+        validated_workout(WorkoutContent.model_validate(saved), authored=False)
+    except (ValidationError, ValueError, HTTPException):
+        return _adaptation_conflict(
+            "saved_workout_invalid",
+            "the adapted workout could not be saved within the workout format limits.",
+        )
+
+    warnings = [REVIEW_NOTICE]
+    if has_unmatched_with_exclusions:
+        warnings.append("Confirm that substituted movements fit the movements you avoid.")
+    return AdaptationProposal(
+        status="ready",
+        rule_version=RULE_VERSION,
+        workout=adapted,
+        changes=changes,
+        warnings=warnings,
+    ).model_dump(mode="json")
+
+
 async def prepare_action(db, user_id, generation, name, arguments, *, compose_library_program=None):
     if name not in TOOLS:
         raise HTTPException(422, "Unknown coaching action")
@@ -317,9 +694,15 @@ async def prepare_action(db, user_id, generation, name, arguments, *, compose_li
         )
         kind = "adaptation"
         target, target_revision = source.id, source.revision
-        content = adapt_workout(
-            WorkoutContent.model_validate(source.content), profile, action.minutes
-        ).model_dump(mode="json")
+        source_workout = WorkoutContent.model_validate(source.content)
+        if action.adapted_workout is not None:
+            content = build_adapted_workout(
+                source_workout, profile, action.adapted_workout, minutes=action.minutes
+            )
+        else:
+            content = adapt_workout(
+                source_workout, profile, action.minutes
+            ).model_dump(mode="json")
     elif isinstance(action, PreferencesAction):
         changes = action.model_dump(exclude_none=True)
         if not changes:
