@@ -63,7 +63,7 @@ export default function Terms() {
 
         <h2>Contact</h2>
         <p>
-          <strong>Email:</strong> <a href="mailto:shimizutechnology@gmail.com">shimizutechnology@gmail.com</a>
+          <strong>Email:</strong> <a href="mailto:support@shimizu-technology.com">support@shimizu-technology.com</a>
         </p>
       </div>
     </div>

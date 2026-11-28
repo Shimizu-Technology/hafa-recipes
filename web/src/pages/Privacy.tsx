@@ -87,7 +87,7 @@ export default function Privacy() {
           If you have questions about this Privacy Policy or your data, please contact us at:
         </p>
         <p>
-          <strong>Email:</strong> <a href="mailto:shimizutechnology@gmail.com">shimizutechnology@gmail.com</a>
+          <strong>Email:</strong> <a href="mailto:support@shimizu-technology.com">support@shimizu-technology.com</a>
         </p>
         <p>
           <strong>Company:</strong> <a href="https://shimizu-technology.com" target="_blank" rel="noopener noreferrer">Shimizu Technology</a><br />

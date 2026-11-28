@@ -11,7 +11,7 @@ import {
   type PublicWorkout,
   type PublicProgram,
 } from "./public-share";
-export const supportEmail = "shimizutechnology@gmail.com";
+export const supportEmail = "support@shimizu-technology.com";
 export function Email({ subject = "Håfa Workouts support", children }: { subject?: string; children?: ReactNode }) {
   return <a href={`mailto:${supportEmail}?subject=${encodeURIComponent(subject)}`}>{children ?? supportEmail}</a>;
 }

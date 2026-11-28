@@ -151,7 +151,7 @@ it("server-renders honest beta/help/deletion pages without install URLs or priva
   const deletion = renderToStaticMarkup(<App path="/delete-account" />);
   expect(deletion).toContain("whole Håfa account");
   expect(deletion).toContain("48 hours");
-  expect(deletion).toContain("shimizutechnology@gmail.com");
+  expect(deletion).toContain("support@shimizu-technology.com");
   const share = renderToStaticMarkup(<App path={"/shared/" + token} />);
   expect(share).not.toContain(token);
   expect(share).toContain("Loading the reviewed public snapshot");

@@ -71,7 +71,7 @@ function ExtractScreenContent() {
   }>();
 
   const handleWebsiteSupportPress = () => {
-    Linking.openURL('mailto:shimizutechnology@gmail.com?subject=H%C3%A5fa%20Recipes%20website%20extraction%20issue');
+    Linking.openURL('mailto:support@shimizu-technology.com?subject=H%C3%A5fa%20Recipes%20website%20extraction%20issue');
   };
 
   // All hooks must be called unconditionally
