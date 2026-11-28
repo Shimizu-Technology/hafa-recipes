@@ -3,7 +3,7 @@ export default function Privacy() {
     <div className="page">
       <div className="container">
         <h1>Privacy Policy</h1>
-        <p><em>Last updated: October 31, 2026</em></p>
+        <p><em>Last updated: November 29, 2026</em></p>
 
         <h2>Overview</h2>
         <p>
